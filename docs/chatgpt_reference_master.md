@@ -1,248 +1,337 @@
-﻿# PINNED WORKSPACE (DO NOT CHANGE)
+# PINNED WORKSPACE (DO NOT CHANGE)
 # Canonical project path: C:\Users\CyberZone\PycharmProjects\shop_project
 # Rule: verify this path before any edit/run.
 
 # CHATGPT REFERENCE LOG (MASTER)
 # Project: shop_project
-# Last update: 2026-03-09
+# Repository: https://github.com/HomamOthman1997/shop_project
+# Last code+docs reconciliation: 2026-03-19
 
 ====================================================
 1) Scope
 ====================================================
-This is the canonical reference for ongoing work and decisions.
-It replaces scattered notes and keeps only active, non-contradicting decisions.
+This file is the canonical reference for the current project state.
+It supersedes older chat dumps for active implementation guidance.
+
+Historical files kept only as archive/reference:
+- docs/chatgpt.txt
+- docs/chatgpt_backup_2026-03-09.txt
 
 ====================================================
-2) Current Implemented State (Verified)
+2) Current Runtime Topology
+====================================================
+Primary runtime entrypoints:
+- bot_manager.py
+- bot.py
+
+Runtime model:
+- bot_manager.py runs the reseller/customer bots through one dispatcher and scheduler loop.
+- bot.py runs the owner/admin bot separately.
+- MongoDB is the primary datastore.
+- Redis is optional and used as a secondary cache layer.
+
+bot_manager responsibilities:
+- load verified reseller bots
+- start/stop polling safely
+- recharge recovery sweep
+- recharge proof cleanup
+- monthly settlement draft generation
+- monthly settlement policy enforcement
+- provider balance alerts
+- rental protection sweeps
+- temp recovery sweeps
+- unprovisioned number order recovery
+
+====================================================
+3) Current Architecture By Domain
+====================================================
+A) Owner/Admin
+- Canonical owner panel logic lives in handlers/admin_services.py.
+- Owner access is enforced by OWNER_ID via utils/permissions.py.
+- Owner panel is button-driven with categories:
+  - Dashboard
+  - Finance
+  - Settlements
+  - Audit
+  - System
+- Owner quick actions exist for reseller-scoped finance/settlement flows.
+- Owner can bind notification targets, provider balance alert targets, and bot log targets.
+
+B) Reseller
+- Reseller flows are handled mainly in handlers/reseller_recharge.py and handlers/main_menu.py.
+- Reseller panel is button-driven from keyboards/reseller_main_menu.py.
+- Current reseller panel includes:
+  - Dashboard
+  - Balance
+  - Stats
+  - Recharge Requests
+  - Core Topup
+  - Custom Services
+  - Adjust User Balance
+  - Settings
+- Reseller setup readiness still depends on payment method + private group routing.
+
+C) Financial
+- Financial source of truth is:
+  - wallets
+  - ledger_entries
+  - settlements
+- Canonical implementation:
+  - database/financial_ledger.py
+  - database/recharge_repo.py
+  - utils/financial_manager.py
+- Current financial model:
+  - user wallet
+  - reseller main wallet
+  - reseller earnings wallet
+  - owner fees tracking
+- Supported flows:
+  - core purchase + refund
+  - custom purchase + refund
+  - user recharge approval
+  - reseller main topup approval
+  - settlement draft/preview/confirm/payment confirm
+  - financial lock enforcement per reseller + bot
+- Financial audit/anomaly scanning exists and is exposed in owner panel.
+
+D) Numbers
+- Numbers are a first-class subsystem under services/numbers.
+- Main handlers:
+  - services/numbers/handlers/core_numbers.py
+  - services/numbers/handlers/core_numbers_buy.py
+  - services/numbers/handlers/numbers_inline.py
+- Main orchestration:
+  - services/numbers/manager.py
+- Current provider set in code:
+  - smspool
+  - textverified
+  - herosms
+  - telabot
+  - smsman
+- Current feature coverage includes:
+  - temp purchase
+  - rental purchase
+  - provider choice
+  - state-aware flows
+  - success-rate enrichment
+  - temp recovery/refund logic
+  - rental protection logic
+  - TextVerified rental/verification specialized flow
+
+E) Proxies
+- Proxy subsystem exists under services/proxies.
+- Current active provider registry in code:
+  - 9proxy
+  - 4g
+- Current proxy logic includes:
+  - unified catalog aggregation
+  - markup support
+  - quality gate
+  - change-only cooldown
+  - change+check pricing
+  - my proxies/order management flows
+- Risk engine is local placeholder logic:
+  - maxmind-style local gate first
+  - ipqs placeholder second for gray path
+
+F) Custom Services
+- Custom catalog tree is implemented in database/custom_services_repo.py and handlers/custom_services.py.
+- Supports folder/endpoint tree, endpoint inventory, delivery text/file, move/rename/deactivate, and template cloning.
+
+G) Game Store
+- Current game store integration is built around G2Bulk:
+  - services/game_store/catalog_service.py
+  - services/game_store/g2bulk_client.py
+
+====================================================
+4) Verified Current State From Code
 ====================================================
 A) Owner/Admin hardening
 - Owner action logic is unified in handlers/admin_services.py.
-- /resellers is routed through the unified owner action path.
-- Duplicate /resellers handler in handlers/main_menu.py removed.
-- owner_only permission depends on OWNER_ID (username bypass removed).
+- /owner and /owner_panel open the same owner panel.
+- owner_only depends on OWNER_ID only.
+- Owner dashboard exists and summarizes:
+  - active reseller owners
+  - active bots
+  - open numbers orders
+  - wallet totals
+  - pending recharge counts
+  - settlement lock counts
+  - routing status
 
-B) Financial compliance and settlement lock
-- Financial middleware checks lock by reseller_id + bot_id (bot-aware check).
-- Lock notifications include cooldown to reduce repeated spam.
-- Settlement policy enforcement still runs from bot_manager scheduler.
+B) Logging and notifications
+- Telegram error reporting exists in utils/telegram_error_reporting.py.
+- It is installed in:
+  - bot.py
+  - bot_manager.py
+- Bot log target storage exists in database/bot_logs_repo.py.
+- Owner panel system actions currently include:
+  - Bind Logs Here
+  - Logs Status
+  - Send Test Log
+- Provider balance alerts no longer fall back to owner DM by default.
+- Provider balance alerts now require owner-group/topic routing and log an error if no valid group target exists.
 
-C) Recharge/proof workflow
+C) Financial compliance and settlements
+- Financial middleware is bot-aware and reseller-aware.
+- Settlement generation and settlement policy still run from bot_manager scheduler.
+- Settlement notices are sent to reseller owners.
+- Financial anomaly scanning exists:
+  - negative wallets
+  - orders missing ledger
+  - accepted recharges missing ledger
+  - locked overdue settlements
+- Financial reporting/export support exists in:
+  - database/financial_ledger.py
+  - scripts/export_financial_audit.py
+
+D) Recharge and proof workflow
 - /bind_payment_topic is implemented.
-- Recharge requests routed to reseller topic/group.
-- Manual amount + Need More Proof actions implemented.
+- Recharge requests are routed to reseller topic/group.
+- Need More Proof workflow is implemented.
 - Re-uploading proof on same request is implemented.
-- Proof file cleanup job is implemented (audit data preserved).
+- Proof cleanup job is implemented.
+- Owner reseller topup review workflow is implemented.
 
-D) Reliability/logging
-- Invalid bot rows in bot_manager are no longer silently dropped; warning logs exist.
+E) Numbers
+- Numbers UX already contains context-building lines in the screen composition layer.
+- TextVerified rental flow includes:
+  - duration selection
+  - renewable vs non-renewable
+  - billing cycle label
+  - state targeting
+  - wake request
+- Rental protection sweeps and temp recovery sweeps are active in bot_manager.py.
+- Provider balance gating and caching exist in the manager layer.
 
-E) Validation status
-- Syntax checks (py_compile) passed on core files after hardening changes.
-
-====================================================
-3) Open Items (Not Fully Implemented)
-====================================================
-- Full mojibake cleanup across translations/texts.
-- Full migration of hardcoded texts to translations.py.
-- End-to-end test suite alignment with new behavior.
-- Explicit UX button for "Resend Proof" (current flow supports re-upload, but shortcut button is not finalized).
-
-====================================================
-4) Backlog: Proxy + Numbers Documentation Inputs
-====================================================
-Source accepted on 2026-03-09:
-- proxy_project_notes_ar_updated.md (user-provided)
-- prior provider notes in chat history
-
-Providers documented as planning inputs:
-- Proxy side: 9Proxy, Tellabot Proxy Rentals, 4G Proxies Bot System API v2
-- Numbers side: HeroSMS, Tellabot MDN/LTR, SMSPool (reference-level), TextVerified (reference-level)
-
-Status:
-- Stored as planning/reference inputs.
-- Not yet fully integrated as production adapters in bot code.
+F) Proxies
+- Proxy product model is currently split by billing type:
+  - fixed
+  - bandwidth
+- 9Proxy and 4G are the current implemented providers.
+- Verify-before-delivery and change/check billing scaffolding exists.
 
 ====================================================
-5) Active Product Decision: Proxy Product Model
+5) Current Keyboard-First Access Model
 ====================================================
-Adopt two product lines:
-1) Unlimited proxy products (fixed model)
-2) Usage-based residential model (9Proxy by GB)
+Owner:
+- Start command opens owner entry button.
+- Main owner operations are reachable by inline keyboard categories.
+- Legacy slash commands still exist for owner operations as compatibility/admin shortcuts.
 
-Data model guidance:
-- provider: unlimited_provider | 9proxy | tellabot | etc.
-- billing_type: fixed | bandwidth
-- keep backend billing logic separated per product type
-- allow shared user-facing catalog while preserving provider-specific execution
+Reseller:
+- Main reseller actions are reachable through inline keyboard buttons.
+- Settings remain reachable from reseller panel.
+- Recharge routing and exchange routing are managed from reseller settings flow.
 
-====================================================
-6) NEW AGREED LOGIC (Priority) - Proxy Quality + Billing Rules
-====================================================
-These rules are now pinned as active requirements:
-
-1) Pre-delivery verification gate
-- Proxy endpoint is not delivered to customer until quality check passes policy.
-
-2) Risk engine sequence
-- MaxMind runs first.
-- IPQS runs only for gray/uncertain cases.
-
-3) First checked IP is free
-- For each purchase/session, first successful quality check attempt is free.
-
-4) IP Change Only policy
-- "IP Change Only" is allowed once every 15 minutes.
-- Cooldown must be enforced server-side.
-
-5) IP Change + Check pricing
-- "IP Change + Check" operation price = 0.015 (USD)
-- Charge is applied per successful operation according to accounting policy.
-
-6) Retry accounting rule
-- If IP attempt fails and system retries internally, check is NOT charged.
-- User is charged only when a valid checked result is produced (or per explicit policy-confirmed terminal case).
-
-7) Accounting integrity rule
-- Internal retries and failed candidate IPs are logged for audit but excluded from billable count.
-- Billable events must map to explicit ledger entries.
+User:
+- Main menu remains reply-keyboard driven.
+- Numbers/proxies/services/store/balance/settings/support are reachable from main menu.
 
 ====================================================
-7) Proposed Implementation Plan (Pending Sprint)
+6) Current Provider/API Documentation Inventory
 ====================================================
-Phase 1: Abstractions
-- Create provider adapter interfaces for proxy and number providers.
-- Normalize responses into internal schemas.
+Primary local provider index:
+- docs/providers/index.json
 
-Phase 2: Quality-check pipeline
-- Build verify_before_delivery pipeline:
-  maxmind -> (gray?) -> ipqs -> decision.
-- Add decision classes: pass / gray-pass / fail.
+Read-first provider meta:
+- docs/providers/READ_ME_FIRST.md
 
-Phase 3: Billing integration
-- Add billable event types:
-  - proxy_change_only
-  - proxy_change_and_check
-- Implement free-first-check logic per order/session scope.
-- Enforce "no charge on failed internal retry".
-
-Phase 4: Controls and UX
-- Add cooldown handling for change-only (15 min).
-- Add clear user messages for cooldown/charge outcomes.
-- Add reseller/owner audit view for check attempts and charges.
-
-Phase 5: Tests
-- Unit tests for risk flow branching.
-- Ledger tests for charge/no-charge conditions.
-- E2E tests for purchase -> verify -> deliver -> retry scenarios.
+Current locally tracked provider references:
+- G2Bulk:
+  - docs/providers/manual/g2bulk_api_reference.json
+- SMSPool:
+  - docs/providers/manual/smspool_api_reference.json
+  - docs/providers/raw/smspool_postman_collection.json
+  - docs/providers/raw/smspool_postman_documenter.html
+- TextVerified:
+  - docs/providers/manual/textverified_api_reference.json
+  - docs/providers/raw/textverified_openapi_v2.json
+  - docs/providers/raw/textverified_openapi_v2_latest.json
+- HeroSMS:
+  - docs/providers/manual/herosms_api_reference.json
+  - docs/providers/raw/herosms_openapi_en.json
+- SMS-Man:
+  - docs/providers/manual/smsman_api_reference.json
+  - docs/providers/smsman_api_notes.md
+- Tellabot:
+  - docs/providers/manual/telabot_api_reference.json
 
 ====================================================
-8) Deferred Backlog (Kept, Not Started)
+7) Current Open Items
 ====================================================
-- Mobile Modem Session Proxy broker architecture (VPS session broker model).
-- Free email tools (Sonjj + quality score) with daily limit.
-- Scamalytics IP risk integration with daily quota.
+These remain open after reading the current codebase.
+
+A) Translations / mojibake cleanup
+- utils/translations.py still contains mojibake-corrupted Arabic strings.
+- Some UI strings still rely on runtime repair instead of clean source text.
+
+B) Hardcoded text migration
+- Many owner/reseller/numbers/custom texts are still hardcoded in handlers.
+- translations.py is not yet the sole source for UI copy.
+
+C) Documentation lag outside this file
+- docs/chatgpt.txt and docs/chatgpt_backup_2026-03-09.txt are historical and no longer reflect the full current state.
+
+D) Test alignment
+- Tests exist across core/database/numbers/proxies.
+- Full suite status was not revalidated during this documentation-only pass.
+- Historical notes about test drift are no longer sufficient as the sole truth; re-run is required before release freeze.
+
+E) Proxy risk/compliance depth
+- Proxy risk engine is still placeholder-grade, not full external reputation integration.
+
+====================================================
+8) Product and Implementation Decisions Still Active
+====================================================
+A) Proxy product model
+- Keep two proxy product lines:
+  - unlimited/fixed-style
+  - usage/bandwidth-style
+
+B) Proxy quality sequence
+- maxmind stage first
+- ipqs stage only for gray/uncertain path
+
+C) Numbers / TextVerified
+- Voice capability remains included in the intended product direction.
+- Billing cycle remains mandatory in renewable rental path.
+- Wake requests remain important.
+- Webhooks remain deferred.
+
+D) Financial safety
+- No direct balance mutations outside wallet/ledger logic.
+- Auditability and idempotent recharge acceptance remain required.
 
 ====================================================
 9) Operational Notes
 ====================================================
-- Run path:
-  C:\Users\CyberZone\PycharmProjects\shop_project
-- Main run command:
-  python bot_manager.py
-- If polling conflicts occur: stop old bot_manager processes first.
+Canonical workspace:
+- C:\Users\CyberZone\PycharmProjects\shop_project
+
+Main local run commands:
+- python bot_manager.py
+- python bot.py
+
+Git repository:
+- https://github.com/HomamOthman1997/shop_project
+
+If polling conflicts appear:
+- stop old bot_manager processes first
+- keep only one active polling manager process
 
 ====================================================
 10) Security Notes
 ====================================================
 - Keep provider keys/tokens in .env only.
+- Do not commit .env.
 - Do not log secrets.
-- Rotate any leaked credentials from prior chats/files.
+- Rotate leaked credentials from old chats/files if any were ever exposed.
+- Telegram log topic should be used for operational diagnostics only, not secret material.
 
 ====================================================
 11) Document Control
 ====================================================
-- This file is the primary reference.
-- Previous raw/long notes preserved in:
-  chatgpt_backup_2026-03-09.txt
-- Any new agreement must be appended here under a dated section.
-
-====================================================
-12) 2026-03-10 - TextVerified Decisions (Numbers)
-====================================================
-New agreed direction:
-- Voice capability is included in the implementation proposals.
-- Billing cycles are mandatory in renewable-rental flow (assign existing cycle or create one).
-- Backorder flow is ignored for now.
-- Wake Requests are prioritized (important for number wake-up/usage window and code delivery reliability).
-- Webhook implementation is deferred to a later phase.
-
-Detailed UX flow (TextVerified rental):
-1) User selects service.
-2) User selects provider = TextVerified.
-3) User selects rental duration:
-   - oneDay / threeDay / sevenDay / fourteenDay / thirtyDay / ninetyDay / oneYear
-4) User chooses renewable mode:
-   - Renewable
-   - Non-renewable
-5) If renewable = yes:
-   - choose billing cycle (or auto-create/assign one)
-6) Optional targeting:
-   - with state/area-code or without state
-7) Optional guardrails:
-   - maxPrice ceiling
-8) Final confirmation screen:
-   - provider, service, duration, renewable mode, billing cycle (if any), final price
-9) Post-purchase actions:
-   - SMS inbox
-   - finish/refund (subject to provider rules)
-   - renew (renewable overdue cases)
-   - wake request (if needed)
-   - notes/tags management
-
-Detailed UX flow (TextVerified verification/temp):
-1) User selects service + provider TextVerified.
-2) Capability selection:
-   - sms / voice / smsAndVoiceCombo (when supported)
-3) Number type selection:
-   - mobile / voip / landline
-4) Optional filters:
-   - areaCodeSelectOption
-   - carrierSelectOption
-   - maxPrice
-5) Service-not-listed fallback:
-   - use servicenotlisted + serviceNotListedName when needed
-6) After purchase actions:
-   - cancel / reactivate / reuse / report
-   - SMS read and (later) voice-call handling where applicable
-
-====================================================
-13) 2026-03-10 - Proxy Service Sprint Update
-====================================================
-
-====================================================
-14) 2026-03-11 - SMS-Man Pricing Validation Notice
-====================================================
-- SMS-Man pricing normalization exists in code, but conversion cannot be marked final by API response alone.
-- Root reason: SMS-Man price units can appear differently by account/context (currency/unit ambiguity).
-- Team decision: keep current behavior for now and treat SMS-Man displayed prices as provisional.
-- Required closure path: funded live calibration (balance before/after real buys) to lock final conversion safely.
-Implemented in code:
-- Proxy aggregator normalization:
-  - unified fields across providers (base_price, sale_price, success_rate, billing_type)
-  - de-duplication and stable sorting in services/proxies/manager.py
-- Proxy pricing policy:
-  - configurable proxy markup via settings.proxy_service_markup_percent
-- Pre-delivery quality gate:
-  - verify-before-delivery flow added
-  - maxmind->ipqs sequence placeholder pipeline with explicit decision outputs (pass/gray/fail)
-- Post-purchase proxy controls:
-  - My Proxies listing
-  - IP Change Only with 15-minute cooldown (configurable)
-  - IP Change + Check with first-check-free rule and billable follow-up checks
-  - charge amount configurable via settings.proxy_change_check_price
-- Provider adapter extension:
-  - base provider now exposes refresh/renew/report hooks
-  - 9Proxy refresh wired through proxy-connection update flow
-  - 4G refresh/redial fallback paths added
-- Inline query hardening:
-  - deterministic short inline result IDs to avoid RESULT_ID_INVALID for long tokens
+- This file is the primary implementation reference.
+- Older chat dump files are archival only.
+- Any new agreement that changes production behavior should be reflected here.
