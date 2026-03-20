@@ -1,0 +1,24 @@
+{
+  "provider": "herosms",
+  "base_url": "https://hero-sms.com/stubs/handler_api.php",
+  "auth": {
+    "query": ["api_key", "action"]
+  },
+  "reference_actions": {
+    "services": "getServicesList",
+    "countries": "getCountries",
+    "price": "getPrices",
+    "buy_primary": "getNumberV2",
+    "buy_fallback": "getNumber",
+    "get_sms": "getStatus",
+    "cancel": ["setStatus(status=8)", "cancelActivation"],
+    "finish_temp": "setStatus(status=3)",
+    "balance": "getBalance"
+  },
+  "rental_actions": {
+    "catalog": "serviceCountRent",
+    "buy": "getRentNumber",
+    "messages": "getAllSms",
+    "finish": "finishActivation"
+  }
+}

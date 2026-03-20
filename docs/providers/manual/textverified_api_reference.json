@@ -1,0 +1,80 @@
+{
+  "provider": "textverified",
+  "updated_at": "2026-03-12",
+  "source": {
+    "docs_url": "https://www.textverified.com/docs/api/v2",
+    "swagger_url": "https://backend.textverified.com/swagger/v2/swagger.json",
+    "swagger_local": "docs/providers/raw/textverified_openapi_v2_latest.json",
+    "swagger_sha256": "5ec5683bbeba26e8f1d513f70b09c2e470b414ffcfa9610b14ababc0a61c0f73"
+  },
+  "api": {
+    "base_url": "https://www.textverified.com/api",
+    "version": "v2",
+    "title": "API Overview",
+    "paths_count": 43
+  },
+  "implemented_in_project": {
+    "provider_file": "services/numbers/providers/textverified_provider.py",
+    "paths_detected": [
+      "/pub/v2/account/me",
+      "/pub/v2/auth",
+      "/pub/v2/pricing/rentals",
+      "/pub/v2/pricing/verifications",
+      "/pub/v2/reservations/rental",
+      "/pub/v2/reservations/rental/nonrenewable/{reservation_id}/refund",
+      "/pub/v2/reservations/rental/renewable/{reservation_id}/refund",
+      "/pub/v2/reservations/rental/renewable/{reservation_id}/renew",
+      "/pub/v2/reservations/rental/{reservation_id}/user-notes",
+      "/pub/v2/reservations/{reservation_id}",
+      "/pub/v2/services",
+      "/pub/v2/sms",
+      "/pub/v2/verifications",
+      "/pub/v2/verifications/{activation_id}/cancel",
+      "/pub/v2/wake-requests"
+    ],
+    "paths_matching_spec": [
+      "/pub/v2/account/me",
+      "/pub/v2/auth",
+      "/pub/v2/pricing/rentals",
+      "/pub/v2/pricing/verifications",
+      "/pub/v2/reservations/rental",
+      "/pub/v2/reservations/rental/nonrenewable/{reservation_id}/refund",
+      "/pub/v2/reservations/rental/renewable/{reservation_id}/refund",
+      "/pub/v2/reservations/rental/renewable/{reservation_id}/renew",
+      "/pub/v2/reservations/rental/{reservation_id}/user-notes",
+      "/pub/v2/reservations/{reservation_id}",
+      "/pub/v2/services",
+      "/pub/v2/sms",
+      "/pub/v2/verifications",
+      "/pub/v2/verifications/{activation_id}/cancel",
+      "/pub/v2/wake-requests"
+    ]
+  },
+  "project_critical_paths": [
+    "/api/pub/v2/auth",
+    "/api/pub/v2/services",
+    "/api/pub/v2/pricing/verifications",
+    "/api/pub/v2/verifications",
+    "/api/pub/v2/sms",
+    "/api/pub/v2/verifications/{id}/cancel",
+    "/api/pub/v2/pricing/rentals",
+    "/api/pub/v2/reservations/rental",
+    "/api/pub/v2/reservations/rental/nonrenewable/{id}/refund",
+    "/api/pub/v2/reservations/rental/renewable/{id}/refund",
+    "/api/pub/v2/reservations/rental/renewable/{id}/renew",
+    "/api/pub/v2/wake-requests",
+    "/api/pub/v2/reservations/rental/{id}/user-notes",
+    "/api/pub/v2/account/me"
+  ],
+  "spec_missing_critical_paths": [],
+  "notable_available_but_not_yet_wired": [
+    "/api/pub/v2/verifications/{id}/reactivate",
+    "/api/pub/v2/verifications/{id}/reuse",
+    "/api/pub/v2/verifications/{id}/report",
+    "/api/pub/v2/reservations/rentals/extensions",
+    "/api/pub/v2/wake-requests/estimate",
+    "/api/pub/v2/area-codes",
+    "/api/pub/v2/billing-cycles",
+    "/api/pub/v2/webhook-events"
+  ]
+}

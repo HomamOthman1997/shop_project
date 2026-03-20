@@ -1,0 +1,240 @@
+﻿# PINNED WORKSPACE (DO NOT CHANGE)
+# Canonical project path: C:\Users\CyberZone\PycharmProjects\shop_project
+# Rule: verify this path before any edit/run.
+
+# CHATGPT REFERENCE LOG (MASTER)
+# Project: shop_project
+# Last update: 2026-03-09
+
+====================================================
+1) Scope
+====================================================
+This is the canonical reference for ongoing work and decisions.
+It replaces scattered notes and keeps only active, non-contradicting decisions.
+
+====================================================
+2) Current Implemented State (Verified)
+====================================================
+A) Owner/Admin hardening
+- Owner action logic is unified in handlers/admin_services.py.
+- /resellers is routed through the unified owner action path.
+- Duplicate /resellers handler in handlers/main_menu.py removed.
+- owner_only permission depends on OWNER_ID (username bypass removed).
+
+B) Financial compliance and settlement lock
+- Financial middleware checks lock by reseller_id + bot_id (bot-aware check).
+- Lock notifications include cooldown to reduce repeated spam.
+- Settlement policy enforcement still runs from bot_manager scheduler.
+
+C) Recharge/proof workflow
+- /bind_payment_topic is implemented.
+- Recharge requests routed to reseller topic/group.
+- Manual amount + Need More Proof actions implemented.
+- Re-uploading proof on same request is implemented.
+- Proof file cleanup job is implemented (audit data preserved).
+
+D) Reliability/logging
+- Invalid bot rows in bot_manager are no longer silently dropped; warning logs exist.
+
+E) Validation status
+- Syntax checks (py_compile) passed on core files after hardening changes.
+
+====================================================
+3) Open Items (Not Fully Implemented)
+====================================================
+- Full mojibake cleanup across translations/texts.
+- Full migration of hardcoded texts to translations.py.
+- End-to-end test suite alignment with new behavior.
+- Explicit UX button for "Resend Proof" (current flow supports re-upload, but shortcut button is not finalized).
+
+====================================================
+4) Backlog: Proxy + Numbers Documentation Inputs
+====================================================
+Source accepted on 2026-03-09:
+- proxy_project_notes_ar_updated.md (user-provided)
+- prior provider notes in chat history
+
+Providers documented as planning inputs:
+- Proxy side: 9Proxy, Tellabot Proxy Rentals, 4G Proxies Bot System API v2
+- Numbers side: HeroSMS, Tellabot MDN/LTR, SMSPool (reference-level), TextVerified (reference-level)
+
+Status:
+- Stored as planning/reference inputs.
+- Not yet fully integrated as production adapters in bot code.
+
+====================================================
+5) Active Product Decision: Proxy Product Model
+====================================================
+Adopt two product lines:
+1) Unlimited proxy products (fixed model)
+2) Usage-based residential model (9Proxy by GB)
+
+Data model guidance:
+- provider: unlimited_provider | 9proxy | tellabot | etc.
+- billing_type: fixed | bandwidth
+- keep backend billing logic separated per product type
+- allow shared user-facing catalog while preserving provider-specific execution
+
+====================================================
+6) NEW AGREED LOGIC (Priority) - Proxy Quality + Billing Rules
+====================================================
+These rules are now pinned as active requirements:
+
+1) Pre-delivery verification gate
+- Proxy endpoint is not delivered to customer until quality check passes policy.
+
+2) Risk engine sequence
+- MaxMind runs first.
+- IPQS runs only for gray/uncertain cases.
+
+3) First checked IP is free
+- For each purchase/session, first successful quality check attempt is free.
+
+4) IP Change Only policy
+- "IP Change Only" is allowed once every 15 minutes.
+- Cooldown must be enforced server-side.
+
+5) IP Change + Check pricing
+- "IP Change + Check" operation price = 0.015 (USD)
+- Charge is applied per successful operation according to accounting policy.
+
+6) Retry accounting rule
+- If IP attempt fails and system retries internally, check is NOT charged.
+- User is charged only when a valid checked result is produced (or per explicit policy-confirmed terminal case).
+
+7) Accounting integrity rule
+- Internal retries and failed candidate IPs are logged for audit but excluded from billable count.
+- Billable events must map to explicit ledger entries.
+
+====================================================
+7) Proposed Implementation Plan (Pending Sprint)
+====================================================
+Phase 1: Abstractions
+- Create provider adapter interfaces for proxy and number providers.
+- Normalize responses into internal schemas.
+
+Phase 2: Quality-check pipeline
+- Build verify_before_delivery pipeline:
+  maxmind -> (gray?) -> ipqs -> decision.
+- Add decision classes: pass / gray-pass / fail.
+
+Phase 3: Billing integration
+- Add billable event types:
+  - proxy_change_only
+  - proxy_change_and_check
+- Implement free-first-check logic per order/session scope.
+- Enforce "no charge on failed internal retry".
+
+Phase 4: Controls and UX
+- Add cooldown handling for change-only (15 min).
+- Add clear user messages for cooldown/charge outcomes.
+- Add reseller/owner audit view for check attempts and charges.
+
+Phase 5: Tests
+- Unit tests for risk flow branching.
+- Ledger tests for charge/no-charge conditions.
+- E2E tests for purchase -> verify -> deliver -> retry scenarios.
+
+====================================================
+8) Deferred Backlog (Kept, Not Started)
+====================================================
+- Mobile Modem Session Proxy broker architecture (VPS session broker model).
+- Free email tools (Sonjj + quality score) with daily limit.
+- Scamalytics IP risk integration with daily quota.
+
+====================================================
+9) Operational Notes
+====================================================
+- Run path:
+  C:\Users\CyberZone\PycharmProjects\shop_project
+- Main run command:
+  python bot_manager.py
+- If polling conflicts occur: stop old bot_manager processes first.
+
+====================================================
+10) Security Notes
+====================================================
+- Keep provider keys/tokens in .env only.
+- Do not log secrets.
+- Rotate any leaked credentials from prior chats/files.
+
+====================================================
+11) Document Control
+====================================================
+- This file is the primary reference.
+- Previous raw/long notes preserved in:
+  chatgpt_backup_2026-03-09.txt
+- Any new agreement must be appended here under a dated section.
+
+====================================================
+12) 2026-03-10 - TextVerified Decisions (Numbers)
+====================================================
+New agreed direction:
+- Voice capability is included in the implementation proposals.
+- Billing cycles are mandatory in renewable-rental flow (assign existing cycle or create one).
+- Backorder flow is ignored for now.
+- Wake Requests are prioritized (important for number wake-up/usage window and code delivery reliability).
+- Webhook implementation is deferred to a later phase.
+
+Detailed UX flow (TextVerified rental):
+1) User selects service.
+2) User selects provider = TextVerified.
+3) User selects rental duration:
+   - oneDay / threeDay / sevenDay / fourteenDay / thirtyDay / ninetyDay / oneYear
+4) User chooses renewable mode:
+   - Renewable
+   - Non-renewable
+5) If renewable = yes:
+   - choose billing cycle (or auto-create/assign one)
+6) Optional targeting:
+   - with state/area-code or without state
+7) Optional guardrails:
+   - maxPrice ceiling
+8) Final confirmation screen:
+   - provider, service, duration, renewable mode, billing cycle (if any), final price
+9) Post-purchase actions:
+   - SMS inbox
+   - finish/refund (subject to provider rules)
+   - renew (renewable overdue cases)
+   - wake request (if needed)
+   - notes/tags management
+
+Detailed UX flow (TextVerified verification/temp):
+1) User selects service + provider TextVerified.
+2) Capability selection:
+   - sms / voice / smsAndVoiceCombo (when supported)
+3) Number type selection:
+   - mobile / voip / landline
+4) Optional filters:
+   - areaCodeSelectOption
+   - carrierSelectOption
+   - maxPrice
+5) Service-not-listed fallback:
+   - use servicenotlisted + serviceNotListedName when needed
+6) After purchase actions:
+   - cancel / reactivate / reuse / report
+   - SMS read and (later) voice-call handling where applicable
+
+====================================================
+13) 2026-03-10 - Proxy Service Sprint Update
+====================================================
+Implemented in code:
+- Proxy aggregator normalization:
+  - unified fields across providers (base_price, sale_price, success_rate, billing_type)
+  - de-duplication and stable sorting in services/proxies/manager.py
+- Proxy pricing policy:
+  - configurable proxy markup via settings.proxy_service_markup_percent
+- Pre-delivery quality gate:
+  - verify-before-delivery flow added
+  - maxmind->ipqs sequence placeholder pipeline with explicit decision outputs (pass/gray/fail)
+- Post-purchase proxy controls:
+  - My Proxies listing
+  - IP Change Only with 15-minute cooldown (configurable)
+  - IP Change + Check with first-check-free rule and billable follow-up checks
+  - charge amount configurable via settings.proxy_change_check_price
+- Provider adapter extension:
+  - base provider now exposes refresh/renew/report hooks
+  - 9Proxy refresh wired through proxy-connection update flow
+  - 4G refresh/redial fallback paths added
+- Inline query hardening:
+  - deterministic short inline result IDs to avoid RESULT_ID_INVALID for long tokens

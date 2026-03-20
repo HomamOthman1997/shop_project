@@ -1,0 +1,127 @@
+{
+  "selected": [
+    {
+      "id": 12,
+      "rus": "\u0421\u0428\u0410 (\u0432\u0438\u0440\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0435)",
+      "eng": "USA (virtual)",
+      "chn": "\u7f8e\u56fd\uff08\u865a\u62df\uff09",
+      "visible": 0,
+      "retry": 0,
+      "rent": 0,
+      "multiService": 0
+    },
+    {
+      "id": 16,
+      "rus": "\u0412\u0435\u043b\u0438\u043a\u043e\u0431\u0440\u0438\u0442\u0430\u043d\u0438\u044f",
+      "eng": "United Kingdom",
+      "chn": "\u82f1\u683c\u5170",
+      "visible": 1,
+      "retry": 1,
+      "rent": 0,
+      "multiService": 0
+    },
+    {
+      "id": 187,
+      "rus": "\u0421\u0428\u0410",
+      "eng": "USA",
+      "chn": "\u7f8e\u56fd\uff08\u7269\u7406)",
+      "visible": 1,
+      "retry": 1,
+      "rent": 0,
+      "multiService": 0
+    }
+  ],
+  "mapping": {
+    "United States": [],
+    "USA (virtual)": [
+      {
+        "id": 12,
+        "visible": 0
+      }
+    ],
+    "United Kingdom": [
+      {
+        "id": 16,
+        "visible": 1
+      }
+    ],
+    "Turkey": [
+      {
+        "id": 62,
+        "visible": 1
+      }
+    ],
+    "France": [
+      {
+        "id": 78,
+        "visible": 1
+      }
+    ],
+    "Germany": [
+      {
+        "id": 43,
+        "visible": 1
+      }
+    ],
+    "Indonesia": [
+      {
+        "id": 6,
+        "visible": 1
+      }
+    ],
+    "India": [
+      {
+        "id": 22,
+        "visible": 1
+      }
+    ],
+    "Morocco": [
+      {
+        "id": 37,
+        "visible": 1
+      }
+    ],
+    "Algeria": [
+      {
+        "id": 58,
+        "visible": 1
+      }
+    ],
+    "Tunisia": [
+      {
+        "id": 89,
+        "visible": 1
+      }
+    ],
+    "Iraq": [
+      {
+        "id": 47,
+        "visible": 1
+      }
+    ],
+    "Ukraine": [
+      {
+        "id": 1,
+        "visible": 1
+      }
+    ],
+    "Brazil": [
+      {
+        "id": 73,
+        "visible": 1
+      }
+    ],
+    "Kazakhstan": [
+      {
+        "id": 2,
+        "visible": 1
+      }
+    ],
+    "Egypt": [
+      {
+        "id": 21,
+        "visible": 1
+      }
+    ]
+  }
+}

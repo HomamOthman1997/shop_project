@@ -1,0 +1,172 @@
+import os
+import sys
+
+import pytest
+
+sys.path.insert(0, os.getcwd())
+
+from services.numbers.providers.textverified_provider import TextVerifiedProvider
+from services.numbers.data import tv_area_codes
+
+
+class _DummyResp:
+    def __init__(self, status, json_data=None, headers=None):
+        self.status = status
+        self._json = json_data if json_data is not None else {}
+        self.headers = headers or {}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def text(self):
+        return str(self._json)
+
+    async def json(self):
+        return self._json
+
+
+@pytest.mark.asyncio
+async def test_buy_number_google_fallbacks_to_gmail(monkeypatch):
+    from services.numbers.core.session_manager import SessionManager
+
+    provider = TextVerifiedProvider()
+
+    async def fake_auth(self):
+        return "tok"
+
+    monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
+
+    class DummySession:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, url, headers=None, json=None):
+            self.calls.append(("post", url, dict(json or {})))
+            service = str((json or {}).get("serviceName") or "")
+            if url.endswith("/pub/v2/verifications") and service == "google":
+                return _DummyResp(400, {"errorCode": "Unavailable", "errorDescription": "Out of stock or unavailable."})
+            if url.endswith("/pub/v2/verifications") and service == "gmail":
+                return _DummyResp(201, {"href": "https://www.textverified.com/api/pub/v2/verifications/v_1", "method": "GET"})
+            return _DummyResp(400, {"errorCode": "Unavailable"})
+
+        def request(self, method, href, headers=None):
+            self.calls.append(("request", href, {}))
+            return _DummyResp(200, {"id": "v_1", "number": "+15551234567"})
+
+    sess = DummySession()
+
+    async def fake_get_session():
+        return sess
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+    TextVerifiedProvider._sms_services_cache = {"google", "gmail"}
+
+    res = await provider.buy_number("google", reuse_mode=True)
+    assert res["success"] is True
+    assert res["order_id"] == "v_1"
+    assert res["api_service_name"] == "gmail"
+    assert res["requested_reuse_mode"] is True
+
+    create_calls = [c for c in sess.calls if c[0] == "post" and c[1].endswith("/pub/v2/verifications")]
+    assert create_calls[0][2]["serviceName"] == "google"
+    assert create_calls[1][2]["serviceName"] == "gmail"
+
+
+@pytest.mark.asyncio
+async def test_buy_number_fallback_from_area_code_to_any(monkeypatch):
+    from services.numbers.core.session_manager import SessionManager
+
+    provider = TextVerifiedProvider()
+
+    async def fake_auth(self):
+        return "tok"
+
+    monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
+
+    class DummySession:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, url, headers=None, json=None):
+            payload = dict(json or {})
+            self.calls.append(("post", url, payload))
+            has_area = bool(payload.get("areaCodeSelectOption"))
+            if url.endswith("/pub/v2/verifications") and has_area:
+                return _DummyResp(400, {"errorCode": "Unavailable", "errorDescription": "Out of stock or unavailable."})
+            if url.endswith("/pub/v2/verifications"):
+                return _DummyResp(201, {"href": "https://www.textverified.com/api/pub/v2/verifications/v_2", "method": "GET"})
+            return _DummyResp(400, {"errorCode": "Unavailable"})
+
+        def request(self, method, href, headers=None):
+            self.calls.append(("request", href, {}))
+            return _DummyResp(200, {"id": "v_2", "number": "+15550000000"})
+
+    sess = DummySession()
+
+    async def fake_get_session():
+        return sess
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+    monkeypatch.setattr(tv_area_codes, "DATA", {"NY": ["212"]}, raising=False)
+    TextVerifiedProvider._sms_services_cache = {"gmail"}
+
+    res = await provider.buy_number("gmail", state="NY")
+    assert res["success"] is True
+    assert res["order_id"] == "v_2"
+
+    create_calls = [c for c in sess.calls if c[0] == "post" and c[1].endswith("/pub/v2/verifications")]
+    assert len(create_calls) >= 2
+    assert "areaCodeSelectOption" in create_calls[0][2]
+    assert "areaCodeSelectOption" not in create_calls[1][2]
+
+
+@pytest.mark.asyncio
+async def test_buy_number_reuse_tries_state_area_codes_then_unavailable(monkeypatch):
+    from services.numbers.core.session_manager import SessionManager
+
+    provider = TextVerifiedProvider()
+
+    async def fake_auth(self):
+        return "tok"
+
+    monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
+    monkeypatch.setattr(tv_area_codes, "DATA", {"NY": ["212", "315", "718"]}, raising=False)
+    TextVerifiedProvider._sms_services_cache = {"gmail"}
+
+    class DummySession:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, url, headers=None, json=None):
+            payload = dict(json or {})
+            self.calls.append(("post", url, payload))
+            if url.endswith("/pub/v2/verifications"):
+                return _DummyResp(400, {"errorCode": "Unavailable", "errorDescription": "Out of stock or unavailable."})
+            return _DummyResp(400, {"errorCode": "Unavailable"})
+
+        def request(self, method, href, headers=None):
+            self.calls.append(("request", href, {}))
+            return _DummyResp(400, {"errorCode": "Unavailable"})
+
+    sess = DummySession()
+
+    async def fake_get_session():
+        return sess
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+
+    res = await provider.buy_number("gmail", state="NY", reuse_mode=True)
+    assert res["success"] is False
+    raw = res.get("raw") or {}
+    assert raw.get("errorCode") == "UNAVAILABLE_IN_STATE"
+    assert raw.get("stateCode") == "NY"
+    assert raw.get("attemptedAreaCodes") == ["212", "315", "718"]
+
+    create_calls = [c for c in sess.calls if c[0] == "post" and c[1].endswith("/pub/v2/verifications")]
+    assert len(create_calls) == 3
+    assert create_calls[0][2].get("areaCodeSelectOption") == ["212"]
+    assert create_calls[1][2].get("areaCodeSelectOption") == ["315"]
+    assert create_calls[2][2].get("areaCodeSelectOption") == ["718"]

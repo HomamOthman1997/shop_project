@@ -1,0 +1,77 @@
+{
+  "provider": "smsman",
+  "updated_at": "2026-03-12",
+  "base_urls": {
+    "v2": "https://api.sms-man.com/control",
+    "compatible": "https://api.sms-man.com/stubs/handler_api.php"
+  },
+  "auth": {
+    "v2": {"field": "token", "location": "query"},
+    "compatible": {"field": "api_key", "location": "query", "required_action_field": "action"}
+  },
+  "v2_api": {
+    "balance": "/get-balance",
+    "limits": "/limits",
+    "countries": "/countries",
+    "services": "/applications",
+    "prices": "/get-prices",
+    "buy": "/get-number",
+    "get_sms": "/get-sms",
+    "set_status": "/set-status",
+    "set_status_values": ["ready", "close", "reject", "used"],
+    "buy_optional_params": ["maxPrice", "currency", "ref", "hasMultipleSms"]
+  },
+  "compatible_api": {
+    "balance": "action=getBalance",
+    "prices": "action=getPrices",
+    "buy": "action=getNumber",
+    "get_status": "action=getStatus",
+    "get_status_v2": "action=getStatusV2",
+    "set_status": "action=setStatus",
+    "countries": "action=getCountries",
+    "services": "action=getServices",
+    "compatible_set_status_values": {
+      "-1": "Cancel activation",
+      "1": "Notify SMS sent (optional)",
+      "3": "Request another code",
+      "6": "Complete/transition activation",
+      "8": "Number used + cancel activation"
+    },
+    "common_text_statuses": [
+      "STATUS_WAIT_CODE",
+      "STATUS_WAIT_RETRY",
+      "STATUS_WAIT_RESEND",
+      "STATUS_CANCEL",
+      "STATUS_OK:<code>",
+      "ACCESS_READY",
+      "ACCESS_RETRY_GET",
+      "ACCESS_ACTIVATION",
+      "ACCESS_CANCEL",
+      "EARLY_CANCEL_DENIED"
+    ]
+  },
+  "merged_recommended_usage": {
+    "use_v2_as_primary": true,
+    "fallback_from_compatible": [
+      "getStatusV2 (richer sms payload)",
+      "compatible numeric setStatus transitions when needed by legacy tools"
+    ],
+    "shared_core_flow": [
+      "get balance",
+      "resolve countries/services",
+      "get prices",
+      "buy number",
+      "poll sms",
+      "close/cancel status"
+    ]
+  },
+  "error_models": {
+    "v2_json": ["wrong_token", "wrong_status", "wait_sms"],
+    "compatible_text": ["BAD_KEY", "NO_NUMBERS", "NO_BALANCE", "NO_ACTIVATION", "BAD_STATUS", "BAD_ACTION"]
+  },
+  "pricing_note": "Project supports configurable unit normalization (RUB/USD/CENTS_USD). Final lock requires funded live calibration by real buys and balance delta checks.",
+  "source": {
+    "official_v2": "https://sms-man.com/api",
+    "manual_dump_integrated": true
+  }
+}

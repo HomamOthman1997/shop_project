@@ -1,0 +1,501 @@
+﻿# PINNED WORKSPACE (DO NOT CHANGE)
+# Canonical project path: C:\Users\CyberZone\PycharmProjects\shop_project
+# Rule: Always verify this path before any edit/run.
+# If command cwd differs, switch back to this path first.
+# CHAT CONTEXT LOG - chatgpt.txt
+# Project: shop_project / cyberzone-shop-bot migration
+# Date: 2026-03-07
+
+هذا الملف هو مرجع شامل للحالة الفعلية للمشروع بعد المحادثة الطويلة، ويحتوي:
+1) ماذا كان المطلوب
+2) ماذا نُفّذ فعليًا
+3) ما المشاكل التي ظهرت وكيف تم التعامل معها
+4) ما الذي بقي غير مكتمل
+5) أين نتابع لاحقًا
+
+====================================================
+A) الصورة العامة للمشروع (Blueprint / SUPER PROMPT V3)
+====================================================
+- البوت مبني على Aiogram 3.x.
+- الهدف: منصة بيع خدمات (أرقام SMS + بروكسي + Custom Services).
+- منطق مالي مطلوب: Ledger + Tri-Wallet (User / Reseller Main / Reseller Earnings) + Settlement شهري.
+- قواعد صارمة: لا تعديل مباشر للأرصدة، كل شيء عبر Transactions، قفل جلسات مالية لمنع double spend.
+- UX: Inline query سريع، Edit-message flow، Back/Cancel، Search service/state/country.
+- Translations: المفروض كل النصوص عبر translations.py (ما يزال غير مطبق 100%).
+
+====================================================
+B) المسار الزمني المختصر لما حصل
+====================================================
+1) بدأ العمل على نسخة: C:\Users\CyberZone\Desktop\cyberzone-shop-bot
+   - تم تنفيذ تحسينات كبيرة فيها.
+   - ظهرت مشاكل تشغيل وخدمات (numbers/custom).
+
+2) بسبب التخبيص قررنا الانتقال لنسخة أقدم/أثبت:
+   - C:\Users\CyberZone\PycharmProjects\shop_project
+   - تم نقل التحسينات إليها بشكل انتقائي لتقليل المخاطر.
+
+3) تم حل مشاكل تشغيل أساسية:
+   - ModuleNotFoundError: pydantic_settings
+   - ImportError: get_reseller_rates غير موجود
+   - polling conflict بسبب تعدد عمليات bot_manager
+   - inline query غير مفعل في BotFather (supports_inline_queries=False) -> تم تفعيله
+
+4) بعد ذلك اشتغلنا على مشكلات فعلية في المنتج:
+   - numbers section لا يفتح inline بشكل صحيح
+   - custom services لا تظهر للمستخدم العادي
+   - USER_NOT_LINKED عند الشراء
+   - كثرة أزرار الخدمات المقترحة
+
+====================================================
+C) أهم التعديلات التي تم تنفيذها فعليًا
+====================================================
+[1] Migration files (من النسخة الجديدة إلى shop_project)
+تم دمج/استبدال ملفات أساسية (مالية + أرقام + كوستم + منيو + إعدادات) ومنها:
+- database/financial_ledger.py
+- utils/financial_manager.py
+- database/custom_services_repo.py
+- handlers/custom_services.py
+- services/numbers/handlers/core_numbers.py
+- services/numbers/handlers/core_numbers_buy.py
+- services/numbers/handlers/numbers_inline.py
+- services/numbers/keyboards/core_numbers_kb.py
+- services/numbers/service_map.py
+- utils/services_keyboard.py
+- handlers/main_menu.py
+- bot_manager.py
+- keyboards/reseller_main_menu.py
+- utils/translations.py
+- database/redis_client.py
+- config.py
+- requirements.txt
+
+[2] إصلاحات imports/repo بعد النقل
+- إضافة/إصلاح get_reseller_rates في reseller_settings_repo.
+- إعادة توفير get_user_reseller في user_repo.
+- import bot_manager نجح بعد الإصلاح.
+
+[3] إصلاح USER_NOT_LINKED
+- تم إضافة fallback بالشراء والـ ledger:
+  reseller_id = get_user_reseller(user_id) or user_id
+- هذا منع توقف الشراء عند مستخدمين قدامى غير مربوطين.
+
+[4] إصلاح top services keyboard + ترتيب الأزرار
+مر الترتيب بعدة مراحل حسب طلبك:
+- تقليل المقترحات أولًا لـ 6.
+- ثم تعديل لتصبح top 10 global.
+- ثم طلبك النهائي: 10 خدمات بعمودين (5 صفوف)، والبحث تحت الخدمات.
+- تم تثبيت هذا التخطيط في الكيبورد.
+
+[5] إصلاح مسار top_services generation
+- usage_stats_manager كان يكتب top_services.json بمسار خاطئ.
+- تم تعديل المسارات لـ absolute normalized paths.
+
+[6] إصلاح Custom Services للمستخدم العادي (Not Handled)
+- توسيع trigger للتعامل مع النصوص المختلفة لزر الخدمات.
+- إضافة fallback linking:
+  - إذا user_reseller مفقود يتم استخلاصه من bot_id (owner_id للبوت) وتخزينه بالمستخدم.
+- تم تطبيق نفس الفكرة في تدفقات custom open/buy وبعض مسارات numbers buy.
+
+[7] تقوية start flow وربط user -> reseller تلقائيًا
+- عند /start:
+  - get bot_id
+  - infer reseller_id from bot owner
+  - create_user(..., reseller_id=inferred)
+  - إذا user قديم بدون reseller_id يتم set_user_reseller
+- forced_start صار آمن إذا المستخدم غير موجود.
+
+[8] تحسينات صيانة/أمان
+- تخفيف تسريب أسرار في logs (presence بدل قص أول حروف من المفاتيح).
+- config.py تحديث نحو pydantic v2 model_config.
+- numbers_inline throttling صار يتحمل عدم وجود from_user في حالات test dummies.
+
+====================================================
+D) الأعطال التي ظهرت أثناء التنفيذ
+====================================================
+1) مشاكل terminal encoding (mojibake) في بعض الملفات العربية/إيموجي.
+   - أثرت على وضوح النصوص داخل بعض handlers.
+   - تمت معالجة جزئية وظيفية بالـ triggers، لكن التنظيف الشامل للنصوص لم يكتمل.
+
+2) بعض اختبارات pytest بقيت تفشل (مع أن التشغيل الوظيفي تحسن):
+   - test_service_keyboard_top_and_search
+   - test_state_selection_edits_message
+   - test_reseller_id_fallback
+   - test_balance_handler_and_topup
+
+   أسبابها الأساسية:
+   - الاختبارات مبنية على سلوك قديم (مثل البحث أول سطر) بينما السلوك تغير بطلبك.
+   - monkeypatch أحيانًا موجه لمسار import مختلف عن المسار المستخدم فعليًا.
+   - توقعات لغة (AR/EN) لا تطابق النص الحالي في الحالة التي اختبرتها.
+
+====================================================
+E) الحالة الحالية الوظيفية (المتفق عليها خلال المحادثة)
+====================================================
+- inline query مفعل على البوت بعد BotFather.
+- numbers flow تحسن وعاد يمر في أجزاء كانت متوقفة.
+- USER_NOT_LINKED لم يعد blocker كما كان.
+- top services keyboard صار حسب طلبك (10، عمودين 5 صفوف، بحث تحت).
+- custom services trigger للمستخدم العادي صار أوسع لتقليل Not Handled.
+
+====================================================
+F) ما هو غير مكتمل حتى الآن (مهم)
+====================================================
+1) تطبيق SUPER PROMPT V3 بشكل 100% لم يكتمل بعد.
+2) لا يزال يوجد نصوص hardcoded كثيرة (خاصة custom_services/main_menu) والمفروض نقلها translations.py.
+3) تنظيف mojibake في المشروع كاملًا لم ينجز نهائيًا.
+4) توحيد callback format في كامل المشروع لم يكتمل بالكامل.
+5) تحديث/مواءمة الاختبارات مع السلوك الجديد لم يُنجز بالكامل.
+6) مراجعة أمنية نهائية لعدم تسريب أي أسرار + تنظيف أي بيانات حساسة في الملفات/السجل مطلوبة.
+
+====================================================
+G) ملاحظات تشغيل مهمة للمحادثة القادمة
+====================================================
+- المسار المرجعي الحالي للعمل:
+  C:\Users\CyberZone\PycharmProjects\shop_project
+
+- ملف التشغيل المعتاد:
+  python bot_manager.py
+
+- إذا ظهر تعارض polling:
+  تأكد من عدم وجود process قديم لنفس البوت.
+
+- إذا inline search ما اشتغل:
+  تأكد أن bot inline mode مفعّل من BotFather.
+
+====================================================
+H) خطة متابعة مقترحة (الخطوة التالية)
+====================================================
+1) تنظيف النصوص المشوهة + توحيد كل الرسائل عبر translations.py.
+2) تثبيت منطق user-reseller linking نهائيًا وإزالة fallback المؤقت تدريجيًا.
+3) تحديث الاختبارات لتتطابق مع UX الجديد المتفق عليه.
+4) مراجعة end-to-end لمسارات:
+   - /start
+   - numbers search -> provider -> buy/cancel/refund
+   - custom services open/build/buy
+   - balance/recharge
+5) بعدها freeze للإصدار.
+
+====================================================
+I) تنبيه أمني
+====================================================
+خلال المحادثة تم تداول متغيرات .env حساسة (tokens/keys).
+الإجراء الواجب خارج الكود:
+- تدوير كل التوكنات والمفاتيح التي تم كشفها.
+- عدم الاحتفاظ بالقيم المكشوفة في أي ملف نصي أو محادثة لاحقة.
+
+---
+End of chat context log.
+
+====================================================
+J) IDEA BACKLOG - Mobile Modem Session Proxy (from mobile chat)
+====================================================
+- الفكرة: استخدام مودم موبايل كمصدر IP موبايل حقيقي، لكن عدم كشفه مباشرة للمستخدمين.
+- التصميم: بناء وسيط (Proxy Gateway/Session Broker) على سيرفر بين المستخدمين والمودم.
+- كل مستخدم يحصل على جلسة مستقلة ببيانات دخول خاصة (username/password) تُدار من الوسيط.
+- عند طلب دومين/خدمة معينة (مثال: survey site)، البوت يطلب من الوسيط إنشاء/تخصيص جلسة لذلك الهدف.
+- الوسيط يعيد استخدام IP الموبايل الحقيقي من نفس المودم، لكن يعزل المستخدمين بجلسات منفصلة لمنع التداخل.
+- الفائدة: تحكم كامل، توزيع عادل للجلسات، مراقبة usage، ومنع تضارب المستخدمين على نفس المصدر.
+- ملاحظة تنفيذية لاحقة:
+  1) Session manager لكل مستخدم + target domain tagging
+  2) Auth layer per session credentials
+  3) Quotas/rate limits + expiration
+  4) Logs per session + kill/recycle session controls
+  5) Admin view in bot for creating/pausing modem-backed proxy pools
+
+J.0) Pre-clarification (arrived later, belongs before J)
+- الفكرة الأصلية: مودم موبايل يعطي IP حقيقي.
+- المطلوب: وسيط على VPS يوزع هذا الـ IP بدون كشف مباشر للمستخدمين.
+- كل مستخدم لديه credentials خاصة بجلسة مستقلة (username/password).
+- البوت عند طلب موقع/هدف معين يتواصل مع الوسيط، والوسيط يخصص جلسة من مصدر المودم.
+- الهدف التشغيلي: عدم مشاركة الجلسة بين المستخدمين، وعزل الاستخدام لكل شخص.
+
+J.1) Classification update
+- تم تصنيف فكرة "Mobile Modem Session Proxy عبر VPS" كـ **CORE SERVICE** (وليس Custom).
+- الحالة الحالية: Future Backlog (مؤجلة للتنفيذ لاحقًا).
+
+====================================================
+K) NEW IMPLEMENTATION UPDATE (2026-03-08)
+====================================================
+1) Recharge requests now route to reseller private group/topic:
+- Each reseller can bind payment routing target using:
+  /bind_payment_topic
+- Command must be executed inside the exact group/topic to receive recharge requests.
+- Stored in reseller_settings.recharge_routing.
+
+2) Recharge request card sent to topic includes:
+- Request ID
+- User ID
+- Username
+- Name
+- Requested Amount
+- Method
+- Created At
+- Payment proof image (if available)
+
+3) Action buttons under each request (topic message):
+- Add Sent Amount
+- Add Manual Amount
+- Need More Proof
+- Reject
+
+4) Manual amount flow:
+- Reseller can click "Add Manual Amount" and send custom amount.
+- System credits user wallet with manual amount via financial_ledger.
+- Prevents duplicate review by requiring request status=pending.
+
+5) Need-more-proof flow:
+- Reseller can click "Need More Proof".
+- Reseller writes a custom note (e.g. screenshot not clear).
+- Bot sends that note directly to user and asks user to resubmit clearer proof.
+- Request remains pending, with needs_more_proof timestamp + note.
+
+6) Data-size protection for proofs:
+- Accepted requests keep proof only for 6 hours.
+- Periodic cleanup removes only proof_file_id (not whole request data).
+- Request logs remain intact for audit/history.
+
+7) Financial consistency updates (already applied):
+- Balance reads use financial_ledger wallets.
+- Recharge acceptance credits wallets via financial_ledger.
+- Owner topup/deposit commands switched to financial_ledger.
+
+====================================================
+L) Suggested next optional enhancement
+====================================================
+- Add a "Resend Proof" shortcut in user UX after Need More Proof note,
+  so user can jump directly into proof submission state without re-walking full flow.
+
+====================================================
+M) NEW BACKLOG ITEM - Free Email Tools (2026-03-08)
+====================================================
+Requested by owner:
+- Add free utilities in bot (not implemented yet):
+  1) Email Checker (Sonjj API)
+  2) Email Quality Score check (separate API, details to be added later)
+
+Provided Sonjj API quick notes:
+- Base URL: https://app.sonjj.com
+- Auth header: X-Api-Key: <api_key>
+- Endpoints:
+  - GET /v1/check_email/ (2.00 points)
+  - GET /v1/check_gmail/ (0.50 points)
+  - GET /v1/check_microsoft/ (0.50 points)
+  - GET /v1/check_disposable_email/ (0.05 points)
+
+Product rules requested:
+- Feature must be free for users (platform-sponsored).
+- Daily quota: max 1 request per day per user (strict).
+- Later: both tools can move to paid tier if needed.
+
+Planned technical constraints:
+- Add per-user daily limiter in DB (keyed by user_id + feature + UTC date).
+- Return friendly quota message when limit reached.
+- Keep logs minimal (do not store full email if not needed).
+- API key must stay in .env only (never hardcoded or logged).
+
+Status:
+- Saved in planning file only.
+- Implementation deferred to a later step.
+
+====================================================
+N) NEW BACKLOG ITEM - Scamalytics IP Risk API (2026-03-08)
+====================================================
+Owner request:
+- Save Scamalytics docs as reference for upcoming IP check feature.
+- We only care about practical IP lookup flow (not full verbose docs in runtime).
+
+Core integration notes:
+- API Node (US): https://api11.scamalytics.com/v3/
+- API Node (EU): https://api12.scamalytics.com/v3/
+- Request format:
+  https://<hostname>/<username>?key=<key>&ip=<ip>&test=<test>
+- Method: GET (POST also supported by provider docs)
+- Response: JSON
+
+Fields we care about in first implementation:
+- scamalytics.status
+- scamalytics.ip
+- scamalytics.scamalytics_score
+- scamalytics.scamalytics_risk
+- scamalytics.scamalytics_proxy.is_datacenter
+- scamalytics.scamalytics_proxy.is_vpn
+- scamalytics.is_blacklisted_external
+- scamalytics.credits.used
+- scamalytics.credits.remaining
+
+Risk mapping from docs:
+- 0-19: low
+- 20-59: medium
+- 60-89: high
+- 90-100: very high
+
+Operational notes:
+- test=1 for test mode (no live credit charge according to docs constraints).
+- HTTP error handling needed: 200/400/401/404/500.
+- Apply daily quota in bot logic (as requested): max 1 IP check per user per day.
+- Do not log raw API key.
+
+Status:
+- Saved in project planning log only.
+- Implementation deferred until IP-check feature sprint.
+
+====================================================
+O) IMPLEMENTATION AUDIT UPDATE (2026-03-09)
+====================================================
+مرجع هذا التحديث: تدقيق مباشر على كود shop_project بعد شغل hardening الأخير.
+
+O.1) ما تم تنفيذه اليوم فعليًا (Code-level)
+1) توحيد أوامر الإدارة (Owner actions):
+- /resellers في handlers/admin_services.py صار يمر عبر نفس المسار الموحّد:
+  _run_owner_action_from_command(..., "resellers").
+- إزالة التكرار القديم لـ /resellers من handlers/main_menu.py لتجنب تضارب السلوك.
+
+2) صلاحيات الأونر:
+- حذف bypass المعتمد على username الثابت (homam_cyberzone).
+- owner_only الآن يعتمد على OWNER_ID فقط (مع رسالة منع صلاحية للمستخدم).
+
+3) قفل الالتزامات المالية (Settlement lock):
+- middleware صار يطلب القفل باستخدام reseller_id + bot_id:
+  get_reseller_financial_lock(reseller_id, bot_id=...).
+- lookup في financial_ledger صار يدعم bot_id بشكل مباشر.
+- إضافة تهدئة (cooldown) لرسائل/alerts القفل لتقليل الإزعاج والتكرار.
+
+4) تضييق photo catch-all:
+- المعالجة العامة للصور بقيت محصورة بـ private chat فقط.
+- وترجع مباشرة إذا في FSM state نشطة.
+
+5) صلابة bot_manager:
+- عند وجود bot row ببيانات غير صالحة (bot_id/owner_id/token) صار في logging.warning
+  بدل التجاهل الصامت.
+
+6) فحص تركيب سريع بعد التعديلات:
+- py_compile مرّ بنجاح على الملفات الأساسية (bot_manager/handlers/middlewares/database/utils).
+
+
+O.2) تدقيق الأفكار المقترحة داخل هذا الملف: حالة التنفيذ
+A) J) Mobile Modem Session Proxy (CORE backlog)
+- الحالة: غير منفذ (Backlog فقط).
+- لا يوجد implementation فعلي داخل handlers/services/database حتى الآن.
+
+B) K) Recharge routing + proof workflow
+- الحالة: منفذ.
+- /bind_payment_topic موجود.
+- Recharge routing per reseller/topic موجود.
+- أزرار Add Manual Amount / Need More Proof موجودة.
+- Need-more-proof cycle + إعادة رفع الإثبات على نفس الطلب موجودة.
+- Cleanup لإزالة proof_file_id دوريًا موجود في bot_manager + recharge_repo.
+
+C) L) "Resend Proof" shortcut (اقتراح اختياري)
+- الحالة: جزئي.
+- السلوك العملي موجود: المستخدم يقدر يعيد إرسال صورة proof عند status=need_more_proof
+  ويتم تحديث نفس الطلب.
+- لكن "زر اختصار صريح" باسم Resend Proof كخطوة UX مستقلة غير مضاف بعد.
+
+D) M) Free Email Tools (Sonjj + Quality Score)
+- الحالة: غير منفذ (Backlog).
+- لا يوجد endpoints/handlers/quotas مفعّلة في الكود لهذا الجزء حتى الآن.
+
+E) N) Scamalytics IP Risk API
+- الحالة: غير منفذ (Backlog).
+- لا يوجد integration فعلي أو command/handler نهائي مفعل في المشروع حاليًا.
+
+
+O.3) نقاط بقيت غير مكتملة من منظور اليوم
+1) تنظيف mojibake بالكامل داخل utils/translations.py وباقي النصوص:
+- تم إصلاح/تثبيت بعض مفاتيح حرجة سابقًا، لكن التنظيف الشامل لم يكتمل.
+
+2) إنهاء تحويل كل النصوص hardcoded إلى translations.py بشكل كامل:
+- ما زال جزئي.
+
+3) (اختياري) إضافة زر UX واضح "Resend Proof" بدل الاعتماد على السلوك الضمني لإرسال صورة جديدة.
+
+4) إعادة مواءمة/تحديث اختبارات السلوك end-to-end بعد تغييرات hardening الجديدة.
+
+
+O.4) ملاحظة تشغيل/محاسبة
+- settlement policies تعمل دوريًا من bot_manager.
+- بعد تعديل القفل ليكون bot-aware، يجب استمرار توليد/تحديث drafts لضمان وجود bot_id
+  داخل settlement docs قبل فرض القفل بشكل كامل على كل الحالات القديمة.
+
+====================================================
+P) NEW BACKLOG DOC INPUT - Proxy API + Number API (2026-03-09)
+====================================================
+هذا القسم يوثّق النصّين اللذين تم تزويدهما في المحادثة ليتم حفظهما كمرجع رسمي داخل ملف التوثيق.
+التصنيف: Documentation Backlog (غير منفّذ كتكامل فعلي داخل البوت حتى الآن).
+
+P.1) النص الأول: Proxy API Providers (توثيق مجمّع)
+المحتوى المرسل يتضمن توثيق/ملاحظات API مزوّدات البروكسي التالية:
+1) 9Proxy
+- Proxy API / Today List API / Port API
+- Endpoints مثل: /api/proxy, /api/forward, /api/today_list, /api/port_check, /api/port_status, /api/set_port_range, /api/port_free
+- ملاحظات response format وباراميتر t (txt/json)
+
+2) Tellabot (Proxy Rentals)
+- endpoint موحّد: https://www.tellabot.com/api_command.php
+- أوامر: proxy_list, proxy_rent, proxy_swap, proxy_redial
+- user/api_key + سيناريوهات exclusive/shared + redial
+
+3) 4G Proxies Bot System API v2
+- auth lifecycle: register / activate / login
+- catalog endpoints: packages / countries / cities / service-providers / parent-proxies / parent-proxy
+- account lifecycle: create/renew/modify proxy accounts
+- billing/support: balance / customer-transactions / payment methods / recharge / report-proxy
+
+حالة التنفيذ في مشروع البوت:
+- غير منفّذ كـ integration production حتى الآن.
+- محفوظ كمرجع تصميمي لتجهيز sprint لاحق خاص بالبروكسي.
+
+
+P.2) النص الثاني: Number/SMS Providers (توثيق مجمّع)
+المحتوى المرسل يتضمن توثيق/ملاحظات API لمزوّدات الأرقام التالية:
+1) HeroSMS
+- SMS-Activate compatible host: hero-sms.com/stubs/handler_api.php
+- actions متعددة (balance/number/status/history/rent/webhook...)
+- request style: GET + api_key query
+
+2) Tellabot (One-time + LTR + Callback)
+- أوامر one-time MDNs, long-term rentals, proxy rentals, callbacks
+
+3) SMSPool
+- مذكور كمزود مستقل لأرقام التفعيل (تفاصيل endpoints التفصيلية غير مسجلة بالكامل في النص)
+
+4) TextVerified
+- مذكور كمزود مستقل API v2 للأرقام/التحقق (مرجع توثيق رسمي)
+
+حالة التنفيذ في مشروع البوت:
+- HeroSMS: يوجد استخدام/توثيق واسع ضمن المشروع السياقي العام.
+- بقية التكاملات (خصوصًا SMSPool/TextVerified كتنفيذ كامل) تحتاج تدقيق sprint مستقل قبل اعتمادها production.
+
+
+P.3) قرارات تنظيمية (لتجنب ضياع المدخلات)
+1) اعتبار هذا القسم مرجع "Input Docs" وليس "Implemented Features".
+2) عند بدء sprint جديد:
+- يتم نقل كل مزود من هنا إلى Section تنفيذ مستقل (Design -> Tasks -> Status).
+3) أي endpoint جديد يصل لاحقًا يضاف هنا أولًا ثم يُصنّف:
+- Planned / In Progress / Implemented / Deferred.
+
+
+P.4) عناصر مقترحة غير منفذة (مستخرجة من النصّين)
+1) Proxy Aggregator Layer داخل البوت
+- واجهة موحّدة فوق 9Proxy + Tellabot + 4G Proxy API.
+
+2) Provider Adapters
+- Adapter مستقل لكل مزود مع Normalized response model.
+
+3) Unified Inventory + Pricing Cache
+- كاش موحّد للمخزون/الأسعار لتسريع الاستعلام وتقليل API calls.
+
+4) Proxy Session Lifecycle Controls
+- create/swap/redial/renew/report ضمن أوامر إدارة موحّدة.
+
+5) Number Provider Abstraction
+- طبقة توحيد لحالات number/order/status/cancel عبر HeroSMS/Tellabot/SMSPool/TextVerified.
+
+6) Webhook Normalizer
+- توحيد incoming webhook schema (SMS/proxy events) إلى event bus داخلي.
+
+7) Quotas + Rate Limits
+- سقوف يومية لكل مستخدم/ميزة عند تفعيل الأدوات الجديدة.
+
+8) Compliance & Secrets
+- توحيد سياسة إخفاء المفاتيح وعدم تسجيل أي api_key في logs.
+

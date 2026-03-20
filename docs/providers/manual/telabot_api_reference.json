@@ -1,0 +1,125 @@
+{
+  "provider": "telabot",
+  "base_url": "https://www.tellabot.com/api_command.php",
+  "auth": {
+    "required": ["user", "api_key", "cmd"],
+    "notes": "API key is generated from profile page and requires email confirmation."
+  },
+  "one_time_mdn": {
+    "request": {
+      "cmd": "request",
+      "required": ["service"],
+      "optional": ["mdn", "areacode", "state", "markup"],
+      "notes": [
+        "areacode overrides state",
+        "mdn overrides areacode/state",
+        "markup creates priority request with status 'Awaiting MDN'"
+      ]
+    },
+    "request_status": {
+      "cmd": "request_status",
+      "required": ["id"],
+      "statuses": ["Awaiting MDN", "Reserved", "Completed", "Rejected", "Timed Out"]
+    },
+    "reject": {
+      "cmd": "reject",
+      "required": ["id"],
+      "notes": "Can reject reserved MDN or cancel priority bid."
+    },
+    "read_sms": {
+      "cmd": "read_sms",
+      "optional": ["id", "ltr_id", "mdn", "service"],
+      "notes": "Returns max 3 newest messages from last 2 days."
+    },
+    "send_sms": {
+      "cmd": "send_sms",
+      "required": ["mdn", "to", "sms"],
+      "notes": "Outgoing SMS allowed only under provider constraints (recent inbound, active mdn, max length)."
+    }
+  },
+  "long_term_rentals": {
+    "rent_or_renew": {
+      "cmd": "ltr_rent",
+      "required": ["service"],
+      "optional": ["duration", "mdn", "areacode", "state", "reserve", "autorenew"],
+      "duration_days_supported": [3, 30]
+    },
+    "autorenew": {
+      "cmd": "ltr_autorenew",
+      "required": ["autorenew (optional if only check)"],
+      "identify_by": ["ltr_id", "service+mdn"]
+    },
+    "status": {
+      "cmd": "ltr_status",
+      "identify_by": ["ltr_id", "mdn"],
+      "ltr_status_values": ["online", "offline", "awaiting mdn"]
+    },
+    "activate": {
+      "cmd": "ltr_activate",
+      "required": ["mdn"]
+    },
+    "release": {
+      "cmd": "ltr_release",
+      "identify_by": ["ltr_id", "service+mdn"]
+    },
+    "report": {
+      "cmd": "ltr_report",
+      "required": ["mdn"]
+    },
+    "reported_status": {
+      "cmd": "ltr_reported_status",
+      "required": ["mdn"]
+    },
+    "switch_service": {
+      "cmd": "ltr_switch_service",
+      "required": ["service"],
+      "identify_by": ["ltr_id", "mdn"],
+      "notes": "For Unknown-service rentals only."
+    },
+    "forward_calls": {
+      "cmd": "ltr_forward",
+      "required": ["destination"],
+      "identify_by": ["ltr_id", "service+mdn"],
+      "notes": "Only for Unlimited service rentals after activation."
+    }
+  },
+  "balance_and_info": {
+    "list_services": {
+      "cmd": "list_services",
+      "optional": ["service"],
+      "returns_fields": ["name", "price", "ltr_price", "ltr_short_price", "otp_available", "ltr_available", "recommended_markup"]
+    },
+    "balance": {
+      "cmd": "balance"
+    }
+  },
+  "proxy_rentals": {
+    "proxy_list": {"cmd": "proxy_list"},
+    "proxy_rent": {
+      "cmd": "proxy_rent",
+      "required": ["service", "duration"],
+      "optional": ["port", "exclusive"]
+    },
+    "proxy_swap": {
+      "cmd": "proxy_swap",
+      "identify_by": ["id", "port"]
+    },
+    "proxy_redial": {
+      "cmd": "proxy_redial",
+      "identify_by": ["id", "proxy_user"],
+      "notes": "Exclusive rentals only."
+    }
+  },
+  "callbacks": {
+    "transport": "HTTP POST",
+    "event_types": ["incoming_message", "ltr_renewal", "priority_request"],
+    "retry_policy": "If callback fails (non-200), retries up to 5 times every 10 minutes."
+  },
+  "source": {
+    "official_docs_urls": [
+      "https://www.tellabot.com/api_command.php",
+      "https://documenter.getpostman.com/view/30155063/2s9YXmZ1JY"
+    ],
+    "last_manual_refresh": "2026-03-12"
+  }
+}

@@ -1,0 +1,430 @@
+{
+  "provider": "smspool",
+  "source": {
+    "type": "postman_collection",
+    "external_url": "https://documenter.getpostman.com/view/30155063/2s9YXmZ1JY",
+    "local_raw_html": "docs/providers/raw/smspool_postman_documenter.html",
+    "local_raw_collection": "docs/providers/raw/smspool_postman_collection.json"
+  },
+  "base_url": "https://api.smspool.net",
+  "auth": {
+    "variable_name": "apikey",
+    "common_field": "key",
+    "where": "POST body for most endpoints"
+  },
+  "stats": {
+    "total_endpoints": 60,
+    "categories_count": 9
+  },
+  "categories": [
+    {
+      "name": "Business",
+      "endpoints": [
+        {
+          "name": "Register user",
+          "method": "POST",
+          "path": "/business/create",
+          "url": "https://api.smspool.net/business/create"
+        },
+        {
+          "name": "History",
+          "method": "POST",
+          "path": "/business/user/history",
+          "url": "https://api.smspool.net/business/user/history"
+        },
+        {
+          "name": "Update",
+          "method": "POST",
+          "path": "/business/user/update",
+          "url": "https://api.smspool.net/business/user/update"
+        },
+        {
+          "name": "Retrieve users",
+          "method": "GET",
+          "path": "/business/users",
+          "url": "https://api.smspool.net/business/users"
+        }
+      ]
+    },
+    {
+      "name": "Carrier",
+      "endpoints": [
+        {
+          "name": "Lookup",
+          "method": "POST",
+          "path": "/carrier/paid_lookup",
+          "url": "https://api.smspool.net/carrier/paid_lookup"
+        }
+      ]
+    },
+    {
+      "name": "eSIMs",
+      "endpoints": [
+        {
+          "name": "Delete eSIM",
+          "method": "POST",
+          "path": "/esim/delete",
+          "url": "https://api.smspool.net/esim/delete"
+        },
+        {
+          "name": "View eSIM history",
+          "method": "POST",
+          "path": "/esim/history",
+          "url": "https://api.smspool.net/esim/history"
+        },
+        {
+          "name": "View eSIM plans per country",
+          "method": "POST",
+          "path": "/esim/plans",
+          "url": "https://api.smspool.net/esim/plans"
+        },
+        {
+          "name": "View eSIM countries",
+          "method": "POST",
+          "path": "/esim/pricing",
+          "url": "https://api.smspool.net/esim/pricing"
+        },
+        {
+          "name": "View eSIM profile",
+          "method": "POST",
+          "path": "/esim/profile",
+          "url": "https://api.smspool.net/esim/profile"
+        },
+        {
+          "name": "Purchase eSIM",
+          "method": "POST",
+          "path": "/esim/purchase",
+          "url": "https://api.smspool.net/esim/purchase"
+        },
+        {
+          "name": "Top up eSIM",
+          "method": "POST",
+          "path": "/esim/topup",
+          "url": "https://api.smspool.net/esim/topup"
+        },
+        {
+          "name": "Top Up Plans",
+          "method": "POST",
+          "path": "/esim/topup_plans",
+          "url": "https://api.smspool.net/esim/topup_plans"
+        }
+      ]
+    },
+    {
+      "name": "Informative endpoints",
+      "endpoints": [
+        {
+          "name": "Country list",
+          "method": "GET",
+          "path": "/country/retrieve_all",
+          "url": "https://api.smspool.net/country/retrieve_all"
+        },
+        {
+          "name": "Pool list",
+          "method": "POST",
+          "path": "/pool/retrieve_all",
+          "url": "https://api.smspool.net/pool/retrieve_all"
+        },
+        {
+          "name": "Suggested Pools",
+          "method": "POST",
+          "path": "/pool/retrieve_valid",
+          "url": "https://api.smspool.net/pool/retrieve_valid"
+        },
+        {
+          "name": "Balance",
+          "method": "POST",
+          "path": "/request/balance",
+          "url": "https://api.smspool.net/request/balance"
+        },
+        {
+          "name": "Retrieve country success rates per service",
+          "method": "POST",
+          "path": "/request/success_rate",
+          "url": "https://api.smspool.net/request/success_rate"
+        },
+        {
+          "name": "Suggested Countries",
+          "method": "POST",
+          "path": "/request/suggested_countries",
+          "url": "https://api.smspool.net/request/suggested_countries"
+        },
+        {
+          "name": "Service list",
+          "method": "GET",
+          "path": "/service/retrieve_all",
+          "url": "https://api.smspool.net/service/retrieve_all"
+        }
+      ]
+    },
+    {
+      "name": "Preorders",
+      "endpoints": [
+        {
+          "name": "Cancel",
+          "method": "POST",
+          "path": "/preorder/cancel",
+          "url": "https://api.smspool.net/preorder/cancel"
+        },
+        {
+          "name": "Check",
+          "method": "POST",
+          "path": "/preorder/check",
+          "url": "https://api.smspool.net/preorder/check"
+        },
+        {
+          "name": "Create",
+          "method": "POST",
+          "path": "/preorder/create",
+          "url": "https://api.smspool.net/preorder/create"
+        },
+        {
+          "name": "Price",
+          "method": "POST",
+          "path": "/preorder/price",
+          "url": "https://api.smspool.net/preorder/price"
+        },
+        {
+          "name": "Retrieve",
+          "method": "POST",
+          "path": "/preorder/retrieve",
+          "url": "https://api.smspool.net/preorder/retrieve"
+        }
+      ]
+    },
+    {
+      "name": "Pricing",
+      "endpoints": [
+        {
+          "name": "Retrieve specific price & Success Rate",
+          "method": "POST",
+          "path": "/request/price",
+          "url": "https://api.smspool.net/request/price"
+        },
+        {
+          "name": "Retrieve all pricing",
+          "method": "POST",
+          "path": "/request/pricing",
+          "url": "https://api.smspool.net/request/pricing"
+        }
+      ]
+    },
+    {
+      "name": "Rental",
+      "endpoints": [
+        {
+          "name": "Order Rental",
+          "method": "POST",
+          "path": "/purchase/rental",
+          "url": "https://api.smspool.net/purchase/rental"
+        },
+        {
+          "name": "Enable Auto Extend Rental",
+          "method": "POST",
+          "path": "/rental/auto_extend",
+          "url": "https://api.smspool.net/rental/auto_extend"
+        },
+        {
+          "name": "Extend Rental",
+          "method": "POST",
+          "path": "/rental/extend",
+          "url": "https://api.smspool.net/rental/extend"
+        },
+        {
+          "name": "Rental History",
+          "method": "POST",
+          "path": "/rental/history",
+          "url": "https://api.smspool.net/rental/history"
+        },
+        {
+          "name": "Retrieve Rental Info",
+          "method": "POST",
+          "path": "/rental/info",
+          "url": "https://api.smspool.net/rental/info"
+        },
+        {
+          "name": "Refund Rental",
+          "method": "POST",
+          "path": "/rental/refund",
+          "url": "https://api.smspool.net/rental/refund"
+        },
+        {
+          "name": "Reset Rental",
+          "method": "POST",
+          "path": "/rental/reset",
+          "url": "https://api.smspool.net/rental/reset"
+        },
+        {
+          "name": "Retrieve Active Rentals",
+          "method": "POST",
+          "path": "/rental/retrieve",
+          "url": "https://api.smspool.net/rental/retrieve"
+        },
+        {
+          "name": "Retrieve Rental IDs",
+          "method": "POST",
+          "path": "/rental/retrieve_all",
+          "url": "https://api.smspool.net/rental/retrieve_all"
+        },
+        {
+          "name": "Retrieve Rental Messages",
+          "method": "POST",
+          "path": "/rental/retrieve_messages",
+          "url": "https://api.smspool.net/rental/retrieve_messages"
+        },
+        {
+          "name": "Retrieve Rental Pricing",
+          "method": "POST",
+          "path": "/rental/retrieve_pricing",
+          "url": "https://api.smspool.net/rental/retrieve_pricing"
+        },
+        {
+          "name": "Retrieve Rental Services",
+          "method": "POST",
+          "path": "/rental/retrieve_services",
+          "url": "https://api.smspool.net/rental/retrieve_services"
+        },
+        {
+          "name": "Retrieve Rental Status",
+          "method": "POST",
+          "path": "/rental/retrieve_status",
+          "url": "https://api.smspool.net/rental/retrieve_status"
+        },
+        {
+          "name": "Retrieve Rental Stock",
+          "method": "POST",
+          "path": "/rental/stock",
+          "url": "https://api.smspool.net/rental/stock"
+        }
+      ]
+    },
+    {
+      "name": "SMS",
+      "endpoints": [
+        {
+          "name": "Order SMS",
+          "method": "POST",
+          "path": "/purchase/sms",
+          "url": "https://api.smspool.net/purchase/sms"
+        },
+        {
+          "name": "Active orders",
+          "method": "POST",
+          "path": "/request/active",
+          "url": "https://api.smspool.net/request/active"
+        },
+        {
+          "name": "Archive all orders",
+          "method": "POST",
+          "path": "/request/archive",
+          "url": "https://api.smspool.net/request/archive"
+        },
+        {
+          "name": "Request available areacodes",
+          "method": "POST",
+          "path": "/request/areacodes",
+          "url": "https://api.smspool.net/request/areacodes"
+        },
+        {
+          "name": "Order History",
+          "method": "POST",
+          "path": "/request/history",
+          "url": "https://api.smspool.net/request/history"
+        },
+        {
+          "name": "Activate SMS",
+          "method": "POST",
+          "path": "/sms/activate",
+          "url": "https://api.smspool.net/sms/activate"
+        },
+        {
+          "name": "One-time stock for all services",
+          "method": "POST",
+          "path": "/sms/all_stock",
+          "url": "https://api.smspool.net/sms/all_stock"
+        },
+        {
+          "name": "Cancel SMS",
+          "method": "POST",
+          "path": "/sms/cancel",
+          "url": "https://api.smspool.net/sms/cancel"
+        },
+        {
+          "name": "Cancel All SMS",
+          "method": "POST",
+          "path": "/sms/cancel_all",
+          "url": "https://api.smspool.net/sms/cancel_all"
+        },
+        {
+          "name": "Check SMS",
+          "method": "POST",
+          "path": "/sms/check",
+          "url": "https://api.smspool.net/sms/check"
+        },
+        {
+          "name": "Check Resend",
+          "method": "POST",
+          "path": "/sms/check_resend",
+          "url": "https://api.smspool.net/sms/check_resend"
+        },
+        {
+          "name": "Clear SMS Cache",
+          "method": "POST",
+          "path": "/sms/clear_cache",
+          "url": "https://api.smspool.net/sms/clear_cache"
+        },
+        {
+          "name": "Reactivate SMS",
+          "method": "POST",
+          "path": "/sms/reactivate",
+          "url": "https://api.smspool.net/sms/reactivate"
+        },
+        {
+          "name": "Resend",
+          "method": "POST",
+          "path": "/sms/resend",
+          "url": "https://api.smspool.net/sms/resend"
+        },
+        {
+          "name": "One-time SMS stock",
+          "method": "POST",
+          "path": "/sms/stock",
+          "url": "https://api.smspool.net/sms/stock"
+        }
+      ]
+    },
+    {
+      "name": "Voucher",
+      "endpoints": [
+        {
+          "name": "Delete voucher",
+          "method": "POST",
+          "path": "/voucher/delete",
+          "url": "https://api.smspool.net/voucher/delete"
+        },
+        {
+          "name": "Bulk generate vouchers",
+          "method": "POST",
+          "path": "/voucher/generate",
+          "url": "https://api.smspool.net/voucher/generate"
+        },
+        {
+          "name": "Generate voucher",
+          "method": "POST",
+          "path": "/voucher/generate",
+          "url": "https://api.smspool.net/voucher/generate"
+        },
+        {
+          "name": "Retrieve vouchers",
+          "method": "POST",
+          "path": "/voucher/retrieve",
+          "url": "https://api.smspool.net/voucher/retrieve"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "Generated from Postman collection JSON (latest).",
+    "Use this file as local offline reference for implementation and debugging."
+  ]
+}

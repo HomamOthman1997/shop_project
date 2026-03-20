@@ -1,0 +1,12 @@
+aiogram
+motor
+pymongo
+aiohttp
+rapidfuzz
+fuzzywuzzy
+python-Levenshtein
+upstash-redis
+python-dotenv
+pydantic-settings
+pytest
+pytest-asyncio

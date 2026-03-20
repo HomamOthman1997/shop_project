@@ -1,0 +1,59 @@
+{
+  "generated_at": "2026-03-12",
+  "purpose": "Local provider documentation index for fast implementation/debugging.",
+  "providers": [
+    {
+      "public_id": "GS1",
+      "code": "g2bulk",
+      "title": "G2Bulk",
+      "doc_type": "manual_spec",
+      "doc_path": "docs/providers/manual/g2bulk_api_reference.json",
+      "external_ref": "https://api.g2bulk.com/docs"
+    },
+    {
+      "public_id": "S1",
+      "code": "smspool",
+      "title": "SMSPool",
+      "doc_type": "manual_spec",
+      "doc_path": "docs/providers/manual/smspool_api_reference.json",
+      "external_ref": "https://documenter.getpostman.com/view/30155063/2s9YXmZ1JY",
+      "raw_html_path": "docs/providers/raw/smspool_postman_documenter.html",
+      "raw_collection_path": "docs/providers/raw/smspool_postman_collection.json"
+    },
+    {
+      "public_id": "S2",
+      "code": "textverified",
+      "title": "TextVerified",
+      "doc_type": "openapi+manual",
+      "doc_path": "docs/providers/raw/textverified_openapi_v2.json",
+      "raw_latest_path": "docs/providers/raw/textverified_openapi_v2_latest.json",
+      "notes_path": "docs/providers/manual/textverified_api_reference.json"
+    },
+    {
+      "public_id": "S3",
+      "code": "herosms",
+      "title": "HeroSMS",
+      "doc_type": "openapi+manual",
+      "doc_path": "docs/providers/raw/herosms_openapi_en.json",
+      "notes_path": "docs/providers/manual/herosms_api_reference.json"
+    },
+    {
+      "public_id": "S4",
+      "code": "smsman",
+      "title": "SMS-Man",
+      "doc_type": "manual_spec",
+      "doc_path": "docs/providers/manual/smsman_api_reference.json",
+      "external_ref": "https://sms-man.com/api"
+    },
+    {
+      "public_id": "S5",
+      "code": "telabot",
+      "title": "TELA BOT",
+      "doc_type": "manual_spec",
+      "doc_path": "docs/providers/manual/telabot_api_reference.json",
+      "external_refs": [
+        "https://www.tellabot.com/api_command.php"
+      ]
+    }
+  ]
+}

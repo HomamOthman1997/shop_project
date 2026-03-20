@@ -1,0 +1,152 @@
+001: linkedphone | openphone | openphonequo | phone | phonepe | phoner | phonespeak | phound | phoundphone | wephone | yophone
+002: evoice | gmail | google | googlechat | googlegmail | googleplay | googlesend | googlevoice
+003: mytvsuper | ozansuperapp | perpay | super | superbet | supercell | superpay
+004: circle | circlek | coincircle | my11circle | redcircle | rummycircle
+005: flexshopper | grasshopper | grasshopperbank | hopper | snappyshopper | yougovshopper
+006: microsoft | microsoftazure | microsoftoutlook | microsoftrewards | microsoftxboxlive
+007: apple | applewallet | dayforcewallet | ewallet
+008: bubbl | bubblecash | redbubble | techbubble
+009: citbank | citibank | citybank | lakecitybank
+010: clubfactory | factory | factoryai | themoneyfactory
+011: contribee | livetribe | tribe | vetri
+012: dscout | helpscout | immoscout24 | scout
+013: engagespark | genspark | ngage | spark
+014: index | sideline | sidelineindex | sidelineswap
+015: meta | metal | metalpay | peermetals
+016: bigcash | bigcashlegends | gcash
+017: bigtoken | token | tokeneo
+018: blink | flink | link
+019: capitalone | capitalonecafe | capitaloneshopping
+020: catholicmatch | match | matchmeetic
+021: cdkeyscom | cjscdkeys | cjscdkeyscom
+022: clear | clearpay | clearvoice
+023: current | currentmusic | currentrewards
+024: dabbl | dabble | dabblefantasy
+025: douyin | tiktok | tiktokdouyin
+026: hicloud | icloud | wafaicloud
+027: indriver | river | riversweeps
+028: mercado | mercadolibre | mercadopago
+029: message | messagebird | messagedesk
+030: mysugardaddy | sugardaddy | sugardaddymeet
+031: netspend | spend | spendwell
+032: netzero | tzero | zero
+033: premier | premierone | yourpremierbank
+034: public | publicdata | traderepublic
+035: sendgrid | twilio | twiliosendgrid
+036: serve | serverfield | xserver
+037: signal | signalhire | signalwire
+038: tencent | tencentcloud | tencentqq
+039: ultra | ultragaz | ultraio
+040: amazonamazonwebservices | amazonwebservices
+041: astra | astrapay
+042: atom | atomy
+043: banks | extracobanks
+044: battlenet | battlenetblizzard
+045: better | betterment
+046: bitcoinatm | hermesbitcoinatm
+047: blabla | blablacar
+048: bloom | bloomme
+049: bonanza | megabonanza
+050: boxed | boxeddeal
+051: brandedsurvey | brandedsurveys
+052: bridge | bridgecard
+053: burner | burnerapp
+054: catch | catchme
+055: cheapvoip | cheapvoiphotvoip
+056: checkbook | checkbookio
+057: checkpoint | checkpoints
+058: citizen | citizensbank
+059: clair | sinclair
+060: coincloud | ncloud
+061: copper | coppersurvey
+062: cosmote | cosmoteboxgr
+063: crumbl | crumblcookies
+064: currency | safecurrency
+065: dataannotation | dataannotationtech
+066: didifood | ifood
+067: digit | telusdigital
+068: donut | dunkindonuts
+069: earnin | earningstation
+070: efile | sharefile
+071: envios | flexienviosbhd
+072: fetch | fetchrewards
+073: fivesurvey | fivesurveys
+074: flatmates | ozflatmates
+075: footlocker | kidsfootlocker
+076: freecash | freecashcom
+077: getslide | slide
+078: gifthunterclub | hunter
+079: grailed | grailedcom
+080: habitburger | habitburgerandgrill
+081: handshake | handshakeai
+082: hepsiburada | hepsiburadacom
+083: instagram | instagramthreads
+084: irazoo | irazoocom
+085: jeevan | jeevansathi
+086: jeniusbank | usbank
+087: jolly | jollychic
+088: lalafo | lalafood
+089: liberty | libertyx
+090: line | line2
+091: luckyland | luckylandslots
+092: manus | manusai
+093: milesreward | milesrewards
+094: millions | sportsmillions
+095: mistral | mistralai
+096: mobilemoney | tmobilemoney
+097: modeearn | modeearnapp
+098: moonpay | onpay
+099: myrobinhood | robinhood
+100: natural | naturalbrainai
+101: noon | noona
+102: notescoffee | tesco
+103: numero | numeroesim
+104: onepay | 汇旺huionepay
+105: onmail | protonmail
+106: openai | openaichatgpt
+107: opinionoutpost | opinionsoutpost
+108: oracle | oraclecloud
+109: paper | paperspace
+110: paysafe | paysafecard
+111: playful | playfulrewards
+112: porte | porter
+113: postmates | uberpostmates
+114: privacy | privacystar
+115: profi | pureprofile
+116: raise | raiseright
+117: rally | trumprally
+118: relay | relaypayments
+119: remotask | remotasks
+120: rewardedplay | rewardedplayplay4
+121: ride | uride
+122: ripsbytriumph | triumph
+123: ritual | ritualco
+124: rocket | rocketreach
+125: rove | rover
+126: rumble | rumbler
+127: sam'sclub | samsclub
+128: samsung | samsungshop
+129: servicenotlisted | servicenotlistedvoice
+130: shell | shellbox
+131: shout | snagshout
+132: sikayetvar | şikayetvar
+133: sinchtopcashback | topcashback
+134: sisal | sisalfunclub
+135: skybet | skybetting
+136: smiles | smilesbitcoin
+137: snipp | snippetmedia
+138: sonic | tasonic
+139: spruce | sprucehealth
+140: study | studypool
+141: taptap | taptapsend
+142: tipalti | wpstipalti
+143: twitter | twitterx
+144: united | unitedairlines
+145: valero | valeropay
+146: viaappviavan | viavan
+147: wagerweb | wagerwebeu
+148: webull | webullpay
+149: weee | weee!
+150: winzo | winzogame
+151: youla | yoularu
+152: zaxby | zaxbys

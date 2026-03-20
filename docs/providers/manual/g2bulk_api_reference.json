@@ -1,0 +1,73 @@
+{
+  "provider": "g2bulk",
+  "base_url": "https://api.g2bulk.com/api/v2",
+  "auth": {
+    "type": "header",
+    "header_name": "x-api-key",
+    "notes": "All endpoints require x-api-key."
+  },
+  "catalog_endpoints": [
+    {
+      "name": "Get Categories",
+      "method": "POST",
+      "path": "/user/category/get_categories",
+      "body": {}
+    },
+    {
+      "name": "Get Voucher Products",
+      "method": "POST",
+      "path": "/user/product/get_buyer_products",
+      "body": {}
+    },
+    {
+      "name": "Get Games",
+      "method": "POST",
+      "path": "/user/game/get_game_names",
+      "body": {}
+    },
+    {
+      "name": "Get Game Products",
+      "method": "POST",
+      "path": "/user/game/get_game_products",
+      "body": {
+        "game_id": "int"
+      }
+    }
+  ],
+  "order_endpoints": [
+    {
+      "name": "Create Voucher Order",
+      "method": "POST",
+      "path": "/user/order/create_order",
+      "body": {
+        "product_id": "int",
+        "quantity": "int"
+      }
+    },
+    {
+      "name": "Create Game Topup Order",
+      "method": "POST",
+      "path": "/user/order/create_game_order",
+      "body": {
+        "product_id": "int",
+        "player_id": "string",
+        "server_id": "string (optional)",
+        "quantity": "int"
+      }
+    },
+    {
+      "name": "Get Order Status",
+      "method": "POST",
+      "path": "/user/order/get_order_status",
+      "body": {
+        "order_id": "int"
+      }
+    }
+  ],
+  "notes": [
+    "Response shapes may vary by endpoint; parsing should tolerate data/result/items wrappers.",
+    "Game top-up field requirements can vary by product and may require additional provider-side validation."
+  ],
+  "source": "https://api.g2bulk.com/docs"
+}
+

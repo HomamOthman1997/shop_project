@@ -1,0 +1,60 @@
+﻿from aiogram import Router, types
+
+from database.bots_repo import get_bot_settings
+from database.user_repo import update_user_language
+from keyboards.language_kb import language_keyboard
+from keyboards.subscription_kb import subscription_keyboard
+from utils.translations import t
+
+router = Router()
+
+
+async def _apply_language(callback: types.CallbackQuery, lang: str):
+    user_id = callback.from_user.id
+    await update_user_language(user_id, lang)
+
+    bot_id = (await callback.bot.get_me()).id
+    settings = await get_bot_settings(bot_id)
+    channel = settings.get("subscription_channel")
+
+    if not channel:
+        await callback.message.edit_text(t(lang, "no_channel_set"))
+        await callback.answer()
+        return
+
+    await callback.message.edit_text(
+        t(lang, "join_channel"),
+        reply_markup=subscription_keyboard(channel, lang),
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "lang_en")
+async def set_language_en(callback: types.CallbackQuery):
+    await _apply_language(callback, "en")
+
+
+@router.callback_query(lambda c: c.data == "lang_ar")
+async def set_language_ar(callback: types.CallbackQuery):
+    await _apply_language(callback, "ar")
+
+
+@router.callback_query(lambda c: c.data == "lang_back")
+async def language_back(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        t("en", "choose_language"),
+        reply_markup=language_keyboard("en"),
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "lang_cancel")
+async def language_cancel(callback: types.CallbackQuery):
+    try:
+        await callback.message.delete()
+    except Exception:
+        await callback.message.edit_text(
+            t("en", "choose_language"),
+            reply_markup=language_keyboard("en"),
+        )
+    await callback.answer()
