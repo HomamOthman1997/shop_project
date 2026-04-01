@@ -14,6 +14,11 @@ class InteractionLockMiddleware(BaseMiddleware):
         self._last_callback_sig: dict[int, tuple[str, float]] = {}
         self._inflight: set[int] = set()
         self._guard = asyncio.Lock()
+        self._callback_inflight_wait_sec = max(
+            0.05,
+            float(getattr(settings, "interaction_lock_callback_wait_ms", 350) or 350) / 1000.0,
+        )
+        self._callback_inflight_poll_sec = 0.05
 
     @staticmethod
     def _is_arabic_text(text: str) -> bool:
@@ -56,6 +61,23 @@ class InteractionLockMiddleware(BaseMiddleware):
         )
         return any(self._text_equals_key(clean, key) for key in section_keys)
 
+    @staticmethod
+    async def _current_state_name(data: Dict[str, Any]) -> str:
+        state = data.get("state")
+        if state is None or not hasattr(state, "get_state"):
+            return ""
+        try:
+            return str(await state.get_state() or "")
+        except Exception:
+            return ""
+
+    @classmethod
+    async def _is_support_session(cls, data: Dict[str, Any]) -> bool:
+        current_state = await cls._current_state_name(data)
+        if not current_state:
+            return False
+        return "SupportFlow" in current_state or "SupportOwnerReplyFlow" in current_state
+
     async def _should_block_cross_section_message(self, event: types.Message, data: Dict[str, Any]) -> bool:
         text = (event.text or "").strip()
         if not text:
@@ -65,13 +87,7 @@ class InteractionLockMiddleware(BaseMiddleware):
         if not self._is_top_level_section_trigger(text):
             return False
 
-        state = data.get("state")
-        if state is None or not hasattr(state, "get_state"):
-            return False
-        try:
-            current_state = await state.get_state()
-        except Exception:
-            current_state = None
+        current_state = await self._current_state_name(data)
         if not current_state:
             return False
 
@@ -108,12 +124,28 @@ class InteractionLockMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if isinstance(event, types.Message):
+            if await self._is_support_session(data):
+                return await handler(event, data)
             if await self._should_block_cross_section_message(event, data):
                 return None
 
         now = time.monotonic()
-        callback_window = max(100, int(getattr(settings, "interaction_lock_callback_window_ms", 1200) or 1200)) / 1000.0
-        message_window = max(100, int(getattr(settings, "interaction_lock_message_window_ms", 2500) or 2500)) / 1000.0
+        callback_window = max(75, int(getattr(settings, "interaction_lock_callback_window_ms", 450) or 450)) / 1000.0
+        message_window = max(100, int(getattr(settings, "interaction_lock_message_window_ms", 900) or 900)) / 1000.0
+
+        if is_callback:
+            wait_deadline = now + self._callback_inflight_wait_sec
+            while True:
+                async with self._guard:
+                    if user_id not in self._inflight:
+                        break
+                if time.monotonic() >= wait_deadline:
+                    try:
+                        await event.answer()
+                    except Exception:
+                        pass
+                    return None
+                await asyncio.sleep(self._callback_inflight_poll_sec)
 
         async with self._guard:
             if user_id in self._inflight:

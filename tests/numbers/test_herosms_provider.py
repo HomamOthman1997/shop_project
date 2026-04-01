@@ -42,6 +42,25 @@ async def test_resolve_service_code_tokenized_name(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_resolve_service_code_does_not_fuzzy_match_different_service(monkeypatch):
+    provider = HeroSMSProvider()
+
+    async def fake_request(action, **params):
+        assert action == "getServicesList"
+        return 200, {
+            "status": "success",
+            "services": [
+                {"code": "wr", "name": "Walmart"},
+                {"code": "tg", "name": "Telegram"},
+            ],
+        }
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    code = await provider.resolve_service_code("walmartmoneycard")
+    assert code is None
+
+
+@pytest.mark.asyncio
 async def test_buy_number_parses_access_number(monkeypatch):
     provider = HeroSMSProvider()
 

@@ -1,7 +1,6 @@
 import logging
 import re
 import time
-from difflib import SequenceMatcher
 from typing import Any, Optional
 
 from config import settings
@@ -241,6 +240,35 @@ class HeroSMSProvider(BaseProvider):
             aliases.update({"uk", "gb", "britain", "greatbritain", "england"})
         return aliases
 
+    async def _hero_country_id_to_iso(self, country_id: Any) -> str | None:
+        cid = str(country_id or "").strip()
+        if not cid:
+            return None
+        countries = await self.list_countries()
+        if not countries:
+            return None
+        for row in countries:
+            if str(_as_int(row.get("id")) or "") != cid:
+                continue
+            eng = str(row.get("eng") or "").strip()
+            eng_key = _norm_country(eng)
+            if eng_key == "palestine":
+                return "PS"
+            if eng_key in {"usa", "unitedstates", "unitedstatesofamerica"}:
+                return "US"
+            if eng_key in {"unitedkingdom", "greatbritain", "england"}:
+                return "GB"
+            common = self._common_country_by_code()
+            for item in common.values():
+                iso = str(item.get("iso") or "").strip().upper()
+                name = str(item.get("name") or "").strip()
+                if _norm_country(name) == eng_key and iso:
+                    return iso
+            if len(eng) == 2 and eng.isalpha():
+                return eng.upper()
+            return None
+        return None
+
     async def _resolve_country(self, country: str | int | None) -> str | None:
         if country in (None, "", "none"):
             return None
@@ -305,9 +333,6 @@ class HeroSMSProvider(BaseProvider):
             return None
 
         norm_hint = _norm(hint)
-        best_code: str | None = None
-        best_score = 0.0
-
         # Prefer token-aware partial matches before fuzzy scoring.
         # Example: "Google,youtube,Gmail" should map `gmail` -> `go`.
         def _tokens(name: str) -> list[str]:
@@ -334,16 +359,6 @@ class HeroSMSProvider(BaseProvider):
                 continue
             if _norm(code) == norm_hint or _norm(name) == norm_hint:
                 return code
-            score = max(
-                SequenceMatcher(None, norm_hint, _norm(name)).ratio(),
-                SequenceMatcher(None, norm_hint, _norm(code)).ratio(),
-            )
-            if score > best_score:
-                best_score = score
-                best_code = code
-
-        if best_score >= 0.60:
-            return best_code
         return None
 
     async def get_price(self, service, country=None, state=None):
@@ -359,12 +374,34 @@ class HeroSMSProvider(BaseProvider):
         if not prices:
             return {"success": False, "raw": data}
 
-        return {
+        provider_country_iso: str | None = None
+        if mapped_country is None and isinstance(data, dict):
+            best_country_id: str | None = None
+            best_price: float | None = None
+            for country_key, service_block in data.items():
+                if not isinstance(service_block, dict):
+                    continue
+                service_row = service_block.get(str(service))
+                if not isinstance(service_row, dict):
+                    continue
+                cost = _as_float(service_row.get("cost"))
+                if cost is None or cost <= 0:
+                    continue
+                if best_price is None or cost < best_price:
+                    best_price = float(cost)
+                    best_country_id = str(country_key)
+            if best_country_id:
+                provider_country_iso = await self._hero_country_id_to_iso(best_country_id)
+
+        result = {
             "success": True,
             "price": min(prices),
             "api_service_name": str(service),
             "raw": data,
         }
+        if provider_country_iso:
+            result["provider_country_iso"] = provider_country_iso
+        return result
 
     async def buy_number(self, service, country=None, state=None):
         mapped_country = await self._resolve_country(country)

@@ -44,7 +44,7 @@ async def test_owner_topup_request_routes_to_owner_before_reseller(monkeypatch):
     }
 
     monkeypatch.setattr(reseller_recharge, "get_recharge_routing", fake_get_recharge_routing)
-    monkeypatch.setattr(reseller_recharge, "_owner_notifications_target", fake_owner_target)
+    monkeypatch.setattr(reseller_recharge, "_owner_reseller_topup_target", fake_owner_target)
 
     delivered, route, msg_id, chat_id, thread_id = await reseller_recharge._notify_owner_reseller_topup_request(
         fake_message,

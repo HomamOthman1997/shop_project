@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from aiogram import types
+from utils.translations import t
 
 
 def _as_float(value, default: float = 0.0) -> float:
@@ -10,18 +11,18 @@ def _as_float(value, default: float = 0.0) -> float:
         return float(default)
 
 
-def owner_reseller_topup_review_kb(request_id) -> types.InlineKeyboardMarkup:
+def owner_reseller_topup_review_kb(request_id, lang: str = "en") -> types.InlineKeyboardMarkup:
     rid = str(request_id)
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="Accept Sent Amount", callback_data=f"owner_rchg:accept:{rid}")],
-            [types.InlineKeyboardButton(text="Manual Amount", callback_data=f"owner_rchg:manual:{rid}")],
-            [types.InlineKeyboardButton(text="Reject", callback_data=f"owner_rchg:reject:{rid}")],
+            [types.InlineKeyboardButton(text=t(lang, "owner_accept_sent_amount_button"), callback_data=f"owner_rchg:accept:{rid}")],
+            [types.InlineKeyboardButton(text=t(lang, "owner_manual_amount_button"), callback_data=f"owner_rchg:manual:{rid}")],
+            [types.InlineKeyboardButton(text=t(lang, "owner_reject_button"), callback_data=f"owner_rchg:reject:{rid}")],
         ]
     )
 
 
-def format_owner_reseller_topup_text(req: dict, *, include_approved: bool = True) -> str:
+def format_owner_reseller_topup_text(req: dict, *, include_approved: bool = True, lang: str = "en") -> str:
     details = req.get("details") or {}
     paid_amount = _as_float(details.get("paid_amount"), 0.0)
     paid_currency = str(details.get("paid_currency", "USD")).upper()
@@ -30,27 +31,27 @@ def format_owner_reseller_topup_text(req: dict, *, include_approved: bool = True
     status = str(req.get("status") or "-")
 
     lines = [
-        "Reseller Core Wallet Topup Request",
+        t(lang, "owner_reseller_topup_request_title"),
         "",
-        f"Request ID: {req.get('_id')}",
-        f"Reseller ID: {int(_as_float(req.get('reseller_id'), 0))}",
-        f"Method: {req.get('method')}",
-        f"Paid: {paid_amount:.2f} {paid_currency}",
-        f"Expected Credits: {expected_credits:.4f}",
+        t(lang, "owner_request_id_line").format(request_id=req.get("_id")),
+        t(lang, "owner_reseller_id_line").format(reseller_id=int(_as_float(req.get("reseller_id"), 0))),
+        t(lang, "owner_method_line").format(method=req.get("method")),
+        t(lang, "owner_paid_line").format(paid_amount=paid_amount, paid_currency=paid_currency),
+        t(lang, "owner_expected_credits_line").format(expected_credits=expected_credits),
     ]
     if include_approved:
-        lines.append(f"Approved Credits: {approved_amount:.4f}")
-    lines.append(f"Status: {status}")
+        lines.append(t(lang, "owner_approved_credits_line").format(approved_amount=approved_amount))
+    lines.append(t(lang, "owner_status_line").format(status=status))
     return "\n".join(lines)
 
 
-def user_recharge_review_kb(request_id) -> types.InlineKeyboardMarkup:
+def user_recharge_review_kb(request_id, lang: str = "en") -> types.InlineKeyboardMarkup:
     rid = str(request_id)
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="Add Sent Amount", callback_data=f"recharge_accept_{rid}")],
-            [types.InlineKeyboardButton(text="Add Manual Amount", callback_data=f"recharge_manual_{rid}")],
-            [types.InlineKeyboardButton(text="Need More Proof", callback_data=f"recharge_needproof_{rid}")],
-            [types.InlineKeyboardButton(text="Reject", callback_data=f"recharge_reject_{rid}")],
+            [types.InlineKeyboardButton(text=t(lang, "reseller_add_sent_amount_button"), callback_data=f"recharge_accept_{rid}")],
+            [types.InlineKeyboardButton(text=t(lang, "reseller_add_manual_amount_button"), callback_data=f"recharge_manual_{rid}")],
+            [types.InlineKeyboardButton(text=t(lang, "reseller_need_more_proof_button"), callback_data=f"recharge_needproof_{rid}")],
+            [types.InlineKeyboardButton(text=t(lang, "owner_reject_button"), callback_data=f"recharge_reject_{rid}")],
         ]
     )

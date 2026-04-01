@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from aiogram import Bot
 
@@ -16,6 +17,7 @@ class TelegramErrorHandler(logging.Handler):
         self._bot: Bot | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._last_sent: dict[str, float] = {}
+        self._closing = False
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -28,6 +30,8 @@ class TelegramErrorHandler(logging.Handler):
         return self._bot
 
     async def _emit_async(self, text: str) -> None:
+        if self._closing:
+            return
         target = await get_bot_logs_target()
         if not target:
             return
@@ -43,8 +47,25 @@ class TelegramErrorHandler(logging.Handler):
         except Exception:
             return
 
+    @staticmethod
+    def _is_transient_polling_noise(record: logging.LogRecord, rendered: str) -> bool:
+        logger_name = str(record.name or "").strip().lower()
+        text = str(rendered or "").strip().lower()
+        if not logger_name.startswith("aiogram.dispatcher"):
+            return False
+        return (
+            "failed to fetch updates" in text
+            and (
+                "telegramnetworkerror" in text
+                or "server disconnected" in text
+                or "cannot connect to host api.telegram.org" in text
+                or "clientconnectordnserror" in text
+                or "connection reset by peer" in text
+            )
+        )
+
     def emit(self, record: logging.LogRecord) -> None:
-        if self._loop is None or not self._bot_token:
+        if self._closing or self._loop is None or not self._bot_token:
             return
         try:
             rendered = self.format(record)
@@ -52,9 +73,11 @@ class TelegramErrorHandler(logging.Handler):
             rendered = record.getMessage()
         if not rendered:
             return
+        if self._is_transient_polling_noise(record, rendered):
+            return
 
         dedupe_key = f"{record.name}:{record.levelname}:{rendered[:200]}"
-        now_ts = datetime.utcnow().timestamp()
+        now_ts = datetime.now(UTC).timestamp()
         prev_ts = self._last_sent.get(dedupe_key, 0.0)
         if now_ts - prev_ts < 15.0:
             return
@@ -66,9 +89,20 @@ class TelegramErrorHandler(logging.Handler):
             f"Logger: {record.name}\n\n"
             f"{rendered}"
         )
-        self._loop.call_soon_threadsafe(lambda: asyncio.create_task(self._emit_async(text)))
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        try:
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(self._emit_async(text)))
+        except RuntimeError:
+            # Event loop can be closing during KeyboardInterrupt/SystemExit shutdown.
+            return
 
     async def aclose(self) -> None:
+        self._closing = True
+        root = logging.getLogger()
+        with contextlib.suppress(Exception):
+            root.removeHandler(self)
         if self._bot is not None:
             await self._bot.session.close()
             self._bot = None

@@ -1,23 +1,15 @@
+import json
 import logging
 import re
 import time
-from difflib import SequenceMatcher
 from typing import Any, Optional
 
 from config import settings
 from services.numbers.core.session_manager import SessionManager
-from services.numbers.data.countries import COUNTRIES_LIST
 
 from .base_provider import BaseProvider
 
 logger = logging.getLogger("smsman")
-
-
-def _as_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except Exception:
-        return None
 
 
 def _as_float(value: Any) -> float | None:
@@ -31,221 +23,134 @@ def _norm(value: str) -> str:
     return (value or "").strip().lower().replace(" ", "").replace("-", "").replace("_", "")
 
 
-def _norm_country(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", (value or "").strip().lower())
-
-
-def _tokenize(value: str) -> list[str]:
-    return [_norm(token) for token in re.split(r"[^A-Za-z0-9]+", value or "") if _norm(token)]
+def _strip_tail_variant(value: str) -> str:
+    # "yahoo5" -> "yahoo", "yahoo4uk" keeps as-is (not pure numeric suffix).
+    return re.sub(r"\d+$", "", _norm(value))
 
 
 class SMSManProvider(BaseProvider):
-    DEFAULT_BASE = "https://api.sms-man.com/control"
+    """
+    Compatibility provider slot:
+    - Kept under "smsman" code to avoid changing existing manager mappings.
+    - Internally talks to the new NonVoIP API command set.
+    """
+
+    DEFAULT_BASE = "https://www.non-voip.com/api/reseller"
 
     def __init__(self) -> None:
         self._services_cache: list[dict[str, Any]] = []
         self._services_cached_at: float = 0.0
-        self._services_ttl_sec: int = 900
-        self._countries_cache: list[dict[str, Any]] = []
-        self._countries_cached_at: float = 0.0
-        self._countries_ttl_sec: int = 3600
+        self._services_ttl_sec: int = 300
 
     @property
     def base_url(self) -> str:
-        return (settings.smsman_base_url or self.DEFAULT_BASE).strip().rstrip("/")
+        base = (
+            getattr(settings, "nonvoip_base_url", None)
+            or settings.smsman_base_url
+            or self.DEFAULT_BASE
+        )
+        normalized = str(base).strip().rstrip("/")
+        if normalized.startswith("https://non-voip.com/"):
+            return normalized.replace("https://non-voip.com/", "https://www.non-voip.com/", 1)
+        if normalized == "https://non-voip.com":
+            return "https://www.non-voip.com"
+        return normalized
 
     def _api_key(self) -> Optional[str]:
-        key = (settings.smsman_key or "").strip()
+        key = (
+            getattr(settings, "nonvoip_key", None)
+            or settings.smsman_key
+            or ""
+        )
+        key = str(key).strip()
         return key or None
 
-    @staticmethod
-    def _normalize_price_to_usd(raw_price: float) -> float:
-        mode = str(getattr(settings, "smsman_price_currency", "RUB") or "RUB").strip().upper()
-        if raw_price <= 0:
-            return 0.0
-        if mode == "USD":
-            return float(raw_price)
-        if mode == "CENTS_USD":
-            return float(raw_price) / 100.0
-        # Default: SMS-Man prices are interpreted as RUB and converted to USD.
-        rate = _as_float(getattr(settings, "smsman_rub_to_usd_rate", 0.0112))
-        if rate is None or rate <= 0:
-            rate = 0.0112
-        return float(raw_price) * float(rate)
+    def _email(self) -> Optional[str]:
+        email = str(getattr(settings, "nonvoip_email", None) or "").strip()
+        return email or None
 
     async def _session(self):
         return await SessionManager.get_session()
 
-    async def _request(self, endpoint: str, **params) -> tuple[int, Any]:
+    async def _request(
+        self,
+        command: str,
+        payload: dict[str, Any] | None = None,
+        **params: Any,
+    ) -> tuple[int, Any]:
         key = self._api_key()
         if not key:
-            return 0, {"success": False, "error_code": "missing_api_key", "error_msg": "SMSMAN_KEY is not configured"}
+            return 0, {"code": "400", "message": "missing_api_key"}
+        email = self._email()
+        if not email:
+            return 0, {"code": "400", "message": "missing_email"}
 
-        query: dict[str, Any] = {"token": key}
-        for k, v in params.items():
-            if v is None:
-                continue
-            query[k] = v
+        payload = dict(payload or {})
+        payload.update({k: v for k, v in params.items() if v is not None})
+        url = f"{self.base_url}/{command}"
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "email": email,
+            "api_key": key,
+            "x-non-api-key": key,
+            "x-api-key": key,
+            "authorization": key,
+        }
 
-        url = f"{self.base_url}/{str(endpoint).strip().lstrip('/')}"
         try:
             session = await self._session()
-            async with session.get(url, params=query, timeout=20) as resp:
+            async with session.post(url, json=payload, headers=headers, timeout=20) as resp:
+                status = int(resp.status)
+
+                # Some variants send result in "api-result" header.
+                hdr_result = resp.headers.get("api-result")
+                if hdr_result:
+                    try:
+                        return status, json.loads(hdr_result)
+                    except Exception:
+                        pass
+
                 text = await resp.text()
                 if not text:
-                    return resp.status, {}
+                    return status, {}
                 try:
-                    data = await resp.json(content_type=None)
+                    return status, await resp.json(content_type=None)
                 except Exception:
-                    data = text.strip()
-                return resp.status, data
+                    return status, {"raw_text": text}
         except Exception as exc:
-            logger.exception("SMS-Man request failed: endpoint=%s", endpoint)
-            return 0, {"success": False, "error_code": "request_error", "error_msg": str(exc)}
-
-    async def _limits_available(self, *, country_id: str | None, application_id: str) -> tuple[bool | None, Any]:
-        """Return availability from /limits.
-
-        Returns:
-            (True, raw)  -> available
-            (False, raw) -> explicitly unavailable
-            (None, raw)  -> unknown (do not block buy)
-        """
-        params: dict[str, Any] = {"application_id": int(application_id)}
-        if country_id is not None and str(country_id).isdigit():
-            params["country_id"] = int(country_id)
-        _status, data = await self._request("limits", **params)
-        if self._is_error_payload(data):
-            return None, data
-        rows: list[dict[str, Any]] = []
-        if isinstance(data, list):
-            rows = [item for item in data if isinstance(item, dict)]
-        elif isinstance(data, dict):
-            # Some variants can return map-like payloads.
-            rows = [item for item in data.values() if isinstance(item, dict)]
-
-        if not rows:
-            return None, data
-
-        total = 0
-        for row in rows:
-            app = str(row.get("application_id") or "")
-            c_id = str(row.get("country_id") or "")
-            if app and app != str(application_id):
-                continue
-            if country_id is not None and c_id and c_id != str(country_id):
-                continue
-            total += int(_as_int(row.get("numbers")) or 0)
-        return (total > 0), data
+            logger.warning("nonvoip request failed: %s %s", command, exc)
+            return 0, {"code": "400", "message": str(exc)}
 
     @staticmethod
-    def _is_error_payload(data: Any) -> bool:
+    def _is_error(data: Any) -> bool:
         if not isinstance(data, dict):
             return False
-        if data.get("success") is False:
+        code = str(data.get("code") or "").strip()
+        if code and code != "200":
             return True
-        error_code = str(data.get("error_code") or "").strip().lower()
-        if error_code and error_code != "wait_sms":
+        msg = str(data.get("message") or "").strip().lower()
+        if msg in {"not sufficient", "error", "failed"}:
             return True
         return False
 
     @staticmethod
-    def _common_country_by_code() -> dict[str, dict[str, Any]]:
-        out: dict[str, dict[str, Any]] = {}
-        for row in COUNTRIES_LIST:
-            code = str(row.get("code") or "").strip()
-            if code:
-                out[code] = row
-        return out
+    def _request_ok(data: Any) -> bool:
+        if not isinstance(data, dict):
+            return False
+        if str(data.get("code") or "").strip() == "200":
+            return True
+        return bool(data.get("success"))
 
-    @staticmethod
-    def _smsman_country_aliases(row: dict[str, Any]) -> set[str]:
-        aliases: set[str] = set()
-        title = str(row.get("title") or "").strip()
-        title_key = _norm_country(title)
-        if title_key:
-            aliases.add(title_key)
-        if title_key in {"usa", "unitedstates", "unitedstatesofamerica"}:
-            aliases.update({"us", "usa", "unitedstates", "unitedstatesofamerica"})
-        if title_key in {"uk", "unitedkingdom", "greatbritain", "britain"}:
-            aliases.update({"uk", "gb", "unitedkingdom", "greatbritain", "england"})
-        return aliases
+    async def _request_compat(self, command: str, **params: Any) -> tuple[int, Any]:
+        try:
+            return await self._request(command, **params)
+        except TypeError:
+            return await self._request(command, params)
 
-    async def list_countries(self, force_refresh: bool = False) -> list[dict[str, Any]]:
-        now = time.time()
-        if (
-            not force_refresh
-            and self._countries_cache
-            and (now - self._countries_cached_at) < self._countries_ttl_sec
-        ):
-            return list(self._countries_cache)
-
-        _status, data = await self._request("countries")
-        countries: list[dict[str, Any]] = []
-        items: list[dict[str, Any]] = []
-        if isinstance(data, list):
-            items = [item for item in data if isinstance(item, dict)]
-        elif isinstance(data, dict):
-            # New API variants return object keyed by country id.
-            items = [item for item in data.values() if isinstance(item, dict)]
-        for item in items:
-            cid = _as_int(item.get("id"))
-            if cid is None:
-                continue
-            countries.append({"id": cid, "title": str(item.get("title") or "").strip()})
-
-        if countries:
-            self._countries_cache = countries
-            self._countries_cached_at = now
-        return list(self._countries_cache)
-
-    async def _resolve_country(self, country: str | int | None) -> str | None:
-        if country in (None, "", "none"):
-            return None
-
-        raw = str(country).strip()
-        if not raw:
-            return None
-
-        countries = await self.list_countries()
-        if not countries:
-            return raw if raw.isdigit() else None
-
-        by_id: dict[str, str] = {}
-        by_alias: dict[str, str] = {}
-        for row in countries:
-            cid = _as_int(row.get("id"))
-            if cid is None:
-                continue
-            cid_s = str(cid)
-            by_id[cid_s] = cid_s
-            for alias in self._smsman_country_aliases(row):
-                by_alias.setdefault(alias, cid_s)
-
-        common = self._common_country_by_code()
-        if raw in common:
-            item = common[raw]
-            iso = str(item.get("iso") or "").strip().lower()
-            name = str(item.get("name") or "").strip()
-            candidates = [_norm_country(name), _norm_country(iso), _norm_country(raw)]
-            if iso == "us":
-                candidates.extend(["us", "usa", "unitedstates", "unitedstatesofamerica"])
-            if iso == "gb":
-                candidates.extend(["gb", "uk", "unitedkingdom", "greatbritain", "england"])
-            for candidate in candidates:
-                if candidate and candidate in by_alias:
-                    return by_alias[candidate]
-
-        if raw in by_id:
-            return by_id[raw]
-
-        raw_norm = _norm_country(raw)
-        if raw_norm in by_alias:
-            return by_alias[raw_norm]
-
-        if raw.isdigit():
-            return raw
-        return None
+    async def _resolve_country(self, country: Any) -> str | None:
+        raw = str(country or "").strip()
+        return raw or None
 
     async def list_services(self, force_refresh: bool = False) -> list[dict[str, Any]]:
         now = time.time()
@@ -256,251 +161,292 @@ class SMSManProvider(BaseProvider):
         ):
             return list(self._services_cache)
 
-        _status, data = await self._request("applications")
-        services: list[dict[str, Any]] = []
-        items: list[dict[str, Any]] = []
+        _status, data = await self._request("get_service_list", {})
+        rows: list[dict[str, Any]] = []
+
         if isinstance(data, list):
-            items = [item for item in data if isinstance(item, dict)]
+            rows = [x for x in data if isinstance(x, dict)]
         elif isinstance(data, dict):
-            # New API variants return object keyed by application id.
-            items = [item for item in data.values() if isinstance(item, dict)]
-        for item in items:
-            sid = _as_int(item.get("id"))
-            if sid is None:
+            if isinstance(data.get("data"), list):
+                rows = [x for x in data.get("data", []) if isinstance(x, dict)]
+            elif all(isinstance(v, dict) for v in data.values()):
+                rows = [v for v in data.values() if isinstance(v, dict)]
+            elif {"service_id", "service_name"} <= set(data.keys()):
+                rows = [data]
+
+        normalized: list[dict[str, Any]] = []
+        for row in rows:
+            sid = str(row.get("service_id") or row.get("id") or "").strip()
+            if not sid:
                 continue
-            services.append(
+            normalized.append(
                 {
                     "id": sid,
-                    "code": str(item.get("code") or "").strip(),
-                    # Older docs used "name"; current payload often uses "title".
-                    "name": str(item.get("name") or item.get("title") or "").strip(),
+                    "name": str(row.get("service_name") or row.get("name") or sid).strip(),
+                    "price": _as_float(row.get("price") or 0) or 0.0,
+                    "raw": row,
                 }
             )
 
-        if services:
-            self._services_cache = services
+        if normalized:
+            self._services_cache = normalized
             self._services_cached_at = now
+
         return list(self._services_cache)
 
     async def resolve_service_code(self, service_key: str | int) -> str | None:
         raw = str(service_key or "").strip()
         if not raw:
             return None
+        services = await self.list_services()
+        if raw.isdigit():
+            for item in services:
+                if str(item.get("id")) == raw:
+                    return raw
+            # Numeric id provided but not available in current catalog.
+            return None
+        target = _norm(raw)
+        for item in services:
+            name_norm = _norm(str(item.get("name") or ""))
+            if name_norm == target:
+                return str(item.get("id"))
+            # Allow "yahoo" to match provider variants like "yahoo4"/"yahoo5".
+            if name_norm.startswith(target):
+                suffix = name_norm[len(target):]
+                if suffix.isdigit():
+                    return str(item.get("id"))
+
+        return None
+
+    async def get_price_variants(
+        self,
+        service: str | int,
+        country=None,
+        state=None,
+        *,
+        limit: int = 2,
+    ) -> list[dict[str, Any]]:
+        raw = str(service or "").strip()
+        if not raw:
+            return []
 
         services = await self.list_services()
         if not services:
-            return raw if raw.isdigit() else None
+            return []
 
-        by_id: dict[str, str] = {}
-        by_code: dict[str, str] = {}
-        by_name: dict[str, str] = {}
-        token_hits: list[tuple[str, str]] = []
+        target = _norm(raw)
+        target_base = _strip_tail_variant(raw)
+        picks: list[tuple[float, dict[str, Any]]] = []
+
+        if raw.isdigit():
+            direct = next((x for x in services if str(x.get("id")) == raw), None)
+            if direct:
+                price = _as_float(direct.get("price")) or 0.0
+                if price > 0:
+                    return [
+                        {
+                            "success": True,
+                            "price": float(price),
+                            "api_service_name": str(direct.get("id")),
+                            "raw": direct.get("raw", direct),
+                        }
+                    ]
+            return []
+
         for item in services:
-            sid = str(item.get("id") or "").strip()
-            if not sid:
-                continue
-            by_id[sid] = sid
-            code = _norm(str(item.get("code") or ""))
-            name = _norm(str(item.get("name") or ""))
-            if code:
-                by_code.setdefault(code, sid)
-            if name:
-                by_name.setdefault(name, sid)
-            for token in _tokenize(str(item.get("name") or "")):
-                token_hits.append((token, sid))
-
-        if raw in by_id:
-            return by_id[raw]
-
-        raw_norm = _norm(raw)
-        if raw_norm in by_code:
-            return by_code[raw_norm]
-        if raw_norm in by_name:
-            return by_name[raw_norm]
-
-        for token, sid in token_hits:
-            if raw_norm and raw_norm == token:
-                return sid
-
-        best_sid = None
-        best_score = 0.0
-        for name_norm, sid in by_name.items():
-            score = SequenceMatcher(None, raw_norm, name_norm).ratio()
-            if score > best_score:
-                best_score = score
-                best_sid = sid
-        if best_sid and best_score >= 0.72:
-            return best_sid
-        return None
-
-    async def get_price(self, service, country=None, state=None):
-        app_id = str(service or "").strip()
-        if not app_id:
-            return {"success": False, "raw": "missing_service"}
-        if not app_id.isdigit():
-            resolved = await self.resolve_service_code(app_id)
-            if not resolved:
-                return {"success": False, "raw": "service_not_found"}
-            app_id = str(resolved)
-
-        country_id = await self._resolve_country(country)
-        params: dict[str, Any] = {}
-        if country_id is not None:
-            params["country_id"] = country_id
-
-        _status, data = await self._request("get-prices", **params)
-        if self._is_error_payload(data):
-            return {"success": False, "raw": data}
-        if not isinstance(data, dict):
-            return {"success": False, "raw": data}
-
-        candidates: list[dict[str, Any]] = []
-        # SMS-Man may return one of two payload shapes for get-prices:
-        # 1) {country_id: {application_id: {cost,count,...}}}
-        # 2) {application_id: {cost,count,country_id,...}} (when country_id is passed)
-        for top_key, top_payload in data.items():
-            if not isinstance(top_payload, dict):
+            name = str(item.get("name") or "")
+            name_norm = _norm(name)
+            if not name_norm:
                 continue
 
-            app_payload: dict[str, Any] | None = None
-            payload_country_id: str = str(top_key)
-
-            nested_app_payload = top_payload.get(str(app_id))
-            if isinstance(nested_app_payload, dict):
-                # Shape (1): country -> apps map.
-                app_payload = nested_app_payload
-            elif str(top_key) == str(app_id) and "cost" in top_payload:
-                # Shape (2): direct app payload map.
-                app_payload = top_payload
-                payload_country_id = str(top_payload.get("country_id") or country_id or "")
-
-            if not isinstance(app_payload, dict):
+            matched = False
+            if name_norm == target:
+                matched = True
+            elif name_norm.startswith(target):
+                matched = True
+            elif _strip_tail_variant(name_norm) == target_base and target_base:
+                matched = True
+            if not matched:
                 continue
 
-            if country_id is not None and payload_country_id and str(payload_country_id) != str(country_id):
+            price = _as_float(item.get("price")) or 0.0
+            if price <= 0:
                 continue
+            picks.append((float(price), item))
 
-            price = _as_float(app_payload.get("cost"))
-            count = _as_int(app_payload.get("count")) or 0
-            if price is None or price <= 0:
-                continue
-            price_usd = self._normalize_price_to_usd(float(price))
-            if price_usd <= 0:
-                continue
-            candidates.append(
+        picks.sort(key=lambda x: (x[0], str(x[1].get("id") or "")))
+        out: list[dict[str, Any]] = []
+        for price, item in picks[: max(1, int(limit or 1))]:
+            out.append(
                 {
-                    "price": price_usd,
-                    "provider_price_raw": float(price),
-                    "count": count,
-                    "country_id": str(payload_country_id or country_id or ""),
+                    "success": True,
+                    "price": float(price),
+                    "api_service_name": str(item.get("id") or ""),
+                    "raw": item.get("raw", item),
                 }
             )
+        return out
 
-        if not candidates:
+    async def get_price(self, service, country=None, state=None):
+        raw = str(service or "").strip()
+        if raw.isdigit() and country not in (None, "", "none"):
+            country_id = await self._resolve_country(country)
+            status, data = await self._request_compat("get-prices", country_id=country_id)
+            if status == 200 and isinstance(data, dict):
+                country_rows = data.get(str(country_id)) or data.get(country_id) or {}
+                if isinstance(country_rows, dict):
+                    row = country_rows.get(raw) or {}
+                    if isinstance(row, dict):
+                        price = _as_float(row.get("cost") or row.get("price") or 0)
+                        count = int(float(row.get("count") or 0)) if row.get("count") not in (None, "") else 0
+                        if price is not None and price > 0:
+                            return {
+                                "success": True,
+                                "price": float(price),
+                                "count": count,
+                                "api_service_name": raw,
+                                "raw": data,
+                            }
+        variants = await self.get_price_variants(service, country=country, state=state, limit=1)
+        if not variants:
+            return {"success": False, "raw": "service_not_found"}
+        return variants[0]
+
+    async def buy_number(
+        self,
+        service,
+        country=None,
+        state=None,
+        mdn: Optional[str] = None,
+        areacode: Optional[str] = None,
+        markup: Optional[int] = None,
+    ):
+        raw_service = str(service or "").strip()
+        if raw_service.isdigit() and country not in (None, "", "none"):
+            country_id = await self._resolve_country(country)
+            _status, limits = await self._request_compat("limits", country_id=country_id)
+            if isinstance(limits, list):
+                match = None
+                for row in limits:
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get("application_id") or "") == raw_service and str(row.get("country_id") or "") == str(country_id):
+                        match = row
+                        break
+                if match is not None:
+                    available = int(float(match.get("numbers") or 0)) if match.get("numbers") not in (None, "") else 0
+                    if available <= 0:
+                        return {
+                            "success": False,
+                            "raw": {"error_code": "NO_NUMBERS", "message": "no_numbers_available"},
+                        }
+                    _status, data = await self._request_compat(
+                        "get-number",
+                        application_id=raw_service,
+                        country_id=country_id,
+                    )
+                    if isinstance(data, dict):
+                        order_id = str(data.get("request_id") or data.get("order_id") or "").strip()
+                        number = str(data.get("number") or "").strip()
+                        if order_id and number:
+                            return {
+                                "success": True,
+                                "order_id": order_id,
+                                "number": number,
+                                "raw": data,
+                            }
+                        return {"success": False, "raw": data}
+
+        sid = await self.resolve_service_code(service)
+        if not sid:
+            return {"success": False, "raw": "service_not_found"}
+
+        _status, data = await self._request_compat("order_number", service_id=str(sid))
+        if self._is_error(data):
             return {"success": False, "raw": data}
 
-        chosen = min(candidates, key=lambda x: float(x.get("price") or 0))
-        return {
-            "success": True,
-            "price": round(float(chosen["price"]), 4),
-            "count": int(chosen.get("count") or 0),
-            "api_service_name": app_id,
-            "provider_price_raw": float(chosen.get("provider_price_raw") or 0),
-            "provider_price_currency": str(getattr(settings, "smsman_price_currency", "RUB") or "RUB").upper(),
-            "raw": data,
-        }
-
-    async def buy_number(self, service, country=None, state=None, **kwargs):
-        app_id = str(service or "").strip()
-        if not app_id:
-            return {"success": False, "raw": "missing_service"}
-        if not app_id.isdigit():
-            resolved = await self.resolve_service_code(app_id)
-            if not resolved:
-                return {"success": False, "raw": "service_not_found"}
-            app_id = str(resolved)
-
-        country_id = await self._resolve_country(country)
-        has_limits, limits_raw = await self._limits_available(country_id=country_id, application_id=app_id)
-        if has_limits is False:
-            return {
-                "success": False,
-                "raw": {
-                    "success": False,
-                    "error_code": "NO_NUMBERS",
-                    "error_msg": "No numbers available by limits precheck",
-                    "limits": limits_raw,
-                },
-            }
-        params: dict[str, Any] = {
-            "country_id": int(country_id) if str(country_id or "").isdigit() else 0,
-            "application_id": int(app_id),
-        }
-        # Reuse mode asks SMS-Man for multi-sms capable numbers.
-        if bool(kwargs.get("reuse_mode")):
-            params["hasMultipleSms"] = "True"
-        if hasattr(self, "max_price") and self.max_price is not None:
-            max_price = _as_float(self.max_price)
-            if max_price is not None and max_price > 0:
-                params["maxPrice"] = max_price
-                params["currency"] = "USD"
-
-        _status, data = await self._request("get-number", **params)
-        if self._is_error_payload(data):
-            return {"success": False, "raw": data}
         if not isinstance(data, dict):
             return {"success": False, "raw": data}
 
-        order_id = str(data.get("request_id") or "").strip()
+        order_id = str(data.get("order_id") or data.get("id") or "").strip()
         number = str(data.get("number") or "").strip()
         if not order_id or not number:
             return {"success": False, "raw": data}
+
         return {
             "success": True,
             "order_id": order_id,
             "number": number,
-            "can_resend": bool(kwargs.get("reuse_mode")),
             "raw": data,
         }
 
-    async def get_sms(self, activation_id: str):
-        _status, data = await self._request("get-sms", request_id=activation_id)
+    async def get_sms(self, activation_id) -> dict[str, Any]:
+        try:
+            _status, data = await self._request_compat("get-sms", request_id=str(activation_id))
+        except Exception:
+            _status, data = await self._request_compat("get_messages", order_id=str(activation_id))
         if isinstance(data, dict):
-            err_code = str(data.get("error_code") or "").strip().lower()
-            if err_code == "wait_sms":
+            old_code = str(data.get("error_code") or "").strip().lower()
+            if old_code == "wait_sms":
                 return {"success": True, "messages": [], "raw": data}
-            if self._is_error_payload(data):
-                return {"success": False, "messages": [], "raw": data}
-
-            messages: list[str] = []
             sms_code = str(data.get("sms_code") or "").strip()
             if sms_code:
-                messages.append(sms_code)
-            return {"success": True, "messages": messages, "raw": data}
+                return {
+                    "success": True,
+                    "code": sms_code,
+                    "messages": [sms_code],
+                    "raw": data,
+                }
+        if self._is_error(data):
+            return {"success": False, "messages": [], "raw": data}
 
-        return {"success": False, "messages": [], "raw": data}
+        if not isinstance(data, dict):
+            return {"success": False, "messages": [], "raw": data}
 
-    async def cancel(self, activation_id: str):
-        # try refund-like path first, then hard close.
-        for status_value in ("reject", "close"):
-            _status, data = await self._request("set-status", request_id=activation_id, status=status_value)
-            if isinstance(data, dict) and data.get("success") is True:
-                return {"success": True, "raw": data}
-        return {"success": False, "raw": data if "data" in locals() else "cancel_failed"}
+        text = str(data.get("text") or data.get("message") or "").strip()
+        code = str(data.get("code") or "").strip()
+        messages: list[str] = []
+        if text:
+            messages.append(text)
+        elif code:
+            messages.append(code)
 
-    async def resend(self, activation_id: str) -> bool:
-        # SMS-Man uses `ready` to continue receiving additional SMS on the same request.
-        _status, data = await self._request("set-status", request_id=activation_id, status="ready")
-        return isinstance(data, dict) and data.get("success") is True
+        return {
+            "success": bool(messages),
+            "code": code,
+            "messages": messages,
+            "raw": data,
+        }
+
+    async def cancel(self, activation_id) -> dict[str, Any]:
+        compat_ok = False
+        compat_data: Any = None
+        for status_name in ("reject", "close"):
+            try:
+                _status, compat_data = await self._request_compat("set-status", id=str(activation_id), status=status_name)
+            except Exception:
+                compat_data = None
+                break
+            if self._request_ok(compat_data):
+                compat_ok = True
+                break
+        if compat_ok:
+            return {"success": True, "raw": compat_data}
+
+        _status, data = await self._request_compat("refund_number", id=str(activation_id))
+        if not isinstance(data, dict):
+            return {"success": False, "raw": data}
+        ok = str(data.get("code") or "").strip() == "200" or bool(data.get("success"))
+        return {"success": ok, "raw": data}
 
     async def get_balance(self) -> Optional[float]:
-        _status, data = await self._request("get-balance")
+        try:
+            _status, data = await self._request_compat("get-balance")
+        except Exception:
+            data = None
         if isinstance(data, dict):
-            return _as_float(data.get("balance"))
+            for key in ("balance", "amount", "value"):
+                parsed = _as_float(data.get(key))
+                if parsed is not None:
+                    return parsed
         return None
-
-    async def get_account(self) -> Optional[dict]:
-        balance = await self.get_balance()
-        if balance is None:
-            return None
-        return {"balance": balance}

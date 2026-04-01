@@ -1,33 +1,59 @@
 ﻿from datetime import UTC, datetime, timedelta
 from html import escape
+from io import BytesIO
+import logging
 
-from aiogram import Router, types
+from aiogram import Bot, Router, types
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
+from config import OWNER_ID, settings
 from database.bots_repo import get_reseller_id_for_bot
 from database.financial_ledger import get_reseller_wallet_balance, get_user_wallet_balance
 from database.mongo import db
 from database.recharge_repo import create_recharge_request
+from database.owner_payment_settings_repo import get_owner_payment_methods
 from database.reseller_settings_repo import (
     get_exchange_rate_meta,
     get_exchange_routing,
     get_payment_methods,
     get_recharge_routing,
+    get_support_routing,
     mark_exchange_rate_reminded_today
+)
+from database.support_topics_repo import get_support_target
+from database.support_tickets_repo import (
+    create_support_ticket,
+    get_support_ticket,
+    has_open_support_ticket,
+    mark_support_ticket_replied,
+    mark_support_ticket_solved,
+    set_ticket_delivery,
 )
 from database.user_repo import get_user, get_user_reseller_for_bot, set_user_reseller_for_bot
 from keyboards.balance_keyboard import balance_keyboard
-from keyboards.main_menu_kb import main_menu
 from keyboards.recharge_methods_keyboard import recharge_methods_keyboard
 from keyboards.reseller_main_menu import reseller_main_menu
+from utils.bot_menu_context import (
+    is_digital_products_bot,
+    is_main_bot,
+    is_reseller_owned_bot,
+    menu_for_current_bot,
+    resolve_runtime_bot_id,
+    send_digital_products_message,
+    send_main_bot_message,
+)
+from services.subscriptions.presentation import subscription_summary_lines
 from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_message_guard
 from utils.permissions import is_reseller
-from utils.recharge_ui import user_recharge_review_kb
+from utils.recharge_ui import owner_reseller_topup_review_kb, user_recharge_review_kb
 from utils.translations import t
+from utils.user_money import format_usd
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
 def _btn_values(key: str) -> set[str]:
@@ -51,6 +77,129 @@ def _pay_nav_kb(lang: str) -> ReplyKeyboardMarkup:
         keyboard=[[KeyboardButton(text=t(lang, "btn_back"))], [KeyboardButton(text=t(lang, "btn_cancel"))]],
         resize_keyboard=True,
     )
+
+
+async def _wallet_scope_error_text(*, lang: str, bot_id: int) -> str:
+    if await _uses_platform_wallet(bot_id):
+        return t(lang, "platform_wallet_scope_missing")
+    return t(lang, "no_reseller_link_found")
+
+
+async def _uses_platform_wallet(bot_id: int) -> bool:
+    return await is_main_bot(bot_id) or await is_digital_products_bot(bot_id)
+
+
+async def _current_bot_id(bot) -> int:
+    return int(await resolve_runtime_bot_id(bot) or 0)
+
+
+def _support_bridge_token() -> str:
+    return str(getattr(settings, "bot_admin_token", "") or "").strip()
+
+
+async def _platform_bridge_bot(current_bot: Bot) -> Bot:
+    token = _support_bridge_token()
+    if not token:
+        raise TelegramBadRequest(method="sendMessage", message="platform bridge bot is not configured")
+    return Bot(token=token, timeout=30)
+
+
+async def _download_telegram_file(bot: Bot, file_id: str) -> tuple[bytes, str]:
+    file = await bot.get_file(file_id)
+    buf = BytesIO()
+    await bot.download(file, destination=buf)
+    filename = str(getattr(file, "file_path", "") or "").split("/")[-1] or "file.bin"
+    return buf.getvalue(), filename
+
+
+def _extract_support_payload(message: types.Message) -> dict:
+    if message.photo:
+        return {
+            "kind": "photo",
+            "file_id": str(message.photo[-1].file_id),
+            "caption": message.caption,
+        }
+    if message.document:
+        return {
+            "kind": "document",
+            "file_id": str(message.document.file_id),
+            "caption": message.caption,
+            "filename": message.document.file_name,
+        }
+    if message.video:
+        return {
+            "kind": "video",
+            "file_id": str(message.video.file_id),
+            "caption": message.caption,
+        }
+    if message.voice:
+        return {
+            "kind": "voice",
+            "file_id": str(message.voice.file_id),
+            "caption": message.caption,
+        }
+    if message.audio:
+        return {
+            "kind": "audio",
+            "file_id": str(message.audio.file_id),
+            "caption": message.caption,
+        }
+    if message.text:
+        return {"kind": "text", "text": message.text}
+    return {"kind": "unsupported"}
+
+
+async def _relay_support_payload(source_bot: Bot, bridge_bot: Bot, payload: dict, *, target: dict, user_id: int) -> None:
+    kwargs = {"chat_id": int(target["chat_id"])}
+    if target.get("message_thread_id") is not None:
+        kwargs["message_thread_id"] = int(target["message_thread_id"])
+
+    kind = str(payload.get("kind") or "").strip().lower()
+    if kind == "photo":
+        data, filename = await _download_telegram_file(source_bot, str(payload.get("file_id") or ""))
+        await bridge_bot.send_photo(
+            photo=BufferedInputFile(data, filename=filename or "photo.jpg"),
+            caption=payload.get("caption"),
+            **kwargs,
+        )
+        return
+    if kind == "document":
+        data, filename = await _download_telegram_file(source_bot, str(payload.get("file_id") or ""))
+        await bridge_bot.send_document(
+            document=BufferedInputFile(data, filename=str(payload.get("filename") or filename or "document.bin")),
+            caption=payload.get("caption"),
+            **kwargs,
+        )
+        return
+    if kind == "video":
+        data, filename = await _download_telegram_file(source_bot, str(payload.get("file_id") or ""))
+        await bridge_bot.send_video(
+            video=BufferedInputFile(data, filename=filename or "video.mp4"),
+            caption=payload.get("caption"),
+            **kwargs,
+        )
+        return
+    if kind == "voice":
+        data, filename = await _download_telegram_file(source_bot, str(payload.get("file_id") or ""))
+        await bridge_bot.send_voice(
+            voice=BufferedInputFile(data, filename=filename or "voice.ogg"),
+            caption=payload.get("caption"),
+            **kwargs,
+        )
+        return
+    if kind == "audio":
+        data, filename = await _download_telegram_file(source_bot, str(payload.get("file_id") or ""))
+        await bridge_bot.send_audio(
+            audio=BufferedInputFile(data, filename=filename or "audio.mp3"),
+            caption=payload.get("caption"),
+            **kwargs,
+        )
+        return
+    if kind == "text":
+        await bridge_bot.send_message(text=str(payload.get("text") or ""), **kwargs)
+        return
+    fallback_text = f"Unsupported support message type from user {int(user_id)}."
+    await bridge_bot.send_message(text=fallback_text, **kwargs)
 
 
 async def _hide_reply_keyboard(message: types.Message, lang: str) -> None:
@@ -78,13 +227,126 @@ def _language_label(language: str) -> str:
     return "Arabic" if str(language or "").strip().lower() == "ar" else "English"
 
 
-def _user_settings_main_text(lang: str, user_doc: dict | None) -> str:
-    user_lang = str((user_doc or {}).get("language") or "en").strip().lower()
+async def _user_settings_main_text(user_doc: dict | None, *, lang: str, bot_id: int, user_id: int) -> str:
+    profile_text = await _user_profile_settings_text(
+        user_doc,
+        lang=lang,
+        bot_id=bot_id,
+        user_id=user_id,
+    )
     return (
         f"{t(lang, 'user_settings_title')}\n\n"
-        f"{t(lang, 'user_settings_hint')}\n"
-        f"- {t(lang, 'user_settings_lang')}: {_language_label(user_lang)}"
+        f"{profile_text}\n\n"
+        f"{t(lang, 'user_settings_hint')}"
     )
+
+
+SUPPORT_CATEGORIES = ("proxies", "numbers", "services", "user_balance")
+
+
+def _support_category_label(lang: str, category: str) -> str:
+    return t(lang, f"support_category_{category}")
+
+
+def _support_menu_text(lang: str) -> str:
+    return t(lang, "support_menu_text")
+
+
+def _support_menu_kb(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=_support_category_label(lang, "proxies"), callback_data="support:cat:proxies")],
+            [InlineKeyboardButton(text=_support_category_label(lang, "numbers"), callback_data="support:cat:numbers")],
+            [InlineKeyboardButton(text=_support_category_label(lang, "services"), callback_data="support:cat:services")],
+            [InlineKeyboardButton(text=_support_category_label(lang, "user_balance"), callback_data="support:cat:user_balance")],
+            [InlineKeyboardButton(text=t(lang, "user_settings_close"), callback_data="support:close")],
+        ]
+    )
+
+
+def _support_session_kb(lang: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=t(lang, "support_done_button"))],
+            [KeyboardButton(text=t(lang, "btn_cancel"))],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+        one_time_keyboard=False,
+    )
+
+
+def _support_session_intro(lang: str, category: str) -> str:
+    return t(lang, "support_session_intro").format(category=_support_category_label(lang, category))
+
+
+def _support_owner_reply_kb(*, lang: str, category: str, user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t(lang, "support_reply_button"),
+                    callback_data=f"support:reply:{category}:{int(user_id)}",
+                )
+            ]
+        ]
+    )
+
+
+def _support_ticket_action_kb(*, lang: str, ticket_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=t(lang, "support_reply_button"), callback_data=f"support:reply_ticket:{ticket_id}"),
+                InlineKeyboardButton(text=t(lang, "support_solved_button"), callback_data=f"support:solve_ticket:{ticket_id}"),
+            ]
+        ]
+    )
+
+
+def _support_ticket_header(
+    *,
+    lang: str,
+    ticket_no: int | None = None,
+    category: str,
+    user_doc: dict | None,
+    user_id: int,
+    bot_username: str,
+) -> str:
+    username_raw = str((user_doc or {}).get("username") or "").strip()
+    username_display = f"@{username_raw}" if username_raw else "-"
+    full_name = str((user_doc or {}).get("full_name") or "").strip() or "-"
+    return t(lang, "support_ticket_header").format(
+        ticket_no=int(ticket_no or 0),
+        category=_support_category_label(lang, category),
+        user_id=int(user_id),
+        username=username_display,
+        full_name=full_name,
+        bot_username=bot_username or "-",
+    )
+
+
+async def _support_scope_for_bot(bot_id: int) -> tuple[str, int | None]:
+    if await is_reseller_owned_bot(bot_id):
+        reseller_id = await get_reseller_id_for_bot(bot_id)
+        return "reseller", int(reseller_id) if reseller_id else None
+    return "platform", None
+
+
+async def _resolve_support_target(bot_id: int, category: str) -> dict | None:
+    scope, owner_id = await _support_scope_for_bot(bot_id)
+    if scope == "reseller" and owner_id:
+        return await get_support_routing(owner_id, category)
+    return await get_support_target(category)
+
+
+async def _support_bot_for_scope(scope: str, current_bot: Bot) -> Bot:
+    if scope == "platform":
+        token = _support_bridge_token()
+        if not token:
+            raise TelegramBadRequest(method="sendMessage", message="support bridge bot is not configured")
+        return Bot(token=token, timeout=30)
+    return current_bot
 
 
 def _user_settings_main_kb(lang: str, user_doc: dict | None) -> InlineKeyboardMarkup:
@@ -97,7 +359,6 @@ def _user_settings_main_kb(lang: str, user_doc: dict | None) -> InlineKeyboardMa
                     callback_data="uset:lang",
                 )
             ],
-            [InlineKeyboardButton(text=t(lang, "user_settings_my_account"), callback_data="uset:profile")],
             [InlineKeyboardButton(text=t(lang, "user_settings_close"), callback_data="uset:close")],
         ]
     )
@@ -148,25 +409,143 @@ def _format_joined_date(value) -> str:
 
 async def _user_profile_settings_text(user_doc: dict | None, *, lang: str, bot_id: int, user_id: int) -> str:
     user_doc = user_doc or {}
-    reseller_id = await get_user_reseller_for_bot(user_id, bot_id)
-    if not reseller_id:
-        reseller_id = user_doc.get("reseller_id")
+    if await _uses_platform_wallet(bot_id):
+        wallet_scope = t(lang, "platform_wallet_scope_label")
+    else:
+        reseller_id = await get_user_reseller_for_bot(user_id, bot_id)
+        if not reseller_id:
+            reseller_id = user_doc.get("reseller_id")
+        wallet_scope = t(lang, "reseller_wallet_scope_label").format(reseller_id=str(reseller_id or "-"))
     username_raw = str(user_doc.get("username") or "").strip()
     username_display = f"@{username_raw}" if username_raw else "-"
     return t(lang, "user_settings_profile_text").format(
         user_id=int(user_id),
         username=username_display,
         language=_language_label(str(user_doc.get("language") or "en")),
-        reseller_id=str(reseller_id or "-"),
+        wallet_scope=wallet_scope,
+        reseller_id=wallet_scope,
         joined_at=_format_joined_date(user_doc.get("created_at")),
     )
 
 
 async def _open_user_settings_message(message: types.Message, user_doc: dict | None, lang: str):
+    bot_id = (await message.bot.get_me()).id
     await message.answer(
-        _user_settings_main_text(lang, user_doc),
+        await _user_settings_main_text(
+            user_doc,
+            lang=lang,
+            bot_id=bot_id,
+            user_id=message.from_user.id,
+        ),
         reply_markup=_user_settings_main_kb(lang, user_doc),
     )
+
+
+async def _send_support_header_if_needed(
+    source_bot: Bot,
+    *,
+    state: FSMContext,
+    lang: str,
+    category: str,
+    user_doc: dict | None,
+    target: dict,
+    user_id: int,
+    source_chat_id: int,
+) -> tuple[dict, Bot]:
+    data = await state.get_data()
+    scope, owner_id = await _support_scope_for_bot(int(await _current_bot_id(source_bot) or 0))
+    bridge_bot = await _support_bot_for_scope(scope, source_bot)
+    if data.get("support_ticket_id"):
+        ticket = await get_support_ticket(str(data["support_ticket_id"]))
+        if ticket:
+            return ticket, bridge_bot
+
+    me = await source_bot.get_me()
+    payload_count = int(data.get("support_payload_count") or 0)
+    ticket = await create_support_ticket(
+        scope=scope,
+        owner_id=owner_id,
+        source_bot_id=int(await _current_bot_id(source_bot) or 0),
+        chat_id=int(source_chat_id),
+        user_id=user_id,
+        username=str((user_doc or {}).get("username") or "").strip(),
+        full_name=str((user_doc or {}).get("full_name") or "").strip(),
+        category=category,
+        payload_count=payload_count,
+    )
+    try:
+        sent = await bridge_bot.send_message(
+            chat_id=int(target["chat_id"]),
+            text=_support_ticket_header(
+                lang=lang,
+                ticket_no=int(ticket.get("ticket_no") or 0),
+                category=category,
+                user_doc=user_doc,
+                user_id=user_id,
+                bot_username=f"@{me.username}" if getattr(me, "username", None) else str(me.id),
+            ),
+            message_thread_id=target.get("message_thread_id"),
+            reply_markup=_support_ticket_action_kb(lang=lang, ticket_id=str(ticket["_id"])),
+        )
+        await set_ticket_delivery(
+            ticket["_id"],
+            target_chat_id=int(target["chat_id"]),
+            target_thread_id=int(target["message_thread_id"]) if target.get("message_thread_id") is not None else None,
+            header_message_id=int(getattr(sent, "message_id", 0) or 0),
+        )
+        await state.update_data(support_ticket_id=str(ticket["_id"]))
+        return ticket, bridge_bot
+    except Exception:
+        if bridge_bot is not source_bot:
+            try:
+                await bridge_bot.session.close()
+            except Exception:
+                pass
+        raise
+
+
+async def _forward_support_message(
+    source_bot: Bot,
+    *,
+    category: str,
+    lang: str,
+    state: FSMContext,
+    user_doc: dict | None,
+    user_id: int,
+    source_chat_id: int,
+    payloads: list[dict],
+) -> bool:
+    bot_id = int(await _current_bot_id(source_bot) or 0)
+    target = await _resolve_support_target(bot_id, category)
+    if not target or not isinstance(target.get("chat_id"), int):
+        return False
+
+    bridge_bot: Bot | None = None
+    try:
+        _, bridge_bot = await _send_support_header_if_needed(
+            source_bot,
+            state=state,
+            lang=lang,
+            category=category,
+            user_doc=user_doc,
+            target=target,
+            user_id=user_id,
+            source_chat_id=source_chat_id,
+        )
+        for payload in payloads:
+            await _relay_support_payload(source_bot, bridge_bot, payload, target=target, user_id=user_id)
+        return True
+    except TelegramBadRequest as exc:
+        logger.warning("support delivery failed category=%s user_id=%s error=%s", category, user_id, exc)
+    except Exception:
+        logger.exception("support delivery failed category=%s user_id=%s", category, user_id)
+    finally:
+        if bridge_bot is not None and bridge_bot is not source_bot:
+            try:
+                await bridge_bot.session.close()
+            except Exception:
+                pass
+    return False
 
 
 async def _build_reseller_stats_text(reseller_id: int) -> str:
@@ -178,11 +557,51 @@ async def _build_reseller_stats_text(reseller_id: int) -> str:
     return (
         "Reseller Quick Stats\n\n"
         f"Reseller ID: {rid}\n"
-        f"Main wallet: ${main_balance:.2f}\n"
-        f"Earnings wallet: ${earnings_balance:.2f}\n"
+        f"Main Bot balance: {format_usd(main_balance)}\n"
+        f"Custom-profit wallet: {format_usd(earnings_balance)}\n"
         f"Pending recharge requests: {pending_recharge}\n"
         f"Need-more-proof requests: {need_more_proof}"
     )
+
+
+async def _owned_bots_subscription_lines(owner_id: int, *, lang: str) -> list[str]:
+    rows = await db.bots.find(
+        {"owner_id": int(owner_id), "active": True},
+        {"bot_id": 1, "subscription": 1, "username_lc": 1, "bot_username_lc": 1, "reseller.bot_username_lc": 1},
+    ).sort("created_at", 1).to_list(length=20)
+    if not rows:
+        return []
+
+    lines: list[str] = []
+    for row in rows:
+        label = (
+            str(row.get("bot_username_lc") or "").strip()
+            or str(row.get("username_lc") or "").strip()
+            or str(((row.get("reseller") or {}).get("bot_username_lc")) or "").strip()
+            or f"bot-{int(row.get('bot_id') or 0)}"
+        )
+        if not label.startswith("@") and not label.startswith("bot-"):
+            label = f"@{label}"
+        summary = subscription_summary_lines(lang, dict(row.get("subscription") or {}))
+        compact = " | ".join(summary[:3])
+        lines.append(f"- {label}: {compact}")
+    return lines
+
+
+async def _build_main_bot_reseller_balance_text(reseller_id: int, *, lang: str) -> str:
+    main_balance = await get_reseller_wallet_balance(int(reseller_id), wallet_type="main")
+    earnings_balance = await get_reseller_wallet_balance(int(reseller_id), wallet_type="earnings")
+    bot_lines = await _owned_bots_subscription_lines(int(reseller_id), lang=lang)
+    is_ar = str(lang or "").lower().startswith("ar")
+    header = "رصيدك في البوت الرئيسي" if is_ar else "Your Main Bot balance"
+    profit_label = "أرباح خدماتك الخاصة" if is_ar else "Custom-services profit"
+    bots_title = "حالة اشتراك بوتاتك" if is_ar else "Your bot subscriptions"
+    text = (
+        f"{header}: {format_usd(main_balance)}\n"
+        f"{profit_label}: {format_usd(earnings_balance)}\n"
+        + ("\n\n" + bots_title + "\n" + "\n".join(bot_lines) if bot_lines else "")
+    )
+    return text
 
 
 async def _maybe_send_exchange_rate_reminder(bot, reseller_id: int):
@@ -205,12 +624,9 @@ async def _maybe_send_exchange_rate_reminder(bot, reseller_id: int):
     if not routing:
         return
 
-    text = (
-        "Daily Exchange Reminder\n\n"
-        "Please update today's USD/SYP rate from Reseller Settings.\n"
-        "Open: Reseller Settings -> Set Exchange Rate\n"
-        f"Current stored rate: 1 USD = {float(meta.get('usd_to_syp', 0)):.2f} SYP\n"
-        f"Last update (UTC): {updated_at}"
+    text = t("en", "daily_exchange_reminder_card").format(
+        rate=float(meta.get("usd_to_syp", 0)),
+        updated_at=updated_at,
     )
 
     try:
@@ -223,14 +639,20 @@ async def _maybe_send_exchange_rate_reminder(bot, reseller_id: int):
         return
 
 
-async def _notify_recharge_request_to_reseller_topic(
-    message: types.Message, req: dict, user_doc: dict | None
+async def _notify_recharge_request_to_review_queue(
+    message: types.Message,
+    req: dict,
+    user_doc: dict | None,
+    *,
+    main_bot_flow: bool,
 ) -> tuple[bool, str, int | None, int | None, int | None]:
+    wallet_scope = str(((req.get("details") or {}).get("wallet_scope")) or "").strip().lower()
     reseller_id = req.get("reseller_id")
-    if not reseller_id:
-        return False, "missing_reseller_id", None, None, None
+    if reseller_id is None:
+        return False, "missing_wallet_scope_id", None, None, None
 
-    await _maybe_send_exchange_rate_reminder(message.bot, int(reseller_id))
+    if not main_bot_flow:
+        await _maybe_send_exchange_rate_reminder(message.bot, int(reseller_id))
 
     username = "@" + user_doc.get("username") if user_doc and user_doc.get("username") else "-"
     full_name = " ".join(filter(None, [message.from_user.first_name, message.from_user.last_name])) or "-"
@@ -239,28 +661,26 @@ async def _notify_recharge_request_to_reseller_topic(
     paid_amount = float(details.get("paid_amount", 0))
     paid_currency = str(details.get("paid_currency", "USD"))
     credits = float(req.get("amount", 0))
-    caption = (
-        "Manual Payment Request\n\n"
-        f"Request ID: {request_id}\n"
-        f"User ID: {message.from_user.id}\n"
-        f"Username: {username}\n"
-        f"Name: {full_name}\n"
-        f"Method: {req.get('method', '-')}\n"
-        f"Paid: {paid_amount:.2f} {paid_currency}\n"
-        f"Requested Credits: {credits:.4f}\n"
-        "Credits Unit: USD credits\n"
-        f"Approved: Pending\n"
-        f"Credited To User: Pending\n"
-        f"Created At: {req.get('created_at')}"
+    caption = t("en", "user_manual_payment_request_card").format(
+        request_id=request_id,
+        user_id=message.from_user.id,
+        username=username,
+        full_name=full_name,
+        method=req.get("method", "-"),
+        paid_amount=paid_amount,
+        paid_currency=paid_currency,
+        credits=credits,
+        created_at=req.get("created_at"),
     )
 
-    kb = user_recharge_review_kb(request_id)
+    kb = owner_reseller_topup_review_kb(request_id) if main_bot_flow else user_recharge_review_kb(request_id)
 
-    async def _send_to_target(chat_id: int, message_thread_id: int | None = None):
+    async def _send_to_target(chat_id: int, message_thread_id: int | None = None, *, sender_bot: Bot | None = None):
         prev = req.get("delivery") or {}
         prev_chat = prev.get("chat_id")
         prev_msg = prev.get("message_id")
         prev_thread = prev.get("message_thread_id")
+        active_bot = sender_bot or message.bot
 
         # avoid duplicate request cards: remove old delivery message first when possible
         if prev_chat is not None and prev_msg is not None:
@@ -269,7 +689,7 @@ async def _notify_recharge_request_to_reseller_topic(
             now_thread = int(message_thread_id) if message_thread_id is not None else None
             if same_chat and same_thread == now_thread:
                 try:
-                    await message.bot.delete_message(chat_id=int(chat_id), message_id=int(prev_msg))
+                    await active_bot.delete_message(chat_id=int(chat_id), message_id=int(prev_msg))
                 except Exception:
                     pass
 
@@ -279,31 +699,67 @@ async def _notify_recharge_request_to_reseller_topic(
 
         proof_file_id = req.get("proof_file_id")
         if proof_file_id:
-            sent = await message.bot.send_photo(photo=proof_file_id, caption=caption, **kwargs)
+            if active_bot is message.bot:
+                sent = await active_bot.send_photo(photo=proof_file_id, caption=caption, **kwargs)
+            else:
+                data, filename = await _download_telegram_file(message.bot, str(proof_file_id))
+                sent = await active_bot.send_photo(
+                    photo=BufferedInputFile(data, filename=filename or "recharge-proof.jpg"),
+                    caption=caption,
+                    **kwargs,
+                )
         else:
-            sent = await message.bot.send_message(text=caption, **kwargs)
+            sent = await active_bot.send_message(text=caption, **kwargs)
         return sent
 
     errors: list[str] = []
-    routing = await get_recharge_routing(int(reseller_id))
-    if routing:
-        try:
-            sent = await _send_to_target(int(routing["chat_id"]), routing.get("message_thread_id"))
-            return (
-                True,
-                "topic",
-                int(getattr(sent, "message_id", 0) or 0),
-                int(routing["chat_id"]),
-                int(routing.get("message_thread_id")) if routing.get("message_thread_id") is not None else None,
-            )
-        except Exception as exc:
-            errors.append(f"topic_send_failed:{exc}")
+    if main_bot_flow:
+        target = await db.system_settings.find_one({"_id": "owner_notifications"}) or {}
+        target_chat_id = target.get("chat_id")
+        if isinstance(target_chat_id, int):
+            bridge_bot: Bot | None = None
+            try:
+                bridge_bot = await _platform_bridge_bot(message.bot)
+                sent = await _send_to_target(
+                    int(target_chat_id),
+                    target.get("message_thread_id"),
+                    sender_bot=bridge_bot,
+                )
+                return (
+                    True,
+                    "owner_topic",
+                    int(getattr(sent, "message_id", 0) or 0),
+                    int(target_chat_id),
+                    int(target.get("message_thread_id")) if target.get("message_thread_id") is not None else None,
+                )
+            except Exception as exc:
+                errors.append(f"owner_topic_send_failed:{exc}")
+            finally:
+                if bridge_bot is not None:
+                    try:
+                        await bridge_bot.session.close()
+                    except Exception:
+                        pass
+    else:
+        routing = await get_recharge_routing(int(reseller_id))
+        if routing:
+            try:
+                sent = await _send_to_target(int(routing["chat_id"]), routing.get("message_thread_id"))
+                return (
+                    True,
+                    "topic",
+                    int(getattr(sent, "message_id", 0) or 0),
+                    int(routing["chat_id"]),
+                    int(routing.get("message_thread_id")) if routing.get("message_thread_id") is not None else None,
+                )
+            except Exception as exc:
+                errors.append(f"topic_send_failed:{exc}")
 
-    try:
-        sent = await _send_to_target(int(reseller_id), None)
-        return True, "reseller_dm_fallback", int(getattr(sent, "message_id", 0) or 0), int(reseller_id), None
-    except Exception as exc:
-        errors.append(f"dm_send_failed:{exc}")
+        try:
+            sent = await _send_to_target(int(reseller_id), None)
+            return True, "reseller_dm_fallback", int(getattr(sent, "message_id", 0) or 0), int(reseller_id), None
+        except Exception as exc:
+            errors.append(f"dm_send_failed:{exc}")
 
     return False, " | ".join(errors) if errors else "delivery_failed", None, None, None
 
@@ -314,7 +770,17 @@ class RechargeFlow(StatesGroup):
     waiting_proof = State()
 
 
+class SupportFlow(StatesGroup):
+    waiting_message = State()
+
+
+class SupportOwnerReplyFlow(StatesGroup):
+    waiting_message = State()
+
+
 async def _resolve_user_reseller(user_doc: dict | None, *, bot_id: int, user_id: int) -> int | None:
+    if await _uses_platform_wallet(bot_id):
+        return int(user_id)
     reseller_id = await get_user_reseller_for_bot(user_id, bot_id)
     if reseller_id:
         return int(reseller_id)
@@ -334,7 +800,7 @@ async def _return_main_menu(message: types.Message, user_id: int) -> None:
         await _hide_reply_keyboard(message, lang)
         await message.answer(t(lang, "main_menu"), reply_markup=reseller_main_menu(lang))
     else:
-        await message.answer(t(lang, "main_menu"), reply_markup=main_menu(lang))
+        await message.answer(t(lang, "main_menu"), reply_markup=await menu_for_current_bot(lang, bot_id))
 
 
 @router.message(lambda msg: _is_btn(msg.text, "btn_balance") or _is_btn(msg.text, "btn_reseller_balance") or ((msg.text or "").startswith("/balance")))
@@ -344,22 +810,16 @@ async def balance_handler(message: types.Message):
     bot_id = (await message.bot.get_me()).id
 
     if await is_reseller(message.from_user.id, bot_id=bot_id):
-        main_balance = await get_reseller_wallet_balance(message.from_user.id, wallet_type="main")
-        earnings_balance = await get_reseller_wallet_balance(message.from_user.id, wallet_type="earnings")
-        await message.answer(
-            t(lang, "deposit_info").format(deposit=main_balance)
-            + f"\nEarnings wallet: ${earnings_balance:.2f}."
-            + "\nMain wallet covers provider/base costs."
-            + "\nEarnings wallet is your accumulated profit before settlement."
-        )
+        await message.answer(await _build_main_bot_reseller_balance_text(message.from_user.id, lang=lang))
         return
 
-    reseller_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
-    if not reseller_id:
-        return await message.answer("No reseller link found for this account.")
-    balance = await get_user_wallet_balance(message.from_user.id, int(reseller_id))
+    wallet_scope_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
+    platform_wallet_flow = await _uses_platform_wallet(bot_id)
+    if not wallet_scope_id:
+        return await message.answer(await _wallet_scope_error_text(lang=lang, bot_id=bot_id))
+    balance = await get_user_wallet_balance(message.from_user.id, int(wallet_scope_id))
     text = t(lang, "balance_info").format(balance=balance)
-    text += "\nThis is your available wallet balance for purchases on this reseller bot."
+    text += "\n" + t(lang, "available_wallet_balance_note_platform_shared" if platform_wallet_flow else "available_wallet_balance_note")
     await message.answer(text, reply_markup=balance_keyboard(lang))
 
 
@@ -368,19 +828,21 @@ async def show_recharge_methods(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = user.get("language", "en") if user else "en"
     bot_id = (await message.bot.get_me()).id
-    reseller_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
+    wallet_scope_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
+    platform_wallet_flow = await _uses_platform_wallet(bot_id)
 
-    if not reseller_id:
-        return await message.answer("No reseller link found for this account.")
+    if not wallet_scope_id:
+        return await message.answer(await _wallet_scope_error_text(lang=lang, bot_id=bot_id))
 
-    methods = [m for m in (await get_payment_methods(int(reseller_id))) if bool(m.get("enabled", True))]
+    methods_source = get_owner_payment_methods if platform_wallet_flow else get_payment_methods
+    methods_arg = tuple() if platform_wallet_flow else (int(wallet_scope_id),)
+    methods = [m for m in (await methods_source(*methods_arg)) if bool(m.get("enabled", True))]
     if not methods:
-        return await message.answer(
-            "No payment methods are currently enabled by your reseller.\nPlease contact support."
-        )
+        return await message.answer(t(lang, "no_payment_methods_enabled"))
     view = [(m.get("title", m.get("code")), m.get("code")) for m in methods]
     await state.update_data(
-        recharge_reseller_id=int(reseller_id),
+        recharge_scope_id=int(wallet_scope_id),
+        recharge_is_main_bot=bool(platform_wallet_flow),
         recharge_methods=methods,
         recharge_method_map={m.get("title", m.get("code")): m.get("code") for m in methods},
         recharge_lang=lang,
@@ -402,12 +864,17 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
         await state.clear()
         user = await get_user(message.from_user.id)
         bot_id = (await message.bot.get_me()).id
-        reseller_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
-        if not reseller_id:
+        wallet_scope_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
+        if not wallet_scope_id:
             await state.clear()
-            return await message.answer("No reseller link found for this account.")
-        bal = await get_user_wallet_balance(message.from_user.id, int(reseller_id))
-        return await message.answer(f"Your balance is ${bal:.2f}.", reply_markup=balance_keyboard((user or {}).get("language", "en")))
+            return await message.answer(
+                await _wallet_scope_error_text(
+                    lang=(user or {}).get("language", "en"),
+                    bot_id=bot_id,
+                )
+            )
+        bal = await get_user_wallet_balance(message.from_user.id, int(wallet_scope_id))
+        return await message.answer(t((user or {}).get("language", "en"), "balance_info").format(balance=bal), reply_markup=balance_keyboard((user or {}).get("language", "en")))
 
     if _is_btn(text, "btn_back"):
         await state.clear()
@@ -423,7 +890,7 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
             break
 
     if not selected:
-        return await message.answer("Choose one payment method from keyboard.")
+        return await message.answer(t(data.get("recharge_lang", "en"), "choose_payment_method_from_keyboard"))
 
     raw_target = str(selected.get("target") or "").strip()
     target_lines = [line.strip() for line in raw_target.replace("\r", "\n").split("\n") if line.strip()]
@@ -432,32 +899,38 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
     targets_block = "\n".join(f"<code>{escape(line)}</code>" for line in target_lines) if target_lines else "<code>-</code>"
 
     rendered_instructions = str(selected.get("instructions") or "")
+    currency_code = str(selected.get("currency", "USD")).upper()
+    global_rate = await get_owner_exchange_rate()
+    effective_rate = float(global_rate) if currency_code == "SYP" else 1.0
     try:
         rendered_instructions = rendered_instructions.format(
             target=raw_target or "-",
             support=selected.get("support", "@support"),
-            per_credit=float(selected.get("per_credit", 1.0)),
-            currency=str(selected.get("currency", "USD")).upper(),
+            per_credit=effective_rate,
+            currency=currency_code,
         )
     except Exception:
         pass
     if raw_target:
         rendered_instructions = rendered_instructions.replace(raw_target, "").strip()
 
-    instructions = (
-        f"<b>{escape(str(selected.get('title') or selected.get('code') or 'Payment'))}</b>\n"
-        f"Currency: <b>{escape(str(selected.get('currency', 'USD')).upper())}</b>\n"
-        f"Rate: <b>{float(selected.get('per_credit', 1.0)):.4f} {escape(str(selected.get('currency', 'USD')).upper())}</b> = 1 credit\n\n"
-        "Targets (copy each line separately):\n"
-        f"{targets_block}\n\n"
-        f"{escape(rendered_instructions)}"
+    flow_lang = data.get("recharge_lang", "en")
+    method_title = escape(str(selected.get("title") or selected.get("code") or t(flow_lang, "payment_plain")))
+    currency = escape(currency_code)
+    rate = effective_rate
+    instructions = t(flow_lang, "recharge_method_instructions_card").format(
+        method_title=method_title,
+        currency=currency,
+        rate=rate,
+        targets_block=targets_block,
+        instructions=escape(rendered_instructions),
     ).strip()
 
     await state.update_data(recharge_method=selected)
     await state.set_state(RechargeFlow.waiting_amount)
     flow_lang = data.get("recharge_lang", "en")
     await message.answer(instructions, reply_markup=_pay_nav_kb(flow_lang), parse_mode="HTML")
-    await message.answer("Send amount now.")
+    await message.answer(t(flow_lang, "send_amount_now"))
 
 
 @router.message(RechargeFlow.waiting_amount)
@@ -470,12 +943,17 @@ async def receive_recharge_amount(message: types.Message, state: FSMContext):
         await state.clear()
         user = await get_user(message.from_user.id)
         bot_id = (await message.bot.get_me()).id
-        reseller_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
-        if not reseller_id:
+        wallet_scope_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
+        if not wallet_scope_id:
             await state.clear()
-            return await message.answer("No reseller link found for this account.")
-        bal = await get_user_wallet_balance(message.from_user.id, int(reseller_id))
-        return await message.answer(f"Your balance is ${bal:.2f}.", reply_markup=balance_keyboard((user or {}).get("language", "en")))
+            return await message.answer(
+                await _wallet_scope_error_text(
+                    lang=(user or {}).get("language", "en"),
+                    bot_id=bot_id,
+                )
+            )
+        bal = await get_user_wallet_balance(message.from_user.id, int(wallet_scope_id))
+        return await message.answer(t((user or {}).get("language", "en"), "balance_info").format(balance=bal), reply_markup=balance_keyboard((user or {}).get("language", "en")))
 
     if _is_btn(raw, "btn_back"):
         data = await state.get_data()
@@ -483,21 +961,21 @@ async def receive_recharge_amount(message: types.Message, state: FSMContext):
         view = [(m.get("title", m.get("code")), m.get("code")) for m in methods]
         await state.set_state(RechargeFlow.waiting_method)
         lang = (await state.get_data()).get("recharge_lang", "en")
-        return await message.answer("Choose recharge method:", reply_markup=recharge_methods_keyboard(view, lang=lang))
+        return await message.answer(t(lang, "choose_recharge_method"), reply_markup=recharge_methods_keyboard(view, lang=lang))
 
     try:
         paid_amount = float(raw)
     except Exception:
-        return await message.answer("Invalid amount. Send numeric value.")
+        return await message.answer(t((await state.get_data()).get("recharge_lang", "en"), "invalid_amount_send_numeric"))
 
     if paid_amount <= 0:
-        return await message.answer("Amount must be greater than zero.")
+        return await message.answer(t((await state.get_data()).get("recharge_lang", "en"), "amount_must_be_greater_than_zero"))
 
     data = await state.get_data()
     method = data.get("recharge_method") or {}
-    per_credit = float(method.get("per_credit", 1.0) or 1.0)
-    if per_credit <= 0:
-        per_credit = 1.0
+    currency_code = str(method.get("currency", "USD")).upper()
+    global_rate = await get_owner_exchange_rate()
+    per_credit = float(global_rate) if currency_code == "SYP" else 1.0
     credits = paid_amount / per_credit
 
     await state.update_data(
@@ -506,7 +984,7 @@ async def receive_recharge_amount(message: types.Message, state: FSMContext):
     )
     await state.set_state(RechargeFlow.waiting_proof)
     flow_lang = data.get("recharge_lang", "en")
-    await message.answer("Send payment proof screenshot now.", reply_markup=_pay_nav_kb(flow_lang))
+    await message.answer(t(flow_lang, "send_payment_proof_now"), reply_markup=_pay_nav_kb(flow_lang))
 
 
 @router.message(RechargeFlow.waiting_proof, lambda msg: msg.photo)
@@ -518,31 +996,40 @@ async def receive_recharge_proof(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = user.get("language", "en") if user else "en"
 
-    reseller_id = data.get("recharge_reseller_id")
-    if not reseller_id:
+    wallet_scope_id = data.get("recharge_scope_id")
+    main_bot_flow = bool(data.get("recharge_is_main_bot"))
+    if not wallet_scope_id:
         bot_id = (await message.bot.get_me()).id
-        reseller_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
+        wallet_scope_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
 
-    if not reseller_id:
+    if not wallet_scope_id:
         await state.clear()
-        return await message.answer("Recharge failed: user is not linked to a reseller.")
+        return await message.answer(
+            t(lang, "recharge_failed_main_wallet_scope" if main_bot_flow else "recharge_failed_user_not_linked")
+        )
 
     req = await create_recharge_request(
         user_id=message.from_user.id,
         method=method.get("title") or method.get("code") or "payment",
         amount=credits,
         proof_file_id=message.photo[-1].file_id,
-        reseller_id=int(reseller_id),
+        reseller_id=int(wallet_scope_id),
         details={
             "method_code": method.get("code"),
             "paid_amount": paid_amount,
             "paid_currency": str(method.get("currency", "USD")).upper(),
             "per_credit": float(method.get("per_credit", 1.0)),
             "credits": credits,
+            "wallet_scope": "main_bot" if main_bot_flow else "reseller_bot",
         },
         wallet_type="user",
     )
-    delivered, route, msg_id, chat_id, thread_id = await _notify_recharge_request_to_reseller_topic(message, req, user)
+    delivered, route, msg_id, chat_id, thread_id = await _notify_recharge_request_to_review_queue(
+        message,
+        req,
+        user,
+        main_bot_flow=main_bot_flow,
+    )
     await db.recharge_requests.update_one(
         {"_id": req["_id"]},
         {
@@ -559,13 +1046,18 @@ async def receive_recharge_proof(message: types.Message, state: FSMContext):
     await state.clear()
     if delivered:
         if req.get("_reused"):
-            await message.answer("Recharge request updated and re-submitted to reseller review.", reply_markup=types.ReplyKeyboardRemove())
+            await message.answer(
+                t(lang, "recharge_request_updated_resubmitted_main_bot" if main_bot_flow else "recharge_request_updated_resubmitted"),
+                reply_markup=types.ReplyKeyboardRemove(),
+            )
         else:
-            await message.answer(t(lang, "recharge_submitted"), reply_markup=types.ReplyKeyboardRemove())
+            await message.answer(
+                t(lang, "recharge_submitted_main_bot" if main_bot_flow else "recharge_submitted"),
+                reply_markup=types.ReplyKeyboardRemove(),
+            )
     else:
         await message.answer(
-            "Recharge request saved, but delivery to reseller queue failed. "
-            "Your reseller can still process it from pending requests.",
+            t(lang, "recharge_saved_delivery_failed_main_bot" if main_bot_flow else "recharge_saved_delivery_failed"),
             reply_markup=types.ReplyKeyboardRemove(),
         )
     await _return_main_menu(message, message.from_user.id)
@@ -586,21 +1078,26 @@ async def receive_recharge_proof_text(message: types.Message, state: FSMContext)
         await state.clear()
         user = await get_user(message.from_user.id)
         bot_id = (await message.bot.get_me()).id
-        reseller_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
-        if not reseller_id:
-            return await message.answer("No reseller link found for this account.")
-        bal = await get_user_wallet_balance(message.from_user.id, int(reseller_id))
+        wallet_scope_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
+        if not wallet_scope_id:
+            return await message.answer(
+                await _wallet_scope_error_text(
+                    lang=(user or {}).get("language", "en"),
+                    bot_id=bot_id,
+                )
+            )
+        bal = await get_user_wallet_balance(message.from_user.id, int(wallet_scope_id))
         return await message.answer(
-            f"Your balance is ${bal:.2f}.",
+            t((user or {}).get("language", "en"), "balance_info").format(balance=bal),
             reply_markup=balance_keyboard((user or {}).get("language", "en")),
         )
 
     if _is_btn(raw, "btn_back"):
         await state.set_state(RechargeFlow.waiting_amount)
-        return await message.answer("Send amount now.", reply_markup=_pay_nav_kb(flow_lang))
+        return await message.answer(t(flow_lang, "send_amount_now"), reply_markup=_pay_nav_kb(flow_lang))
 
     return await message.answer(
-        "Send payment proof screenshot now, or press Back/Cancel.",
+        t(flow_lang, "send_payment_proof_screenshot_now"),
         reply_markup=_pay_nav_kb(flow_lang),
     )
 
@@ -609,6 +1106,7 @@ async def receive_recharge_proof_text(message: types.Message, state: FSMContext)
 async def resend_proof_shortcut(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
+    bot_id = (await message.bot.get_me()).id
     req = await db.recharge_requests.find_one(
         {
             "user_id": int(message.from_user.id),
@@ -620,7 +1118,7 @@ async def resend_proof_shortcut(message: types.Message, state: FSMContext):
         await state.clear()
         return await message.answer(
             t(lang, "resend_proof_no_pending"),
-            reply_markup=main_menu(lang),
+            reply_markup=await menu_for_current_bot(lang, bot_id),
         )
 
     # Keep same business flow: user only needs to send a new screenshot in private chat.
@@ -661,7 +1159,16 @@ async def receive_replacement_proof(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
     refreshed = await db.recharge_requests.find_one({"_id": req["_id"]})
-    delivered, route, msg_id, chat_id, thread_id = await _notify_recharge_request_to_reseller_topic(message, refreshed, user)
+    refreshed = refreshed or {}
+    wallet_scope = str(((refreshed.get("details") or {}).get("wallet_scope") or "")).strip().lower()
+    bot_id = (await message.bot.get_me()).id
+    main_bot_flow = wallet_scope == "main_bot" or await _uses_platform_wallet(bot_id)
+    delivered, route, msg_id, chat_id, thread_id = await _notify_recharge_request_to_review_queue(
+        message,
+        refreshed,
+        user,
+        main_bot_flow=main_bot_flow,
+    )
     await db.recharge_requests.update_one(
         {"_id": req["_id"]},
         {
@@ -719,12 +1226,40 @@ async def back_to_main_menu_handler(message: types.Message, state: FSMContext):
     await _return_main_menu(message, message.from_user.id)
 
 
+@router.message(lambda msg: _is_btn(msg.text, "btn_cyberzone_services"))
+async def open_main_bot_services_from_user_menu(message: types.Message):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await send_main_bot_message(message, lang=lang)
+
+
+@router.message(lambda msg: _is_btn(msg.text, "btn_store"))
+async def open_digital_products_from_main_menu(message: types.Message):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await send_digital_products_message(message, lang=lang)
+
+
+@router.callback_query(lambda c: c.data == "back_to_main_menu")
+async def main_bot_services_back_to_menu(callback: types.CallbackQuery):
+    await callback.answer()
+    if not callback.message:
+        return
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await _return_main_menu(callback.message, callback.from_user.id)
+
+
 @router.message(lambda msg: _is_btn(msg.text, "btn_settings") or _is_btn(msg.text, "btn_reseller_stats") or _is_btn(msg.text, "btn_support"))
-async def simple_menu_placeholders(message: types.Message):
+async def simple_menu_placeholders(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = user.get("language", "en") if user else "en"
     if _is_btn(message.text, "btn_support"):
-        return await message.answer(t(lang, "support"))
+        await state.clear()
+        await _hide_reply_keyboard(message, lang)
+        return await message.answer(_support_menu_text(lang), reply_markup=_support_menu_kb(lang))
     if _is_btn(message.text, "btn_settings"):
         await _hide_reply_keyboard(message, lang)
         return await _open_user_settings_message(message, user, lang)
@@ -735,12 +1270,246 @@ async def simple_menu_placeholders(message: types.Message):
         return await message.answer(await _build_reseller_stats_text(message.from_user.id))
 
 
-@router.callback_query(lambda c: c.data == "uset:open")
-async def user_settings_open_callback(callback: types.CallbackQuery):
+@router.callback_query(lambda c: c.data and c.data.startswith("support:cat:"))
+async def support_category_selected(callback: types.CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
+    category = str((callback.data or "").split(":", 2)[2]).strip().lower()
+    if category not in SUPPORT_CATEGORIES:
+        return await callback.answer(t(lang, "support_invalid_category"), show_alert=True)
+    bot_id = int(await _current_bot_id(callback.bot) or 0)
+    target = await _resolve_support_target(bot_id, category)
+    if not target or not isinstance(target.get("chat_id"), int):
+        return await callback.answer(t(lang, "support_not_configured_text"), show_alert=True)
+    scope, owner_id = await _support_scope_for_bot(bot_id)
+    if await has_open_support_ticket(
+        scope=scope,
+        owner_id=owner_id,
+        user_id=int(callback.from_user.id),
+        category=category,
+    ):
+        return await callback.answer(t(lang, "support_open_ticket_exists"), show_alert=True)
+    await state.clear()
+    await state.set_state(SupportFlow.waiting_message)
+    await state.update_data(
+        support_category=category,
+        support_header_sent=False,
+        support_payloads=[],
+        support_payload_count=0,
+        support_ticket_id=None,
+    )
+    if callback.message:
+        await callback.message.answer(
+            _support_session_intro(lang, category),
+            reply_markup=_support_session_kb(lang),
+        )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "support:close")
+async def support_close(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    if callback.message:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await _return_main_menu(callback.message, callback.from_user.id)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "support:ticket_solved")
+async def support_ticket_solved_badge(callback: types.CallbackQuery):
+    await callback.answer()
+
+
+@router.message(SupportFlow.waiting_message)
+async def support_message_router(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    raw = (message.text or "").strip()
+    if raw in {t(lang, "support_done_button"), "/done"}:
+        data = await state.get_data()
+        category = str(data.get("support_category") or "").strip().lower()
+        payloads = list(data.get("support_payloads") or [])
+        delivered = False
+        ticket_id = ""
+        ticket_no = 0
+        if category in SUPPORT_CATEGORIES and payloads:
+            delivered = await _forward_support_message(
+                message.bot,
+                category=category,
+                lang=lang,
+                state=state,
+                user_doc=user,
+                user_id=message.from_user.id,
+                source_chat_id=message.chat.id,
+                payloads=payloads,
+            )
+            ticket_id = str((await state.get_data()).get("support_ticket_id") or "").strip()
+            if ticket_id:
+                ticket = await get_support_ticket(ticket_id)
+                ticket_no = int((ticket or {}).get("ticket_no") or 0)
+        await state.clear()
+        if not delivered:
+            await message.answer(
+                t(lang, "support_not_configured_text"),
+                reply_markup=types.ReplyKeyboardRemove(),
+            )
+            return await _return_main_menu(message, message.from_user.id)
+        await message.answer(
+            t(lang, "support_done_eta_text").format(
+                category=_support_category_label(lang, category),
+                ticket_no=ticket_no or "-",
+            ),
+            reply_markup=types.ReplyKeyboardRemove(),
+        )
+        return await _return_main_menu(message, message.from_user.id)
+    if _is_btn(raw, "btn_cancel") or raw == "/cancel":
+        await state.clear()
+        await message.answer(
+            t(lang, "support_cancelled_text"),
+            reply_markup=types.ReplyKeyboardRemove(),
+        )
+        return await _return_main_menu(message, message.from_user.id)
+
+    data = await state.get_data()
+    category = str(data.get("support_category") or "").strip().lower()
+    if category not in SUPPORT_CATEGORIES:
+        await state.clear()
+        return await _return_main_menu(message, message.from_user.id)
+    payloads = list(data.get("support_payloads") or [])
+    payloads.append(_extract_support_payload(message))
+    await state.update_data(
+        support_payloads=payloads,
+        support_payload_count=int(data.get("support_payload_count") or 0) + 1,
+    )
+
+
+async def _support_actor_allowed(callback: types.CallbackQuery, ticket: dict | None) -> bool:
+    if not ticket:
+        return False
+    scope = str(ticket.get("scope") or "").strip().lower()
+    if scope == "platform":
+        return int(callback.from_user.id) == int(OWNER_ID)
+    bot_id = int(await _current_bot_id(callback.bot) or 0)
+    reseller_id = int(await get_reseller_id_for_bot(bot_id) or 0)
+    return reseller_id > 0 and int(callback.from_user.id) == reseller_id
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("support:reply_ticket:"))
+async def support_owner_reply_open(callback: types.CallbackQuery, state: FSMContext):
+    ticket_id = str(callback.data or "").split(":", 2)[2].strip()
+    ticket = await get_support_ticket(ticket_id)
+    if not ticket:
+        await callback.answer(t("en", "support_ticket_not_found"), show_alert=True)
+        return
+    if not await _support_actor_allowed(callback, ticket):
+        await callback.answer(t("en", "no_permission"), show_alert=True)
+        return
+    await state.clear()
+    await state.set_state(SupportOwnerReplyFlow.waiting_message)
+    await state.update_data(
+        support_reply_user_id=int(ticket.get("user_id") or 0),
+        support_reply_category=str(ticket.get("category") or ""),
+        support_reply_ticket_id=str(ticket["_id"]),
+    )
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(
+            t("en", "support_owner_reply_prompt").format(
+                user_id=int(ticket.get("user_id") or 0),
+                category=_support_category_label("en", str(ticket.get("category") or "")),
+            ),
+            reply_markup=_support_session_kb("en"),
+        )
+
+
+@router.message(SupportOwnerReplyFlow.waiting_message)
+async def support_owner_reply_router(message: types.Message, state: FSMContext):
+    if int(message.from_user.id) != int(OWNER_ID):
+        return
+    raw = (message.text or "").strip()
+    if raw in {t("en", "support_done_button"), t("ar", "support_done_button"), "/done"}:
+        await state.clear()
+        await message.answer(t("en", "support_owner_reply_done"), reply_markup=types.ReplyKeyboardRemove())
+        return
+    if raw in {t("en", "btn_cancel"), t("ar", "btn_cancel"), "/cancel"}:
+        await state.clear()
+        await message.answer(t("en", "support_owner_reply_cancelled"), reply_markup=types.ReplyKeyboardRemove())
+        return
+
+    data = await state.get_data()
+    target_user_id = int(data.get("support_reply_user_id") or 0)
+    ticket_id = str(data.get("support_reply_ticket_id") or "").strip()
+    if target_user_id <= 0:
+        await state.clear()
+        await message.answer(t("en", "support_owner_reply_cancelled"), reply_markup=types.ReplyKeyboardRemove())
+        return
+
+    try:
+        await message.bot.copy_message(
+            chat_id=target_user_id,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+        if ticket_id:
+            await mark_support_ticket_replied(ticket_id, actor_id=int(message.from_user.id))
+        await message.answer(t("en", "support_owner_reply_sent"), reply_markup=_support_session_kb("en"))
+    except TelegramBadRequest:
+        await message.answer(t("en", "support_owner_reply_failed_user"), reply_markup=_support_session_kb("en"))
+    except Exception:
+        logger.exception("support owner reply failed user_id=%s", target_user_id)
+        await message.answer(t("en", "support_owner_reply_failed_user"), reply_markup=_support_session_kb("en"))
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("support:solve_ticket:"))
+async def support_ticket_solve(callback: types.CallbackQuery):
+    ticket_id = str(callback.data or "").split(":", 2)[2].strip()
+    ticket = await get_support_ticket(ticket_id)
+    if not ticket:
+        await callback.answer(t("en", "support_ticket_not_found"), show_alert=True)
+        return
+    if not await _support_actor_allowed(callback, ticket):
+        await callback.answer(t("en", "no_permission"), show_alert=True)
+        return
+    await mark_support_ticket_solved(ticket_id, actor_id=int(callback.from_user.id))
+    try:
+        await callback.bot.send_message(
+            chat_id=int(ticket.get("user_id") or 0),
+            text=t("en", "support_ticket_solved_user"),
+        )
+    except Exception:
+        pass
+    await callback.answer(t("en", "support_ticket_solved_admin"), show_alert=True)
+    if callback.message:
+        try:
+            await callback.message.edit_reply_markup(
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text=t("en", "support_ticket_solved_badge"), callback_data="support:ticket_solved")]
+                    ]
+                )
+            )
+        except Exception:
+            pass
+
+
+@router.callback_query(lambda c: c.data == "uset:open")
+async def user_settings_open_callback(callback: types.CallbackQuery):
+    if not callback.message:
+        await callback.answer()
+        return
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    bot_id = (await callback.bot.get_me()).id
     await callback.message.edit_text(
-        _user_settings_main_text(lang, user),
+        await _user_settings_main_text(
+            user,
+            lang=lang,
+            bot_id=bot_id,
+            user_id=callback.from_user.id,
+        ),
         reply_markup=_user_settings_main_kb(lang, user),
     )
     await callback.answer()
@@ -748,6 +1517,9 @@ async def user_settings_open_callback(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data == "uset:lang")
 async def user_settings_language_menu(callback: types.CallbackQuery):
+    if not callback.message:
+        await callback.answer()
+        return
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
     current_lang = str((user or {}).get("language") or "en")
@@ -760,14 +1532,24 @@ async def user_settings_language_menu(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("uset:langset:"))
 async def user_settings_language_set(callback: types.CallbackQuery):
+    if not callback.message:
+        await callback.answer()
+        return
     selected = callback.data.split(":", 2)[2].strip().lower()
+    current_lang = str((await get_user(callback.from_user.id) or {}).get("language") or "en")
     if selected not in {"en", "ar"}:
-        return await callback.answer("Invalid language", show_alert=True)
+        return await callback.answer(t(current_lang, "invalid_language"), show_alert=True)
     await db.users.update_one({"telegram_id": int(callback.from_user.id)}, {"$set": {"language": selected}})
     user = await get_user(callback.from_user.id)
     lang = selected
+    bot_id = (await callback.bot.get_me()).id
     await callback.message.edit_text(
-        _user_settings_main_text(lang, user),
+        await _user_settings_main_text(
+            user,
+            lang=lang,
+            bot_id=bot_id,
+            user_id=callback.from_user.id,
+        ),
         reply_markup=_user_settings_main_kb(lang, user),
     )
     await callback.answer(t(lang, "user_settings_saved"), show_alert=True)
@@ -775,6 +1557,9 @@ async def user_settings_language_set(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data == "uset:profile")
 async def user_settings_profile(callback: types.CallbackQuery):
+    if not callback.message:
+        await callback.answer()
+        return
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
     bot_id = (await callback.bot.get_me()).id
@@ -790,10 +1575,14 @@ async def user_settings_profile(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data == "uset:close")
 async def user_settings_close(callback: types.CallbackQuery):
+    if not callback.message:
+        await callback.answer()
+        return
     try:
         await callback.message.delete()
     except Exception:
         pass
+    await _return_main_menu(callback.message, callback.from_user.id)
     await callback.answer()
 
 

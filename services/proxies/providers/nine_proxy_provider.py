@@ -46,26 +46,24 @@ class NineProxyProvider(BaseProxyProvider):
         return ("permission denied" in message) or ("auth" in message) or ("auth" in title)
 
     def _auth_variants(self, params: dict[str, Any]) -> list[tuple[dict[str, str], dict[str, Any]]]:
-        # 9Proxy docs use `api-key` header; keep legacy fallbacks for compatibility.
+        # 9Proxy support asked to pass API key in request params (api_key), not only headers.
         base_headers = {"Accept": "application/json"}
         return [
             (
-                {**base_headers, "api-key": self.api_key},
-                dict(params),
+                dict(base_headers),
+                {**dict(params), "api_key": self.api_key},
             ),
             (
                 {
                     **base_headers,
                     "api-key": self.api_key,
-                    "api_key": self.api_key,
-                    "X-API-KEY": self.api_key,
-                    "Authorization": f"Bearer {self.api_key}",
                 },
                 {**dict(params), "api_key": self.api_key},
             ),
             (
                 {
                     **base_headers,
+                    "api-key": self.api_key,
                     "Authorization": f"Bearer {self.api_key}",
                     "X-API-KEY": self.api_key,
                 },

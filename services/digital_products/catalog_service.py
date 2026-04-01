@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 from config import settings
+from utils.translations import t
 
 from .g2bulk_client import G2BulkClient
 
@@ -91,7 +92,6 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
             _CACHE["data"] = snapshot
             return dict(snapshot)
 
-        # Parallel fetch to reduce first-load latency.
         raw_categories, raw_products, raw_games = await asyncio.gather(
             client.get_categories(),
             client.get_products(),
@@ -106,7 +106,7 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         cat_id = _best_id(row, "category_id", "cat_id", "categoryId")
         if not cat_id:
             continue
-        name = str(row.get("name") or row.get("title") or row.get("product_name") or f"Product {product_id}")
+        name = str(row.get("name") or row.get("title") or row.get("product_name") or t("en", "catalog_fallback_product").format(product_id=product_id))
         price = _to_float(row.get("price") or row.get("unit_price") or row.get("buyer_price") or row.get("sell_price"))
         stock = _to_int(row.get("stock") or row.get("quantity") or row.get("available"))
         products_by_category.setdefault(cat_id, []).append(
@@ -125,7 +125,7 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         cat_id = _best_id(row, "id", "category_id", "ID")
         if not cat_id:
             continue
-        name = str(row.get("name") or row.get("title") or f"Category {cat_id}")
+        name = str(row.get("name") or row.get("title") or t("en", "catalog_fallback_category").format(cat_id=cat_id))
         if _looks_game(name):
             continue
         count = len(products_by_category.get(cat_id) or [])
@@ -138,7 +138,7 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         game_id = game_code or _best_id(row, "id", "game_id", "ID")
         if not game_id:
             continue
-        name = str(row.get("name") or row.get("title") or row.get("game_name") or f"Game {game_id}")
+        name = str(row.get("name") or row.get("title") or row.get("game_name") or t("en", "catalog_fallback_game").format(game_id=game_id))
         bias = 0
         n = _norm(name)
         for idx, key in enumerate(_DEFAULT_TOP_GAMES):
@@ -153,7 +153,7 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         "gift_categories": gift_categories,
         "games": games,
         "products_by_category": products_by_category,
-        "topups_by_game": {},  # lazy loaded
+        "topups_by_game": {},
     }
     _CACHE["ts"] = now
     _CACHE["data"] = snapshot
@@ -171,7 +171,7 @@ async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for idx, row in enumerate(rows):
         product_id = _best_id(row, "id", "product_id", "ID")
-        name = str(row.get("name") or row.get("title") or row.get("product_name") or f"Pack {product_id or game_id}")
+        name = str(row.get("name") or row.get("title") or row.get("product_name") or t("en", "catalog_fallback_pack").format(item_id=product_id or game_id))
         if not product_id:
             product_id = f"{game_id}_{idx+1}"
         price = _to_float(row.get("price") or row.get("amount") or row.get("unit_price") or row.get("buyer_price") or row.get("sell_price"))
@@ -187,7 +187,6 @@ async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
         )
     normalized.sort(key=lambda x: (float(x.get("price") or 0), _norm(x.get("name"))))
 
-    # persist lazy cache in-memory
     fresh = await get_catalog_snapshot(force=False)
     fresh_topups = dict(fresh.get("topups_by_game") or {})
     fresh_topups[str(game_id)] = normalized

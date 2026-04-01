@@ -103,3 +103,25 @@ async def test_service_search_respects_query_order(monkeypatch):
     titles = [r.title for r in iq.results]
     assert "ABC Service" in titles
     assert "ACB Service" not in titles
+
+
+@pytest.mark.asyncio
+async def test_service_search_matches_aliases(monkeypatch):
+    async def _fake_icon(*args, **kwargs):
+        return "https://example.com/icon.png"
+
+    monkeypatch.setattr(numbers_inline, "resolve_service_icon_url", _fake_icon)
+    monkeypatch.setattr(
+        numbers_inline,
+        "SERVICE_MAP",
+        {
+            "anthropic": {
+                "display_name": "ClaudeAI / Anthropic",
+                "aliases": ["claude", "claudeai", "anthropic"],
+            }
+        },
+    )
+    iq = _DummyInlineQuery("service claude", uid=303)
+    await numbers_inline.handle_smart_search(iq)
+    titles = [r.title for r in iq.results]
+    assert "ClaudeAI / Anthropic" in titles

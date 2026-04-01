@@ -1,11 +1,9 @@
 ﻿from datetime import UTC, datetime
 
 from datetime import timedelta
+from bson import ObjectId
 
-import re
-from urllib.parse import parse_qs, urlparse
-
-from aiogram import Router, types
+from aiogram import Bot, Router, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -18,16 +16,12 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import OWNER_ID
+from config import OWNER_ID, settings
+from database.bots_repo import get_bot_settings
+from services.subscriptions.bot_subscription_service import activate_bot_subscription
 from database.financial_ledger import (
-    confirm_settlement_payment,
-    confirm_monthly_settlement,
     credit_reseller_main_wallet,
-    generate_monthly_settlement_drafts,
-    get_monthly_settlement_preview,
     get_reseller_wallet_balance,
-    reconcile_recharge_requests_vs_ledger,
-    scan_financial_anomalies,
 )
 from database.bot_logs_repo import bind_bot_logs_target, get_bot_logs_target
 from database.mongo import db
@@ -43,30 +37,32 @@ from database.provider_balance_alert_repo import (
     set_provider_balance_alert_threshold,
     toggle_provider_balance_alert_enabled,
 )
-from database.game_store_config_repo import (
-    get_game_store_markup_percent,
-    set_game_store_markup_percent,
+from database.support_topics_repo import bind_support_target, get_all_support_targets, migrate_legacy_games_support_topic
+from database.support_tickets_repo import get_support_ticket, mark_support_ticket_replied, mark_support_ticket_solved
+from database.digital_products_config_repo import (
+    get_digital_products_markup_percent,
+    set_digital_products_markup_percent,
 )
-from database.numbers_config_repo import (
-    get_numbers_markup_percent,
-    set_numbers_markup_percent,
+from database.custom_services_repo import (
+    get_next_pending_preorder,
+    get_pending_preorder_position,
+    get_preorder_request,
+    mark_preorder_fulfilling,
+    mark_preorder_fulfilled,
+    reset_preorder_to_pending,
 )
+from database.orders_repo import update_order_details, update_order_status
 from database.user_repo import get_user_by_username
 from utils.permissions import owner_only
 from utils.recharge_ui import format_owner_reseller_topup_text, owner_reseller_topup_review_kb
 from utils.translations import t
+from utils.user_money import format_usd
 
 router = Router()
 _CLEAN_KEYBOARD_COMMANDS = {"/clean_keyboard", "/clean_kb", "/rkoff"}
 
 _OWNER_QUICK_ACTIONS: dict[str, dict[str, str]] = {
     "reseller_deposit": {"code": "rdp", "button": "Deposit", "title": "Reseller Deposit"},
-    "settlement_preview": {"code": "spv", "button": "Open Preview", "title": "Settlement Preview"},
-    "confirm_settlement": {"code": "scf", "button": "Confirm", "title": "Confirm Settlement"},
-    "settlement_history": {"code": "shs", "button": "History", "title": "Settlement History"},
-    "reconcile_recharge": {"code": "rrc", "button": "Reconcile", "title": "Recharge Reconcile"},
-    "financial_audit": {"code": "fad", "button": "Financial Audit", "title": "Financial Audit"},
-    "confirm_settlement_payment": {"code": "scp", "button": "Confirm Payment", "title": "Confirm Settlement Payment"},
 }
 _OWNER_QUICK_CODE_TO_ACTION = {v["code"]: k for k, v in _OWNER_QUICK_ACTIONS.items()}
 
@@ -79,14 +75,33 @@ _OWNER_USERS_PICKER_REQUEST_ID = 91001
 _OWNER_CHAT_PICKER_REQUEST_ID = 91002
 
 
+def _configured_numbers_markup_percent() -> float:
+    try:
+        return max(0.0, float(getattr(settings, "numbers_service_markup_percent", 0.0) or 0.0))
+    except Exception:
+        return 0.0
+
+
 class OwnerPanelFlow(StatesGroup):
     waiting_payload = State()
     waiting_reseller_deposit_amount = State()
     waiting_owner_exchange_rate = State()
     waiting_owner_payment_method_value = State()
     waiting_numbers_markup = State()
-    waiting_game_store_markup = State()
+    waiting_digital_products_markup = State()
     waiting_provider_balance_threshold = State()
+
+
+class SupportOwnerReplyFlow(StatesGroup):
+    waiting_message = State()
+
+
+class CustomPreorderOwnerFlow(StatesGroup):
+    waiting_delivery = State()
+
+
+class OwnerBroadcastFlow(StatesGroup):
+    waiting_text = State()
 
 
 async def _hide_owner_reply_keyboard(message: types.Message) -> None:
@@ -199,9 +214,9 @@ async def _collect_reseller_targets(*, force_refresh: bool = False) -> list[dict
 
     bot_rows = await db.bots.find(
         {"active": True, "owner_id": {"$in": [int(x) for x in reseller_ids]}},
-        {"owner_id": 1, "bot_id": 1, "created_at": 1},
+        {"owner_id": 1, "bot_id": 1, "created_at": 1, "username_lc": 1, "bot_username_lc": 1},
     ).sort("created_at", -1).to_list(None)
-    bot_by_owner: dict[int, int] = {}
+    bot_by_owner: dict[int, dict] = {}
     for row in bot_rows:
         try:
             rid = int(row.get("owner_id"))
@@ -211,41 +226,21 @@ async def _collect_reseller_targets(*, force_refresh: bool = False) -> list[dict
         if rid <= 0 or bid <= 0:
             continue
         if rid not in bot_by_owner:
-            bot_by_owner[rid] = bid
-
-    bot_meta_by_id: dict[int, dict] = {}
-    bot_ids = sorted({int(x) for x in bot_by_owner.values() if int(x) > 0})
-    if bot_ids:
-        req_rows = await db.bot_creation_requests.find(
-            {"payload.bot_id": {"$in": bot_ids}},
-            {"payload.bot_id": 1, "payload.bot_username": 1, "payload.bot_title": 1, "created_at": 1},
-        ).sort("created_at", -1).to_list(None)
-        for row in req_rows:
-            payload = row.get("payload") or {}
-            try:
-                bid = int(payload.get("bot_id"))
-            except Exception:
-                continue
-            if bid in bot_meta_by_id:
-                continue
-            bot_meta_by_id[bid] = {
-                "username": str(payload.get("bot_username") or "").strip(),
-                "title": str(payload.get("bot_title") or "").strip(),
+            bot_by_owner[rid] = {
+                "bot_id": bid,
+                "username": str(row.get("bot_username_lc") or row.get("username_lc") or "").strip(),
             }
 
     targets: list[dict] = []
     for rid in reseller_ids:
         rid = int(rid)
         uname = username_by_id.get(rid, "")
-        bot_id = bot_by_owner.get(rid)
+        bot_meta = bot_by_owner.get(rid) or {}
+        bot_id = int(bot_meta.get("bot_id") or 0)
         if bot_id:
-            meta = bot_meta_by_id.get(bot_id, {})
-            bot_username = str(meta.get("username") or "").strip()
-            bot_title = str(meta.get("title") or "").strip()
+            bot_username = str(bot_meta.get("username") or "").strip()
             if bot_username:
                 label = f"@{bot_username}"
-            elif bot_title:
-                label = bot_title
             else:
                 label = f"Bot {bot_id}"
         else:
@@ -308,14 +303,14 @@ def _owner_deposit_amount_kb(reseller_id: int) -> types.InlineKeyboardMarkup:
     rid = int(reseller_id)
     rows = [
         [
-            types.InlineKeyboardButton(text="+10$", callback_data=f"owner_deposit:apply:{rid}:10"),
-            types.InlineKeyboardButton(text="+25$", callback_data=f"owner_deposit:apply:{rid}:25"),
-            types.InlineKeyboardButton(text="+50$", callback_data=f"owner_deposit:apply:{rid}:50"),
+            types.InlineKeyboardButton(text="+💲 10", callback_data=f"owner_deposit:apply:{rid}:10"),
+            types.InlineKeyboardButton(text="+💲 25", callback_data=f"owner_deposit:apply:{rid}:25"),
+            types.InlineKeyboardButton(text="+💲 50", callback_data=f"owner_deposit:apply:{rid}:50"),
         ],
         [
-            types.InlineKeyboardButton(text="+100$", callback_data=f"owner_deposit:apply:{rid}:100"),
-            types.InlineKeyboardButton(text="+250$", callback_data=f"owner_deposit:apply:{rid}:250"),
-            types.InlineKeyboardButton(text="+500$", callback_data=f"owner_deposit:apply:{rid}:500"),
+            types.InlineKeyboardButton(text="+💲 100", callback_data=f"owner_deposit:apply:{rid}:100"),
+            types.InlineKeyboardButton(text="+💲 250", callback_data=f"owner_deposit:apply:{rid}:250"),
+            types.InlineKeyboardButton(text="+💲 500", callback_data=f"owner_deposit:apply:{rid}:500"),
         ],
         [types.InlineKeyboardButton(text="Custom Amount", callback_data=f"owner_deposit:custom:{rid}")],
         [
@@ -350,11 +345,10 @@ def _owner_payment_method_kb(code: str) -> types.InlineKeyboardMarkup:
         inline_keyboard=[
             [types.InlineKeyboardButton(text="Set Title", callback_data=f"owner_pm:set:title:{code}")],
             [types.InlineKeyboardButton(text="Set Target", callback_data=f"owner_pm:set:target:{code}")],
-            [types.InlineKeyboardButton(text="Set Currency (USD/SYP)", callback_data=f"owner_pm:set:currency:{code}")],
+            [types.InlineKeyboardButton(text="Set Currency (💲/local)", callback_data=f"owner_pm:set:currency:{code}")],
             [types.InlineKeyboardButton(text="Enable/Disable Method", callback_data=f"owner_pm:set:enabled:{code}")],
             [types.InlineKeyboardButton(text="Set Support", callback_data=f"owner_pm:set:support:{code}")],
             [types.InlineKeyboardButton(text="Set Instructions", callback_data=f"owner_pm:set:text:{code}")],
-            [types.InlineKeyboardButton(text="Set Per-Credit Rate", callback_data=f"owner_pm:set:rate:{code}")],
             [types.InlineKeyboardButton(text="Back to Methods", callback_data="owner_pm:open")],
         ]
     )
@@ -363,13 +357,16 @@ def _owner_payment_method_kb(code: str) -> types.InlineKeyboardMarkup:
 def _owner_payment_methods_text(methods: list[dict], exchange_rate: float) -> str:
     lines = [
         "Owner Payment Methods (Global for all resellers)\n",
-        f"Owner Exchange Rate: 1 USD = {exchange_rate:.2f} SYP\n",
+        f"Owner Exchange Rate: 1 💲 = {exchange_rate:.2f} local\n",
     ]
     for method in methods:
+        currency = str(method.get('currency', 'USD')).upper()
+        currency_label = "local" if currency == "SYP" else "💲"
+        effective_rate = float(exchange_rate) if currency == "SYP" else 1.0
         lines.append(
             f"- {method.get('code')}: {method.get('title')} | "
-            f"{str(method.get('currency', 'USD')).upper()} | "
-            f"per_credit={float(method.get('per_credit', 1.0)):.4f}"
+            f"{currency_label} | "
+            f"credit_rate={effective_rate:.4f}"
         )
     lines.append("\nSelect method below to edit.")
     return "\n".join(lines)
@@ -379,13 +376,17 @@ def _owner_payment_method_details(method: dict) -> str:
     rendered = str(method.get("instructions") or "")
     if len(rendered) > 700:
         rendered = rendered[:700] + "..."
+    currency = str(method.get('currency', 'USD')).upper()
+    currency_label = "local" if currency == "SYP" else "💲"
+    effective_rate = float(method.get('per_credit', 1.0))
     return (
         "Owner Payment Method\n\n"
         f"Code: {method.get('code')}\n"
         f"Title: {method.get('title')}\n"
-        f"Currency: {str(method.get('currency', 'USD')).upper()}\n"
+        f"Currency: {currency_label}\n"
         f"Enabled: {bool(method.get('enabled', True))}\n"
-        f"Per Credit: {float(method.get('per_credit', 1.0)):.4f}\n"
+        f"Effective Credit Rate: {effective_rate:.4f}\n"
+        "Rate Source: global owner exchange rate for local, fixed 1.0 for 💲\n"
         f"Target: {method.get('target')}\n"
         f"Support: {method.get('support')}\n\n"
         f"Instructions:\n{rendered}"
@@ -402,11 +403,6 @@ async def _find_owner_payment_method(code: str) -> dict | None:
         if str(method.get("code")) == str(code):
             return method
     return None
-
-
-def _current_cycle_key() -> str:
-    now = datetime.now(UTC)
-    return f"{now.year}-{now.month:02d}"
 
 
 def _previous_cycle_key() -> str:
@@ -427,39 +423,44 @@ def _parse_cycle_key_or_none(raw: str) -> str | None:
 def _owner_panel_main_kb() -> types.InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="Dashboard", callback_data="owner_panel:act:dashboard")
-    kb.button(text="Finance", callback_data="owner_panel:cat:financial")
-    kb.button(text="Settlements", callback_data="owner_panel:cat:settlements")
-    kb.button(text="Audit", callback_data="owner_panel:cat:audit")
+    kb.button(text="Subscriptions", callback_data="owner_panel:cat:subscriptions")
+    kb.button(text="Main Bot", callback_data="owner_panel:cat:main_bot")
     kb.button(text="System", callback_data="owner_panel:cat:system")
-    kb.adjust(1, 2, 2)
+    kb.adjust(1, 2, 1)
     return kb.as_markup()
+
+
+def _owner_dashboard_kb() -> types.InlineKeyboardMarkup:
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text="Back", callback_data="owner_panel:open")],
+        ]
+    )
 
 
 def _owner_panel_category_kb(category: str) -> types.InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if category == "financial":
+        category = "subscriptions"
+    if category == "subscriptions":
         kb.button(text="Reseller Deposit", callback_data="owner_panel:act:reseller_deposit")
-        kb.button(text="List Resellers", callback_data="owner_panel:act:resellers")
         kb.button(text="Reseller Topup Requests", callback_data="owner_panel:act:reseller_topup_requests")
+        kb.adjust(1, 1)
+    elif category == "main_bot":
+        kb.button(text="إذاعة", callback_data="owner_panel:act:broadcast")
         kb.button(text="Owner Payment Methods", callback_data="owner_panel:act:owner_payment_methods")
         kb.button(text="Owner Exchange Rate", callback_data="owner_panel:act:owner_exchange_rate")
         kb.button(text="Numbers Margin %", callback_data="owner_panel:act:numbers_margin")
-        kb.button(text="Game Store Margin %", callback_data="owner_panel:act:game_store_margin")
-        kb.adjust(1, 1, 1, 1, 1, 1, 1)
-    elif category == "settlements":
-        kb.button(text="Settlement Preview", callback_data="owner_panel:act:settlement_preview")
-        kb.button(text="Confirm Settlement", callback_data="owner_panel:act:confirm_settlement")
-        kb.button(text="Settlement History", callback_data="owner_panel:act:settlement_history")
-        kb.button(text="Generate Drafts", callback_data="owner_panel:act:generate_settlement_drafts")
-        kb.button(text="Confirm Payment", callback_data="owner_panel:act:confirm_settlement_payment")
-        kb.adjust(2, 2, 1)
-    elif category == "audit":
-        kb.button(text="Recharge Reconcile", callback_data="owner_panel:act:reconcile_recharge")
-        kb.button(text="Financial Audit", callback_data="owner_panel:act:financial_audit")
-        kb.adjust(1)
+        kb.button(text="Digital Products Margin %", callback_data="owner_panel:act:digital_products_margin")
+        kb.adjust(1, 1, 1, 1, 1)
     elif category == "system":
         kb.button(text="Bind Owner Target Here", callback_data="owner_panel:act:bind_owner_target_here")
-        kb.button(text="Bind Owner Target By Link", callback_data="owner_panel:act:bind_owner_target_link")
+        kb.button(text="Bind Reseller Topup Target Here", callback_data="owner_panel:act:bind_reseller_topup_target_here")
+        kb.button(text="Bind Support / Proxies Here", callback_data="owner_panel:act:bind_support_proxies_here")
+        kb.button(text="Bind Support / Numbers Here", callback_data="owner_panel:act:bind_support_numbers_here")
+        kb.button(text="Bind Support / Services Here", callback_data="owner_panel:act:bind_support_services_here")
+        kb.button(text="Bind Support / Balance Here", callback_data="owner_panel:act:bind_support_user_balance_here")
+        kb.button(text="Support Topics Status", callback_data="owner_panel:act:support_topics_status")
         kb.button(text="Bind Balance Alert Here", callback_data="owner_panel:act:bind_balance_alert_here")
         kb.button(text="Bind Logs Here", callback_data="owner_panel:act:bind_logs_here")
         kb.button(text="Logs Status", callback_data="owner_panel:act:logs_status")
@@ -475,70 +476,40 @@ def _owner_panel_category_kb(category: str) -> types.InlineKeyboardMarkup:
 def _owner_action_prompt(action: str) -> str:
     prompts = {
         "reseller_deposit": "Send: <reseller_id_or_@username> <amount>\nExample: 7731488539 200",
-        "settlement_preview": "Send: <reseller_id> [YYYY-MM]\nExample: 7731488539 2026-03",
-        "confirm_settlement": "Send: <reseller_id> [YYYY-MM]\nExample: 7731488539 2026-03",
-        "settlement_history": "Send: <reseller_id> [limit]\nExample: 7731488539 6",
-        "generate_settlement_drafts": "Send optional cycle: [YYYY-MM]\nExample: 2026-03\nOr send: now",
-        "reconcile_recharge": "Send: <reseller_id> [YYYY-MM] [max_rows]\nExample: 7731488539 2026-03 20",
-        "financial_audit": "Send optional args: [days] [max_rows]\nExample: 30 20",
-        "confirm_settlement_payment": "Send: <reseller_id> [YYYY-MM] [note]\nExample: 7731488539 2026-03 paid_by_bank",
-        "owner_exchange_rate": "Send: <SYP_per_USD>\nExample: 13250",
-        "bind_owner_target_link": (
-            "Send topic target in one of these formats:\n"
-            "- Topic link: https://t.me/c/<chat>/<msg>?thread=<topic_id>\n"
-            "- chat/topic ids: -1001234567890 44\n"
-            "- chat id only: -1001234567890"
-        ),
+        "owner_exchange_rate": "Send: <local_per_dollar>\nExample: 13250",
     }
     return prompts.get(action, "Send input payload for this action.")
 
 
-def _parse_owner_target_payload(payload: str) -> tuple[int, int | None] | None:
-    text = (payload or "").strip()
-    if not text:
-        return None
+def _owner_broadcast_kb() -> types.InlineKeyboardMarkup:
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text="نص فقط", callback_data="owner_broadcast:text")],
+            [types.InlineKeyboardButton(text="Back", callback_data="owner_panel:cat:main_bot")],
+        ]
+    )
 
-    m = re.fullmatch(r"(-100\d+)\s*[:\s,|]\s*(\d+)", text)
-    if m:
-        return int(m.group(1)), int(m.group(2))
 
-    m = re.fullmatch(r"(-100\d+)", text)
-    if m:
-        return int(m.group(1)), None
+async def _owner_current_bot_broadcast_channel(bot: Bot) -> str | None:
+    me = await bot.get_me()
+    settings_doc = await get_bot_settings(int(me.id))
+    raw = str((settings_doc or {}).get("subscription_channel") or "").strip()
+    return raw or None
 
-    candidate = text
-    if candidate.startswith("t.me/") or candidate.startswith("telegram.me/"):
-        candidate = "https://" + candidate
-    if not (candidate.startswith("http://") or candidate.startswith("https://")):
-        return None
 
-    parsed = urlparse(candidate)
-    host = (parsed.netloc or "").lower()
-    if host.startswith("www."):
-        host = host[4:]
-    if host not in {"t.me", "telegram.me"}:
-        return None
-
-    parts = [x for x in (parsed.path or "").split("/") if x]
-    if len(parts) < 2 or parts[0] != "c" or (not parts[1].isdigit()):
-        return None
-
-    chat_id = int(f"-100{parts[1]}")
-    thread_id = None
-    query = parse_qs(parsed.query or "")
-    for key in ("thread", "topic", "comment"):
-        value = (query.get(key) or [None])[0]
-        if value is not None and str(value).isdigit():
-            thread_id = int(value)
-            break
-
-    if thread_id is None and len(parts) >= 4 and parts[3].isdigit():
-        thread_id = int(parts[3])
-
-    return chat_id, thread_id
+async def _owner_send_broadcast_post(bot: Bot, text: str) -> tuple[bool, str]:
+    channel = await _owner_current_bot_broadcast_channel(bot)
+    if not channel:
+        return False, "No channel is configured for this bot yet."
+    try:
+        await bot.send_message(chat_id=channel, text=text)
+    except Exception as exc:
+        return False, f"Broadcast failed: {exc}"
+    return True, f"Broadcast sent to {channel}."
 
 
 async def _build_owner_dashboard_text() -> str:
+    await migrate_legacy_games_support_topic()
     reseller_targets = await _collect_reseller_targets()
     reseller_ids = [int(item.get("reseller_id") or 0) for item in reseller_targets if int(item.get("reseller_id") or 0) > 0]
     active_bots = await db.bots.count_documents({"active": True})
@@ -549,13 +520,17 @@ async def _build_owner_dashboard_text() -> str:
         {"status": "pending", "wallet_type": {"$nin": ["reseller_main", "main", "reseller"]}}
     )
     need_more_proof = await db.recharge_requests.count_documents({"status": "need_more_proof"})
-    settlements_overdue = await db.settlements.count_documents(
-        {"payment_status": {"$in": ["pending", "overdue"]}, "services_locked": True}
-    )
+    trial_active_bots = await db.bots.count_documents({"active": True, "subscription.status": "trial_active"})
+    active_sub_bots = await db.bots.count_documents({"active": True, "subscription.status": "active"})
+    grace_bots = await db.bots.count_documents({"active": True, "subscription.status": "grace_period"})
+    suspended_bots = await db.bots.count_documents({"active": True, "subscription.status": {"$in": ["payment_required", "suspended"]}})
+    pending_payment_bots = await db.bots.count_documents({"active": True, "subscription.status": "payment_required"})
     numbers_orders_open = await db.orders.count_documents(
         {"service_type": {"$in": ["temp", "rental"]}, "status": {"$in": ["pending", "paid", "active", "waiting_code"]}}
     )
-
+    proxy_orders_open = await db.orders.count_documents(
+        {"service_type": "proxy_rental", "status": {"$in": ["pending", "paid", "active"]}}
+    )
     reseller_main_total = 0.0
     reseller_earnings_total = 0.0
     cursor = db.wallets.find(
@@ -569,15 +544,28 @@ async def _build_owner_dashboard_text() -> str:
         elif str(row.get("wallet_type")) == "reseller_earnings":
             reseller_earnings_total += balance
 
-    audit = await scan_financial_anomalies(days=7, max_rows=1)
     balance_cfg = await get_provider_balance_alert_settings()
     logs_target = await get_bot_logs_target()
     owner_target = await db.system_settings.find_one({"_id": "owner_notifications"}) or {}
+    reseller_topup_target = await db.system_settings.find_one({"_id": "owner_reseller_topups"}) or {}
+    owner_methods = await get_owner_payment_methods()
+    enabled_owner_methods = sum(1 for item in owner_methods if bool(item.get("enabled", True)))
+    owner_rate = await get_owner_exchange_rate()
+    numbers_margin = _configured_numbers_markup_percent()
+    digital_products_margin = await get_digital_products_markup_percent()
+    main_bot_username = str(getattr(settings, "main_bot_username", "") or "").strip()
+    support_targets = await get_all_support_targets()
+    support_bound_count = sum(1 for item in support_targets.values() if isinstance(item.get("chat_id"), int))
 
     owner_target_txt = (
         f"{owner_target.get('chat_id')} / topic {owner_target.get('message_thread_id') or '-'}"
         if isinstance(owner_target.get("chat_id"), int)
         else "not bound"
+    )
+    reseller_topup_target_txt = (
+        f"{reseller_topup_target.get('chat_id')} / topic {reseller_topup_target.get('message_thread_id') or '-'}"
+        if isinstance(reseller_topup_target.get("chat_id"), int)
+        else "inherits owner target"
     )
     logs_target_txt = (
         f"{logs_target.get('chat_id')} / topic {logs_target.get('message_thread_id') or '-'}"
@@ -592,25 +580,48 @@ async def _build_owner_dashboard_text() -> str:
 
     return (
         "Owner Dashboard\n\n"
-        f"Active reseller owners: {len(reseller_ids)}\n"
-        f"Active bots: {active_bots}\n"
-        f"Open numbers orders: {numbers_orders_open}\n\n"
-        f"Reseller main wallets total: ${reseller_main_total:.2f}\n"
-        f"Reseller earnings wallets total: ${reseller_earnings_total:.2f}\n\n"
-        f"Pending reseller topups: {pending_reseller_topups}\n"
-        f"Pending user topups: {pending_user_topups}\n"
-        f"Need-more-proof requests: {need_more_proof}\n"
-        f"Locked overdue settlements: {settlements_overdue}\n\n"
-        "Audit snapshot (7d)\n"
-        f"- Negative wallets: {audit['negative_wallets_count']}\n"
-        f"- Orders missing ledger: {audit['orders_missing_ledger_count']}\n"
-        f"- Accepted recharges missing ledger: {audit['accepted_recharges_without_ledger_count']}\n\n"
+        "Overview\n"
+        f"- Active reseller owners: {len(reseller_ids)}\n"
+        f"- Active bots: {active_bots}\n\n"
+        "Subscriptions\n"
+        f"- Trial: {trial_active_bots}\n"
+        f"- Active: {active_sub_bots}\n"
+        f"- Grace: {grace_bots}\n"
+        f"- Awaiting first payment: {pending_payment_bots}\n"
+        f"- Suspended: {suspended_bots}\n\n"
+        "Operations\n"
+        f"- Open numbers orders: {numbers_orders_open}\n"
+        f"- Open proxy orders: {proxy_orders_open}\n"
+        f"- Pending reseller topups: {pending_reseller_topups}\n"
+        f"- Pending user topups: {pending_user_topups}\n"
+        f"- Need-more-proof: {need_more_proof}\n\n"
+        "Wallet Totals\n"
+        f"- Reseller main: {format_usd(reseller_main_total)}\n"
+        f"- Reseller custom profit: {format_usd(reseller_earnings_total)}\n\n"
+        "Main Bot\n"
+        f"- Username: @{main_bot_username.lstrip('@') or '-'}\n"
+        f"- Owner payment methods: {enabled_owner_methods}/{len(owner_methods)} enabled\n"
+        f"- Owner exchange rate: 1 💲 = {owner_rate:.2f} local\n"
+        f"- Numbers margin: {numbers_margin:.2f}%\n"
+        f"- Digital products margin: {digital_products_margin:.2f}%\n\n"
         "Routing\n"
         f"- Owner target: {owner_target_txt}\n"
+        f"- Reseller topup target: {reseller_topup_target_txt}\n"
+        f"- Support topics: {support_bound_count}/4 bound\n"
         f"- Provider alert target: {provider_target_txt}\n"
         f"- Logs target: {logs_target_txt}\n"
-        f"- Provider alert enabled: {bool(balance_cfg.get('enabled'))}\n"
-        f"- Provider alert threshold: {float(balance_cfg.get('threshold_usd') or 0.0):.2f}$"
+        f"- Provider alert: {'on' if bool(balance_cfg.get('enabled')) else 'off'} @ {format_usd(float(balance_cfg.get('threshold_usd') or 0.0))}"
+    )
+
+
+def _owner_panel_home_text() -> str:
+    return (
+        "Owner Panel\n\n"
+        "Choose a section:\n"
+        "- Dashboard: platform status and totals\n"
+        "- Subscriptions: reseller deposits and topup review\n"
+        "- Main Bot: owner payment methods and pricing\n"
+        "- System: routing, support topics, logs, and alerts"
     )
 
 
@@ -620,7 +631,7 @@ async def owner_panel_open_command(message: types.Message):
         return
     await _hide_owner_reply_keyboard(message)
     await message.answer(
-        await _build_owner_dashboard_text(),
+        _owner_panel_home_text(),
         reply_markup=_owner_panel_main_kb(),
     )
 
@@ -634,7 +645,7 @@ async def owner_panel_open_callback(callback: types.CallbackQuery, state: FSMCon
         await _hide_owner_reply_keyboard(callback.message)
         await _safe_edit_text(
             callback.message,
-            await _build_owner_dashboard_text(),
+            _owner_panel_home_text(),
             reply_markup=_owner_panel_main_kb(),
         )
     await callback.answer()
@@ -645,18 +656,20 @@ async def owner_panel_category(callback: types.CallbackQuery, state: FSMContext)
     if not _is_owner_callback(callback):
         return await callback.answer("No permission", show_alert=True)
     category = (callback.data or "").split(":", 2)[2]
+    if category == "financial":
+        category = "subscriptions"
     await state.clear()
     if callback.message:
         await _hide_owner_reply_keyboard(callback.message)
         hints = {
-            "financial": "Finance / deposits and wallet operations.",
-            "settlements": "Settlement workflows per reseller bot (button-driven).",
-            "audit": "Audit and reconciliation operations.",
+            "subscriptions": "Bot subscriptions and reseller funding operations.",
+            "main_bot": "Main bot pricing, methods, and platform controls.",
             "system": "System routing and owner target settings.",
         }
+        display_category = "Main Bot" if category == "main_bot" else category.title()
         await _safe_edit_text(
             callback.message,
-            f"Owner Panel / {category.title()}\n\n{hints.get(category, '')}",
+            f"Owner Panel / {display_category}\n\n{hints.get(category, '')}",
             reply_markup=_owner_panel_category_kb(category),
         )
     await callback.answer()
@@ -673,7 +686,18 @@ async def owner_panel_action(callback: types.CallbackQuery, state: FSMContext):
             await _safe_edit_text(
                 callback.message,
                 await _build_owner_dashboard_text(),
-                reply_markup=_owner_panel_main_kb(),
+                reply_markup=_owner_dashboard_kb(),
+            )
+        return await callback.answer()
+
+    if action == "broadcast":
+        if callback.message:
+            await _safe_edit_text(
+                callback.message,
+                "إذاعة\n\n"
+                "هذه الرسالة ستُنشر في قناة البوت الحالي.\n"
+                "اختر نوع الإرسال.",
+                reply_markup=_owner_broadcast_kb(),
             )
         return await callback.answer()
 
@@ -702,6 +726,60 @@ async def owner_panel_action(callback: types.CallbackQuery, state: FSMContext):
             )
         return await callback.answer("Bound")
 
+    if action == "bind_reseller_topup_target_here":
+        if callback.message:
+            await db.system_settings.update_one(
+                {"_id": "owner_reseller_topups"},
+                {
+                    "$set": {
+                        "chat_id": callback.message.chat.id,
+                        "message_thread_id": getattr(callback.message, "message_thread_id", None),
+                        "updated_at": datetime.now(UTC),
+                    }
+                },
+                upsert=True,
+            )
+            await callback.message.answer(
+                f"Reseller topup target bound.\nchat_id={callback.message.chat.id}\n"
+                f"topic_id={getattr(callback.message, 'message_thread_id', None) or '-'}"
+            )
+        return await callback.answer("Bound")
+
+    if action in {
+        "bind_support_proxies_here",
+        "bind_support_numbers_here",
+        "bind_support_services_here",
+        "bind_support_user_balance_here",
+    }:
+        if callback.message:
+            category = action.removeprefix("bind_support_").removesuffix("_here")
+            await bind_support_target(
+                category,
+                chat_id=int(callback.message.chat.id),
+                message_thread_id=getattr(callback.message, "message_thread_id", None),
+            )
+            await callback.message.answer(
+                f"Support topic bound for {category}.\n"
+                f"chat_id={callback.message.chat.id}\n"
+                f"topic_id={getattr(callback.message, 'message_thread_id', None) or '-'}"
+            )
+        return await callback.answer("Bound")
+
+    if action == "support_topics_status":
+        targets = await get_all_support_targets()
+        lines = ["Support topics status\n"]
+        for category in ("proxies", "numbers", "services", "user_balance"):
+            target = targets.get(category) or {}
+            if isinstance(target.get("chat_id"), int):
+                lines.append(
+                    f"- {category}: {target.get('chat_id')} / topic {target.get('message_thread_id') or '-'}"
+                )
+            else:
+                lines.append(f"- {category}: not bound")
+        if callback.message:
+            await callback.message.answer("\n".join(lines))
+        return await callback.answer("Shown")
+
     if action == "bind_balance_alert_here":
         if callback.message:
             await bind_provider_balance_alert_target(
@@ -714,7 +792,7 @@ async def owner_panel_action(callback: types.CallbackQuery, state: FSMContext):
                 f"chat_id={callback.message.chat.id}\n"
                 f"topic_id={getattr(callback.message, 'message_thread_id', None) or '-'}\n"
                 f"enabled={bool(current.get('enabled'))}\n"
-                f"threshold={float(current.get('threshold_usd') or 0):.2f}$"
+                f"threshold={format_usd(float(current.get('threshold_usd') or 0))}"
             )
         return await callback.answer("Bound")
 
@@ -757,8 +835,8 @@ async def owner_panel_action(callback: types.CallbackQuery, state: FSMContext):
         await state.set_state(OwnerPanelFlow.waiting_provider_balance_threshold)
         if callback.message:
             await callback.message.answer(
-                "Send provider balance alert threshold in USD now.\n"
-                f"Current: {float(current.get('threshold_usd') or 0):.2f}$\n"
+                "Send provider balance alert threshold in dollar now.\n"
+                f"Current: {format_usd(float(current.get('threshold_usd') or 0))}\n"
                 "Example: 1.5"
             )
         return await callback.answer()
@@ -770,7 +848,7 @@ async def owner_panel_action(callback: types.CallbackQuery, state: FSMContext):
             await callback.message.answer(
                 "Provider balance alert updated.\n"
                 f"Enabled: {enabled}\n"
-                f"Threshold: {float(current.get('threshold_usd') or 0):.2f}$"
+                f"Threshold: {format_usd(float(current.get('threshold_usd') or 0))}"
             )
         return await callback.answer("Updated")
 
@@ -810,29 +888,28 @@ async def owner_panel_action(callback: types.CallbackQuery, state: FSMContext):
         current = await get_owner_exchange_rate()
         if callback.message:
             await callback.message.answer(
-                "Send owner USD/SYP exchange rate now.\n"
+                "Send owner local-to-dollar exchange rate now.\n"
                 f"Current: {current:.2f}\n\n"
                 "This rate is shared globally for all resellers using owner payment methods."
             )
         return await callback.answer()
 
     if action == "numbers_margin":
-        await state.set_state(OwnerPanelFlow.waiting_numbers_markup)
-        current = await get_numbers_markup_percent(25.0)
+        current = _configured_numbers_markup_percent()
         if callback.message:
             await callback.message.answer(
-                "Send numbers margin percent now (global).\n"
+                "Numbers margin is config-controlled.\n"
                 f"Current: {current:.2f}%\n"
-                "Example: 25"
+                "Change NUMBERS_SERVICE_MARKUP_PERCENT and restart the bot."
             )
         return await callback.answer()
 
-    if action == "game_store_margin":
-        await state.set_state(OwnerPanelFlow.waiting_game_store_markup)
-        current = await get_game_store_markup_percent(2.0)
+    if action == "digital_products_margin":
+        await state.set_state(OwnerPanelFlow.waiting_digital_products_markup)
+        current = await get_digital_products_markup_percent(2.0)
         if callback.message:
             await callback.message.answer(
-                "Send game store margin percent now (global).\n"
+                "Send digital products margin percent now (global).\n"
                 f"Current: {current:.2f}%\n"
                 "Example: 2"
             )
@@ -859,6 +936,39 @@ async def owner_panel_action(callback: types.CallbackQuery, state: FSMContext):
             reply_markup=_owner_payload_picker_kb(),
         )
     await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "owner_broadcast:text")
+async def owner_broadcast_text_start(callback: types.CallbackQuery, state: FSMContext):
+    if not _is_owner_callback(callback):
+        return await callback.answer("No permission", show_alert=True)
+    await state.set_state(OwnerBroadcastFlow.waiting_text)
+    if callback.message:
+        await callback.message.answer(
+            "أرسل الآن نص الإذاعة كما يجب أن يظهر في القناة.\n"
+            "للإلغاء أرسل /cancel"
+        )
+    await callback.answer()
+
+
+@router.message(OwnerBroadcastFlow.waiting_text)
+async def owner_broadcast_text_submit(message: types.Message, state: FSMContext):
+    if not await owner_only(message):
+        await state.clear()
+        return
+    payload = (message.text or "").strip()
+    if payload.lower() in {"/cancel", "cancel", "/owner_panel"}:
+        await state.clear()
+        await _hide_owner_reply_keyboard(message)
+        await message.answer("Canceled.", reply_markup=_owner_panel_main_kb())
+        return
+    if not payload:
+        await message.answer("أرسل نصًا فقط.")
+        return
+    ok, result = await _owner_send_broadcast_post(message.bot, payload)
+    await state.clear()
+    await _hide_owner_reply_keyboard(message)
+    await message.answer(result, reply_markup=_owner_panel_main_kb())
 
 
 @router.message(OwnerPanelFlow.waiting_payload)
@@ -933,6 +1043,11 @@ async def owner_panel_payload_chat_shared(message: types.Message, state: FSMCont
 async def owner_payment_methods_open(callback: types.CallbackQuery, state: FSMContext):
     if not _is_owner_callback(callback):
         return await callback.answer("No permission", show_alert=True)
+    try:
+        await callback.answer()
+    except TelegramBadRequest as exc:
+        if "query is too old" not in str(exc).lower():
+            raise
     await state.clear()
     methods = await get_owner_payment_methods()
     rate = await get_owner_exchange_rate()
@@ -942,7 +1057,6 @@ async def owner_payment_methods_open(callback: types.CallbackQuery, state: FSMCo
             _owner_payment_methods_text(methods, rate),
             reply_markup=_owner_payment_methods_kb(methods),
         )
-    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("owner_pm:method:"))
@@ -970,7 +1084,7 @@ async def owner_payment_exchange_rate_start(callback: types.CallbackQuery, state
     current = await get_owner_exchange_rate()
     if callback.message:
         await callback.message.answer(
-            "Send owner USD/SYP exchange rate now.\n"
+            "Send owner local-to-dollar exchange rate now.\n"
             f"Current: {current:.2f}\n\n"
             "This rate is shared globally for all resellers."
         )
@@ -993,11 +1107,10 @@ async def owner_payment_method_edit_start(callback: types.CallbackQuery, state: 
     prompts = {
         "title": "Send new method title.",
         "target": "Send new target/address text. You can send multiple lines (one target per line).",
-        "currency": "Send currency code: USD or SYP",
+        "currency": "Send currency code: 💲 or local",
         "enabled": "Send method status: on/off",
         "support": "Send support username (example: @support_user).",
         "text": "Send full instructions text now.",
-        "rate": "Send new per-credit value (numeric, > 0).",
     }
     if field not in prompts:
         return await callback.answer("Unknown field", show_alert=True)
@@ -1028,7 +1141,7 @@ async def owner_exchange_rate_apply(message: types.Message, state: FSMContext):
     await set_owner_exchange_rate(rate)
     await state.clear()
     await message.answer(
-        f"Owner exchange rate updated: 1 USD = {rate:.2f} SYP",
+        f"Owner exchange rate updated: 1 💲 = {rate:.2f} local",
         reply_markup=_owner_panel_main_kb(),
     )
 
@@ -1061,7 +1174,7 @@ async def owner_payment_method_edit_apply(message: types.Message, state: FSMCont
     elif field == "currency":
         cur = raw.upper().strip()
         if cur not in {"USD", "SYP"}:
-            return await message.answer("Invalid currency. Send USD or SYP.")
+            return await message.answer("Invalid currency. Send 💲 or local.")
         kwargs["currency"] = cur
     elif field == "enabled":
         low = raw.lower().strip()
@@ -1073,14 +1186,6 @@ async def owner_payment_method_edit_apply(message: types.Message, state: FSMCont
             return await message.answer("Invalid status. Send on/off.")
     elif field == "text":
         kwargs["instructions"] = raw
-    elif field == "rate":
-        try:
-            value = float(raw)
-        except Exception:
-            return await message.answer("Invalid rate value.")
-        if value <= 0:
-            return await message.answer("Rate must be greater than zero.")
-        kwargs["per_credit"] = value
     else:
         await state.clear()
         return await message.answer("Unknown field.")
@@ -1118,7 +1223,7 @@ async def owner_provider_balance_threshold_apply(message: types.Message, state: 
     updated = await set_provider_balance_alert_threshold(threshold)
     await state.clear()
     await message.answer(
-        f"Provider balance alert threshold updated: {updated:.2f}$",
+        f"Provider balance alert threshold updated: {format_usd(updated)}",
         reply_markup=_owner_panel_main_kb(),
     )
 
@@ -1132,23 +1237,17 @@ async def owner_numbers_margin_apply(message: types.Message, state: FSMContext):
     if raw.lower() in {"/cancel", "cancel", "/owner_panel"}:
         await state.clear()
         return await message.answer("Canceled.", reply_markup=_owner_panel_main_kb())
-    try:
-        pct = float(raw)
-    except Exception:
-        return await message.answer("Invalid value. Send numeric percent only.")
-    if pct < 0:
-        return await message.answer("Percent must be >= 0.")
-
-    applied = await set_numbers_markup_percent(pct)
     await state.clear()
     await message.answer(
-        f"Numbers margin updated: {applied:.2f}%",
+        "Numbers margin is config-controlled.\n"
+        f"Current: {_configured_numbers_markup_percent():.2f}%\n"
+        "Update NUMBERS_SERVICE_MARKUP_PERCENT and restart the bot.",
         reply_markup=_owner_panel_main_kb(),
     )
 
 
-@router.message(OwnerPanelFlow.waiting_game_store_markup)
-async def owner_game_store_margin_apply(message: types.Message, state: FSMContext):
+@router.message(OwnerPanelFlow.waiting_digital_products_markup)
+async def owner_digital_products_margin_apply(message: types.Message, state: FSMContext):
     if not await owner_only(message):
         await state.clear()
         return
@@ -1163,10 +1262,10 @@ async def owner_game_store_margin_apply(message: types.Message, state: FSMContex
     if pct < 0:
         return await message.answer("Percent must be >= 0.")
 
-    applied = await set_game_store_markup_percent(pct)
+    applied = await set_digital_products_markup_percent(pct)
     await state.clear()
     await message.answer(
-        f"Game store margin updated: {applied:.2f}%",
+        f"Digital products margin updated: {applied:.2f}%",
         reply_markup=_owner_panel_main_kb(),
     )
 
@@ -1193,7 +1292,7 @@ async def owner_quick_info(callback: types.CallbackQuery):
         }
     )
     await callback.answer(
-        f"{label}\nMain: {main_balance:.2f}$ | Earnings: {earnings_balance:.2f}$\nPending topups: {pending_topups}",
+        f"{label}\nMain: {format_usd(main_balance)} | Earnings: {format_usd(earnings_balance)}\nPending topups: {pending_topups}",
         show_alert=True,
     )
 
@@ -1369,7 +1468,7 @@ async def _execute_owner_action(*, action: str, payload: str, actor_id: int) -> 
             user = await db.users.find_one({"telegram_id": int(rid)}, {"username": 1})
             username = (user or {}).get("username")
             suffix = f" (@{username})" if username else ""
-            lines.append(f"{rid}{suffix}: main={main_bal:.2f}$ | earnings={earnings_bal:.2f}$")
+            lines.append(f"{rid}{suffix}: main={format_usd(main_bal)} | earnings={format_usd(earnings_bal)}")
         return "\n".join(lines)
 
     if action == "reseller_deposit":
@@ -1395,11 +1494,11 @@ async def _execute_owner_action(*, action: str, payload: str, actor_id: int) -> 
             reason="owner_reseller_deposit",
             actor_id=actor_id,
         )
-        return f"Added {amount:.2f}$ to reseller {rid}"
+        return f"Added {format_usd(amount)} to reseller {rid}"
 
     if action == "owner_exchange_rate":
         if len(parts) != 1:
-            return "Usage: <SYP_per_USD>"
+            return "Usage: <local_per_dollar>"
         try:
             rate = float(parts[0])
         except Exception:
@@ -1407,214 +1506,7 @@ async def _execute_owner_action(*, action: str, payload: str, actor_id: int) -> 
         if rate <= 0:
             return "Exchange rate must be greater than zero."
         await set_owner_exchange_rate(rate)
-        return f"Owner exchange rate updated: 1 USD = {rate:.2f} SYP"
-
-    if action == "settlement_preview":
-        if len(parts) not in {1, 2}:
-            return "Usage: <reseller_id> [YYYY-MM]"
-        if not parts[0].isdigit():
-            return "reseller_id must be numeric."
-        reseller_id = int(parts[0])
-        cycle_key = _parse_cycle_key_or_none(parts[1]) if len(parts) == 2 else _current_cycle_key()
-        if cycle_key is None:
-            return "Cycle must be YYYY-MM."
-        preview = await get_monthly_settlement_preview(reseller_id=reseller_id, cycle_key=cycle_key)
-        return (
-            "Settlement Preview\n\n"
-            f"Reseller: {reseller_id}\nCycle: {cycle_key}\n"
-            f"Core Commissions: {preview['core_commissions']:.2f}$\n"
-            f"Custom Profit: {preview['custom_profit']:.2f}$\n"
-            f"Owner Fees: {preview['owner_fees']:.2f}$\n"
-            f"Net Due (period): {preview['net_due']:.2f}$\n"
-            f"Current Earnings Wallet: {preview['current_earnings_wallet']:.2f}$"
-        )
-
-    if action == "confirm_settlement":
-        if len(parts) not in {1, 2}:
-            return "Usage: <reseller_id> [YYYY-MM]"
-        if not parts[0].isdigit():
-            return "reseller_id must be numeric."
-        reseller_id = int(parts[0])
-        cycle_key = _parse_cycle_key_or_none(parts[1]) if len(parts) == 2 else _current_cycle_key()
-        if cycle_key is None:
-            return "Cycle must be YYYY-MM."
-        doc = await confirm_monthly_settlement(reseller_id=reseller_id, cycle_key=cycle_key, owner_id=actor_id)
-        return (
-            "Settlement Confirmed\n\n"
-            f"Reseller: {reseller_id}\nCycle: {cycle_key}\n"
-            f"Net Due: {float(doc.get('net_due', 0)):.2f}$\n"
-            f"Anchor TX: {doc.get('closing_anchor_tx_uuid') or '-'}"
-        )
-
-    if action == "settlement_history":
-        if len(parts) not in {1, 2}:
-            return "Usage: <reseller_id> [limit]"
-        if not parts[0].isdigit():
-            return "reseller_id must be numeric."
-        reseller_id = int(parts[0])
-        limit = int(parts[1]) if len(parts) == 2 and parts[1].isdigit() else 6
-        limit = max(1, min(limit, 24))
-        rows = await db.settlements.find({"reseller_id": reseller_id}).sort("confirmed_at", -1).limit(limit).to_list(limit)
-        if not rows:
-            return "No settlements found for this reseller."
-        lines = [f"Settlement history for {reseller_id}:"]
-        for row in rows:
-            lines.append(
-                f"- {row.get('cycle_key')}: net_due={float(row.get('net_due', 0)):.2f}$ | "
-                f"status={row.get('payment_status') or row.get('status')}"
-            )
-        return "\n".join(lines)
-
-    if action == "generate_settlement_drafts":
-        cycle_key = _current_cycle_key()
-        if payload.lower() not in {"now", "current", "-"}:
-            maybe = _parse_cycle_key_or_none(payload)
-            if maybe is None:
-                return "Cycle must be YYYY-MM, or send: now"
-            cycle_key = maybe
-        stats = await generate_monthly_settlement_drafts(cycle_key=cycle_key)
-        return (
-            "Settlement Draft Generation\n\n"
-            f"Cycle: {stats['cycle_key']}\n"
-            f"Total Resellers: {stats['total']}\n"
-            f"Drafted/Updated: {stats['drafted']}\n"
-            f"Skipped Confirmed: {stats['skipped_confirmed']}"
-        )
-
-    if action == "reconcile_recharge":
-        if len(parts) not in {1, 2, 3}:
-            return "Usage: <reseller_id> [YYYY-MM] [max_rows]"
-        if not parts[0].isdigit():
-            return "reseller_id must be numeric."
-        reseller_id = int(parts[0])
-        cycle_key = _previous_cycle_key()
-        max_rows = 10
-        if len(parts) >= 2:
-            maybe_cycle = _parse_cycle_key_or_none(parts[1])
-            if maybe_cycle is None and not parts[1].isdigit():
-                return "Cycle must be YYYY-MM."
-            if maybe_cycle is not None:
-                cycle_key = maybe_cycle
-            else:
-                max_rows = max(1, min(int(parts[1]), 100))
-        if len(parts) == 3:
-            if not parts[2].isdigit():
-                return "max_rows must be numeric."
-            max_rows = max(1, min(int(parts[2]), 100))
-        report = await reconcile_recharge_requests_vs_ledger(
-            reseller_id=reseller_id,
-            cycle_key=cycle_key,
-            max_rows=max_rows,
-        )
-        return (
-            "Recharge Reconciliation\n\n"
-            f"Reseller: {reseller_id}\nCycle: {cycle_key}\n"
-            f"Accepted Requests: {report['accepted_requests']}\n"
-            f"Ledger Entries: {report['ledger_entries']}\n"
-            f"Missing Ledger: {report['missing_ledger_count']}\n"
-            f"Amount Mismatch: {report['amount_mismatch_count']}\n"
-            f"Target Mismatch: {report['target_mismatch_count']}\n"
-            f"Orphan Ledger: {report['orphan_ledger_count']}"
-        )
-
-    if action == "financial_audit":
-        days = 30
-        max_rows = 10
-        if len(parts) >= 1 and parts[0]:
-            if not parts[0].isdigit():
-                return "days must be numeric."
-            days = max(1, min(int(parts[0]), 365))
-        if len(parts) >= 2 and parts[1]:
-            if not parts[1].isdigit():
-                return "max_rows must be numeric."
-            max_rows = max(1, min(int(parts[1]), 100))
-        report = await scan_financial_anomalies(days=days, max_rows=max_rows)
-        lines = [
-            "Financial Audit",
-            "",
-            f"Window: last {report['days']} days",
-            f"Negative Wallets: {report['negative_wallets_count']}",
-            f"Orders Missing Ledger: {report['orders_missing_ledger_count']}",
-            f"Accepted Recharges Missing Ledger: {report['accepted_recharges_without_ledger_count']}",
-            f"Locked Overdue Settlements: {report['locked_overdue_settlements_count']}",
-        ]
-        if report["negative_wallets"]:
-            sample = report["negative_wallets"][0]
-            lines.append(
-                f"Sample negative wallet: {sample.get('owner_type')}:{sample.get('owner_id')} {sample.get('wallet_type')}={float(sample.get('balance', 0)):.2f}"
-            )
-        if report["orders_missing_ledger"]:
-            sample = report["orders_missing_ledger"][0]
-            lines.append(
-                f"Sample order gap: {sample.get('order_id')} status={sample.get('status')} type={sample.get('service_type')}"
-            )
-        if report["accepted_recharges_without_ledger"]:
-            sample = report["accepted_recharges_without_ledger"][0]
-            lines.append(
-                f"Sample recharge gap: {sample.get('request_id')} wallet={sample.get('wallet_type')} amount={float(sample.get('amount', 0)):.2f}"
-            )
-        if report["locked_overdue_settlements"]:
-            sample = report["locked_overdue_settlements"][0]
-            lines.append(
-                f"Sample locked settlement: reseller={sample.get('reseller_id')} cycle={sample.get('cycle_key')} due={float(sample.get('net_due', 0)):.2f}"
-            )
-        return "\n".join(lines)
-
-    if action == "confirm_settlement_payment":
-        if len(parts) < 1:
-            return "Usage: <reseller_id> [YYYY-MM] [note]"
-        if not parts[0].isdigit():
-            return "reseller_id must be numeric."
-        reseller_id = int(parts[0])
-        cycle_key = _previous_cycle_key()
-        note = None
-        if len(parts) >= 2:
-            maybe_cycle = _parse_cycle_key_or_none(parts[1])
-            if maybe_cycle is not None:
-                cycle_key = maybe_cycle
-                if len(parts) >= 3:
-                    note = " ".join(parts[2:])
-            else:
-                note = " ".join(parts[1:])
-        doc = await confirm_settlement_payment(
-            reseller_id=reseller_id,
-            cycle_key=cycle_key,
-            owner_id=actor_id,
-            note=note,
-        )
-        return (
-            "Settlement Payment Confirmed\n\n"
-            f"Reseller: {reseller_id}\n"
-            f"Cycle: {cycle_key}\n"
-            f"Amount due: {float(doc.get('net_due', 0)):.2f}$\n"
-            f"Payment status: {doc.get('payment_status')}\n"
-            f"Services locked: {bool(doc.get('services_locked'))}"
-        )
-
-    if action == "bind_owner_target_link":
-        parsed = _parse_owner_target_payload(payload)
-        if not parsed:
-            return (
-                "Invalid target format.\n"
-                "Use topic link, or: -100CHAT_ID TOPIC_ID, or: -100CHAT_ID"
-            )
-        chat_id, thread_id = parsed
-        await db.system_settings.update_one(
-            {"_id": "owner_notifications"},
-            {
-                "$set": {
-                    "chat_id": int(chat_id),
-                    "message_thread_id": int(thread_id) if thread_id is not None else None,
-                    "updated_at": datetime.now(UTC),
-                }
-            },
-            upsert=True,
-        )
-        return (
-            "Owner target updated.\n\n"
-            f"chat_id={chat_id}\n"
-            f"topic_id={thread_id or '-'}"
-        )
+        return f"Owner exchange rate updated: 1 💲 = {rate:.2f} local"
 
     return "Unknown action."
 
@@ -1647,43 +1539,216 @@ async def reseller_deposit_command(message: types.Message):
     await _run_owner_action_from_command(message, "reseller_deposit")
 
 
-@router.message(lambda msg: msg.text and msg.text.startswith('/settlement_preview'))
-async def settlement_preview_command(message: types.Message):
-    await _run_owner_action_from_command(message, "settlement_preview")
-
-
-@router.message(lambda msg: msg.text and msg.text.startswith('/confirm_settlement'))
-async def confirm_settlement_command(message: types.Message):
-    await _run_owner_action_from_command(message, "confirm_settlement")
-
-
 @router.message(lambda msg: msg.text and msg.text.startswith('/resellers'))
 async def resellers_command(message: types.Message):
     await _run_owner_action_from_command(message, "resellers")
 
-@router.message(lambda msg: msg.text and msg.text.startswith('/settlement_history'))
-async def settlement_history_command(message: types.Message):
-    await _run_owner_action_from_command(message, "settlement_history")
+
+@router.message(lambda msg: msg.text and msg.text.startswith('/activate_bot_subscription'))
+async def activate_bot_subscription_command(message: types.Message):
+    if not await owner_only(message):
+        return
+    parts = str(message.text or "").split()
+    if len(parts) < 2:
+        await message.answer("Usage: /activate_bot_subscription <bot_id> [1|6|12] [note]")
+        return
+    if not str(parts[1]).isdigit():
+        await message.answer("bot_id must be numeric.")
+        return
+    bot_id = int(parts[1])
+    months = 1
+    note = None
+    if len(parts) >= 3:
+        if str(parts[2]).isdigit():
+            months = int(parts[2])
+            if len(parts) >= 4:
+                note = " ".join(parts[3:]).strip() or None
+        else:
+            note = " ".join(parts[2:]).strip() or None
+    if months not in {1, 6, 12}:
+        await message.answer("Months must be one of: 1, 6, 12")
+        return
+    subscription = await activate_bot_subscription(bot_id, months=months, note=note)
+    if not subscription:
+        await message.answer("Bot not found.")
+        return
+    await message.answer(
+        "Bot subscription activated\n\n"
+        f"Bot ID: {bot_id}\n"
+        f"Months: {months}\n"
+        f"Renewal amount: {format_usd(float(subscription.get('renewal_charge_usd') or 0.0))}\n"
+        f"Renewal plan: {int(subscription.get('renewal_plan_months') or 1)} month(s)\n"
+        f"Status: {subscription.get('status')}\n"
+        f"Subscription ends: {subscription.get('subscription_ends_at')}\n"
+        f"Grace ends: {subscription.get('grace_ends_at')}"
+    )
 
 
-@router.message(lambda msg: msg.text and msg.text.startswith('/generate_settlement_drafts'))
-async def generate_settlement_drafts_command(message: types.Message):
-    await _run_owner_action_from_command(message, "generate_settlement_drafts")
+@router.callback_query(lambda c: c.data and c.data.startswith("support:reply_ticket:"))
+async def support_owner_reply_open(callback: types.CallbackQuery, state: FSMContext):
+    if int(callback.from_user.id) != int(OWNER_ID):
+        await callback.answer("No permission.", show_alert=True)
+        return
+    ticket_id = str(callback.data or "").split(":", 2)[2].strip()
+    ticket = await get_support_ticket(ticket_id)
+    if not ticket:
+        await callback.answer("Support ticket not found.", show_alert=True)
+        return
+    await state.clear()
+    await state.set_state(SupportOwnerReplyFlow.waiting_message)
+    await state.update_data(
+        support_reply_user_id=int(ticket.get("user_id") or 0),
+        support_reply_category=str(ticket.get("category") or ""),
+        support_reply_ticket_id=str(ticket["_id"]),
+    )
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(
+            f"Send the reply now to user {int(ticket.get('user_id') or 0)} for {str(ticket.get('category') or '')}. Send /done when finished.",
+            reply_markup=ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text="/done")], [KeyboardButton(text="/cancel")]],
+                resize_keyboard=True,
+            ),
+        )
 
 
-@router.message(lambda msg: msg.text and msg.text.startswith('/reconcile_recharge'))
-async def reconcile_recharge_command(message: types.Message):
-    await _run_owner_action_from_command(message, "reconcile_recharge")
+@router.message(SupportOwnerReplyFlow.waiting_message)
+async def support_owner_reply_router(message: types.Message, state: FSMContext):
+    if int(message.from_user.id) != int(OWNER_ID):
+        return
+    raw = (message.text or "").strip().lower()
+    if raw == "/done":
+        await state.clear()
+        await message.answer("Support reply session closed.", reply_markup=ReplyKeyboardRemove())
+        return
+    if raw == "/cancel":
+        await state.clear()
+        await message.answer("Support reply session cancelled.", reply_markup=ReplyKeyboardRemove())
+        return
+
+    data = await state.get_data()
+    target_user_id = int(data.get("support_reply_user_id") or 0)
+    ticket_id = str(data.get("support_reply_ticket_id") or "").strip()
+    if target_user_id <= 0:
+        await state.clear()
+        await message.answer("Support reply session cancelled.", reply_markup=ReplyKeyboardRemove())
+        return
+
+    try:
+        await message.copy_to(chat_id=target_user_id)
+        if ticket_id:
+            await mark_support_ticket_replied(ticket_id, actor_id=int(message.from_user.id))
+        await message.answer("Reply sent to the user.", reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="/done")], [KeyboardButton(text="/cancel")]],
+            resize_keyboard=True,
+        ))
+    except TelegramBadRequest:
+        await message.answer("Reply could not be delivered to the user.")
 
 
-@router.message(lambda msg: msg.text and msg.text.startswith('/financial_audit'))
-async def financial_audit_command(message: types.Message):
-    await _run_owner_action_from_command(message, "financial_audit")
+@router.callback_query(lambda c: c.data and c.data.startswith("support:solve_ticket:"))
+async def support_ticket_solve(callback: types.CallbackQuery):
+    if int(callback.from_user.id) != int(OWNER_ID):
+        await callback.answer("No permission.", show_alert=True)
+        return
+    ticket_id = str(callback.data or "").split(":", 2)[2].strip()
+    ticket = await get_support_ticket(ticket_id)
+    if not ticket:
+        await callback.answer("Support ticket not found.", show_alert=True)
+        return
+    await mark_support_ticket_solved(ticket_id, actor_id=int(callback.from_user.id))
+    try:
+        await callback.bot.send_message(chat_id=int(ticket.get("user_id") or 0), text="Your support ticket has been marked as solved.")
+    except Exception:
+        pass
+    if callback.message:
+        try:
+            await callback.message.edit_reply_markup(
+                reply_markup=types.InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [types.InlineKeyboardButton(text="Solved", callback_data="support:ticket_solved")]
+                    ]
+                )
+            )
+        except Exception:
+            pass
+    await callback.answer("Ticket marked as solved.", show_alert=True)
 
 
-@router.message(lambda msg: msg.text and msg.text.startswith('/confirm_settlement_payment'))
-async def confirm_settlement_payment_command(message: types.Message):
-    await _run_owner_action_from_command(message, "confirm_settlement_payment")
+@router.callback_query(lambda c: c.data == "support:ticket_solved")
+async def support_ticket_solved_badge(callback: types.CallbackQuery):
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("custom_preorder:fulfill:"))
+async def custom_preorder_fulfill_open(callback: types.CallbackQuery, state: FSMContext):
+    if int(callback.from_user.id) != int(OWNER_ID):
+        return await callback.answer("No permission.", show_alert=True)
+
+    preorder_id = str(callback.data or "").split(":", 2)[2].strip()
+    preorder = await get_preorder_request(preorder_id)
+    if not preorder:
+        return await callback.answer("Queue item not found.", show_alert=True)
+
+    next_pending = await get_next_pending_preorder(preorder.get("endpoint_id"))
+    if not next_pending:
+        return await callback.answer("No pending preorder left.", show_alert=True)
+    if str(next_pending.get("_id")) != preorder_id:
+        position = await get_pending_preorder_position(preorder_id)
+        return await callback.answer(f"FIFO enforced. This request is position #{position}.", show_alert=True)
+
+    claimed = await mark_preorder_fulfilling(preorder_id, actor_id=int(callback.from_user.id))
+    if not claimed:
+        return await callback.answer("This preorder is already being handled.", show_alert=True)
+
+    await state.clear()
+    await state.set_state(CustomPreorderOwnerFlow.waiting_delivery)
+    await state.update_data(
+        preorder_id=preorder_id,
+        preorder_user_id=int(preorder.get("buyer_user_id") or 0),
+        preorder_order_id=str(preorder.get("order_id") or ""),
+        preorder_service_name=str(preorder.get("service_name") or ""),
+        preorder_endpoint_id=str(preorder.get("endpoint_id") or ""),
+    )
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(
+            "Send the delivery payload now. The next message/file/photo/document will be copied to the user.\n"
+            "Send /cancel to abort."
+        )
+
+
+@router.message(CustomPreorderOwnerFlow.waiting_delivery)
+async def custom_preorder_delivery_router(message: types.Message, state: FSMContext):
+    if int(message.from_user.id) != int(OWNER_ID):
+        return
+    raw = (message.text or "").strip().lower()
+    if raw == "/cancel":
+        preorder_id = str((await state.get_data()).get("preorder_id") or "").strip()
+        if preorder_id:
+            await reset_preorder_to_pending(preorder_id)
+        await state.clear()
+        await message.answer("Preorder delivery session cancelled.", reply_markup=ReplyKeyboardRemove())
+        return
+
+    data = await state.get_data()
+    target_user_id = int(data.get("preorder_user_id") or 0)
+    preorder_id = str(data.get("preorder_id") or "").strip()
+    order_id = str(data.get("preorder_order_id") or "").strip()
+    if target_user_id <= 0 or not preorder_id:
+        await state.clear()
+        return await message.answer("Preorder delivery session cancelled.", reply_markup=ReplyKeyboardRemove())
+
+    try:
+        await message.copy_to(chat_id=target_user_id)
+        await mark_preorder_fulfilled(preorder_id, actor_id=int(message.from_user.id))
+        if order_id:
+            await update_order_details(ObjectId(order_id), {"custom_preorder": True, "status": "success"})
+            await update_order_status(ObjectId(order_id), "success")
+        await state.clear()
+        await message.answer("Preorder delivered to the user.", reply_markup=ReplyKeyboardRemove())
+    except TelegramBadRequest:
+        await message.answer("Delivery could not be sent to the user.")
 
 
 

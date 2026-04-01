@@ -9,25 +9,22 @@ from database.mongo import db
 DEFAULT_EXCHANGE_RATE = 10500.0
 
 
+def _syriatel_cash_instructions() -> str:
+    return (
+        "خطوات شحن الرصيد عبر سيريتل كاش (تحويل يدوي) ✅\n"
+        "1. التحويل: أرسل المبلغ الذي تريد شحنه إلى الرقم التالي:\n"
+        "{target}\n\n"
+        "2. التوثيق: أدخل معرف العملية كما وصلك في رسالة التحويل.\n"
+        "3. التأكيد: أدخل قيمة المبلغ المحوّل بالليرة السورية ليتم إضافة الرصيد تلقائيًا.\n\n"
+        "📍 للدعم: إذا كانت الأرقام مشغولة أو واجهت أي مشكلة، تواصل معنا: {support}\n"
+        "سياسة الشحن: الرصيد المشحون غير قابل للاسترداد.\n"
+        "( {per_credit:.0f} {currency} = 1 Credit )"
+    )
+
+
 def _default_payment_methods(exchange_rate: float) -> list[dict]:
     syp_per_credit = float(exchange_rate)
     return [
-        {
-            "code": "shamcash",
-            "title": "ShamCash",
-            "currency": "SYP",
-            "currency_options": ["SYP", "USD"],
-            "enabled": True,
-            "per_credit": syp_per_credit,
-            "target": "SET_SHAMCASH_ACCOUNT",
-            "support": "@support",
-            "instructions": (
-                "أرسل المبلغ إلى حساب شام كاش التالي:\n\n"
-                "{target}\n\n"
-                "ثم أرسل لقطة شاشة تأكيد العملية.\n"
-                "( {per_credit:.0f} {currency} = 1 Credit )"
-            ),
-        },
         {
             "code": "syriatel_cash",
             "title": "Syriatel Cash",
@@ -37,12 +34,38 @@ def _default_payment_methods(exchange_rate: float) -> list[dict]:
             "per_credit": syp_per_credit,
             "target": "SET_SYRIATEL_ACCOUNT",
             "support": "@support",
+            "instructions": _syriatel_cash_instructions(),
+        },
+        {
+            "code": "shamcash_syp",
+            "title": "ShamCash (SYP)",
+            "currency": "SYP",
+            "currency_options": ["SYP"],
+            "enabled": True,
+            "per_credit": syp_per_credit,
+            "target": "SET_SHAMCASH_SYP_ACCOUNT",
+            "support": "@support",
             "instructions": (
-                "أرسل المبلغ إلى حساب سيرياتيل كاش التالي (تحويل يدوي):\n\n"
+                "أرسل المبلغ إلى حساب شام كاش التالي:\n\n"
                 "{target}\n\n"
-                "إذا واجهت مشكلة في الحد تواصل مع الدعم: {support}\n"
-                "( {per_credit:.0f} {currency} = 1 Credit )\n"
-                "ملاحظة: لا تُقبل عملية إرسال وحدات."
+                "ثم أرسل لقطة شاشة تأكيد العملية.\n"
+                "( {per_credit:.0f} {currency} = 1 Credit )"
+            ),
+        },
+        {
+            "code": "shamcash_usd",
+            "title": "ShamCash ($)",
+            "currency": "USD",
+            "currency_options": ["USD"],
+            "enabled": True,
+            "per_credit": 1.0,
+            "target": "SET_SHAMCASH_USD_ACCOUNT",
+            "support": "@support",
+            "instructions": (
+                "أرسل المبلغ إلى حساب شام كاش التالي:\n\n"
+                "{target}\n\n"
+                "ثم أرسل لقطة شاشة تأكيد العملية.\n"
+                "( {per_credit:.0f} {currency} = 1 Credit )"
             ),
         },
         {
@@ -62,22 +85,6 @@ def _default_payment_methods(exchange_rate: float) -> list[dict]:
                 "قد تستغرق العملية من 10 إلى 20 دقيقة لتأكيد الشبكة."
             ),
         },
-        {
-            "code": "manual_usd",
-            "title": "Manual USD",
-            "currency": "USD",
-            "currency_options": ["USD"],
-            "enabled": True,
-            "per_credit": 1.0,
-            "target": "SET_USD_ACCOUNT",
-            "support": "@support",
-            "instructions": (
-                "أرسل المبلغ إلى الحساب التالي:\n\n"
-                "{target}\n\n"
-                "ثم أرسل إثبات الدفع.\n"
-                "( {per_credit:.2f} {currency} = 1 Credit )"
-            ),
-        },
     ]
 
 
@@ -90,6 +97,22 @@ def _looks_broken_text(text: str | None) -> bool:
     if "???" in s or "Ã" in s or "�" in s:
         return True
     return False
+
+
+def _is_legacy_syriatel_instructions(text: str | None) -> bool:
+    s = str(text or "").strip()
+    if not s:
+        return False
+    legacy_markers = (
+        "أرسل المبلغ إلى حساب سيرياتيل كاش التالي (تحويل يدوي):",
+        "إذا واجهت مشكلة في الحد تواصل مع الدعم:",
+        "ملاحظة: لا تُقبل عملية إرسال وحدات.",
+        "Transfer manually to:",
+        "For support contact:",
+    )
+    return any(marker in s for marker in legacy_markers)
+
+
 async def _get_settings_doc(reseller_id: int) -> dict:
     return await db.reseller_settings.find_one({"reseller_id": int(reseller_id)}) or {}
 
@@ -113,24 +136,6 @@ async def delete_recharge_address(reseller_id: int, address_id):
     await db.reseller_settings.update_one(
         {"reseller_id": int(reseller_id)},
         {"$pull": {"addresses": {"_id": address_id}}},
-    )
-
-
-async def get_reseller_rates(reseller_id: int):
-    doc = await _get_settings_doc(reseller_id)
-    if not doc:
-        return {"core_commission": 0.05, "owner_fee": 0.10}
-    return {
-        "core_commission": float(doc.get("core_commission", 0.05)),
-        "owner_fee": float(doc.get("owner_fee", 0.10)),
-    }
-
-
-async def update_reseller_rates(reseller_id: int, core_commission: float, owner_fee: float):
-    await db.reseller_settings.update_one(
-        {"reseller_id": int(reseller_id)},
-        {"$set": {"core_commission": float(core_commission), "owner_fee": float(owner_fee)}},
-        upsert=True,
     )
 
 
@@ -214,6 +219,50 @@ async def get_exchange_routing(reseller_id: int):
     }
 
 
+async def set_support_routing(reseller_id: int, category: str, chat_id: int, message_thread_id: int | None = None):
+    cat = str(category or "").strip().lower()
+    await db.reseller_settings.update_one(
+        {"reseller_id": int(reseller_id)},
+        {
+            "$set": {
+                f"support_routing.{cat}.chat_id": int(chat_id),
+                f"support_routing.{cat}.message_thread_id": int(message_thread_id) if message_thread_id is not None else None,
+                f"support_routing.{cat}.updated_at": datetime.now(UTC),
+            }
+        },
+        upsert=True,
+    )
+
+
+async def get_support_routing(reseller_id: int, category: str):
+    cat = str(category or "").strip().lower()
+    doc = await _get_settings_doc(reseller_id)
+    routing = ((doc.get("support_routing") or {}).get(cat)) or {}
+    chat_id = routing.get("chat_id")
+    if chat_id is None:
+        return None
+    return {
+        "chat_id": int(chat_id),
+        "message_thread_id": routing.get("message_thread_id"),
+    }
+
+
+async def get_all_support_routing(reseller_id: int) -> dict[str, dict]:
+    doc = await _get_settings_doc(reseller_id)
+    raw = doc.get("support_routing") or {}
+    result: dict[str, dict] = {}
+    for category in ("proxies", "numbers", "services", "user_balance"):
+        row = raw.get(category) or {}
+        if row.get("chat_id") is None:
+            result[category] = {}
+            continue
+        result[category] = {
+            "chat_id": int(row["chat_id"]),
+            "message_thread_id": row.get("message_thread_id"),
+        }
+    return result
+
+
 async def set_exchange_rate(reseller_id: int, usd_to_syp: float):
     now = datetime.now(UTC)
     await db.reseller_settings.update_one(
@@ -269,16 +318,55 @@ async def get_payment_methods(reseller_id: int) -> list[dict]:
             upsert=True,
         )
 
-    defaults_by_code = {x.get("code"): x for x in _default_payment_methods(rate)}
-    normalized = []
+    defaults = _default_payment_methods(rate)
+    defaults_by_code = {x.get("code"): x for x in defaults}
+    allowed_codes = set(defaults_by_code.keys())
     changed = False
+
+    # One-time migration: legacy single shamcash -> shamcash_syp + shamcash_usd
+    has_old_shamcash = any(str(x.get("code") or "") == "shamcash" for x in methods)
+    has_new_shamcash = any(str(x.get("code") or "") in {"shamcash_syp", "shamcash_usd"} for x in methods)
+    if has_old_shamcash and not has_new_shamcash:
+        old = next((x for x in methods if str(x.get("code") or "") == "shamcash"), {})
+        syp_target = str(old.get("target") or "SET_SHAMCASH_SYP_ACCOUNT")
+        usd_target = syp_target
+        old_cur = str(old.get("currency") or "").upper()
+        if old_cur == "USD":
+            usd_target = str(old.get("target") or "SET_SHAMCASH_USD_ACCOUNT")
+            syp_target = usd_target
+
+        migrated = [x for x in methods if str(x.get("code") or "") != "shamcash"]
+        migrated.extend(
+            [
+                {
+                    **defaults_by_code["shamcash_syp"],
+                    "target": syp_target,
+                    "enabled": bool(old.get("enabled", True)),
+                },
+                {
+                    **defaults_by_code["shamcash_usd"],
+                    "target": usd_target,
+                    "enabled": bool(old.get("enabled", True)),
+                },
+            ]
+        )
+        methods = migrated
+        changed = True
+
+    normalized = []
     for m in methods:
         item = dict(m)
-        code = item.get("code")
+        code = str(item.get("code") or "")
+        if code not in allowed_codes:
+            changed = True
+            continue
         fallback = defaults_by_code.get(code, {})
 
         if _looks_broken_text(item.get("instructions")):
             item["instructions"] = fallback.get("instructions", item.get("instructions", ""))
+            changed = True
+        if code == "syriatel_cash" and _is_legacy_syriatel_instructions(item.get("instructions")):
+            item["instructions"] = _syriatel_cash_instructions()
             changed = True
         if _looks_broken_text(item.get("title")):
             item["title"] = fallback.get("title", item.get("title", code))
@@ -300,6 +388,9 @@ async def get_payment_methods(reseller_id: int) -> list[dict]:
                 item["per_credit"] = 1.0
                 changed = True
         normalized.append(item)
+
+    order_index = {code: idx for idx, code in enumerate([row.get("code") for row in defaults])}
+    normalized.sort(key=lambda item: order_index.get(str(item.get("code") or ""), 999))
 
     if changed:
         await db.reseller_settings.update_one(

@@ -8,31 +8,38 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 
+from config import OWNER_ID, settings
 from database.bots_repo import get_reseller_id_for_bot
 from database.custom_services_repo import (
     claim_endpoint_inventory,
+    create_preorder_request,
     create_endpoint,
     create_folder,
     deactivate_node,
     ensure_root_node,
+    get_pending_preorder_position,
     get_node,
     list_children,
     move_node_in_parent,
     rename_node,
     release_endpoint_stock,
+    reserve_endpoint_stock,
+    set_endpoint_preorder_enabled,
     set_endpoint_inventory,
     update_node_display_text,
     update_endpoint,
     update_endpoint_product_info,
 )
 from database.financial_ledger import create_order_v3
+from database.mongo import db
 from database.orders_repo import update_order_details, update_order_status
 from database.user_repo import get_user, get_user_reseller_for_bot, set_user_reseller_for_bot
-from keyboards.main_menu_kb import main_menu
+from utils.bot_menu_context import is_main_bot, menu_for_current_bot
 from utils.financial_manager import FinancialManager
 from utils.permissions import is_reseller
 from utils.reseller_setup_guard import get_reseller_setup_status, render_reseller_setup_notice
 from utils.translations import t
+from utils.user_money import format_usd
 
 router = Router()
 logger = logging.getLogger('custom_services')
@@ -100,11 +107,44 @@ def _catalog_type_from_node(node: dict | None) -> str:
 
 
 def _catalog_title(catalog_type: str) -> str:
-    return "ID INFO" if catalog_type == _CATALOG_ID_INFO else "Custom Services"
+    return "ID INFO" if catalog_type == _CATALOG_ID_INFO else t("en", "custom_services_title")
 
 
 def _catalog_financial_mode(catalog_type: str) -> str:
-    return _FINANCIAL_CORE if catalog_type == _CATALOG_ID_INFO else _FINANCIAL_CUSTOM
+    return _FINANCIAL_CUSTOM
+
+
+def _builder_help_text(lang: str) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        return (
+            "دليل سريع للبيلدر:\n"
+            "1) افتح مجلد ثم اضغط إضافة لإضافة مجلد/خدمة.\n"
+            "2) استخدم إعادة التسمية/التحريك لترتيب الكتالوج.\n"
+            "3) افتح الخدمة لتعديل النص/الملف والسعر والمخزون.\n"
+            "4) جرب شراء الخدمة للتأكد من المخرجات قبل النشر."
+        )
+    return (
+        "Builder quick guide:\n"
+        "1) Open a folder then press Add to create folder/endpoint.\n"
+        "2) Use rename/move to organize the catalog.\n"
+        "3) Open endpoint to edit delivery text/file, price, and stock.\n"
+        "4) Test-buy endpoint before publishing."
+    )
+
+
+def _services_landing_text(lang: str, *, owner_builder_available: bool) -> str:
+    key = "services_landing_owner_text" if owner_builder_available else "services_landing_text"
+    return t(lang, key)
+
+
+def _services_landing_kb(lang: str, *, show_builder: bool) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text=t(lang, "services_open_catalog_button"), callback_data="cstm:entry:catalog")]
+    ]
+    if show_builder:
+        rows.append([InlineKeyboardButton(text=t(lang, "services_open_builder_button"), callback_data="cstm:entry:builder")])
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="cstm:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _is_cancel_input(text: str | None) -> bool:
@@ -125,12 +165,19 @@ async def _safe_edit_text(
         raise
 
 
+async def _user_lang(user_id: int) -> str:
+    user = await get_user(int(user_id))
+    return str((user or {}).get("language") or "en")
+
+
 async def _is_current_bot_reseller(user_id: int, bot: Bot) -> bool:
     bot_id = (await bot.get_me()).id
     return await is_reseller(user_id, bot_id=bot_id)
 
 
 async def _resolve_user_reseller(user_id: int, bot_id: int) -> int | None:
+    if await is_main_bot(bot_id):
+        return int(user_id)
     reseller_id = await get_user_reseller_for_bot(user_id, bot_id)
     if reseller_id:
         return int(reseller_id)
@@ -139,6 +186,115 @@ async def _resolve_user_reseller(user_id: int, bot_id: int) -> int | None:
         await set_user_reseller_for_bot(user_id, bot_id, int(inferred))
         return int(inferred)
     return None
+
+
+async def _resolve_catalog_owner_id(user_id: int, bot_id: int) -> int | None:
+    if await is_main_bot(bot_id):
+        owner_id = int(OWNER_ID or 0)
+        return owner_id if owner_id > 0 else None
+    return await _resolve_user_reseller(user_id, bot_id)
+
+
+async def _can_open_builder_catalog(user_id: int, bot: Bot) -> bool:
+    if await _is_current_bot_reseller(user_id, bot):
+        return True
+    if await is_main_bot((await bot.get_me()).id):
+        return int(user_id) == int(OWNER_ID)
+    return False
+
+
+async def _can_manage_builder(user_id: int, bot: Bot) -> bool:
+    return await _can_open_builder_catalog(user_id, bot)
+
+
+def _endpoint_ready_for_sale(endpoint: dict | None) -> bool:
+    node = endpoint or {}
+    delivery_type = str(node.get("delivery_type") or "").strip().lower()
+    if delivery_type == "inventory":
+        return bool(list(node.get("inventory_items") or [])) and int(node.get("available_qty") or 0) > 0
+    if delivery_type == "text":
+        return bool(str(node.get("delivery_text") or "").strip())
+    if delivery_type in {"photo", "document"}:
+        return bool(str(node.get("delivery_file_id") or "").strip())
+    return False
+
+
+def _endpoint_preorder_enabled(endpoint: dict | None) -> bool:
+    return bool((endpoint or {}).get("preorder_enabled"))
+
+
+async def _can_use_preorder(endpoint: dict | None, bot: Bot) -> bool:
+    if not endpoint or not _endpoint_preorder_enabled(endpoint):
+        return False
+    bot_id = (await bot.get_me()).id
+    return await is_main_bot(bot_id)
+
+
+def _support_bridge_token() -> str:
+    return str(getattr(settings, "bot_admin_token", "") or "").strip()
+
+
+async def _platform_bridge_bot() -> Bot:
+    token = _support_bridge_token()
+    if not token:
+        raise TelegramBadRequest(method="sendMessage", message="platform bridge bot is not configured")
+    return Bot(token=token, timeout=30)
+
+
+def _owner_preorder_queue_kb(preorder_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Fulfill FIFO", callback_data=f"custom_preorder:fulfill:{preorder_id}")],
+        ]
+    )
+
+
+async def _notify_owner_preorder_created(
+    *,
+    preorder: dict,
+    endpoint: dict,
+    buyer_user: dict | None,
+) -> None:
+    target = await db.system_settings.find_one({"_id": "owner_notifications"}) or {}
+    target_chat_id = target.get("chat_id")
+    if not isinstance(target_chat_id, int):
+        logger.warning("Custom preorder owner topic not configured preorder=%s", preorder.get("_id"))
+        return
+
+    username = "@" + str(buyer_user.get("username") or "").strip() if buyer_user and buyer_user.get("username") else "-"
+    queue_position = await get_pending_preorder_position(preorder["_id"])
+    text = (
+        "Custom Service Preorder\n\n"
+        f"Queue ID: {preorder['_id']}\n"
+        f"Service: {str(preorder.get('service_name') or endpoint.get('name') or '-')}\n"
+        f"Queue position: {queue_position}\n"
+        f"User ID: {int(preorder.get('buyer_user_id') or 0)}\n"
+        f"Username: {username}\n"
+        f"Qty: {int(preorder.get('qty') or 0)}\n"
+        f"Paid: {format_usd(float(preorder.get('total_price') or 0.0))}\n"
+        f"Endpoint ID: {endpoint.get('_id')}\n"
+        "Rule: fulfill in FIFO order only."
+    )
+
+    bridge_bot: Bot | None = None
+    try:
+        bridge_bot = await _platform_bridge_bot()
+        kwargs = {
+            "chat_id": int(target_chat_id),
+            "text": text,
+            "reply_markup": _owner_preorder_queue_kb(str(preorder["_id"])),
+        }
+        if target.get("message_thread_id") is not None:
+            kwargs["message_thread_id"] = int(target.get("message_thread_id"))
+        await bridge_bot.send_message(**kwargs)
+    except Exception as exc:
+        logger.exception("Custom preorder owner notify failed preorder=%s err=%s", preorder.get("_id"), exc)
+    finally:
+        if bridge_bot is not None:
+            try:
+                await bridge_bot.session.close()
+            except Exception:
+                pass
 
 
 class CustomBuilderStates(StatesGroup):
@@ -160,15 +316,17 @@ async def _send_endpoint_delivery(
     user_id: int,
     endpoint: dict,
     qty: int,
+    lang: str,
     stock_items: list[str] | None = None,
 ) -> bool:
+    qty_line = t(lang, "custom_qty_line").format(qty=int(qty))
     if stock_items:
         payload = "\n".join([str(item or "").strip() for item in stock_items if str(item or "").strip()])
         if not payload:
             return False
         await bot.send_message(
             chat_id=int(user_id),
-            text=f"Digital Delivery\n\n{payload}\n\nQty: {int(qty)}",
+            text=t(lang, "custom_digital_delivery_block").format(payload=payload, qty_line=qty_line),
         )
         return True
 
@@ -177,7 +335,7 @@ async def _send_endpoint_delivery(
         text = str(endpoint.get("delivery_text") or "").strip()
         if not text:
             return False
-        await bot.send_message(chat_id=int(user_id), text=f"Digital Delivery\n\n{text}\n\nQty: {int(qty)}")
+        await bot.send_message(chat_id=int(user_id), text=t(lang, "custom_digital_delivery_block").format(payload=text, qty_line=qty_line))
         return True
     if delivery_type == "photo":
         file_id = str(endpoint.get("delivery_file_id") or "").strip()
@@ -185,9 +343,9 @@ async def _send_endpoint_delivery(
             return False
         caption = str(endpoint.get("delivery_caption") or "").strip()
         if caption:
-            caption = f"{caption}\n\nQty: {int(qty)}"
+            caption = f"{caption}\n\n{qty_line}"
         else:
-            caption = f"Qty: {int(qty)}"
+            caption = qty_line
         await bot.send_photo(chat_id=int(user_id), photo=file_id, caption=caption)
         return True
     if delivery_type == "document":
@@ -196,16 +354,16 @@ async def _send_endpoint_delivery(
             return False
         caption = str(endpoint.get("delivery_caption") or "").strip()
         if caption:
-            caption = f"{caption}\n\nQty: {int(qty)}"
+            caption = f"{caption}\n\n{qty_line}"
         else:
-            caption = f"Qty: {int(qty)}"
+            caption = qty_line
         await bot.send_document(chat_id=int(user_id), document=file_id, caption=caption)
         return True
     return False
 
 
 def _node_btn(node: dict) -> InlineKeyboardButton:
-    name = str(node.get("name") or "Unnamed")
+    name = str(node.get("name") or t("en", "unnamed_plain"))
     return InlineKeyboardButton(
         text=name[:60],
         callback_data=f"cstm:open:{node['_id']}",
@@ -222,15 +380,15 @@ def _builder_add_options_kb(
     rows: list[list[InlineKeyboardButton]] = []
     if node_type == "folder":
         if can_add_folder:
-            rows.append([InlineKeyboardButton(text="Add Folder", callback_data=f"cstm:addf:{node_id}")])
+            rows.append([InlineKeyboardButton(text=t("en", "custom_add_folder"), callback_data=f"cstm:addf:{node_id}")])
         if not is_root:
-            rows.append([InlineKeyboardButton(text="Add Endpoint", callback_data=f"cstm:adde:{node_id}")])
-        rows.append([InlineKeyboardButton(text="Add Sibling Folder", callback_data=f"cstm:adds:{node_id}")])
-        rows.append([InlineKeyboardButton(text="Add Sibling Endpoint", callback_data=f"cstm:addse:{node_id}")])
+            rows.append([InlineKeyboardButton(text=t("en", "custom_add_endpoint"), callback_data=f"cstm:adde:{node_id}")])
+        rows.append([InlineKeyboardButton(text=t("en", "custom_add_sibling_folder"), callback_data=f"cstm:adds:{node_id}")])
+        rows.append([InlineKeyboardButton(text=t("en", "custom_add_sibling_endpoint"), callback_data=f"cstm:addse:{node_id}")])
     else:
-        rows.append([InlineKeyboardButton(text="Add Sibling Folder", callback_data=f"cstm:adds:{node_id}")])
-        rows.append([InlineKeyboardButton(text="Add Sibling Endpoint", callback_data=f"cstm:addse:{node_id}")])
-    rows.append([InlineKeyboardButton(text="Back", callback_data=f"cstm:open:{node_id}")])
+        rows.append([InlineKeyboardButton(text=t("en", "custom_add_sibling_folder"), callback_data=f"cstm:adds:{node_id}")])
+        rows.append([InlineKeyboardButton(text=t("en", "custom_add_sibling_endpoint"), callback_data=f"cstm:addse:{node_id}")])
+    rows.append([InlineKeyboardButton(text=t("en", "back"), callback_data=f"cstm:open:{node_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -290,7 +448,7 @@ def _children_grid_preview_rows(children: list[dict]) -> list[list[InlineKeyboar
             if child:
                 row_buttons.append(_node_btn(child))
             else:
-                row_buttons.append(InlineKeyboardButton(text="▫️", callback_data=f"cstm:noop:slot{slot}"))
+                row_buttons.append(InlineKeyboardButton(text=t("en", "empty_slot_plain"), callback_data=f"cstm:noop:slot{slot}"))
         rows.append(row_buttons)
         row_start += _CUSTOM_GRID_COLUMNS
     return rows
@@ -349,7 +507,7 @@ async def _render_node(
 ) -> None:
     node = await get_node(node_id, reseller_id=reseller_id, catalog_type=catalog_type)
     if not node:
-        err = "Node not found."
+        err = t("en", "node_not_found_plain")
         if isinstance(message_or_cb, types.CallbackQuery):
             await message_or_cb.answer(err, show_alert=True)
         else:
@@ -378,12 +536,13 @@ async def _render_node(
     layout_node_id = str(ui_state.get("custom_layout_node_id") or "")
     layout_mode = bool(is_builder and node_type == "folder" and layout_node_id == str(node.get("_id")))
     parent_id = node.get("parent_id")
-    catalog_title = _catalog_title(normalized_catalog)
+    catalog_title = "ID INFO" if normalized_catalog == _CATALOG_ID_INFO else t("en", "custom_services_title")
+    viewer_lang = await _user_lang(int(message_or_cb.from_user.id))
 
     if node_type == "folder" and is_builder and layout_mode:
         kb_rows.extend(_children_grid_preview_rows(children))
         if children:
-            kb_rows.append([InlineKeyboardButton(text="────────────", callback_data="cstm:noop:divider")])
+            kb_rows.append([InlineKeyboardButton(text=t("en", "divider_plain"), callback_data="cstm:noop:divider")])
         for idx, child in enumerate(children):
             child_pos = int(child.get("position", idx))
             if child_pos < 0:
@@ -410,27 +569,38 @@ async def _render_node(
         min_q = int(node.get("min_qty", 1))
         delivery_type = str(node.get("delivery_type") or "").strip().lower()
         inventory_count = len(list(node.get("inventory_items") or []))
-        delivery_status = "Configured" if delivery_type in {"text", "photo", "document", "inventory"} else "Not Configured"
+        delivery_status = t(viewer_lang, "configured_plain") if delivery_type in {"text", "photo", "document", "inventory"} else t(viewer_lang, "not_configured_plain")
         has_product_info = bool(str(node.get("product_info_text") or "").strip())
+        preorder_enabled = _endpoint_preorder_enabled(node)
         text = (
-            f"{catalog_title} Endpoint\n\n"
-            f"Name: {node.get('name')}\n"
-            f"Price: {price:.2f}$\n"
-            f"Available: {stock}\n"
-            f"Minimum Qty: {min_q}\n"
-            f"Delivery: {delivery_status}\n"
-            f"Stock Items: {inventory_count}\n"
-            f"Product Info: {'Set' if has_product_info else 'Not Set'}"
+            f"{catalog_title} - {t(viewer_lang, 'endpoint_plain')}\n\n"
+            f"{t(viewer_lang, 'name_plain')}: {node.get('name')}\n"
+            f"{t(viewer_lang, 'price_label')}: {format_usd(price)}\n"
+            f"{t(viewer_lang, 'available_plain')}: {stock}\n"
+            f"{t(viewer_lang, 'minimum_qty_plain')}: {min_q}\n"
+            f"{t(viewer_lang, 'delivery_plain')}: {delivery_status}\n"
+            f"{t(viewer_lang, 'stock_items_plain')}: {inventory_count}\n"
+            f"{t(viewer_lang, 'product_info_plain')}: {t(viewer_lang, 'set_plain') if has_product_info else t(viewer_lang, 'not_set_plain')}\n"
+            f"Preorder: {'Enabled' if preorder_enabled else 'Disabled'}"
         )
         if is_builder:
             kb_rows.append(
                 [
-                    InlineKeyboardButton(text="Rename", callback_data=f"cstm:rename:{node['_id']}"),
-                    InlineKeyboardButton(text="Edit", callback_data=f"cstm:edit:{node['_id']}"),
+                    InlineKeyboardButton(text=t(viewer_lang, "rename_plain"), callback_data=f"cstm:rename:{node['_id']}"),
+                    InlineKeyboardButton(text=t(viewer_lang, "edit_plain"), callback_data=f"cstm:edit:{node['_id']}"),
                 ]
             )
-            kb_rows.append([InlineKeyboardButton(text="Set Stock", callback_data=f"cstm:delivery:{node['_id']}")])
-            kb_rows.append([InlineKeyboardButton(text="Product Info", callback_data=f"cstm:pinfo:{node['_id']}")])
+            kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "custom_set_stock"), callback_data=f"cstm:delivery:{node['_id']}")])
+            kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "product_info_plain"), callback_data=f"cstm:pinfo:{node['_id']}")])
+            if int(message_or_cb.from_user.id) == int(OWNER_ID) and await is_main_bot((await message_or_cb.bot.get_me()).id):
+                kb_rows.append(
+                    [
+                        InlineKeyboardButton(
+                            text="Disable Preorder" if preorder_enabled else "Enable Preorder",
+                            callback_data=f"cstm:preordertoggle:{node['_id']}",
+                        )
+                    ]
+                )
             endpoint_move = await _move_controls_for_node(
                 reseller_id=reseller_id,
                 node=node,
@@ -438,35 +608,38 @@ async def _render_node(
             )
             if endpoint_move:
                 kb_rows.append(endpoint_move)
-            kb_rows.append([InlineKeyboardButton(text="Delete", callback_data=f"cstm:del:{node['_id']}")])
+            kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "delete_plain"), callback_data=f"cstm:del:{node['_id']}")])
         else:
-            kb_rows.append([InlineKeyboardButton(text="Buy", callback_data=f"cstm:buy:{node['_id']}")])
+            if _endpoint_ready_for_sale(node):
+                kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "buy_plain"), callback_data=f"cstm:buy:{node['_id']}")])
+            elif await _can_use_preorder(node, message_or_cb.bot):
+                kb_rows.append([InlineKeyboardButton(text="Reserve", callback_data=f"cstm:buy:{node['_id']}")])
 
         back_cb = f"cstm:open:{parent_id}" if parent_id else "cstm:cancel"
-        kb_rows.append([InlineKeyboardButton(text="Back", callback_data=back_cb)])
+        kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "back"), callback_data=back_cb)])
 
     else:
-        name = str(node.get("name") or ("ID INFO" if normalized_catalog == _CATALOG_ID_INFO else "Services"))
+        name = str(node.get("name") or ("ID INFO" if normalized_catalog == _CATALOG_ID_INFO else t(viewer_lang, "services_plain")))
         custom_display_text = str(node.get("display_text") or "").strip()
         if custom_display_text:
             text = custom_display_text
         elif children:
-            text = f"{catalog_title}\n\n{name}\nItems: {len(children)}"
+            text = f"{catalog_title}\n\n{name}\n{t(viewer_lang, 'items_count_plain').format(count=len(children))}"
         else:
-            text = f"{catalog_title}\n\n{name}\nNo items in this folder yet."
+            text = f"{catalog_title}\n\n{name}\n{t(viewer_lang, 'custom_no_items_in_folder')}"
 
         if is_builder:
             if layout_mode:
-                kb_rows.append([InlineKeyboardButton(text="Done", callback_data=f"cstm:layoutdone:{node['_id']}")])
+                kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "done_plain"), callback_data=f"cstm:layoutdone:{node['_id']}")])
             else:
-                kb_rows.append([InlineKeyboardButton(text="Add", callback_data=f"cstm:add:{node['_id']}")])
+                kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "add_plain"), callback_data=f"cstm:add:{node['_id']}")])
                 kb_rows.append(
                     [
-                        InlineKeyboardButton(text="Rename", callback_data=f"cstm:rename:{node['_id']}"),
-                        InlineKeyboardButton(text="Edit Text", callback_data=f"cstm:edittxt:{node['_id']}"),
+                        InlineKeyboardButton(text=t(viewer_lang, "rename_plain"), callback_data=f"cstm:rename:{node['_id']}"),
+                        InlineKeyboardButton(text=t(viewer_lang, "custom_edit_text"), callback_data=f"cstm:edittxt:{node['_id']}"),
                     ]
                 )
-                kb_rows.append([InlineKeyboardButton(text="Move Folder", callback_data=f"cstm:layout:{node['_id']}")])
+                kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "custom_move_folder"), callback_data=f"cstm:layout:{node['_id']}")])
                 if not bool(node.get("is_root")):
                     folder_move = await _move_controls_for_node(
                         reseller_id=reseller_id,
@@ -475,9 +648,9 @@ async def _render_node(
                     )
                     if folder_move:
                         kb_rows.append(folder_move)
-                    kb_rows.append([InlineKeyboardButton(text="Delete", callback_data=f"cstm:del:{node['_id']}")])
+                    kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "delete_plain"), callback_data=f"cstm:del:{node['_id']}")])
         back_cb = f"cstm:open:{parent_id}" if parent_id else "cstm:cancel"
-        kb_rows.append([InlineKeyboardButton(text="Back", callback_data=back_cb)])
+        kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "back"), callback_data=back_cb)])
 
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows) if kb_rows else None
 
@@ -501,30 +674,80 @@ async def open_custom_user(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
     bot_id = (await message.bot.get_me()).id
-    reseller_id = await _resolve_user_reseller(message.from_user.id, bot_id)
-    if not reseller_id:
+    catalog_owner_id = await _resolve_catalog_owner_id(message.from_user.id, bot_id)
+    wallet_scope_id = await _resolve_user_reseller(message.from_user.id, bot_id)
+    if not catalog_owner_id or not wallet_scope_id:
         return await message.answer(t(lang, "no_custom_services"))
 
-    root = await ensure_root_node(reseller_id, catalog_type=_CATALOG_CUSTOM)
-    children = await list_children(int(reseller_id), root["_id"], catalog_type=_CATALOG_CUSTOM)
-    if not children:
+    owner_builder_available = await is_main_bot(bot_id) and int(message.from_user.id) == int(OWNER_ID)
+    root = await ensure_root_node(catalog_owner_id, catalog_type=_CATALOG_CUSTOM)
+    children = await list_children(int(catalog_owner_id), root["_id"], catalog_type=_CATALOG_CUSTOM)
+    if not children and not owner_builder_available:
         return await message.answer(t(lang, "no_custom_services"), reply_markup=ReplyKeyboardRemove())
 
-    await message.answer(t(lang, "services_temp"), reply_markup=ReplyKeyboardRemove())
+    await message.answer(
+        _services_landing_text(lang, owner_builder_available=owner_builder_available),
+        reply_markup=ReplyKeyboardRemove(),
+    )
     await state.update_data(
         custom_bot_id=bot_id,
+        custom_catalog_owner_id=int(catalog_owner_id),
+        custom_wallet_scope_id=int(wallet_scope_id),
+        custom_root_node_id=str(root["_id"]),
         custom_mode="user",
         custom_catalog_type=_CATALOG_CUSTOM,
         custom_financial_mode=_FINANCIAL_CUSTOM,
     )
+    await message.answer(
+        t(lang, "services_entry_prompt"),
+        reply_markup=_services_landing_kb(lang, show_builder=owner_builder_available),
+    )
+
+
+@router.callback_query(lambda c: c.data == "cstm:entry:catalog")
+async def open_services_catalog_entry(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = await _user_lang(callback.from_user.id)
+    catalog_owner_id = int(data.get("custom_catalog_owner_id") or 0)
+    root_node_id = str(data.get("custom_root_node_id") or "").strip()
+    if catalog_owner_id <= 0 or not root_node_id:
+        return await callback.answer(t(lang, "custom_service_unavailable"), show_alert=True)
+    await callback.answer()
     await _render_node(
-        message,
+        callback,
         state,
-        int(reseller_id),
-        root["_id"],
+        catalog_owner_id,
+        root_node_id,
         is_builder=False,
         catalog_type=_CATALOG_CUSTOM,
     )
+
+
+@router.callback_query(lambda c: c.data == "cstm:entry:builder")
+async def open_services_builder_entry(callback: types.CallbackQuery, state: FSMContext):
+    lang = await _user_lang(callback.from_user.id)
+    bot_id = (await callback.bot.get_me()).id
+    if not await is_main_bot(bot_id) or int(callback.from_user.id) != int(OWNER_ID):
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+    await state.clear()
+    root = await ensure_root_node(int(OWNER_ID), catalog_type=_CATALOG_CUSTOM)
+    await state.update_data(
+        custom_catalog_owner_id=int(OWNER_ID),
+        custom_mode="builder",
+        custom_catalog_type=_CATALOG_CUSTOM,
+        custom_financial_mode=_FINANCIAL_CUSTOM,
+    )
+    await callback.answer()
+    await _render_node(
+        callback,
+        state,
+        int(OWNER_ID),
+        root["_id"],
+        is_builder=True,
+        catalog_type=_CATALOG_CUSTOM,
+    )
+    if callback.message:
+        await callback.message.answer(_builder_help_text(lang))
 
 
 @router.message(lambda m: _is_id_info_trigger(m.text))
@@ -551,7 +774,7 @@ async def open_id_info_user(message: types.Message, state: FSMContext):
         custom_bot_id=bot_id,
         custom_mode="user",
         custom_catalog_type=_CATALOG_ID_INFO,
-        custom_financial_mode=_FINANCIAL_CORE,
+        custom_financial_mode=_FINANCIAL_CUSTOM,
     )
     await _render_node(
         message,
@@ -564,15 +787,19 @@ async def open_id_info_user(message: types.Message, state: FSMContext):
 
 @router.message(lambda m: (m.text or "").strip().lower() in {"/custom_builder", "custom builder"})
 async def open_custom_builder(message: types.Message, state: FSMContext):
-    if not await _is_current_bot_reseller(message.from_user.id, message.bot):
-        return await message.answer("Reseller only.")
+    if not await _can_open_builder_catalog(message.from_user.id, message.bot):
+        return await message.answer(t(await _user_lang(message.from_user.id), "reseller_only_command"))
     lang = (await get_user(message.from_user.id) or {}).get("language", "en")
-    setup_status = await get_reseller_setup_status(message.from_user.id)
-    if not bool(setup_status.get("ready")):
-        return await message.answer(render_reseller_setup_notice(lang, setup_status))
+    bot_id = (await message.bot.get_me()).id
+    if not await is_main_bot(bot_id):
+        setup_status = await get_reseller_setup_status(message.from_user.id)
+        if not bool(setup_status.get("ready")):
+            return await message.answer(render_reseller_setup_notice(lang, setup_status))
     await state.clear()
-    root = await ensure_root_node(message.from_user.id, catalog_type=_CATALOG_CUSTOM)
+    catalog_owner_id = int(OWNER_ID) if await is_main_bot(bot_id) else int(message.from_user.id)
+    root = await ensure_root_node(catalog_owner_id, catalog_type=_CATALOG_CUSTOM)
     await state.update_data(
+        custom_catalog_owner_id=catalog_owner_id,
         custom_mode="builder",
         custom_catalog_type=_CATALOG_CUSTOM,
         custom_financial_mode=_FINANCIAL_CUSTOM,
@@ -580,11 +807,12 @@ async def open_custom_builder(message: types.Message, state: FSMContext):
     await _render_node(
         message,
         state,
-        message.from_user.id,
+        catalog_owner_id,
         root["_id"],
         is_builder=True,
         catalog_type=_CATALOG_CUSTOM,
     )
+    await message.answer(_builder_help_text(lang))
 
 
 @router.message(lambda m: (m.text or "").strip().lower() in {"/id_info_builder", "/idinfo_builder", "id info builder"})
@@ -594,8 +822,8 @@ async def open_id_info_builder(message: types.Message, state: FSMContext):
         lang = (user or {}).get("language", "en")
         await state.clear()
         return await message.answer(t(lang, "no_id_info_services"))
-    if not await _is_current_bot_reseller(message.from_user.id, message.bot):
-        return await message.answer("Reseller only.")
+    if not await _can_manage_builder(message.from_user.id, message.bot):
+        return await message.answer(t(await _user_lang(message.from_user.id), "reseller_only_command"))
     lang = (await get_user(message.from_user.id) or {}).get("language", "en")
     setup_status = await get_reseller_setup_status(message.from_user.id)
     if not bool(setup_status.get("ready")):
@@ -605,7 +833,7 @@ async def open_id_info_builder(message: types.Message, state: FSMContext):
     await state.update_data(
         custom_mode="builder",
         custom_catalog_type=_CATALOG_ID_INFO,
-        custom_financial_mode=_FINANCIAL_CORE,
+        custom_financial_mode=_FINANCIAL_CUSTOM,
     )
     await _render_node(
         message,
@@ -619,19 +847,23 @@ async def open_id_info_builder(message: types.Message, state: FSMContext):
 
 @router.callback_query(lambda c: c.data == "rsmenu:custom_services")
 async def open_custom_builder_from_menu(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    bot_id = (await callback.bot.get_me()).id
+    if not await _can_open_builder_catalog(callback.from_user.id, callback.bot):
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
     lang = (await get_user(callback.from_user.id) or {}).get("language", "en")
-    setup_status = await get_reseller_setup_status(callback.from_user.id)
-    if not bool(setup_status.get("ready")):
-        await callback.answer(t(lang, "reseller_setup_blocked_alert"), show_alert=True)
-        if callback.message:
-            await callback.message.answer(render_reseller_setup_notice(lang, setup_status))
-        return
+    if not await is_main_bot(bot_id):
+        setup_status = await get_reseller_setup_status(callback.from_user.id)
+        if not bool(setup_status.get("ready")):
+            await callback.answer(t(lang, "reseller_setup_blocked_alert"), show_alert=True)
+            if callback.message:
+                await callback.message.answer(render_reseller_setup_notice(lang, setup_status))
+            return
     await callback.answer()
     await state.clear()
-    root = await ensure_root_node(callback.from_user.id, catalog_type=_CATALOG_CUSTOM)
+    catalog_owner_id = int(OWNER_ID) if await is_main_bot(bot_id) else int(callback.from_user.id)
+    root = await ensure_root_node(catalog_owner_id, catalog_type=_CATALOG_CUSTOM)
     await state.update_data(
+        custom_catalog_owner_id=catalog_owner_id,
         custom_mode="builder",
         custom_catalog_type=_CATALOG_CUSTOM,
         custom_financial_mode=_FINANCIAL_CUSTOM,
@@ -640,11 +872,12 @@ async def open_custom_builder_from_menu(callback: types.CallbackQuery, state: FS
         await _render_node(
             callback,
             state,
-            callback.from_user.id,
+            catalog_owner_id,
             root["_id"],
             is_builder=True,
             catalog_type=_CATALOG_CUSTOM,
         )
+        await callback.message.answer(_builder_help_text(lang))
 
 
 @router.callback_query(lambda c: c.data == "rsmenu:id_info_services")
@@ -654,8 +887,8 @@ async def open_id_info_builder_from_menu(callback: types.CallbackQuery, state: F
         lang = (user or {}).get("language", "en")
         await state.clear()
         return await callback.answer(t(lang, "no_id_info_services"), show_alert=True)
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
     lang = (await get_user(callback.from_user.id) or {}).get("language", "en")
     setup_status = await get_reseller_setup_status(callback.from_user.id)
     if not bool(setup_status.get("ready")):
@@ -669,7 +902,7 @@ async def open_id_info_builder_from_menu(callback: types.CallbackQuery, state: F
     await state.update_data(
         custom_mode="builder",
         custom_catalog_type=_CATALOG_ID_INFO,
-        custom_financial_mode=_FINANCIAL_CORE,
+        custom_financial_mode=_FINANCIAL_CUSTOM,
     )
     if callback.message:
         await _render_node(
@@ -684,10 +917,11 @@ async def open_id_info_builder_from_menu(callback: types.CallbackQuery, state: F
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:open:"))
 async def open_node(callback: types.CallbackQuery, state: FSMContext):
+    lang = await _user_lang(callback.from_user.id)
     node_id = callback.data.split(":", 2)[2]
     node = await get_node(node_id)
     if not node:
-        return await callback.answer("Node not found", show_alert=True)
+        return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
 
     node_catalog_type = _catalog_type_from_node(node)
     if _ID_INFO_ARCHIVED and node_catalog_type == _CATALOG_ID_INFO:
@@ -699,26 +933,41 @@ async def open_node(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     explicit_mode = data.get("custom_mode")
     is_owner_reseller = await _is_current_bot_reseller(callback.from_user.id, callback.bot)
+    bot_id = (await callback.message.bot.get_me()).id
+    main_bot_flow = await is_main_bot(bot_id)
+    catalog_owner_id_state = int(data.get("custom_catalog_owner_id") or 0)
 
     if explicit_mode == "builder":
-        if not is_owner_reseller or int(node.get("reseller_id") or 0) != int(callback.from_user.id):
-            return await callback.answer("Access denied", show_alert=True)
+        expected_owner_id = int(OWNER_ID) if main_bot_flow and not is_owner_reseller else int(callback.from_user.id)
+        if not await _can_open_builder_catalog(callback.from_user.id, callback.bot) or int(node.get("reseller_id") or 0) != expected_owner_id:
+            return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
         is_builder = True
     elif explicit_mode == "user":
-        bot_id = (await callback.message.bot.get_me()).id
-        user_reseller = await _resolve_user_reseller(callback.from_user.id, bot_id)
-        if not user_reseller or int(user_reseller) != int(node.get("reseller_id") or 0):
-            return await callback.answer("Access denied", show_alert=True)
-        is_builder = False
-    else:
-        # Fallback: if reseller opens own node, treat as builder; otherwise user mode checks.
-        if is_owner_reseller and int(node.get("reseller_id") or 0) == int(callback.from_user.id):
-            is_builder = True
+        if main_bot_flow:
+            expected_owner_id = int(OWNER_ID or 0)
+            if expected_owner_id <= 0 or int(node.get("reseller_id") or 0) != expected_owner_id:
+                return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
         else:
-            bot_id = (await callback.message.bot.get_me()).id
             user_reseller = await _resolve_user_reseller(callback.from_user.id, bot_id)
             if not user_reseller or int(user_reseller) != int(node.get("reseller_id") or 0):
-                return await callback.answer("Access denied", show_alert=True)
+                return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+        if catalog_owner_id_state and int(node.get("reseller_id") or 0) != catalog_owner_id_state:
+            return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+        is_builder = False
+    else:
+        # Fallback: if owner/reseller opens own node, treat as builder; otherwise user mode checks.
+        if is_owner_reseller and int(node.get("reseller_id") or 0) == int(callback.from_user.id):
+            is_builder = True
+        elif main_bot_flow and int(callback.from_user.id) == int(OWNER_ID) and int(node.get("reseller_id") or 0) == int(OWNER_ID):
+            is_builder = True
+        else:
+            if main_bot_flow:
+                if int(node.get("reseller_id") or 0) != int(OWNER_ID or 0):
+                    return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+            else:
+                user_reseller = await _resolve_user_reseller(callback.from_user.id, bot_id)
+                if not user_reseller or int(user_reseller) != int(node.get("reseller_id") or 0):
+                    return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
             is_builder = False
 
     await state.update_data(custom_layout_node_id=None)
@@ -735,13 +984,13 @@ async def open_node(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:add:"))
 async def add_options(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
     node = await get_node(node_id, reseller_id=callback.from_user.id)
     if not node:
-        return await callback.answer("Node not found", show_alert=True)
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "node_not_found_plain"), show_alert=True)
 
     if callback.message:
         can_add_folder = True
@@ -777,25 +1026,26 @@ async def add_options(callback: types.CallbackQuery, state: FSMContext):
     )
 )
 async def add_entry_start(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
+    lang = await _user_lang(callback.from_user.id)
 
     _, mode, anchor_id = callback.data.split(":", 2)
     anchor = await get_node(anchor_id, reseller_id=callback.from_user.id)
     if not anchor:
-        return await callback.answer("Node not found", show_alert=True)
+        return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
 
     if mode in {"addf", "adde"} and str(anchor.get("node_type")) != "folder":
-        return await callback.answer("Cannot add inside an endpoint.", show_alert=True)
+        return await callback.answer(t(lang, "custom_cannot_add_inside_endpoint"), show_alert=True)
     if mode == "adde" and bool(anchor.get("is_root")):
-        return await callback.answer("Main folder accepts subfolders only.", show_alert=True)
+        return await callback.answer(t(lang, "custom_main_folder_subfolders_only"), show_alert=True)
     if mode in {"adds", "addse"}:
         parent_id = anchor.get("parent_id")
         if not parent_id:
-            return await callback.answer("This node has no parent.", show_alert=True)
+            return await callback.answer(t(lang, "custom_node_has_no_parent"), show_alert=True)
         parent_node = await get_node(parent_id, reseller_id=callback.from_user.id)
         if not parent_node or str(parent_node.get("node_type") or "") != "folder":
-            return await callback.answer("Parent folder not found.", show_alert=True)
+            return await callback.answer(t(lang, "custom_parent_folder_not_found"), show_alert=True)
         anchor = parent_node
         # Convert sibling modes to normal add modes under parent.
         mode = "addf" if mode == "adds" else "adde"
@@ -808,7 +1058,7 @@ async def add_entry_start(callback: types.CallbackQuery, state: FSMContext):
         )
         folder_count = sum(1 for child in children if str(child.get("node_type") or "") == "folder")
         if folder_count >= _MAX_FOLDER_CHILDREN:
-            return await callback.answer("Maximum is 9 folders (3x3).", show_alert=True)
+            return await callback.answer(t(lang, "custom_max_folders"), show_alert=True)
 
     return_node_id = str(anchor["_id"])
     catalog_type = _catalog_type_from_node(anchor)
@@ -825,10 +1075,10 @@ async def add_entry_start(callback: types.CallbackQuery, state: FSMContext):
 
     if callback.message:
         await callback.message.answer(
-            "Send new name:",
+            t(lang, "custom_send_new_name"),
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="Back", callback_data=f"cstm:stateback:{anchor_id}")]
+                    [InlineKeyboardButton(text=t(lang, "back"), callback_data=f"cstm:stateback:{anchor_id}")]
                 ]
             ),
         )
@@ -837,14 +1087,14 @@ async def add_entry_start(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:stateback:"))
 async def builder_state_back(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
     node = await get_node(node_id, reseller_id=callback.from_user.id)
     if not node:
         await state.clear()
-        return await callback.answer("Node not found", show_alert=True)
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "node_not_found_plain"), show_alert=True)
 
     catalog_type = _catalog_type_from_node(node)
     await state.clear()
@@ -862,7 +1112,7 @@ async def builder_state_back(callback: types.CallbackQuery, state: FSMContext):
 
 @router.message(CustomBuilderStates.waiting_name)
 async def add_entry_name(message: types.Message, state: FSMContext):
-    if not await _is_current_bot_reseller(message.from_user.id, message.bot):
+    if not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
 
@@ -881,14 +1131,14 @@ async def add_entry_name(message: types.Message, state: FSMContext):
 
     name = (message.text or "").strip()
     if not name:
-        return await message.answer("Name cannot be empty.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_name_cannot_be_empty"))
 
     data = await state.get_data()
     add_mode = str(data.get("builder_add_mode") or "")
     anchor = await get_node(data.get("builder_anchor_id"), reseller_id=message.from_user.id)
     if not anchor:
         await state.clear()
-        return await message.answer("Anchor not found.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_anchor_not_found"))
     catalog_type = _catalog_type_from_node(anchor)
 
     return_node_id = data.get("builder_return_node_id") or str(anchor["_id"])
@@ -902,7 +1152,7 @@ async def add_entry_name(message: types.Message, state: FSMContext):
         folder_count = sum(1 for child in children if str(child.get("node_type") or "") == "folder")
         if folder_count >= _MAX_FOLDER_CHILDREN:
             await state.clear()
-            await message.answer("Maximum is 9 folders (3x3).")
+            await message.answer(t(await _user_lang(message.from_user.id), "custom_max_folders"))
             return await _render_node(
                 message,
                 state,
@@ -913,7 +1163,7 @@ async def add_entry_name(message: types.Message, state: FSMContext):
             )
         await create_folder(message.from_user.id, anchor["_id"], name, catalog_type=catalog_type)
         await state.clear()
-        await message.answer("Folder created.")
+        await message.answer(t(await _user_lang(message.from_user.id), "custom_folder_created"))
         return await _render_node(
             message,
             state,
@@ -925,22 +1175,23 @@ async def add_entry_name(message: types.Message, state: FSMContext):
 
     if add_mode not in {"adde", "addf"}:
         await state.clear()
-        return await message.answer("Unsupported add mode.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_unsupported_add_mode"))
 
     await state.update_data(builder_name=name)
     await state.set_state(CustomBuilderStates.waiting_price)
-    await message.answer("Send endpoint price (example: 2.5), or /cancel")
+    await message.answer(t(await _user_lang(message.from_user.id), "custom_send_endpoint_price"))
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:rename:"))
 async def rename_node_start(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
     node = await get_node(node_id, reseller_id=callback.from_user.id)
     if not node:
-        return await callback.answer("Node not found", show_alert=True)
+        return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
 
     catalog_type = _catalog_type_from_node(node)
     await state.update_data(
@@ -954,9 +1205,7 @@ async def rename_node_start(callback: types.CallbackQuery, state: FSMContext):
 
     if callback.message:
         await callback.message.answer(
-            "Send new name now.\n"
-            f"Current: {str(node.get('name') or '-')}\n"
-            "Or /cancel"
+            t(lang, "custom_send_new_name_now").format(current=str(node.get("name") or "-"))
         )
     await callback.answer()
 
@@ -964,7 +1213,7 @@ async def rename_node_start(callback: types.CallbackQuery, state: FSMContext):
 @router.message(CustomBuilderStates.waiting_rename)
 async def rename_node_submit(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    if data.get("custom_mode") == "builder" and not await _is_current_bot_reseller(message.from_user.id, message.bot):
+    if data.get("custom_mode") == "builder" and not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
 
@@ -993,16 +1242,16 @@ async def rename_node_submit(message: types.Message, state: FSMContext):
 
     new_name = (message.text or "").strip()
     if not new_name:
-        return await message.answer("Name cannot be empty.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_name_cannot_be_empty"))
 
     node_id = data.get("rename_node_id")
     catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
     updated = await rename_node(node_id, message.from_user.id, new_name, catalog_type=catalog_type)
     await state.clear()
     if not updated:
-        return await message.answer("Node not found.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "node_not_found_plain"))
 
-    await message.answer("Name updated.")
+    await message.answer(t(await _user_lang(message.from_user.id), "custom_name_updated"))
     return await _render_node(
         message,
         state,
@@ -1015,15 +1264,16 @@ async def rename_node_submit(message: types.Message, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:edittxt:"))
 async def edit_display_text_start(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
     node = await get_node(node_id, reseller_id=callback.from_user.id)
     if not node:
-        return await callback.answer("Node not found", show_alert=True)
+        return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
     if str(node.get("node_type") or "") != "folder":
-        return await callback.answer("Text can be edited for folders only.", show_alert=True)
+        return await callback.answer(t(lang, "custom_text_folders_only"), show_alert=True)
 
     catalog_type = _catalog_type_from_node(node)
     await state.update_data(
@@ -1038,17 +1288,14 @@ async def edit_display_text_start(callback: types.CallbackQuery, state: FSMConte
     current_text = str(node.get("display_text") or "").strip() or "-"
     if callback.message:
         await callback.message.answer(
-            "Send folder display text now.\n"
-            f"Current: {current_text}\n"
-            "Send 'clear' to reset default text.\n"
-            "Or /cancel"
+            t(lang, "custom_send_folder_display_text").format(current=current_text)
         )
     await callback.answer()
 
 
 @router.message(CustomBuilderStates.waiting_display_text)
 async def edit_display_text_submit(message: types.Message, state: FSMContext):
-    if not await _is_current_bot_reseller(message.from_user.id, message.bot):
+    if not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
 
@@ -1083,7 +1330,7 @@ async def edit_display_text_submit(message: types.Message, state: FSMContext):
     if raw_text.lower() in {"clear", "/clear", "مسح"}:
         raw_text = ""
     elif len(raw_text) > 500:
-        return await message.answer("Text is too long. Max 500 characters.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_text_too_long"))
 
     updated = await update_node_display_text(
         node_id=node_id,
@@ -1093,9 +1340,9 @@ async def edit_display_text_submit(message: types.Message, state: FSMContext):
     )
     await state.clear()
     if not updated:
-        return await message.answer("Node not found.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "node_not_found_plain"))
 
-    await message.answer("Display text updated.")
+    await message.answer(t(await _user_lang(message.from_user.id), "custom_display_text_updated"))
     return await _render_node(
         message,
         state,
@@ -1109,7 +1356,7 @@ async def edit_display_text_submit(message: types.Message, state: FSMContext):
 @router.message(CustomBuilderStates.waiting_price)
 async def add_endpoint_price(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    if data.get("custom_mode") == "builder" and not await _is_current_bot_reseller(message.from_user.id, message.bot):
+    if data.get("custom_mode") == "builder" and not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
 
@@ -1129,10 +1376,10 @@ async def add_endpoint_price(message: types.Message, state: FSMContext):
     try:
         price = float((message.text or "").strip())
     except Exception:
-        return await message.answer("Invalid price.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_invalid_price"))
 
     if price <= 0:
-        return await message.answer("Price must be greater than zero.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_price_gt_zero"))
 
     if data.get("edit_endpoint_id"):
         await state.update_data(edit_price=price)
@@ -1140,13 +1387,13 @@ async def add_endpoint_price(message: types.Message, state: FSMContext):
         await state.update_data(builder_price=price)
 
     await state.set_state(CustomBuilderStates.waiting_stock)
-    await message.answer("Send available quantity, or /cancel")
+    await message.answer(t(await _user_lang(message.from_user.id), "custom_send_available_quantity"))
 
 
 @router.message(CustomBuilderStates.waiting_stock)
 async def add_endpoint_stock(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    if data.get("custom_mode") == "builder" and not await _is_current_bot_reseller(message.from_user.id, message.bot):
+    if data.get("custom_mode") == "builder" and not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
 
@@ -1166,10 +1413,10 @@ async def add_endpoint_stock(message: types.Message, state: FSMContext):
     try:
         stock = int((message.text or "").strip())
     except Exception:
-        return await message.answer("Invalid quantity.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_invalid_quantity"))
 
     if stock < 0:
-        return await message.answer("Quantity must be zero or greater.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_quantity_zero_or_greater"))
 
     if data.get("edit_endpoint_id"):
         await state.update_data(edit_stock=stock)
@@ -1177,13 +1424,13 @@ async def add_endpoint_stock(message: types.Message, state: FSMContext):
         await state.update_data(builder_stock=stock)
 
     await state.set_state(CustomBuilderStates.waiting_min_qty)
-    await message.answer("Send minimum required quantity, or /cancel")
+    await message.answer(t(await _user_lang(message.from_user.id), "custom_send_minimum_quantity"))
 
 
 @router.message(CustomBuilderStates.waiting_min_qty)
 async def add_endpoint_min(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    if data.get("custom_mode") == "builder" and not await _is_current_bot_reseller(message.from_user.id, message.bot):
+    if data.get("custom_mode") == "builder" and not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
 
@@ -1203,10 +1450,10 @@ async def add_endpoint_min(message: types.Message, state: FSMContext):
     try:
         min_qty = int((message.text or "").strip())
     except Exception:
-        return await message.answer("Invalid minimum quantity.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_invalid_minimum_quantity"))
 
     if min_qty < 1:
-        return await message.answer("Minimum quantity must be at least 1.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_minimum_quantity_at_least_one"))
 
     catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
     if data.get("edit_endpoint_id"):
@@ -1221,9 +1468,9 @@ async def add_endpoint_min(message: types.Message, state: FSMContext):
         return_node_id = data.get("edit_return_node_id")
         await state.clear()
         if not updated:
-            return await message.answer("Endpoint not found.")
+            return await message.answer(t(await _user_lang(message.from_user.id), "custom_endpoint_not_found"))
 
-        await message.answer("Endpoint updated.")
+        await message.answer(t(await _user_lang(message.from_user.id), "custom_endpoint_updated"))
         if return_node_id:
             return await _render_node(
                 message,
@@ -1246,10 +1493,10 @@ async def add_endpoint_min(message: types.Message, state: FSMContext):
     anchor = await get_node(data.get("builder_anchor_id"), reseller_id=message.from_user.id)
     if not anchor:
         await state.clear()
-        return await message.answer("Anchor not found.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_anchor_not_found"))
     if bool(anchor.get("is_root")):
         await state.clear()
-        return await message.answer("Main folder accepts subfolders only.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_main_folder_subfolders_only"))
 
     parent_id = anchor["_id"] if data.get("builder_add_mode") == "adde" else anchor.get("parent_id")
     await create_endpoint(
@@ -1264,7 +1511,7 @@ async def add_endpoint_min(message: types.Message, state: FSMContext):
 
     return_node_id = data.get("builder_return_node_id") or str(anchor["_id"])
     await state.clear()
-    await message.answer("Endpoint created successfully.")
+    await message.answer(t(await _user_lang(message.from_user.id), "custom_endpoint_created_success"))
     await _render_node(
         message,
         state,
@@ -1277,13 +1524,14 @@ async def add_endpoint_min(message: types.Message, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:edit:"))
 async def edit_endpoint_start(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
     endpoint = await get_node(node_id, reseller_id=callback.from_user.id)
     if not endpoint or endpoint.get("node_type") != "endpoint":
-        return await callback.answer("Endpoint not found", show_alert=True)
+        return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
 
     await state.update_data(
         edit_endpoint_id=str(endpoint["_id"]),
@@ -1296,22 +1544,54 @@ async def edit_endpoint_start(callback: types.CallbackQuery, state: FSMContext):
 
     if callback.message:
         await callback.message.answer(
-            "Send new price now.\n"
-            f"Current: {float(endpoint.get('price', 0)):.2f}$\n"
-            "Or /cancel"
+            t(lang, "custom_send_new_price_now").format(current=float(endpoint.get("price", 0)))
         )
     await callback.answer()
 
 
+@router.callback_query(lambda c: c.data and c.data.startswith("cstm:preordertoggle:"))
+async def toggle_endpoint_preorder(callback: types.CallbackQuery, state: FSMContext):
+    if int(callback.from_user.id) != int(OWNER_ID):
+        return await callback.answer("No permission", show_alert=True)
+    if not await is_main_bot((await callback.bot.get_me()).id):
+        return await callback.answer("Main-bot only", show_alert=True)
+
+    node_id = str(callback.data or "").split(":", 2)[2]
+    endpoint = await get_node(node_id, reseller_id=int(callback.from_user.id))
+    if not endpoint or endpoint.get("node_type") != "endpoint":
+        return await callback.answer("Endpoint not found", show_alert=True)
+
+    updated = await set_endpoint_preorder_enabled(
+        endpoint["_id"],
+        int(callback.from_user.id),
+        not _endpoint_preorder_enabled(endpoint),
+        catalog_type=_catalog_type_from_node(endpoint),
+    )
+    if not updated:
+        return await callback.answer("Update failed", show_alert=True)
+
+    if callback.message:
+        await _render_node(
+            callback,
+            state,
+            int(callback.from_user.id),
+            updated["_id"],
+            is_builder=True,
+            catalog_type=_catalog_type_from_node(updated),
+        )
+    await callback.answer("Preorder updated")
+
+
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:delivery:"))
 async def set_delivery_start(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
     endpoint = await get_node(node_id, reseller_id=callback.from_user.id)
     if not endpoint or endpoint.get("node_type") != "endpoint":
-        return await callback.answer("Endpoint not found", show_alert=True)
+        return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
 
     catalog_type = _catalog_type_from_node(endpoint)
     await state.update_data(
@@ -1324,19 +1604,13 @@ async def set_delivery_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(CustomBuilderStates.waiting_delivery_payload)
 
     if callback.message:
-        await callback.message.answer(
-            "Send stock lines now (one item per line).\n"
-            "Example:\n"
-            "email1@gmail.com:pass1\n"
-            "email2@gmail.com:pass2\n\n"
-            "Use Back or /cancel to abort."
-        )
+        await callback.message.answer(t(lang, "custom_send_stock_lines"))
     await callback.answer()
 
 
 @router.message(CustomBuilderStates.waiting_delivery_payload)
 async def set_delivery_submit(message: types.Message, state: FSMContext):
-    if not await _is_current_bot_reseller(message.from_user.id, message.bot):
+    if not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
 
@@ -1368,10 +1642,10 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
 
     text = str(message.text or "").strip()
     if not text:
-        return await message.answer("Send stock lines as plain text, one line per item, or /cancel.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_send_stock_lines_plain_text"))
     items = [line.strip() for line in text.splitlines() if line.strip()]
     if not items:
-        return await message.answer("No valid stock lines found. Try again.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_no_valid_stock_lines"))
     updated = await set_endpoint_inventory(
         endpoint_id,
         message.from_user.id,
@@ -1381,9 +1655,9 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
 
     await state.clear()
     if not updated:
-        return await message.answer("Failed to save delivery payload.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_failed_save_delivery_payload"))
 
-    await message.answer(f"Stock saved: {len(items)} item(s).")
+    await message.answer(t(await _user_lang(message.from_user.id), "custom_stock_saved").format(count=len(items)))
     return await _render_node(
         message,
         state,
@@ -1396,13 +1670,14 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:pinfo:"))
 async def set_product_info_start(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
     endpoint = await get_node(node_id, reseller_id=callback.from_user.id)
     if not endpoint or endpoint.get("node_type") != "endpoint":
-        return await callback.answer("Endpoint not found", show_alert=True)
+        return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
 
     catalog_type = _catalog_type_from_node(endpoint)
     await state.update_data(
@@ -1415,17 +1690,13 @@ async def set_product_info_start(callback: types.CallbackQuery, state: FSMContex
     await state.set_state(CustomBuilderStates.waiting_product_info)
 
     if callback.message:
-        await callback.message.answer(
-            "Send product info text shown before confirmation.\n"
-            "Send '-' to clear.\n"
-            "Use Back or /cancel to abort."
-        )
+        await callback.message.answer(t(lang, "custom_send_product_info_text"))
     await callback.answer()
 
 
 @router.message(CustomBuilderStates.waiting_product_info)
 async def set_product_info_submit(message: types.Message, state: FSMContext):
-    if not await _is_current_bot_reseller(message.from_user.id, message.bot):
+    if not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
 
@@ -1457,9 +1728,9 @@ async def set_product_info_submit(message: types.Message, state: FSMContext):
     )
     await state.clear()
     if not updated:
-        return await message.answer("Failed to save product info.")
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_failed_save_product_info"))
 
-    await message.answer("Product info saved.")
+    await message.answer(t(await _user_lang(message.from_user.id), "custom_product_info_saved"))
     return await _render_node(
         message,
         state,
@@ -1472,26 +1743,27 @@ async def set_product_info_submit(message: types.Message, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:del:"))
 async def delete_node_cb(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
     node = await get_node(node_id, reseller_id=callback.from_user.id)
     if not node:
-        return await callback.answer("Node not found", show_alert=True)
+        return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
 
     if bool(node.get("is_root")):
-        return await callback.answer("Root folder cannot be deleted.", show_alert=True)
+        return await callback.answer(t(lang, "custom_root_folder_cannot_be_deleted"), show_alert=True)
 
     if str(node.get("node_type") or "") == "folder":
         children = await list_children(callback.from_user.id, node["_id"], catalog_type=_catalog_type_from_node(node))
         if children:
-            return await callback.answer("Folder is not empty and cannot be deleted.", show_alert=True)
+            return await callback.answer(t(lang, "custom_folder_not_empty_cannot_delete"), show_alert=True)
 
     parent_id = node.get("parent_id")
     catalog_type = _catalog_type_from_node(node)
     modified = await deactivate_node(node_id, callback.from_user.id, catalog_type=catalog_type)
-    await callback.answer(f"Deleted {modified} item(s).")
+    await callback.answer(t(lang, "custom_deleted_items").format(count=modified))
 
     if callback.message:
         target_node_id = None
@@ -1514,22 +1786,23 @@ async def delete_node_cb(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:move:"))
 async def move_node_cb(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
 
     parts = str(callback.data or "").split(":", 3)
     if len(parts) != 4:
-        return await callback.answer("Invalid move request.", show_alert=True)
+        return await callback.answer(t(lang, "custom_invalid_move_request"), show_alert=True)
     _, _, direction, node_id = parts
     direction = str(direction or "").strip().lower()
     if direction not in {"up", "down", "left", "right"}:
-        return await callback.answer("Invalid move direction.", show_alert=True)
+        return await callback.answer(t(lang, "custom_invalid_move_direction"), show_alert=True)
 
     node = await get_node(node_id, reseller_id=callback.from_user.id)
     if not node:
-        return await callback.answer("Node not found", show_alert=True)
+        return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
     if bool(node.get("is_root")):
-        return await callback.answer("Root folder cannot be moved.", show_alert=True)
+        return await callback.answer(t(lang, "custom_root_folder_cannot_be_moved"), show_alert=True)
 
     catalog_type = _catalog_type_from_node(node)
     ok, reason = await move_node_in_parent(
@@ -1540,16 +1813,16 @@ async def move_node_cb(callback: types.CallbackQuery, state: FSMContext):
     )
     if not ok:
         if reason == "edge":
-            return await callback.answer("Move not possible in this direction.", show_alert=True)
+            return await callback.answer(t(lang, "custom_move_not_possible_direction"), show_alert=True)
         if reason == "root_not_movable":
-            return await callback.answer("Root folder cannot be moved.", show_alert=True)
-        return await callback.answer("Move failed.", show_alert=True)
+            return await callback.answer(t(lang, "custom_root_folder_cannot_be_moved"), show_alert=True)
+        return await callback.answer(t(lang, "custom_move_failed"), show_alert=True)
 
     parent_id = node.get("parent_id")
     if not parent_id:
         root = await ensure_root_node(callback.from_user.id, catalog_type=catalog_type)
         parent_id = root["_id"]
-    await callback.answer("Moved.")
+    await callback.answer(t(lang, "custom_moved_plain"))
     if callback.message:
         await _render_node(
             callback,
@@ -1563,13 +1836,13 @@ async def move_node_cb(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:noop:"))
 async def move_noop_cb(callback: types.CallbackQuery):
-    await callback.answer("غير متاح بهالاتجاه", show_alert=False)
+    await callback.answer(t(await _user_lang(callback.from_user.id), "custom_move_not_available_direction"), show_alert=False)
 
 
 @router.callback_query(lambda c: c.data == "cstm:cancel")
 async def custom_panel_cancel(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.answer("Closed")
+    await callback.answer(t(await _user_lang(callback.from_user.id), "closed_plain"))
     if callback.message:
         try:
             await callback.message.edit_reply_markup(reply_markup=None)
@@ -1578,17 +1851,20 @@ async def custom_panel_cancel(callback: types.CallbackQuery, state: FSMContext):
                 raise
         user = await get_user(callback.from_user.id)
         lang = str((user or {}).get("language") or "en")
-        await callback.message.answer("Main Menu", reply_markup=main_menu(lang))
+        await callback.message.answer(
+            t(lang, "main_menu"),
+            reply_markup=await menu_for_current_bot(lang, (await callback.bot.get_me()).id),
+        )
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:layout:"))
 async def open_layout_mode(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
     node_id = callback.data.split(":", 2)[2]
     node = await get_node(node_id, reseller_id=callback.from_user.id)
     if not node or str(node.get("node_type") or "") != "folder":
-        return await callback.answer("Folder not found", show_alert=True)
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "custom_folder_not_found"), show_alert=True)
     catalog_type = _catalog_type_from_node(node)
     await state.update_data(custom_layout_node_id=str(node["_id"]))
     await callback.answer()
@@ -1605,16 +1881,16 @@ async def open_layout_mode(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:layoutdone:"))
 async def close_layout_mode(callback: types.CallbackQuery, state: FSMContext):
-    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
-        return await callback.answer("Reseller only", show_alert=True)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
     node_id = callback.data.split(":", 2)[2]
     node = await get_node(node_id, reseller_id=callback.from_user.id)
     if not node:
         await state.update_data(custom_layout_node_id=None)
-        return await callback.answer("Node not found", show_alert=True)
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "node_not_found_plain"), show_alert=True)
     catalog_type = _catalog_type_from_node(node)
     await state.update_data(custom_layout_node_id=None)
-    await callback.answer("Saved.")
+    await callback.answer(t(await _user_lang(callback.from_user.id), "saved_plain"))
     if callback.message:
         await _render_node(
             callback,
@@ -1626,11 +1902,24 @@ async def close_layout_mode(callback: types.CallbackQuery, state: FSMContext):
         )
 
 
-def _buy_qty_kb(*, endpoint_id: str, min_qty: int, available_qty: int, back_node_id: str) -> InlineKeyboardMarkup:
+def _buy_qty_kb(
+    *,
+    lang: str,
+    endpoint_id: str,
+    min_qty: int,
+    available_qty: int,
+    back_node_id: str,
+    preorder: bool = False,
+) -> InlineKeyboardMarkup:
     presets = [1, 5, 10]
-    options = [q for q in presets if q >= int(min_qty) and q <= int(available_qty)]
-    if not options and int(min_qty) <= int(available_qty):
-        options = [int(min_qty)]
+    if preorder:
+        options = [q for q in presets if q >= int(min_qty)]
+        if not options:
+            options = [int(min_qty)]
+    else:
+        options = [q for q in presets if q >= int(min_qty) and q <= int(available_qty)]
+        if not options and int(min_qty) <= int(available_qty):
+            options = [int(min_qty)]
     rows: list[list[InlineKeyboardButton]] = []
     if options:
         rows.append(
@@ -1641,58 +1930,67 @@ def _buy_qty_kb(*, endpoint_id: str, min_qty: int, available_qty: int, back_node
         )
     rows.append(
         [
-            InlineKeyboardButton(text="Back", callback_data=f"cstm:open:{back_node_id}"),
-            InlineKeyboardButton(text="Cancel", callback_data="cstm:cancel"),
+            InlineKeyboardButton(text=t(lang, "back"), callback_data=f"cstm:open:{back_node_id}"),
+            InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data="cstm:cancel"),
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _buy_confirm_kb() -> InlineKeyboardMarkup:
+def _buy_confirm_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Confirm Purchase", callback_data="cstm:buyconfirm")],
+            [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data="cstm:buyconfirm")],
             [
-                InlineKeyboardButton(text="Back", callback_data="cstm:buyqtyback"),
-                InlineKeyboardButton(text="Cancel", callback_data="cstm:cancel"),
+                InlineKeyboardButton(text=t(lang, "back"), callback_data="cstm:buyqtyback"),
+                InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data="cstm:cancel"),
             ],
         ]
     )
 
 
 async def _ask_buy_qty(message: types.Message, endpoint: dict, data: dict) -> None:
+    lang = await _user_lang(message.from_user.id)
     min_qty = int(data.get("buy_min_qty", 1))
     available_qty = int(endpoint.get("available_qty", 0))
+    preorder = bool(data.get("buy_is_preorder"))
     await message.answer(
-        "Choose quantity",
+        "Choose preorder quantity" if preorder else t(lang, "choose_quantity_plain"),
         reply_markup=_buy_qty_kb(
+            lang=lang,
             endpoint_id=str(endpoint["_id"]),
             min_qty=min_qty,
             available_qty=available_qty,
             back_node_id=str(data.get("buy_return_node_id") or endpoint.get("parent_id") or endpoint["_id"]),
+            preorder=preorder,
         ),
     )
 
 
 async def _show_buy_confirm(message: types.Message, state: FSMContext, endpoint: dict, qty: int) -> None:
+    lang = await _user_lang(message.from_user.id)
     data = await state.get_data()
-    service_name = str(data.get("buy_service_name") or endpoint.get("name") or "Product")
+    service_name = str(data.get("buy_service_name") or endpoint.get("name") or t(lang, "product_plain"))
     unit_price = float(data.get("buy_unit_price") or endpoint.get("price", 0))
     total = unit_price * int(qty)
     available_qty = int(endpoint.get("available_qty", 0))
     product_info = str(endpoint.get("product_info_text") or "").strip()
+    preorder = bool(data.get("buy_is_preorder"))
 
     await state.update_data(buy_pending_qty=int(qty))
     await state.set_state(CustomBuilderStates.waiting_buy_confirm)
     await message.answer(
-        f"Product: {service_name}\n"
-        f"Requested Qty: {int(qty)}\n"
-        f"Available Qty: {available_qty}\n"
-        f"Price: {total:.2f}$"
+        f"{t(lang, 'product_plain')}: {service_name}\n"
+        f"{t(lang, 'requested_qty_plain')}: {int(qty)}\n"
+        f"{t(lang, 'available_qty_plain')}: {'-' if preorder else available_qty}\n"
+        f"{t(lang, 'price_label')}: {format_usd(total)}"
     )
     if product_info:
         await message.answer(product_info)
-    await message.answer("Confirm purchase?", reply_markup=_buy_confirm_kb())
+    await message.answer(
+        "Confirm preorder?" if preorder else t(lang, "confirm_purchase_question"),
+        reply_markup=_buy_confirm_kb(lang),
+    )
 
 
 async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) -> None:
@@ -1701,35 +1999,66 @@ async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) 
     data = await state.get_data()
 
     endpoint_id = data.get("buy_endpoint_id")
-    reseller_id = int(data.get("buy_reseller_id") or 0)
+    catalog_owner_id = int(data.get("buy_catalog_owner_id") or data.get("buy_reseller_id") or 0)
+    wallet_scope_id = int(data.get("buy_wallet_scope_id") or data.get("buy_reseller_id") or 0)
     catalog_type = str(data.get("buy_catalog_type") or data.get("custom_catalog_type") or _CATALOG_CUSTOM)
-    endpoint = await get_node(endpoint_id, catalog_type=catalog_type)
+    preorder_flow = bool(data.get("buy_is_preorder"))
+    endpoint = await get_node(endpoint_id, reseller_id=catalog_owner_id, catalog_type=catalog_type)
     if not endpoint or endpoint.get("node_type") != "endpoint":
         await state.clear()
         await message.answer(t(lang, "order_not_found"))
         return
 
-    if int(endpoint.get("reseller_id") or 0) != reseller_id:
+    if int(endpoint.get("reseller_id") or 0) != catalog_owner_id:
         await state.clear()
-        await message.answer("Service routing mismatch. Please reopen services.")
+        await message.answer(t(lang, "custom_service_routing_mismatch"))
+        return
+    if not preorder_flow and not _endpoint_ready_for_sale(endpoint):
+        await state.clear()
+        await message.answer(t(lang, "custom_endpoint_not_ready_for_sale"))
+        return
+    if preorder_flow and not await _can_use_preorder(endpoint, message.bot):
+        await state.clear()
+        await message.answer(t(lang, "custom_endpoint_not_ready_for_sale"))
         return
 
     qty = int(data.get("buy_pending_qty") or 0)
     min_qty = int(data.get("buy_min_qty", 1))
     if qty < min_qty:
         await state.set_state(CustomBuilderStates.waiting_buy_qty)
-        await message.answer(f"Minimum quantity is {min_qty}.")
+        await message.answer(t(lang, "custom_minimum_quantity_is").format(min_qty=min_qty))
         await _ask_buy_qty(message, endpoint, data)
         return
 
-    claim = await claim_endpoint_inventory(endpoint["_id"], reseller_id, qty, catalog_type=catalog_type)
-    if not claim:
-        await state.set_state(CustomBuilderStates.waiting_buy_qty)
-        await message.answer("Not enough stock.")
-        await _ask_buy_qty(message, endpoint, data)
-        return
-    claimed_items = list(claim.get("claimed_items") or [])
-    remaining_qty = int(claim.get("remaining_qty") or 0)
+    claimed_items: list[str] = []
+    delivery_type = str(endpoint.get("delivery_type") or "").strip().lower()
+    if not preorder_flow and delivery_type == "inventory":
+        claim = await claim_endpoint_inventory(endpoint["_id"], catalog_owner_id, qty, catalog_type=catalog_type)
+        if not claim:
+            await state.set_state(CustomBuilderStates.waiting_buy_qty)
+            await message.answer(t(lang, "custom_not_enough_stock"))
+            await _ask_buy_qty(message, endpoint, data)
+            return
+        claimed_items = list(claim.get("claimed_items") or [])
+        remaining_qty = int(claim.get("remaining_qty") or 0)
+    elif not preorder_flow:
+        reserved = await reserve_endpoint_stock(endpoint["_id"], catalog_owner_id, qty, catalog_type=catalog_type)
+        if not reserved:
+            await state.set_state(CustomBuilderStates.waiting_buy_qty)
+            await message.answer(t(lang, "custom_not_enough_stock"))
+            await _ask_buy_qty(message, endpoint, data)
+            return
+        remaining_qty = int(reserved.get("available_qty") or 0)
+    else:
+        remaining_qty = int(endpoint.get("available_qty") or 0)
+    if delivery_type == "inventory" and not claimed_items:
+        if preorder_flow:
+            claimed_items = []
+        else:
+            await state.set_state(CustomBuilderStates.waiting_buy_qty)
+            await message.answer(t(lang, "custom_not_enough_stock"))
+            await _ask_buy_qty(message, endpoint, data)
+            return
 
     order_id = None
     purchased = False
@@ -1741,12 +2070,11 @@ async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) 
 
         order = await create_order_v3(
             user_id=user_id,
-            reseller_id=reseller_id,
+            reseller_id=wallet_scope_id,
             service_type=service_type,
             service_ref_id=str(endpoint["_id"]),
             retail_amount=total,
             wholesale_amount=0.0,
-            owner_fee_amount=0.0,
             reseller_profit_amount=total if financial_mode == _FINANCIAL_CUSTOM else 0.0,
             status="pending",
         )
@@ -1758,19 +2086,19 @@ async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) 
                 str(order_id),
                 total,
                 0.0,
-                reseller_id=reseller_id,
+                reseller_id=wallet_scope_id,
             )
         else:
             ok, reason = await FinancialManager.process_custom_purchase(
                 user_id,
                 str(order_id),
                 total,
-                reseller_id=reseller_id,
+                reseller_id=wallet_scope_id,
             )
         if not ok:
             await update_order_status(order_id, "failed")
             await state.clear()
-            await message.answer(f"Purchase failed: {reason}")
+            await message.answer(t(lang, "custom_purchase_failed_reason").format(reason=reason))
             return
 
         await update_order_details(
@@ -1782,11 +2110,42 @@ async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) 
                 "total_price": total,
                 "catalog_type": catalog_type,
                 "financial_mode": financial_mode,
-                "status": "success",
+                "status": "queued" if preorder_flow else "success",
+                "custom_preorder": preorder_flow,
             },
         )
-        await update_order_status(order_id, "success")
+        if preorder_flow:
+            preorder = await create_preorder_request(
+                endpoint_id=endpoint["_id"],
+                catalog_owner_id=catalog_owner_id,
+                wallet_scope_id=wallet_scope_id,
+                buyer_user_id=user_id,
+                order_id=order_id,
+                qty=qty,
+                unit_price=unit_price,
+                total_price=total,
+                service_name=str(data.get("buy_service_name") or endpoint.get("name") or ""),
+                catalog_type=catalog_type,
+            )
+            await update_order_details(order_id, {"custom_preorder_id": preorder["_id"]})
+            await update_order_status(order_id, "queued")
+            await _notify_owner_preorder_created(preorder=preorder, endpoint=endpoint, buyer_user=user)
+        else:
+            await update_order_status(order_id, "success")
         purchased = True
+        if preorder_flow:
+            queue_position = await get_pending_preorder_position(preorder["_id"])
+            await state.clear()
+            await message.answer(
+                "Reservation created successfully\n"
+                f"Service: {data.get('buy_service_name') or endpoint.get('name')}\n"
+                f"Qty: {qty}\n"
+                f"Total: {format_usd(total)}\n"
+                f"Queue position: {queue_position}\n"
+                "Delivery will be sent later by the admin."
+            )
+            return
+
         delivery_ok = False
         try:
             delivery_ok = await _send_endpoint_delivery(
@@ -1794,6 +2153,7 @@ async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) 
                 user_id=user_id,
                 endpoint=endpoint,
                 qty=qty,
+                lang=lang,
                 stock_items=claimed_items,
             )
         except Exception as exc:
@@ -1807,18 +2167,19 @@ async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) 
         return_node_id = data.get("buy_return_node_id")
         await state.clear()
         await message.answer(
-            "Purchased successfully\n"
-            f"Service: {data.get('buy_service_name') or endpoint.get('name')}\n"
-            f"Qty: {qty}\n"
-            f"Total: {total:.2f}$\n"
-            f"Remaining stock: {remaining_qty}\n"
-            f"Delivery: {'Sent' if delivery_ok else 'Not configured or failed'}"
+            t(lang, "custom_purchase_success_summary").format(
+                service=data.get("buy_service_name") or endpoint.get("name"),
+                qty=qty,
+                total=total,
+                remaining_qty=remaining_qty,
+                delivery=t(lang, "sent_plain") if delivery_ok else t(lang, "custom_delivery_not_configured_or_failed"),
+            )
         )
         if return_node_id:
             await _render_node(
                 message,
                 state,
-                reseller_id,
+                catalog_owner_id,
                 return_node_id,
                 is_builder=False,
                 catalog_type=catalog_type,
@@ -1828,12 +2189,12 @@ async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) 
         if order_id is not None:
             await update_order_status(order_id, "failed")
         await state.clear()
-        await message.answer("Purchase failed: unexpected error. Please try again.")
+        await message.answer(t(lang, "custom_purchase_failed_unexpected"))
     finally:
-        if not purchased:
+        if not purchased and not preorder_flow:
             await release_endpoint_stock(
                 endpoint["_id"],
-                reseller_id,
+                catalog_owner_id,
                 qty,
                 catalog_type=catalog_type,
                 claimed_items=claimed_items,
@@ -1849,24 +2210,35 @@ async def start_buy_endpoint(callback: types.CallbackQuery, state: FSMContext):
     endpoint = await get_node(node_id)
     if not endpoint or endpoint.get("node_type") != "endpoint":
         return await callback.answer(t(lang, "invalid_order_info"), show_alert=True)
+    preorder_flow = False
+    if not _endpoint_ready_for_sale(endpoint):
+        preorder_flow = await _can_use_preorder(endpoint, callback.bot)
+    if not _endpoint_ready_for_sale(endpoint) and not preorder_flow:
+        return await callback.answer(t(lang, "custom_endpoint_not_ready_for_sale"), show_alert=True)
 
-    bot_id = (await callback.message.bot.get_me()).id
-    user_reseller = await _resolve_user_reseller(callback.from_user.id, bot_id)
-    if not user_reseller or int(user_reseller) != int(endpoint.get("reseller_id") or 0):
-        return await callback.answer("Access denied", show_alert=True)
-
+    bot_id = (await callback.bot.get_me()).id
+    if await is_main_bot(bot_id):
+        wallet_scope_id = int(callback.from_user.id)
+    else:
+        user_reseller = await _resolve_user_reseller(callback.from_user.id, bot_id)
+        if not user_reseller or int(user_reseller) != int(endpoint.get("reseller_id") or 0):
+            return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+        wallet_scope_id = int(user_reseller)
     catalog_type = _catalog_type_from_node(endpoint)
     financial_mode = _catalog_financial_mode(catalog_type)
-    service_name_default = "ID INFO" if catalog_type == _CATALOG_ID_INFO else "Custom Service"
+    service_name_default = "ID INFO" if catalog_type == _CATALOG_ID_INFO else t(lang, "custom_service_plain")
     await state.update_data(
         buy_endpoint_id=str(endpoint["_id"]),
         buy_reseller_id=int(endpoint["reseller_id"]),
+        buy_catalog_owner_id=int(endpoint["reseller_id"]),
+        buy_wallet_scope_id=int(wallet_scope_id),
         buy_service_name=str(endpoint.get("name") or service_name_default),
         buy_unit_price=float(endpoint.get("price", 0)),
         buy_min_qty=int(endpoint.get("min_qty", 1)),
         buy_return_node_id=str(endpoint.get("parent_id") or endpoint["_id"]),
         buy_catalog_type=catalog_type,
         buy_financial_mode=financial_mode,
+        buy_is_preorder=preorder_flow,
         custom_mode="user",
         custom_catalog_type=catalog_type,
         custom_financial_mode=financial_mode,
@@ -1880,27 +2252,31 @@ async def start_buy_endpoint(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:buyqty:"))
 async def choose_buy_qty(callback: types.CallbackQuery, state: FSMContext):
+    lang = await _user_lang(callback.from_user.id)
     data = await state.get_data()
     endpoint_id_state = str(data.get("buy_endpoint_id") or "")
     parts = str(callback.data or "").split(":")
     if len(parts) != 4:
-        return await callback.answer("Invalid quantity.", show_alert=True)
+        return await callback.answer(t(lang, "custom_invalid_quantity"), show_alert=True)
     endpoint_id = str(parts[2])
     if endpoint_id_state and endpoint_id != endpoint_id_state:
-        return await callback.answer("Session mismatch. Reopen service.", show_alert=True)
+        return await callback.answer(t(lang, "custom_session_mismatch_reopen"), show_alert=True)
     try:
         qty = int(parts[3])
     except Exception:
-        return await callback.answer("Invalid quantity.", show_alert=True)
+        return await callback.answer(t(lang, "custom_invalid_quantity"), show_alert=True)
 
     endpoint = await get_node(endpoint_id)
     if not endpoint:
-        return await callback.answer("Service unavailable.", show_alert=True)
+        return await callback.answer(t(lang, "custom_service_unavailable"), show_alert=True)
+    preorder_flow = bool(data.get("buy_is_preorder"))
+    if not preorder_flow and not _endpoint_ready_for_sale(endpoint):
+        return await callback.answer(t(lang, "custom_endpoint_not_ready_for_sale"), show_alert=True)
     min_qty = int(data.get("buy_min_qty", 1))
     if qty < min_qty:
-        return await callback.answer(f"Minimum quantity is {min_qty}.", show_alert=True)
-    if int(endpoint.get("available_qty", 0)) < qty:
-        return await callback.answer("Not enough stock.", show_alert=True)
+        return await callback.answer(t(lang, "custom_minimum_quantity_is").format(min_qty=min_qty), show_alert=True)
+    if not preorder_flow and int(endpoint.get("available_qty", 0)) < qty:
+        return await callback.answer(t(lang, "custom_not_enough_stock"), show_alert=True)
 
     if callback.message:
         await _show_buy_confirm(callback.message, state, endpoint, qty)
@@ -1909,13 +2285,17 @@ async def choose_buy_qty(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data == "cstm:buyqtyback")
 async def back_to_buy_qty(callback: types.CallbackQuery, state: FSMContext):
+    lang = await _user_lang(callback.from_user.id)
     data = await state.get_data()
     endpoint_id = data.get("buy_endpoint_id")
     if not endpoint_id:
-        return await callback.answer("No active purchase.", show_alert=True)
+        return await callback.answer(t(lang, "custom_no_active_purchase"), show_alert=True)
     endpoint = await get_node(endpoint_id)
     if not endpoint:
-        return await callback.answer("Service unavailable.", show_alert=True)
+        return await callback.answer(t(lang, "custom_service_unavailable"), show_alert=True)
+    preorder_flow = bool(data.get("buy_is_preorder"))
+    if not preorder_flow and not _endpoint_ready_for_sale(endpoint):
+        return await callback.answer(t(lang, "custom_endpoint_not_ready_for_sale"), show_alert=True)
     await state.set_state(CustomBuilderStates.waiting_buy_qty)
     if callback.message:
         await _ask_buy_qty(callback.message, endpoint, data)
@@ -1924,10 +2304,11 @@ async def back_to_buy_qty(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data == "cstm:buyconfirm")
 async def confirm_buy_endpoint(callback: types.CallbackQuery, state: FSMContext):
+    lang = await _user_lang(callback.from_user.id)
     data = await state.get_data()
     qty = int(data.get("buy_pending_qty") or 0)
     if qty <= 0:
-        return await callback.answer("Choose quantity first.", show_alert=True)
+        return await callback.answer(t(lang, "custom_choose_quantity_first"), show_alert=True)
     if callback.message:
         await _execute_buy(callback.message, state, callback.from_user.id)
     await callback.answer()
@@ -1953,34 +2334,39 @@ async def handle_buy_qty(message: types.Message, state: FSMContext):
                 is_builder=False,
                 catalog_type=catalog_type,
             )
-        return await message.answer("Canceled.")
+        return await message.answer(t(lang, "reseller_cancelled_plain"))
 
     endpoint_id = data.get("buy_endpoint_id")
     endpoint = await get_node(endpoint_id)
     if not endpoint or endpoint.get("node_type") != "endpoint":
         await state.clear()
         return await message.answer(t(lang, "order_not_found"))
+    preorder_flow = bool(data.get("buy_is_preorder"))
+    if not preorder_flow and not _endpoint_ready_for_sale(endpoint):
+        await state.clear()
+        return await message.answer(t(lang, "custom_endpoint_not_ready_for_sale"))
 
     try:
         qty = int((message.text or "").strip())
     except Exception:
-        return await message.answer("Invalid quantity.")
+        return await message.answer(t(lang, "custom_invalid_quantity"))
 
     min_qty = int(data.get("buy_min_qty", 1))
     if qty < min_qty:
-        return await message.answer(f"Minimum quantity is {min_qty}.")
-    if int(endpoint.get("available_qty", 0)) < qty:
-        return await message.answer("Not enough stock.")
+        return await message.answer(t(lang, "custom_minimum_quantity_is").format(min_qty=min_qty))
+    if not preorder_flow and int(endpoint.get("available_qty", 0)) < qty:
+        return await message.answer(t(lang, "custom_not_enough_stock"))
 
     await _show_buy_confirm(message, state, endpoint, qty)
 
 
 @router.message(CustomBuilderStates.waiting_buy_confirm)
 async def handle_buy_confirm_text(message: types.Message, state: FSMContext):
+    lang = await _user_lang(message.from_user.id)
     if _is_cancel_input(message.text):
         await state.clear()
-        return await message.answer("Canceled.")
-    await message.answer("Press Confirm Purchase button.")
+        return await message.answer(t(lang, "reseller_cancelled_plain"))
+    await message.answer(t(lang, "custom_press_confirm_purchase"))
 
 
 

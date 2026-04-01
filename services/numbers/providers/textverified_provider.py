@@ -1,5 +1,8 @@
 ﻿from typing import Dict, Any, Optional
 
+import asyncio
+import time
+
 from services.numbers.core.session_manager import SessionManager
 from .base_provider import BaseProvider
 from config import settings
@@ -15,6 +18,17 @@ logger = logging.getLogger("textverified")
 class TextVerifiedProvider(BaseProvider):
     BASE = "https://www.textverified.com/api"
     _sms_services_cache: set[str] | None = None
+    _auth_lock: asyncio.Lock | None = None
+    _token_cache: dict[str, Any] = {"token": None, "expires_at": 0.0, "fingerprint": None}
+    _price_cache: dict[tuple[str, str, str], tuple[float, dict[str, Any]]] = {}
+    _rate_limit_stats: dict[str, dict[str, Any]] = {
+        "auth": {"requests": 0, "window_started_at": None, "window_429_hits": 0, "window_request_at_first_429": None},
+        "pricing": {"requests": 0, "window_started_at": None, "window_429_hits": 0, "window_request_at_first_429": None},
+    }
+    AUTH_RETRY_DELAYS: tuple[float, ...] = (0.35, 0.9)
+    PRICE_RETRY_DELAYS: tuple[float, ...] = (0.2, 0.55)
+    TOKEN_TTL_SECONDS = 540.0
+    PRICE_CACHE_TTL_SECONDS = 45.0
     RENTAL_DURATIONS: tuple[tuple[str, str, int], ...] = (
         ("oneDay", "1d", 24),
         ("threeDay", "3d", 72),
@@ -25,6 +39,168 @@ class TextVerifiedProvider(BaseProvider):
         ("oneYear", "365d", 8760),
     )
 
+    @classmethod
+    def _now(cls) -> float:
+        return time.monotonic()
+
+    @classmethod
+    async def _sleep(cls, seconds: float) -> None:
+        await asyncio.sleep(seconds)
+
+    @classmethod
+    def _ensure_auth_lock(cls) -> asyncio.Lock:
+        if cls._auth_lock is None:
+            cls._auth_lock = asyncio.Lock()
+        return cls._auth_lock
+
+    @classmethod
+    def _credential_fingerprint(cls) -> str:
+        return f"{settings.tv_user or ''}:{settings.tv_key or ''}"
+
+    @classmethod
+    def _get_cached_token(cls) -> Optional[str]:
+        cached_token = str(cls._token_cache.get("token") or "").strip()
+        expires_at = float(cls._token_cache.get("expires_at") or 0.0)
+        fingerprint = str(cls._token_cache.get("fingerprint") or "")
+        if (
+            cached_token
+            and fingerprint == cls._credential_fingerprint()
+            and expires_at > cls._now() + 5.0
+        ):
+            return cached_token
+        return None
+
+    @classmethod
+    def _cache_token(cls, token: str, ttl_seconds: float | None = None) -> None:
+        ttl = float(ttl_seconds or cls.TOKEN_TTL_SECONDS)
+        cls._token_cache = {
+            "token": token,
+            "expires_at": cls._now() + max(ttl, 30.0),
+            "fingerprint": cls._credential_fingerprint(),
+        }
+
+    @classmethod
+    def _invalidate_cached_token(cls) -> None:
+        cls._token_cache = {"token": None, "expires_at": 0.0, "fingerprint": cls._credential_fingerprint()}
+
+    @classmethod
+    def _parse_retry_after(cls, headers: dict[str, Any] | None) -> float | None:
+        if not isinstance(headers, dict):
+            return None
+        raw = headers.get("Retry-After") or headers.get("retry-after")
+        try:
+            if raw is None:
+                return None
+            value = float(raw)
+            if value > 0:
+                return min(value, 5.0)
+        except Exception:
+            return None
+        return None
+
+    @classmethod
+    def _is_rate_limited(cls, status: int, payload: Any) -> bool:
+        if int(status or 0) == 429:
+            return True
+        if not isinstance(payload, dict):
+            return False
+        code = str(payload.get("errorCode") or "").strip().lower()
+        desc = str(payload.get("errorDescription") or payload.get("message") or "").strip().lower()
+        return "too many requests" in desc or code in {"ratelimited", "too_many_requests"}
+
+    @classmethod
+    def _price_cache_key(cls, service: Any, country: Any, state: Any) -> tuple[str, str, str]:
+        return (
+            normalize_service_key(service),
+            str(country or "").strip().upper(),
+            str(state or "").strip().upper(),
+        )
+
+    @classmethod
+    def _get_cached_price(cls, service: Any, country: Any, state: Any) -> Optional[dict[str, Any]]:
+        key = cls._price_cache_key(service, country, state)
+        cached = cls._price_cache.get(key)
+        if not cached:
+            return None
+        expires_at, payload = cached
+        if expires_at <= cls._now():
+            cls._price_cache.pop(key, None)
+            return None
+        return dict(payload)
+
+    @classmethod
+    def _cache_price(cls, service: Any, country: Any, state: Any, payload: dict[str, Any]) -> None:
+        key = cls._price_cache_key(service, country, state)
+        cls._price_cache[key] = (cls._now() + cls.PRICE_CACHE_TTL_SECONDS, dict(payload))
+
+    @classmethod
+    def _masked_key_fingerprint(cls) -> str:
+        key = str(settings.tv_key or "").strip()
+        if len(key) < 8:
+            return "***"
+        return f"{key[:4]}...{key[-4:]}"
+
+    @classmethod
+    def _rate_limit_bucket(cls, scope: str) -> dict[str, Any]:
+        bucket = cls._rate_limit_stats.get(scope)
+        if bucket is None:
+            bucket = {
+                "requests": 0,
+                "window_started_at": None,
+                "window_429_hits": 0,
+                "window_request_at_first_429": None,
+            }
+            cls._rate_limit_stats[scope] = bucket
+        return bucket
+
+    @classmethod
+    def _mark_request(cls, scope: str) -> int:
+        bucket = cls._rate_limit_bucket(scope)
+        bucket["requests"] = int(bucket.get("requests") or 0) + 1
+        return int(bucket["requests"])
+
+    @classmethod
+    def _record_rate_limit(cls, scope: str, *, status: int, retry_after: float | None, extra: str = "") -> None:
+        bucket = cls._rate_limit_bucket(scope)
+        now = cls._now()
+        if not bucket.get("window_started_at"):
+            bucket["window_started_at"] = now
+            bucket["window_request_at_first_429"] = int(bucket.get("requests") or 0)
+            bucket["window_429_hits"] = 0
+        bucket["window_429_hits"] = int(bucket.get("window_429_hits") or 0) + 1
+        logger.warning(
+            "textverified rate_limit scope=%s status=%s request_no=%s first_429_request_no=%s hits_in_window=%s retry_after=%s key=%s%s",
+            scope,
+            status,
+            int(bucket.get("requests") or 0),
+            bucket.get("window_request_at_first_429"),
+            bucket.get("window_429_hits"),
+            retry_after,
+            cls._masked_key_fingerprint(),
+            f" {extra}" if extra else "",
+        )
+
+    @classmethod
+    def _record_rate_limit_recovery(cls, scope: str, *, extra: str = "") -> None:
+        bucket = cls._rate_limit_bucket(scope)
+        started_at = bucket.get("window_started_at")
+        if not started_at:
+            return
+        elapsed = max(cls._now() - float(started_at), 0.0)
+        logger.info(
+            "textverified rate_limit_recovered scope=%s request_no=%s first_429_request_no=%s hits_in_window=%s blocked_for_sec=%.3f key=%s%s",
+            scope,
+            int(bucket.get("requests") or 0),
+            bucket.get("window_request_at_first_429"),
+            bucket.get("window_429_hits"),
+            elapsed,
+            cls._masked_key_fingerprint(),
+            f" {extra}" if extra else "",
+        )
+        bucket["window_started_at"] = None
+        bucket["window_429_hits"] = 0
+        bucket["window_request_at_first_429"] = None
+
     async def _auth(self) -> Optional[str]:
         # read credentials dynamically from settings to avoid import-time
         # caching and allow tests/env changes at runtime
@@ -33,26 +209,67 @@ class TextVerifiedProvider(BaseProvider):
         if not user or not key:
             logger.error("TextVerified credentials missing (tv_user/tv_key)")
             return None
+        cached_token = self._get_cached_token()
+        if cached_token:
+            return cached_token
 
-        session = await SessionManager.get_session()
-        async with session.post(
-            f"{self.BASE}/pub/v2/auth",
-            headers={
+        lock = self._ensure_auth_lock()
+        async with lock:
+            cached_token = self._get_cached_token()
+            if cached_token:
+                return cached_token
+
+            session = await SessionManager.get_session()
+            headers = {
                 "X-API-USERNAME": user,
                 "X-API-KEY": key,
                 "Content-Type": "application/json",
-            },
-            json={},
-        ) as resp:
-            if resp.status != 200:
+            }
+            retry_delays = list(self.AUTH_RETRY_DELAYS)
+            for attempt in range(len(retry_delays) + 1):
+                self._mark_request("auth")
+                async with session.post(
+                    f"{self.BASE}/pub/v2/auth",
+                    headers=headers,
+                    json={},
+                ) as resp:
+                    if resp.status == 200:
+                        try:
+                            data = await resp.json()
+                        except Exception:
+                            logger.warning("textverified auth returned non-json payload")
+                            return None
+                        token = str((data or {}).get("token") or "").strip()
+                        if not token:
+                            logger.warning("textverified auth returned empty token")
+                            return None
+                        ttl = (
+                            self._as_float((data or {}).get("expiresIn"))
+                            or self._as_float((data or {}).get("expires_in"))
+                            or self._as_float((data or {}).get("expiresInSeconds"))
+                        )
+                        self._cache_token(token, ttl)
+                        self._record_rate_limit_recovery("auth")
+                        return token
+
+                    text = await resp.text()
+                    try:
+                        data = await resp.json()
+                    except Exception:
+                        data = {"raw_text": text}
+
+                if self._is_rate_limited(resp.status, data) and attempt < len(retry_delays):
+                    retry_after = self._parse_retry_after(dict(resp.headers))
+                    self._record_rate_limit("auth", status=resp.status, retry_after=retry_after)
+                    await self._sleep(retry_after if retry_after is not None else retry_delays[attempt])
+                    continue
+                if self._is_rate_limited(resp.status, data):
+                    retry_after = self._parse_retry_after(dict(resp.headers))
+                    self._record_rate_limit("auth", status=resp.status, retry_after=retry_after)
+
                 logger.warning("textverified auth failed status %s", resp.status)
                 return None
-            try:
-                data = await resp.json()
-            except Exception:
-                logger.warning("textverified auth returned non-json payload")
-                return None
-            return data.get("token")
+        return None
 
     @classmethod
     def _sms_services(cls) -> set[str]:
@@ -87,6 +304,11 @@ class TextVerifiedProvider(BaseProvider):
             candidate = normalized_map.get(family_key)
             if candidate and candidate not in out:
                 out.append(candidate)
+        # TV commonly exposes Gmail while callers may ask for the broader Google label.
+        if norm == "google":
+            gmail_candidate = normalized_map.get("gmail")
+            if gmail_candidate and gmail_candidate not in out:
+                out.append(gmail_candidate)
         return out
 
     @staticmethod
@@ -142,6 +364,10 @@ class TextVerifiedProvider(BaseProvider):
         return code in {"unauthorized", "forbidden", "invalidtoken", "invalidapikey"}
 
     async def get_price(self, service, country=None, state=None):
+        cached_price = self._get_cached_price(service, country, state)
+        if cached_price is not None:
+            return cached_price
+
         token = await self._auth()
         if not token:
             return {"success": False, "raw": "auth_failed"}
@@ -173,26 +399,70 @@ class TextVerifiedProvider(BaseProvider):
                     "areaCode": bool(area_flag),
                     "carrier": False,
                 }
-                async with session.post(
-                    f"{self.BASE}/pub/v2/pricing/verifications",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json=body,
-                ) as resp:
-                    text = await resp.text()
-                    try:
-                        data = await resp.json()
-                    except Exception:
-                        data = {"raw_text": text}
+                retry_delays = list(self.PRICE_RETRY_DELAYS)
+                for attempt in range(len(retry_delays) + 1):
+                    self._mark_request("pricing")
+                    async with session.post(
+                        f"{self.BASE}/pub/v2/pricing/verifications",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json=body,
+                    ) as resp:
+                        text = await resp.text()
+                        try:
+                            data = await resp.json()
+                        except Exception:
+                            data = {"raw_text": text}
+
+                    if self._is_auth_error(resp.status, data):
+                        self._invalidate_cached_token()
+                        if attempt == 0:
+                            refreshed_token = await self._auth()
+                            if refreshed_token:
+                                token = refreshed_token
+                                continue
+                        last_error = {
+                            "status": resp.status,
+                            "raw": data,
+                            "payload": body,
+                            "attempt_service": candidate_service,
+                        }
+                        return {"success": False, "raw": last_error}
+
+                    if self._is_rate_limited(resp.status, data) and attempt < len(retry_delays):
+                        retry_after = self._parse_retry_after(dict(resp.headers))
+                        self._record_rate_limit(
+                            "pricing",
+                            status=resp.status,
+                            retry_after=retry_after,
+                            extra=f"service={candidate_service}",
+                        )
+                        await self._sleep(retry_after if retry_after is not None else retry_delays[attempt])
+                        continue
+                    if self._is_rate_limited(resp.status, data):
+                        retry_after = self._parse_retry_after(dict(resp.headers))
+                        self._record_rate_limit(
+                            "pricing",
+                            status=resp.status,
+                            retry_after=retry_after,
+                            extra=f"service={candidate_service}",
+                        )
+                    break
 
                 if resp.status == 200 and isinstance(data, dict):
                     price_val = self._as_float(data.get("price"))
                     if price_val is not None and price_val > 0:
-                        return {
+                        self._record_rate_limit_recovery(
+                            "pricing",
+                            extra=f"service={candidate_service}",
+                        )
+                        result = {
                             "success": True,
                             "price": price_val,
                             "api_service_name": candidate_service,
                             "raw": data,
                         }
+                        self._cache_price(service, country, state, result)
+                        return result
 
                 last_error = {
                     "status": resp.status,
@@ -200,8 +470,6 @@ class TextVerifiedProvider(BaseProvider):
                     "payload": body,
                     "attempt_service": candidate_service,
                 }
-                if self._is_auth_error(resp.status, data):
-                    return {"success": False, "raw": last_error}
 
         return {"success": False, "raw": last_error}
 
@@ -408,7 +676,15 @@ class TextVerifiedProvider(BaseProvider):
                 data = await resp.json()
             except Exception:
                 data = {"raw_text": text}
-            return {"success": resp.status == 200, "raw": data}
+            success = resp.status in (200, 201, 202, 204)
+            if not success and isinstance(data, dict):
+                code = str(data.get("errorCode") or "").strip().lower()
+                desc = str(data.get("errorDescription") or data.get("message") or "").strip().lower()
+                if code in {"cancelled", "canceled", "alreadycancelled", "already_canceled"}:
+                    success = True
+                elif any(marker in desc for marker in ("cancelled", "canceled", "already cancelled", "already canceled")):
+                    success = True
+            return {"success": success, "raw": data}
 
     async def resend(self, activation_id: str) -> dict[str, Any]:
         token = await self._auth()

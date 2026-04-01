@@ -11,6 +11,22 @@
       "external_ref": "https://api.g2bulk.com/docs"
     },
     {
+      "public_id": "DP1",
+      "code": "reloadly",
+      "title": "Reloadly",
+      "doc_type": "manual_spec",
+      "doc_path": "docs/providers/manual/reloadly_api_reference.json",
+      "external_ref": "https://documenter.getpostman.com/view/3428998/2sAYXCkJe9"
+    },
+    {
+      "public_id": "DP2",
+      "code": "esimaccess",
+      "title": "eSIM Access",
+      "doc_type": "manual_spec",
+      "doc_path": "docs/providers/manual/esimaccess_api_reference.json",
+      "external_ref": "https://docs.esimaccess.com/"
+    },
+    {
       "public_id": "S1",
       "code": "smspool",
       "title": "SMSPool",

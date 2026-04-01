@@ -19,7 +19,11 @@ async def reseller_only(message: types.Message):
     if await is_reseller(message.from_user.id, bot_id=current_bot_id):
         return True
     try:
-        await message.answer("This command is available to resellers only.")
+        lang = "ar"
+        user = await get_user(message.from_user.id)
+        if user:
+            lang = user.get("language", "ar")
+        await message.answer(t(lang, "reseller_only_command"))
     except Exception:
         pass
     return False
@@ -40,6 +44,6 @@ async def owner_only(message: types.Message):
     try:
         await message.answer(t(lang, "no_permission"))
     except Exception:
-        await message.answer("You do not have permission to use this command.")
+        await message.answer(t("en", "no_permission"))
 
     return False

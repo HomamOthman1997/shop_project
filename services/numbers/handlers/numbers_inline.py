@@ -14,6 +14,7 @@ from services.numbers.core.session_manager import SessionManager
 from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.data.states_us import STATES_LIST
 from services.numbers.data import tv_area_codes
+from services.numbers import service_map as service_registry
 from services.numbers.service_map import SERVICE_MAP
 from services.numbers.service_icons import (
     get_generic_service_icon_url,
@@ -22,6 +23,7 @@ from services.numbers.service_icons import (
     resolve_service_icon_url,
     resolve_state_icon_url,
 )
+from utils.translations import t
 
 router = Router()
 
@@ -135,12 +137,64 @@ def _ordered_match(query: str, text: str) -> bool:
     return q in t
 
 
+def _service_search_tokens(key: str, info: dict[str, Any]) -> list[str]:
+    if SERVICE_MAP is service_registry.SERVICE_MAP:
+        registry_tokens = list(service_registry.get_service_search_tokens(key))
+        if registry_tokens:
+            return registry_tokens
+    tokens: list[str] = []
+    display_name = str(info.get("display_name", key) or "").strip()
+    if display_name:
+        tokens.append(display_name)
+    canonical = str(key or "").strip()
+    if canonical:
+        tokens.append(canonical)
+    for alias in info.get("aliases") or []:
+        alias_text = str(alias or "").strip()
+        if alias_text:
+            tokens.append(alias_text)
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for token in tokens:
+        norm = _normalize_search_text(token)
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        deduped.append(token)
+    return deduped
+
+
+def _service_items() -> list[tuple[str, dict[str, Any]]]:
+    if SERVICE_MAP is service_registry.SERVICE_MAP:
+        return service_registry.iter_service_entries()
+    return [
+        (str(key), dict(info))
+        for key, info in SERVICE_MAP.items()
+        if isinstance(key, str) and isinstance(info, dict)
+    ]
+
+
 def _iso_to_flag(iso: str | None) -> str:
     code = (iso or "").strip().upper()
     if len(code) != 2 or not code.isalpha():
         return ""
     base = ord("A")
     return "".join(chr(0x1F1E6 + (ord(ch) - base)) for ch in code)
+
+
+def _country_inline_title(item: dict[str, Any]) -> str:
+    iso = str(item.get("iso") or "").strip().upper()
+    name = str(item.get("name") or "").strip()
+    if iso == "US":
+        label = "USA"
+    else:
+        label = name or iso or str(item.get("code") or "").strip()
+    flag = _iso_to_flag(iso)
+    return f"{label} {flag}".strip()
+
+
+def _state_inline_title(code: str, name: str) -> str:
+    return str(name or "").strip()
 
 
 def _repair_mojibake_text(value: str | None) -> str:
@@ -386,17 +440,18 @@ async def handle_smart_search(inline_query: types.InlineQuery):
         query = _strip_prefix_tokens(query, "country")
     if query.startswith("service"):
         search_text = _strip_prefix_tokens(query, "service")
-        items = list(SERVICE_MAP.items())
+        items = _service_items()
         normalized_query = _normalize_search_text(search_text)
         scored_items: list[tuple[int, int, str, tuple[str, dict[str, Any]]]] = []
         for item in items:
             key, info = item
             label = str(info.get("display_name", key))
+            search_tokens = _service_search_tokens(key, info)
             if normalized_query:
-                if not _ordered_match(normalized_query, label):
+                if not any(_ordered_match(normalized_query, token) for token in search_tokens):
                     continue
-                name_norm = _normalize_search_text(label)
-                rank = 2 if name_norm.startswith(normalized_query) else 1
+                token_norms = [_normalize_search_text(token) for token in search_tokens]
+                rank = 2 if any(token.startswith(normalized_query) for token in token_norms) else 1
             else:
                 rank = 0
             score = _usage(label) + _usage(key)
@@ -457,31 +512,30 @@ async def handle_smart_search(inline_query: types.InlineQuery):
             name = item["name"]
             area_code = str(tv_area_codes.DATA.get(code) or "").strip()
             state_rows.append((code, name, area_code))
-
         session = await SessionManager.get_session()
-        state_icons = await asyncio.gather(
+        thumbs = await asyncio.gather(
             *(resolve_state_icon_url(code, name, session) for code, name, _ in state_rows),
             return_exceptions=True,
         )
         for idx, (code, name, area_code) in enumerate(state_rows):
-            thumb = state_icons[idx] if idx < len(state_icons) and isinstance(state_icons[idx], str) else get_no_icon_url()
+            thumb = thumbs[idx] if idx < len(thumbs) and isinstance(thumbs[idx], str) else get_no_icon_url()
             results.append(
                 types.InlineQueryResultArticle(
                     id=_safe_result_id("tvs", f"{code}:{_INLINE_RESULT_ICON_VERSION}"),
-                    title=f"{name}",
-                    description=f"Code: {code} | Area: {area_code}",
+                    title=_state_inline_title(code, name),
                     thumbnail_url=thumb,
                     input_message_content=types.InputTextMessageContent(message_text=f"/select_state_{code}"),
                 )
             )
     elif query.startswith("state"):
         search_text = query.replace("state", "", 1).strip()
+        session = await SessionManager.get_session()
+        any_thumb = await resolve_state_icon_url("US", "Any State", session)
         results.append(
             types.InlineQueryResultArticle(
                 id=_safe_result_id("st_any", f"none:{_INLINE_RESULT_ICON_VERSION}"),
-                title="Any State",
-                description="No state filter",
-                thumbnail_url=get_no_icon_url(),
+                title=f"{_iso_to_flag('US')} {t('en', 'state_any')}".strip(),
+                thumbnail_url=any_thumb,
                 input_message_content=types.InputTextMessageContent(message_text="/select_state_none"),
             )
         )
@@ -498,34 +552,34 @@ async def handle_smart_search(inline_query: types.InlineQuery):
             code = item["code"]
             name = item["name"]
             state_rows.append((str(code), str(name)))
-        session = await SessionManager.get_session()
-        state_icons = await asyncio.gather(
+        thumbs = await asyncio.gather(
             *(resolve_state_icon_url(code, name, session) for code, name in state_rows),
             return_exceptions=True,
         )
         for idx, (code, name) in enumerate(state_rows):
-            thumb = state_icons[idx] if idx < len(state_icons) and isinstance(state_icons[idx], str) else get_no_icon_url()
+            thumb = thumbs[idx] if idx < len(thumbs) and isinstance(thumbs[idx], str) else get_no_icon_url()
             results.append(
                 types.InlineQueryResultArticle(
                     id=_safe_result_id("st", f"{code}:{_INLINE_RESULT_ICON_VERSION}"),
-                    title=f"{name}",
-                    description=f"Code: {code}",
+                    title=_state_inline_title(code, name),
                     thumbnail_url=thumb,
                     input_message_content=types.InputTextMessageContent(message_text=f"/select_state_{code}"),
                 )
             )
     else:
         countries = await _get_search_countries()
+        any_country_thumb = get_generic_service_icon_url("Globe")
         results.append(
             types.InlineQueryResultArticle(
                 id=_safe_result_id("cnt", f"{_ANY_COUNTRY_CODE}:{_INLINE_RESULT_ICON_VERSION}"),
-                title="🌐 Any Country",
-                thumbnail_url=get_generic_service_icon_url("Any Country"),
+                title=t("en", "inline_any_country"),
+                thumbnail_url=any_country_thumb,
                 input_message_content=types.InputTextMessageContent(
                     message_text=f"/select_country_{_ANY_COUNTRY_CODE}"
                 ),
             )
         )
+        session = await SessionManager.get_session()
         quick_countries = _top_quick_countries(countries, limit=4)
         quick_codes: set[str] = set()
         quick_rows: list[tuple[str, str, str, str]] = []
@@ -536,16 +590,14 @@ async def handle_smart_search(inline_query: types.InlineQuery):
             quick_codes.add(code)
             name = str(item.get("name") or code)
             iso = str(item.get("iso") or "").upper()
-            title = f"⚡ {name}"
+            title = _country_inline_title(item)
             quick_rows.append((code, name, iso, title))
-
-        session = await SessionManager.get_session()
-        quick_icons = await asyncio.gather(
-            *(resolve_country_icon_url(iso, name, session) for _, name, iso, _ in quick_rows),
+        quick_thumbs = await asyncio.gather(
+            *(resolve_country_icon_url(iso, name, session) for code, name, iso, title in quick_rows),
             return_exceptions=True,
         )
         for idx, (code, _, _, title) in enumerate(quick_rows):
-            thumb = quick_icons[idx] if idx < len(quick_icons) and isinstance(quick_icons[idx], str) else get_no_icon_url()
+            thumb = quick_thumbs[idx] if idx < len(quick_thumbs) and isinstance(quick_thumbs[idx], str) else get_no_icon_url()
             results.append(
                 types.InlineQueryResultArticle(
                     id=_safe_result_id("cnt_quick", f"{code}:{_INLINE_RESULT_ICON_VERSION}"),
@@ -566,19 +618,14 @@ async def handle_smart_search(inline_query: types.InlineQuery):
                 continue
             name = item["name"]
             iso = str(item.get("iso") or "").upper()
-            title = name
+            title = _country_inline_title(item)
             country_rows.append((str(code), name, iso, title))
-
-        country_icons = await asyncio.gather(
-            *(resolve_country_icon_url(iso, name, session) for _, name, iso, _ in country_rows),
+        thumbs = await asyncio.gather(
+            *(resolve_country_icon_url(iso, name, session) for code, name, iso, title in country_rows),
             return_exceptions=True,
         )
         for idx, (code, _, _, title) in enumerate(country_rows):
-            thumb = (
-                country_icons[idx]
-                if idx < len(country_icons) and isinstance(country_icons[idx], str)
-                else get_no_icon_url()
-            )
+            thumb = thumbs[idx] if idx < len(thumbs) and isinstance(thumbs[idx], str) else get_no_icon_url()
             results.append(
                 types.InlineQueryResultArticle(
                     id=_safe_result_id("cnt", f"{code}:{_INLINE_RESULT_ICON_VERSION}"),

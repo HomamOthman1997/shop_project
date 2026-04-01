@@ -1,0 +1,319 @@
+{
+  "provider": "reloadly",
+  "scope": "airtime_topups_only",
+  "generated_at": "2026-03-29",
+  "status": "official_postman_plus_official_docs",
+  "purpose": "Local offline implementation reference for Reloadly airtime top-up APIs only. Gift cards and other Reloadly products are intentionally excluded.",
+  "source": {
+    "primary_type": "official_postman_collection",
+    "postman_documenter_url": "https://documenter.getpostman.com/view/3428998/2sAYXCkJe9",
+    "postman_collection_api_url": "https://documenter.gw.postman.com/api/collections/3428998/2sAYXCkJe9?segregateAuth=true&versionTag=latest",
+    "official_docs_url": "https://developers.reloadly.com/",
+    "support_article_credentials": "https://support.reloadly.com/locating-your-api-credentials",
+    "product_overview_url": "https://www.reloadly.com/developers"
+  },
+  "base_urls": {
+    "auth": "https://auth.reloadly.com",
+    "topups_live": "https://topups.reloadly.com",
+    "topups_sandbox": "https://topups-sandbox.reloadly.com"
+  },
+  "auth": {
+    "type": "oauth2_client_credentials",
+    "token_url": "https://auth.reloadly.com/oauth/token",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "request_body": {
+      "client_id": "$RELOADLY_CLIENT_ID",
+      "client_secret": "$RELOADLY_CLIENT_SECRET",
+      "grant_type": "client_credentials",
+      "audience": "https://topups.reloadly.com or https://topups-sandbox.reloadly.com"
+    },
+    "token_type": "Bearer",
+    "notes": [
+      "Audience must match the environment exactly.",
+      "Use production credentials with https://topups.reloadly.com.",
+      "Use sandbox credentials with https://topups-sandbox.reloadly.com."
+    ]
+  },
+  "common_headers": {
+    "Authorization": "Bearer <access_token>",
+    "Accept": "application/com.reloadly.topups-v1+json"
+  },
+  "catalog_endpoints": [
+    {
+      "name": "Countries",
+      "method": "GET",
+      "path": "/countries",
+      "base": "topups_live_or_sandbox",
+      "notes": [
+        "Returns the countries available for airtime top-up."
+      ],
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Country By ISO",
+      "method": "GET",
+      "path": "/countries/{iso}",
+      "base": "topups_live_or_sandbox",
+      "example_path": "/countries/US",
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Operators",
+      "method": "GET",
+      "path": "/operators",
+      "base": "topups_live_or_sandbox",
+      "query_options": [
+        "page",
+        "size",
+        "includeBundles",
+        "includeData",
+        "includePin",
+        "suggestedAmounts",
+        "suggestedAmountsMap"
+      ],
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Operator By ID",
+      "method": "GET",
+      "path": "/operators/{operatorId}",
+      "base": "topups_live_or_sandbox",
+      "query_options": [
+        "suggestedAmounts",
+        "suggestedAmountsMap"
+      ],
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Operators By Country ISO",
+      "method": "GET",
+      "path": "/operators/countries/{iso}",
+      "base": "topups_live_or_sandbox",
+      "query_options": [
+        "includeBundles",
+        "includeData",
+        "includePin",
+        "suggestedAmounts",
+        "suggestedAmountsMap"
+      ],
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Operator Auto Detect By Phone",
+      "method": "GET",
+      "path": "/operators/auto-detect/phone/{phone}/countries/{iso}",
+      "base": "topups_live_or_sandbox",
+      "query_options": [
+        "suggestedAmounts",
+        "suggestedAmountsMap"
+      ],
+      "verified_from": "official_postman_collection",
+      "notes": [
+        "Support docs mention that a 404 can be a valid business case when operator auto-detection fails."
+      ]
+    }
+  ],
+  "pricing_endpoints": [
+    {
+      "name": "FX Rate",
+      "method": "POST",
+      "path": "/operators/fx-rate",
+      "base": "topups_live_or_sandbox",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body_example": {
+        "operatorId": "1",
+        "amount": "1"
+      },
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Discounts",
+      "method": "GET",
+      "path": "/operators/commissions",
+      "base": "topups_live_or_sandbox",
+      "query_options": [
+        "page",
+        "size"
+      ],
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Discount By Operator ID",
+      "method": "GET",
+      "path": "/operators/{operatorId}/commissions",
+      "base": "topups_live_or_sandbox",
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Promotions",
+      "method": "GET",
+      "path": "/promotions",
+      "base": "topups_live_or_sandbox",
+      "query_options": [
+        "page",
+        "size",
+        "languageCode"
+      ],
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Promotion By ID",
+      "method": "GET",
+      "path": "/promotions/{promotionId}",
+      "base": "topups_live_or_sandbox",
+      "query_options": [
+        "languageCode"
+      ],
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Promotions By Country ISO",
+      "method": "GET",
+      "path": "/promotions/country-codes/{iso}",
+      "base": "topups_live_or_sandbox",
+      "query_options": [
+        "languageCode"
+      ],
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Promotions By Operator ID",
+      "method": "GET",
+      "path": "/promotions/operators/{operatorId}",
+      "base": "topups_live_or_sandbox",
+      "query_options": [
+        "languageCode"
+      ],
+      "verified_from": "official_postman_collection"
+    }
+  ],
+  "transaction_endpoints": [
+    {
+      "name": "Account Balance",
+      "method": "GET",
+      "path": "/accounts/balance",
+      "base": "topups_live_or_sandbox",
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Send Top-up",
+      "method": "POST",
+      "path": "/topups",
+      "base": "topups_live_or_sandbox",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body_example": {
+        "operatorId": 444,
+        "amount": 1,
+        "useLocalAmount": false,
+        "customIdentifier": "internal-order-123",
+        "recipientPhone": {
+          "countryCode": "ES",
+          "number": "657228901"
+        },
+        "senderPhone": {
+          "countryCode": "CA",
+          "number": "1231231231"
+        }
+      },
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Async Top-up",
+      "method": "POST",
+      "path": "/topups-async",
+      "base": "topups_live_or_sandbox",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body_example": {
+        "operatorId": 444,
+        "amount": 1,
+        "useLocalAmount": false,
+        "customIdentifier": "internal-order-123",
+        "recipientPhone": {
+          "countryCode": "ES",
+          "number": "657228901"
+        },
+        "senderPhone": {
+          "countryCode": "CA",
+          "number": "1231231231"
+        }
+      },
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Top-up Status By Transaction ID",
+      "method": "GET",
+      "path": "/topups/{transactionId}",
+      "base": "topups_live_or_sandbox",
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Transactions",
+      "method": "GET",
+      "path": "/topups/reports/transactions",
+      "base": "topups_live_or_sandbox",
+      "query_options": [
+        "page",
+        "size",
+        "customIdentifier",
+        "startDate",
+        "endDate"
+      ],
+      "verified_from": "official_postman_collection"
+    }
+  ],
+  "operator_amount_rules": {
+    "fixed_denomination": [
+      "Inspect fixedAmounts.",
+      "Inspect localFixedAmounts when local value is supported."
+    ],
+    "range_denomination": [
+      "Inspect minAmount and maxAmount.",
+      "Inspect localMinAmount and localMaxAmount when local value is supported."
+    ],
+    "recommended_checks": [
+      "Fetch operator details before pricing or purchase.",
+      "Respect useLocalAmount only when the operator supports local values."
+    ],
+    "verified_from": [
+      "official_postman_collection",
+      "official_support_articles"
+    ]
+  },
+  "implementation_plan_for_this_project": {
+    "phase_1_required": [
+      "POST /oauth/token",
+      "GET /accounts/balance",
+      "GET /countries",
+      "GET /operators/countries/{iso}",
+      "GET /operators/{operatorId}",
+      "POST /operators/fx-rate",
+      "POST /topups",
+      "GET /topups/reports/transactions"
+    ],
+    "phase_2_optional": [
+      "GET /promotions",
+      "GET /promotions/operators/{operatorId}",
+      "GET /operators/auto-detect/phone/{phone}/countries/{iso}",
+      "POST /topups-async"
+    ]
+  },
+  "excluded_scope": [
+    "gift cards",
+    "utility payments",
+    "number lookup as a separate product",
+    "payouts or fintech APIs"
+  ],
+  "notes": [
+    "This local file is intentionally limited to Reloadly airtime top-up flows.",
+    "The Postman collection exposes other Reloadly products, but they are out of scope for the current implementation.",
+    "Support docs and product docs were used only to confirm auth/environment behavior and general product framing."
+  ]
+}

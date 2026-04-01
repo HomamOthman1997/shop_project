@@ -9,10 +9,24 @@ _PROVIDER_PUBLIC_IDS: dict[str, str] = {
     "textverified": "S2",
     "smspool": "S3",
     "telabot": "S4",
-    "smsman": "S5",
+    "pvadeals": "S5",
+    "alisms": "S6",
+    "smsman": "S7",
+    "smsman_s6": "S8",
     # Proxy providers are also hidden behind the same public IDs.
     "9proxy": "S5",
     "4g": "S5",
+}
+
+_PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+    "S1": "Alpha",
+    "S2": "Bravo",
+    "S3": "Charlie",
+    "S4": "Delta",
+    "S5": "Echo",
+    "S6": "Foxtrot",
+    "S7": "Golf",
+    "S8": "Hotel",
 }
 
 _GENERIC_PROVIDER_ERROR = {
@@ -26,6 +40,11 @@ def provider_public_id(provider_code: Any) -> str:
     if not code:
         return "S5"
     return _PROVIDER_PUBLIC_IDS.get(code, "S5")
+
+
+def provider_display_name(provider_code: Any) -> str:
+    public_id = provider_public_id(provider_code)
+    return _PROVIDER_DISPLAY_NAMES.get(public_id, public_id)
 
 
 def provider_generic_error(lang: str = "en") -> str:

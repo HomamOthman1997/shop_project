@@ -67,11 +67,6 @@ class _FakeDb:
                 {"_id": "r1", "user_id": 1, "reseller_id": 77, "wallet_type": "user", "status": "accepted", "amount": 4.0, "approved_amount": None, "reviewed_at": now},
             ]
         )
-        self.settlements = _FakeCollection(
-            [
-                {"reseller_id": 77, "cycle_key": "2026-03", "net_due": 12.0, "payment_status": "overdue", "services_locked": True, "payment_due_at": now},
-            ]
-        )
 
 
 def _matches(doc, query):
@@ -106,4 +101,3 @@ async def test_scan_financial_anomalies_reports_expected_categories(monkeypatch)
     assert report["negative_wallets_count"] == 1
     assert report["orders_missing_ledger_count"] == 1
     assert report["accepted_recharges_without_ledger_count"] == 1
-    assert report["locked_overdue_settlements_count"] == 1

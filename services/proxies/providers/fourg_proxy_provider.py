@@ -10,6 +10,38 @@ from .base_provider import BaseProxyProvider
 
 logger = logging.getLogger("proxy_4g")
 
+_DURATION_ORDER = {
+    "1 Day": 0,
+    "1 Week": 1,
+    "1 Month": 2,
+    "2 Week": 3,
+    "3 Hour": 4,
+    "3 Day": 5,
+}
+
+_CARRIER_NORMALIZATION_MAP = {
+    "5g at&t": "AT&T",
+    "4g at&t": "AT&T",
+    "at&t": "AT&T",
+    "at&t internet services": "AT&T Internet Services",
+    "5g t-mobile": "T-Mobile",
+    "4g t-mobile": "T-Mobile",
+    "t-mobile": "T-Mobile",
+    "t mobile": "T-Mobile",
+    "tmobile": "T-Mobile",
+    "t-mobile 5g": "T-Mobile 5G",
+    "5g verizon": "Verizon 5G",
+    "4g verizon": "Verizon",
+    "verizon": "Verizon",
+    "verizon 5g": "Verizon 5G",
+    "verizon fios": "Verizon Fios",
+    "comcast cable": "Comcast Cable",
+    "cox communications": "Cox Communications",
+    "optimum online": "Optimum Online",
+    "optimum fiber": "Optimum Fiber",
+    "spectrum": "Spectrum",
+}
+
 
 def _as_float(v: Any) -> float:
     try:
@@ -235,6 +267,36 @@ class FourGProxyProvider(BaseProxyProvider):
                 return await self._send(method, url, params=q, headers=retry_headers, payload=payload)
         return status, data
 
+    async def check_username_available(self, username: str) -> bool | None:
+        candidate = str(username or "").strip()
+        if not candidate:
+            return False
+        attempts = (
+            "/check-username",
+            "/api/check-username",
+            "/api/v2/check-username",
+        )
+        for path in attempts:
+            status, data = await self._request("GET", path, params={"username": candidate})
+            if status != 200:
+                continue
+            if isinstance(data, dict):
+                result = str(data.get("result") or data.get("status") or "").strip().upper()
+                if result in {"AVAILABLE", "TRUE", "OK"}:
+                    return True
+                if result in {"ALREADY_USER", "TAKEN", "FALSE"}:
+                    return False
+                value = data.get("available")
+                if isinstance(value, bool):
+                    return value
+            elif isinstance(data, str):
+                normalized = data.strip().upper()
+                if "AVAILABLE" in normalized:
+                    return True
+                if "ALREADY_USER" in normalized or "TAKEN" in normalized:
+                    return False
+        return None
+
     @staticmethod
     def _extract_rows(data: Any) -> list[dict]:
         if isinstance(data, list):
@@ -313,6 +375,17 @@ class FourGProxyProvider(BaseProxyProvider):
                 return rows
         return []
 
+    async def _fetch_prices(self, package_id: int) -> list[dict[str, Any]]:
+        params = {"pkg_id": int(package_id)}
+        for path in ("/prices", "/api/v2/prices"):
+            status, data = await self._request("GET", path, params=params)
+            if status not in (200, 201):
+                continue
+            rows = self._extract_rows(data)
+            if rows:
+                return rows
+        return []
+
     @staticmethod
     def _is_available_parent(row: dict[str, Any]) -> bool:
         if not isinstance(row, dict):
@@ -324,6 +397,9 @@ class FourGProxyProvider(BaseProxyProvider):
         if flag is False:
             return False
         if isinstance(flag, str) and flag.strip().lower() in {"0", "false", "no"}:
+            return False
+        usage = _as_int(row.get("usage"))
+        if usage >= 100:
             return False
         return True
 
@@ -363,10 +439,28 @@ class FourGProxyProvider(BaseProxyProvider):
         return 0.0
 
     @staticmethod
+    def _normalize_carrier_name(value: str) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return "4G"
+        compact = " ".join(raw.replace("_", " ").replace("-", " - ").split())
+        normalized_key = compact.lower().replace(" - ", "-")
+        if normalized_key in _CARRIER_NORMALIZATION_MAP:
+            return _CARRIER_NORMALIZATION_MAP[normalized_key]
+        return compact.title()
+
+    @staticmethod
+    def _carrier_label(row: dict[str, Any]) -> str:
+        raw = str(row.get("service_provider_name") or row.get("provider_name") or "").strip()
+        if not raw:
+            return "4G"
+        return " ".join(raw.replace("_", " ").split())
+
+    @staticmethod
     def _rotation_period(row: dict[str, Any]) -> str:
         rotation = _as_int(row.get("rotation_time"))
         if rotation > 0:
-            return f"Rotation {rotation}s"
+            return f"Rotation {rotation}m"
         usage = _as_int(row.get("usage"))
         if usage == -1:
             return "Unlimited usage"
@@ -374,12 +468,59 @@ class FourGProxyProvider(BaseProxyProvider):
             return f"Usage {usage}%"
         return "-"
 
+    @staticmethod
+    def _duration_value(days: int, hours: int) -> str:
+        if days > 0:
+            return str(days)
+        if hours > 0:
+            return f"0.{hours:02d}"
+        return ""
+
+    @staticmethod
+    def _duration_label(days: int, hours: int) -> str:
+        if days == 30 and hours == 0:
+            return "1 Month"
+        if days == 15 and hours == 0:
+            return "2 Week"
+        if days == 7 and hours == 0:
+            return "1 Week"
+        if days > 0 and hours == 0:
+            suffix = "Day" if days == 1 else "Day"
+            return f"{days} {suffix}"
+        if hours > 0 and days == 0:
+            return f"{hours} Hour"
+        return "Custom"
+
+    def _normalize_duration_options(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        options: list[dict[str, Any]] = []
+        blocked_labels = {"2 Hour", "12 Hour"}
+        for row in rows:
+            days = int(_as_float(row.get("days")))
+            hours = _as_int(row.get("hours"))
+            price = _as_float(row.get("price"))
+            value = self._duration_value(days, hours)
+            label = self._duration_label(days, hours)
+            if not value or price <= 0 or label in blocked_labels:
+                continue
+            options.append(
+                {
+                    "value": value,
+                    "label": label,
+                    "days": days,
+                    "hours": hours,
+                    "price": round(price, 4),
+                }
+            )
+        options.sort(key=lambda item: (_DURATION_ORDER.get(item["label"], 1000), item["price"]))
+        return options
+
     def _build_parent_offer(
         self,
         row: dict[str, Any],
         *,
         package_id: int,
         package_name: str,
+        duration_options: list[dict[str, Any]],
         package_overrides: dict[str, float],
         history_fallback: float,
     ) -> dict[str, Any] | None:
@@ -394,6 +535,7 @@ class FourGProxyProvider(BaseProxyProvider):
         city = str(row.get("city_name") or row.get("city") or "Any").strip() or "Any"
         state = str(row.get("state_name") or row.get("state") or "Any").strip() or "Any"
         provider_name = str(row.get("service_provider_name") or "").strip()
+        carrier = self._carrier_label(row)
         technology = str(row.get("technology") or "").strip()
 
         title_parts = [part for part in (package_name, provider_name, technology) if part]
@@ -411,11 +553,14 @@ class FourGProxyProvider(BaseProxyProvider):
         raw["pkg_id"] = package_id
         raw["parent_proxy_id"] = parent_proxy_id
         raw["package_name"] = package_name
+        raw["duration_options"] = duration_options
+        raw["protocol_options"] = ["http", "socks"]
 
         return {
             "provider": "4g",
             "offer_id": f"{package_id}:{parent_proxy_id}",
             "title": title,
+            "carrier": carrier,
             "country": country,
             "state": state,
             "city": city,
@@ -438,6 +583,7 @@ class FourGProxyProvider(BaseProxyProvider):
             if package_id <= 0:
                 continue
             package_name = self._extract_package_name(pkg) or f"Package {package_id}"
+            duration_options = self._normalize_duration_options(await self._fetch_prices(package_id))
             parent_rows = await self._fetch_parent_proxies(package_id)
 
             if parent_rows:
@@ -446,6 +592,7 @@ class FourGProxyProvider(BaseProxyProvider):
                         row,
                         package_id=package_id,
                         package_name=package_name,
+                        duration_options=duration_options,
                         package_overrides=package_overrides,
                         history_fallback=history_fallback,
                     )
@@ -470,14 +617,16 @@ class FourGProxyProvider(BaseProxyProvider):
                     "city": "Any",
                     "period": "-",
                     "price": fallback_price,
-                    "raw": {
-                        "package_id": package_id,
-                        "pkg_id": package_id,
-                        "parent_proxy_id": 0,
-                        "package_name": package_name,
-                    },
-                }
-            )
+                        "raw": {
+                            "package_id": package_id,
+                            "pkg_id": package_id,
+                            "parent_proxy_id": 0,
+                            "package_name": package_name,
+                            "duration_options": duration_options,
+                            "protocol_options": ["http", "socks"],
+                        },
+                    }
+                )
 
         dedup: dict[tuple[str, str], dict[str, Any]] = {}
         for offer in offers:
@@ -542,6 +691,10 @@ class FourGProxyProvider(BaseProxyProvider):
             "pkg_id": package_id,
             "parent_proxy_id": parent_proxy_id,
             "id": parent_proxy_id,
+            "protocol": str(offer.get("protocol") or raw.get("protocol") or "http").strip().lower() or "http",
+            "duration": str(offer.get("duration_value") or raw.get("duration_value") or "").strip(),
+            "username": str(offer.get("username") or raw.get("username") or "").strip(),
+            "password": str(offer.get("password") or raw.get("password") or "").strip(),
             "service_provider_id": raw.get("service_provider_id"),
             "service_provider_city_id": raw.get("service_provider_city_id"),
             "country_id": raw.get("country_id"),
@@ -550,6 +703,8 @@ class FourGProxyProvider(BaseProxyProvider):
         payload = {k: v for k, v in payload.items() if v not in (None, "", "Any", 0)}
 
         attempts = [
+            "/proxies",
+            "/api/v2/proxies",
             "/api/v2/proxy-accounts",
             "/proxy-accounts",
             "/api/v2/create-proxy-account",
@@ -563,6 +718,10 @@ class FourGProxyProvider(BaseProxyProvider):
                 creds = self._extract_credentials(data)
                 if creds.get("endpoint") or creds.get("username"):
                     return {"success": True, **creds, "raw": data}
+            # Keep trying only when the endpoint itself is missing.
+            # For documented endpoints, business/auth errors should be returned as-is.
+            if status not in (404,):
+                return {"success": False, "raw": data}
 
         return {"success": False, "raw": last_raw}
 
@@ -609,5 +768,61 @@ class FourGProxyProvider(BaseProxyProvider):
             creds = self._extract_credentials(data)
             if creds.get("endpoint") or creds.get("username"):
                 return {"success": True, **creds, "raw": data}
+
+        return {"success": False, "raw": last_raw}
+
+    async def reconfigure_proxy(self, order_data: dict[str, Any], offer: dict[str, Any]) -> dict[str, Any]:
+        if not self._configured():
+            return {"success": False, "raw": {"title": "NOT_CONFIGURED"}}
+
+        account_id = (
+            order_data.get("provider_order_id")
+            or order_data.get("proxy_provider_order_id")
+            or order_data.get("proxy_account_id")
+        )
+        if not account_id:
+            return {"success": False, "raw": {"title": "MISSING_ACCOUNT_ID"}}
+
+        raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
+        payload = {
+            "id": account_id,
+            "account_id": account_id,
+            "protocol": str(offer.get("protocol") or raw.get("protocol") or "http").strip().lower() or "http",
+            "service_provider_id": raw.get("service_provider_id"),
+            "service_provider_city_id": raw.get("service_provider_city_id"),
+            "country_id": raw.get("country_id"),
+            "city_id": raw.get("city_id"),
+        }
+        payload = {k: v for k, v in payload.items() if v not in (None, "", "Any", 0)}
+
+        update_paths = [
+            f"/proxies/{account_id}",
+        ]
+
+        last_raw: Any = None
+        for path in update_paths:
+            for method in ("PUT", "PATCH"):
+                status, data = await self._request(method, path, payload=payload)
+                last_raw = data
+                if status in (200, 201):
+                    creds = self._extract_credentials(data)
+                    if creds.get("endpoint") or creds.get("username"):
+                        return {"success": True, **creds, "raw": data}
+                    return {"success": True, "raw": data}
+                if status not in (404, 405):
+                    return {"success": False, "raw": data}
+
+        info_paths = [
+            f"/proxies/{account_id}",
+        ]
+        for path in info_paths:
+            status, data = await self._request("GET", path)
+            last_raw = data
+            if status not in (200, 201):
+                continue
+            creds = self._extract_credentials(data)
+            if creds.get("endpoint") or creds.get("username"):
+                return {"success": True, **creds, "raw": data}
+            return {"success": True, "raw": data}
 
         return {"success": False, "raw": last_raw}

@@ -1,10 +1,92 @@
 import hashlib
+from difflib import SequenceMatcher
 
 from aiogram import Router, types
+from aiogram.exceptions import TelegramBadRequest
 
+from services.numbers.core.session_manager import SessionManager
+from services.numbers.data.countries import COUNTRIES_LIST
+from services.numbers.data.states_us import STATES_LIST
+from services.numbers.service_icons import (
+    get_generic_service_icon_url,
+    resolve_country_icon_url,
+    resolve_state_icon_url,
+)
 from services.proxies.catalog_cache import build_index, decode_token, encode_token, get_offers_cache
+from utils.translations import t
 
 router = Router()
+
+_COUNTRY_NAME_TO_ISO: dict[str, str] = {}
+_US_STATE_NAME_TO_CODE: dict[str, str] = {}
+_US_STATE_ALIAS_TO_CODE: dict[str, str] = {}
+for item in COUNTRIES_LIST:
+    iso = str(item.get("iso") or "").strip().upper()
+    name = str(item.get("name") or "").strip()
+    if not iso or not name:
+        continue
+    _COUNTRY_NAME_TO_ISO[name.lower()] = iso
+    _COUNTRY_NAME_TO_ISO[iso.lower()] = iso
+    if iso == "US":
+        _COUNTRY_NAME_TO_ISO["usa"] = "US"
+        _COUNTRY_NAME_TO_ISO["united states"] = "US"
+        _COUNTRY_NAME_TO_ISO["united states of america"] = "US"
+    if iso == "GB":
+        _COUNTRY_NAME_TO_ISO["uk"] = "GB"
+        _COUNTRY_NAME_TO_ISO["united kingdom"] = "GB"
+
+for item in STATES_LIST:
+    code = str(item.get("code") or "").strip().upper()
+    name = str(item.get("name") or "").strip()
+    if code and name:
+        _US_STATE_NAME_TO_CODE[name.lower()] = code
+        _US_STATE_ALIAS_TO_CODE[name.lower()] = code
+        for alias in item.get("aliases") or []:
+            alias_text = str(alias or "").strip().lower()
+            if alias_text:
+                _US_STATE_ALIAS_TO_CODE[alias_text] = code
+
+
+def _iso_to_flag(iso: str | None) -> str:
+    code = str(iso or "").strip().upper()
+    if len(code) != 2 or not code.isalpha():
+        return ""
+    return "".join(chr(0x1F1E6 + ord(ch) - ord("A")) for ch in code)
+
+
+def _proxy_country_iso(country: str) -> str:
+    raw = str(country or "").strip()
+    if not raw or raw.lower() == "any":
+        return ""
+    return _COUNTRY_NAME_TO_ISO.get(raw.lower(), "")
+
+
+def _proxy_country_title(country: str) -> str:
+    raw = str(country or "").strip()
+    if not raw or raw.lower() == "any":
+        return "Any Country"
+    iso = _proxy_country_iso(raw)
+    flag = _iso_to_flag(iso)
+    return f"{raw.title()} {flag}".strip() if flag else raw.title()
+
+
+def _proxy_state_code(country: str, value: str) -> str:
+    if _proxy_country_iso(country) != "US":
+        return ""
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    direct = _US_STATE_NAME_TO_CODE.get(raw) or _US_STATE_ALIAS_TO_CODE.get(raw)
+    if direct:
+        return direct
+    best_code = ""
+    best_score = 0.0
+    for alias, code in _US_STATE_ALIAS_TO_CODE.items():
+        score = SequenceMatcher(None, raw, alias).ratio()
+        if score > best_score:
+            best_score = score
+            best_code = code
+    return best_code if best_score >= 0.88 else ""
 
 
 def _contains(haystack: str, needle: str) -> bool:
@@ -19,13 +101,61 @@ def _safe_result_id(prefix: str, *parts: str) -> str:
     return f"{prefix}_{digest}"
 
 
-def _article(result_id: str, title: str, desc: str, command_text: str) -> types.InlineQueryResultArticle:
+def _non_any_values(values: list[str] | None) -> list[str]:
+    return [
+        str(value or "").strip()
+        for value in (values or [])
+        if str(value or "").strip() and str(value or "").strip().lower() != "any"
+    ]
+
+
+def _article(
+    result_id: str,
+    title: str,
+    desc: str,
+    command_text: str,
+    *,
+    thumb_url: str | None = None,
+) -> types.InlineQueryResultArticle:
     return types.InlineQueryResultArticle(
         id=result_id,
         title=title,
         description=desc,
         input_message_content=types.InputTextMessageContent(message_text=command_text),
+        thumbnail_url=thumb_url,
     )
+
+
+async def _safe_inline_answer(
+    inline_query: types.InlineQuery,
+    results: list[types.InlineQueryResultArticle],
+    *,
+    cache_time: int = 1,
+    is_personal: bool = True,
+) -> None:
+    try:
+        await inline_query.answer(results, cache_time=cache_time, is_personal=is_personal)
+    except TelegramBadRequest as exc:
+        err = str(exc).lower()
+        if "query is too old" in err or "query id is invalid" in err or "response timeout expired" in err:
+            return
+        raise
+
+
+def _parse_locator_and_search(rest: str) -> tuple[str, str]:
+    raw = str(rest or "").strip()
+    if not raw:
+        return "", ""
+    if raw.startswith('"'):
+        end = raw.find('"', 1)
+        if end != -1:
+            locator = raw[1:end].strip()
+            search_term = raw[end + 1 :].strip()
+            return locator, search_term
+    parts = raw.split(" ", 1)
+    locator = parts[0].strip()
+    search_term = parts[1].strip() if len(parts) > 1 else ""
+    return locator, search_term
 
 
 @router.inline_query(lambda iq: (iq.query or "").strip().lower().startswith("proxy"))
@@ -36,7 +166,8 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
     index = build_index(offers)
 
     if not offers:
-        return await inline_query.answer(
+        return await _safe_inline_answer(
+            inline_query,
             [
                 _article(
                     "proxy_empty",
@@ -44,86 +175,117 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
                     "Open the proxies section once to load provider catalog.",
                     "/start",
                 )
-            ],
-            cache_time=1,
-            is_personal=True,
+            ]
         )
 
     results: list[types.InlineQueryResultArticle] = []
 
     if q_lower.startswith("proxy country"):
         search_term = query[len("proxy country") :].strip()
+        session = await SessionManager.get_session()
         for country in index["countries"]:
             if _contains(country, search_term):
                 token = encode_token(country)
+                iso = _proxy_country_iso(country)
+                thumb_url = (
+                    get_generic_service_icon_url("Globe")
+                    if not iso
+                    else await resolve_country_icon_url(iso, country, session)
+                )
                 results.append(
                     _article(
                         _safe_result_id("pc", token),
-                        f"Country: {country}",
-                        "Tap to select country",
+                        _proxy_country_title(country),
+                        f"Code: {iso}" if iso else "Code: Any",
                         f"/proxy_country_{token}",
+                        thumb_url=thumb_url,
                     )
                 )
 
     elif q_lower.startswith("proxy state"):
         rest = query[len("proxy state") :].strip()
         if rest:
-            parts = rest.split(" ", 1)
-            country_tok = parts[0]
-            search_term = parts[1].strip() if len(parts) > 1 else ""
-            country = decode_token(country_tok)
+            country_locator, search_term = _parse_locator_and_search(rest)
+            country_tok = encode_token(country_locator)
+            country = decode_token(country_locator) or country_locator
             states = index["states_by_country"].get(country, [])
+            session = await SessionManager.get_session()
             for state in states:
                 if _contains(state, search_term):
                     st_tok = encode_token(state)
+                    state_code = _proxy_state_code(country, state)
+                    thumb_url = (
+                        await resolve_state_icon_url(state_code, state, session)
+                        if state_code
+                        else get_generic_service_icon_url(state or "State")
+                    )
                     results.append(
                         _article(
                             _safe_result_id("ps", country_tok, st_tok),
-                            f"State: {state}",
-                            f"Country: {country}",
+                            str(state or "").strip().title(),
+                            f"Code: {state_code}" if state_code else _proxy_country_title(country),
                             f"/proxy_state_{country_tok}~{st_tok}",
+                            thumb_url=thumb_url,
                         )
                     )
 
     elif q_lower.startswith("proxy city"):
         rest = query[len("proxy city") :].strip()
         if rest:
-            parts = rest.split(" ", 1)
-            locator_tok = parts[0]
-            search_term = parts[1].strip() if len(parts) > 1 else ""
+            locator_raw, search_term = _parse_locator_and_search(rest)
 
             # Legacy format: country:state
-            if ":" in locator_tok:
-                country_tok, state_tok = locator_tok.split(":", 1)
-                country = decode_token(country_tok)
-                state = decode_token(state_tok)
+            if ":" in locator_raw:
+                country_part, state_part = locator_raw.split(":", 1)
+                country_tok = country_part
+                state_tok = state_part
+                country = decode_token(country_part) or country_part
+                state = decode_token(state_part) or state_part
                 cities = index["cities_by_country_state"].get((country, state), [])
+                session = await SessionManager.get_session()
                 for city in cities:
                     if _contains(city, search_term):
                         city_tok = encode_token(city)
+                        state_code = _proxy_state_code(country, state)
+                        thumb_url = (
+                            await resolve_state_icon_url(state_code, state, session)
+                            if state_code
+                            else get_generic_service_icon_url(city or "City")
+                        )
                         results.append(
                             _article(
                                 _safe_result_id("pci_legacy", country_tok, state_tok, city_tok),
-                                f"City: {city}",
-                                f"{country} / {state}",
+                                str(city or "").strip().title(),
+                                f"Code: {state_code}" if state_code else f"{country.title()} / {state.title()}",
                                 f"/proxy_city_{country_tok}~{state_tok}~{city_tok}",
+                                thumb_url=thumb_url,
                             )
                         )
             else:
                 # New default flow: country -> city (state optional)
-                country_tok = locator_tok
-                country = decode_token(country_tok)
-                cities = index.get("cities_by_country", {}).get(country, [])
-                for city in cities:
+                country = decode_token(locator_raw) or locator_raw
+                country_tok = encode_token(country)
+                cities = _non_any_values(index.get("cities_by_country", {}).get(country, []))
+                fallback_states = _non_any_values(index.get("states_by_country", {}).get(country, []))
+                candidates = cities or fallback_states
+                session = await SessionManager.get_session()
+                for city in candidates:
                     if _contains(city, search_term):
                         city_tok = encode_token(city)
+                        state_code = _proxy_state_code(country, city)
+                        thumb_url = (
+                            await resolve_state_icon_url(state_code, city, session)
+                            if state_code
+                            else get_generic_service_icon_url(city or "City")
+                        )
                         results.append(
                             _article(
                                 _safe_result_id("pci", country_tok, city_tok),
-                                f"City: {city}",
-                                f"Country: {country}",
+                                str(city or "").strip().title(),
+                                f"Code: {state_code}" if state_code else _proxy_country_title(country),
                                 f"/proxy_city_{country_tok}~{city_tok}",
+                                thumb_url=thumb_url,
                             )
                         )
 
-    await inline_query.answer(results[:50], cache_time=1, is_personal=True)
+    await _safe_inline_answer(inline_query, results[:50])

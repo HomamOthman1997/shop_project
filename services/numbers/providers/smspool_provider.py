@@ -139,12 +139,17 @@ class SMSPoolProvider(BaseProvider):
         hints = cls._country_hints(country)
         if not hints:
             return True
-        name = _norm_country(str(row.get("name") or ""))
-        tag = _norm_country(str(row.get("tag") or ""))
-        for hint in hints:
-            if hint and (hint in name or hint in tag):
-                return True
-        return False
+        direct = {
+            _norm_country(str(row.get("country") or "")),
+            _norm_country(str(row.get("short_name") or "")),
+            _norm_country(str(row.get("country_name") or "")),
+            _norm_country(str(row.get("name") or "")),
+            _norm_country(str(row.get("tag") or "")),
+        }
+        direct = {item for item in direct if item}
+        # Country selection must be exact. Partial matching breaks numeric
+        # country codes like "1" by matching unrelated rows such as "11" or "154".
+        return any(hint in direct for hint in hints if hint)
 
     async def get_price(self, service, country=None, state=None):
         # ensure the key is configured; otherwise aiohttp will blow up with None
@@ -192,13 +197,7 @@ class SMSPoolProvider(BaseProvider):
 
                 # optionally narrow by country
                 if country and candidates:
-                    lower_country = str(country).strip().lower()
-                    filtered = []
-                    for item in candidates:
-                        if str(item.get("country")).lower() == lower_country:
-                            filtered.append(item)
-                        elif str(item.get("short_name", "")).lower() == lower_country:
-                            filtered.append(item)
+                    filtered = [item for item in candidates if self._row_matches_country(item, str(country))]
                     if filtered:
                         candidates = filtered
 

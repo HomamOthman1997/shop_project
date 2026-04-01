@@ -4,7 +4,12 @@ import sys
 sys.path.insert(0, os.getcwd())
 
 import utils.services_keyboard as services_keyboard
-from services.numbers.service_map import _merge_service_families
+from services.numbers.service_map import (
+    _merge_service_families,
+    find_service_keys_by_alias,
+    get_service_display_name,
+    resolve_canonical_service_key,
+)
 
 
 def test_merge_service_families_keeps_non_family_entries():
@@ -67,3 +72,9 @@ def test_services_keyboard_collapses_twitterx_into_twitter(monkeypatch):
     assert callbacks.count("flow:service:twitter") == 1
     assert "flow:service:twitterx" not in callbacks
     assert "Twitter / X" in texts
+
+
+def test_service_registry_resolves_family_aliases():
+    assert resolve_canonical_service_key("claude") == "anthropic"
+    assert "anthropic" in find_service_keys_by_alias("claude")
+    assert get_service_display_name("claude") == "Claude / Anthropic"

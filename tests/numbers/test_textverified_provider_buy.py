@@ -28,6 +28,14 @@ class _DummyResp:
         return self._json
 
 
+@pytest.fixture(autouse=True)
+def _reset_textverified_caches():
+    TextVerifiedProvider._sms_services_cache = None
+    TextVerifiedProvider._auth_lock = None
+    TextVerifiedProvider._token_cache = {"token": None, "expires_at": 0.0, "fingerprint": None}
+    TextVerifiedProvider._price_cache = {}
+
+
 @pytest.mark.asyncio
 async def test_buy_number_google_fallbacks_to_gmail(monkeypatch):
     from services.numbers.core.session_manager import SessionManager
@@ -170,3 +178,157 @@ async def test_buy_number_reuse_tries_state_area_codes_then_unavailable(monkeypa
     assert create_calls[0][2].get("areaCodeSelectOption") == ["212"]
     assert create_calls[1][2].get("areaCodeSelectOption") == ["315"]
     assert create_calls[2][2].get("areaCodeSelectOption") == ["718"]
+
+
+@pytest.mark.asyncio
+async def test_auth_reuses_cached_token(monkeypatch):
+    from services.numbers.core.session_manager import SessionManager
+
+    monkeypatch.setattr("config.settings.tv_user", "user", raising=False)
+    monkeypatch.setattr("config.settings.tv_key", "key", raising=False)
+
+    class DummySession:
+        def __init__(self):
+            self.calls = 0
+
+        def post(self, url, headers=None, json=None):
+            self.calls += 1
+            return _DummyResp(200, {"token": "cached-token", "expiresIn": 120})
+
+    sess = DummySession()
+
+    async def fake_get_session():
+        return sess
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+
+    provider = TextVerifiedProvider()
+    first = await provider._auth()
+    second = await provider._auth()
+    assert first == "cached-token"
+    assert second == "cached-token"
+    assert sess.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_get_price_retries_rate_limit_then_succeeds(monkeypatch):
+    from services.numbers.core.session_manager import SessionManager
+
+    provider = TextVerifiedProvider()
+
+    async def fake_auth(self):
+        return "tok"
+
+    async def fake_sleep(_cls, _seconds):
+        return None
+
+    monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
+    monkeypatch.setattr(TextVerifiedProvider, "_sleep", classmethod(fake_sleep))
+    TextVerifiedProvider._sms_services_cache = {"netspend"}
+
+    class DummySession:
+        def __init__(self):
+            self.calls = 0
+
+        def post(self, url, headers=None, json=None):
+            self.calls += 1
+            if self.calls == 1:
+                return _DummyResp(429, {"errorCode": "TooManyRequests", "message": "Too many requests"}, {"Retry-After": "0"})
+            return _DummyResp(200, {"price": 0.75, "serviceName": "netspend"})
+
+    sess = DummySession()
+
+    async def fake_get_session():
+        return sess
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+    res = await provider.get_price("netspend", country="US")
+    assert res["success"] is True
+    assert res["price"] == 0.75
+    assert sess.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_get_price_uses_short_cache(monkeypatch):
+    from services.numbers.core.session_manager import SessionManager
+
+    provider = TextVerifiedProvider()
+
+    async def fake_auth(self):
+        return "tok"
+
+    monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
+    TextVerifiedProvider._sms_services_cache = {"netspend"}
+
+    class DummySession:
+        def __init__(self):
+            self.calls = 0
+
+        def post(self, url, headers=None, json=None):
+            self.calls += 1
+            return _DummyResp(200, {"price": 0.33, "serviceName": "netspend"})
+
+    sess = DummySession()
+
+    async def fake_get_session():
+        return sess
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+
+    first = await provider.get_price("netspend", country="US", state="NY")
+    second = await provider.get_price("netspend", country="US", state="NY")
+    assert first["success"] is True
+    assert second["success"] is True
+    assert sess.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_accepts_accepted_status(monkeypatch):
+    from services.numbers.core.session_manager import SessionManager
+
+    provider = TextVerifiedProvider()
+
+    async def fake_auth(self):
+        return "tok"
+
+    monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
+
+    class DummySession:
+        def post(self, url, headers=None):
+            return _DummyResp(202, {"message": "Cancellation accepted"})
+
+    sess = DummySession()
+
+    async def fake_get_session():
+        return sess
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+
+    res = await provider.cancel("v_123")
+    assert res["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_accepts_canceled_message(monkeypatch):
+    from services.numbers.core.session_manager import SessionManager
+
+    provider = TextVerifiedProvider()
+
+    async def fake_auth(self):
+        return "tok"
+
+    monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
+
+    class DummySession:
+        def post(self, url, headers=None):
+            return _DummyResp(400, {"message": "Already canceled"})
+
+    sess = DummySession()
+
+    async def fake_get_session():
+        return sess
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+
+    res = await provider.cancel("v_123")
+    assert res["success"] is True

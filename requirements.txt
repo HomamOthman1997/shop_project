@@ -3,10 +3,11 @@ motor
 pymongo
 aiohttp
 rapidfuzz
-fuzzywuzzy
-python-Levenshtein
 upstash-redis
 python-dotenv
 pydantic-settings
 pytest
 pytest-asyncio
+sentry-sdk>=2.43.0
+mcp
+fastmcp

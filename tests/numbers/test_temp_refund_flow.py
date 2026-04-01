@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -243,6 +244,45 @@ async def test_evaluate_temp_trust_gate_blocks_when_active_temp_order_exists(mon
 
     assert gate["allowed"] is False
     assert gate["mode"] == "active_order"
+
+
+@pytest.mark.asyncio
+async def test_evaluate_temp_trust_gate_ignores_stale_waiting_order(monkeypatch):
+    import services.numbers.handlers.core_numbers_buy as hb
+
+    old_created = datetime.now(UTC) - timedelta(hours=2)
+
+    async def _fake_list_user_open_temp_orders(user_id, limit=5):
+        return [
+            {
+                "_id": "oid-1",
+                "temp_wait_state": "waiting",
+                "created_at": old_created,
+                "temp_wait_timeout_sec": 300,
+            }
+        ]
+
+    async def _fake_get_active_user_temp_lock(**kwargs):
+        return None
+
+    async def _fake_snapshot(**kwargs):
+        return {"positive": 0, "negative": 0, "score": 0}
+
+    async def _fake_count_recent_negative_attempts(**kwargs):
+        return 0
+
+    monkeypatch.setattr(hb, "list_user_open_temp_orders", _fake_list_user_open_temp_orders)
+    monkeypatch.setattr(hb.temp_number_stats_repo, "get_active_user_temp_lock", _fake_get_active_user_temp_lock)
+    monkeypatch.setattr(hb.temp_number_stats_repo, "get_user_trust_snapshot", _fake_snapshot)
+    monkeypatch.setattr(hb.temp_number_stats_repo, "count_recent_negative_attempts", _fake_count_recent_negative_attempts)
+
+    gate = await hb._evaluate_temp_trust_gate(
+        user_id=7,
+        service_id="shopback",
+        provider_code="textverified",
+    )
+
+    assert gate["allowed"] is True
 
 
 @pytest.mark.asyncio

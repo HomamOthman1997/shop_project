@@ -10,8 +10,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import ConfigurationError, InvalidOperation, OperationFailure
 
 from database.mongo import client, db
-from config import OWNER_ID, settings
-from database.reseller_settings_repo import get_reseller_rates
+from config import settings
 
 logger = logging.getLogger("financial_ledger")
 
@@ -36,8 +35,6 @@ def _classify_ledger_reason(reason: str) -> tuple[str, list[str]]:
         return "custom_refund", ["custom", "refund"]
     if normalized == "recharge_request_accepted":
         return "recharge_credit", ["recharge", "credit"]
-    if "settlement" in normalized:
-        return "settlement", ["settlement"]
     if "deposit" in normalized or "topup" in normalized:
         return "manual_credit", ["manual", "credit"]
     if "adjust" in normalized:
@@ -84,12 +81,15 @@ async def bootstrap_financial_indexes() -> None:
         background=True,
     )
     await db.orders.create_index([("reseller_id", 1), ("created_at", -1)], background=True)
-    await db.settlements.create_index([("reseller_id", 1), ("cycle_key", 1)], unique=True, background=True)
-    await db.settlements.create_index(
-        [("payment_status", 1), ("payment_due_at", 1), ("services_locked", 1)],
+    await db.orders.create_index(
+        [("user_id", 1), ("status", 1), ("number_mode", 1), ("created_at", -1)],
         background=True,
     )
-    await db.settlements.create_index([("reseller_id", 1), ("payment_status", 1)], background=True)
+    await db.orders.create_index(
+        [("user_id", 1), ("number_mode", 1), ("temp_wait_state", 1), ("created_at", -1)],
+        background=True,
+        partialFilterExpression={"number_mode": "temp"},
+    )
     await db.session_locks.create_index("lock_key", unique=True, background=True)
     await db.session_locks.create_index("expires_at", expireAfterSeconds=0, background=True)
     await db.wallets.create_index("wallet_key", unique=True, background=True)
@@ -159,6 +159,15 @@ async def _get_wallet_balance(
         return _money(wallet.get("balance", 0))
 
     return 0.0
+
+
+async def _ledger_entry_exists(
+    query: dict[str, Any],
+    *,
+    session=None,
+) -> bool:
+    found = await db.ledger_entries.find_one(query, {"_id": 1}, session=session)
+    return bool(found)
 
 
 async def _apply_wallet_delta(
@@ -338,51 +347,6 @@ async def get_reseller_wallet_balance(reseller_id: int, wallet_type: str = "main
     return await _get_wallet_balance("reseller", reseller_id, mapped, reseller_id)
 
 
-async def get_owner_wallet_balance(owner_id: int = OWNER_ID, wallet_type: str = "owner_fees") -> float:
-    # Owner fees may be tracked per reseller context (wallet_key includes reseller_id),
-    # so aggregate all owner wallets of the same type for accurate global balance.
-    rows = await db.wallets.aggregate(
-        [
-            {
-                "$match": {
-                    "owner_type": "owner",
-                    "owner_id": int(owner_id),
-                    "wallet_type": wallet_type,
-                }
-            },
-            {"$group": {"_id": None, "balance": {"$sum": "$balance"}}},
-        ]
-    ).to_list(1)
-    if rows:
-        return _money(rows[0].get("balance", 0))
-    return 0.0
-
-
-async def credit_owner_wallet(
-    owner_id: int,
-    amount: float,
-    reason: str,
-    *,
-    actor_id: int,
-    order_id=None,
-    reseller_id: Optional[int] = None,
-):
-    return await _run_in_transaction(
-        lambda session: _apply_wallet_delta(
-            owner_type="owner",
-            owner_id=int(owner_id),
-            wallet_type="owner_fees",
-            reseller_id=reseller_id,
-            amount=amount,
-            reason=reason,
-            actor_type="system",
-            actor_id=actor_id,
-            order_id=order_id,
-            session=session,
-        )
-    )
-
-
 async def credit_user_wallet(user_id: int, reseller_id: int, amount: float, reason: str, *, actor_id: int, order_id=None):
     return await _run_in_transaction(
         lambda session: _apply_wallet_delta(
@@ -451,7 +415,6 @@ async def create_order_v3(
     service_ref_id: str,
     retail_amount: float,
     wholesale_amount: float = 0.0,
-    owner_fee_amount: float = 0.0,
     reseller_profit_amount: float = 0.0,
     status: str = "pending",
 ) -> dict:
@@ -464,7 +427,6 @@ async def create_order_v3(
         "status": status,
         "retail_amount": _money(retail_amount),
         "wholesale_amount": _money(wholesale_amount),
-        "owner_fee_amount": _money(owner_fee_amount),
         "reseller_profit_amount": _money(reseller_profit_amount),
         "created_at": now,
         "completed_at": None,
@@ -496,11 +458,6 @@ async def process_core_purchase(
 
     sale_amount = _money_decimal(sale_price)
     cost_amount = _money_decimal(cost_price)
-    rates = await get_reseller_rates(reseller_id)
-    commission_rate = _money_decimal(rates.get("core_commission", 0.05))
-    if not _profit_policy_enabled():
-        commission_rate = Decimal("0")
-    commission = _money(sale_amount * commission_rate)
 
     lock_key = f"user:{user_id}:reseller:{reseller_id}:buy"
     if not await acquire_session_lock(lock_key):
@@ -528,22 +485,6 @@ async def process_core_purchase(
             )
             return False, "INSUFFICIENT_USER_BALANCE", {}
 
-        reseller_main = _money_decimal(
-            await _get_wallet_balance("reseller", reseller_id, "reseller_main", reseller_id, session=session)
-        )
-        if reseller_main < cost_amount:
-            _log_financial_event(
-                "core_purchase_rejected",
-                level=logging.WARNING,
-                reason="INSUFFICIENT_RESELLER_MAIN",
-                user_id=user_id,
-                reseller_id=reseller_id,
-                order_id=order_id,
-                reseller_main=float(reseller_main),
-                cost_price=float(cost_amount),
-            )
-            return False, "INSUFFICIENT_RESELLER_MAIN", {}
-
         cycle = _cycle_key()
         user_tx = await _apply_wallet_delta(
             owner_type="user",
@@ -558,43 +499,10 @@ async def process_core_purchase(
             cycle_key=cycle,
             session=session,
         )
-        reseller_main_tx = await _apply_wallet_delta(
-            owner_type="reseller",
-            owner_id=reseller_id,
-            reseller_id=reseller_id,
-            wallet_type="reseller_main",
-            amount=-cost_amount,
-            reason="purchase_core_main_debit",
-            actor_type="system",
-            actor_id=actor_id,
-            order_id=order_id,
-            cycle_key=cycle,
-            session=session,
-        )
-        earnings_tx = None
-        if commission != 0:
-            earnings_tx = await _apply_wallet_delta(
-                owner_type="reseller",
-                owner_id=reseller_id,
-                reseller_id=reseller_id,
-                wallet_type="reseller_earnings",
-                amount=commission,
-                reason="purchase_core_commission_credit",
-                actor_type="system",
-                actor_id=actor_id,
-                order_id=order_id,
-                cycle_key=cycle,
-                metadata={"commission_rate": float(commission_rate)},
-                session=session,
-            )
         await mark_order_status(order_id, "paid", session=session)
-        tx_ids = [user_tx["_id"], reseller_main_tx["_id"]]
-        if earnings_tx and earnings_tx.get("_id") is not None:
-            tx_ids.append(earnings_tx["_id"])
         return True, "OK", {
             "reseller_id": reseller_id,
-            "commission": commission,
-            "tx_ids": tx_ids,
+            "tx_ids": [user_tx["_id"]],
         }
 
     try:
@@ -607,7 +515,6 @@ async def process_core_purchase(
                 order_id=order_id,
                 sale_price=float(sale_amount),
                 cost_price=float(cost_amount),
-                commission=float(commission),
                 tx_ids=result[2].get("tx_ids"),
             )
         return result
@@ -640,13 +547,40 @@ async def refund_core_purchase(
 
     sale_amount = _money_decimal(sale_price)
     cost_amount = _money_decimal(cost_price)
-    rates = await get_reseller_rates(reseller_id)
-    commission_rate = _money_decimal(rates.get("core_commission", 0.05))
-    if not _profit_policy_enabled():
-        commission_rate = Decimal("0")
-    commission = _money(sale_amount * commission_rate)
+    lock_key = f"user:{user_id}:reseller:{reseller_id}:refund:{order_id}"
+    if not await acquire_session_lock(lock_key):
+        _log_financial_event(
+            "core_refund_locked",
+            level=logging.WARNING,
+            user_id=user_id,
+            reseller_id=reseller_id,
+            order_id=order_id,
+        )
+        return False, "LOCKED", {}
 
     async def _txn(session):
+        already_refunded = await _ledger_entry_exists(
+            {
+                "order_id": order_id,
+                "reason": "refund_core_user_credit",
+                "direction": "credit",
+                "owner_type": "user",
+                "owner_id": int(user_id),
+                "reseller_id": int(reseller_id),
+                "wallet_type": "user",
+            },
+            session=session,
+        )
+        if already_refunded:
+            await mark_order_status(order_id, "refunded", session=session)
+            _log_financial_event(
+                "core_refund_already_applied",
+                level=logging.WARNING,
+                user_id=user_id,
+                reseller_id=reseller_id,
+                order_id=order_id,
+            )
+            return True, "ALREADY_REFUNDED", {"reseller_id": reseller_id, "idempotent": True}
         cycle = _cycle_key()
         await _apply_wallet_delta(
             owner_type="user",
@@ -661,35 +595,8 @@ async def refund_core_purchase(
             cycle_key=cycle,
             session=session,
         )
-        await _apply_wallet_delta(
-            owner_type="reseller",
-            owner_id=reseller_id,
-            reseller_id=reseller_id,
-            wallet_type="reseller_main",
-            amount=cost_amount,
-            reason="refund_core_main_credit",
-            actor_type="system",
-            actor_id=actor_id,
-            order_id=order_id,
-            cycle_key=cycle,
-            session=session,
-        )
-        if commission != 0:
-            await _apply_wallet_delta(
-                owner_type="reseller",
-                owner_id=reseller_id,
-                reseller_id=reseller_id,
-                wallet_type="reseller_earnings",
-                amount=-commission,
-                reason="refund_core_commission_debit",
-                actor_type="system",
-                actor_id=actor_id,
-                order_id=order_id,
-                cycle_key=cycle,
-                session=session,
-            )
         await mark_order_status(order_id, "refunded", session=session)
-        return True, "OK", {"reseller_id": reseller_id, "commission": commission}
+        return True, "OK", {"reseller_id": reseller_id}
 
     try:
         result = await _run_in_transaction(_txn)
@@ -701,7 +608,6 @@ async def refund_core_purchase(
                 order_id=order_id,
                 sale_price=float(sale_amount),
                 cost_price=float(cost_amount),
-                commission=float(commission),
             )
         return result
     except RuntimeError as exc:
@@ -714,6 +620,8 @@ async def refund_core_purchase(
             error=str(exc),
         )
         return False, str(exc), {}
+    finally:
+        await release_session_lock(lock_key)
 
 
 async def process_custom_purchase(
@@ -729,12 +637,7 @@ async def process_custom_purchase(
     reseller_id = int(reseller_id)
 
     price_amount = _money_decimal(price)
-    rates = await get_reseller_rates(reseller_id)
-    owner_fee_rate = _money_decimal(rates.get("owner_fee", 0.10))
-    if not _profit_policy_enabled():
-        owner_fee_rate = Decimal("0")
-    owner_fee = _money(price_amount * owner_fee_rate)
-    net_profit = _money(price_amount - Decimal(str(owner_fee)))
+    net_profit = _money(price_amount if _profit_policy_enabled() else 0)
 
     lock_key = f"user:{user_id}:reseller:{reseller_id}:buy"
     if not await acquire_session_lock(lock_key):
@@ -788,26 +691,10 @@ async def process_custom_purchase(
                 actor_id=actor_id,
                 order_id=order_id,
                 cycle_key=cycle,
-                metadata={"owner_fee": owner_fee, "owner_fee_rate": float(owner_fee_rate)},
-                session=session,
-            )
-        if owner_fee != 0:
-            await _apply_wallet_delta(
-                owner_type="owner",
-                owner_id=int(OWNER_ID),
-                reseller_id=reseller_id,
-                wallet_type="owner_fees",
-                amount=owner_fee,
-                reason="purchase_custom_owner_fee_credit",
-                actor_type="system",
-                actor_id=actor_id,
-                order_id=order_id,
-                cycle_key=cycle,
-                metadata={"owner_fee_rate": float(owner_fee_rate)},
                 session=session,
             )
         await mark_order_status(order_id, "paid", session=session)
-        return True, "OK", {"reseller_id": reseller_id, "owner_fee": owner_fee, "net_profit": net_profit}
+        return True, "OK", {"reseller_id": reseller_id, "net_profit": net_profit}
 
     try:
         result = await _run_in_transaction(_txn)
@@ -818,7 +705,6 @@ async def process_custom_purchase(
                 reseller_id=reseller_id,
                 order_id=order_id,
                 price=float(price_amount),
-                owner_fee=float(owner_fee),
                 net_profit=float(net_profit),
             )
         return result
@@ -849,14 +735,41 @@ async def refund_custom_purchase(
     reseller_id = int(reseller_id)
 
     price_amount = _money_decimal(price)
-    rates = await get_reseller_rates(reseller_id)
-    owner_fee_rate = _money_decimal(rates.get("owner_fee", 0.10))
-    if not _profit_policy_enabled():
-        owner_fee_rate = Decimal("0")
-    owner_fee = _money(price_amount * owner_fee_rate)
-    net_profit = _money(price_amount - Decimal(str(owner_fee)))
+    net_profit = _money(price_amount if _profit_policy_enabled() else 0)
+    lock_key = f"user:{user_id}:reseller:{reseller_id}:refund:{order_id}"
+    if not await acquire_session_lock(lock_key):
+        _log_financial_event(
+            "custom_refund_locked",
+            level=logging.WARNING,
+            user_id=user_id,
+            reseller_id=reseller_id,
+            order_id=order_id,
+        )
+        return False, "LOCKED", {}
 
     async def _txn(session):
+        already_refunded = await _ledger_entry_exists(
+            {
+                "order_id": order_id,
+                "reason": "refund_custom_user_credit",
+                "direction": "credit",
+                "owner_type": "user",
+                "owner_id": int(user_id),
+                "reseller_id": int(reseller_id),
+                "wallet_type": "user",
+            },
+            session=session,
+        )
+        if already_refunded:
+            await mark_order_status(order_id, "refunded", session=session)
+            _log_financial_event(
+                "custom_refund_already_applied",
+                level=logging.WARNING,
+                user_id=user_id,
+                reseller_id=reseller_id,
+                order_id=order_id,
+            )
+            return True, "ALREADY_REFUNDED", {"reseller_id": reseller_id, "net_profit": net_profit, "idempotent": True}
         cycle = _cycle_key()
         await _apply_wallet_delta(
             owner_type="user",
@@ -883,26 +796,10 @@ async def refund_custom_purchase(
                 actor_id=actor_id,
                 order_id=order_id,
                 cycle_key=cycle,
-                metadata={"owner_fee": owner_fee, "owner_fee_rate": float(owner_fee_rate)},
-                session=session,
-            )
-        if owner_fee != 0:
-            await _apply_wallet_delta(
-                owner_type="owner",
-                owner_id=int(OWNER_ID),
-                reseller_id=reseller_id,
-                wallet_type="owner_fees",
-                amount=-owner_fee,
-                reason="refund_custom_owner_fee_debit",
-                actor_type="system",
-                actor_id=actor_id,
-                order_id=order_id,
-                cycle_key=cycle,
-                metadata={"owner_fee_rate": float(owner_fee_rate)},
                 session=session,
             )
         await mark_order_status(order_id, "refunded", session=session)
-        return True, "OK", {"reseller_id": reseller_id, "owner_fee": owner_fee, "net_profit": net_profit}
+        return True, "OK", {"reseller_id": reseller_id, "net_profit": net_profit}
 
     try:
         result = await _run_in_transaction(_txn)
@@ -913,7 +810,6 @@ async def refund_custom_purchase(
                 reseller_id=reseller_id,
                 order_id=order_id,
                 price=float(price_amount),
-                owner_fee=float(owner_fee),
                 net_profit=float(net_profit),
             )
         return result
@@ -927,223 +823,8 @@ async def refund_custom_purchase(
             error=str(exc),
         )
         return False, str(exc), {}
-
-
-async def confirm_monthly_settlement(
-    *,
-    reseller_id: int,
-    cycle_key: str,
-    owner_id: int,
-) -> dict:
-    start = datetime.strptime(f"{cycle_key}-01", "%Y-%m-%d").replace(tzinfo=UTC)
-    if start.month == 12:
-        end = datetime(start.year + 1, 1, 1, tzinfo=UTC)
-    else:
-        end = datetime(start.year, start.month + 1, 1, tzinfo=UTC)
-
-    base_match = {
-        "owner_type": "reseller",
-        "owner_id": reseller_id,
-        "wallet_type": "reseller_earnings",
-        "created_at": {"$gte": start, "$lt": end},
-    }
-    agg = await db.ledger_entries.aggregate(
-        [
-            {"$match": base_match},
-            {
-                "$group": {
-                    "_id": None,
-                    "earnings": {"$sum": "$amount"},
-                    "core_commissions": {
-                        "$sum": {
-                            "$cond": [
-                                {"$eq": ["$reason", "purchase_core_commission_credit"]},
-                                "$amount",
-                                0,
-                            ]
-                        }
-                    },
-                    "custom_profit": {
-                        "$sum": {
-                            "$cond": [
-                                {"$eq": ["$reason", "purchase_custom_profit_credit"]},
-                                "$amount",
-                                0,
-                            ]
-                        }
-                    },
-                    "owner_fees": {
-                        "$sum": {
-                            "$cond": [
-                                {"$eq": ["$reason", "purchase_custom_profit_credit"]},
-                                {"$ifNull": ["$metadata.owner_fee", 0]},
-                                0,
-                            ]
-                        }
-                    },
-                }
-            },
-        ]
-    ).to_list(1)
-    owner_fee_agg = await db.ledger_entries.aggregate(
-        [
-            {
-                "$match": {
-                    "owner_type": "owner",
-                    "owner_id": int(OWNER_ID),
-                    "wallet_type": "owner_fees",
-                    "reseller_id": reseller_id,
-                    "created_at": {"$gte": start, "$lt": end},
-                }
-            },
-            {"$group": {"_id": None, "owner_fees": {"$sum": "$amount"}}},
-        ]
-    ).to_list(1)
-    owner_fees_total = _money(owner_fee_agg[0].get("owner_fees", 0) if owner_fee_agg else 0)
-
-    stats = agg[0] if agg else {}
-    earnings_total = _money(stats.get("earnings", 0))
-
-    async def _txn(session):
-        current = await _get_wallet_balance("reseller", reseller_id, "reseller_earnings", reseller_id, session=session)
-        reset_tx = None
-        if current > 0:
-            reset_tx = await _apply_wallet_delta(
-                owner_type="reseller",
-                owner_id=reseller_id,
-                reseller_id=reseller_id,
-                wallet_type="reseller_earnings",
-                amount=-current,
-                reason="monthly_settlement_reset",
-                actor_type="owner",
-                actor_id=owner_id,
-                cycle_key=cycle_key,
-                session=session,
-            )
-        doc = {
-            "reseller_id": reseller_id,
-            "cycle_key": cycle_key,
-            "opening_earnings": current,
-            "core_commissions": _money(stats.get("core_commissions", 0)),
-            "custom_profit": _money(stats.get("custom_profit", 0)),
-            "owner_fees": owner_fees_total,
-            "net_due": earnings_total,
-            "status": "confirmed",
-            "confirmed_by_owner_id": owner_id,
-            "confirmed_at": datetime.now(UTC),
-            "closing_anchor_tx_uuid": (reset_tx or {}).get("tx_uuid"),
-            "wallet_snapshot": {
-                "reseller_earnings_before_reset": float(current),
-                "owner_fees_for_cycle": float(owner_fees_total),
-            },
-        }
-        await db.settlements.update_one(
-            {"reseller_id": reseller_id, "cycle_key": cycle_key},
-            {"$set": doc, "$setOnInsert": {"created_at": datetime.now(UTC)}},
-            upsert=True,
-            session=session,
-        )
-        return doc
-
-    doc = await _run_in_transaction(_txn)
-    _log_financial_event(
-        "settlement_confirmed",
-        reseller_id=reseller_id,
-        cycle_key=cycle_key,
-        owner_id=owner_id,
-        net_due=float(doc.get("net_due", 0)),
-        opening_earnings=float(doc.get("opening_earnings", 0)),
-        owner_fees=float(doc.get("owner_fees", 0)),
-    )
-    return doc
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-async def get_monthly_settlement_preview(*, reseller_id: int, cycle_key: str) -> dict:
-    start = datetime.strptime(f"{cycle_key}-01", "%Y-%m-%d").replace(tzinfo=UTC)
-    if start.month == 12:
-        end = datetime(start.year + 1, 1, 1, tzinfo=UTC)
-    else:
-        end = datetime(start.year, start.month + 1, 1, tzinfo=UTC)
-
-    reseller_agg = await db.ledger_entries.aggregate(
-        [
-            {
-                "$match": {
-                    "owner_type": "reseller",
-                    "owner_id": int(reseller_id),
-                    "wallet_type": "reseller_earnings",
-                    "created_at": {"$gte": start, "$lt": end},
-                }
-            },
-            {
-                "$group": {
-                    "_id": None,
-                    "earnings": {"$sum": "$amount"},
-                    "core_commissions": {
-                        "$sum": {
-                            "$cond": [
-                                {"$eq": ["$reason", "purchase_core_commission_credit"]},
-                                "$amount",
-                                0,
-                            ]
-                        }
-                    },
-                    "custom_profit": {
-                        "$sum": {
-                            "$cond": [
-                                {"$eq": ["$reason", "purchase_custom_profit_credit"]},
-                                "$amount",
-                                0,
-                            ]
-                        }
-                    },
-                }
-            },
-        ]
-    ).to_list(1)
-
-    owner_fee_agg = await db.ledger_entries.aggregate(
-        [
-            {
-                "$match": {
-                    "owner_type": "owner",
-                    "owner_id": int(OWNER_ID),
-                    "wallet_type": "owner_fees",
-                    "reseller_id": int(reseller_id),
-                    "created_at": {"$gte": start, "$lt": end},
-                }
-            },
-            {"$group": {"_id": None, "owner_fees": {"$sum": "$amount"}}},
-        ]
-    ).to_list(1)
-
-    stats = reseller_agg[0] if reseller_agg else {}
-    owner_fees_total = _money(owner_fee_agg[0].get("owner_fees", 0) if owner_fee_agg else 0)
-    current_earnings_wallet = await _get_wallet_balance("reseller", int(reseller_id), "reseller_earnings", int(reseller_id))
-
-    return {
-        "reseller_id": int(reseller_id),
-        "cycle_key": cycle_key,
-        "period_start": start,
-        "period_end": end,
-        "core_commissions": _money(stats.get("core_commissions", 0)),
-        "custom_profit": _money(stats.get("custom_profit", 0)),
-        "owner_fees": owner_fees_total,
-        "net_due": _money(stats.get("earnings", 0)),
-        "current_earnings_wallet": _money(current_earnings_wallet),
-    }
+    finally:
+        await release_session_lock(lock_key)
 
 
 def _cycle_bounds(cycle_key: str) -> tuple[datetime, datetime]:
@@ -1153,88 +834,6 @@ def _cycle_bounds(cycle_key: str) -> tuple[datetime, datetime]:
     else:
         end = datetime(start.year, start.month + 1, 1, tzinfo=UTC)
     return start, end
-
-
-async def generate_monthly_settlement_drafts(*, cycle_key: str) -> dict:
-    start, end = _cycle_bounds(cycle_key)
-    now = datetime.now(UTC)
-
-    wallet_resellers = await db.wallets.distinct(
-        "owner_id",
-        {"owner_type": "reseller"},
-    )
-    earnings_resellers = await db.ledger_entries.distinct(
-        "owner_id",
-        {
-            "owner_type": "reseller",
-            "wallet_type": "reseller_earnings",
-            "created_at": {"$gte": start, "$lt": end},
-        },
-    )
-    owner_fees_resellers = await db.ledger_entries.distinct(
-        "reseller_id",
-        {
-            "owner_type": "owner",
-            "wallet_type": "owner_fees",
-            "created_at": {"$gte": start, "$lt": end},
-        },
-    )
-
-    reseller_ids = sorted(
-        {
-            int(x)
-            for x in [*wallet_resellers, *earnings_resellers, *owner_fees_resellers]
-            if x is not None
-        }
-    )
-    stats = {"cycle_key": cycle_key, "total": len(reseller_ids), "drafted": 0, "skipped_confirmed": 0}
-
-    for reseller_id in reseller_ids:
-        existing = await db.settlements.find_one(
-            {"reseller_id": reseller_id, "cycle_key": cycle_key},
-            {"status": 1},
-        )
-        if existing and existing.get("status") == "confirmed":
-            stats["skipped_confirmed"] += 1
-            continue
-
-        preview = await get_monthly_settlement_preview(reseller_id=reseller_id, cycle_key=cycle_key)
-        bot_row = await db.bots.find_one(
-            {"owner_id": reseller_id, "active": True},
-            {"bot_id": 1},
-        )
-        payload = {
-            "reseller_id": reseller_id,
-            "cycle_key": cycle_key,
-            "status": "draft",
-            "core_commissions": _money(preview["core_commissions"]),
-            "custom_profit": _money(preview["custom_profit"]),
-            "owner_fees": _money(preview["owner_fees"]),
-            "net_due": _money(preview["net_due"]),
-            "opening_earnings": _money(preview["current_earnings_wallet"]),
-            "period_start": start,
-            "period_end": end,
-            "draft_generated_at": now,
-            "updated_at": now,
-        }
-        bot_id = bot_row.get("bot_id") if bot_row else None
-        if bot_id is not None:
-            payload["bot_id"] = int(bot_id)
-        await db.settlements.update_one(
-            {"reseller_id": reseller_id, "cycle_key": cycle_key},
-            {"$set": payload, "$setOnInsert": {"created_at": now}},
-            upsert=True,
-        )
-        stats["drafted"] += 1
-
-    _log_financial_event(
-        "settlement_drafts_generated",
-        cycle_key=cycle_key,
-        total=stats["total"],
-        drafted=stats["drafted"],
-        skipped_confirmed=stats["skipped_confirmed"],
-    )
-    return stats
 
 
 async def reconcile_recharge_requests_vs_ledger(*, reseller_id: int, cycle_key: str, max_rows: int = 20) -> dict:
@@ -1459,33 +1058,15 @@ async def scan_financial_anomalies(*, days: int = 30, max_rows: int = 20) -> dic
         if doc.get("_id") not in recharge_ledger_ids
     ]
 
-    settlement_docs = await db.settlements.find(
-        {
-            "services_locked": True,
-            "payment_status": {"$in": ["pending", "overdue"]},
-            "payment_due_at": {"$lte": now},
-        },
-        {
-            "_id": 0,
-            "reseller_id": 1,
-            "cycle_key": 1,
-            "net_due": 1,
-            "payment_status": 1,
-            "payment_due_at": 1,
-        },
-    ).limit(max_rows).to_list(length=max_rows)
-
     result = {
         "days": days,
         "since": since,
         "negative_wallets_count": len(negative_wallet_docs),
         "orders_missing_ledger_count": len(orders_missing_ledger),
         "accepted_recharges_without_ledger_count": len(accepted_recharges_without_ledger),
-        "locked_overdue_settlements_count": len(settlement_docs),
         "negative_wallets": negative_wallet_docs[:max_rows],
         "orders_missing_ledger": orders_missing_ledger[:max_rows],
         "accepted_recharges_without_ledger": accepted_recharges_without_ledger[:max_rows],
-        "locked_overdue_settlements": settlement_docs[:max_rows],
     }
     _log_financial_event(
         "financial_anomalies_scanned",
@@ -1493,7 +1074,6 @@ async def scan_financial_anomalies(*, days: int = 30, max_rows: int = 20) -> dic
         negative_wallets=result["negative_wallets_count"],
         orders_missing_ledger=result["orders_missing_ledger_count"],
         accepted_recharges_without_ledger=result["accepted_recharges_without_ledger_count"],
-        locked_overdue_settlements=result["locked_overdue_settlements_count"],
     )
     return result
 
@@ -1507,186 +1087,7 @@ async def export_financial_audit_rows(*, days: int = 30, max_rows: int = 100) ->
         rows.append({"kind": "order_missing_ledger", **row})
     for row in report["accepted_recharges_without_ledger"]:
         rows.append({"kind": "accepted_recharge_missing_ledger", **row})
-    for row in report["locked_overdue_settlements"]:
-        rows.append({"kind": "locked_overdue_settlement", **row})
     return rows
-
-
-def _add_days(dt: datetime, days: int) -> datetime:
-    return dt + timedelta(days=int(days))
-
-
-async def enforce_settlement_payment_policies(*, cycle_key: str, grace_days: int = 4) -> dict:
-    start, end = _cycle_bounds(cycle_key)
-    due_at = _add_days(end, grace_days)
-    now = datetime.now(UTC)
-
-    await generate_monthly_settlement_drafts(cycle_key=cycle_key)
-    settlements = await db.settlements.find(
-        {"cycle_key": cycle_key},
-        {
-            "_id": 1,
-            "reseller_id": 1,
-            "cycle_key": 1,
-            "net_due": 1,
-            "payment_status": 1,
-            "payment_due_at": 1,
-            "payment_confirmed_at": 1,
-            "services_locked": 1,
-            "cycle_end_notice_sent_at": 1,
-            "overdue_notice_sent_at": 1,
-        },
-    ).to_list(None)
-
-    notices: list[dict] = []
-    locked_now = 0
-
-    for doc in settlements:
-        reseller_id = int(doc.get("reseller_id") or 0)
-        if reseller_id <= 0:
-            continue
-
-        net_due = _money(doc.get("net_due", 0))
-        payment_status = str(doc.get("payment_status") or "pending").lower()
-        is_paid = payment_status == "paid" or doc.get("payment_confirmed_at") is not None
-        services_locked = bool(doc.get("services_locked"))
-        payment_due_at = _as_utc(doc.get("payment_due_at")) or due_at
-        updates = {
-            "period_start": start,
-            "period_end": end,
-            "net_due": net_due,
-            "payment_due_at": payment_due_at,
-            "updated_at": now,
-        }
-
-        # No outstanding amount -> never lock this reseller for this cycle.
-        if net_due <= 0:
-            updates["payment_status"] = "paid"
-            updates["services_locked"] = False
-            if not doc.get("payment_auto_cleared_at"):
-                updates["payment_auto_cleared_at"] = now
-            await db.settlements.update_one({"_id": doc["_id"]}, {"$set": updates})
-            continue
-
-        if end <= now <= payment_due_at and not doc.get("cycle_end_notice_sent_at"):
-            notices.append(
-                {
-                    "kind": "cycle_end",
-                    "reseller_id": reseller_id,
-                    "cycle_key": cycle_key,
-                    "amount_due": net_due,
-                    "payment_due_at": updates["payment_due_at"],
-                    "grace_days": int(grace_days),
-                }
-            )
-            updates["cycle_end_notice_sent_at"] = now
-
-        if is_paid:
-            if services_locked:
-                updates["services_locked"] = False
-            updates["payment_status"] = "paid"
-            await db.settlements.update_one({"_id": doc["_id"]}, {"$set": updates})
-            continue
-
-        if now > payment_due_at:
-            updates["payment_status"] = "overdue"
-            updates["services_locked"] = True
-            if not doc.get("overdue_notice_sent_at"):
-                notices.append(
-                    {
-                        "kind": "overdue_lock",
-                        "reseller_id": reseller_id,
-                        "cycle_key": cycle_key,
-                        "amount_due": net_due,
-                        "payment_due_at": payment_due_at,
-                        "grace_days": int(grace_days),
-                    }
-                )
-                updates["overdue_notice_sent_at"] = now
-            locked_now += 1
-        else:
-            updates["payment_status"] = "pending"
-            updates["services_locked"] = False
-
-        await db.settlements.update_one({"_id": doc["_id"]}, {"$set": updates})
-
-    result = {"cycle_key": cycle_key, "count": len(settlements), "locked_now": locked_now, "notices": notices}
-    _log_financial_event(
-        "settlement_policy_checked",
-        cycle_key=cycle_key,
-        grace_days=grace_days,
-        checked=result["count"],
-        locked_now=locked_now,
-        notices=len(notices),
-    )
-    return result
-
-
-async def confirm_settlement_payment(
-    *,
-    reseller_id: int,
-    cycle_key: str,
-    owner_id: int,
-    note: Optional[str] = None,
-) -> dict:
-    now = datetime.now(UTC)
-    reseller_id = int(reseller_id)
-    doc = await db.settlements.find_one({"reseller_id": reseller_id, "cycle_key": cycle_key})
-    if not doc:
-        await generate_monthly_settlement_drafts(cycle_key=cycle_key)
-        doc = await db.settlements.find_one({"reseller_id": reseller_id, "cycle_key": cycle_key})
-    if not doc:
-        raise ValueError("SETTLEMENT_NOT_FOUND")
-
-    await db.settlements.update_one(
-        {"_id": doc["_id"]},
-        {
-            "$set": {
-                "payment_status": "paid",
-                "payment_confirmed_at": now,
-                "payment_confirmed_by_owner_id": int(owner_id),
-                "payment_note": (note or "").strip() or None,
-                "services_locked": False,
-                "updated_at": now,
-            }
-        },
-    )
-    updated = await db.settlements.find_one({"_id": doc["_id"]})
-    _log_financial_event(
-        "settlement_payment_confirmed",
-        reseller_id=reseller_id,
-        cycle_key=cycle_key,
-        owner_id=owner_id,
-        note=(note or "").strip() or None,
-        net_due=float((updated or doc).get("net_due", 0)),
-    )
-    return updated or doc
-
-
-async def get_reseller_financial_lock(reseller_id: int, bot_id: int | None = None) -> dict | None:
-    reseller_id = int(reseller_id)
-    now = datetime.now(UTC)
-    query = {
-        "reseller_id": reseller_id,
-        "net_due": {"$gt": 0},
-        "services_locked": True,
-        "payment_status": {"$in": ["overdue", "pending"]},
-        "payment_confirmed_at": {"$exists": False},
-        "payment_due_at": {"$lte": now},
-    }
-    if bot_id is not None:
-        query["bot_id"] = int(bot_id)
-    lock = await db.settlements.find_one(query, sort=[("payment_due_at", 1)])
-    if lock:
-        _log_financial_event(
-            "financial_lock_hit",
-            level=logging.WARNING,
-            reseller_id=reseller_id,
-            bot_id=bot_id,
-            cycle_key=lock.get("cycle_key"),
-            net_due=float(lock.get("net_due", 0)),
-        )
-    return lock
 
 
 

@@ -56,7 +56,7 @@ async def owner_review_callback(callback: types.CallbackQuery):
 
     parts = (callback.data or "").split(":", 2)
     if len(parts) != 3:
-        return await callback.answer("Invalid action", show_alert=True)
+        return await callback.answer(t("en", "invalid_action"), show_alert=True)
 
     action = parts[1]
     req_id = parts[2]
@@ -92,8 +92,8 @@ async def owner_review_callback(callback: types.CallbackQuery):
         except Exception as exc:
             logger.exception("owner approve failed for request=%s: %s", req_id, exc)
             new_status = "failed"
-            owner_msg = f"Failed to approve: {exc}"
-            user_msg = f"Failed to approve request: {exc}"
+            owner_msg = t("en", "owner_approve_failed").format(error=exc)
+            user_msg = t(requester_lang, "owner_approve_request_failed_user").format(error=exc)
     else:
         new_status = "rejected"
         owner_msg = t("en", "owner_request_rejected")

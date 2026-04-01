@@ -83,7 +83,7 @@ C) Financial
 - Current financial model:
   - user wallet
   - reseller main wallet
-  - reseller earnings wallet
+- reseller custom-profit wallet
   - owner fees tracking
 - Supported flows:
   - core purchase + refund
@@ -174,13 +174,10 @@ B) Logging and notifications
 
 C) Financial compliance and settlements
 - Financial middleware is bot-aware and reseller-aware.
-- Settlement generation and settlement policy still run from bot_manager scheduler.
-- Settlement notices are sent to reseller owners.
 - Financial anomaly scanning exists:
   - negative wallets
   - orders missing ledger
   - accepted recharges missing ledger
-  - locked overdue settlements
 - Financial reporting/export support exists in:
   - database/financial_ledger.py
   - scripts/export_financial_audit.py

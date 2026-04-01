@@ -11,6 +11,9 @@ class BaseProxyProvider:
     async def refresh_proxy(self, order_data: dict[str, Any], *, with_check: bool = False) -> dict[str, Any]:
         return {"success": False, "raw": {"title": "NOT_SUPPORTED", "operation": "refresh_proxy"}}
 
+    async def reconfigure_proxy(self, order_data: dict[str, Any], offer: dict[str, Any]) -> dict[str, Any]:
+        return {"success": False, "raw": {"title": "NOT_SUPPORTED", "operation": "reconfigure_proxy"}}
+
     async def renew_proxy(self, order_data: dict[str, Any]) -> dict[str, Any]:
         return {"success": False, "raw": {"title": "NOT_SUPPORTED", "operation": "renew_proxy"}}
 

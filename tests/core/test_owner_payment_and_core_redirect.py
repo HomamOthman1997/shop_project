@@ -11,7 +11,8 @@ def test_default_owner_payment_methods_shape():
     methods = _default_owner_payment_methods(13500.0)
     codes = {m.get("code") for m in methods}
     assert len(methods) >= 4
-    assert "owner_shamcash" in codes
+    assert "owner_shamcash_syp" in codes
+    assert "owner_shamcash_usd" in codes
     assert "owner_crypto_usdt" in codes
 
 
@@ -45,8 +46,8 @@ def test_owner_topup_methods_keyboard():
 def test_main_reseller_bot_link_helper(monkeypatch):
     import services.numbers.handlers.core_numbers_buy as core_buy
 
-    monkeypatch.setattr(core_buy.settings, "main_reseller_bot_username", "@cyberzone_reseller_bot")
-    assert core_buy._main_reseller_bot_link() == "https://t.me/cyberzone_reseller_bot"
+    monkeypatch.setattr(core_buy.settings, "main_bot_username", "@cyberzone_main_bot")
+    assert core_buy._main_reseller_bot_link() == "https://t.me/cyberzone_main_bot"
 
-    monkeypatch.setattr(core_buy.settings, "main_reseller_bot_username", "")
+    monkeypatch.setattr(core_buy.settings, "main_bot_username", "")
     assert core_buy._main_reseller_bot_link() is None

@@ -14,6 +14,16 @@ def test_rental_refund_warning_kind_defaults_and_explicit():
     assert hb._rental_refund_warning_kind("textverified", {}) == "uncertain"
     assert hb._rental_refund_warning_kind("smspool", {"refund_known_false": True}) == "non_refundable"
     assert hb._rental_refund_warning_kind("smspool", {"refund_warning_kind": "protected"}) == "protected"
+    assert hb._rental_refund_warning_kind("smspool", {"provider_can_refund": True}) == "protected"
+    assert hb._rental_refund_warning_kind("textverified", {"refund_refundable_until": "2026-03-20T12:00:00Z"}) == "protected"
+    assert hb._rental_refund_warning_kind("textverified", {"provider_can_refund": False}) == "non_refundable"
+
+
+def test_rental_confirm_keyboard_goes_directly_to_final_confirmation():
+    from services.numbers.keyboards.core_numbers_kb import rental_confirm_kb
+
+    kb = rental_confirm_kb("en")
+    assert kb.inline_keyboard[0][0].callback_data == "rent:confirm:final"
 
 
 def test_rental_warning_kb_uses_second_confirmation_callback():

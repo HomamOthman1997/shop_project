@@ -16,19 +16,19 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from bson import ObjectId
-
-from config import OWNER_ID, settings
+from config import settings
 from database.bots_repo import add_bot, update_bot_channel, update_reseller_info, verify_bot
+from services.subscriptions.bot_subscription_service import get_bot_subscription
 from database.custom_services_repo import clone_catalog_from_reseller_template
+from database.financial_ledger import get_reseller_wallet_balance
 from database.mongo import db
 from database.reseller_settings_repo import get_exchange_routing, get_recharge_routing
 from database.user_repo import get_user
-from keyboards.main_menu_kb import main_menu
 from keyboards.reseller_main_menu import reseller_main_menu
-from utils.beta_mode import beta_disable_create_bot
+from utils.bot_menu_context import is_reseller_owned_bot, menu_for_current_bot, send_main_bot_message
 from utils.permissions import is_reseller
 from utils.translations import t
+from utils.user_money import format_usd
 
 router = Router()
 logger = logging.getLogger("verify_reseller")
@@ -51,39 +51,6 @@ ADDRESS_PROMPT_MSG_ID_KEY = "verify_address_prompt_msg_id"
 CHANNEL_PROMPT_MSG_ID_KEY = "verify_channel_prompt_msg_id"
 FLOW_REF_KEY = "verify_flow_ref"
 
-
-async def _beta_block_create_bot(
-    target: types.Message | types.CallbackQuery,
-    *,
-    state: FSMContext | None = None,
-    lang: str = "en",
-) -> bool:
-    if not beta_disable_create_bot():
-        return False
-    if state is not None:
-        await state.clear()
-    text = t(lang, "beta_create_bot_disabled")
-    if isinstance(target, types.CallbackQuery):
-        await target.answer(text, show_alert=True)
-        if target.message:
-            await target.message.answer(text)
-    else:
-        await target.answer(text)
-    return True
-
-
-async def _get_owner_target() -> tuple[int, int | None]:
-    try:
-        doc = await db.system_settings.find_one({"_id": "owner_notifications"})
-        if doc and isinstance(doc.get("chat_id"), int):
-            chat_id = int(doc["chat_id"])
-            thread_id = doc.get("message_thread_id")
-            if isinstance(thread_id, int):
-                return chat_id, thread_id
-            return chat_id, None
-    except Exception:
-        pass
-    return OWNER_ID, None
 
 def is_valid_token(text: str):
     return bool(_extract_token_input(text))
@@ -121,8 +88,8 @@ def _verify_nav_kb(lang: str, include_back: bool) -> types.InlineKeyboardMarkup:
 def _verify_confirm_kb(lang: str) -> types.InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=t(lang, "confirm_create_bot"), callback_data="verify:confirm_create")
-    kb.button(text="👥 Create Group + Add Bot", callback_data="verify:open_group_create")
-    kb.button(text="🛠 Setup Help", callback_data="verify:setup_help")
+    kb.button(text=t(lang, "verify_create_group_add_bot"), callback_data="verify:open_group_create")
+    kb.button(text=t(lang, "verify_setup_help"), callback_data="verify:setup_help")
     kb.button(text=t(lang, "back"), callback_data="verify_nav:back")
     kb.button(text=t(lang, "cancel"), callback_data="verify:cancel_create", style="danger")
     kb.adjust(1)
@@ -190,20 +157,56 @@ def _verify_channel_admin_kb(lang: str, add_url: str, include_back: bool = True)
 
 def _verify_setup_help_kb(lang: str, group_add_url: str) -> types.InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="👥 Create Group + Add Bot", url=group_add_url)
-    kb.button(text="🔁 Recheck Setup", callback_data="verify:confirm_create")
+    kb.button(text=t(lang, "verify_create_group_add_bot"), url=group_add_url)
+    kb.button(text=t(lang, "verify_recheck_setup"), callback_data="verify:confirm_create")
     kb.button(text=t(lang, "back"), callback_data="verify_nav:back")
     kb.button(text=t(lang, "cancel"), callback_data="verify:cancel_create", style="danger")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def _owner_review_kb(lang: str, request_id: str) -> types.InlineKeyboardMarkup:
+def _approval_followup_kb(lang: str) -> types.InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text=t(lang, "owner_approve_create"), callback_data=f"verify_owner:approve:{request_id}")
-    kb.button(text=t(lang, "owner_reject_create"), callback_data=f"verify_owner:reject:{request_id}")
+    kb.button(text=t(lang, "open_reseller_settings_button"), callback_data="rsmenu:settings")
+    kb.button(text=t(lang, "open_reseller_dashboard_button"), callback_data="rsmenu:dashboard")
     kb.adjust(1)
     return kb.as_markup()
+
+
+def _subscription_notice_text(lang: str, subscription: dict) -> str:
+    status = str(subscription.get("status") or "").strip().lower()
+    price = float(subscription.get("monthly_price_usd") or 10.0)
+    trial_price = float(subscription.get("trial_price_usd") or 1.0)
+    trial_ends = subscription.get("trial_ends_at")
+    if str(lang or "").lower().startswith("ar"):
+        if status == "trial_active":
+            end_txt = trial_ends.strftime("%Y-%m-%d %H:%M UTC") if isinstance(trial_ends, datetime) else "-"
+            return (
+                "حالة الاشتراك:\n"
+                f"- تم تفعيل أول شهر تجريبي مدفوع بقيمة {format_usd(trial_price)}.\n"
+                f"- رسم التجديد بعد الشهر التجريبي: {format_usd(price)} شهريًا.\n"
+                f"- ينتهي الشهر التجريبي بتاريخ: {end_txt}"
+            )
+        return (
+            "حالة الاشتراك:\n"
+            f"- هذا البوت يحتاج دفعة أولى بقيمة {format_usd(trial_price)} للتفعيل.\n"
+            f"- يتم سحبها من رصيد الريسيلر في البوت المركزي.\n"
+            f"- رسم التجديد بعد ذلك: {format_usd(price)} شهريًا."
+        )
+    if status == "trial_active":
+        end_txt = trial_ends.strftime("%Y-%m-%d %H:%M UTC") if isinstance(trial_ends, datetime) else "-"
+        return (
+            "Subscription status:\n"
+            f"- The first paid trial month was activated for {format_usd(trial_price)}.\n"
+            f"- Renewal after the trial month: {format_usd(price)} per month.\n"
+            f"- Trial month ends at: {end_txt}"
+        )
+    return (
+        "Subscription status:\n"
+        f"- This bot needs an initial {format_usd(trial_price)} payment to activate.\n"
+            "- The amount is collected from the reseller balance in the main bot.\n"
+        f"- Renewal after that: {format_usd(price)} per month."
+    )
 
 
 def _phone_request_kb(lang: str) -> ReplyKeyboardMarkup:
@@ -400,7 +403,7 @@ async def _return_to_main_menu(target: types.Message | types.CallbackQuery, user
     if await is_reseller(user_id, bot_id=bot_id):
         markup = reseller_main_menu(lang)
     else:
-        markup = main_menu(lang)
+        markup = await menu_for_current_bot(lang, bot_id)
 
     chat_id = target.message.chat.id if isinstance(target, types.CallbackQuery) else target.chat.id
     await _delete_intro_message(bot, chat_id, state)
@@ -450,33 +453,33 @@ def _build_preflight_block(lang: str, checks: dict) -> str:
         f"{mark(checks.get('token', False))} {t(lang, 'preflight_token_check')}",
         f"{mark(checks.get('channel', False))} {t(lang, 'preflight_channel_check')}",
         f"{mark(checks.get('admin', False))} {t(lang, 'preflight_admin_check')}",
-        f"{mark(checks.get('reseller_group', False))} Reseller group routing + admin/topic permission (post-approval)",
+        f"{mark(checks.get('reseller_group', False))} {t(lang, 'preflight_reseller_group_check')}",
     ]
     if checks.get("error"):
         lines.append(f"{t(lang, 'preflight_error_prefix')}: {checks['error']}")
     if checks.get("warning"):
-        lines.append(f"Warning: {checks['warning']}")
+        lines.append(f"{t(lang, 'warning_plain')}: {checks['warning']}")
     if not bool(checks.get("reseller_group")):
         if is_ar:
             lines.extend(
                 [
                     "",
-                    "خطوات اختيارية بعد الموافقة (وضع متقدم):",
-                    "1) أنشئ غروب خاص للدفعات.",
-                    "2) فعّل Topics من إعدادات الغروب.",
-                    "3) أضف البوت كأدمن بصلاحيات إرسال الرسائل + Manage Topics.",
-                    "4) من Reseller Settings نفّذ Auto Setup Topics.",
+                    t(lang, "preflight_optional_after_approval_title"),
+                    t(lang, "preflight_optional_after_approval_step_1"),
+                    t(lang, "preflight_optional_after_approval_step_2"),
+                    t(lang, "preflight_optional_after_approval_step_3"),
+                    t(lang, "preflight_optional_after_approval_step_4"),
                 ]
             )
         else:
             lines.extend(
                 [
                     "",
-                    "Optional after approval (advanced mode):",
-                    "1) Create a private payment group.",
-                    "2) Enable Topics in group settings.",
-                    "3) Add the bot as admin with Send Messages + Manage Topics.",
-                    "4) From Reseller Settings run Auto Setup Topics.",
+                    t(lang, "preflight_optional_after_approval_title"),
+                    t(lang, "preflight_optional_after_approval_step_1"),
+                    t(lang, "preflight_optional_after_approval_step_2"),
+                    t(lang, "preflight_optional_after_approval_step_3"),
+                    t(lang, "preflight_optional_after_approval_step_4"),
                 ]
             )
     return "\n".join(lines)
@@ -491,9 +494,60 @@ def _build_summary_text(data: dict, lang: str, checks: dict | None = None) -> st
         phone=data.get("phone", "-"),
         address=data.get("address", "-"),
     )
+    progress_line = (
+        "Step 6/6: Final review before activation"
+        if not str(lang or "").lower().startswith("ar")
+        else "الخطوة 6/6: مراجعة نهائية قبل التفعيل"
+    )
+    summary = f"{progress_line}\n\n{summary}"
     if checks is not None:
         summary = f"{summary}\n\n{_build_preflight_block(lang, checks)}"
     return summary
+
+
+def _manual_channel_hint(lang: str) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        return "يمكنك اختيار القناة من الزر أو إرسال معرف القناة/يوزر القناة يدويًا مثل: @channelusername"
+    return "You can use the channel picker button or send the channel manually like: @channelusername"
+
+
+def _channel_target_invalid_text(lang: str) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        return "الهدف المحدد ليس قناة تيليغرام صالحة. اختر قناة من الزر أو أرسل يوزر قناة صحيح."
+    return "The selected target is not a valid Telegram channel. Use the picker or send a valid channel username."
+
+
+def _missing_fields_text(lang: str, data: dict) -> str:
+    labels = {
+        "bot_token": "التوكن" if str(lang or "").lower().startswith("ar") else "Bot token",
+        "bot_id": "معرف البوت" if str(lang or "").lower().startswith("ar") else "Bot ID",
+        "channel": "القناة" if str(lang or "").lower().startswith("ar") else "Channel",
+        "fullname": "الاسم الكامل" if str(lang or "").lower().startswith("ar") else "Full name",
+        "phone": "رقم الهاتف" if str(lang or "").lower().startswith("ar") else "Phone number",
+        "address": "العنوان" if str(lang or "").lower().startswith("ar") else "Address",
+    }
+    missing = [label for key, label in labels.items() if not data.get(key)]
+    if str(lang or "").lower().startswith("ar"):
+        return "البيانات غير مكتملة:\n- " + "\n- ".join(missing)
+    return "The form is incomplete:\n- " + "\n- ".join(missing)
+
+
+def _normalize_manual_phone(raw: str) -> str:
+    normalized = re.sub(r"[^\d+]", "", raw or "")
+    if not normalized:
+        return ""
+    if normalized.startswith("00"):
+        normalized = f"+{normalized[2:]}"
+    digits = re.sub(r"\D", "", normalized)
+    if len(digits) < 8 or len(digits) > 15:
+        return ""
+    return normalized
+
+
+def _address_invalid_text(lang: str) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        return "يرجى إرسال عنوان واضح وليس قصيرًا جدًا."
+    return "Please send a clear address. It is too short right now."
 
 
 async def _is_bot_admin_with_topics(bot_token: str, chat_id: int) -> tuple[bool, str]:
@@ -579,20 +633,28 @@ async def _is_bot_id_already_registered(bot_id: int) -> bool:
     return doc is not None
 
 
-async def _has_pending_bot_request_for_user(user_id: int) -> bool:
-    doc = await db.bot_creation_requests.find_one(
-        {"requester_id": user_id, "status": "pending"},
-        {"_id": 1},
-    )
-    return doc is not None
+async def _resolve_template_reseller_id() -> int | None:
+    username = str(getattr(settings, "main_bot_username", "") or "").strip().lstrip("@").lower()
+    if not username:
+        return None
 
-
-async def _has_pending_bot_request_for_bot_id(bot_id: int) -> bool:
-    doc = await db.bot_creation_requests.find_one(
-        {"payload.bot_id": bot_id, "status": "pending"},
-        {"_id": 1},
+    direct_bot = await db.bots.find_one(
+        {
+            "active": True,
+            "$or": [
+                {"username_lc": username},
+                {"bot_username_lc": username},
+                {"reseller.bot_username_lc": username},
+            ],
+        }
     )
-    return doc is not None
+    if direct_bot and direct_bot.get("owner_id") is not None:
+        try:
+            return int(direct_bot.get("owner_id"))
+        except Exception:
+            pass
+
+    return None
 
 
 def _approval_packet_text(lang: str, payload: dict) -> str:
@@ -604,23 +666,6 @@ def _approval_packet_text(lang: str, payload: dict) -> str:
     )
 
 
-async def _notify_requester_via_source_bot(req: dict, text: str) -> None:
-    requester_id = req.get("requester_id")
-    token = req.get("source_bot_token")
-    if not requester_id or not token:
-        return
-    notify_bot = None
-    try:
-        notify_bot = Bot(token=token)
-        await _safe_bot_send_message(bot=notify_bot, chat_id=int(requester_id), text=text)
-    except Exception:
-        pass
-    finally:
-        if notify_bot is not None:
-            try:
-                await notify_bot.session.close()
-            except Exception:
-                pass
 
 
 def _extract_phone_country(phone_raw: str) -> str:
@@ -736,7 +781,8 @@ async def _is_bot_admin_in_channel(bot_token: str, channel_ref: str) -> bool:
 async def ask_token(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = user.get("language", "en") if user else "en"
-    if await _beta_block_create_bot(message, state=state, lang=lang):
+    if await is_reseller_owned_bot(message.bot):
+        await send_main_bot_message(message, lang=lang)
         return
     await state.update_data(**{INTRO_MSG_ID_KEY: None, FLOW_REF_KEY: _new_flow_ref(), "lang": lang})
     await _hide_reply_keyboard(message.bot, message.chat.id)
@@ -756,8 +802,6 @@ async def ask_token(message: types.Message, state: FSMContext):
 async def start_token_step(callback: types.CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
     lang = user.get("language", "en") if user else "en"
-    if await _beta_block_create_bot(callback, state=state, lang=lang):
-        return
     await callback.answer()
     await _set_or_edit_prompt(
         bot=callback.bot,
@@ -836,7 +880,7 @@ async def save_token(message: types.Message, state: FSMContext):
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(t(lang, "send_channel")),
+            text=_as_html_quote(f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -917,9 +961,23 @@ async def receive_channel_shared(message: types.Message, state: FSMContext):
 
 @router.message(VerifyReseller.waiting_for_channel)
 async def receive_channel(message: types.Message, state: FSMContext):
-    # Channel step accepts only chat-share button; text input is ignored silently.
+    user = await get_user(message.from_user.id)
+    lang = user.get("language", "en") if user else "en"
+    raw = (message.text or "").strip()
     await _safe_delete_user_message(message, context="verify_waiting_channel_text")
-    return
+    channel_norm = _normalize_channel_input(raw)
+    if not channel_norm:
+        await _set_or_edit_prompt(
+            bot=message.bot,
+            chat_id=message.chat.id,
+            state=state,
+            text=_as_html_quote(f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
+            reply_markup=_verify_nav_kb(lang, include_back=True),
+            parse_mode="HTML",
+        )
+        await _show_channel_picker_prompt(message.bot, message.chat.id, state, lang)
+        return
+    await _handle_channel_value(message, state, lang, channel_norm)
 
 
 async def _handle_channel_value(message: types.Message, state: FSMContext, lang: str, channel_norm: str):
@@ -928,7 +986,7 @@ async def _handle_channel_value(message: types.Message, state: FSMContext, lang:
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(f"{t(lang, 'invalid_channel')}\n\n{t(lang, 'send_channel')}"),
+            text=_as_html_quote(f"{t(lang, 'invalid_channel')}\n\n{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -948,7 +1006,7 @@ async def _handle_channel_value(message: types.Message, state: FSMContext, lang:
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(t(lang, "channel_admin_required")),
+            text=_as_html_quote(f"{_channel_target_invalid_text(lang)}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_channel_admin_kb(lang, add_url, include_back=True),
             parse_mode="HTML",
         )
@@ -1021,7 +1079,7 @@ async def recheck_channel_admin(callback: types.CallbackQuery, state: FSMContext
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(t(lang, "channel_admin_required")),
+            text=_as_html_quote(f"{_channel_target_invalid_text(lang)}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_channel_admin_kb(lang, add_url, include_back=True),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
@@ -1034,7 +1092,7 @@ async def recheck_channel_admin(callback: types.CallbackQuery, state: FSMContext
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(t(lang, "send_channel")),
+            text=_as_html_quote(f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
@@ -1147,6 +1205,22 @@ async def receive_phone_text_fallback(message: types.Message, state: FSMContext)
         await message.delete()
     except Exception:
         pass
+    phone = _normalize_manual_phone(message.text or "")
+    if phone:
+        phone_country = _extract_phone_country(phone)
+        await state.update_data(phone=phone, phone_country=phone_country)
+        await _hide_reply_keyboard(message.bot, message.chat.id)
+        await state.update_data(**{ADDRESS_PROMPT_MSG_ID_KEY: None})
+        await _set_or_edit_prompt(
+            bot=message.bot,
+            chat_id=message.chat.id,
+            state=state,
+            text=_as_html_quote(t(lang, "send_address")),
+            reply_markup=_verify_nav_kb(lang, include_back=True),
+            parse_mode="HTML",
+        )
+        await state.set_state(VerifyReseller.waiting_for_address)
+        return
     await _set_or_edit_prompt(
         bot=message.bot,
         chat_id=message.chat.id,
@@ -1168,8 +1242,19 @@ async def receive_address(message: types.Message, state: FSMContext):
     except Exception:
         pass
 
+    address = (message.text or "").strip()
+    if len(address) < 6:
+        return await _set_or_edit_prompt(
+            bot=message.bot,
+            chat_id=message.chat.id,
+            state=state,
+            text=_as_html_quote(f"{_address_invalid_text(lang)}\n\n{t(lang, 'send_address')}"),
+            reply_markup=_verify_nav_kb(lang, include_back=True),
+            parse_mode="HTML",
+        )
+
     await _delete_state_message_by_key(message.bot, message.chat.id, state, ADDRESS_PROMPT_MSG_ID_KEY)
-    await state.update_data(address=(message.text or "").strip())
+    await state.update_data(address=address)
     data = await state.get_data()
 
     preflight_ok, preflight_checks = await _run_preflight_checks(data, requester_id=int(message.from_user.id))
@@ -1195,9 +1280,6 @@ async def receive_address(message: types.Message, state: FSMContext):
 async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
     lang = user.get("language", "en") if user else "en"
-    if await _beta_block_create_bot(callback, state=state, lang=lang):
-        return
-
     if callback.data == "verify:cancel_create":
         await callback.answer()
         return await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
@@ -1206,13 +1288,8 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
         data = await state.get_data()
         group_url = _add_to_group_url(str(data.get("bot_username") or ""))
         setup_help_text = (
-            "Group setup quick action:\n\n"
-            "1) Tap 'Create Group + Add Bot'.\n"
-            "2) In the new group, enable Topics.\n"
-            "3) Keep bot as admin with Manage Topics.\n"
-            "4) Complete approval first.\n"
-            "5) After approval, open Reseller Settings and run Auto Setup Topics.\n"
-            "6) Tap 'Recheck Setup'."
+            f"{t(lang, 'verify_setup_help_text')}\n\n"
+            f"{t(lang, 'preflight_optional_after_approval_title')}"
         )
         await _set_or_edit_prompt(
             bot=callback.bot,
@@ -1229,20 +1306,21 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     required = ("bot_token", "bot_id", "channel", "fullname", "phone", "address")
 
-    if await _has_pending_bot_request_for_user(callback.from_user.id):
-        await callback.answer(t(lang, "pending_request_exists"), show_alert=True)
-        return await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
-
     if await _is_bot_id_already_registered(int(data.get("bot_id", 0) or 0)):
         await callback.answer(t(lang, "bot_already_registered"), show_alert=True)
         return await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
-
-    if await _has_pending_bot_request_for_bot_id(int(data.get("bot_id", 0) or 0)):
-        await callback.answer(t(lang, "bot_pending_review_exists"), show_alert=True)
-        return await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
     if any(not data.get(k) for k in required):
-        await callback.answer(t(lang, "invalid_token"), show_alert=True)
-        return await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
+        await _set_or_edit_prompt(
+            bot=callback.bot,
+            chat_id=callback.message.chat.id,
+            state=state,
+            text=_as_html_quote(f"{_build_summary_text(data, lang)}\n\n{_missing_fields_text(lang, data)}"),
+            reply_markup=_verify_confirm_kb(lang),
+            parse_mode="HTML",
+            preferred_message_id=callback.message.message_id,
+        )
+        await callback.answer(_missing_fields_text(lang, data), show_alert=True)
+        return
 
     preflight_checks = data.get("preflight_checks") or {}
     preflight_ok = bool(data.get("preflight_ok"))
@@ -1263,249 +1341,126 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer(t(lang, "preflight_failed_alert"), show_alert=True)
         return
 
-    req_doc = {
-        "requester_id": callback.from_user.id,
-        "requester_username": callback.from_user.username or "",
-        "requester_lang": lang,
-        "source_bot_id": (await callback.bot.get_me()).id,
-        "source_bot_token": callback.bot.token,
-        "payload": {
-            "bot_token": data["bot_token"],
-            "bot_id": data["bot_id"],
-            "bot_title": data.get("bot_title", ""),
-            "bot_username": data.get("bot_username", ""),
-            "channel": data["channel"],
-            "fullname": data["fullname"],
-            "phone": data["phone"],
-            "phone_country": data.get("phone_country", "Unknown"),
-            "address": data["address"],
-        },
-        "status": "pending",
-        "created_at": datetime.now(UTC),
+    trial_price = float(getattr(settings, "reseller_bot_trial_price_usd", 1.0) or 1.0)
+    current_balance = await get_reseller_wallet_balance(int(callback.from_user.id), wallet_type="main")
+    if current_balance + 1e-9 < trial_price:
+        insufficient_text = (
+            f"الرصيد غير كافٍ لتفعيل أول شهر تجريبي مدفوع.\n"
+            f"المطلوب: {format_usd(trial_price)}\n"
+            f"الرصيد الحالي: {format_usd(current_balance)}\n\n"
+            "اشحن رصيدك في البوت المركزي ثم أعد المحاولة."
+            if str(lang).lower().startswith("ar")
+            else
+            f"Your balance is not enough to activate the paid trial month.\n"
+            f"Required: {format_usd(trial_price)}\n"
+            f"Current balance: {format_usd(current_balance)}\n\n"
+            "Top up your balance in the main bot and try again."
+        )
+        await _set_or_edit_prompt(
+            bot=callback.bot,
+            chat_id=callback.message.chat.id,
+            state=state,
+            text=_as_html_quote(f"{_build_summary_text(data, lang, preflight_checks)}\n\n{insufficient_text}"),
+            reply_markup=_verify_confirm_kb(lang),
+            parse_mode="HTML",
+            preferred_message_id=callback.message.message_id,
+        )
+        await callback.answer(show_alert=True)
+        return
+
+    payload = {
+        "bot_token": data["bot_token"],
+        "bot_id": data["bot_id"],
+        "bot_title": data.get("bot_title", ""),
+        "bot_username": data.get("bot_username", ""),
+        "channel": data["channel"],
+        "fullname": data["fullname"],
+        "phone": data["phone"],
+        "phone_country": data.get("phone_country", "Unknown"),
+        "address": data["address"],
     }
-    ins = await db.bot_creation_requests.insert_one(req_doc)
-    request_id = str(ins.inserted_id)
 
-    requester = (
-        f"@{req_doc['requester_username']} ({req_doc['requester_id']})"
-        if req_doc["requester_username"]
-        else str(req_doc["requester_id"])
-    )
-
-    owner_text = t(lang, "owner_review_request").format(
-        requester=requester,
-        bot_title=req_doc["payload"].get("bot_title") or "-",
-        bot_username=(f"@{req_doc['payload'].get('bot_username')}" if req_doc["payload"].get("bot_username") else "-"),
-        channel=req_doc["payload"]["channel"],
-        fullname=req_doc["payload"]["fullname"],
-        phone=req_doc["payload"]["phone"],
-        phone_country=req_doc["payload"].get("phone_country", "Unknown"),
-        address=req_doc["payload"]["address"],
-        request_id=request_id,
-    )
-
-    admin_bot = None
     try:
-        owner_chat_id, owner_thread_id = await _get_owner_target()
-        send_kwargs = {
-            "reply_markup": _owner_review_kb(lang, request_id),
-        }
-        if owner_thread_id is not None:
-            send_kwargs["message_thread_id"] = owner_thread_id
+        exists = await db.bots.find_one({"bot_id": payload.get("bot_id")})
+        if not exists:
+            await add_bot(payload["bot_token"], callback.from_user.id, payload["bot_id"])
 
-        admin_bot = Bot(token=settings.bot_admin_token)
-        owner_msg = await _safe_bot_send_message(
-            bot=admin_bot,
-            chat_id=owner_chat_id,
-            text=owner_text,
-            **send_kwargs,
-        )
-        await db.bot_creation_requests.update_one(
-            {"_id": ins.inserted_id},
-            {
-                "$set": {
-                    "owner_chat_id": owner_chat_id,
-                    "owner_message_thread_id": owner_thread_id,
-                    "owner_message_id": owner_msg.message_id,
-                }
-            },
-        )
-    except Exception as exc:
-        logger.exception("failed to notify owner for request=%s: %s", request_id, exc)
-        await callback.message.answer(t(lang, "owner_notify_failed"))
-    finally:
-        if admin_bot is not None:
-            try:
-                await admin_bot.session.close()
-            except Exception:
-                pass
-
-    await callback.answer()
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-    await callback.message.answer(t(lang, "request_submitted_owner_review"))
-    await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
-
-
-@router.callback_query(lambda c: c.data and c.data.startswith("verify_owner:"))
-async def owner_review_callback(callback: types.CallbackQuery):
-    if callback.from_user.id != OWNER_ID:
-        return await callback.answer(t("en", "no_permission"), show_alert=True)
-
-    parts = (callback.data or "").split(":", 2)
-    if len(parts) != 3:
-        return await callback.answer("Invalid action", show_alert=True)
-
-    action = parts[1]
-    req_id = parts[2]
-    try:
-        oid = ObjectId(req_id)
-    except Exception:
-        return await callback.answer(t("en", "owner_request_not_found"), show_alert=True)
-
-    req = await db.bot_creation_requests.find_one({"_id": oid, "status": "pending"})
-    if not req:
-        return await callback.answer(t("en", "owner_request_not_found"), show_alert=True)
-
-    payload = req.get("payload", {})
-    requester_id = req.get("requester_id")
-    requester_lang = req.get("requester_lang", "en")
-
-    async def _resolve_template_reseller_id() -> int | None:
-        username = str(getattr(settings, "main_reseller_bot_username", "") or "").strip().lstrip("@").lower()
-        if not username:
-            return None
-
-        direct_bot = await db.bots.find_one(
-            {
-                "active": True,
-                "$or": [
-                    {"username_lc": username},
-                    {"bot_username_lc": username},
-                    {"reseller.bot_username_lc": username},
-                ],
-            }
-        )
-        if direct_bot and direct_bot.get("owner_id") is not None:
-            try:
-                return int(direct_bot.get("owner_id"))
-            except Exception:
-                pass
-
-        req_doc = await db.bot_creation_requests.find_one(
-            {
-                "status": "approved",
-                "$or": [
-                    {"payload.bot_username": {"$regex": f"^@?{re.escape(username)}$", "$options": "i"}},
-                    {"payload.bot_username_lc": username},
-                ],
-            },
-            sort=[("reviewed_at", -1), ("created_at", -1)],
-        )
-        if req_doc:
-            try:
-                rid = req_doc.get("requester_id")
-                return int(rid) if rid is not None else None
-            except Exception:
-                return None
-        return None
-
-    if action == "approve":
-        try:
-            exists = await db.bots.find_one({"bot_id": payload.get("bot_id")})
-            if not exists:
-                await add_bot(payload["bot_token"], requester_id, payload["bot_id"])
-            bot_username = str(payload.get("bot_username") or "").strip().lstrip("@").lower()
-            if bot_username:
-                await db.bots.update_one(
-                    {"bot_id": payload.get("bot_id")},
-                    {
-                        "$set": {
-                            "username_lc": bot_username,
-                            "bot_username_lc": bot_username,
-                            "reseller.bot_username_lc": bot_username,
-                        }
-                    },
-                )
-            await update_bot_channel(payload["bot_id"], payload["channel"])
-            await update_reseller_info(payload["bot_id"], payload["fullname"], payload["phone"], payload["address"])
-            await verify_bot(payload["bot_id"])
-
-            template_reseller_id = await _resolve_template_reseller_id()
-            if template_reseller_id and int(requester_id) != int(template_reseller_id):
-                clone_res = await clone_catalog_from_reseller_template(
-                    source_reseller_id=int(template_reseller_id),
-                    target_reseller_id=int(requester_id),
-                    catalog_type="custom",
-                )
-                logger.info(
-                    "custom template clone result source=%s target=%s success=%s reason=%s copied=%s",
-                    template_reseller_id,
-                    requester_id,
-                    clone_res.get("success"),
-                    clone_res.get("reason"),
-                    clone_res.get("copied"),
-                )
-            else:
-                logger.info(
-                    "custom template clone skipped target=%s template=%s",
-                    requester_id,
-                    template_reseller_id,
-                )
-            new_status = "approved"
-            owner_msg = t("en", "owner_request_approved")
-            user_msg = (
-                f"{t(requester_lang, 'request_approved_user_details')}\n\n"
-                f"{_approval_packet_text(requester_lang, payload)}\n\n"
-                f"{t(requester_lang, 'reseller_setup_post_approval')}"
+        subscription = await get_bot_subscription(int(payload["bot_id"]))
+        if str(subscription.get("status") or "").strip().lower() == "payment_required":
+            await db.bots.delete_one({"bot_id": payload["bot_id"], "owner_id": int(callback.from_user.id)})
+            retry_balance = await get_reseller_wallet_balance(int(callback.from_user.id), wallet_type="main")
+            insufficient_text = (
+                f"تعذر تفعيل البوت لأن الرصيد لم يعد كافيًا.\n"
+                f"المطلوب: {format_usd(trial_price)}\n"
+                f"الرصيد الحالي: {format_usd(retry_balance)}\n\n"
+                "اشحن رصيدك في البوت المركزي ثم أعد المحاولة."
+                if str(lang).lower().startswith("ar")
+                else
+                f"Bot activation failed because the balance is no longer sufficient.\n"
+                f"Required: {format_usd(trial_price)}\n"
+                f"Current balance: {format_usd(retry_balance)}\n\n"
+            "Top up your balance in the main bot and try again."
             )
-        except Exception as exc:
-            logger.exception("owner approve failed for request=%s: %s", req_id, exc)
-            new_status = "failed"
-            owner_msg = f"Failed to approve: {exc}"
-            user_msg = f"Failed to approve request: {exc}"
-    else:
-        new_status = "rejected"
-        owner_msg = t("en", "owner_request_rejected")
-        user_msg = t(requester_lang, "request_rejected_user")
+            await _set_or_edit_prompt(
+                bot=callback.bot,
+                chat_id=callback.message.chat.id,
+                state=state,
+                text=_as_html_quote(f"{_build_summary_text(data, lang, preflight_checks)}\n\n{insufficient_text}"),
+                reply_markup=_verify_confirm_kb(lang),
+                parse_mode="HTML",
+                preferred_message_id=callback.message.message_id,
+            )
+            await callback.answer(show_alert=True)
+            return
 
-    safe_payload = {k: v for k, v in payload.items() if k != "bot_token"}
-    await db.bot_creation_requests.update_one(
-        {"_id": oid},
-        {
-            "$set": {
-                "status": new_status,
-                "reviewed_at": datetime.now(UTC),
-                "reviewed_by": callback.from_user.id,
-                "reviewed_by_username": callback.from_user.username or "",
-                "reviewed_from_chat_id": callback.message.chat.id if callback.message else None,
-                "reviewed_from_message_id": callback.message.message_id if callback.message else None,
-                "reviewed_from_thread_id": getattr(callback.message, "message_thread_id", None) if callback.message else None,
-                "audit": {
-                    "action": action,
-                    "source": "verify_reseller_router",
-                    "reviewed_bot_id": (await callback.bot.get_me()).id,
-                    "payload_snapshot": safe_payload,
+        bot_username = str(payload.get("bot_username") or "").strip().lstrip("@").lower()
+        if bot_username:
+            await db.bots.update_one(
+                {"bot_id": payload.get("bot_id")},
+                {
+                    "$set": {
+                        "username_lc": bot_username,
+                        "bot_username_lc": bot_username,
+                        "reseller.bot_username_lc": bot_username,
+                    }
                 },
-            }
-        },
-    )
+            )
+        await update_bot_channel(payload["bot_id"], payload["channel"])
+        await update_reseller_info(payload["bot_id"], payload["fullname"], payload["phone"], payload["address"])
+        await verify_bot(payload["bot_id"])
 
-    try:
-        await callback.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    await callback.answer(owner_msg, show_alert=True)
+        template_reseller_id = await _resolve_template_reseller_id()
+        if template_reseller_id and int(callback.from_user.id) != int(template_reseller_id):
+            clone_res = await clone_catalog_from_reseller_template(
+                source_reseller_id=int(template_reseller_id),
+                target_reseller_id=int(callback.from_user.id),
+                catalog_type="custom",
+            )
+            logger.info(
+                "custom template clone result source=%s target=%s success=%s reason=%s copied=%s",
+                template_reseller_id,
+                callback.from_user.id,
+                clone_res.get("success"),
+                clone_res.get("reason"),
+                clone_res.get("copied"),
+            )
 
-    if requester_id:
-        await _notify_requester_via_source_bot(req, user_msg)
+        await callback.answer()
         try:
-            await callback.bot.send_message(requester_id, user_msg)
+            await callback.message.delete()
         except Exception:
             pass
-
+        success_text = (
+            f"{_approval_packet_text(lang, payload)}\n\n"
+            f"{_subscription_notice_text(lang, subscription)}\n\n"
+            f"{t(lang, 'reseller_setup_post_approval')}\n\n"
+            f"{t(lang, 'request_approved_next_step')}"
+        )
+        await callback.message.answer(success_text, reply_markup=_approval_followup_kb(lang))
+        await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
+    except Exception as exc:
+        logger.exception("auto create bot failed user_id=%s bot_id=%s: %s", callback.from_user.id, payload.get("bot_id"), exc)
+        await callback.answer(t(lang, "owner_approve_failed").format(error=exc), show_alert=True)
 
 @router.callback_query(lambda c: c.data in {"verify_nav:back", "verify_nav:cancel"})
 async def verify_navigation(callback: types.CallbackQuery, state: FSMContext):
@@ -1549,7 +1504,7 @@ async def verify_navigation(callback: types.CallbackQuery, state: FSMContext):
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(t(lang, "send_channel")),
+            text=_as_html_quote(f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )

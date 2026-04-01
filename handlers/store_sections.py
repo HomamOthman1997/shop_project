@@ -17,16 +17,19 @@ from config import settings
 from database.bots_repo import get_reseller_id_for_bot
 from database.custom_services_repo import ensure_root_node, list_children
 from database.financial_ledger import create_order_v3, get_user_wallet_balance
-from database.game_store_config_repo import get_game_store_markup_percent
+from database.digital_products_config_repo import get_digital_products_markup_percent
 from database.mongo import db
 from database.orders_repo import update_order_details, update_order_status
+from database.usage_stats_repo import increment_service_usage
 from database.reseller_settings_repo import get_exchange_rate
 from database.user_repo import get_user, get_user_reseller_for_bot, set_user_reseller_for_bot
-from keyboards.main_menu_kb import main_menu
-from services.game_store.g2bulk_client import G2BulkClient
-from services.game_store.catalog_service import get_catalog_snapshot, get_game_topups
+from utils.bot_menu_context import menu_for_current_bot
+from services.digital_products.g2bulk_client import G2BulkClient
+from services.digital_products.catalog_service import get_catalog_snapshot, get_game_topups
+from utils.core_service_guard import finance_error_public_text, guard_core_service_callback, guard_core_service_message
 from utils.financial_manager import FinancialManager
 from utils.translations import t
+from utils.user_money import format_usd
 
 router = Router()
 
@@ -65,6 +68,90 @@ _PRIORITY_GIFTCARD_BRANDS = (
     "xbox",
     "yalla ludo",
 )
+
+_GAME_TOPUP_HINTS = (
+    "diamond",
+    "diamonds",
+    "gold",
+    "gems",
+    "gem",
+    "coins",
+    "coin",
+    "cash",
+    "crystals",
+    "crystal",
+    "jade",
+    "uc",
+    "opals",
+    "opals",
+    "voucher",
+    "vouchers",
+    "token",
+    "tokens",
+    "credits",
+    "origeometry",
+)
+
+_GAME_PASS_HINTS = (
+    "prime",
+    "pass",
+    "monthly",
+    "weekly",
+    "card",
+    "subscription",
+    "membership",
+    "elite",
+    "royale",
+    "battle pass",
+)
+
+_GAME_SPECIAL_HINTS = (
+    "pack",
+    "bundle",
+    "box",
+    "chest",
+    "deal",
+    "lucky",
+    "material",
+    "emblem",
+    "skin",
+    "bundle",
+    "value",
+    "first purchase",
+    "rebate",
+)
+
+_GAME_GROUP_OVERRIDES: dict[str, dict[str, tuple[str, ...]]] = {
+    "pubgm": {
+        "passes": ("prime", "prime plus", "elite pass"),
+        "specials": ("weekly", "mythic", "materials", "first purchase"),
+    },
+    "mlbb": {
+        "passes": ("weekly elite", "monthly elite", "weekly", "twilight"),
+    },
+    "mlbb_br": {
+        "passes": ("weekly elite", "monthly elite", "weekly"),
+    },
+    "mlbb_exclusive": {
+        "passes": ("weekly", "twilight"),
+    },
+    "mla": {
+        "passes": (),
+        "specials": (),
+    },
+    "hok": {
+        "passes": ("weekly card", "weekly card plus"),
+        "specials": ("lucky bag", "value pack", "rebate"),
+    },
+    "afkjourney": {
+        "passes": ("monthly", "gazette"),
+        "specials": ("growth bundle",),
+    },
+    "age_of_magic": {
+        "passes": ("daily", "weekly"),
+        "specials": ("festive", "unique", "set"),
+    },
+}
 
 
 class GameStoreFlow(StatesGroup):
@@ -138,6 +225,26 @@ async def _hide_reply_keyboard(message: types.Message, lang: str) -> None:
         pass
 
 
+async def _edit_callback_target(
+    callback: types.CallbackQuery,
+    text: str,
+    *,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> bool:
+    if callback.message:
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+        return True
+    inline_message_id = str(getattr(callback, "inline_message_id", "") or "").strip()
+    if inline_message_id:
+        await callback.bot.edit_message_text(
+            inline_message_id=inline_message_id,
+            text=text,
+            reply_markup=reply_markup,
+        )
+        return True
+    return False
+
+
 def _is_games_trigger(text: str | None) -> bool:
     raw = (text or "").strip()
     if not raw:
@@ -150,6 +257,37 @@ def _is_games_trigger(text: str | None) -> bool:
         "games",
         "topups",
         "/games",
+    }
+    return raw in exact or lowered in exact
+
+
+def _is_mobile_topups_trigger(text: str | None) -> bool:
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    lowered = raw.lower()
+    exact = {
+        t("en", "btn_mobile_topups"),
+        t("ar", "btn_mobile_topups"),
+        "mobile top-up",
+        "mobile topups",
+        "airtime",
+        "/topup",
+    }
+    return raw in exact or lowered in exact
+
+
+def _is_esim_trigger(text: str | None) -> bool:
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    lowered = raw.lower()
+    exact = {
+        t("en", "btn_esim"),
+        t("ar", "btn_esim"),
+        "esim",
+        "e-sim",
+        "/esim",
     }
     return raw in exact or lowered in exact
 
@@ -182,6 +320,18 @@ def _is_giftcards_trigger(text: str | None) -> bool:
         "/giftcards",
     }
     return raw in exact or lowered in exact
+
+
+async def _digital_products_menu_text(lang: str) -> str:
+    return f"{t(lang, 'store_top_games_title')}\n\n{t(lang, 'store_search_pick_hint')}"
+
+
+def _coming_soon_kb(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data="back_to_main_menu")]
+        ]
+    )
 
 
 def _is_game_category(name: str | None) -> bool:
@@ -333,17 +483,19 @@ async def _resolve_usd_to_syp_rate(bot_id: int) -> float:
     return 118.0
 
 
-async def _resolve_game_store_markup_percent() -> float:
+async def _resolve_digital_products_markup_percent() -> float:
     try:
-        return float(await get_game_store_markup_percent(2.0))
+        return float(await get_digital_products_markup_percent(2.0))
     except Exception:
         return 2.0
 
 
 def _fmt_dual_price(usd: float, usd_to_syp_rate: float) -> str:
-    usd_value = _to_float(usd)
-    syp = usd_value * max(1.0, _to_float(usd_to_syp_rate))
-    return f"{usd_value:.2f}$ ({syp:.1f} SYP)"
+    return format_usd(_to_float(usd))
+
+
+def _store_price_line(lang: str, price: float, usd_to_syp_rate: float) -> str:
+    return f"{t(lang, 'price_label')}: {_fmt_dual_price(price, usd_to_syp_rate)}"
 
 
 def _extract_provider_error(payload: Any) -> str:
@@ -360,7 +512,7 @@ def _extract_provider_error(payload: Any) -> str:
                     return raw[:200]
     if isinstance(payload, str) and payload.strip():
         return payload.strip()[:200]
-    return "Provider request failed."
+    return t("en", "provider_request_failed")
 
 
 def _provider_ok(resp: dict[str, Any]) -> bool:
@@ -505,13 +657,7 @@ def _extract_voucher_lines(payload: Any) -> list[str]:
 
 
 def _finance_error_text(code: str) -> str:
-    mapping = {
-        "INSUFFICIENT_USER_BALANCE": "Insufficient balance.",
-        "INSUFFICIENT_RESELLER_MAIN": "Provider wallet is currently unavailable.",
-        "LOCKED": "Please wait a second and try again.",
-        "FINANCIAL_ERROR": "Financial processing failed, try again.",
-    }
-    return mapping.get(str(code or "").strip(), "Purchase failed.")
+    return finance_error_public_text("en", code)
 
 
 async def _core_charge(
@@ -527,11 +673,10 @@ async def _core_charge(
     order = await create_order_v3(
         user_id=int(user_id),
         reseller_id=int(reseller_id),
-        service_type="core_game_store",
+        service_type="core_digital_products",
         service_ref_id=str(service_ref_id),
         retail_amount=float(sale_price),
         wholesale_amount=float(cost_price),
-        owner_fee_amount=0.0,
         reseller_profit_amount=0.0,
         status="pending",
     )
@@ -603,12 +748,11 @@ async def _notify_owner_stock_issue(
         await bot.send_message(
             chat_id=int(target_chat_id),
             message_thread_id=int(target_thread_id) if target_thread_id is not None else None,
-            text=(
-                "Gift/Game store stock issue alert\n"
-                f"User: {int(user_id)}\n"
-                f"Reseller: {int(reseller_id)}\n"
-                f"Item: {item_name}\n"
-                f"Provider error: {provider_error[:300]}"
+            text=t("en", "store_stock_issue_alert").format(
+                user_id=int(user_id),
+                reseller_id=int(reseller_id),
+                item_name=item_name,
+                provider_error=provider_error[:300],
             ),
         )
     except Exception:
@@ -635,13 +779,17 @@ def _save_usage(data: dict[str, int]) -> None:
         pass
 
 
-def _increment_usage(name: str | None) -> None:
+async def _increment_usage(name: str | None) -> None:
     key = _norm(name)
     if not key:
         return
     usage = _load_usage()
     usage[key] = int(usage.get(key, 0) or 0) + 1
     _save_usage(usage)
+    try:
+        await increment_service_usage(service_name=key, category="digital_products")
+    except Exception:
+        pass
 
 
 def _rank_games(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -679,10 +827,191 @@ def _grid(nodes: list[dict[str, Any]], *, columns: int = 3, simplify_gifts: bool
     return rows
 
 
+def _build_game_rows(games: list[dict[str, Any]], *, limit: int | None = None) -> list[list[InlineKeyboardButton]]:
+    ranked = _rank_games(list(games or []))
+    if isinstance(limit, int) and limit > 0:
+        ranked = ranked[:limit]
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for game in ranked:
+        gid = str(game.get("id") or "").strip()
+        if not gid:
+            continue
+        row.append(InlineKeyboardButton(text=str(game.get("name") or "-")[:28], callback_data=f"gst:game:{gid}"))
+        if len(row) >= 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return rows
+
+
+def _is_numeric_topup_name(raw_name: str) -> bool:
+    compact = raw_name.replace(",", "").replace("+", " ").strip()
+    if not compact:
+        return False
+    if re.fullmatch(r"[\d\s]+", compact):
+        return True
+    return bool(re.match(r"^\d+(\s+[A-Za-z]+.*)?$", compact))
+
+
+def _find_game_name(game_id: str, snapshot: dict[str, Any] | None = None) -> str:
+    games = list((snapshot or {}).get("games") or [])
+    for game in games:
+        if str(game.get("id") or "").strip() == str(game_id).strip():
+            return str(game.get("name") or game_id or "-").strip()
+    return str(game_id or "-").strip()
+
+
+def _game_title(lang: str, game_name: str, section_title: str | None = None) -> str:
+    if section_title:
+        return t(lang, "store_game_section_title").format(game=game_name, section=section_title)
+    return t(lang, "store_game_title").format(game=game_name)
+
+
+def _normalize_game_item_name(name: str) -> str:
+    text = " ".join(str(name or "").strip().split())
+    text = text.replace("Activation Pass Bundle", "Bundle")
+    text = text.replace("Activation Pass", "Pass")
+    text = text.replace("Monthly Advanced Battle Pass", "Advanced Battle Pass")
+    text = text.replace("Monthly Premium Battle Pass", "Premium Battle Pass")
+    text = text.replace("Premium Spiritual Jade", "Jade")
+    text = text.replace("Prime Plus", "Prime+")
+    text = text.replace("First Purchase Pack", "First Purchase")
+    text = text.replace("Weekly Deal Pack", "Weekly Deal")
+    text = text.replace("Value Pack", "Value")
+    return text
+
+
+def _display_game_item_name(item: dict[str, Any], *, group_key: str) -> str:
+    raw_name = str(item.get("clean_name") or item.get("name") or "-").strip()
+    name = _normalize_game_item_name(raw_name)
+    if group_key == "topup":
+        compact = name.replace(",", "").strip()
+        if re.fullmatch(r"\d+", compact):
+            return compact
+        match = re.match(r"^(\d+)\s*([A-Za-z].*)$", name)
+        if match:
+            unit = match.group(2).strip()
+            if len(unit) > 10:
+                unit = unit.split()[0]
+            return f"{match.group(1)} {unit}".strip()
+    return name
+
+
+def _sort_game_group_items(items: list[dict[str, Any]], *, group_key: str) -> list[dict[str, Any]]:
+    def _key(item: dict[str, Any]) -> tuple[Any, ...]:
+        raw_name = str(item.get("clean_name") or item.get("name") or "").strip()
+        display_name = _display_game_item_name(item, group_key=group_key)
+        if group_key == "topup":
+            digits = re.findall(r"\d+", raw_name.replace(",", ""))
+            if digits:
+                return (0, int(digits[0]), _natural_sort_key(display_name))
+        return (1, _natural_sort_key(display_name))
+
+    return sorted(list(items or []), key=_key)
+
+
+def _classify_game_item_group(game_id: str, item: dict[str, Any]) -> str:
+    name = str(item.get("clean_name") or item.get("name") or "").strip()
+    lowered = _norm(name)
+    if not lowered:
+        return "specials"
+    override = _GAME_GROUP_OVERRIDES.get(game_id) or {}
+    for group_key, keywords in override.items():
+        if keywords and any(keyword in lowered for keyword in keywords):
+            return group_key
+    if any(hint in lowered for hint in _GAME_PASS_HINTS):
+        return "passes"
+    if any(hint in lowered for hint in _GAME_SPECIAL_HINTS):
+        return "specials"
+    if _is_numeric_topup_name(name) or any(hint in lowered for hint in _GAME_TOPUP_HINTS):
+        return "topup"
+    # Keep classification scoped to the current game only.
+    if game_id in {"pubgm", "mlbb", "mla", "mlbb_br", "mlbb_exclusive", "hok"}:
+        return "topup"
+    return "specials"
+
+
+def _group_game_items(game_id: str, items: list[dict[str, Any]], lang: str) -> list[tuple[str, str, list[dict[str, Any]]]]:
+    buckets: dict[str, list[dict[str, Any]]] = {"topup": [], "passes": [], "specials": []}
+    for item in items:
+        buckets[_classify_game_item_group(game_id, item)].append(item)
+    ordered: list[tuple[str, str, list[dict[str, Any]]]] = []
+    labels = {
+        "topup": t(lang, "store_game_group_topup"),
+        "passes": t(lang, "store_game_group_passes"),
+        "specials": t(lang, "store_game_group_specials"),
+    }
+    for key in ("topup", "passes", "specials"):
+        grouped_items = buckets.get(key) or []
+        if grouped_items:
+            ordered.append((key, labels[key], _sort_game_group_items(grouped_items, group_key=key)))
+    return ordered
+
+
+async def _render_game_group_list(
+    callback: types.CallbackQuery,
+    *,
+    game_id: str,
+    game_name: str,
+    items: list[dict[str, Any]],
+    lang: str,
+) -> bool:
+    grouped = _group_game_items(game_id, items, lang)
+    if len(grouped) <= 1:
+        return False
+    rows: list[list[InlineKeyboardButton]] = []
+    for key, label, grouped_items in grouped:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{label} ({len(grouped_items)})",
+                    callback_data=f"gst:gamegroup:{game_id}:{key}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:gameroot")])
+    return await _edit_callback_target(
+        callback,
+        _game_title(lang, game_name, t(lang, "store_game_groups_title")),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
+async def _render_game_group_items(
+    callback: types.CallbackQuery,
+    *,
+    game_id: str,
+    game_name: str,
+    group_key: str,
+    items: list[dict[str, Any]],
+    lang: str,
+    back_callback: str,
+) -> bool:
+    usd_to_syp_rate = await _resolve_usd_to_syp_rate(callback.bot.id)
+    markup_percent = await _resolve_digital_products_markup_percent()
+    rows = _product_grid(
+        items[:60],
+        callback_prefix=f"gst:gameitem:{game_id}:{group_key}",
+        columns=2,
+        usd_to_syp_rate=usd_to_syp_rate,
+        markup_percent=markup_percent,
+        group_key=group_key,
+    )
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data=back_callback)])
+    return await _edit_callback_target(
+        callback,
+        _game_title(lang, game_name, t(lang, f"store_game_group_{group_key}")),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
 def _product_grid(
     items: list[dict[str, Any]],
     *,
     callback_prefix: str,
+    group_key: str = "topup",
     columns: int = 2,
     usd_to_syp_rate: float = 118.0,
     markup_percent: float = 0.0,
@@ -694,8 +1023,8 @@ def _product_grid(
         if not item_id:
             continue
         price = float(_apply_markup_decimal(item.get("price"), markup_percent))
-        name = str(item.get("clean_name") or item.get("name") or "-").strip()
-        text = f"{name[:12]} | {_fmt_dual_price(price, usd_to_syp_rate)}" if price > 0 else name[:28]
+        name = _display_game_item_name(item, group_key=group_key)
+        text = f"{name[:18]} | {_fmt_dual_price(price, usd_to_syp_rate)}" if price > 0 else name[:28]
         row.append(InlineKeyboardButton(text=text, callback_data=f"{callback_prefix}:{item_id}"))
         if len(row) >= columns:
             rows.append(row)
@@ -739,7 +1068,7 @@ def _gift_products_rows(
             continue
         raw_name = str(item.get("name") or "-").strip()
         price = float(_apply_markup_decimal(item.get("price"), markup_percent))
-        label = f"{raw_name} | Price: {_fmt_dual_price(price, usd_to_syp_rate)}"[:62]
+        label = f"{raw_name} | {_store_price_line('en', price, usd_to_syp_rate)}"[:62]
         cb = f"gst:giftitem:{category_id}:{item_id}"
         rows.append(
             [
@@ -761,6 +1090,8 @@ def _service_button_style(name: str) -> str:
 async def open_giftcards_section(message: types.Message, state):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
     await _hide_reply_keyboard(message, lang)
 
     # Primary source: G2Bulk API catalogue.
@@ -770,7 +1101,7 @@ async def open_giftcards_section(message: types.Message, state):
         if not categories:
             return await message.answer(t(lang, "store_no_gift_categories"), reply_markup=ReplyKeyboardRemove())
         rows = _build_gift_categories_rows(categories[:60])
-        rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="cstm:cancel")])
+        rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:menu")])
         await message.answer(
             f"{t(lang, 'store_gift_title')}\n\n{t(lang, 'store_search_pick_hint')}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
@@ -781,17 +1112,41 @@ async def open_giftcards_section(message: types.Message, state):
     return await message.answer(t(lang, "store_no_gift_categories"), reply_markup=ReplyKeyboardRemove())
 
 
+@router.message(lambda m: _is_mobile_topups_trigger(m.text))
+async def open_mobile_topups_section(message: types.Message):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await _hide_reply_keyboard(message, lang)
+    await message.answer(
+        t(lang, "digital_products_mobile_topups_placeholder"),
+        reply_markup=_coming_soon_kb(lang),
+    )
+
+
+@router.message(lambda m: _is_esim_trigger(m.text))
+async def open_esim_section(message: types.Message):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await _hide_reply_keyboard(message, lang)
+    await message.answer(
+        t(lang, "digital_products_esim_placeholder"),
+        reply_markup=_coming_soon_kb(lang),
+    )
+
+
 @router.message(lambda m: _is_store_trigger(m.text))
 async def open_store_hub(message: types.Message):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
     await _hide_reply_keyboard(message, lang)
     rows = [
         [
             InlineKeyboardButton(text=t(lang, "store_btn_giftcards"), callback_data="gst:hub:gift", style="primary"),
             InlineKeyboardButton(text=t(lang, "store_btn_games"), callback_data="gst:hub:games", style="success"),
         ],
-        [InlineKeyboardButton(text=t(lang, "back"), callback_data="cstm:cancel", style="danger")],
+        [InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:menu", style="danger")],
     ]
     await message.answer(
         f"{t(lang, 'store_hub_title')}\n\n{t(lang, 'store_hub_hint')}",
@@ -803,6 +1158,8 @@ async def open_store_hub(message: types.Message):
 async def open_games_section(message: types.Message, state):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
     await _hide_reply_keyboard(message, lang)
 
     # Primary source: G2Bulk games API.
@@ -811,23 +1168,11 @@ async def open_games_section(message: types.Message, state):
         games = list(snapshot.get("games") or [])
         if not games:
             return await message.answer(t(lang, "store_no_game_categories"), reply_markup=ReplyKeyboardRemove())
-        top = games[:5]
-        kb_rows: list[list[InlineKeyboardButton]] = []
-        row: list[InlineKeyboardButton] = []
-        for g in top:
-            gid = str(g.get("id") or "").strip()
-            if not gid:
-                continue
-            row.append(InlineKeyboardButton(text=str(g.get("name") or "-")[:28], callback_data=f"gst:game:{gid}"))
-            if len(row) >= 2:
-                kb_rows.append(row)
-                row = []
-        if row:
-            kb_rows.append(row)
+        kb_rows = _build_game_rows(games, limit=5)
         kb_rows.append([InlineKeyboardButton(text=t(lang, "store_more_games"), switch_inline_query_current_chat="game ")])
-        kb_rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="cstm:cancel")])
+        kb_rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:menu")])
         await message.answer(
-            f"{t(lang, 'store_top_games_title')}\n\n{t(lang, 'store_search_pick_hint')}",
+            await _digital_products_menu_text(lang),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
         )
         return
@@ -840,6 +1185,8 @@ async def open_games_section(message: types.Message, state):
 async def open_store_hub_gift(callback: types.CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
     snapshot = await get_catalog_snapshot(force=False)
     if bool(snapshot.get("enabled")):
         categories = _prepare_gift_categories(list(snapshot.get("gift_categories") or []))
@@ -862,27 +1209,17 @@ async def open_store_hub_gift(callback: types.CallbackQuery, state: FSMContext):
 async def open_store_hub_games(callback: types.CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
     snapshot = await get_catalog_snapshot(force=False)
     if bool(snapshot.get("enabled")):
         games = list(snapshot.get("games") or [])
         if not games:
             await callback.answer(t(lang, "store_no_game_categories"), show_alert=True)
             return
-        top = games[:5]
-        kb_rows: list[list[InlineKeyboardButton]] = []
-        row: list[InlineKeyboardButton] = []
-        for g in top:
-            gid = str(g.get("id") or "").strip()
-            if not gid:
-                continue
-            row.append(InlineKeyboardButton(text=str(g.get("name") or "-")[:28], callback_data=f"gst:game:{gid}"))
-            if len(row) >= 2:
-                kb_rows.append(row)
-                row = []
-        if row:
-            kb_rows.append(row)
+        kb_rows = _build_game_rows(games, limit=5)
         kb_rows.append([InlineKeyboardButton(text=t(lang, "store_more_games"), switch_inline_query_current_chat="game ")])
-        kb_rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:hub:back", style="danger")])
+        kb_rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:menu", style="danger")])
         if callback.message:
             await callback.message.edit_text(
                 f"{t(lang, 'store_top_games_title')}\n\n{t(lang, 'store_search_pick_hint')}",
@@ -902,7 +1239,7 @@ async def open_store_hub_back(callback: types.CallbackQuery):
             InlineKeyboardButton(text=t(lang, "store_btn_giftcards"), callback_data="gst:hub:gift", style="primary"),
             InlineKeyboardButton(text=t(lang, "store_btn_games"), callback_data="gst:hub:games", style="success"),
         ],
-        [InlineKeyboardButton(text=t(lang, "back"), callback_data="cstm:cancel", style="danger")],
+        [InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:menu", style="danger")],
     ]
     if callback.message:
         await callback.message.edit_text(
@@ -917,7 +1254,8 @@ async def inline_games_search(iq: types.InlineQuery):
     user_id = int(getattr(iq.from_user, "id", 0) or 0)
     if user_id <= 0:
         return await iq.answer([], cache_time=5, is_personal=True)
-    bot_id = (await iq.bot.get_me()).id
+    user = await get_user(user_id)
+    lang = (user or {}).get("language", "en")
 
     snapshot = await get_catalog_snapshot(force=False)
     if bool(snapshot.get("enabled")):
@@ -935,7 +1273,7 @@ async def inline_games_search(iq: types.InlineQuery):
         scored.sort(key=lambda x: -x[0])
         top = [x[1] for x in scored[:20]]
         if q and top:
-            _increment_usage(str(top[0].get("name") or ""))
+            await _increment_usage(str(top[0].get("name") or ""))
 
         results: list[types.InlineQueryResultArticle] = []
         for game in top:
@@ -947,10 +1285,17 @@ async def inline_games_search(iq: types.InlineQuery):
                 types.InlineQueryResultArticle(
                     id=f"g2_game_{gid}",
                     title=name,
-                    description=t("en", "store_search_pick_hint"),
-                    input_message_content=types.InputTextMessageContent(message_text=f"ðŸŽ® {name}"),
+                    description=t(lang, "store_inline_game_description"),
+                    input_message_content=types.InputTextMessageContent(
+                        message_text=(
+                            f"{t(lang, 'store_game_pick_prefix')} {name}\n"
+                            f"{t(lang, 'store_inline_game_selected_hint')}"
+                        )
+                    ),
                     reply_markup=InlineKeyboardMarkup(
-                        inline_keyboard=[[InlineKeyboardButton(text=t("en", "store_search_pick_hint"), callback_data=f"gst:game:{gid}")]]
+                        inline_keyboard=[
+                            [InlineKeyboardButton(text=t(lang, "store_open_game_packages"), callback_data=f"gst:game:{gid}")]
+                        ]
                     ),
                 )
             )
@@ -962,6 +1307,9 @@ async def inline_games_search(iq: types.InlineQuery):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("gst:giftcat:"))
 async def open_g2bulk_gift_category(callback: types.CallbackQuery):
+    if not callback.message:
+        await callback.answer()
+        return
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
     parts = str(callback.data or "").split(":")
@@ -973,7 +1321,7 @@ async def open_g2bulk_gift_category(callback: types.CallbackQuery):
         except Exception:
             page = 0
     if not cat_id:
-        return await callback.answer("Category not found.", show_alert=True)
+        return await callback.answer(t(lang, "store_category_not_found"), show_alert=True)
     snapshot = await get_catalog_snapshot(force=False)
     products = list((snapshot.get("products_by_category") or {}).get(cat_id) or [])
     if not products:
@@ -986,7 +1334,7 @@ async def open_g2bulk_gift_category(callback: types.CallbackQuery):
             break
     force_blue = any(k in _norm(cat_name) for k in ("itunes", "apple"))
     usd_to_syp_rate = await _resolve_usd_to_syp_rate(callback.bot.id)
-    markup_percent = await _resolve_game_store_markup_percent()
+    markup_percent = await _resolve_digital_products_markup_percent()
     rows, page_count = _gift_products_rows(
         products[:60],
         category_id=cat_id,
@@ -997,9 +1345,9 @@ async def open_g2bulk_gift_category(callback: types.CallbackQuery):
     )
     if page_count > 1:
         if page <= 0:
-            rows.append([InlineKeyboardButton(text="Next â–¶ï¸", callback_data=f"gst:giftcat:{cat_id}:1")])
+            rows.append([InlineKeyboardButton(text=t(lang, "next_plain"), callback_data=f"gst:giftcat:{cat_id}:1")])
         else:
-            rows.append([InlineKeyboardButton(text="â—€ï¸ Prev", callback_data=f"gst:giftcat:{cat_id}:0")])
+            rows.append([InlineKeyboardButton(text=t(lang, "prev_plain"), callback_data=f"gst:giftcat:{cat_id}:0")])
     rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:giftroot")])
     await callback.message.edit_text(t(lang, "store_gift_title"), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
     await callback.answer()
@@ -1007,6 +1355,9 @@ async def open_g2bulk_gift_category(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data == "gst:giftroot")
 async def open_g2bulk_gift_root(callback: types.CallbackQuery):
+    if not callback.message:
+        await callback.answer()
+        return
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
     snapshot = await get_catalog_snapshot(force=False)
@@ -1014,18 +1365,23 @@ async def open_g2bulk_gift_root(callback: types.CallbackQuery):
     if not categories:
         return await callback.answer(t(lang, "store_no_gift_categories"), show_alert=True)
     rows = _build_gift_categories_rows(categories[:60])
-    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="cstm:cancel")])
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:menu")])
     await callback.message.edit_text(t(lang, "store_gift_title"), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
     await callback.answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("gst:giftitem:"))
 async def open_g2bulk_gift_item(callback: types.CallbackQuery):
+    if not callback.message:
+        await callback.answer()
+        return
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
     parts = str(callback.data or "").split(":")
     if len(parts) < 4:
-        return await callback.answer("Invalid product.", show_alert=True)
+        return await callback.answer(t(lang, "store_invalid_product"), show_alert=True)
     cat_id = str(parts[2]).strip()
     product_id = str(parts[3]).strip()
     snapshot = await get_catalog_snapshot(force=False)
@@ -1035,17 +1391,17 @@ async def open_g2bulk_gift_item(callback: types.CallbackQuery):
             found = item
             break
     if not found:
-        return await callback.answer("Product not found.", show_alert=True)
+        return await callback.answer(t(lang, "store_product_not_found"), show_alert=True)
     usd_to_syp_rate = await _resolve_usd_to_syp_rate(callback.bot.id)
     name = str(found.get("name") or "-")
-    markup_percent = await _resolve_game_store_markup_percent()
+    markup_percent = await _resolve_digital_products_markup_percent()
     price = float(_apply_markup_decimal(found.get("price"), markup_percent))
     stock = int(found.get("stock") or 0)
     text = (
         f"{name}\n\n"
-        f"Price: {_fmt_dual_price(price, usd_to_syp_rate)}\n"
-        f"Stock: {stock}\n\n"
-        "Confirm purchase?"
+        f"{_store_price_line(lang, price, usd_to_syp_rate)}\n"
+        f"{t(lang, 'store_stock_label')}: {stock}\n\n"
+        f"{t(lang, 'confirm_purchase_question')}"
     )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -1061,21 +1417,67 @@ async def open_g2bulk_gift_item(callback: types.CallbackQuery):
 async def open_g2bulk_game(callback: types.CallbackQuery):
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
+    snapshot = await get_catalog_snapshot(force=False)
     game_id = str(callback.data.split(":", 2)[2]).strip()
+    game_name = _find_game_name(game_id, snapshot)
     items = await get_game_topups(game_id)
     if not items:
         return await callback.answer(t(lang, "store_no_game_categories"), show_alert=True)
-    usd_to_syp_rate = await _resolve_usd_to_syp_rate(callback.bot.id)
-    markup_percent = await _resolve_game_store_markup_percent()
-    rows = _product_grid(
-        items[:60],
-        callback_prefix=f"gst:gameitem:{game_id}",
-        columns=2,
-        usd_to_syp_rate=usd_to_syp_rate,
-        markup_percent=markup_percent,
-    )
-    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:gameroot")])
-    await callback.message.edit_text(t(lang, "store_top_games_title"), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    grouped = _group_game_items(game_id, items, lang)
+    if len(grouped) > 1:
+        if not await _render_game_group_list(callback, game_id=game_id, game_name=game_name, items=items, lang=lang):
+            await callback.answer()
+            return
+        await callback.answer()
+        return
+    group_key = grouped[0][0] if grouped else "topup"
+    if not await _render_game_group_items(
+        callback,
+        game_id=game_id,
+        game_name=game_name,
+        group_key=group_key,
+        items=items,
+        lang=lang,
+        back_callback="gst:gameroot",
+    ):
+        await callback.answer()
+        return
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("gst:gamegroup:"))
+async def open_g2bulk_game_group(callback: types.CallbackQuery):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
+    parts = str(callback.data or "").split(":")
+    if len(parts) < 4:
+        return await callback.answer(t(lang, "store_invalid_package"), show_alert=True)
+    game_id = str(parts[2]).strip()
+    group_key = str(parts[3]).strip()
+    snapshot = await get_catalog_snapshot(force=False)
+    game_name = _find_game_name(game_id, snapshot)
+    items = await get_game_topups(game_id)
+    if not items:
+        return await callback.answer(t(lang, "store_no_game_categories"), show_alert=True)
+    grouped = {key: grouped_items for key, _label, grouped_items in _group_game_items(game_id, items, lang)}
+    selected_items = grouped.get(group_key) or []
+    if not selected_items:
+        return await callback.answer(t(lang, "store_no_game_categories"), show_alert=True)
+    if not await _render_game_group_items(
+        callback,
+        game_id=game_id,
+        game_name=game_name,
+        group_key=group_key,
+        items=selected_items,
+        lang=lang,
+        back_callback=f"gst:game:{game_id}",
+    ):
+        await callback.answer()
+        return
     await callback.answer()
 
 
@@ -1087,61 +1489,89 @@ async def open_g2bulk_games_root(callback: types.CallbackQuery):
     games = list(snapshot.get("games") or [])
     if not games:
         return await callback.answer(t(lang, "store_no_game_categories"), show_alert=True)
-    top = games[:5]
-    kb_rows: list[list[InlineKeyboardButton]] = []
-    row: list[InlineKeyboardButton] = []
-    for g in top:
-        gid = str(g.get("id") or "").strip()
-        if not gid:
-            continue
-        row.append(InlineKeyboardButton(text=str(g.get("name") or "-")[:28], callback_data=f"gst:game:{gid}"))
-        if len(row) >= 2:
-            kb_rows.append(row)
-            row = []
-    if row:
-        kb_rows.append(row)
+    kb_rows = _build_game_rows(games, limit=5)
     kb_rows.append([InlineKeyboardButton(text=t(lang, "store_more_games"), switch_inline_query_current_chat="game ")])
-    kb_rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="cstm:cancel")])
-    await callback.message.edit_text(t(lang, "store_top_games_title"), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows))
+    kb_rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:menu")])
+    if not await _edit_callback_target(
+        callback,
+        await _digital_products_menu_text(lang),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
+    ):
+        await callback.answer()
+        return
     await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "gst:menu")
+async def digital_products_back_to_menu(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    if not callback.message:
+        return
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await callback.message.answer(
+        t(lang, "main_menu"),
+        reply_markup=await menu_for_current_bot(lang, (await callback.bot.get_me()).id),
+    )
+    await callback.answer()
+
+
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("gst:gameitem:"))
 async def open_g2bulk_game_item(callback: types.CallbackQuery):
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
     parts = str(callback.data or "").split(":")
     if len(parts) < 4:
-        return await callback.answer("Invalid package.", show_alert=True)
+        return await callback.answer(t(lang, "store_invalid_package"), show_alert=True)
     game_id = str(parts[2]).strip()
-    item_id = str(parts[3]).strip()
+    snapshot = await get_catalog_snapshot(force=False)
+    game_name = _find_game_name(game_id, snapshot)
+    group_key = "topup"
+    item_id = ""
+    if len(parts) >= 5:
+        group_key = str(parts[3]).strip() or "topup"
+        item_id = str(parts[4]).strip()
+    else:
+        item_id = str(parts[3]).strip()
     items = await get_game_topups(game_id)
+    grouped_count = len(_group_game_items(game_id, items, lang))
     found: dict[str, Any] | None = None
     for item in items:
         if str(item.get("id") or "").strip() == item_id:
             found = item
             break
     if not found:
-        return await callback.answer("Top-up package not found.", show_alert=True)
+        return await callback.answer(t(lang, "store_topup_package_not_found"), show_alert=True)
     usd_to_syp_rate = await _resolve_usd_to_syp_rate(callback.bot.id)
-    name = str(found.get("name") or "-")
-    markup_percent = await _resolve_game_store_markup_percent()
+    name = _display_game_item_name(found, group_key=group_key)
+    markup_percent = await _resolve_digital_products_markup_percent()
     price = float(_apply_markup_decimal(found.get("price"), markup_percent))
     requires_server = bool(found.get("requires_server"))
-    server_note = "Server ID required." if requires_server else "Server ID optional."
+    server_note = t(lang, "store_server_id_required") if requires_server else t(lang, "store_server_id_optional")
     text = (
+        f"{_game_title(lang, game_name)}\n\n"
         f"{name}\n\n"
-        f"Price: {_fmt_dual_price(price, usd_to_syp_rate)}\n"
+        f"{_store_price_line(lang, price, usd_to_syp_rate)}\n"
         f"{server_note}\n\n"
-        "Press Buy and send your Player ID."
+        f"{t(lang, 'store_press_buy_send_player_id')}"
     )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data=f"gst:buygame:{game_id}:{item_id}")],
-            [InlineKeyboardButton(text=t(lang, "back"), callback_data=f"gst:game:{game_id}")],
+            [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data=f"gst:buygame:{game_id}:{group_key}:{item_id}")],
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data=(f"gst:gamegroup:{game_id}:{group_key}" if grouped_count > 1 else f"gst:game:{game_id}"))],
         ]
     )
-    await callback.message.edit_text(text, reply_markup=kb)
+    if not await _edit_callback_target(callback, text, reply_markup=kb):
+        await callback.answer()
+        return
     await callback.answer()
 
 
@@ -1149,9 +1579,11 @@ async def open_g2bulk_game_item(callback: types.CallbackQuery):
 async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery):
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
     parts = str(callback.data or "").split(":")
     if len(parts) < 4:
-        return await callback.answer("Invalid product.", show_alert=True)
+        return await callback.answer(t(lang, "store_invalid_product"), show_alert=True)
     cat_id = str(parts[2]).strip()
     product_id = str(parts[3]).strip()
 
@@ -1162,17 +1594,17 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery):
             selected = item
             break
     if not selected:
-        return await callback.answer("Product not found.", show_alert=True)
+        return await callback.answer(t(lang, "store_product_not_found"), show_alert=True)
 
     reseller_id = await get_reseller_id_for_bot(callback.bot.id)
     if not reseller_id:
-        return await callback.answer("Reseller is not linked to this bot.", show_alert=True)
+        return await callback.answer(t(lang, "store_reseller_not_linked"), show_alert=True)
 
     stock = _to_int(selected.get("stock"))
     if stock <= 0:
-        return await callback.answer("Out of stock.", show_alert=True)
+        return await callback.answer(t(lang, "store_out_of_stock"), show_alert=True)
 
-    markup_percent = await _resolve_game_store_markup_percent()
+    markup_percent = await _resolve_digital_products_markup_percent()
     cost_price = float(_money_decimal(selected.get("price")))
     sale_price = float(_apply_markup_decimal(cost_price, markup_percent))
     order, err = await _core_charge(
@@ -1183,7 +1615,7 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery):
         cost_price=cost_price,
     )
     if not order or err:
-        return await callback.answer(err or "Purchase failed.", show_alert=True)
+        return await callback.answer(err or t(lang, "purchase_failed_plain"), show_alert=True)
 
     await callback.answer(t(lang, "processing_order"), show_alert=False)
     client = G2BulkClient()
@@ -1207,11 +1639,12 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery):
         )
         if callback.message:
             await callback.message.edit_text(
-                "Out of stock right now.\n"
-                "Admin has been notified.\n"
-                "Please try again within 6 hours."
+                t(lang, "store_out_of_stock_admin_notified")
             )
-            await callback.message.answer(t(lang, "main_menu"), reply_markup=main_menu(lang))
+            await callback.message.answer(
+                t(lang, "main_menu"),
+                reply_markup=await menu_for_current_bot(lang, (await callback.bot.get_me()).id),
+            )
         return
 
     order_id_str = str(order.get("_id"))
@@ -1226,27 +1659,66 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery):
             "provider_order_id": external_order_id,
             "provider_response": provider_resp,
             "delivery_lines": voucher_lines,
-            "number_mode": "game_store",
+            "number_mode": "digital_products",
         },
     )
+
+    if not voucher_lines:
+        status_resp = await _poll_g2bulk_order_status(client, external_order_id) if external_order_id else None
+        if status_resp is not None:
+            await update_order_details(
+                order["_id"],
+                {
+                    "provider_status_response": status_resp,
+                    "provider_status": _extract_provider_status(status_resp),
+                },
+            )
+        if status_resp is not None and _provider_status_is_failure(status_resp):
+            await _core_refund(
+                user_id=int(callback.from_user.id),
+                reseller_id=int(reseller_id),
+                order=order,
+                sale_price=sale_price,
+                cost_price=cost_price,
+            )
+            error_text = _extract_provider_error(status_resp.get("data") if isinstance(status_resp, dict) else status_resp)
+            await update_order_details(order["_id"], {"provider_error": error_text})
+            if callback.message:
+                await callback.message.edit_text(t(lang, "store_topup_provider_failed_refunded"))
+            return
+
+        # Keep as paid + manual follow-up when provider accepted but no delivery lines yet.
+        await update_order_details(
+            order["_id"],
+            {
+                "provider_manual_review_required": True,
+                "provider_error": "voucher_lines_missing_or_pending",
+            },
+        )
+        if callback.message:
+            await callback.message.edit_text(
+                t(lang, "store_topup_pending_followup")
+            )
+        return
+
     await update_order_status(order["_id"], "success")
 
     usd_to_syp_rate = await _resolve_usd_to_syp_rate(callback.bot.id)
-    debit_line = f"Debited: {_fmt_dual_price(sale_price, usd_to_syp_rate)}"
+    debit_line = f"{t(lang, 'store_debited_label')}: {_fmt_dual_price(sale_price, usd_to_syp_rate)}"
     balance = await get_user_wallet_balance(callback.from_user.id, int(reseller_id))
-    balance_line = f"Balance: {float(balance or 0):.2f}$"
-    body = [f"âœ… Purchase complete", debit_line, balance_line, f"Order: {order_id_str}"]
+    balance_line = f"{t(lang, 'store_balance_label')}: {format_usd(float(balance or 0))}"
+    body = [t(lang, "purchase_complete_plain"), debit_line, balance_line, f"{t(lang, 'store_order_label')}: {order_id_str}"]
     if external_order_id:
-        body.append(f"Provider Ref: {external_order_id}")
+        body.append(f"{t(lang, 'store_provider_ref_label')}: {external_order_id}")
     if voucher_lines:
         body.append("")
-        body.append("Delivery:")
+        body.append(f"{t(lang, 'delivery_plain')}:")
         body.extend([f"- {line}" for line in voucher_lines])
     await callback.message.edit_text(
         "\n".join(body),
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="cstm:cancel")]
+                [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")]
             ]
         ),
     )
@@ -1256,22 +1728,33 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery):
 async def start_g2bulk_game_checkout(callback: types.CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
     parts = str(callback.data or "").split(":")
     if len(parts) < 4:
-        return await callback.answer("Invalid package.", show_alert=True)
+        return await callback.answer(t(lang, "store_invalid_package"), show_alert=True)
     game_id = str(parts[2]).strip()
-    item_id = str(parts[3]).strip()
+    group_key = "topup"
+    item_id = ""
+    if len(parts) >= 5:
+        group_key = str(parts[3]).strip() or "topup"
+        item_id = str(parts[4]).strip()
+    else:
+        item_id = str(parts[3]).strip()
     items = await get_game_topups(game_id)
+    snapshot = await get_catalog_snapshot(force=False)
+    game_name = _find_game_name(game_id, snapshot)
+    grouped_count = len(_group_game_items(game_id, items, lang))
     selected: dict[str, Any] | None = None
     for item in items:
         if str(item.get("id") or "").strip() == item_id:
             selected = item
             break
     if not selected:
-        return await callback.answer("Top-up package not found.", show_alert=True)
+        return await callback.answer(t(lang, "store_topup_package_not_found"), show_alert=True)
 
     await state.set_state(GameStoreFlow.waiting_topup_player)
-    markup_percent = await _resolve_game_store_markup_percent()
+    markup_percent = await _resolve_digital_products_markup_percent()
     provider_price = _money_decimal(selected.get("price"))
     sale_price = _apply_markup_decimal(provider_price, markup_percent)
     await state.update_data(
@@ -1286,15 +1769,18 @@ async def start_g2bulk_game_checkout(callback: types.CallbackQuery, state: FSMCo
             "requires_server": bool(selected.get("requires_server")),
         }
     )
-    await callback.message.edit_text(
-        "Send Player ID now:",
+    if not await _edit_callback_target(
+        callback,
+        f"{_game_title(lang, game_name)}\n\n{t(lang, 'store_send_player_id')}",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text=t(lang, "back"), callback_data=f"gst:game:{game_id}")],
+                [InlineKeyboardButton(text=t(lang, "back"), callback_data=(f"gst:gamegroup:{game_id}:{group_key}" if grouped_count > 1 else f"gst:game:{game_id}"))],
                 [InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data="gst:buycancel")],
             ]
         ),
-    )
+    ):
+        await callback.answer()
+        return
     await callback.answer()
 
 
@@ -1304,11 +1790,11 @@ async def cancel_g2bulk_buy_flow(callback: types.CallbackQuery, state: FSMContex
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
     await callback.message.edit_text(
-        "Cancelled.",
+        t(lang, "cancelled_plain"),
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:gameroot")],
-                [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="cstm:cancel")],
+                [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")],
             ]
         ),
     )
@@ -1322,20 +1808,24 @@ async def store_noop(callback: types.CallbackQuery):
 
 @router.message(GameStoreFlow.waiting_topup_player)
 async def g2bulk_collect_player_id(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
     player_id = str(message.text or "").strip()
     if not player_id:
-        return await message.answer("Player ID cannot be empty. Send Player ID:")
+        return await message.answer(t(lang, "store_player_id_empty"))
     data = await state.get_data()
     pending = dict(data.get("gst_pending_buy") or {})
     if not pending:
         await state.clear()
-        return await message.answer("Session expired. Start again.")
+        return await message.answer(t(lang, "store_session_expired"))
     pending["player_id"] = player_id
     await state.update_data(gst_pending_buy=pending)
 
     if bool(pending.get("requires_server")):
         await state.set_state(GameStoreFlow.waiting_topup_server)
-        return await message.answer("Send Server ID now:")
+        return await message.answer(t(lang, "store_send_server_id"))
 
     await state.clear()
     await _execute_g2bulk_game_purchase(message, pending, server_id="")
@@ -1343,14 +1833,18 @@ async def g2bulk_collect_player_id(message: types.Message, state: FSMContext):
 
 @router.message(GameStoreFlow.waiting_topup_server)
 async def g2bulk_collect_server_id(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
     server_id = str(message.text or "").strip()
     if not server_id:
-        return await message.answer("Server ID cannot be empty. Send Server ID:")
+        return await message.answer(t(lang, "store_server_id_empty"))
     data = await state.get_data()
     pending = dict(data.get("gst_pending_buy") or {})
     if not pending:
         await state.clear()
-        return await message.answer("Session expired. Start again.")
+        return await message.answer(t(lang, "store_session_expired"))
     await state.clear()
     await _execute_g2bulk_game_purchase(message, pending, server_id=server_id)
 
@@ -1360,7 +1854,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
     lang = (user or {}).get("language", "en")
     reseller_id = await get_reseller_id_for_bot((await message.bot.get_me()).id)
     if not reseller_id:
-        return await message.answer("Reseller is not linked to this bot.")
+        return await message.answer(t(lang, "store_reseller_not_linked"))
 
     game_id = str(pending.get("game_id") or "").strip()
     item_id = str(pending.get("item_id") or "").strip()
@@ -1377,7 +1871,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
         cost_price=cost_price,
     )
     if not order or err:
-        return await message.answer(err or "Purchase failed.")
+        return await message.answer(err or t(lang, "purchase_failed_plain"))
 
     await message.answer(t(lang, "processing_order"), reply_markup=ReplyKeyboardRemove())
     client = G2BulkClient()
@@ -1407,11 +1901,12 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
             provider_error=error_text,
         )
         await message.answer(
-            "Out of stock right now.\n"
-            "Admin has been notified.\n"
-            "Please try again within 6 hours."
+            t(lang, "store_out_of_stock_admin_notified")
         )
-        await message.answer(t(lang, "main_menu"), reply_markup=main_menu(lang))
+        await message.answer(
+            t(lang, "main_menu"),
+            reply_markup=await menu_for_current_bot(lang, (await message.bot.get_me()).id),
+        )
         return
 
     provider_data = provider_resp.get("data")
@@ -1423,7 +1918,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
         "game_id": game_id,
         "player_id": player_id,
         "server_id": server_id,
-        "number_mode": "game_store",
+        "number_mode": "digital_products",
     }
     await update_order_details(
         order["_id"],
@@ -1446,8 +1941,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
             provider_error="G2Bulk accepted the request but did not return a verifiable order id.",
         )
         await message.answer(
-            "Top-up request submitted and is awaiting provider confirmation.\n"
-            "Admin has been notified to review it."
+            t(lang, "store_topup_pending_manual_review")
         )
         return
 
@@ -1472,8 +1966,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
         error_text = _extract_provider_error(status_resp.get("data") if isinstance(status_resp, dict) else status_resp)
         await update_order_details(order["_id"], {"provider_error": error_text})
         await message.answer(
-            "Provider could not confirm this top-up.\n"
-            "Your balance was refunded automatically."
+            t(lang, "store_topup_provider_failed_refunded")
         )
         return
 
@@ -1487,8 +1980,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
             provider_error="Provider confirmation stayed pending after automatic polling.",
         )
         await message.answer(
-            "Top-up request submitted and is still pending provider confirmation.\n"
-            "Admin has been notified to follow it up."
+            t(lang, "store_topup_pending_followup")
         )
         return
 
@@ -1497,14 +1989,14 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
     usd_to_syp_rate = await _resolve_usd_to_syp_rate((await message.bot.get_me()).id)
     balance = await get_user_wallet_balance(message.from_user.id, int(reseller_id))
     lines = [
-        "âœ… Purchase complete",
-        f"Item: {name}",
-        f"Price: {_fmt_dual_price(sale_price, usd_to_syp_rate)}",
-        f"Order: {order.get('_id')}",
-        f"Balance: {float(balance or 0):.2f}$",
+        t(lang, "purchase_complete_plain"),
+        f"{t(lang, 'store_item_label')}: {name}",
+        _store_price_line(lang, sale_price, usd_to_syp_rate),
+        f"{t(lang, 'store_order_label')}: {order.get('_id')}",
+        f"{t(lang, 'store_balance_label')}: {format_usd(float(balance or 0))}",
     ]
     if external_order_id:
-        lines.append(f"Provider Ref: {external_order_id}")
-    lines.append("Top-up request submitted successfully.")
+        lines.append(f"{t(lang, 'store_provider_ref_label')}: {external_order_id}")
+    lines.append(t(lang, "store_topup_submitted_successfully"))
     await message.answer("\n".join(lines))
 

@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 from typing import Any
 
 from config import settings
+from database.proxy_telemetry_repo import record_proxy_event
 from services.proxies.providers.fourg_proxy_provider import FourGProxyProvider
-from services.proxies.providers.nine_proxy_provider import NineProxyProvider
 from services.proxies.risk_engine import verify_proxy_endpoint
-from utils.beta_mode import beta_mode_enabled, beta_proxy_markup_percent
 
 PROXY_PROVIDERS = {
-    "9proxy": NineProxyProvider(),
     "4g": FourGProxyProvider(),
 }
+
+
+async def _record_proxy_event_safe(**kwargs: Any) -> None:
+    try:
+        await record_proxy_event(**kwargs)
+    except Exception:
+        return
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -36,9 +42,35 @@ def _clamp_success_rate(value: Any) -> float:
     return rate
 
 
+def _proxy_event_reason(raw: Any, fallback: str = "") -> str:
+    if isinstance(raw, dict):
+        for key in ("title", "message", "error", "details", "reason"):
+            value = str(raw.get(key) or "").strip()
+            if value:
+                return value[:120]
+    text = str(raw or fallback or "").strip()
+    return text[:120]
+
+
+def _offer_event_extra(offer: dict[str, Any]) -> dict[str, Any]:
+    raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
+    return {
+        "offer_id": str(offer.get("offer_id") or "").strip(),
+        "title": str(offer.get("title") or "").strip(),
+        "country": str(offer.get("country") or "").strip(),
+        "state": str(offer.get("state") or "").strip(),
+        "city": str(offer.get("city") or "").strip(),
+        "carrier": str(offer.get("carrier") or "").strip(),
+        "period": str(offer.get("period") or "").strip(),
+        "billing_type": str(offer.get("billing_type") or "").strip(),
+        "price": _as_float(offer.get("price"), 0.0),
+        "base_price": _as_float(offer.get("base_price"), 0.0),
+        "protocol": str(offer.get("protocol") or raw.get("protocol") or "").strip(),
+        "duration_value": str(offer.get("duration_value") or raw.get("duration_value") or "").strip(),
+    }
+
+
 def _proxy_markup_pct() -> float:
-    if beta_mode_enabled():
-        return beta_proxy_markup_percent(10.0)
     pct = _as_float(getattr(settings, "proxy_service_markup_percent", 0.0), 0.0)
     # Proxy markup is an operational pricing lever and should remain independent.
     # If explicitly set, apply it even when global profit policy is off.
@@ -89,6 +121,7 @@ def _normalize_offer(provider_code: str, row: dict[str, Any], markup_pct: float)
 
     normalized = {
         "provider": provider_code,
+        "carrier": _norm_text(row.get("carrier"), provider_code.upper()),
         "offer_id": offer_id,
         "title": title,
         "country": _norm_text(row.get("country"), "Any"),
@@ -107,7 +140,19 @@ def _normalize_offer(provider_code: str, row: dict[str, Any], markup_pct: float)
 async def _fetch_provider_offers(provider_code: str, provider_obj: Any) -> list[dict[str, Any]]:
     try:
         rows = await asyncio.wait_for(provider_obj.list_offers(), timeout=20.0)
+        await _record_proxy_event_safe(
+            event_type="catalog_fetch",
+            provider=provider_code,
+            success=True,
+            extra={"rows": len(rows) if isinstance(rows, list) else 0},
+        )
     except Exception:
+        await _record_proxy_event_safe(
+            event_type="catalog_fetch",
+            provider=provider_code,
+            success=False,
+            reason="provider_list_offers_failed",
+        )
         rows = []
     if not isinstance(rows, list):
         return []
@@ -141,20 +186,30 @@ async def get_proxy_catalog() -> list[dict[str, Any]]:
 
     for idx, provider_code in enumerate(PROXY_PROVIDERS.keys()):
         rows = responses[idx] if idx < len(responses) else []
+        normalized_count = 0
         for row in rows:
             normalized = _normalize_offer(provider_code, row, markup_pct)
             if not normalized:
                 continue
+            normalized_count += 1
             key = (
                 str(normalized.get("provider") or ""),
                 str(normalized.get("offer_id") or ""),
                 str(normalized.get("country") or ""),
                 str(normalized.get("state") or ""),
                 str(normalized.get("city") or ""),
+                str(normalized.get("carrier") or ""),
                 str(normalized.get("period") or ""),
             )
             if key not in dedup:
                 dedup[key] = normalized
+        await _record_proxy_event_safe(
+            event_type="catalog_normalized",
+            provider=provider_code,
+            success=True,
+            reason="catalog_ready",
+            extra={"normalized_rows": normalized_count},
+        )
 
     offers = list(dedup.values())
     offers.sort(
@@ -162,7 +217,7 @@ async def get_proxy_catalog() -> list[dict[str, Any]]:
             str(x.get("country") or "Any"),
             str(x.get("state") or "Any"),
             str(x.get("city") or "Any"),
-            str(x.get("provider") or ""),
+            str(x.get("carrier") or ""),
             float(x.get("price") or 0.0),
         )
     )
@@ -173,8 +228,47 @@ async def rent_proxy_offer(offer: dict[str, Any]) -> dict[str, Any]:
     provider_code = str(offer.get("provider") or "").lower()
     provider = PROXY_PROVIDERS.get(provider_code)
     if not provider:
+        await _record_proxy_event_safe(
+            event_type="rent_offer",
+            provider=provider_code or "unknown",
+            success=False,
+            reason="unknown_provider",
+        )
         return {"success": False, "raw": {"title": "UNKNOWN_PROVIDER"}}
-    return await provider.rent_offer(offer)
+    result = await provider.rent_offer(offer)
+    raw = result.get("raw")
+    await _record_proxy_event_safe(
+        event_type="rent_offer",
+        provider=provider_code,
+        success=bool(result.get("success")),
+        reason=_proxy_event_reason(raw, str(result.get("message") or "")),
+        extra={
+            **_offer_event_extra(offer),
+            "order_id": str(result.get("order_id") or "").strip(),
+            "endpoint": str(result.get("endpoint") or "").strip(),
+            "username": str(result.get("username") or "").strip(),
+        },
+    )
+    return result
+
+
+async def reserve_available_4g_username(prefix: str = "CyberZone", *, attempts: int = 30) -> str:
+    provider = PROXY_PROVIDERS.get("4g")
+    if not provider or not hasattr(provider, "check_username_available"):
+        return ""
+    tried: set[str] = set()
+    for _ in range(max(1, attempts)):
+        candidate = f"{prefix}{secrets.randbelow(1000):03d}"
+        if candidate in tried:
+            continue
+        tried.add(candidate)
+        try:
+            available = await provider.check_username_available(candidate)
+        except Exception:
+            continue
+        if available:
+            return candidate
+    return ""
 
 
 async def verify_proxy_offer_delivery(endpoint: str) -> dict[str, Any]:
@@ -193,12 +287,21 @@ async def verify_proxy_offer_delivery(endpoint: str) -> dict[str, Any]:
     decision = str(result.get("decision") or "gray").lower()
 
     if decision == "pass":
+        await _record_proxy_event_safe(event_type="quality_check", provider="quality_gate", success=True, reason="pass")
         return {**result, "allowed": True}
     if decision == "fail":
+        await _record_proxy_event_safe(
+            event_type="quality_check",
+            provider="quality_gate",
+            success=False,
+            reason=str(result.get("reason") or "fail")[:120],
+        )
         return {**result, "allowed": False}
     # gray
     if fail_closed:
+        await _record_proxy_event_safe(event_type="quality_check", provider="quality_gate", success=False, reason="gray_fail_closed")
         return {**result, "allowed": False, "decision": "gray_fail"}
+    await _record_proxy_event_safe(event_type="quality_check", provider="quality_gate", success=True, reason="gray_pass")
     return {**result, "allowed": True, "decision": "gray_pass"}
 
 
@@ -211,6 +314,7 @@ async def refresh_proxy_order(
     provider_code = str(order_data.get("provider") or "").lower()
     provider = PROXY_PROVIDERS.get(provider_code)
     if not provider:
+        await _record_proxy_event_safe(event_type="refresh_proxy", provider=provider_code or "unknown", success=False, reason="unknown_provider")
         return {"success": False, "raw": {"title": "UNKNOWN_PROVIDER"}}
 
     attempts = max(1, int(max_attempts))
@@ -229,6 +333,18 @@ async def refresh_proxy_order(
                 last_raw = {"title": "QUALITY_FAIL", "quality": quality}
                 if idx < attempts:
                     continue
+                await _record_proxy_event_safe(
+                    event_type="refresh_proxy",
+                    provider=provider_code,
+                    success=False,
+                    reason=str(quality.get("reason") or "quality_fail")[:120],
+                    extra={
+                        "attempts": idx,
+                        "with_check": True,
+                        "order_id": str(order_data.get("_id") or "").strip(),
+                        "provider_order_id": str(order_data.get("provider_order_id") or order_data.get("proxy_provider_order_id") or "").strip(),
+                    },
+                )
                 return {
                     "success": False,
                     "raw": last_raw,
@@ -236,19 +352,125 @@ async def refresh_proxy_order(
                     "attempts": idx,
                     "billable": False,
                 }
-            return {
+            result = {
                 "success": True,
                 **refreshed,
                 "quality": quality,
                 "attempts": idx,
                 "billable": True,
             }
+            await _record_proxy_event_safe(
+                event_type="refresh_proxy",
+                provider=provider_code,
+                success=True,
+                reason="quality_ok",
+                extra={
+                    "attempts": idx,
+                    "with_check": True,
+                    "order_id": str(order_data.get("_id") or "").strip(),
+                    "provider_order_id": str(order_data.get("provider_order_id") or order_data.get("proxy_provider_order_id") or "").strip(),
+                    "endpoint": str(refreshed.get("endpoint") or "").strip(),
+                },
+            )
+            return result
 
-        return {
+        result = {
             "success": True,
             **refreshed,
             "attempts": idx,
             "billable": False,
         }
+        await _record_proxy_event_safe(
+            event_type="refresh_proxy",
+            provider=provider_code,
+            success=True,
+            reason="refreshed",
+            extra={
+                "attempts": idx,
+                "with_check": False,
+                "order_id": str(order_data.get("_id") or "").strip(),
+                "provider_order_id": str(order_data.get("provider_order_id") or order_data.get("proxy_provider_order_id") or "").strip(),
+                "endpoint": str(refreshed.get("endpoint") or "").strip(),
+            },
+        )
+        return result
 
-    return {"success": False, "raw": last_raw or {"title": "REFRESH_FAILED"}, "attempts": attempts}
+    result = {"success": False, "raw": last_raw or {"title": "REFRESH_FAILED"}, "attempts": attempts}
+    await _record_proxy_event_safe(
+        event_type="refresh_proxy",
+        provider=provider_code,
+        success=bool(result.get("success")),
+        reason=_proxy_event_reason(result.get("raw"), "refresh_failed"),
+        extra={
+            "attempts": attempts,
+            "with_check": bool(with_check),
+            "order_id": str(order_data.get("_id") or "").strip(),
+            "provider_order_id": str(order_data.get("provider_order_id") or order_data.get("proxy_provider_order_id") or "").strip(),
+        },
+    )
+    return result
+
+
+async def reconfigure_proxy_order(
+    order_data: dict[str, Any],
+    offer: dict[str, Any],
+    *,
+    with_check: bool = True,
+) -> dict[str, Any]:
+    provider_code = str(order_data.get("provider") or offer.get("provider") or "").lower()
+    provider = PROXY_PROVIDERS.get(provider_code)
+    if not provider:
+        await _record_proxy_event_safe(event_type="reconfigure_proxy", provider=provider_code or "unknown", success=False, reason="unknown_provider")
+        return {"success": False, "raw": {"title": "UNKNOWN_PROVIDER"}}
+
+    result = await provider.reconfigure_proxy(order_data, offer)
+    raw = result.get("raw")
+    if not result.get("success"):
+        await _record_proxy_event_safe(
+            event_type="reconfigure_proxy",
+            provider=provider_code,
+            success=False,
+            reason=_proxy_event_reason(raw, str(result.get("message") or "")),
+            extra={
+                "order_id": str(order_data.get("_id") or "").strip(),
+                "provider_order_id": str(order_data.get("provider_order_id") or order_data.get("proxy_provider_order_id") or "").strip(),
+                **_offer_event_extra(offer),
+            },
+        )
+        return result
+
+    if with_check:
+        endpoint = str(result.get("endpoint") or order_data.get("proxy_endpoint") or "").strip()
+        quality = await verify_proxy_offer_delivery(endpoint)
+        if not quality.get("allowed"):
+            await _record_proxy_event_safe(
+                event_type="reconfigure_proxy",
+                provider=provider_code,
+                success=False,
+                reason=str(quality.get("reason") or "quality_fail")[:120],
+                extra={
+                    "order_id": str(order_data.get("_id") or "").strip(),
+                    "provider_order_id": str(order_data.get("provider_order_id") or order_data.get("proxy_provider_order_id") or "").strip(),
+                    **_offer_event_extra(offer),
+                },
+            )
+            return {
+                "success": False,
+                **result,
+                "quality": quality,
+            }
+        result = {**result, "quality": quality}
+
+    await _record_proxy_event_safe(
+        event_type="reconfigure_proxy",
+        provider=provider_code,
+        success=True,
+        reason="reconfigured",
+        extra={
+            "order_id": str(order_data.get("_id") or "").strip(),
+            "provider_order_id": str(order_data.get("provider_order_id") or order_data.get("proxy_provider_order_id") or "").strip(),
+            "endpoint": str(result.get("endpoint") or "").strip(),
+            **_offer_event_extra(offer),
+        },
+    )
+    return result

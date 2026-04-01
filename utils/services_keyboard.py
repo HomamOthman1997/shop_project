@@ -3,16 +3,11 @@ import os
 import re
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from services.numbers.service_families import CANONICAL_SERVICE_KEYS, DISPLAY_NAME_OVERRIDES, normalize_service_key
+from services.numbers.service_map import get_service_display_name, list_service_keys, resolve_canonical_service_key
 
 MAX_TOP_SERVICES = 10
 SERVICES_PER_ROW = 2
 BASE_DIR = os.path.dirname(__file__)
-FULL_MAP_CANDIDATES = [
-    os.path.normpath(os.path.join(BASE_DIR, "..", "services", "numbers", "data", "full_service_map.json")),
-    os.path.normpath(os.path.join(BASE_DIR, "..", "services", "numbers", "data", "service_map.json")),
-    os.path.normpath(os.path.join(BASE_DIR, "..", "data", "full_service_map.json")),
-]
 TOP_FILE = os.path.normpath(os.path.join(BASE_DIR, "..", "data", "top_services.json"))
 USAGE_FILE = os.path.normpath(os.path.join(BASE_DIR, "..", "data", "usage_stats.json"))
 DEFAULT_TOP_SERVICES = [
@@ -37,12 +32,11 @@ def _service_callback_data(service: str) -> str | None:
     return value
 
 def _canonical_service(service: str) -> str:
-    key = normalize_service_key(service)
-    return CANONICAL_SERVICE_KEYS.get(key, key)
+    return resolve_canonical_service_key(service)
 
 
 def _service_label(service: str) -> str:
-    label = DISPLAY_NAME_OVERRIDES.get(service)
+    label = get_service_display_name(service)
     if label:
         cleaned = re.sub(r"\s*\([^)]*\)\s*", " ", str(label)).strip()
         return re.sub(r"\s{2,}", " ", cleaned) or str(label)
@@ -53,20 +47,7 @@ def _service_label(service: str) -> str:
 
 
 def load_full_services():
-    best = None
-    best_len = -1
-    for path in FULL_MAP_CANDIDATES:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict) and len(data) > best_len:
-                    best = data
-                    best_len = len(data)
-        except Exception:
-            continue
-    if best:
-        return sorted(list(best.keys()))
-    return []
+    return list_service_keys()
 
 
 def load_top_services():

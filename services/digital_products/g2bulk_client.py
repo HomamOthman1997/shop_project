@@ -10,14 +10,6 @@ logger = logging.getLogger("g2bulk")
 
 
 class G2BulkClient:
-    """Thin async wrapper over G2Bulk API v2.
-
-    Notes:
-    - API details are based on provider docs available at implementation time.
-    - Endpoints and payload shapes are normalized in a tolerant way to avoid hard-fail
-      if provider slightly changes the response schema.
-    """
-
     def __init__(self) -> None:
         self.base_url = str(getattr(settings, "g2bulk_base_url", "") or "").strip().rstrip("/")
         self.api_key = str(getattr(settings, "g2bulk_api_key", "") or "").strip()
@@ -71,46 +63,39 @@ class G2BulkClient:
         return []
 
     async def get_categories(self) -> list[dict[str, Any]]:
-        # v1 public endpoint
         status, data = await self._request("GET", "/v1/category")
         if status == 200 and isinstance(data, dict):
             rows = data.get("categories")
             if isinstance(rows, list):
                 return [x for x in rows if isinstance(x, dict)]
-        # legacy fallback
         status, data = await self._request("POST", "/api/v2/user/category/get_categories", payload={})
         if status != 200:
             return []
         return self._extract_list(data)
 
     async def get_products(self) -> list[dict[str, Any]]:
-        # v1 public endpoint
         status, data = await self._request("GET", "/v1/products")
         if status == 200 and isinstance(data, dict):
             rows = data.get("products")
             if isinstance(rows, list):
                 return [x for x in rows if isinstance(x, dict)]
-        # legacy fallback
         status, data = await self._request("POST", "/api/v2/user/product/get_buyer_products", payload={})
         if status != 200:
             return []
         return self._extract_list(data)
 
     async def get_games(self) -> list[dict[str, Any]]:
-        # v1 public endpoint
         status, data = await self._request("GET", "/v1/games")
         if status == 200 and isinstance(data, dict):
             rows = data.get("games")
             if isinstance(rows, list):
                 return [x for x in rows if isinstance(x, dict)]
-        # legacy fallback
         status, data = await self._request("POST", "/api/v2/user/game/get_game_names", payload={})
         if status != 200:
             return []
         return self._extract_list(data)
 
     async def get_game_catalogue(self, game_id: int | str) -> list[dict[str, Any]]:
-        # v1 endpoint expects game code
         gcode = str(game_id or "").strip()
         if not gcode:
             return []
@@ -119,7 +104,6 @@ class G2BulkClient:
             rows = data.get("catalogues")
             if isinstance(rows, list):
                 return [x for x in rows if isinstance(x, dict)]
-        # legacy fallback
         try:
             gid = int(game_id)
         except Exception:
@@ -138,7 +122,6 @@ class G2BulkClient:
         payload = {"quantity": int(quantity)}
         status, data = await self._request("POST", f"/v1/products/{pid}/purchase", payload=payload)
         if status == 404:
-            # legacy fallback
             payload = {"product_id": pid, "quantity": int(quantity)}
             status, data = await self._request("POST", "/api/v2/user/order/create_order", payload=payload)
         return {"status": status, "data": data}
@@ -164,7 +147,6 @@ class G2BulkClient:
             if status != 404:
                 return {"status": status, "data": data}
 
-        # legacy fallback
         try:
             pid = int(product_id)
         except Exception:

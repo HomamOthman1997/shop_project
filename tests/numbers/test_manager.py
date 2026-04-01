@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, os.getcwd())
 
 from services.numbers import manager
-from services.numbers.service_map import get_provider_service_name
+from services.numbers.service_map import get_provider_service_name, resolve_canonical_service_key
 
 # we will replace manager.PROVIDERS in various tests with simple dummies
 
@@ -29,18 +29,20 @@ class DummyProvider:
 @pytest.fixture(autouse=True)
 def _patch_providers(monkeypatch):
     # make manager.PROVIDERS point to dummy objects for deterministic tests
-    monkeypatch.setattr(manager, "beta_mode_enabled", lambda: False)
     monkeypatch.setitem(manager.PROVIDERS, 'smspool', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'telabot', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'textverified', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'herosms', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'smsman', DummyProvider())
+    monkeypatch.setitem(manager.PROVIDERS, 'pvadeals', DummyProvider())
+    monkeypatch.setitem(manager.PROVIDERS, 'alisms', DummyProvider())
 
 
 def test_service_name_lookup():
     # use the static service map (not dynamic modules) for this simple check
     result = get_provider_service_name("telegram", "smspool")
     assert result
+    assert get_provider_service_name("telegram", "pvadeals") == "Telegram"
     assert get_provider_service_name("UNKNOWN", "foo") == "UNKNOWN"
 
 
@@ -64,6 +66,164 @@ async def test_dynamic_provider_name(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_dynamic_provider_name_pvadeals(monkeypatch):
+    class _PVADummy:
+        async def list_services(self, force_refresh=False):
+            return [
+                {"_id": "svc1", "name": "Telegram", "country": "USA", "STRprice": 0.2},
+                {"_id": "svc2", "name": "WhatsApp", "country": "USA", "STRprice": 0.2},
+            ]
+
+    monkeypatch.setitem(manager.PROVIDERS, "pvadeals", _PVADummy())
+    assert await manager.get_provider_service_name_dynamic("telegram", "pvadeals") == "Telegram"
+    assert await manager.get_provider_service_name_dynamic("nope", "pvadeals") is None
+
+
+@pytest.mark.asyncio
+async def test_dynamic_provider_name_pvadeals_prefers_provider_lookup_over_family_aliases(monkeypatch):
+    class _PVADummy:
+        async def resolve_service_code(self, value):
+            lookup = {
+                "google": "svc_google",
+                "gmail": "svc_google",
+                "youtube": "svc_youtube",
+            }
+            return lookup.get(str(value).lower())
+
+        async def list_services(self, force_refresh=False):
+            return [
+                {"_id": "svc_google", "name": "Google (Gmail)", "country": "USA", "STRprice": 1.0},
+                {"_id": "svc_youtube", "name": "YouTube", "country": "USA", "STRprice": 0.09},
+            ]
+
+    monkeypatch.setitem(manager.PROVIDERS, "pvadeals", _PVADummy())
+    assert await manager.get_provider_service_name_dynamic("google", "pvadeals") == "svc_google"
+    assert await manager.get_provider_service_name_dynamic("youtube", "pvadeals") == "svc_youtube"
+
+
+def test_service_name_lookup_does_not_map_google_to_youtube_for_pvadeals():
+    assert get_provider_service_name("google", "pvadeals") != "YouTube"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_provider_name_alisms(monkeypatch):
+    class _AliDummy:
+        async def resolve_service_code(self, value):
+            lookup = {"telegram": "tg", "google": "go"}
+            return lookup.get(str(value).lower())
+
+    monkeypatch.setitem(manager.PROVIDERS, "alisms", _AliDummy())
+    assert await manager.get_provider_service_name_dynamic("telegram", "alisms") == "tg"
+    assert await manager.get_provider_service_name_dynamic("google", "alisms") == "go"
+    assert await manager.get_provider_service_name_dynamic("missingzzz", "alisms") is None
+
+
+@pytest.mark.asyncio
+async def test_provider_service_resolution_uses_cache(monkeypatch):
+    calls = {"n": 0}
+
+    class _AliDummy:
+        async def resolve_service_code(self, value):
+            calls["n"] += 1
+            return "go" if str(value).lower() == "google" else None
+
+    monkeypatch.setitem(manager.PROVIDERS, "alisms", _AliDummy())
+    manager._SERVICE_RESOLUTION_CACHE.clear()
+
+    first = await manager.get_provider_service_resolution_dynamic("google", "alisms")
+    second = await manager.get_provider_service_resolution_dynamic("google", "alisms")
+
+    assert first["resolved_provider_service"] == "go"
+    assert second["resolved_provider_service"] == "go"
+    assert calls["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_provider_service_resolution_reuses_live_catalog_cache_across_queries(monkeypatch):
+    from services.numbers.data import textverified_services
+
+    calls = {"n": 0}
+
+    class _TextVerifiedDummy:
+        async def list_services(self):
+            calls["n"] += 1
+            return [
+                {"serviceName": "PayPal"},
+                {"serviceName": "Telegram"},
+            ]
+
+    monkeypatch.setattr(textverified_services, "DATA", [])
+    monkeypatch.setitem(manager.PROVIDERS, "textverified", _TextVerifiedDummy())
+    manager._SERVICE_RESOLUTION_CACHE.clear()
+    manager._PROVIDER_SERVICE_LIST_CACHE.clear()
+
+    first = await manager.get_provider_service_resolution_dynamic("paypal", "textverified")
+    second = await manager.get_provider_service_resolution_dynamic("telegram", "textverified")
+
+    assert first["resolved_provider_service"] == "PayPal"
+    assert second["resolved_provider_service"] == "Telegram"
+    assert calls["n"] == 1
+
+
+
+@pytest.mark.asyncio
+async def test_dynamic_provider_name_matches_composite_smspool_service(monkeypatch):
+    from services.numbers.data import smspool_services
+
+    monkeypatch.setattr(
+        smspool_services,
+        "DATA",
+        [
+            {"ID": 1371, "name": "ClaudeAI / Anthropic"},
+            {"ID": 2000, "name": "OpenAI / ChatGPT"},
+        ],
+    )
+
+    assert await manager.get_provider_service_name_dynamic("Anthropic", "smspool") == "1371"
+    assert await manager.get_provider_service_name_dynamic("ClaudeAI", "smspool") == "1371"
+    assert await manager.get_provider_service_name_dynamic("claude", "smspool") == "1371"
+    assert await manager.get_provider_service_name_dynamic("ChatGPT", "smspool") == "2000"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_provider_name_smsman_uses_family_aliases(monkeypatch):
+    class _SMSManDummy:
+        async def resolve_service_code(self, value):
+            return "1371" if str(value).lower() == "claudeaianthropic" else None
+
+    monkeypatch.setitem(manager.PROVIDERS, "smsman", _SMSManDummy())
+    assert await manager.get_provider_service_name_dynamic("claude", "smsman") == "1371"
+
+
+@pytest.mark.asyncio
+async def test_provider_lookup_does_not_resolve_swagbucks_to_generic_pay(monkeypatch):
+    class _HeroDummy:
+        async def resolve_service_code(self, value):
+            if str(value).lower() == "pay":
+                return "pay"
+            return None
+
+    monkeypatch.setitem(manager.PROVIDERS, "herosms", _HeroDummy())
+    manager._SERVICE_RESOLUTION_CACHE.clear()
+
+    resolution = await manager.get_provider_service_resolution_dynamic("swagbucks", "herosms")
+    assert resolution["resolved_provider_service"] is None
+    assert resolution["provider_reason"] == "service_not_supported"
+
+
+def test_business_approved_commercial_variants_only():
+    assert resolve_canonical_service_key("swagbucks") == "swagbucks"
+    assert resolve_canonical_service_key("inboxdollars") == "swagbucks"
+    assert resolve_canonical_service_key("inboxpounds") == "swagbucks"
+    assert resolve_canonical_service_key("mypoints") == "swagbucks"
+    assert resolve_canonical_service_key("ysense") == "swagbucks"
+    assert resolve_canonical_service_key("adgatesurvey") == "swagbucks"
+    assert resolve_canonical_service_key("tadapoll") == "swagbucks"
+    assert resolve_canonical_service_key("walmart4") == "walmart"
+    assert resolve_canonical_service_key("webullpay") == "webull"
+
+
+@pytest.mark.asyncio
 async def test_dynamic_provider_name_smsman(monkeypatch):
     class _SMSManDummy:
         async def resolve_service_code(self, value):
@@ -74,15 +234,140 @@ async def test_dynamic_provider_name_smsman(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_provider_resolution_diagnostics_for_missing_service(monkeypatch):
+    from services.numbers.data import smspool_services
+
+    monkeypatch.setattr(smspool_services, "DATA", [{"ID": 1, "name": "Telegram"}])
+    resolution = await manager.get_provider_service_resolution_dynamic("missingzzz", "smspool")
+    assert resolution["resolved_provider_service"] is None
+    assert resolution["provider_reason"] == "service_not_supported"
+    assert resolution["canonical_service"] == "missingzzz"
+    assert "missingzzz" in resolution["provider_candidates"]
+
+
+@pytest.mark.asyncio
 async def test_get_all_prices(monkeypatch):
     # ensure manager.GET uses PROVIDERS dict patched by fixture
     # also monkeypatch dynamic name lookup to return a fixed api name
     async def fake_name(s, p):
         return 'telegram'
     monkeypatch.setattr(manager, 'get_provider_service_name_dynamic', fake_name)
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
     res = await manager.get_all_prices('telegram', None, None)
     assert 'smspool' in res
     assert res['smspool']['price'] == 1.23
+
+
+@pytest.mark.asyncio
+async def test_get_all_prices_exposes_smsman_s6_placeholder_in_testing_mode(monkeypatch):
+    class _SMSManDummy:
+        async def get_price_variants(self, service, country=None, state=None, limit=2):
+            return []
+
+    monkeypatch.setitem(manager.PROVIDERS, "smsman", _SMSManDummy())
+    monkeypatch.setattr(manager.settings, "numbers_show_all_providers_for_testing", True)
+
+    result = await manager.get_all_prices("gmail", "1", None)
+    assert "smsman" in result
+    assert "smsman_s6" in result
+    assert result["smsman_s6"]["testing_visible"] is True
+    assert result["smsman_s6"]["provider_reason"] == "second_lane_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_get_all_prices_alisms_uses_provider_resolved_api_service(monkeypatch):
+    class _AliDummy:
+        async def get_price(self, service, country=None, state=None):
+            assert service == "gmail"
+            return {"success": True, "price": 0.17, "api_service_name": "jewa"}
+
+    monkeypatch.setitem(manager.PROVIDERS, "alisms", _AliDummy())
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+
+    result = await manager.get_all_prices("gmail", "1", None)
+    assert result["alisms"]["price"] == 0.17
+    assert result["alisms"]["api_service_name"] == "jewa"
+
+
+@pytest.mark.asyncio
+async def test_get_all_rental_prices_filters_options_by_provider_balance(monkeypatch):
+    class _RentalDummy:
+        async def get_rental_prices(self, service, country=None):
+            return {
+                "success": True,
+                "options": [
+                    {"country": "US", "duration": 24, "price": 1.8, "count": 1},
+                    {"country": "US", "duration": 72, "price": 2.9, "count": 1},
+                    {"country": "US", "duration": 168, "price": 3.4, "count": 1},
+                ],
+            }
+
+    async def _fake_balance(_provider):
+        return 3.0
+
+    monkeypatch.setitem(manager.PROVIDERS, "textverified", _RentalDummy())
+    monkeypatch.setattr(manager, "_provider_balance", _fake_balance)
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+
+    result = await manager.get_all_rental_prices("gmail", "US")
+    assert "textverified" in result
+    options = result["textverified"]["options"]
+    assert [int(row["duration"]) for row in options] == [24, 72]
+    assert all(float(row["price"]) <= 3.0 for row in options)
+
+
+@pytest.mark.asyncio
+async def test_get_all_rental_prices_hides_provider_when_no_affordable_option(monkeypatch):
+    class _RentalDummy:
+        async def get_rental_prices(self, service, country=None):
+            return {
+                "success": True,
+                "options": [
+                    {"country": "US", "duration": 24, "price": 1.8, "count": 1},
+                    {"country": "US", "duration": 72, "price": 2.9, "count": 1},
+                ],
+            }
+
+    async def _fake_balance(_provider):
+        return 1.5
+
+    monkeypatch.setitem(manager.PROVIDERS, "textverified", _RentalDummy())
+    monkeypatch.setattr(manager, "_provider_balance", _fake_balance)
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+
+    result = await manager.get_all_rental_prices("gmail", "US")
+    assert "textverified" not in result
+
+
+@pytest.mark.asyncio
+async def test_get_all_prices_uses_provider_country_iso_field(monkeypatch):
+    class _HeroDummy:
+        async def get_price(self, service, country=None, state=None):
+            return {
+                "success": True,
+                "price": 0.13,
+                "api_service_name": "tg",
+                "provider_country_iso": "KE",
+            }
+
+    monkeypatch.setitem(manager.PROVIDERS, "herosms", _HeroDummy())
+    monkeypatch.setattr(manager.settings, "profit_policy_enabled", False)
+
+    async def fake_resolution(service_key, provider_code):
+        return {
+            "requested_service": service_key,
+            "canonical_service": service_key,
+            "display_name": service_key,
+            "provider_code": provider_code,
+            "provider_mapped_value": "tg",
+            "provider_candidates": [service_key],
+            "resolved_provider_service": "tg",
+            "provider_reason": "resolved_static_mapping",
+        }
+
+    monkeypatch.setattr(manager, "get_provider_service_resolution_dynamic", fake_resolution)
+    result = await manager.get_all_prices("telegram", None, None)
+    assert result["herosms"]["provider_country_iso"] == "KE"
 
 
 @pytest.mark.asyncio
@@ -95,10 +380,6 @@ async def test_get_all_prices_fetches_live_each_time(monkeypatch):
             return {"success": True, "price": 1.0}
 
     monkeypatch.setitem(manager.PROVIDERS, "smspool", _Provider())
-    monkeypatch.setattr(manager.settings, "numbers_price_cache_enabled", True)
-    monkeypatch.setattr(manager.settings, "numbers_price_cache_ttl_sec", 120)
-    monkeypatch.setattr(manager.settings, "numbers_price_cache_stale_fallback_sec", 600)
-    manager._PRICE_CACHE.clear()
 
     async def fake_name(s, p):
         return "tg"
@@ -117,42 +398,65 @@ async def test_get_all_rental_prices(monkeypatch):
     async def fake_name(s, p):
         return "tg"
 
+    async def _fake_balance(_provider):
+        return 999.0
+
     monkeypatch.setattr(manager, "get_provider_service_name_dynamic", fake_name)
+    monkeypatch.setattr(manager, "_provider_balance", _fake_balance)
     res = await manager.get_all_rental_prices("telegram", "1")
     assert "herosms" in res
     assert res["herosms"]["options"][0]["duration"] == 2
 
 
 @pytest.mark.asyncio
-async def test_get_all_rental_prices_stale_fallback(monkeypatch):
+async def test_get_all_rental_prices_fetches_live_each_time(monkeypatch):
+    calls = {"n": 0}
+
+    class _ProviderOk:
+        async def get_rental_prices(self, service, country=None):
+            calls["n"] += 1
+            return {"success": True, "options": [{"country": str(country or "1"), "duration": 24, "price": 1.0, "count": 5}]}
+
+    monkeypatch.setitem(manager.PROVIDERS, "herosms", _ProviderOk())
+
+    async def fake_name(s, p):
+        return "tg"
+
+    async def _fake_balance(_provider):
+        return 999.0
+
+    monkeypatch.setattr(manager, "get_provider_service_name_dynamic", fake_name)
+    monkeypatch.setattr(manager, "_provider_balance", _fake_balance)
+
+    first = await manager.get_all_rental_prices("telegram", "1")
+    assert "herosms" in first
+    second = await manager.get_all_rental_prices("telegram", "1")
+    assert "herosms" in second
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_get_all_rental_prices_marks_testing_visible_when_balance_low(monkeypatch):
     class _ProviderOk:
         async def get_rental_prices(self, service, country=None):
             return {"success": True, "options": [{"country": str(country or "1"), "duration": 24, "price": 1.0, "count": 5}]}
 
-    class _ProviderFail:
-        async def get_rental_prices(self, service, country=None):
-            return {"success": False, "options": []}
+        async def get_balance(self):
+            return 0.0
 
-    monkeypatch.setitem(manager.PROVIDERS, "herosms", _ProviderOk())
-    monkeypatch.setitem(manager.PROVIDERS, "textverified", _ProviderFail())
-    monkeypatch.setitem(manager.PROVIDERS, "smspool", _ProviderFail())
-    monkeypatch.setattr(manager.settings, "numbers_price_cache_enabled", True)
-    monkeypatch.setattr(manager.settings, "numbers_rental_cache_ttl_sec", 0)
-    monkeypatch.setattr(manager.settings, "numbers_rental_cache_stale_fallback_sec", 600)
-    manager._RENTAL_CACHE.clear()
+    monkeypatch.setitem(manager.PROVIDERS, "pvadeals", _ProviderOk())
 
     async def fake_name(s, p):
         return "tg"
 
     monkeypatch.setattr(manager, "get_provider_service_name_dynamic", fake_name)
+    monkeypatch.setattr(manager.settings, "numbers_show_all_providers_for_testing", True)
 
-    first = await manager.get_all_rental_prices("telegram", "1")
-    assert "herosms" in first
-
-    # turn all providers into failures; stale snapshot should be returned.
-    monkeypatch.setitem(manager.PROVIDERS, "herosms", _ProviderFail())
-    second = await manager.get_all_rental_prices("telegram", "1")
-    assert "herosms" in second
+    res = await manager.get_all_rental_prices("telegram", "1")
+    assert "pvadeals" in res
+    assert res["pvadeals"]["available_for_buy"] is False
+    assert res["pvadeals"]["testing_visible"] is True
+    assert res["pvadeals"]["provider_reason"] == "provider_balance_low"
 
 
 @pytest.mark.asyncio
@@ -163,9 +467,13 @@ async def test_get_all_rental_prices_smspool_open_only(monkeypatch):
         called.append((s, p))
         return "tg"
 
+    async def _fake_balance(_provider):
+        return 999.0
+
     monkeypatch.setattr(manager, "get_provider_service_name_dynamic", fake_name)
+    monkeypatch.setattr(manager, "_provider_balance", _fake_balance)
     res = await manager.get_all_rental_prices(manager.SMSPOOL_OPEN_RENTAL_SERVICE_KEY, "1")
-    assert set(res.keys()) == {"smspool", "textverified"}
+    assert set(res.keys()) == {"smspool", "textverified", "pvadeals"}
     # manager should not resolve per-provider names in open-rental mode
     assert called == []
 
@@ -175,9 +483,15 @@ def test_provider_capability_matrix_rules():
     assert manager.provider_allows_temp("herosms", state_selected=True) is False
     assert manager.provider_allows_temp("smsman", state_selected=True) is False
     assert manager.provider_allows_temp("telabot", state_selected=True) is True
+    assert manager.provider_allows_temp("pvadeals", state_selected=False) is True
+    assert manager.provider_allows_temp("pvadeals", state_selected=True) is False
+    assert manager.provider_allows_temp("alisms", state_selected=False) is True
+    assert manager.provider_allows_temp("alisms", state_selected=True) is False
 
     assert manager.provider_allows_rental("herosms", service_key="paypal", country_iso="US") is True
     assert manager.provider_allows_rental("smspool", service_key="paypal", country_iso="US") is False
+    assert manager.provider_allows_rental("pvadeals", service_key="paypal", country_iso="US") is True
+    assert manager.provider_allows_rental("alisms", service_key="paypal", country_iso="US") is False
     assert manager.provider_allows_rental(
         "smspool",
         service_key=manager.RENTAL_UNLIMITED_SERVICE_KEY,
@@ -283,6 +597,7 @@ def test_config_settings():
     assert hasattr(settings, "tv_user")
     assert hasattr(settings, "herosms_key")
     assert hasattr(settings, "smsman_key")
+    assert hasattr(settings, "pvadeals_key")
 
 
 async def _make_resp(status=200, text="", json_data=None):
@@ -693,11 +1008,14 @@ def test_rental_providers_keyboard_monthly_label():
     )
     first_text = kb.inline_keyboard[0][0].text
     assert "Monthly price (US)" in first_text
-    assert "8.50$" in first_text
+    assert "8.50 💲" in first_text
 
 
-def test_rental_providers_keyboard_keeps_testing_visible_provider_without_options():
+def test_rental_providers_keyboard_shows_testing_visible_unavailable_rows(monkeypatch):
     from services.numbers.keyboards.core_numbers_kb import rental_providers_kb
+
+    from config import settings
+    monkeypatch.setattr(settings, "numbers_show_all_providers_for_testing", True)
 
     kb = rental_providers_kb(
         [
@@ -714,7 +1032,34 @@ def test_rental_providers_keyboard_keeps_testing_visible_provider_without_option
         lang="en",
         provider_options={"textverified": []},
     )
-    assert kb.inline_keyboard[0][0].text == "Server 2"
+    assert len(kb.inline_keyboard) >= 3
+    assert kb.inline_keyboard[0][0].callback_data == "renthead:textverified"
+
+
+def test_rental_providers_keyboard_hides_unavailable_rows_when_testing_mode_off(monkeypatch):
+    from services.numbers.keyboards.core_numbers_kb import rental_providers_kb
+
+    from config import settings
+
+    monkeypatch.setattr(settings, "numbers_show_all_providers_for_testing", False)
+
+    kb = rental_providers_kb(
+        [
+            {
+                "provider": "textverified",
+                "avg_price": 0.0,
+                "pricing_mode": "avg",
+                "country_label": "US",
+                "testing_visible": True,
+                "available_for_buy": False,
+                "provider_reason": "provider_balance_low",
+            }
+        ],
+        lang="en",
+        provider_options={"textverified": []},
+    )
+    assert len(kb.inline_keyboard) == 2
+    assert kb.inline_keyboard[0][0].callback_data == "flow:service:back"
 
 @pytest.mark.asyncio
 async def test_state_selection_edits_message(monkeypatch):
@@ -772,22 +1117,9 @@ async def test_state_selection_edits_message(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reseller_id_fallback(monkeypatch):
-    """When no user link and no bot-level reseller exist, fallback to user_id."""
+async def test_reseller_id_fallback():
+    """Main-bot number orders always use the user itself as reseller_id."""
     import services.numbers.handlers.core_numbers_buy as hb
-
-    async def _no_user_link(user_id, bot_id):
-        return None
-
-    async def _no_bot_reseller(bot_id):
-        return None
-
-    async def _never_set(*args, **kwargs):
-        raise AssertionError("set_user_reseller_for_bot should not be called on fallback-to-user path")
-
-    monkeypatch.setattr(hb, "get_user_reseller_for_bot", _no_user_link)
-    monkeypatch.setattr(hb, "get_reseller_id_for_bot", _no_bot_reseller)
-    monkeypatch.setattr(hb, "set_user_reseller_for_bot", _never_set)
 
     rid = await hb._resolve_user_reseller(123, 999)
     assert rid == 123
@@ -842,7 +1174,7 @@ async def test_balance_handler_and_topup_removed(monkeypatch):
 
     msg = DummyMsg('/balance', user_id=99, username='abc')
     await balance_handler(msg)
-    assert "Your balance is $7.50." in msg.reply
+    assert "Your balance is 💲 7.50." in msg.reply
 
     result = await admin._execute_owner_action(action="topup", payload="@abc 10", actor_id=1)
     assert result == "Unknown action."
@@ -921,4 +1253,7 @@ def test_inline_query_limits(monkeypatch):
     iq2 = DummyInlineQuery('service k')
     asyncio.get_event_loop().run_until_complete(numbers_inline.handle_smart_search(iq2))
     assert len(iq2.results) <= 50
+
+
+
 

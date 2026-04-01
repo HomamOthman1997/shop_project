@@ -5,8 +5,8 @@ from utils.translations import t
 
 def language_keyboard(lang: str = "en", show_nav: bool = True) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="English", callback_data="lang_en")],
-        [InlineKeyboardButton(text="العربية", callback_data="lang_ar")],
+        [InlineKeyboardButton(text=t(lang, "lang_en_button"), callback_data="lang_en")],
+        [InlineKeyboardButton(text=t(lang, "lang_ar_button"), callback_data="lang_ar")],
     ]
     if show_nav:
         rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="lang_back")])

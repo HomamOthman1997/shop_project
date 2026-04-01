@@ -7,7 +7,15 @@ from bson import ObjectId
 
 sys.path.insert(0, os.getcwd())
 
-from handlers.custom_services import _builder_add_options_kb, _is_cancel_input, _is_id_info_trigger, _is_services_trigger
+import handlers.custom_services as custom_services
+from handlers.custom_services import (
+    _builder_add_options_kb,
+    _endpoint_preorder_enabled,
+    _endpoint_ready_for_sale,
+    _is_cancel_input,
+    _is_id_info_trigger,
+    _is_services_trigger,
+)
 from utils.translations import t
 
 
@@ -70,6 +78,44 @@ def test_builder_add_options_for_folder_and_endpoint():
     assert "cstm:adde:x2" not in endpoint_actions
     assert "cstm:adds:x2" in endpoint_actions
     assert "cstm:addse:x2" in endpoint_actions
+
+
+def test_endpoint_ready_for_sale_variants():
+    assert _endpoint_ready_for_sale({"delivery_type": "text", "delivery_text": "hello"})
+    assert _endpoint_ready_for_sale({"delivery_type": "photo", "delivery_file_id": "file123"})
+    assert _endpoint_ready_for_sale({"delivery_type": "document", "delivery_file_id": "file456"})
+    assert _endpoint_ready_for_sale(
+        {"delivery_type": "inventory", "inventory_items": ["a:b"], "available_qty": 1}
+    )
+    assert not _endpoint_ready_for_sale({"delivery_type": "text", "delivery_text": ""})
+    assert not _endpoint_ready_for_sale({"delivery_type": "inventory", "inventory_items": [], "available_qty": 0})
+
+
+def test_endpoint_preorder_flag_reads_boolean():
+    assert _endpoint_preorder_enabled({"preorder_enabled": True}) is True
+    assert _endpoint_preorder_enabled({"preorder_enabled": False}) is False
+    assert _endpoint_preorder_enabled({}) is False
+
+
+@pytest.mark.asyncio
+async def test_owner_can_open_builder_on_main_bot(monkeypatch):
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=111)
+
+    async def _fake_is_reseller(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(custom_services, "_is_current_bot_reseller", _fake_is_reseller)
+
+    async def _fake_main(_bot_id):
+        return True
+
+    monkeypatch.setattr(custom_services, "is_main_bot", _fake_main)
+    monkeypatch.setattr(custom_services, "OWNER_ID", 9001)
+
+    assert await custom_services._can_open_builder_catalog(9001, _Bot()) is True
+    assert await custom_services._can_open_builder_catalog(9002, _Bot()) is False
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,3242 @@
+[
+  {
+    "id": "69c0d7b49100ec84ee7d0c14",
+    "name": "2Number",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271db",
+    "name": "2RedBeans",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271e9",
+    "name": "3Fun",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271af",
+    "name": "7-Eleven",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27295",
+    "name": "99Ranch",
+    "country": "USA"
+  },
+  {
+    "id": "699d7f9b894ceb7027bd8643",
+    "name": "AARP",
+    "country": "USA"
+  },
+  {
+    "id": "69ba3a9451d29d53af3c67a8",
+    "name": "Abaka AI",
+    "country": "USA"
+  },
+  {
+    "id": "69b904436c7e0c87bf74a909",
+    "name": "Acima",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272a7",
+    "name": "Acorns",
+    "country": "USA"
+  },
+  {
+    "id": "699d801241c17946d88a9f02",
+    "name": "Ad It Up",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271c5",
+    "name": "Affirm",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27293",
+    "name": "Afriex-Verify",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271f3",
+    "name": "Afterpay",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27214",
+    "name": "Airbnb",
+    "country": "USA"
+  },
+  {
+    "id": "69b92798ec71393defab2a05",
+    "name": "Airwallex",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2729d",
+    "name": "Albert",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2729b",
+    "name": "Alibaba",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271e5",
+    "name": "Alignerr",
+    "country": "USA"
+  },
+  {
+    "id": "69c4c9846b0494cb80fdb974",
+    "name": "Amata",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27222",
+    "name": "Amazon",
+    "country": "USA"
+  },
+  {
+    "id": "69b3bf7114bfd780f4048dc6",
+    "name": "Anchor",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27227",
+    "name": "AOL",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2723b",
+    "name": "Appen (CrowdGen)",
+    "country": "USA"
+  },
+  {
+    "id": "69809f5a95dab8d5defab537",
+    "name": "Appinio",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271f5",
+    "name": "Apple",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271f8",
+    "name": "Archer",
+    "country": "USA"
+  },
+  {
+    "id": "69b944770cd3ecc4a2f1b271",
+    "name": "Arro",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f27191",
+    "name": "Ashley Madison",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27237",
+    "name": "AsianDating",
+    "country": "USA"
+  },
+  {
+    "id": "69b905f9247593ce6e8f0371",
+    "name": "Askable",
+    "country": "USA"
+  },
+  {
+    "id": "699985fafe52a5487fa80bfc",
+    "name": "Aspiration",
+    "country": "USA"
+  },
+  {
+    "id": "6996f4be932b13b4ab72ada7",
+    "name": "AT&T",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271f4",
+    "name": "AttaPoll",
+    "country": "USA"
+  },
+  {
+    "id": "69b90b73247593ce6e8f0a14",
+    "name": "Authy",
+    "country": "USA"
+  },
+  {
+    "id": "69b149e4b2c23a6e5b20f0d1",
+    "name": "Avail",
+    "country": "USA"
+  },
+  {
+    "id": "69b93d7f00ede79b33718eb2",
+    "name": "AvantStay",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27235",
+    "name": "AWS",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272d5",
+    "name": "AXS",
+    "country": "USA"
+  },
+  {
+    "id": "69b3ee84ac8591958f79e95c",
+    "name": "Babki",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27238",
+    "name": "badoo",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271e7",
+    "name": "Ballys",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f55f28302084b5322c08",
+    "name": "Banorte Link",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272d9",
+    "name": "Banxa",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2728b",
+    "name": "Baselane",
+    "country": "USA"
+  },
+  {
+    "id": "69858da67148a36df5e587b0",
+    "name": "Battle.net",
+    "country": "USA"
+  },
+  {
+    "id": "69850be667feee1b5927105b",
+    "name": "BC.Game Casino",
+    "country": "USA"
+  },
+  {
+    "id": "69c37572b839510c0bb3ac70",
+    "name": "beehiiv",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27292",
+    "name": "Beem",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271b6",
+    "name": "Benjamin",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2724f",
+    "name": "Best Buy",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272a5",
+    "name": "Best Egg",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f27199",
+    "name": "bet365",
+    "country": "USA"
+  },
+  {
+    "id": "69ba3cd951d29d53af3c691c",
+    "name": "Betabound",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2725b",
+    "name": "BetMGM",
+    "country": "USA"
+  },
+  {
+    "id": "69809f71058003febea78db5",
+    "name": "BetRivers",
+    "country": "USA"
+  },
+  {
+    "id": "69b936776c6c9f10fdf878ed",
+    "name": "Betterment",
+    "country": "USA"
+  },
+  {
+    "id": "69b94a1d6fdbff552ad20b54",
+    "name": "BidFTA",
+    "country": "USA"
+  },
+  {
+    "id": "69b94733c0773f8b99d5b2bb",
+    "name": "BigBeautifulPeople",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2723c",
+    "name": "BiggerCity",
+    "country": "USA"
+  },
+  {
+    "id": "69831fab64fadd8c65e0a2e7",
+    "name": "BIGO Live",
+    "country": "USA"
+  },
+  {
+    "id": "69b14ba9b2c23a6e5b20f27b",
+    "name": "Bilt Auth",
+    "country": "USA"
+  },
+  {
+    "id": "69c4cdd265c7d7b2f409d19c",
+    "name": "Bilt Rewards",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271e4",
+    "name": "Binance",
+    "country": "USA"
+  },
+  {
+    "id": "69b1622cd7de6a7a2bdaa83e",
+    "name": "BiP",
+    "country": "USA"
+  },
+  {
+    "id": "69b3c10614bfd780f4049078",
+    "name": "Bird",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271be",
+    "name": "BlackPeopleMeet",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2720d",
+    "name": "BLK",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27215",
+    "name": "Bolt",
+    "country": "USA"
+  },
+  {
+    "id": "69a74bdfa2a9307e000c4fcb",
+    "name": "BOSS Money",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271d5",
+    "name": "Boss Revolution",
+    "country": "USA"
+  },
+  {
+    "id": "69809f889fd4c98f13aa0d83",
+    "name": "brandbee",
+    "country": "USA"
+  },
+  {
+    "id": "69850ca8c9658bb0b8996419",
+    "name": "Branded Surveys - GoBranded",
+    "country": "USA"
+  },
+  {
+    "id": "698b238cf45ab58672af2dd4",
+    "name": "Bread Payments",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27245",
+    "name": "Brevo",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272a6",
+    "name": "Bridge",
+    "country": "USA"
+  },
+  {
+    "id": "6985d05109a81dc64ead31a3",
+    "name": "Brigit",
+    "country": "USA"
+  },
+  {
+    "id": "6984ffaa67feee1b59270279",
+    "name": "Broxel",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27269",
+    "name": "buildclinical",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27230",
+    "name": "Bumble",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e341975f0e9547909707",
+    "name": "Bumpy",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2720f",
+    "name": "Burner",
+    "country": "USA"
+  },
+  {
+    "id": "69c6273ccf13f7c6eb9dcefa",
+    "name": "buycycle",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27271",
+    "name": "BYBE",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27241",
+    "name": "Caesars",
+    "country": "USA"
+  },
+  {
+    "id": "69ca17612a7627717088c3e2",
+    "name": "call.com",
+    "country": "USA"
+  },
+  {
+    "id": "69c4cbff6b0494cb80fdbdae",
+    "name": "Capital Bikeshare",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271fb",
+    "name": "Capital One Shopping",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271e3",
+    "name": "Card",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27223",
+    "name": "Cash App",
+    "country": "USA"
+  },
+  {
+    "id": "6983025ac2b31fb33f95ab30",
+    "name": "CashWalk",
+    "country": "USA"
+  },
+  {
+    "id": "69c0dad215239c8836f31efd",
+    "name": "CEFCU",
+    "country": "USA"
+  },
+  {
+    "id": "69b3c4e543d2ebe18c4bf850",
+    "name": "Cerca",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271b2",
+    "name": "Chalkboard",
+    "country": "USA"
+  },
+  {
+    "id": "69b1580bae1050f45c4634a8",
+    "name": "Chasable",
+    "country": "USA"
+  },
+  {
+    "id": "69c0d83b9100ec84ee7d0c94",
+    "name": "Chat & Date",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e6af975f0e9547909a80",
+    "name": "Checkmate",
+    "country": "USA"
+  },
+  {
+    "id": "69b93a886c6c9f10fdf87d96",
+    "name": "Cheddar Up",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2727d",
+    "name": "Chevron",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f3a2ac8591958f79efee",
+    "name": "Chick-fil-A",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2725c",
+    "name": "Chime",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2726b",
+    "name": "Chipotle",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272c6",
+    "name": "Chipper Cash",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271a6",
+    "name": "Chispa",
+    "country": "USA"
+  },
+  {
+    "id": "69b90a7a6c7e0c87bf74ae40",
+    "name": "Choose Energy",
+    "country": "USA"
+  },
+  {
+    "id": "69be68982e0b10d9e0b7c580",
+    "name": "Chowbus",
+    "country": "USA"
+  },
+  {
+    "id": "69b1d971d24f07b66ab50c28",
+    "name": "Christian Connection",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2721c",
+    "name": "Chumba Casino",
+    "country": "USA"
+  },
+  {
+    "id": "69b7f10ada9e283800985f1d",
+    "name": "Cinch",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272a0",
+    "name": "ClassPass",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271a3",
+    "name": "Claude",
+    "country": "USA"
+  },
+  {
+    "id": "6999833cd2d5fccbd845a4dd",
+    "name": "CLEAR1",
+    "country": "USA"
+  },
+  {
+    "id": "69ca18c72a7627717088c6e3",
+    "name": "ClickSend",
+    "country": "USA"
+  },
+  {
+    "id": "69be6964ec723fdd27bdf0a6",
+    "name": "Clickworker",
+    "country": "USA"
+  },
+  {
+    "id": "69c36a4a578657ec8834a9ae",
+    "name": "CliniContact",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27266",
+    "name": "Cloaked",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27273",
+    "name": "Clubs",
+    "country": "USA"
+  },
+  {
+    "id": "69b15de401264f67e5385309",
+    "name": "CM Verify Service",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2728a",
+    "name": "Codashop",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271a1",
+    "name": "Coffee Meets Bagel",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2723d",
+    "name": "Coinbase",
+    "country": "USA"
+  },
+  {
+    "id": "69b942a2c0773f8b99d5aeff",
+    "name": "CoinFlip",
+    "country": "USA"
+  },
+  {
+    "id": "69997f973cfddb4e76005aad",
+    "name": "CoinJar",
+    "country": "USA"
+  },
+  {
+    "id": "699d8f61894ceb7027bd9732",
+    "name": "Coinme",
+    "country": "USA"
+  },
+  {
+    "id": "69b7ed4fd54fec58bcaae9ae",
+    "name": "Coinstar",
+    "country": "USA"
+  },
+  {
+    "id": "69b9403bc0773f8b99d5aca6",
+    "name": "CoinZoom",
+    "country": "USA"
+  },
+  {
+    "id": "699984f114e6306919f2d875",
+    "name": "ColombianCupid",
+    "country": "USA"
+  },
+  {
+    "id": "69ca13982a7627717088bece",
+    "name": "Comera",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271a4",
+    "name": "Copper",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2722a",
+    "name": "craigslist",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f2718c",
+    "name": "Credit Karma",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27290",
+    "name": "Credit Sesame",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27209",
+    "name": "Crowdtap",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e2658ed4808939bbfd32",
+    "name": "CrownCoins Casino",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2724b",
+    "name": "Crypto.com",
+    "country": "USA"
+  },
+  {
+    "id": "69bb98f2a210dc03ec574124",
+    "name": "Cuffed",
+    "country": "USA"
+  },
+  {
+    "id": "699d80e1682260d3de987963",
+    "name": "CuriousCat",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f2719e",
+    "name": "Current (Rewards)",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e8169c2506a1bc8d939a",
+    "name": "Cursor",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272b8",
+    "name": "CVS",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271ab",
+    "name": "Dabble",
+    "country": "USA"
+  },
+  {
+    "id": "699d810b78096c230fca0347",
+    "name": "Dapper",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27252",
+    "name": "DAtech",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27248",
+    "name": "Dave",
+    "country": "USA"
+  },
+  {
+    "id": "69bb9a3ac343b53bb9161360",
+    "name": "Debbie",
+    "country": "USA"
+  },
+  {
+    "id": "69ba392e7e3fea4784c65517",
+    "name": "Delight",
+    "country": "USA"
+  },
+  {
+    "id": "699d8152682260d3de9879ae",
+    "name": "Deliveroo",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272d3",
+    "name": "depop",
+    "country": "USA"
+  },
+  {
+    "id": "69c61f7cba717fb1f8dee7dc",
+    "name": "Desktop.Rent",
+    "country": "USA"
+  },
+  {
+    "id": "69b9072c5c416a290f47cf92",
+    "name": "Devco FZ LLC",
+    "country": "USA"
+  },
+  {
+    "id": "699d81dc03522afaac12d648",
+    "name": "DHL",
+    "country": "USA"
+  },
+  {
+    "id": "69b7db35b0ade60492885a8a",
+    "name": "Dialpad",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272a8",
+    "name": "DICE",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27286",
+    "name": "Diga y Gane",
+    "country": "USA"
+  },
+  {
+    "id": "69ca0f8c095fa783fc1d6577",
+    "name": "Dil Mil",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272c4",
+    "name": "ding",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27251",
+    "name": "Dingtone",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271c9",
+    "name": "Discord",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272d2",
+    "name": "DistroKid",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272bb",
+    "name": "Docusign",
+    "country": "USA"
+  },
+  {
+    "id": "69ca16bd6243f92cf76c3c29",
+    "name": "Dollar General",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27201",
+    "name": "DoorDash",
+    "country": "USA"
+  },
+  {
+    "id": "698303d452cf9cce0f910c97",
+    "name": "Doublelist",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272ba",
+    "name": "Downtime Dollars",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27226",
+    "name": "DraftKings",
+    "country": "USA"
+  },
+  {
+    "id": "69bcef8bb2a3b1a709c40e8b",
+    "name": "Drop",
+    "country": "USA"
+  },
+  {
+    "id": "69b94652cadd3c9b20de7836",
+    "name": "Drop Cowboy",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2726e",
+    "name": "dscout",
+    "country": "USA"
+  },
+  {
+    "id": "69b3ed8229a0a117576c8f16",
+    "name": "Duet",
+    "country": "USA"
+  },
+  {
+    "id": "698322540e5f09e5e06337a1",
+    "name": "Dutch Bros",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27287",
+    "name": "E*TRADE",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272ca",
+    "name": "E-File.com",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272c3",
+    "name": "e-Rewards",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2725f",
+    "name": "earnify",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27291",
+    "name": "EarnIn",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f27194",
+    "name": "eBay",
+    "country": "USA"
+  },
+  {
+    "id": "69b16137d7de6a7a2bdaa830",
+    "name": "eDate",
+    "country": "USA"
+  },
+  {
+    "id": "69b7f2388976c263f59be23d",
+    "name": "Elektra Go",
+    "country": "USA"
+  },
+  {
+    "id": "69c4cd69808a09c665e87e29",
+    "name": "ElevenHacks",
+    "country": "USA"
+  },
+  {
+    "id": "69b945ae0cd3ecc4a2f1b49b",
+    "name": "EliteCupid",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27277",
+    "name": "Ember",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27213",
+    "name": "Empower",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f2b791f066a7295a3f92",
+    "name": "Eneba",
+    "country": "USA"
+  },
+  {
+    "id": "699329cb4ad2b7c23eede683",
+    "name": "EnformionGO",
+    "country": "USA"
+  },
+  {
+    "id": "69c7a8e15327a73cbb4e713e",
+    "name": "Entertainment Partners",
+    "country": "USA"
+  },
+  {
+    "id": "69b160bc61b07854fd90d13f",
+    "name": "Erome",
+    "country": "USA"
+  },
+  {
+    "id": "69b3ee0f91f066a7295a3a2c",
+    "name": "eSmart Payroll",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272aa",
+    "name": "ESPN BET",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272b2",
+    "name": "eToro",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271e6",
+    "name": "Eureka",
+    "country": "USA"
+  },
+  {
+    "id": "69b3bb6414bfd780f4048b87",
+    "name": "Euro Girls Escort",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271e1",
+    "name": "Experian",
+    "country": "USA"
+  },
+  {
+    "id": "69c2292513246bcf572a21cb",
+    "name": "Extranet",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27276",
+    "name": "Exxon",
+    "country": "USA"
+  },
+  {
+    "id": "699862212049876d9648b041",
+    "name": "EZ Texting",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271f1",
+    "name": "Facebook",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271cc",
+    "name": "Fanatics",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271f0",
+    "name": "FanDuel",
+    "country": "USA"
+  },
+  {
+    "id": "698b22f8f31a73ec24d207c5",
+    "name": "Fantuan",
+    "country": "USA"
+  },
+  {
+    "id": "69b15bf9d7de6a7a2bdaa72d",
+    "name": "FarmersD",
+    "country": "USA"
+  },
+  {
+    "id": "69831ff90e5f09e5e06334bd",
+    "name": "Fashion Nova",
+    "country": "USA"
+  },
+  {
+    "id": "69b932ce6c6c9f10fdf87387",
+    "name": "Fastmail",
+    "country": "USA"
+  },
+  {
+    "id": "6983201d29d4139f182d29d3",
+    "name": "Feabie",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271b4",
+    "name": "Feeld",
+    "country": "USA"
+  },
+  {
+    "id": "69b3edc529a0a117576c8f78",
+    "name": "Feels",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27200",
+    "name": "Fetch (Rewards)",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27233",
+    "name": "FilipinoCupid",
+    "country": "USA"
+  },
+  {
+    "id": "69c4bb717d9b807ea2520c3d",
+    "name": "Finvest",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e02a8ed4808939bbfb50",
+    "name": "Firstrade",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271c3",
+    "name": "Five Surveys",
+    "country": "USA"
+  },
+  {
+    "id": "698302057ee1a5b88274d223",
+    "name": "Fiverr",
+    "country": "USA"
+  },
+  {
+    "id": "699d98cf9ce1552a294d73fb",
+    "name": "Flash Surveys",
+    "country": "USA"
+  },
+  {
+    "id": "699d93289ce1552a294d7034",
+    "name": "Fliff",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272c2",
+    "name": "FloatMe",
+    "country": "USA"
+  },
+  {
+    "id": "69b7eeae79b864181e77a91e",
+    "name": "fluz",
+    "country": "USA"
+  },
+  {
+    "id": "69b3c178beb035e5c7a1eccb",
+    "name": "Fold",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27255",
+    "name": "Found",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271e0",
+    "name": "Freelancer",
+    "country": "USA"
+  },
+  {
+    "id": "699ec9a5944db0f8ab1b5640",
+    "name": "FreeTaxUSA",
+    "country": "USA"
+  },
+  {
+    "id": "699d93d8d742e04c39eaeb0b",
+    "name": "Fresha",
+    "country": "USA"
+  },
+  {
+    "id": "6998637f8fabb310b38d1dae",
+    "name": "Friended",
+    "country": "USA"
+  },
+  {
+    "id": "69c228c56dfd8d274405fecc",
+    "name": "fubar",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272d0",
+    "name": "Fuel Forward",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27275",
+    "name": "G2G",
+    "country": "USA"
+  },
+  {
+    "id": "69ca11a06243f92cf76c3811",
+    "name": "GamsGo",
+    "country": "USA"
+  },
+  {
+    "id": "69b92d76ec71393defab331c",
+    "name": "GasBuddy",
+    "country": "USA"
+  },
+  {
+    "id": "69b906a95c416a290f47ce1d",
+    "name": "Gatby",
+    "country": "USA"
+  },
+  {
+    "id": "699d93929ce1552a294d711e",
+    "name": "Gate US",
+    "country": "USA"
+  },
+  {
+    "id": "698326d4bb22f89220342c42",
+    "name": "GCLoot",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2724e",
+    "name": "Gemini",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27258",
+    "name": "Gerald",
+    "country": "USA"
+  },
+  {
+    "id": "69c0dbb2289f7311d07f2ce3",
+    "name": "Gesa Credit Union",
+    "country": "USA"
+  },
+  {
+    "id": "69b93a0bc0773f8b99d5a627",
+    "name": "Gift Card Granny",
+    "country": "USA"
+  },
+  {
+    "id": "699d92dd5dbfb07de25e9767",
+    "name": "GitLab",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f27195",
+    "name": "GO2bank",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2728c",
+    "name": "GoFundMe",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27288",
+    "name": "Golden Nugget",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271ea",
+    "name": "Google (Gmail)",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27294",
+    "name": "Google Chat",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272ac",
+    "name": "Google Pay",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271c6",
+    "name": "Google Voice",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271cf",
+    "name": "Gopuff",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27212",
+    "name": "GrabPoints",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27207",
+    "name": "Grailed",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27239",
+    "name": "Grant (CashAdvance)",
+    "country": "USA"
+  },
+  {
+    "id": "69b7ea7c9c364a490b5b2a71",
+    "name": "Grasshopper",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2722d",
+    "name": "Green Dot",
+    "country": "USA"
+  },
+  {
+    "id": "69986399d9d22c6f6ee7d8f6",
+    "name": "Grid",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27250",
+    "name": "Grindr",
+    "country": "USA"
+  },
+  {
+    "id": "69b15cbba7567c922e3d9cf7",
+    "name": "Grommr",
+    "country": "USA"
+  },
+  {
+    "id": "698321e80e5f09e5e063370a",
+    "name": "GroupMe",
+    "country": "USA"
+  },
+  {
+    "id": "69ba3c18e1080f884172824c",
+    "name": "Gummy Candy Chat",
+    "country": "USA"
+  },
+  {
+    "id": "699d986a5dbfb07de25e9b33",
+    "name": "Handshake",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27246",
+    "name": "happn",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27208",
+    "name": "Hard Rock",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272b5",
+    "name": "hemlane",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27232",
+    "name": "Her",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271c8",
+    "name": "Hey Cash",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f27198",
+    "name": "HeyPiggy",
+    "country": "USA"
+  },
+  {
+    "id": "698095f34f212bbbece0f795",
+    "name": "High 5 Casino",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27280",
+    "name": "Highway",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2720b",
+    "name": "Hily",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f27192",
+    "name": "Hinge",
+    "country": "USA"
+  },
+  {
+    "id": "699d8ee7f7b7e8ecc5a0228c",
+    "name": "HireArt",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2728d",
+    "name": "Hostinger",
+    "country": "USA"
+  },
+  {
+    "id": "69b9349dec71393defab3ae4",
+    "name": "HRBLOCK",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27270",
+    "name": "HUD",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2729f",
+    "name": "HungryPanda",
+    "country": "USA"
+  },
+  {
+    "id": "699d82500d5b835707474002",
+    "name": "ibotta",
+    "country": "USA"
+  },
+  {
+    "id": "699d82840d5b835707474079",
+    "name": "ICQ",
+    "country": "USA"
+  },
+  {
+    "id": "69b150bcd7de6a7a2bdaa632",
+    "name": "ID.me",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271ad",
+    "name": "Idle-Empire",
+    "country": "USA"
+  },
+  {
+    "id": "69c4f9b95d4d7872b8702fe1",
+    "name": "IKEA",
+    "country": "USA"
+  },
+  {
+    "id": "699859d832b5b9ccf0a7017d",
+    "name": "Imprint",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27282",
+    "name": "Inclave",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271de",
+    "name": "Indeed",
+    "country": "USA"
+  },
+  {
+    "id": "69b7ebe5d54fec58bcaae6a3",
+    "name": "InnoCaption",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27283",
+    "name": "Instacart",
+    "country": "USA"
+  },
+  {
+    "id": "69be6aa2a553dee8255ff271",
+    "name": "InstaGC",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271ed",
+    "name": "Instagram",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272c7",
+    "name": "InstaReM",
+    "country": "USA"
+  },
+  {
+    "id": "69c0d8f49100ec84ee7d0d23",
+    "name": "Intelius",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f2719f",
+    "name": "InternationalCupid",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271f2",
+    "name": "Intuit",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27218",
+    "name": "iPlum",
+    "country": "USA"
+  },
+  {
+    "id": "698325d6bb22f89220342afe",
+    "name": "iPoll",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271ee",
+    "name": "Ipsos iSay",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272b3",
+    "name": "JapanCupid",
+    "country": "USA"
+  },
+  {
+    "id": "69b93bb76c6c9f10fdf87ea0",
+    "name": "Jobber",
+    "country": "USA"
+  },
+  {
+    "id": "69b15f0401264f67e5385316",
+    "name": "JobToday",
+    "country": "USA"
+  },
+  {
+    "id": "6983204564fadd8c65e0a320",
+    "name": "JustDating",
+    "country": "USA"
+  },
+  {
+    "id": "69ba39d97e3fea4784c65546",
+    "name": "JWed",
+    "country": "USA"
+  },
+  {
+    "id": "698322b15c4b8019e551634d",
+    "name": "Kaggle",
+    "country": "USA"
+  },
+  {
+    "id": "69b7dbf905063a9fad9a56c3",
+    "name": "Kalshi",
+    "country": "USA"
+  },
+  {
+    "id": "69b93ddb00ede79b33718ed5",
+    "name": "Karrot",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27210",
+    "name": "KashKick",
+    "country": "USA"
+  },
+  {
+    "id": "69c4cc6f10eeefce61cb4bbc",
+    "name": "KAST",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e8de975f0e9547909d22",
+    "name": "Katapult",
+    "country": "USA"
+  },
+  {
+    "id": "69c0de2015239c8836f32060",
+    "name": "KeyPoint Credit Union",
+    "country": "USA"
+  },
+  {
+    "id": "699ecc88d13fa8f04a4b11d2",
+    "name": "Kippo",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271ae",
+    "name": "Klarna",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272ab",
+    "name": "Klover",
+    "country": "USA"
+  },
+  {
+    "id": "69b3c1ec4282ba5e2253d6dd",
+    "name": "Klutch",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f5a9f5dafecf5a3f40f6",
+    "name": "Known",
+    "country": "USA"
+  },
+  {
+    "id": "69809eda95dab8d5defab4be",
+    "name": "Koalafi",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27247",
+    "name": "Kraken",
+    "country": "USA"
+  },
+  {
+    "id": "69c0dcbf493796c0f61edf04",
+    "name": "Lake Michigan Credit Union",
+    "country": "USA"
+  },
+  {
+    "id": "69c35ea0daa94f059608ea2f",
+    "name": "Lancaster Puppies",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271d7",
+    "name": "League",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272c9",
+    "name": "Ledn",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2728e",
+    "name": "Legendz",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272a1",
+    "name": "LemFi",
+    "country": "USA"
+  },
+  {
+    "id": "69c22b35ffd3c8538a17ef24",
+    "name": "Lemon8",
+    "country": "USA"
+  },
+  {
+    "id": "69809efa130bcae56ebcc81b",
+    "name": "Lili",
+    "country": "USA"
+  },
+  {
+    "id": "69b94b14f95702a47723804a",
+    "name": "Lime",
+    "country": "USA"
+  },
+  {
+    "id": "69986185da60f0dfd1345483",
+    "name": "Line2",
+    "country": "USA"
+  },
+  {
+    "id": "69ba3b997e3fea4784c655dd",
+    "name": "Link",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27204",
+    "name": "LinkedIn",
+    "country": "USA"
+  },
+  {
+    "id": "698328966fb7506b3c8003f8",
+    "name": "Linode CloudManager",
+    "country": "USA"
+  },
+  {
+    "id": "69b90994de69a7720d4f6caf",
+    "name": "Liv Rent",
+    "country": "USA"
+  },
+  {
+    "id": "69c0d7f6cb819af970650c46",
+    "name": "LiveAuctioneers",
+    "country": "USA"
+  },
+  {
+    "id": "69ca12f4582bd53640b5cddb",
+    "name": "LMK: Make New Friends",
+    "country": "USA"
+  },
+  {
+    "id": "69809f1f9fd4c98f13aa0cdf",
+    "name": "Locanto",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272b7",
+    "name": "Lootup",
+    "country": "USA"
+  },
+  {
+    "id": "699d7e5241c17946d88a9eaa",
+    "name": "LoveAndSeek",
+    "country": "USA"
+  },
+  {
+    "id": "69b949100cd3ecc4a2f1b918",
+    "name": "LOVOO",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272cb",
+    "name": "LuckyLand",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27253",
+    "name": "Luxy",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27202",
+    "name": "Lyft",
+    "country": "USA"
+  },
+  {
+    "id": "69b944f400ede79b337193be",
+    "name": "M3 Global Research",
+    "country": "USA"
+  },
+  {
+    "id": "69b7ef26da9e283800985a65",
+    "name": "mail.com",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27268",
+    "name": "Mailgun",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2727a",
+    "name": "Manus",
+    "country": "USA"
+  },
+  {
+    "id": "69ca1061582bd53640b5cb67",
+    "name": "Mary Brown's Chicken",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f2718b",
+    "name": "Match",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27244",
+    "name": "Mercari",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271b9",
+    "name": "Mercor",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272a3",
+    "name": "MexicanCupid",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27205",
+    "name": "Microsoft",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271c4",
+    "name": "Microsoft (Outlook)",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271a9",
+    "name": "Microsoft (Rewards)",
+    "country": "USA"
+  },
+  {
+    "id": "69b7de9d05063a9fad9a5b30",
+    "name": "Mine",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27259",
+    "name": "mistplay",
+    "country": "USA"
+  },
+  {
+    "id": "69b93ce46c6c9f10fdf87f8b",
+    "name": "MobLab Research",
+    "country": "USA"
+  },
+  {
+    "id": "698322e50e5f09e5e0633849",
+    "name": "Mocospace",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27284",
+    "name": "MoneyGram",
+    "country": "USA"
+  },
+  {
+    "id": "69b7de30975f0e9547909384",
+    "name": "MoneyKey",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27240",
+    "name": "MoneyLion",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271ca",
+    "name": "MoonPay",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272af",
+    "name": "MoRewards",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272db",
+    "name": "Muzz",
+    "country": "USA"
+  },
+  {
+    "id": "69b93e3000ede79b33718f24",
+    "name": "My SMS Diary",
+    "country": "USA"
+  },
+  {
+    "id": "69b7ee1a975f0e954790a0d3",
+    "name": "myEquifax",
+    "country": "USA"
+  },
+  {
+    "id": "69ca15e1582bd53640b5d09c",
+    "name": "myNutrafol",
+    "country": "USA"
+  },
+  {
+    "id": "69831f6e64fadd8c65e0a281",
+    "name": "Naver",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f5ff35596dc82c2733aa",
+    "name": "Neon",
+    "country": "USA"
+  },
+  {
+    "id": "69bba5149f8cf9db82fc26b1",
+    "name": "NerdWallet",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27229",
+    "name": "Netflix",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27203",
+    "name": "Netspend",
+    "country": "USA"
+  },
+  {
+    "id": "69b14a8cb2c23a6e5b20f132",
+    "name": "NetZero",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27260",
+    "name": "Newfi",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2724c",
+    "name": "Nextdoor",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27231",
+    "name": "NiceSurveys",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271b3",
+    "name": "Nike",
+    "country": "USA"
+  },
+  {
+    "id": "69998373888e39f3ffe47fa9",
+    "name": "Nordstrom",
+    "country": "USA"
+  },
+  {
+    "id": "69b93ed06fdbff552ad1fdd4",
+    "name": "Notifyre",
+    "country": "USA"
+  },
+  {
+    "id": "69b92ef4ec71393defab3517",
+    "name": "Novig",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e3f29c364a490b5b23bb",
+    "name": "NVIDIA",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27211",
+    "name": "OfferUp",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271cb",
+    "name": "OffGamers",
+    "country": "USA"
+  },
+  {
+    "id": "69b9302800ede79b337185b6",
+    "name": "OhmConnect",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271c0",
+    "name": "OkCupid",
+    "country": "USA"
+  },
+  {
+    "id": "69bb9b5ca210dc03ec574310",
+    "name": "Ola",
+    "country": "USA"
+  },
+  {
+    "id": "69c0dd25493796c0f61edf90",
+    "name": "One Nevada Credit Union",
+    "country": "USA"
+  },
+  {
+    "id": "69c0d9251521b37bf2940af6",
+    "name": "OneDine",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f2719a",
+    "name": "OneForma",
+    "country": "USA"
+  },
+  {
+    "id": "69b928c5394f8ab155bd9404",
+    "name": "OneID",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2722e",
+    "name": "OnePay",
+    "country": "USA"
+  },
+  {
+    "id": "6985048167feee1b592706a4",
+    "name": "OpenAI/ChatGPT",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271d6",
+    "name": "Opendoor",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2726d",
+    "name": "OpenPhone",
+    "country": "USA"
+  },
+  {
+    "id": "69b933e66c6c9f10fdf874d5",
+    "name": "OpenTrain AI",
+    "country": "USA"
+  },
+  {
+    "id": "6982f6370fcefafb42a41752",
+    "name": "Opinion Outpost",
+    "country": "USA"
+  },
+  {
+    "id": "69b14edb8008dd4b3cb2fad4",
+    "name": "Oscar",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27220",
+    "name": "OurTime",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f2719b",
+    "name": "Outlier",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27296",
+    "name": "OwnersBox",
+    "country": "USA"
+  },
+  {
+    "id": "69b93540c0773f8b99d5a04e",
+    "name": "P&G brandSAVER",
+    "country": "USA"
+  },
+  {
+    "id": "69c0dc01182dd5af6a9efed1",
+    "name": "Pacific Service Credit Union",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271b7",
+    "name": "Paidviewpoint",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27299",
+    "name": "Pangea",
+    "country": "USA"
+  },
+  {
+    "id": "69bcefc2b2a3b1a709c40ec1",
+    "name": "Par2",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272be",
+    "name": "ParlayPlay",
+    "country": "USA"
+  },
+  {
+    "id": "69b947a96fdbff552ad2073f",
+    "name": "Pawns.app",
+    "country": "USA"
+  },
+  {
+    "id": "698b23c89d5e57fdeedf5e7b",
+    "name": "Payactiv",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2721e",
+    "name": "Paybis",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271ce",
+    "name": "Payoneer",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271bf",
+    "name": "PayPal",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272da",
+    "name": "PaysafeCard",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271b1",
+    "name": "Paysend",
+    "country": "USA"
+  },
+  {
+    "id": "699ec739b220462b5b862a86",
+    "name": "Paytomorrow",
+    "country": "USA"
+  },
+  {
+    "id": "69985cdd50a5c3df9d28db93",
+    "name": "PCGameSupply",
+    "country": "USA"
+  },
+  {
+    "id": "69b162c561b07854fd90d14f",
+    "name": "Perpay",
+    "country": "USA"
+  },
+  {
+    "id": "69997cfe4c802a245744f043",
+    "name": "Phillips 66",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27272",
+    "name": "Phone.com",
+    "country": "USA"
+  },
+  {
+    "id": "69c78627efabc8a7fbb3f366",
+    "name": "Phoner",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272bf",
+    "name": "PhoneSpeak",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272de",
+    "name": "Phound",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272a2",
+    "name": "Pinata",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272b6",
+    "name": "Pinecone",
+    "country": "USA"
+  },
+  {
+    "id": "69c7a86f4e6e3d1ff0f1cdd6",
+    "name": "PingID",
+    "country": "USA"
+  },
+  {
+    "id": "699d8e0f0c3a99d1a7aea007",
+    "name": "PingMe",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f27197",
+    "name": "PlayerAuctions",
+    "country": "USA"
+  },
+  {
+    "id": "69bd2e032ce88e963f2ba313",
+    "name": "Playfame",
+    "country": "USA"
+  },
+  {
+    "id": "698304747ee1a5b88274d416",
+    "name": "PlayfulRewards",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f2718d",
+    "name": "Plenty Of Fish",
+    "country": "USA"
+  },
+  {
+    "id": "69c78af6808e50ac4005c32a",
+    "name": "Plura",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272a4",
+    "name": "PocketGuard",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271a7",
+    "name": "PogoVerify",
+    "country": "USA"
+  },
+  {
+    "id": "69b9482b0cd3ecc4a2f1b76a",
+    "name": "Posh",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271aa",
+    "name": "Poshmark",
+    "country": "USA"
+  },
+  {
+    "id": "69bd2d0e41c6aae0649dbf2d",
+    "name": "Pouch Lounge",
+    "country": "USA"
+  },
+  {
+    "id": "69ca195c6b7c6f0f2ed8e914",
+    "name": "PowerPay",
+    "country": "USA"
+  },
+  {
+    "id": "69b7f398da9e283800986218",
+    "name": "Prezzee",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271a2",
+    "name": "Prime Opinion",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271dd",
+    "name": "Privacy",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f42aac8591958f79f0b7",
+    "name": "Progressive Leasing",
+    "country": "USA"
+  },
+  {
+    "id": "69b9396e92b0ca657723ba40",
+    "name": "Pronto TopUp",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27297",
+    "name": "PropertyRadar",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272bd",
+    "name": "ProphetX",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271ba",
+    "name": "Proton",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2727c",
+    "name": "Publix",
+    "country": "USA"
+  },
+  {
+    "id": "69c0c85015239c8836f30f86",
+    "name": "Puppies",
+    "country": "USA"
+  },
+  {
+    "id": "69b155add7de6a7a2bdaa6b8",
+    "name": "Qantas",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272c0",
+    "name": "quicken",
+    "country": "USA"
+  },
+  {
+    "id": "697915687078c39156abe8f8",
+    "name": "QuickThoughts",
+    "country": "USA"
+  },
+  {
+    "id": "69c62378ba717fb1f8deebe9",
+    "name": "Quo (formerly OpenPhone)",
+    "country": "USA"
+  },
+  {
+    "id": "69b7d9c0b0ade604928859e1",
+    "name": "Raise",
+    "country": "USA"
+  },
+  {
+    "id": "69bcef2701b0f8eea1966743",
+    "name": "RAW",
+    "country": "USA"
+  },
+  {
+    "id": "699d99f682d6efc71b15071d",
+    "name": "Raya",
+    "country": "USA"
+  },
+  {
+    "id": "699ecb77f6a41ba57fe70424",
+    "name": "Razer",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27263",
+    "name": "RealPrize",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2723a",
+    "name": "Rebtel",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e0bb05063a9fad9a5da4",
+    "name": "Red",
+    "country": "USA"
+  },
+  {
+    "id": "69c78b23b50ad97740ff8aab",
+    "name": "rednote",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f67f35596dc82c2734ff",
+    "name": "RefiJet",
+    "country": "USA"
+  },
+  {
+    "id": "69b948a46fdbff552ad208d5",
+    "name": "Reinbow",
+    "country": "USA"
+  },
+  {
+    "id": "69b94122c0773f8b99d5ad97",
+    "name": "Remit2home",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272d1",
+    "name": "RemitBee",
+    "country": "USA"
+  },
+  {
+    "id": "69b24dfd02db260d7c65b0c7",
+    "name": "Remitly",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27298",
+    "name": "Remotasks",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272cc",
+    "name": "Rently",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e6279c2506a1bc8d8f47",
+    "name": "RentMe",
+    "country": "USA"
+  },
+  {
+    "id": "69b9324c92b0ca657723b485",
+    "name": "RentSpree",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271da",
+    "name": "Respondent",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272ce",
+    "name": "RewardMe",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271cd",
+    "name": "Ria",
+    "country": "USA"
+  },
+  {
+    "id": "69b7dd9b975f0e9547909216",
+    "name": "River",
+    "country": "USA"
+  },
+  {
+    "id": "69bba333c072defc6d53b043",
+    "name": "Roadie",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2724d",
+    "name": "Roblox",
+    "country": "USA"
+  },
+  {
+    "id": "69bb9953a210dc03ec574180",
+    "name": "RockItCoin",
+    "country": "USA"
+  },
+  {
+    "id": "69b156d7ae1050f45c463490",
+    "name": "Rogervoice",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271fc",
+    "name": "Roomies",
+    "country": "USA"
+  },
+  {
+    "id": "69832cfd6fb7506b3c800b20",
+    "name": "Roommates",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2726f",
+    "name": "Roomster",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272d6",
+    "name": "Rumble",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272d4",
+    "name": "S'more",
+    "country": "USA"
+  },
+  {
+    "id": "69b15ff9d7de6a7a2bdaa7f5",
+    "name": "Saladworks",
+    "country": "USA"
+  },
+  {
+    "id": "69c4ccec10eeefce61cb4c2f",
+    "name": "Salesmsg",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271e8",
+    "name": "Sam's Club",
+    "country": "USA"
+  },
+  {
+    "id": "69831fd36fb7506b3c7ff9e3",
+    "name": "Samsung",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f47935596dc82c2731d3",
+    "name": "Sardine & Bitpay",
+    "country": "USA"
+  },
+  {
+    "id": "69b9281edd7cc99743bd9a3f",
+    "name": "ScoreSense",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e173b0ade60492885fa7",
+    "name": "ScreenConnect",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272b1",
+    "name": "SEAGM",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2720c",
+    "name": "Seamless.AI",
+    "country": "USA"
+  },
+  {
+    "id": "69858e39ec105e057007be5b",
+    "name": "Secret Benefits",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271bc",
+    "name": "Sendwave",
+    "country": "USA"
+  },
+  {
+    "id": "69ca124c582bd53640b5ccfe",
+    "name": "Sequence",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271bb",
+    "name": "Sezzle",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f32235596dc82c272cb9",
+    "name": "Shaadi",
+    "country": "USA"
+  },
+  {
+    "id": "69b7f1cd8976c263f59be0c4",
+    "name": "Sharemoney",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f27190",
+    "name": "SHEIN",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2720e",
+    "name": "Shell",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2729c",
+    "name": "Shop",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271d9",
+    "name": "Shopback",
+    "country": "USA"
+  },
+  {
+    "id": "69c36633d5ef37de530ad2e2",
+    "name": "ShowMojo",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27261",
+    "name": "Shuffle US",
+    "country": "USA"
+  },
+  {
+    "id": "698b2268f31a73ec24d20725",
+    "name": "Sidechat",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2729e",
+    "name": "SidelineSwap",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2722c",
+    "name": "SIGNAL",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2726a",
+    "name": "SignalWire",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272d8",
+    "name": "SimpleTexting",
+    "country": "USA"
+  },
+  {
+    "id": "69b14f6f529542947265bdd9",
+    "name": "Sinch",
+    "country": "USA"
+  },
+  {
+    "id": "69b1635e01264f67e5385371",
+    "name": "Sitch",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27281",
+    "name": "skout",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27249",
+    "name": "Skrill",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271d4",
+    "name": "Sleeper",
+    "country": "USA"
+  },
+  {
+    "id": "69c4cb0b0080ce7ef5c60549",
+    "name": "Sling Money",
+    "country": "USA"
+  },
+  {
+    "id": "69b7df768ed4808939bbfaa9",
+    "name": "sMiles",
+    "country": "USA"
+  },
+  {
+    "id": "69b903c888f44380528ff098",
+    "name": "SMTP2GO",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272df",
+    "name": "Snackpass",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272bc",
+    "name": "Snakzy",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2722f",
+    "name": "Snapchat",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27265",
+    "name": "Snaplii",
+    "country": "USA"
+  },
+  {
+    "id": "69c37410129ccec2e336b78e",
+    "name": "SNKRDUNK",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f2719c",
+    "name": "Social Nature",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272ad",
+    "name": "Sonetel",
+    "country": "USA"
+  },
+  {
+    "id": "6982f6ef08f79d6d94aedf81",
+    "name": "Spark Driver",
+    "country": "USA"
+  },
+  {
+    "id": "69c0d86ccb819af970650ce5",
+    "name": "Speedway",
+    "country": "USA"
+  },
+  {
+    "id": "69c521a217761b8cda69177f",
+    "name": "Speedy Cash",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27262",
+    "name": "Split Drop",
+    "country": "USA"
+  },
+  {
+    "id": "69b3c32743d2ebe18c4bf694",
+    "name": "SportLync",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272c5",
+    "name": "SPRUCE",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27289",
+    "name": "Square",
+    "country": "USA"
+  },
+  {
+    "id": "69b936e992b0ca657723b8ad",
+    "name": "Stash",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2728f",
+    "name": "Steam",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27257",
+    "name": "Step",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27221",
+    "name": "Stir",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e79ab0ade60492886574",
+    "name": "Stitch",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2727b",
+    "name": "Strike",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271d0",
+    "name": "Stripe",
+    "country": "USA"
+  },
+  {
+    "id": "69b3c40fe45e2fd4a4af3a9c",
+    "name": "Substack",
+    "country": "USA"
+  },
+  {
+    "id": "69b94b85cadd3c9b20de7e65",
+    "name": "Sumsub",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27234",
+    "name": "Super.com",
+    "country": "USA"
+  },
+  {
+    "id": "69ca15656b7c6f0f2ed8e74b",
+    "name": "Surveoo",
+    "country": "USA"
+  },
+  {
+    "id": "69c67590c5ee5e9295c83bb4",
+    "name": "Survey Club",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272dc",
+    "name": "SurveyHoney",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2725e",
+    "name": "SurveyMonkey",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272ae",
+    "name": "SurveyPop",
+    "country": "USA"
+  },
+  {
+    "id": "698503bc41dbb970bd54160c",
+    "name": "Swagbucks",
+    "country": "USA"
+  },
+  {
+    "id": "69732967f4c52160ca6e0ef1",
+    "name": "Swagbucks / InboxDollars / InboxPounds / MyPoints / ySense / Noones / Tada / Poll Pay",
+    "country": "USA"
+  },
+  {
+    "id": "6983227f0e5f09e5e06337bb",
+    "name": "Sweetring",
+    "country": "USA"
+  },
+  {
+    "id": "6996d2d46c21419d57861d04",
+    "name": "Sweetwater",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27267",
+    "name": "Swittch",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27264",
+    "name": "Taimi",
+    "country": "USA"
+  },
+  {
+    "id": "69809f469fd4c98f13aa0d2f",
+    "name": "Talabat",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2726c",
+    "name": "TalkU",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2727e",
+    "name": "Tantan",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272b0",
+    "name": "TapResearch",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271d2",
+    "name": "Taptap",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2725a",
+    "name": "TARGET",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27278",
+    "name": "Tawkify",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271fa",
+    "name": "TaxAct",
+    "country": "USA"
+  },
+  {
+    "id": "69b15637991ff895092953dd",
+    "name": "TaxSlayer",
+    "country": "USA"
+  },
+  {
+    "id": "699862632049876d9648b160",
+    "name": "TCGplayer",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271f9",
+    "name": "Telegram",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27236",
+    "name": "Telnyx",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2727f",
+    "name": "TELUS Digital",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271df",
+    "name": "Temu",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272d7",
+    "name": "Testable Minds",
+    "country": "USA"
+  },
+  {
+    "id": "69c0dc5a1521b37bf2940e64",
+    "name": "Texans Credit Union",
+    "country": "USA"
+  },
+  {
+    "id": "69b949c30cd3ecc4a2f1b9c5",
+    "name": "Text-Em-All",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27216",
+    "name": "TextFree",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f26535596dc82c272bd0",
+    "name": "TextP2P",
+    "country": "USA"
+  },
+  {
+    "id": "699864018fabb310b38d1e9c",
+    "name": "textPlus",
+    "country": "USA"
+  },
+  {
+    "id": "69c227b6ffd3c8538a17ed3e",
+    "name": "TextSpot",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2725d",
+    "name": "ThaiCupid",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271ff",
+    "name": "TheoremReach",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2721a",
+    "name": "Threads",
+    "country": "USA"
+  },
+  {
+    "id": "69b938095e36cf60a71684de",
+    "name": "Thrillzz",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271d8",
+    "name": "Ticketmaster",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271f7",
+    "name": "TikTok",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f2718f",
+    "name": "Tinder",
+    "country": "USA"
+  },
+  {
+    "id": "69be4a6e8a43c650746b1444",
+    "name": "Titan",
+    "country": "USA"
+  },
+  {
+    "id": "69b94a7dcadd3c9b20de7b10",
+    "name": "TokPortal",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f4fd28302084b5322b72",
+    "name": "Topper",
+    "country": "USA"
+  },
+  {
+    "id": "69850b87f64e67eab4991504",
+    "name": "TopSurveys (Earnstar)",
+    "country": "USA"
+  },
+  {
+    "id": "69c6789d9085570a245a9fa7",
+    "name": "Tractor Supply",
+    "country": "USA"
+  },
+  {
+    "id": "69c62859d76a7a7060fce191",
+    "name": "TradeUP",
+    "country": "USA"
+  },
+  {
+    "id": "699d8fd86d7d3e40da11642d",
+    "name": "TransPerfect DataForce",
+    "country": "USA"
+  },
+  {
+    "id": "69b1d26a204be4841925ab56",
+    "name": "TransUnion (TU)",
+    "country": "USA"
+  },
+  {
+    "id": "698b2332f45ab58672af2d62",
+    "name": "True",
+    "country": "USA"
+  },
+  {
+    "id": "698322250e5f09e5e063373f",
+    "name": "Truecaller",
+    "country": "USA"
+  },
+  {
+    "id": "69c371e6eee4eb12034fef3c",
+    "name": "TrulyFilipino",
+    "country": "USA"
+  },
+  {
+    "id": "69c4cf12e5b4cf00f14b3612",
+    "name": "TruStone",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f27196",
+    "name": "Truth Social",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27242",
+    "name": "TurboTax",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271a0",
+    "name": "TurboTenant",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271ac",
+    "name": "Twilio",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2721b",
+    "name": "Twitch",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271ec",
+    "name": "Uber",
+    "country": "USA"
+  },
+  {
+    "id": "699ec88fd13fa8f04a4b0ec2",
+    "name": "UKG Wallet",
+    "country": "USA"
+  },
+  {
+    "id": "699d9034f7b7e8ecc5a022ef",
+    "name": "uLink",
+    "country": "USA"
+  },
+  {
+    "id": "69b25468d920d00cf341ea16",
+    "name": "Underdog",
+    "country": "USA"
+  },
+  {
+    "id": "69b94c82cadd3c9b20de8034",
+    "name": "United",
+    "country": "USA"
+  },
+  {
+    "id": "69b7f2e08976c263f59be350",
+    "name": "Unity Rewards",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272c8",
+    "name": "Upgrade",
+    "country": "USA"
+  },
+  {
+    "id": "69cadfa563648accc2e8fbb1",
+    "name": "ups.com",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271c7",
+    "name": "Upward",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27206",
+    "name": "Upwork",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27224",
+    "name": "User Interviews",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27279",
+    "name": "UserCrowd",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f2729a",
+    "name": "Userlytics",
+    "country": "USA"
+  },
+  {
+    "id": "69b94be0f95702a477238153",
+    "name": "ValeroPay+",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2720a",
+    "name": "Valued Opinions",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271dc",
+    "name": "Varo",
+    "country": "USA"
+  },
+  {
+    "id": "69c628d4d76a7a7060fce26f",
+    "name": "Velo Poker",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27225",
+    "name": "Venmo",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271a5",
+    "name": "Verasight",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27219",
+    "name": "Vercel",
+    "country": "USA"
+  },
+  {
+    "id": "69be6fac5ad937e670a1a48d",
+    "name": "ViaBTC",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27274",
+    "name": "Viber",
+    "country": "USA"
+  },
+  {
+    "id": "69c62022ba717fb1f8dee878",
+    "name": "Victoria's Secret",
+    "country": "USA"
+  },
+  {
+    "id": "69b9056288f44380528ff145",
+    "name": "Vinita",
+    "country": "USA"
+  },
+  {
+    "id": "69b1523d04a7b09f9f6372c3",
+    "name": "VoIP.ms",
+    "country": "USA"
+  },
+  {
+    "id": "6985d12fd54baf9a07c0d4c4",
+    "name": "Vonage",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272dd",
+    "name": "Vrbo",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271e2",
+    "name": "Vyke",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f27193",
+    "name": "WalletHub",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271c1",
+    "name": "Walmart",
+    "country": "USA"
+  },
+  {
+    "id": "69850141b5b21f7a7c2e0668",
+    "name": "Walmart Money Card",
+    "country": "USA"
+  },
+  {
+    "id": "69c4cb866b0494cb80fdbd01",
+    "name": "Wayfair",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271bd",
+    "name": "Website not in the list (Unknown)",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27256",
+    "name": "WeChat",
+    "country": "USA"
+  },
+  {
+    "id": "69b9455000ede79b33719480",
+    "name": "Wegmans",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272cd",
+    "name": "Welocalize",
+    "country": "USA"
+  },
+  {
+    "id": "69b3be9bccd03e50f5fbc612",
+    "name": "WePhone",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27228",
+    "name": "Western Union",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f2718e",
+    "name": "Whatnot",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271c2",
+    "name": "WhatsApp",
+    "country": "USA"
+  },
+  {
+    "id": "69b7e4a09c2506a1bc8d8c70",
+    "name": "Whop",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27243",
+    "name": "Wise",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f27217",
+    "name": "Wolt",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271d3",
+    "name": "WooPlus",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2722b",
+    "name": "WorldRemit",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2724a",
+    "name": "X",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2723f",
+    "name": "Xe Money",
+    "country": "USA"
+  },
+  {
+    "id": "69b7f420da9e283800986374",
+    "name": "Xfinity",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271eb",
+    "name": "Yahoo",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f27285",
+    "name": "Yik Yak",
+    "country": "USA"
+  },
+  {
+    "id": "69c61e9dba717fb1f8dee5fd",
+    "name": "Yoti",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271b0",
+    "name": "YouTube",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272b4",
+    "name": "Yubo",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272cf",
+    "name": "Yuzu",
+    "country": "USA"
+  },
+  {
+    "id": "69b933456c6c9f10fdf873e8",
+    "name": "Zadarma",
+    "country": "USA"
+  },
+  {
+    "id": "69c36875d5ef37de530ad4de",
+    "name": "Zap Surveys",
+    "country": "USA"
+  },
+  {
+    "id": "69bcef65a6a7b41b982d2092",
+    "name": "Zeabur",
+    "country": "USA"
+  },
+  {
+    "id": "69b3f11c29a0a117576c9325",
+    "name": "Zeffy",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271b5",
+    "name": "Zil Money",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271fd",
+    "name": "Zillow",
+    "country": "USA"
+  },
+  {
+    "id": "69b904fb5c416a290f47cc47",
+    "name": "ZimpleMoney",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f271f6",
+    "name": "Zip",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271d1",
+    "name": "Zoho",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2721d",
+    "name": "ZoomBucks",
+    "country": "USA"
+  },
+  {
+    "id": "697139f7fe5460ddc2f2723e",
+    "name": "ZoomInfo",
+    "country": "USA"
+  },
+  {
+    "id": "697139f4fe5460ddc2f271a8",
+    "name": "Zoosk",
+    "country": "USA"
+  },
+  {
+    "id": "69b3c6be43d2ebe18c4bf97e",
+    "name": "ZOOT",
+    "country": "USA"
+  },
+  {
+    "id": "697139f8fe5460ddc2f272c1",
+    "name": "Zyla",
+    "country": "USA"
+  }
+]

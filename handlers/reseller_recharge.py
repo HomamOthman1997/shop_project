@@ -4,11 +4,15 @@ import re
 from urllib.parse import parse_qs, urlparse
 
 from aiogram import Bot, F, Router, types
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from bson import ObjectId
 
-from config import OWNER_ID
+from config import OWNER_ID, settings
+from database.bots_repo import get_bot_settings
+from services.subscriptions.bot_subscription_service import get_bot_subscription, set_bot_subscription_plan
+from services.subscriptions.presentation import reseller_subscription_kb, subscription_summary_lines
 from database.financial_ledger import credit_user_wallet, get_reseller_wallet_balance, get_user_wallet_balance
 from database.mongo import db
 from database.owner_payment_settings_repo import (
@@ -29,12 +33,15 @@ from database.reseller_settings_repo import (
     get_payment_methods,
     set_exchange_rate,
     set_recharge_routing,
+    set_support_routing,
     set_exchange_routing,
+    get_all_support_routing,
     update_payment_method,
 )
 from database.user_repo import get_user, get_user_by_username, get_user_reseller_for_bot
 from keyboards.balance_keyboard import balance_keyboard
 from keyboards.reseller_main_menu import reseller_main_menu
+from utils.bot_menu_context import send_main_bot_message
 from utils.permissions import is_reseller, owner_only
 from utils.recharge_ui import (
     format_owner_reseller_topup_text,
@@ -43,8 +50,28 @@ from utils.recharge_ui import (
 )
 from utils.translations import t
 from utils.reseller_setup_guard import get_reseller_setup_status, render_reseller_setup_notice
+from utils.user_money import format_usd
 
 router = Router()
+
+
+async def _clear_reply_markup_safely(message: types.Message | None) -> None:
+    if not message:
+        return
+    try:
+        await message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return
+        raise
+    except Exception:
+        return
+_SUPPORT_TOPIC_CATEGORIES = (
+    ("proxies", "Support - Proxies"),
+    ("numbers", "Support - Numbers"),
+    ("services", "Support - Services"),
+    ("user_balance", "Support - User Balance"),
+)
 
 
 class ResellerRechargeFSM(StatesGroup):
@@ -70,6 +97,7 @@ class ResellerSettingsFSM(StatesGroup):
     waiting_payment_topic_target = State()
     waiting_exchange_topic_target = State()
     waiting_auto_topics_group_target = State()
+    waiting_support_topics_group_target = State()
     waiting_exchange_rate = State()
     waiting_method_value = State()
 
@@ -84,9 +112,60 @@ class OwnerResellerTopupFSM(StatesGroup):
     waiting_manual_amount = State()
 
 
+class ResellerBroadcastFSM(StatesGroup):
+    waiting_text = State()
+
 def _text_eq(text: str | None, *candidates: str) -> bool:
     raw = (text or "").strip().lower()
     return raw in {x.strip().lower() for x in candidates}
+
+
+def _reseller_broadcast_kb() -> types.InlineKeyboardMarkup:
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text="نص فقط", callback_data="rs_broadcast:text")],
+            [types.InlineKeyboardButton(text="⬅️ Back to Reseller Menu", callback_data="rsmenu:menu")],
+        ]
+    )
+
+
+async def _current_bot_broadcast_channel(bot: Bot) -> str | None:
+    me = await bot.get_me()
+    settings_doc = await get_bot_settings(int(me.id))
+    raw = str((settings_doc or {}).get("subscription_channel") or "").strip()
+    return raw or None
+
+
+async def _broadcast_channel_status(bot: Bot) -> tuple[bool, str | None, str]:
+    channel = await _current_bot_broadcast_channel(bot)
+    if not channel:
+        return False, None, "قناة البوت غير مربوطة أو البوت ليس Admin فيها."
+    try:
+        chat = await bot.get_chat(channel)
+        if str(getattr(chat, "type", "") or "") != "channel":
+            return False, channel, "القناة المحفوظة لهذا البوت ليست قناة تيليغرام صالحة."
+    except Exception:
+        return False, channel, "قناة البوت غير مربوطة أو البوت ليس Admin فيها."
+    try:
+        me = await bot.get_me()
+        member = await bot.get_chat_member(chat_id=channel, user_id=int(me.id))
+        status = str(getattr(member, "status", "") or "").lower()
+        if status not in {"administrator", "creator"}:
+            return False, channel, "قناة البوت غير مربوطة أو البوت ليس Admin فيها."
+    except Exception:
+        return False, channel, "قناة البوت غير مربوطة أو البوت ليس Admin فيها."
+    return True, channel, ""
+
+
+async def _send_broadcast_post(bot: Bot, text: str) -> tuple[bool, str]:
+    ok, channel, error_text = await _broadcast_channel_status(bot)
+    if not ok or not channel:
+        return False, error_text
+    try:
+        await bot.send_message(chat_id=channel, text=text)
+    except Exception as exc:
+        return False, f"Broadcast failed: {exc}"
+    return True, f"Broadcast sent to {channel}."
 
 
 async def _is_current_bot_reseller(user_id: int, bot) -> bool:
@@ -183,18 +262,36 @@ async def _hide_reply_keyboard(bot, chat_id: int, lang: str) -> None:
         pass
 
 
-async def _send_reseller_balance(message: types.Message, reseller_id: int, lang: str) -> None:
+async def _render_reseller_balance_text(reseller_id: int, bot_id: int, lang: str) -> str:
     main_balance = await get_reseller_wallet_balance(int(reseller_id), wallet_type="main")
     earnings_balance = await get_reseller_wallet_balance(int(reseller_id), wallet_type="earnings")
-    await message.answer(
-        t(lang, "deposit_info").format(deposit=main_balance)
-        + f"\nEarnings wallet: ${earnings_balance:.2f}."
-        + "\nMain wallet pays core service costs."
-        + "\nEarnings wallet accumulates your profit until monthly settlement."
+    subscription = await get_bot_subscription(int(bot_id))
+    is_ar = str(lang or "").lower().startswith("ar")
+    header = "رصيدك في البوت الرئيسي" if is_ar else "Your Main Bot balance"
+    profit_label = "أرباح خدماتك الخاصة" if is_ar else "Custom-services profit"
+    note = (
+        "يتم سحب الاشتراك الشهري من هذا الرصيد داخل البوت المركزي."
+        if is_ar
+        else "Bot subscription is charged from this balance inside the main bot."
+    )
+    return (
+        f"{header}: {format_usd(main_balance)}\n"
+        f"{profit_label}: {format_usd(earnings_balance)}\n"
+        f"{note}\n\n"
+        + "\n".join(subscription_summary_lines(lang, subscription))
     )
 
 
-async def _build_reseller_stats_text(reseller_id: int) -> str:
+async def _send_reseller_balance(message: types.Message, reseller_id: int, lang: str) -> None:
+    bot_id = (await message.bot.get_me()).id
+    subscription = await get_bot_subscription(int(bot_id))
+    await message.answer(
+        await _render_reseller_balance_text(reseller_id, bot_id, lang),
+        reply_markup=reseller_subscription_kb(subscription),
+    )
+
+
+async def _build_reseller_stats_text(reseller_id: int, bot_id: int) -> str:
     rid = int(reseller_id)
     main_balance = await get_reseller_wallet_balance(rid, wallet_type="main")
     earnings_balance = await get_reseller_wallet_balance(rid, wallet_type="earnings")
@@ -204,17 +301,19 @@ async def _build_reseller_stats_text(reseller_id: int) -> str:
     active_bots = await db.bots.count_documents({"owner_id": rid, "active": True})
     methods = await get_payment_methods(rid)
     rate = await get_exchange_rate(rid)
+    subscription = await get_bot_subscription(int(bot_id))
 
     return (
         "Reseller Stats\n\n"
         f"Reseller ID: {rid}\n"
         f"Active bots: {active_bots}\n"
         f"Linked users: {linked_users}\n"
-        f"Main wallet: ${main_balance:.2f}\n"
-        f"Earnings wallet: ${earnings_balance:.2f}\n"
-        "Main wallet use: provider/base cost coverage\n"
-        "Earnings wallet use: accumulated reseller profit\n"
-        f"Exchange rate: 1 USD = {rate:.2f} SYP\n"
+        f"Main Bot balance: {format_usd(main_balance)}\n"
+        f"Custom-profit wallet: {format_usd(earnings_balance)}\n"
+        + "\n".join(subscription_summary_lines("en", subscription))
+        + "\n"
+        "Custom-profit wallet use: profit from your own services\n"
+        f"Exchange rate: 1 💲 = {rate:.2f} local\n"
         f"Payment methods configured: {len(methods)}\n"
         f"Pending recharge requests: {pending_recharge}\n"
         f"Need-more-proof requests: {need_more_proof}"
@@ -233,6 +332,7 @@ async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int) -> str:
     enabled_methods = sum(1 for item in methods if bool(item.get("enabled", True)))
     rate = await get_exchange_rate(rid)
     ready, setup = await _reseller_setup_ready(rid)
+    subscription = await get_bot_subscription(int(bot_id))
     open_orders = await db.orders.count_documents(
         {
             "reseller_id": rid,
@@ -248,11 +348,13 @@ async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int) -> str:
         f"Active bots: {active_bots}\n"
         f"Users linked to this bot: {linked_users}\n"
         f"Open numbers orders: {open_orders}\n\n"
-        f"Main wallet: ${main_balance:.2f}\n"
-        f"Earnings wallet: ${earnings_balance:.2f}\n"
+            f"Main Bot balance: {format_usd(main_balance)}\n"
+        f"Custom-profit wallet: {format_usd(earnings_balance)}\n"
+        + "\n".join(subscription_summary_lines("en", subscription))
+        + "\n"
         f"Pending recharge requests: {pending_recharge}\n"
         f"Need-more-proof requests: {need_more_proof}\n\n"
-        f"Exchange rate: 1 USD = {rate:.2f} SYP\n"
+        f"Exchange rate: 1 💲 = {rate:.2f} local\n"
         f"Payment methods enabled: {enabled_methods}/{len(methods)}\n"
         f"Payment routing ready: {bool(setup.get('payment_routing_ok'))}\n"
         f"Exchange routing ready: {bool(setup.get('exchange_routing_ok'))}\n"
@@ -300,6 +402,29 @@ async def reseller_menu_balance(callback: types.CallbackQuery):
         await _send_reseller_balance(callback.message, callback.from_user.id, lang)
 
 
+@router.callback_query(lambda c: c.data and c.data.startswith("rs_sub:plan:"))
+async def reseller_subscription_plan_set(callback: types.CallbackQuery):
+    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
+        return await callback.answer("Reseller only", show_alert=True)
+    if not callback.message:
+        return await callback.answer()
+    raw = (callback.data or "").split(":")[-1]
+    try:
+        months = int(raw)
+    except Exception:
+        return await callback.answer("Invalid plan", show_alert=True)
+    bot_id = (await callback.bot.get_me()).id
+    subscription = await set_bot_subscription_plan(int(bot_id), months=months)
+    if not subscription:
+        return await callback.answer("Plan update failed", show_alert=True)
+    lang = await _reseller_lang(callback.from_user.id)
+    await callback.message.edit_text(
+        await _render_reseller_balance_text(callback.from_user.id, bot_id, lang),
+        reply_markup=reseller_subscription_kb(subscription),
+    )
+    await callback.answer("Subscription plan updated")
+
+
 @router.callback_query(lambda c: c.data == "rsmenu:dashboard")
 async def reseller_menu_dashboard(callback: types.CallbackQuery):
     if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
@@ -310,6 +435,61 @@ async def reseller_menu_dashboard(callback: types.CallbackQuery):
         await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
         bot_id = (await callback.bot.get_me()).id
         await callback.message.answer(await _build_reseller_dashboard_text(callback.from_user.id, bot_id))
+
+
+@router.callback_query(lambda c: c.data == "rsmenu:menu")
+async def reseller_menu_root(callback: types.CallbackQuery):
+    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
+        return await callback.answer("Reseller only", show_alert=True)
+    await callback.answer()
+    if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
+        await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
+        await callback.message.answer(t(lang, "main_menu"), reply_markup=reseller_main_menu(lang))
+
+
+@router.callback_query(lambda c: c.data == "rsmenu:main_bot_services")
+async def reseller_menu_main_bot_services(callback: types.CallbackQuery):
+    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
+        return await callback.answer("Reseller only", show_alert=True)
+    await callback.answer()
+    if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
+        await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
+        await send_main_bot_message(callback.message, lang=lang, back_callback="rsmenu:menu")
+
+
+@router.callback_query(lambda c: c.data == "rsmenu:broadcast")
+async def reseller_menu_broadcast(callback: types.CallbackQuery, state: FSMContext):
+    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
+        return await callback.answer("Reseller only", show_alert=True)
+    await state.clear()
+    ok, _channel, error_text = await _broadcast_channel_status(callback.bot)
+    if not ok:
+        return await callback.answer(error_text, show_alert=True)
+    await callback.answer()
+    if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
+        await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
+        await callback.message.answer(
+            "إذاعة\n\n"
+            "هذه الرسالة ستُنشر في قناة هذا البوت الحالية.\n"
+            "اختر نوع الإرسال.",
+            reply_markup=_reseller_broadcast_kb(),
+        )
+
+
+@router.callback_query(lambda c: c.data == "rs_broadcast:text")
+async def reseller_broadcast_text_start(callback: types.CallbackQuery, state: FSMContext):
+    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
+        return await callback.answer("Reseller only", show_alert=True)
+    await state.set_state(ResellerBroadcastFSM.waiting_text)
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(
+            "أرسل الآن نص الإذاعة كما يجب أن يظهر في القناة.\n"
+            "للإلغاء أرسل /cancel"
+        )
 
 
 @router.callback_query(lambda c: c.data == "rsmenu:recharge_requests")
@@ -364,32 +544,20 @@ async def reseller_menu_stats(callback: types.CallbackQuery):
     if callback.message:
         lang = await _reseller_lang(callback.from_user.id)
         await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
-        await callback.message.answer(await _build_reseller_stats_text(callback.from_user.id))
+        await callback.message.answer(
+            await _build_reseller_stats_text(callback.from_user.id, (await callback.bot.get_me()).id)
+        )
 
 
 @router.callback_query(lambda c: c.data == "rsmenu:core_topup")
 async def reseller_core_topup_start(callback: types.CallbackQuery, state: FSMContext):
     if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
         return await callback.answer("Reseller only", show_alert=True)
-    if not await _guard_reseller_setup(callback):
-        return
-
-    methods = [m for m in (await get_owner_payment_methods()) if bool(m.get("enabled", True))]
-    if not methods:
-        return await callback.answer("Owner payment methods are not configured.", show_alert=True)
-
-    owner_rate = await get_owner_exchange_rate()
-    await state.set_state(ResellerCoreTopupFSM.waiting_method)
-    await state.update_data(rs_core_topup_methods=methods)
-
-    if callback.message:
-        await callback.message.answer(
-            "Core Wallet Topup\n\n"
-            "Select owner payment method first.\n"
-            f"Owner exchange rate: 1 USD = {owner_rate:.2f} SYP",
-            reply_markup=_owner_topup_methods_kb(methods),
-        )
+    await state.clear()
     await callback.answer()
+    if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
+        await send_main_bot_message(callback.message, lang=lang, back_callback="rsmenu:menu")
 
 
 @router.callback_query(lambda c: c.data == "rs_core_topup:cancel")
@@ -530,17 +698,38 @@ async def reseller_core_topup_proof_text(message: types.Message, state: FSMConte
     return await message.answer("Send screenshot proof only, or /cancel.")
 
 
+@router.message(ResellerBroadcastFSM.waiting_text)
+async def reseller_broadcast_text_submit(message: types.Message, state: FSMContext):
+    if not await _is_current_bot_reseller(message.from_user.id, message.bot):
+        await state.clear()
+        return await message.answer("Reseller only.")
+    raw = (message.text or "").strip()
+    if raw.lower() in {"/cancel", "cancel"}:
+        await state.clear()
+        lang = await _reseller_lang(message.from_user.id)
+        return await message.answer("Canceled.", reply_markup=reseller_main_menu(lang))
+    if not raw:
+        return await message.answer("أرسل نصًا فقط.")
+    ok, result_text = await _send_broadcast_post(message.bot, raw)
+    await state.clear()
+    lang = await _reseller_lang(message.from_user.id)
+    await message.answer(result_text, reply_markup=reseller_main_menu(lang))
+
+
 async def _settings_main_kb(reseller_id: int) -> types.InlineKeyboardMarkup:
     pay_route = await get_recharge_routing(int(reseller_id))
     ex_route = await get_exchange_routing(int(reseller_id))
+    support_routes = await get_all_support_routing(int(reseller_id))
     methods = await get_payment_methods(int(reseller_id))
     enabled_count = sum(1 for m in methods if bool(m.get("enabled", True)))
     total_count = len(methods)
     rate = await get_exchange_rate(int(reseller_id))
     pay_ok = bool(pay_route and pay_route.get("chat_id"))
     ex_ok = bool(ex_route and ex_route.get("chat_id"))
+    support_ok = all(bool((support_routes.get(cat) or {}).get("chat_id")) for cat, _ in _SUPPORT_TOPIC_CATEGORIES)
     pay_label = f"Payment Topic {'✅' if pay_ok else 'DM (Easy)'}"
     ex_label = f"Exchange Topic {'✅' if ex_ok else 'DM (Easy)'}"
+    support_label = f"Support Topics {'✅' if support_ok else '⚠️'}"
     rate_label = f"Exchange Rate: {rate:.2f}"
     methods_label = f"Payment Methods ({enabled_count}/{total_count} ON)"
     return types.InlineKeyboardMarkup(
@@ -550,6 +739,7 @@ async def _settings_main_kb(reseller_id: int) -> types.InlineKeyboardMarkup:
                 types.InlineKeyboardButton(text=methods_label, callback_data="rs:methods"),
             ],
             [types.InlineKeyboardButton(text="Auto Setup Topics", callback_data="rs:auto:topics")],
+            [types.InlineKeyboardButton(text=support_label, callback_data="rs:auto:support_topics")],
             [types.InlineKeyboardButton(text=pay_label, callback_data="rs:bind:pay:link")],
             [types.InlineKeyboardButton(text=ex_label, callback_data="rs:bind:ex:link")],
             [types.InlineKeyboardButton(text="Use DM Routing (Easy)", callback_data="rs:routing:dm")],
@@ -579,6 +769,7 @@ def _settings_wait_input_kb() -> types.InlineKeyboardMarkup:
 async def _settings_overview_text(reseller_id: int) -> str:
     pay_route = await get_recharge_routing(int(reseller_id))
     ex_route = await get_exchange_routing(int(reseller_id))
+    support_routes = await get_all_support_routing(int(reseller_id))
     methods = await get_payment_methods(int(reseller_id))
     enabled_count = sum(1 for m in methods if bool(m.get("enabled", True)))
     total_count = len(methods)
@@ -586,12 +777,14 @@ async def _settings_overview_text(reseller_id: int) -> str:
 
     pay_status = "✅ Bound" if (pay_route and pay_route.get("chat_id")) else "DM fallback (easy mode)"
     ex_status = "✅ Bound" if (ex_route and ex_route.get("chat_id")) else "DM fallback (easy mode)"
+    support_ready = sum(1 for cat, _ in _SUPPORT_TOPIC_CATEGORIES if (support_routes.get(cat) or {}).get("chat_id"))
 
     return (
         "Reseller Settings\n\n"
         f"• Payment routing: {pay_status}\n"
         f"• Exchange routing: {ex_status}\n"
-        f"• Exchange rate: {rate:.2f} SYP per 1 USD\n"
+        f"• Support topics: {support_ready}/4 ready\n"
+        f"• Exchange rate: {rate:.2f} local per 1 💲\n"
         f"• Payment methods: {enabled_count}/{total_count} enabled\n\n"
         "Optional advanced mode: add your reseller bot as admin in a private group and enable Topics.\n"
         "Easy mode works without group (requests go to DM fallback).\n\n"
@@ -643,7 +836,7 @@ def _settings_method_kb(code: str) -> types.InlineKeyboardMarkup:
         inline_keyboard=[
             [types.InlineKeyboardButton(text="Set Title", callback_data=f"rs:mset:title:{code}")],
             [types.InlineKeyboardButton(text="Set Payment Address/Target", callback_data=f"rs:mset:target:{code}")],
-            [types.InlineKeyboardButton(text="Set Currency (USD/SYP)", callback_data=f"rs:mset:currency:{code}")],
+            [types.InlineKeyboardButton(text="Set Currency (💲/local)", callback_data=f"rs:mset:currency:{code}")],
             [types.InlineKeyboardButton(text="Enable/Disable Method", callback_data=f"rs:mset:enabled:{code}")],
             [types.InlineKeyboardButton(text="Set Support Username", callback_data=f"rs:mset:support:{code}")],
             [types.InlineKeyboardButton(text="Set Instructions Text", callback_data=f"rs:mset:text:{code}")],
@@ -685,7 +878,8 @@ def _format_payment_methods_text(methods: list[dict]) -> str:
     for m in methods:
         status = "ON" if bool(m.get("enabled", True)) else "OFF"
         lines.append(
-            f"- {m.get('code')}: {m.get('title')} | {str(m.get('currency', 'USD')).upper()} | "
+            f"- {m.get('code')}: {m.get('title')} | "
+            f"{('local' if str(m.get('currency', 'USD')).upper() == 'SYP' else '💲')} | "
             f"per_credit={float(m.get('per_credit', 1.0)):.4f} | {status}"
         )
     lines.append("\nSelect a method below to edit details.")
@@ -700,7 +894,7 @@ def _format_payment_method_details(method: dict) -> str:
         "Payment Method Details\n\n"
         f"Code: {method.get('code')}\n"
         f"Title: {method.get('title')}\n"
-        f"Currency: {str(method.get('currency', 'USD')).upper()}\n"
+        f"Currency: {('local' if str(method.get('currency', 'USD')).upper() == 'SYP' else '💲')}\n"
         f"Enabled: {bool(method.get('enabled', True))}\n"
         f"Per Credit: {float(method.get('per_credit', 1.0)):.4f}\n"
         f"Target: {method.get('target')}\n"
@@ -748,9 +942,9 @@ def _format_owner_topup_method_details(method: dict) -> str:
         instructions = instructions.replace(raw_target, "").strip()
 
     return (
-        "<b>Core Wallet Topup (Owner Payment)</b>\n\n"
+            "<b>Main Bot Balance Topup (Owner Payment)</b>\n\n"
         f"Method: <b>{escape(str(method.get('title') or '-'))}</b> ({escape(str(method.get('code') or '-'))})\n"
-        f"Currency: <b>{escape(str(method.get('currency', 'USD')).upper())}</b>\n"
+        f"Currency: <b>{escape('local' if str(method.get('currency', 'USD')).upper() == 'SYP' else '💲')}</b>\n"
         f"Per Credit: <b>{float(method.get('per_credit', 1.0)):.4f}</b>\n\n"
         "Targets (copy each line separately):\n"
         f"{target_block}\n\n"
@@ -790,6 +984,30 @@ async def _owner_notifications_target() -> dict | None:
     }
 
 
+async def _owner_reseller_topup_target() -> dict | None:
+    doc = await db.system_settings.find_one({"_id": "owner_reseller_topups"})
+    if not doc:
+        return await _owner_notifications_target()
+    chat_id_raw = doc.get("chat_id")
+    if chat_id_raw in (None, ""):
+        return await _owner_notifications_target()
+    try:
+        chat_id = int(chat_id_raw)
+    except Exception:
+        return await _owner_notifications_target()
+    thread_raw = doc.get("message_thread_id")
+    thread_id: int | None = None
+    if thread_raw not in (None, ""):
+        try:
+            thread_id = int(thread_raw)
+        except Exception:
+            thread_id = None
+    return {
+        "chat_id": chat_id,
+        "message_thread_id": thread_id,
+    }
+
+
 async def _notify_owner_reseller_topup_request(
     message: types.Message,
     req: dict,
@@ -808,7 +1026,7 @@ async def _notify_owner_reseller_topup_request(
     ).strip() or "-"
 
     caption = (
-        "Reseller Core Wallet Topup Request\n\n"
+            "Reseller Main Bot Balance Topup Request\n\n"
         f"Request ID: {req_id}\n"
         f"Reseller ID: {reseller_id}\n"
         f"Username: {uname}\n"
@@ -840,7 +1058,7 @@ async def _notify_owner_reseller_topup_request(
             int(thread_id) if thread_id is not None else None,
         )
 
-    target = await _owner_notifications_target()
+    target = await _owner_reseller_topup_target()
     target_error: Exception | None = None
     if target:
         try:
@@ -954,8 +1172,10 @@ async def _apply_owner_reseller_topup_decision(bot, owner_id: int, request_id: s
         return False, "Request not found", None
 
     wallet_type = str(req.get("wallet_type") or "").lower()
-    if wallet_type not in {"reseller_main", "main", "reseller"}:
-        return False, "This request is not a reseller core wallet topup.", req
+    main_bot_user_topup = wallet_type == "user" and str(((req.get("details") or {}).get("wallet_scope")) or "").strip().lower() == "main_bot"
+    reseller_main_topup = wallet_type in {"reseller_main", "main", "reseller"}
+    if not reseller_main_topup and not main_bot_user_topup:
+        return False, "This request is not reviewable from the owner recharge flow.", req
 
     if decision not in {"accepted", "rejected"}:
         return False, "Invalid decision", req
@@ -975,6 +1195,37 @@ async def _apply_owner_reseller_topup_decision(bot, owner_id: int, request_id: s
     if not req:
         return False, "Request not found after update", None
 
+    if main_bot_user_topup:
+        if decision == "accepted" and req.get("status") == "accepted":
+            user_id = int(req.get("user_id") or 0)
+            wallet_scope_id = int(req.get("reseller_id") or user_id)
+            amount_done = float(req.get("approved_amount") or req.get("amount") or 0)
+            new_bal = await get_user_wallet_balance(user_id, wallet_scope_id)
+            try:
+                await bot.send_message(
+                    user_id,
+                    "Main Bot balance request accepted.\n"
+                    f"Added credits: {amount_done:.4f}\n"
+                    f"Current Main Bot balance: {format_usd(new_bal)}",
+                )
+            except Exception:
+                pass
+            await _edit_request_card_message(bot, req)
+            return True, "Main Bot balance request accepted", req
+
+        if decision == "rejected" and req.get("status") == "rejected":
+            try:
+                await bot.send_message(
+                    int(req.get("user_id") or 0),
+                    "Main Bot balance request rejected.",
+                )
+            except Exception:
+                pass
+            await _edit_request_card_message(bot, req)
+            return True, "Main Bot balance request rejected", req
+
+        return False, f"Owner review not applied. status={req.get('status')}", req
+
     if decision == "accepted" and req.get("status") == "accepted":
         reseller_id = int(req.get("reseller_id") or 0)
         amount_done = float(req.get("approved_amount") or req.get("amount") or 0)
@@ -984,7 +1235,7 @@ async def _apply_owner_reseller_topup_decision(bot, owner_id: int, request_id: s
             reseller_id,
             "Topup approved by owner.\n"
             f"Added credits: {amount_done:.4f}\n"
-            f"Current main wallet balance: {new_bal:.2f}$",
+                        f"Current Main Bot balance: {format_usd(new_bal)}",
         )
         await _edit_owner_topup_card_message(bot, req)
         return True, "Topup accepted", req
@@ -1182,7 +1433,7 @@ async def received_adjust_action(callback: types.CallbackQuery, state: FSMContex
     await callback.answer()
     if callback.message:
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer("Send amount in USD (example: 10 or 10.50).")
+        await callback.message.answer("Send amount in 💲 (example: 10 or 10.50).")
 
 
 @router.message(ResellerAdjustFSM.waiting_for_action)
@@ -1213,7 +1464,7 @@ async def received_adjust_amount(message: types.Message, state: FSMContext):
         return await message.answer("Invalid action context. Please retry.")
 
     await state.update_data(pending_amount=amount)
-    confirm_text = f"Confirm `{meta['label']}` for user `{target_id}` with amount `{amount:.2f}$`?"
+    confirm_text = f"Confirm `{meta['label']}` for user `{target_id}` with amount `{format_usd(amount)}`?"
     kb = types.InlineKeyboardMarkup(
         inline_keyboard=[
             [types.InlineKeyboardButton(text="Confirm", callback_data="reseller_apply")],
@@ -1259,11 +1510,11 @@ async def reseller_apply(callback: types.CallbackQuery, state: FSMContext):
     if action == "add":
         delta = amount
         reason = str(ADJUST_ACTION_META["add"]["reason"])
-        result_text = f"Added {amount:.2f}$ to user {target_id}."
+        result_text = f"Added {format_usd(amount)} to user {target_id}."
     elif action == "decrease":
         delta = -amount
         reason = str(ADJUST_ACTION_META["decrease"]["reason"])
-        result_text = f"Decreased {amount:.2f}$ from user {target_id}."
+        result_text = f"Decreased {format_usd(amount)} from user {target_id}."
     else:
         delta = amount - current
         reason = str(ADJUST_ACTION_META["set"]["reason"])
@@ -1272,7 +1523,7 @@ async def reseller_apply(callback: types.CallbackQuery, state: FSMContext):
             await callback.answer("No change needed.", show_alert=True)
             await callback.message.edit_reply_markup(reply_markup=None)
             return
-        result_text = f"Set user {target_id} balance to {amount:.2f}$."
+        result_text = f"Set user {target_id} balance to {format_usd(amount)}."
 
     try:
         await credit_user_wallet(
@@ -1292,7 +1543,7 @@ async def reseller_apply(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.answer("Done.")
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer(f"{result_text}\nNew balance: {new_balance:.2f}$")
+    await callback.message.answer(f"{result_text}\nNew balance: {format_usd(new_balance)}")
 
 
 @router.message(lambda msg: bool(msg.text) and ((msg.text or "").strip() in {t("en", "btn_recharge_requests"), t("ar", "btn_recharge_requests")}) or ((msg.text or "").startswith("/recharge_requests")) )
@@ -1342,7 +1593,7 @@ async def _edit_request_card_message(bot, req: dict):
         f"User ID: {req.get('user_id')}\n"
         f"Method: {req.get('method', '-')}\n"
         f"Created At: {req.get('created_at')}\n"
-        f"Credits Unit: USD credits\n"
+        f"Credits Unit: 💲 credits\n"
         f"{details_line}"
     )
 
@@ -1401,7 +1652,7 @@ async def _apply_recharge_decision_by_id(bot, reseller_id: int, request_id: str,
             lang = (u or {}).get("language", "en")
             await bot.send_message(
                 int(req["user_id"]),
-                f"Recharge accepted.\nAmount: {amount_done:.4f} credits\nNew balance: {new_bal:.2f}$",
+                f"Recharge accepted.\nAmount: {amount_done:.4f} credits\nNew balance: {format_usd(new_bal)}",
                 reply_markup=balance_keyboard(lang),
             )
         except Exception:
@@ -1429,7 +1680,7 @@ async def accept_recharge_request(callback: types.CallbackQuery):
     ok, text, _ = await _apply_recharge_decision_by_id(callback.bot, int(callback.from_user.id), req_id, "accepted")
     await callback.answer(text if not ok else "Done")
     if ok:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await _clear_reply_markup_safely(callback.message)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("recharge_reject_"))
@@ -1440,7 +1691,7 @@ async def reject_recharge_request(callback: types.CallbackQuery):
     ok, text, _ = await _apply_recharge_decision_by_id(callback.bot, int(callback.from_user.id), req_id, "rejected")
     await callback.answer(text if not ok else "Done")
     if ok:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await _clear_reply_markup_safely(callback.message)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("owner_rchg:accept:"))
@@ -1454,7 +1705,7 @@ async def owner_accept_reseller_topup(callback: types.CallbackQuery):
     )
     await callback.answer(text if not ok else "Done")
     if ok and callback.message:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await _clear_reply_markup_safely(callback.message)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("owner_rchg:reject:"))
@@ -1468,7 +1719,7 @@ async def owner_reject_reseller_topup(callback: types.CallbackQuery):
     )
     await callback.answer(text if not ok else "Done")
     if ok and callback.message:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await _clear_reply_markup_safely(callback.message)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("owner_rchg:manual:"))
@@ -1640,6 +1891,24 @@ async def settings_auto_topics_start(callback: types.CallbackQuery, state: FSMCo
         )
 
 
+@router.callback_query(lambda c: c.data == "rs:auto:support_topics")
+async def settings_auto_support_topics_start(callback: types.CallbackQuery, state: FSMContext):
+    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
+        return await callback.answer("Reseller only", show_alert=True)
+    await state.set_state(ResellerSettingsFSM.waiting_support_topics_group_target)
+    await callback.answer()
+    if callback.message:
+        await callback.message.edit_text(
+            "Auto setup support topics\n\n"
+            "Send your private group target now.\n"
+            "Supported formats:\n"
+            "1) Group link copied from Telegram (t.me/c/...)\n"
+            "2) -100CHAT_ID\n\n"
+            "Note: bot must be admin in that group with Manage Topics permission.",
+            reply_markup=_settings_wait_input_kb(),
+        )
+
+
 @router.message(ResellerSettingsFSM.waiting_auto_topics_group_target)
 async def settings_auto_topics_apply(message: types.Message, state: FSMContext):
     if not await _is_current_bot_reseller(message.from_user.id, message.bot):
@@ -1686,6 +1955,54 @@ async def settings_auto_topics_apply(message: types.Message, state: FSMContext):
         "Auto setup completed.\n\n"
         f"Payment Requests topic: {pay_thread_id}\n"
         f"Exchange Alerts topic: {ex_thread_id}",
+        reply_markup=await _settings_main_kb(message.from_user.id),
+    )
+
+
+@router.message(ResellerSettingsFSM.waiting_support_topics_group_target)
+async def settings_auto_support_topics_apply(message: types.Message, state: FSMContext):
+    if not await _is_current_bot_reseller(message.from_user.id, message.bot):
+        await state.clear()
+        return await message.answer("Reseller only.")
+
+    parsed = await _parse_topic_target(message.text or "", message.bot)
+    if not parsed:
+        return await message.answer(_topic_target_parse_error(message.text or ""))
+    chat_id = int(parsed[0])
+
+    ok_admin, admin_err = await _bot_can_manage_topics(message.bot, chat_id)
+    if not ok_admin:
+        await state.clear()
+        return await message.answer(
+            "Auto setup failed.\n"
+            f"Reason: {admin_err}\n\n"
+            "Please add bot as admin in the group and grant Manage Topics, then retry."
+        )
+
+    created: list[tuple[str, int]] = []
+    failures: list[str] = []
+    for category, title in _SUPPORT_TOPIC_CATEGORIES:
+        thread_id, err = await _create_forum_topic_safe(message.bot, chat_id, title)
+        if thread_id is None:
+            failures.append(f"{title}: {err or '-'}")
+            continue
+        await set_support_routing(message.from_user.id, category, chat_id=chat_id, message_thread_id=thread_id)
+        created.append((title, thread_id))
+
+    await state.clear()
+    if failures:
+        details = "\n".join(failures)
+        return await message.answer(
+            "Support topics setup finished with errors.\n\n"
+            f"Created: {len(created)}/4\n"
+            f"{details}",
+            reply_markup=await _settings_main_kb(message.from_user.id),
+        )
+
+    created_lines = "\n".join(f"{title}: {thread_id}" for title, thread_id in created)
+    await message.answer(
+        "Support topics setup completed.\n\n"
+        f"{created_lines}",
         reply_markup=await _settings_main_kb(message.from_user.id),
     )
 
@@ -1745,7 +2062,7 @@ async def settings_exchange_rate_start(callback: types.CallbackQuery, state: FSM
     await callback.answer()
     if callback.message:
         await callback.message.edit_text(
-            "Send your USD/SYP rate now.\n"
+            "Send your local-to-dollar rate now.\n"
             f"Current rate for your reseller account: {current:.2f}\n\n"
             "This value is private per reseller (each reseller has independent rate).",
             reply_markup=_settings_wait_input_kb(),
@@ -1767,7 +2084,7 @@ async def settings_exchange_rate_apply(message: types.Message, state: FSMContext
     await set_exchange_rate(message.from_user.id, rate)
     await state.clear()
     await message.answer(
-        f"Exchange rate updated for your reseller account: 1 USD = {rate:.2f} SYP",
+        f"Exchange rate updated for your reseller account: 1 💲 = {rate:.2f} local",
         reply_markup=await _settings_main_kb(message.from_user.id),
     )
 
@@ -1817,7 +2134,7 @@ async def settings_method_edit_start(callback: types.CallbackQuery, state: FSMCo
     prompts = {
         "title": "Send new method title (example: ShamCash Syria).",
         "target": "Send new payment target/address text. You can send multiple lines (one target per line).",
-        "currency": "Send currency code: USD or SYP",
+        "currency": "Send currency code: 💲 or local",
         "enabled": "Send method status: on/off",
         "support": "Send support username (example: @support_user).",
         "text": (
@@ -1863,7 +2180,7 @@ async def settings_method_edit_apply(message: types.Message, state: FSMContext):
     elif field == "currency":
         cur = raw.upper().strip()
         if cur not in {"USD", "SYP"}:
-            return await message.answer("Invalid currency. Send USD or SYP.")
+            return await message.answer("Invalid currency. Send 💲 or local.")
         kwargs["currency"] = cur
     elif field == "enabled":
         low = raw.lower().strip()
@@ -1967,7 +2284,7 @@ async def set_exchange_rate_cmd(message: types.Message):
     if len(parts) != 2:
         current = await get_exchange_rate(message.from_user.id)
         return await message.answer(
-            "Usage: /set_exchange_rate <SYP_per_USD>\n"
+            "Usage: /set_exchange_rate <local_per_dollar>\n"
             f"Current (your reseller only): {current:.2f}\n"
             "Tip: You can update this from Reseller Settings."
         )
@@ -1978,7 +2295,7 @@ async def set_exchange_rate_cmd(message: types.Message):
     if rate <= 0:
         return await message.answer("Rate must be > 0")
     await set_exchange_rate(message.from_user.id, rate)
-    await message.answer(f"Exchange rate updated for your reseller account: 1 USD = {rate:.2f} SYP")
+    await message.answer(f"Exchange rate updated for your reseller account: 1 💲 = {rate:.2f} local")
 
 
 @router.message(lambda msg: (msg.text or "").startswith("/payment_methods"))
@@ -1989,7 +2306,9 @@ async def payment_methods_cmd(message: types.Message):
     lines = []
     for m in methods:
         lines.append(
-            f"{m.get('code')}: {m.get('title')} | {m.get('currency')} | per_credit={float(m.get('per_credit', 1.0)):.4f}"
+            f"{m.get('code')}: {m.get('title')} | "
+            f"{('local' if str(m.get('currency', 'USD')).upper() == 'SYP' else '💲')} | "
+            f"per_credit={float(m.get('per_credit', 1.0)):.4f}"
         )
     await message.answer("\n".join(lines) if lines else "No payment methods configured")
 
@@ -2055,7 +2374,7 @@ async def recharge_manual_start(callback: types.CallbackQuery, state: FSMContext
     paid_currency = str(details.get("paid_currency", "USD")).upper()
     requested_credits = float(req.get("amount", 0) or 0)
     await callback.message.reply(
-        f"Enter manual credits (USD credits) for request {req_id}.\n"
+        f"Enter manual credits (💲 credits) for request {req_id}.\n"
         f"Paid amount by reseller: {paid_amount:.2f} {paid_currency}\n"
         f"Requested credits: {requested_credits:.4f}\n\n"
         "Important: Do NOT enter paid amount in local currency here."
@@ -2103,7 +2422,7 @@ async def recharge_manual_apply(message: types.Message, state: FSMContext):
             lang = (u or {}).get("language", "en")
             await message.bot.send_message(
                 int(req["user_id"]),
-                f"Recharge accepted manually.\nAmount: {amount:.4f} credits\nNew balance: {new_bal:.2f}$",
+                f"Recharge accepted manually.\nAmount: {amount:.4f} credits\nNew balance: {format_usd(new_bal)}",
                 reply_markup=balance_keyboard(lang),
             )
         except Exception:

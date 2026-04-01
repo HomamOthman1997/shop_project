@@ -1,0 +1,197 @@
+{
+  "provider": "esimaccess",
+  "scope": "esim_reseller_api",
+  "generated_at": "2026-03-29",
+  "status": "official_postman_documenter",
+  "purpose": "Local offline implementation reference for eSIM Access reseller API integration.",
+  "source": {
+    "primary_type": "official_postman_documenter",
+    "documenter_url": "https://docs.esimaccess.com/",
+    "collection_api_url": "https://docs.esimaccess.com/api/collections/11154627/2s93mBxf3q?environment=11154627-1a6283c8-0422-49ea-adea-0919cf18c0cc&segregateAuth=true&versionTag=latest"
+  },
+  "base_url": "https://api.esimaccess.com",
+  "auth": {
+    "type": "api_key",
+    "header_name": "RT-AccessCode",
+    "header_value_source": "$ESIMACCESS_ACCESS_CODE",
+    "notes": [
+      "The collection defines auth as apikey with key RT-AccessCode.",
+      "No OAuth flow is documented in the published collection."
+    ],
+    "verified_from": "official_postman_documenter"
+  },
+  "common_headers": {
+    "RT-AccessCode": "<access_code>",
+    "Content-Type": "application/json"
+  },
+  "catalog_endpoints": [
+    {
+      "name": "Supported Regions",
+      "method": "POST",
+      "path": "/api/v1/open/location/list",
+      "body_example": {},
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Get All Data Packages",
+      "method": "POST",
+      "path": "/api/v1/open/package/list",
+      "body_example": {
+        "locationCode": "",
+        "type": "TOPUP",
+        "slug": "VN_0.1_7",
+        "packageCode": "",
+        "iccid": ""
+      },
+      "notes": [
+        "The example request in the official collection uses type=TOPUP.",
+        "This endpoint can be used both for initial plan discovery and top-up package discovery."
+      ],
+      "verified_from": "official_postman_collection"
+    }
+  ],
+  "profile_endpoints": [
+    {
+      "name": "Order Profiles",
+      "method": "POST",
+      "path": "/api/v1/open/esim/order",
+      "body_example": {
+        "transactionId": "your_txn_id",
+        "amount": 15000,
+        "packageInfoList": [
+          {
+            "packageCode": "7aa948d363",
+            "count": 1,
+            "price": 15000
+          }
+        ]
+      },
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Query All Allocated Profiles",
+      "method": "POST",
+      "path": "/api/v1/open/esim/query",
+      "body_example": {
+        "orderNo": "B25080914060004",
+        "iccid": "",
+        "pager": {
+          "pageNum": 1,
+          "pageSize": 50
+        }
+      },
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Cancel Profile",
+      "method": "POST",
+      "path": "/api/v1/open/esim/cancel",
+      "body_example": {
+        "esimTranNo": "23120118156818"
+      },
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Suspend Profile",
+      "method": "POST",
+      "path": "/api/v1/open/esim/suspend",
+      "body_example": {
+        "iccid": "89852245280001138065"
+      },
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Unsuspend Profile",
+      "method": "POST",
+      "path": "/api/v1/open/esim/unsuspend",
+      "body_example": {
+        "iccid": "89852245280001138065"
+      },
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Revoke Profile",
+      "method": "POST",
+      "path": "/api/v1/open/esim/revoke",
+      "body_example": {
+        "iccid": "89852245280001138065"
+      },
+      "verified_from": "official_postman_collection"
+    }
+  ],
+  "operational_endpoints": [
+    {
+      "name": "Balance Query",
+      "method": "POST",
+      "path": "/api/v1/open/balance/query",
+      "body_example": {},
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Top Up",
+      "method": "POST",
+      "path": "/api/v1/open/esim/topup",
+      "body_example": {
+        "esimTranNo": "",
+        "iccid": "89852000263213655345",
+        "packageCode": "TOPUP_JC172",
+        "transactionId": "1747191693771_topup_partner7"
+      },
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Usage Check",
+      "method": "POST",
+      "path": "/api/v1/open/esim/usage/query",
+      "body_example": {
+        "esimTranNoList": [
+          "25030303480009"
+        ]
+      },
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Send SMS",
+      "method": "POST",
+      "path": "/api/v1/open/esim/sendSms",
+      "body_example": {
+        "esimTranNo": "23072017992029",
+        "message": "Your Message!"
+      },
+      "verified_from": "official_postman_collection"
+    },
+    {
+      "name": "Set Webhook",
+      "method": "POST",
+      "path": "/api/v1/open/webhook/save",
+      "body_example": {
+        "webhook": "https://webhook.endpoint.site/unique-webhook"
+      },
+      "verified_from": "official_postman_collection"
+    }
+  ],
+  "recommended_initial_scope_for_this_project": {
+    "phase_1_required": [
+      "POST /api/v1/open/balance/query",
+      "POST /api/v1/open/location/list",
+      "POST /api/v1/open/package/list",
+      "POST /api/v1/open/esim/order",
+      "POST /api/v1/open/esim/query",
+      "POST /api/v1/open/esim/usage/query",
+      "POST /api/v1/open/esim/topup"
+    ],
+    "phase_2_optional": [
+      "POST /api/v1/open/webhook/save",
+      "POST /api/v1/open/esim/cancel",
+      "POST /api/v1/open/esim/suspend",
+      "POST /api/v1/open/esim/unsuspend",
+      "POST /api/v1/open/esim/revoke",
+      "POST /api/v1/open/esim/sendSms"
+    ]
+  },
+  "notes": [
+    "This provider is relevant to digital products, specifically eSIM selling and top-up flows.",
+    "The published docs are a Postman Documenter instance rather than OpenAPI.",
+    "This local reference is generated from the published collection structure and examples."
+  ]
+}

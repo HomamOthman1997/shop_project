@@ -3,8 +3,8 @@
 from database.bots_repo import get_bot_settings
 from database.user_repo import get_user
 from keyboards.language_kb import language_keyboard
-from keyboards.main_menu_kb import main_menu
 from keyboards.reseller_main_menu import reseller_main_menu
+from utils.bot_menu_context import menu_for_current_bot
 from utils.permissions import is_reseller
 from utils.translations import t
 
@@ -49,7 +49,7 @@ async def check_subscription(callback: types.CallbackQuery):
             else:
                 await callback.message.answer(
                     t(lang, "main_menu"),
-                    reply_markup=main_menu(lang),
+                    reply_markup=await menu_for_current_bot(lang, bot_id),
                 )
 
             await callback.message.delete()

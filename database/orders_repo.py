@@ -54,7 +54,6 @@ async def create_order(user_id: int, reseller_id: int, service_id: str, selling_
         "service_ref_id": str(service_id),
         "retail_amount": sale,
         "wholesale_amount": cost,
-        "owner_fee_amount": 0.0,
         "reseller_profit_amount": 0.0,
         # legacy compatibility fields
         "service_id": str(service_id),

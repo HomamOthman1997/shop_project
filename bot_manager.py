@@ -1,9 +1,11 @@
 ﻿import asyncio
 import atexit
+import importlib.util
 import json
 import logging
 from datetime import UTC, datetime, timedelta
 import os
+import sys
 from contextlib import suppress
 from pathlib import Path
 from tempfile import gettempdir
@@ -11,34 +13,46 @@ from typing import Any
 
 from aiogram import Bot, Dispatcher
 
-from config import settings
+from config import settings, validate_runtime_security, enforce_openrouter_only_mode
 from database.bots_repo import get_verified_bots
 from database.custom_services_repo import bootstrap_custom_services_indexes
-from database.user_repo import bootstrap_user_links_indexes
-from database.financial_ledger import (
-    bootstrap_financial_indexes,
-    enforce_settlement_payment_policies,
-    generate_monthly_settlement_drafts,
-)
+from database.user_repo import bootstrap_user_indexes, bootstrap_user_links_indexes
+from database.mongo import db
+from database.cardex_repo import bootstrap_cardex_indexes, release_due_cards
+from database.financial_ledger import bootstrap_financial_indexes
 from database.recharge_repo import (
     bootstrap_recharge_indexes,
     purge_accepted_recharge_proofs,
     recover_stuck_processing_recharges,
 )
 from database.provider_balance_alert_repo import get_provider_balance_alert_settings
+from database.proxy_telemetry_repo import summarize_proxy_events
 from database.bot_logs_repo import get_bot_logs_target
+from database.proxy_telemetry_repo import bootstrap_proxy_events_indexes
+from database.usage_stats_repo import bootstrap_usage_stats_indexes
+from database.lifecycle_repo import ensure_schema_markers, run_lifecycle_cleanup
 from database.number_events_repo import bootstrap_number_events_indexes
 from database.temp_number_stats_repo import bootstrap_temp_number_stats_indexes
+from services.subscriptions.bot_subscription_service import (
+    mark_bot_subscription_expiry_notice,
+    mark_bot_subscription_grace_notice,
+    run_bot_subscription_sweep,
+)
 from handlers.custom_services import router as custom_services_router
+from handlers.admin_services import router as admin_services_router
+from handlers.owner_requests import router as owner_requests_router
 from handlers.store_sections import router as store_sections_router
+from services.cards_bot.handlers import router as card_ex_bot_router
 from handlers.language import router as language_base
 from handlers.main_menu import router as main_menu_base
+from handlers.main_bot_redirects import router as main_bot_redirects_router
 from handlers.reseller_recharge import router as reseller_recharge_router
 from handlers.start import router as start_base
 from handlers.subscription import router as subscription_base
 from handlers.verify_reseller import router as verify_reseller_base
 from middlewares.financial_compliance import FinancialComplianceMiddleware
 from middlewares.interaction_lock import InteractionLockMiddleware
+from middlewares.bot_subscription import BotSubscriptionMiddleware
 from middlewares.version_check import VersionCheckMiddleware
 from services.numbers.handlers.core_numbers import router as core_numbers_router
 from services.numbers.handlers.core_numbers_buy import (
@@ -52,14 +66,92 @@ from services.numbers.manager import PROVIDERS
 from services.numbers.core.session_manager import SessionManager
 from services.proxies.handlers.proxy_flow import router as proxy_flow_router
 from services.proxies.handlers.proxy_inline import router as proxy_inline_router
+from services.digital_products.recovery import run_digital_products_pending_recovery_sweep
+from services.proxies.catalog_cache import set_offers_cache
+from services.proxies.manager import get_proxy_catalog
+from services.proxies.validation import run_proxy_catalog_validation
+from services.digital_products.validation import run_digital_products_validation
+from utils.sentry_reporting import init_sentry
+from utils.log_noise import install_transient_noise_filter
 from utils.telegram_error_reporting import install_telegram_error_handler
 
-_dispatcher_build_count = 0
-_active_polling_task: asyncio.Task[None] | None = None
+_public_dispatcher_built = False
+_main_dispatcher_built = False
+_digital_products_dispatcher_built = False
+_card_ex_dispatcher_built = False
 _admin_alert_bot: Bot | None = None
 _LOCK_FILE = Path(gettempdir()) / "shop_project_bot_manager.lock"
 _SCHED_STATE_FILE = Path(gettempdir()) / "shop_project_bot_manager.schedule.json"
 _LOCK_ACQUIRED = False
+_cached_main_bot_id: int | None = None
+_cached_admin_bot_id: int | None = None
+_cached_card_ex_bot_id: int | None = None
+
+
+def _load_router_clone(module_name: str, file_path: str):
+    path = Path(file_path)
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Failed to load router module: {file_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    router = getattr(module, "router", None)
+    if router is None:
+        raise RuntimeError(f"Router not found in module: {file_path}")
+    return router
+
+
+async def _run_startup_step(
+    name: str,
+    fn,
+    *,
+    attempts: int = 3,
+    delay_seconds: float = 2.0,
+) -> bool:
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            await fn()
+            if attempt > 1:
+                logging.info("startup step recovered: %s (attempt %s/%s)", name, attempt, attempts)
+            return True
+        except Exception as exc:
+            last_exc = exc
+            if attempt < attempts:
+                logging.warning(
+                    "startup step failed: %s (attempt %s/%s): %s",
+                    name,
+                    attempt,
+                    attempts,
+                    exc,
+                )
+                await asyncio.sleep(delay_seconds)
+    logging.error("startup step failed permanently: %s: %s", name, last_exc)
+    return False
+
+
+async def _run_startup_bootstraps() -> None:
+    steps = [
+        ("financial indexes", bootstrap_financial_indexes),
+        ("card-ex indexes", bootstrap_cardex_indexes),
+        ("custom services indexes", bootstrap_custom_services_indexes),
+        ("recharge indexes", bootstrap_recharge_indexes),
+        ("user indexes", bootstrap_user_indexes),
+        ("user links indexes", bootstrap_user_links_indexes),
+        ("temp number stats indexes", bootstrap_temp_number_stats_indexes),
+        ("number events indexes", bootstrap_number_events_indexes),
+        ("proxy events indexes", bootstrap_proxy_events_indexes),
+        ("usage stats indexes", bootstrap_usage_stats_indexes),
+        ("schema markers", ensure_schema_markers),
+    ]
+    failed: list[str] = []
+    for name, fn in steps:
+        ok = await _run_startup_step(name, fn)
+        if not ok:
+            failed.append(name)
+    if failed:
+        logging.warning("starting in degraded mode (bootstrap failed): %s", ", ".join(failed))
 
 
 def _pid_exists(pid: int) -> bool:
@@ -70,16 +162,6 @@ def _pid_exists(pid: int) -> bool:
     except OSError:
         return False
     return True
-
-
-def _month_key(dt: datetime) -> str:
-    return f"{dt.year}-{dt.month:02d}"
-
-
-def _previous_month_key(dt: datetime) -> str:
-    first_day_current = datetime(dt.year, dt.month, 1)
-    last_day_prev = first_day_current - timedelta(days=1)
-    return _month_key(last_day_prev)
 
 
 def _utc_now() -> datetime:
@@ -107,7 +189,16 @@ def _load_sched_state() -> dict[str, str]:
     if not isinstance(raw, dict):
         return {}
     state: dict[str, str] = {}
-    for key in ("last_settlement_draft_at", "last_settlement_policy_at"):
+    for key in (
+        "last_financial_anomaly_at",
+        "last_digital_products_recovery_at",
+        "last_proxy_ops_summary_at",
+        "last_proxy_validation_at",
+        "last_proxy_catalog_refresh_at",
+        "last_digital_products_validation_at",
+        "last_lifecycle_cleanup_at",
+        "last_bot_subscription_sweep_at",
+    ):
         value = raw.get(key)
         if isinstance(value, str) and value.strip():
             state[key] = value.strip()
@@ -155,22 +246,25 @@ async def _close_admin_alert_bot() -> None:
 
 
 async def _owner_target_for_balance_alert() -> tuple[int | None, int | None]:
+    def _is_group_chat_id(value: Any) -> bool:
+        return isinstance(value, int) and int(value) < 0
+
     cfg = await get_provider_balance_alert_settings()
     chat_id = cfg.get("chat_id")
     thread_id = cfg.get("message_thread_id")
-    if isinstance(chat_id, int):
+    if _is_group_chat_id(chat_id):
         return int(chat_id), int(thread_id) if isinstance(thread_id, int) else None
 
     try:
         from database.mongo import db
 
         doc = await db.system_settings.find_one({"_id": "owner_notifications"})
-        if doc and isinstance(doc.get("chat_id"), int):
+        if doc and _is_group_chat_id(doc.get("chat_id")):
             return int(doc["chat_id"]), int(doc.get("message_thread_id")) if isinstance(doc.get("message_thread_id"), int) else None
     except Exception:
         pass
     logs_target = await get_bot_logs_target()
-    if logs_target and isinstance(logs_target.get("chat_id"), int):
+    if logs_target and _is_group_chat_id(logs_target.get("chat_id")):
         return int(logs_target["chat_id"]), int(logs_target.get("message_thread_id")) if isinstance(logs_target.get("message_thread_id"), int) else None
     return None, None
 
@@ -317,6 +411,186 @@ async def _run_provider_balance_alert_cycle(
         )
 
 
+def _subscription_grace_notice_text(subscription: dict) -> str:
+    grace_ends_at = subscription.get("grace_ends_at")
+    renewal_amount = float(subscription.get("renewal_charge_usd") or subscription.get("monthly_price_usd") or 10.0)
+    if isinstance(grace_ends_at, datetime):
+        if grace_ends_at.tzinfo is None:
+            grace_ends_at = grace_ends_at.replace(tzinfo=UTC)
+        remaining = grace_ends_at.astimezone(UTC) - _utc_now()
+        total_hours = max(0, int(remaining.total_seconds() // 3600))
+        days_left = total_hours // 24
+        hours_left = total_hours % 24
+        return (
+            "تنبيه اشتراك البوت\n\n"
+            "دخل البوت في المهلة الإضافية.\n"
+            f"سيتوقف البوت خلال {days_left} يوم و {hours_left} ساعة إذا لم يتم دفع الاشتراك.\n"
+            f"قيمة التجديد الحالية: ${renewal_amount:.2f}\n"
+            f"تنتهي المهلة في: {grace_ends_at.astimezone(UTC).strftime('%Y-%m-%d %H:%M UTC')}"
+        )
+    return (
+        "تنبيه اشتراك البوت\n\n"
+        "دخل البوت في المهلة الإضافية.\n"
+        f"قيمة التجديد الحالية: ${renewal_amount:.2f}\n"
+        "يرجى شحن رصيدك في البوت المركزي قبل انتهاء المهلة."
+    )
+
+
+def _subscription_expiry_notice_text(subscription: dict) -> str:
+    end_at = subscription.get("trial_ends_at") or subscription.get("subscription_ends_at")
+    renewal_amount = float(subscription.get("renewal_charge_usd") or subscription.get("monthly_price_usd") or 10.0)
+    if isinstance(end_at, datetime):
+        if end_at.tzinfo is None:
+            end_at = end_at.replace(tzinfo=UTC)
+        remaining = end_at.astimezone(UTC) - _utc_now()
+        total_hours = max(0, int(remaining.total_seconds() // 3600))
+        days_left = total_hours // 24
+        hours_left = total_hours % 24
+        return (
+            "تنبيه اشتراك البوت\n\n"
+            "الاشتراك الحالي يقترب من الانتهاء.\n"
+            f"الوقت المتبقي: {days_left} يوم و {hours_left} ساعة.\n"
+            f"قيمة التجديد الحالية: ${renewal_amount:.2f}\n"
+            f"تاريخ الانتهاء: {end_at.astimezone(UTC).strftime('%Y-%m-%d %H:%M UTC')}\n"
+            "تأكد من توفر الرصيد في البوت المركزي قبل موعد الانتهاء."
+        )
+    return (
+        "تنبيه اشتراك البوت\n\n"
+        "الاشتراك الحالي يقترب من الانتهاء.\n"
+        f"قيمة التجديد الحالية: ${renewal_amount:.2f}\n"
+        "تأكد من توفر الرصيد في البوت المركزي قبل موعد الانتهاء."
+    )
+
+
+async def _run_bot_subscription_notice_cycle(
+    *,
+    running_bots: list[Bot],
+    current_owner_map: dict[int, int],
+    limit: int = 500,
+) -> None:
+    admin_bot = await _get_admin_alert_bot()
+    if not running_bots and admin_bot is None:
+        return
+    now = _utc_now()
+    preferred_bot = await _pick_owner_bot(running_bots, current_owner_map)
+    cursor = db.bots.find(
+        {
+            "active": True,
+            "subscription.status": "grace_period",
+        },
+        {
+            "bot_id": 1,
+            "owner_id": 1,
+            "subscription": 1,
+        },
+    ).limit(max(1, int(limit)))
+    async for row in cursor:
+        bot_id = int(row.get("bot_id") or 0)
+        owner_id = int(row.get("owner_id") or 0)
+        if bot_id <= 0 or owner_id <= 0:
+            continue
+        subscription = dict(row.get("subscription") or {})
+        history = dict(subscription.get("history") or {})
+        last_notice_at = _parse_utc_iso(str(history.get("last_grace_notice_at") or ""))
+        if last_notice_at is not None and (now - last_notice_at) < timedelta(hours=12):
+            continue
+        text = _subscription_grace_notice_text(subscription)
+        sent = False
+        target_bot: Bot | None = None
+        for bot in running_bots:
+            cached_id = getattr(bot, "_cached_bot_id", None)
+            if not isinstance(cached_id, int):
+                try:
+                    me = await bot.get_me()
+                    cached_id = int(me.id)
+                    setattr(bot, "_cached_bot_id", cached_id)
+                except Exception:
+                    cached_id = None
+            if isinstance(cached_id, int) and cached_id == bot_id:
+                target_bot = bot
+                break
+        ordered_bots = [b for b in [target_bot, preferred_bot, admin_bot] if b is not None]
+        for bot in running_bots:
+            if bot not in ordered_bots:
+                ordered_bots.append(bot)
+        for bot in ordered_bots:
+            try:
+                await bot.send_message(chat_id=owner_id, text=text)
+                sent = True
+                break
+            except Exception:
+                continue
+        if sent:
+            await mark_bot_subscription_grace_notice(bot_id, sent_at=now)
+
+
+async def _run_bot_subscription_expiry_notice_cycle(
+    *,
+    running_bots: list[Bot],
+    current_owner_map: dict[int, int],
+    limit: int = 500,
+) -> None:
+    admin_bot = await _get_admin_alert_bot()
+    if not running_bots and admin_bot is None:
+        return
+    now = _utc_now()
+    preferred_bot = await _pick_owner_bot(running_bots, current_owner_map)
+    cutoff = now + timedelta(days=3)
+    cursor = db.bots.find(
+        {
+            "active": True,
+            "subscription.status": {"$in": ["trial_active", "active"]},
+            "$or": [
+                {"subscription.trial_ends_at": {"$gte": now, "$lte": cutoff}},
+                {"subscription.subscription_ends_at": {"$gte": now, "$lte": cutoff}},
+            ],
+        },
+        {
+            "bot_id": 1,
+            "owner_id": 1,
+            "subscription": 1,
+        },
+    ).limit(max(1, int(limit)))
+    async for row in cursor:
+        bot_id = int(row.get("bot_id") or 0)
+        owner_id = int(row.get("owner_id") or 0)
+        if bot_id <= 0 or owner_id <= 0:
+            continue
+        subscription = dict(row.get("subscription") or {})
+        history = dict(subscription.get("history") or {})
+        last_notice_at = _parse_utc_iso(str(history.get("last_expiry_notice_at") or ""))
+        if last_notice_at is not None and (now - last_notice_at) < timedelta(hours=12):
+            continue
+        text = _subscription_expiry_notice_text(subscription)
+        sent = False
+        target_bot: Bot | None = None
+        for bot in running_bots:
+            cached_id = getattr(bot, "_cached_bot_id", None)
+            if not isinstance(cached_id, int):
+                try:
+                    me = await bot.get_me()
+                    cached_id = int(me.id)
+                    setattr(bot, "_cached_bot_id", cached_id)
+                except Exception:
+                    cached_id = None
+            if isinstance(cached_id, int) and cached_id == bot_id:
+                target_bot = bot
+                break
+        ordered_bots = [b for b in [target_bot, preferred_bot, admin_bot] if b is not None]
+        for bot in running_bots:
+            if bot not in ordered_bots:
+                ordered_bots.append(bot)
+        for bot in ordered_bots:
+            try:
+                await bot.send_message(chat_id=owner_id, text=text)
+                sent = True
+                break
+            except Exception:
+                continue
+        if sent:
+            await mark_bot_subscription_expiry_notice(bot_id, sent_at=now)
+
+
 def _acquire_single_instance_lock() -> None:
     global _LOCK_ACQUIRED
 
@@ -379,6 +653,7 @@ class ColorFormatter(logging.Formatter):
 def setup_logging() -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(ColorFormatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
+    install_transient_noise_filter(handler, cooldown_sec=45.0)
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.setLevel(logging.INFO)
@@ -388,13 +663,13 @@ def setup_logging() -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-def build_dispatcher() -> Dispatcher:
-    global _dispatcher_build_count
-    _dispatcher_build_count += 1
-    if _dispatcher_build_count > 1:
-        msg = "Dispatcher singleton violated: attempted to build more than one Dispatcher in bot_manager process."
+def build_public_dispatcher() -> Dispatcher:
+    global _public_dispatcher_built
+    if _public_dispatcher_built:
+        msg = "Public dispatcher singleton violated: attempted to build more than one public Dispatcher in bot_manager process."
         logging.critical(msg)
         raise RuntimeError(msg)
+    _public_dispatcher_built = True
 
     dp = Dispatcher()
 
@@ -403,31 +678,199 @@ def build_dispatcher() -> Dispatcher:
 
     dp.message.middleware(VersionCheckMiddleware())
     dp.callback_query.middleware(VersionCheckMiddleware())
+    dp.message.middleware(BotSubscriptionMiddleware())
+    dp.callback_query.middleware(BotSubscriptionMiddleware())
     dp.message.middleware(FinancialComplianceMiddleware())
     dp.callback_query.middleware(FinancialComplianceMiddleware())
 
     dp.include_router(start_base)
-    dp.include_router(proxy_inline_router)
-    dp.include_router(numbers_inline_router)
-
     dp.include_router(language_base)
     dp.include_router(subscription_base)
     dp.include_router(main_menu_base)
-    dp.include_router(store_sections_router)
+    dp.include_router(main_bot_redirects_router)
+    dp.include_router(_load_router_clone("handlers.custom_services_public_clone", "handlers/custom_services.py"))
+    dp.include_router(reseller_recharge_router)
+    dp.include_router(admin_services_router)
+    dp.include_router(owner_requests_router)
+    return dp
+
+
+def build_main_dispatcher() -> Dispatcher:
+    global _main_dispatcher_built
+    if _main_dispatcher_built:
+        msg = "Main dispatcher singleton violated: attempted to build more than one main Dispatcher in bot_manager process."
+        logging.critical(msg)
+        raise RuntimeError(msg)
+    _main_dispatcher_built = True
+
+    dp = Dispatcher()
+
+    dp.message.middleware(InteractionLockMiddleware())
+    dp.callback_query.middleware(InteractionLockMiddleware())
+
+    dp.message.middleware(VersionCheckMiddleware())
+    dp.callback_query.middleware(VersionCheckMiddleware())
+    dp.message.middleware(BotSubscriptionMiddleware())
+    dp.callback_query.middleware(BotSubscriptionMiddleware())
+    dp.message.middleware(FinancialComplianceMiddleware())
+    dp.callback_query.middleware(FinancialComplianceMiddleware())
+
+    dp.include_router(_load_router_clone("handlers.start_main_clone", "handlers/start.py"))
+    dp.include_router(proxy_inline_router)
+    dp.include_router(numbers_inline_router)
+    dp.include_router(_load_router_clone("handlers.language_main_clone", "handlers/language.py"))
+    dp.include_router(_load_router_clone("handlers.subscription_main_clone", "handlers/subscription.py"))
+    dp.include_router(_load_router_clone("handlers.main_menu_main_clone", "handlers/main_menu.py"))
     dp.include_router(proxy_flow_router)
     dp.include_router(verify_reseller_base)
-    dp.include_router(reseller_recharge_router)
     dp.include_router(custom_services_router)
-
     dp.include_router(core_numbers_router)
     dp.include_router(core_numbers_buy_router)
     return dp
 
 
-async def _fetch_verified_bot_maps() -> tuple[dict[int, str], dict[int, int]]:
+def build_digital_products_dispatcher() -> Dispatcher:
+    global _digital_products_dispatcher_built
+    if _digital_products_dispatcher_built:
+        msg = "Digital-products dispatcher singleton violated: attempted to build more than one digital-products Dispatcher in bot_manager process."
+        logging.critical(msg)
+        raise RuntimeError(msg)
+    _digital_products_dispatcher_built = True
+
+    dp = Dispatcher()
+    dp.message.middleware(InteractionLockMiddleware())
+    dp.callback_query.middleware(InteractionLockMiddleware())
+
+    dp.message.middleware(VersionCheckMiddleware())
+    dp.callback_query.middleware(VersionCheckMiddleware())
+    dp.message.middleware(BotSubscriptionMiddleware())
+    dp.callback_query.middleware(BotSubscriptionMiddleware())
+    dp.message.middleware(FinancialComplianceMiddleware())
+    dp.callback_query.middleware(FinancialComplianceMiddleware())
+
+    dp.include_router(_load_router_clone("handlers.start_digital_products_clone", "handlers/start.py"))
+    dp.include_router(_load_router_clone("handlers.language_digital_products_clone", "handlers/language.py"))
+    dp.include_router(_load_router_clone("handlers.subscription_digital_products_clone", "handlers/subscription.py"))
+    dp.include_router(_load_router_clone("handlers.main_menu_digital_products_clone", "handlers/main_menu.py"))
+    dp.include_router(store_sections_router)
+    return dp
+
+
+def build_card_ex_dispatcher() -> Dispatcher:
+    global _card_ex_dispatcher_built
+    if _card_ex_dispatcher_built:
+        msg = "Card-EX dispatcher singleton violated: attempted to build more than one card-ex Dispatcher in bot_manager process."
+        logging.critical(msg)
+        raise RuntimeError(msg)
+    _card_ex_dispatcher_built = True
+
+    dp = Dispatcher()
+    dp.message.middleware(InteractionLockMiddleware())
+    dp.callback_query.middleware(InteractionLockMiddleware())
+
+    dp.message.middleware(VersionCheckMiddleware())
+    dp.callback_query.middleware(VersionCheckMiddleware())
+    dp.message.middleware(BotSubscriptionMiddleware())
+    dp.callback_query.middleware(BotSubscriptionMiddleware())
+    dp.message.middleware(FinancialComplianceMiddleware())
+    dp.callback_query.middleware(FinancialComplianceMiddleware())
+
+    dp.include_router(_load_router_clone("handlers.start_card_ex_clone", "handlers/start.py"))
+    dp.include_router(_load_router_clone("handlers.language_card_ex_clone", "handlers/language.py"))
+    dp.include_router(card_ex_bot_router)
+    return dp
+
+
+build_game_dispatcher = build_digital_products_dispatcher
+build_cards_dispatcher = build_card_ex_dispatcher
+
+
+async def _resolve_main_bot_id() -> int | None:
+    global _cached_main_bot_id
+    if isinstance(_cached_main_bot_id, int) and _cached_main_bot_id > 0:
+        return _cached_main_bot_id
+    token = str(getattr(settings, "bot_main_token", "") or "").strip()
+    if not token:
+        return None
+    bot = Bot(token=token, timeout=30)
+    try:
+        me = await bot.get_me()
+        _cached_main_bot_id = int(me.id)
+        return _cached_main_bot_id
+    except Exception as exc:
+        logging.error("failed to resolve main bot id: %s", exc)
+        return None
+    finally:
+        with suppress(Exception):
+            await bot.session.close()
+
+
+async def _resolve_admin_bot_id() -> int | None:
+    global _cached_admin_bot_id
+    if isinstance(_cached_admin_bot_id, int) and _cached_admin_bot_id > 0:
+        return _cached_admin_bot_id
+    token = str(getattr(settings, "bot_admin_token", "") or "").strip()
+    if not token:
+        return None
+    bot = Bot(token=token, timeout=30)
+    try:
+        me = await bot.get_me()
+        _cached_admin_bot_id = int(me.id)
+        return _cached_admin_bot_id
+    except Exception as exc:
+        logging.error("failed to resolve admin bot id: %s", exc)
+        return None
+    finally:
+        with suppress(Exception):
+            await bot.session.close()
+
+
+async def _resolve_digital_products_bot_id() -> int | None:
+    token = str(getattr(settings, "bot_digital_products_token", "") or "").strip()
+    if not token:
+        return None
+    bot = Bot(token=token, timeout=30)
+    try:
+        me = await bot.get_me()
+        return int(me.id)
+    except Exception as exc:
+        logging.error("failed to resolve digital-products bot id: %s", exc)
+        return None
+    finally:
+        with suppress(Exception):
+            await bot.session.close()
+
+
+async def _resolve_card_ex_bot_id() -> int | None:
+    global _cached_card_ex_bot_id
+    if isinstance(_cached_card_ex_bot_id, int) and _cached_card_ex_bot_id > 0:
+        return _cached_card_ex_bot_id
+    token = (
+        str(getattr(settings, "bot_card_ex_token", "") or "").strip()
+        or str(getattr(settings, "bot_cards_token", "") or "").strip()
+    )
+    if not token:
+        return None
+    bot = Bot(token=token, timeout=30)
+    try:
+        me = await bot.get_me()
+        _cached_card_ex_bot_id = int(me.id)
+        return _cached_card_ex_bot_id
+    except Exception as exc:
+        logging.error("failed to resolve card-ex bot id: %s", exc)
+        return None
+    finally:
+        with suppress(Exception):
+            await bot.session.close()
+
+
+async def _fetch_verified_bot_maps() -> tuple[dict[int, str], dict[int, int], dict[int, str], dict[int, str], dict[int, str]]:
     bots_data = await get_verified_bots()
-    token_map: dict[int, str] = {}
+    public_map: dict[int, str] = {}
     owner_map: dict[int, int] = {}
+    main_map: dict[int, str] = {}
+    digital_products_map: dict[int, str] = {}
+    card_ex_map: dict[int, str] = {}
     seen_tokens: dict[str, int] = {}
 
     for item in bots_data:
@@ -458,20 +901,49 @@ async def _fetch_verified_bot_maps() -> tuple[dict[int, str], dict[int, int]]:
             )
             continue
 
-        token_map[bot_id_int] = token_str
+        public_map[bot_id_int] = token_str
         owner_map[bot_id_int] = owner_id_int
         seen_tokens[token_str] = bot_id_int
 
-    return token_map, owner_map
+    main_token = str(getattr(settings, "bot_main_token", "") or "").strip()
+    if main_token and main_token not in seen_tokens:
+        main_bot_id = await _resolve_main_bot_id()
+        if isinstance(main_bot_id, int) and main_bot_id > 0:
+            main_map[main_bot_id] = main_token
+            seen_tokens[main_token] = main_bot_id
+
+    admin_token = str(getattr(settings, "bot_admin_token", "") or "").strip()
+    if admin_token and admin_token not in seen_tokens:
+        admin_bot_id = await _resolve_admin_bot_id()
+        if isinstance(admin_bot_id, int) and admin_bot_id > 0:
+            public_map[admin_bot_id] = admin_token
+            owner_map[admin_bot_id] = int(getattr(settings, "owner_id", 0) or 0)
+            seen_tokens[admin_token] = admin_bot_id
+
+    digital_products_token = str(getattr(settings, "bot_digital_products_token", "") or "").strip()
+    if digital_products_token and digital_products_token not in seen_tokens:
+        digital_products_bot_id = await _resolve_digital_products_bot_id()
+        if isinstance(digital_products_bot_id, int) and digital_products_bot_id > 0:
+            digital_products_map[digital_products_bot_id] = digital_products_token
+            seen_tokens[digital_products_token] = digital_products_bot_id
+
+    card_ex_token = str(getattr(settings, "bot_card_ex_token", "") or "").strip()
+    if card_ex_token and card_ex_token not in seen_tokens:
+        card_ex_bot_id = await _resolve_card_ex_bot_id()
+        if isinstance(card_ex_bot_id, int) and card_ex_bot_id > 0:
+            card_ex_map[card_ex_bot_id] = card_ex_token
+            seen_tokens[card_ex_token] = card_ex_bot_id
+
+    return public_map, owner_map, main_map, digital_products_map, card_ex_map
 
 
-async def _start_polling(dp: Dispatcher, token_map: dict[int, str]) -> tuple[asyncio.Task[None], list[Bot]]:
-    global _active_polling_task
-    if _active_polling_task is not None and not _active_polling_task.done():
-        msg = "Polling singleton violated: attempted to start a second polling task before stopping the first one."
-        logging.critical(msg)
-        raise RuntimeError(msg)
+_resolve_game_bot_id = _resolve_digital_products_bot_id
+_resolve_cards_bot_id = _resolve_card_ex_bot_id
 
+
+async def _start_polling_group(name: str, dp: Dispatcher, token_map: dict[int, str]) -> tuple[asyncio.Task[None] | None, list[Bot]]:
+    if not token_map:
+        return None, []
     bots = [Bot(token=t) for _, t in sorted(token_map.items())]
 
     for bot in bots:
@@ -481,14 +953,11 @@ async def _start_polling(dp: Dispatcher, token_map: dict[int, str]) -> tuple[asy
     async def _runner() -> None:
         await dp.start_polling(*bots)
 
-    task = asyncio.create_task(_runner(), name="polling-main")
-    _active_polling_task = task
+    task = asyncio.create_task(_runner(), name=f"polling-{name}")
     return task, bots
 
 
-async def _stop_polling(dp: Dispatcher, task: asyncio.Task[None] | None, bots: list[Bot]) -> None:
-    global _active_polling_task
-
+async def _stop_polling_group(dp: Dispatcher, task: asyncio.Task[None] | None, bots: list[Bot]) -> None:
     with suppress(Exception):
         await dp.stop_polling()
 
@@ -507,67 +976,261 @@ async def _stop_polling(dp: Dispatcher, task: asyncio.Task[None] | None, bots: l
     for b in bots:
         with suppress(Exception):
             await b.session.close()
-    _active_polling_task = None
 
 
 async def sync_bots_forever(poll_seconds: int = 20) -> None:
-    dp = build_dispatcher()
+    public_dp = build_public_dispatcher()
+    main_dp = build_main_dispatcher()
+    digital_products_dp = build_digital_products_dispatcher()
+    card_ex_dp = build_card_ex_dispatcher()
 
     now = _utc_now()
     sched_state = _load_sched_state()
-    last_draft_at = _parse_utc_iso(sched_state.get("last_settlement_draft_at"))
-    last_policy_at = _parse_utc_iso(sched_state.get("last_settlement_policy_at"))
+    last_financial_anomaly_at = _parse_utc_iso(sched_state.get("last_financial_anomaly_at"))
+    last_digital_products_recovery_at = _parse_utc_iso(sched_state.get("last_digital_products_recovery_at"))
+    last_proxy_ops_summary_at = _parse_utc_iso(sched_state.get("last_proxy_ops_summary_at"))
+    last_proxy_validation_at = _parse_utc_iso(sched_state.get("last_proxy_validation_at"))
+    last_proxy_catalog_refresh_at = _parse_utc_iso(sched_state.get("last_proxy_catalog_refresh_at"))
+    last_digital_products_validation_at = _parse_utc_iso(sched_state.get("last_digital_products_validation_at"))
+    last_lifecycle_cleanup_at = _parse_utc_iso(sched_state.get("last_lifecycle_cleanup_at"))
+    last_bot_subscription_sweep_at = _parse_utc_iso(sched_state.get("last_bot_subscription_sweep_at"))
 
-    current_map: dict[int, str] = {}
+    current_public_map: dict[int, str] = {}
+    current_main_map: dict[int, str] = {}
+    current_digital_products_map: dict[int, str] = {}
+    current_card_ex_map: dict[int, str] = {}
     current_owner_map: dict[int, int] = {}
-    polling_task: asyncio.Task[None] | None = None
-    running_bots: list[Bot] = []
+    public_polling_task: asyncio.Task[None] | None = None
+    main_polling_task: asyncio.Task[None] | None = None
+    digital_products_polling_task: asyncio.Task[None] | None = None
+    card_ex_polling_task: asyncio.Task[None] | None = None
+    running_public_bots: list[Bot] = []
+    running_main_bots: list[Bot] = []
+    running_digital_products_bots: list[Bot] = []
+    running_card_ex_bots: list[Bot] = []
     next_proof_cleanup_at = now
     next_recovery_at = now
     next_provider_balance_alert_at = now
     next_rental_protection_at = now
+    next_card_ex_release_at = now
     next_temp_recovery_sweep_at = now
     next_unprovisioned_order_recovery_at = now
     provider_balance_alert_state: dict[str, dict[str, Any]] = {}
-    next_settlement_draft_at = now if last_draft_at is None else max(now, last_draft_at + timedelta(hours=6))
-    next_settlement_policy_at = now if last_policy_at is None else max(now, last_policy_at + timedelta(hours=1))
+    next_financial_anomaly_at = (
+        now
+        if last_financial_anomaly_at is None
+        else max(
+            now,
+            last_financial_anomaly_at
+            + timedelta(seconds=max(600, int(getattr(settings, "financial_anomaly_sweep_interval_sec", 21600) or 21600))),
+        )
+    )
+    next_digital_products_recovery_at = (
+        now
+        if last_digital_products_recovery_at is None
+        else max(
+            now,
+            last_digital_products_recovery_at
+            + timedelta(
+                seconds=max(
+                    60,
+                    int(
+                        getattr(
+                            settings,
+                            "digital_products_recovery_sweep_interval_sec",
+                            getattr(settings, "digital_products_recovery_sweep_interval_sec", 300),
+                        )
+                        or 300
+                    ),
+                )
+            ),
+        )
+    )
+    next_proxy_ops_summary_at = (
+        now
+        if last_proxy_ops_summary_at is None
+        else max(
+            now,
+            last_proxy_ops_summary_at
+            + timedelta(seconds=max(300, int(getattr(settings, "proxy_ops_summary_interval_sec", 3600) or 3600))),
+        )
+    )
+    next_proxy_validation_at = (
+        now
+        if last_proxy_validation_at is None
+        else max(
+            now,
+            last_proxy_validation_at
+            + timedelta(seconds=max(900, int(getattr(settings, "proxy_validation_interval_sec", 21600) or 21600))),
+        )
+    )
+    next_proxy_catalog_refresh_at = (
+        now
+        if last_proxy_catalog_refresh_at is None
+        else max(
+            now,
+            last_proxy_catalog_refresh_at
+            + timedelta(seconds=max(900, int(getattr(settings, "proxy_catalog_refresh_interval_sec", 3600) or 3600))),
+        )
+    )
+    next_digital_products_validation_at = (
+        now
+        if last_digital_products_validation_at is None
+        else max(
+            now,
+            last_digital_products_validation_at
+            + timedelta(
+                seconds=max(
+                    900,
+                    int(
+                        getattr(
+                            settings,
+                            "digital_products_validation_interval_sec",
+                            getattr(settings, "digital_products_validation_interval_sec", 21600),
+                        )
+                        or 21600
+                    ),
+                )
+            ),
+        )
+    )
+    next_lifecycle_cleanup_at = (
+        now
+        if last_lifecycle_cleanup_at is None
+        else max(
+            now,
+            last_lifecycle_cleanup_at
+            + timedelta(seconds=max(900, int(getattr(settings, "lifecycle_cleanup_interval_sec", 21600) or 21600))),
+        )
+    )
+    next_bot_subscription_sweep_at = (
+        now
+        if last_bot_subscription_sweep_at is None
+        else max(
+            now,
+            last_bot_subscription_sweep_at
+            + timedelta(seconds=max(60, int(getattr(settings, "bot_subscription_sweep_interval_sec", 300) or 300))),
+        )
+    )
 
-    while True:
-        try:
-            latest_map, latest_owner_map = await _fetch_verified_bot_maps()
-        except Exception as exc:
-            logging.error("database query failed: %s", exc)
-            await asyncio.sleep(poll_seconds)
-            continue
-
-        if latest_map != current_map:
-            logging.info("Bot set changed. Restarting polling. bots=%s", list(latest_map.keys()))
-            await _stop_polling(dp, polling_task, running_bots)
-            polling_task = None
-            running_bots = []
-            current_map = latest_map
-            current_owner_map = latest_owner_map
-
-            if current_map:
-                polling_task, running_bots = await _start_polling(dp, current_map)
-        else:
-            current_owner_map = latest_owner_map
-
-        if polling_task is not None and polling_task.done():
-            err = None
+    try:
+        while True:
             try:
-                err = polling_task.exception()
-            except asyncio.CancelledError:
-                err = None
+                (
+                    latest_public_map,
+                    latest_owner_map,
+                    latest_main_map,
+                    latest_digital_products_map,
+                    latest_card_ex_map,
+                ) = await _fetch_verified_bot_maps()
             except Exception as exc:
-                err = exc
-            if err:
-                logging.error("Polling task crashed: %s", err)
-            await _stop_polling(dp, polling_task, running_bots)
-            polling_task = None
-            running_bots = []
-            if current_map:
-                polling_task, running_bots = await _start_polling(dp, current_map)
+                logging.error("database query failed: %s", exc)
+                await asyncio.sleep(poll_seconds)
+                continue
+
+            if latest_public_map != current_public_map:
+                logging.info("Bot set changed. Restarting polling. bots=%s", list(latest_public_map.keys()))
+                await _stop_polling_group(public_dp, public_polling_task, running_public_bots)
+                public_polling_task = None
+                running_public_bots = []
+                current_public_map = latest_public_map
+                current_owner_map = latest_owner_map
+
+                if current_public_map:
+                    public_polling_task, running_public_bots = await _start_polling_group("public", public_dp, current_public_map)
+            else:
+                current_owner_map = latest_owner_map
+
+            if latest_main_map != current_main_map:
+                logging.info("Main bot set changed. Restarting main polling. bots=%s", list(latest_main_map.keys()))
+                await _stop_polling_group(main_dp, main_polling_task, running_main_bots)
+                main_polling_task = None
+                running_main_bots = []
+                current_main_map = latest_main_map
+                if current_main_map:
+                    main_polling_task, running_main_bots = await _start_polling_group("main", main_dp, current_main_map)
+
+            if latest_digital_products_map != current_digital_products_map:
+                logging.info("Digital-products bot set changed. Restarting digital-products polling. bots=%s", list(latest_digital_products_map.keys()))
+                await _stop_polling_group(digital_products_dp, digital_products_polling_task, running_digital_products_bots)
+                digital_products_polling_task = None
+                running_digital_products_bots = []
+                current_digital_products_map = latest_digital_products_map
+                if current_digital_products_map:
+                    digital_products_polling_task, running_digital_products_bots = await _start_polling_group("digital-products", digital_products_dp, current_digital_products_map)
+
+            if latest_card_ex_map != current_card_ex_map:
+                logging.info("Card-EX bot set changed. Restarting card-ex polling. bots=%s", list(latest_card_ex_map.keys()))
+                await _stop_polling_group(card_ex_dp, card_ex_polling_task, running_card_ex_bots)
+                card_ex_polling_task = None
+                running_card_ex_bots = []
+                current_card_ex_map = latest_card_ex_map
+                if current_card_ex_map:
+                    card_ex_polling_task, running_card_ex_bots = await _start_polling_group("card-ex", card_ex_dp, current_card_ex_map)
+
+            if public_polling_task is not None and public_polling_task.done():
+                err = None
+                try:
+                    err = public_polling_task.exception()
+                except asyncio.CancelledError:
+                    err = None
+                except Exception as exc:
+                    err = exc
+                if err:
+                    logging.error("Polling task crashed: %s", err)
+                await _stop_polling_group(public_dp, public_polling_task, running_public_bots)
+                public_polling_task = None
+                running_public_bots = []
+                if current_public_map:
+                    public_polling_task, running_public_bots = await _start_polling_group("public", public_dp, current_public_map)
+
+            if main_polling_task is not None and main_polling_task.done():
+                err = None
+                try:
+                    err = main_polling_task.exception()
+                except asyncio.CancelledError:
+                    err = None
+                except Exception as exc:
+                    err = exc
+                if err:
+                    logging.error("Main polling task crashed: %s", err)
+                await _stop_polling_group(main_dp, main_polling_task, running_main_bots)
+                main_polling_task = None
+                running_main_bots = []
+                if current_main_map:
+                    main_polling_task, running_main_bots = await _start_polling_group("main", main_dp, current_main_map)
+
+            if digital_products_polling_task is not None and digital_products_polling_task.done():
+                err = None
+                try:
+                    err = digital_products_polling_task.exception()
+                except asyncio.CancelledError:
+                    err = None
+                except Exception as exc:
+                    err = exc
+                if err:
+                    logging.error("Digital-products polling task crashed: %s", err)
+                await _stop_polling_group(digital_products_dp, digital_products_polling_task, running_digital_products_bots)
+                digital_products_polling_task = None
+                running_digital_products_bots = []
+                if current_digital_products_map:
+                    digital_products_polling_task, running_digital_products_bots = await _start_polling_group("digital-products", digital_products_dp, current_digital_products_map)
+
+            if card_ex_polling_task is not None and card_ex_polling_task.done():
+                err = None
+                try:
+                    err = card_ex_polling_task.exception()
+                except asyncio.CancelledError:
+                    err = None
+                except Exception as exc:
+                    err = exc
+                if err:
+                    logging.error("Card-EX polling task crashed: %s", err)
+                await _stop_polling_group(card_ex_dp, card_ex_polling_task, running_card_ex_bots)
+                card_ex_polling_task = None
+                running_card_ex_bots = []
+                if current_card_ex_map:
+                    card_ex_polling_task, running_card_ex_bots = await _start_polling_group("card-ex", card_ex_dp, current_card_ex_map)
 
         if _utc_now() >= next_recovery_at:
             try:
@@ -594,91 +1257,10 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
             finally:
                 next_proof_cleanup_at = _utc_now() + timedelta(minutes=10)
 
-        if _utc_now() >= next_settlement_draft_at:
-            now = _utc_now()
-            target_cycle = _previous_month_key(now)
-            try:
-                draft_stats = await generate_monthly_settlement_drafts(cycle_key=target_cycle)
-                logging.info(
-                    "settlement drafts cycle=%s total=%s drafted=%s skipped_confirmed=%s",
-                    draft_stats.get("cycle_key"),
-                    draft_stats.get("total"),
-                    draft_stats.get("drafted"),
-                    draft_stats.get("skipped_confirmed"),
-                )
-            except Exception as exc:
-                logging.error("settlement draft generation failed: %s", exc)
-            finally:
-                ran_at = _utc_now()
-                sched_state["last_settlement_draft_at"] = ran_at.isoformat()
-                _save_sched_state(sched_state)
-                next_settlement_draft_at = ran_at + timedelta(hours=6)
-
-        if _utc_now() >= next_settlement_policy_at:
-            now = _utc_now()
-            target_cycle = _previous_month_key(now)
-            try:
-                policy = await enforce_settlement_payment_policies(cycle_key=target_cycle, grace_days=4)
-                notices = policy.get("notices") or []
-                if notices and running_bots:
-                    bot_by_owner: dict[int, Bot] = {}
-                    for b in running_bots:
-                        me = await b.get_me()
-                        owner_id = current_owner_map.get(int(me.id))
-                        if owner_id is not None and owner_id not in bot_by_owner:
-                            bot_by_owner[int(owner_id)] = b
-
-                    for notice in notices:
-                        reseller_id = int(notice.get("reseller_id") or 0)
-                        bot_for_reseller = bot_by_owner.get(reseller_id)
-                        if not bot_for_reseller:
-                            continue
-                        due_at = notice.get("payment_due_at")
-                        due_txt = due_at.strftime("%Y-%m-%d %H:%M UTC") if hasattr(due_at, "strftime") else "-"
-                        amount_due = float(notice.get("amount_due") or 0.0)
-                        if notice.get("kind") == "cycle_end":
-                            txt = (
-                                "Monthly cycle ended.\n\n"
-                                f"Cycle: {notice.get('cycle_key')}\n"
-                                f"Reseller ID: {reseller_id}\n"
-                                f"Amount due: {amount_due:.2f}$\n"
-                                f"Payment deadline: {due_txt}\n\n"
-                                "Grace period is 4 days from cycle end.\n"
-                                "If payment is not confirmed by the deadline, all services will be suspended.\n"
-                                "Owner action path: Owner Panel -> Settlements -> Confirm Payment."
-                            )
-                        else:
-                            txt = (
-                                "Monthly payment is overdue.\n\n"
-                                f"Cycle: {notice.get('cycle_key')}\n"
-                                f"Reseller ID: {reseller_id}\n"
-                                f"Amount due: {amount_due:.2f}$\n"
-                                f"Deadline passed: {due_txt}\n\n"
-                                "All services are now suspended until full payment is confirmed by the owner.\n"
-                                "Ask the owner to confirm payment from the settlements panel."
-                            )
-                        with suppress(Exception):
-                            await bot_for_reseller.send_message(chat_id=reseller_id, text=txt)
-
-                logging.info(
-                    "settlement policy cycle=%s checked=%s locked_now=%s notices=%s",
-                    policy.get("cycle_key"),
-                    policy.get("count"),
-                    policy.get("locked_now"),
-                    len(policy.get("notices") or []),
-                )
-            except Exception as exc:
-                logging.error("settlement payment policy failed: %s", exc)
-            finally:
-                ran_at = _utc_now()
-                sched_state["last_settlement_policy_at"] = ran_at.isoformat()
-                _save_sched_state(sched_state)
-                next_settlement_policy_at = ran_at + timedelta(hours=1)
-
         if _utc_now() >= next_provider_balance_alert_at:
             try:
                 await _run_provider_balance_alert_cycle(
-                    running_bots=running_bots,
+                    running_bots=running_public_bots,
                     current_owner_map=current_owner_map,
                     state=provider_balance_alert_state,
                 )
@@ -686,6 +1268,273 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                 logging.error("provider balance alert cycle failed: %s", exc)
             finally:
                 next_provider_balance_alert_at = _utc_now() + timedelta(minutes=5)
+
+        if _utc_now() >= next_financial_anomaly_at:
+            ran_at = _utc_now()
+            sched_state["last_financial_anomaly_at"] = ran_at.isoformat()
+            _save_sched_state(sched_state)
+            interval_sec = max(600, int(getattr(settings, "financial_anomaly_sweep_interval_sec", 21600) or 21600))
+            next_financial_anomaly_at = ran_at + timedelta(seconds=interval_sec)
+
+        if _utc_now() >= next_digital_products_recovery_at:
+            try:
+                stats = await run_digital_products_pending_recovery_sweep(
+                    limit=80,
+                    pending_age_sec=max(
+                        60,
+                        int(
+                            getattr(
+                                settings,
+                                "digital_products_recovery_pending_age_sec",
+                                120,
+                            )
+                            or 120
+                        ),
+                    ),
+                )
+                if any(int(stats.get(k) or 0) for k in ("checked", "marked_success", "marked_refunded", "refund_failures")):
+                    logging.info(
+                        "digital-products recovery checked=%s marked_success=%s marked_refunded=%s pending=%s refund_failures=%s",
+                        stats.get("checked"),
+                        stats.get("marked_success"),
+                        stats.get("marked_refunded"),
+                        stats.get("pending"),
+                        stats.get("refund_failures"),
+                    )
+            except Exception as exc:
+                logging.error("digital-products recovery sweep failed: %s", exc)
+            finally:
+                ran_at = _utc_now()
+                sched_state["last_digital_products_recovery_at"] = ran_at.isoformat()
+                _save_sched_state(sched_state)
+                interval_sec = max(
+                    60,
+                    int(
+                        getattr(
+                            settings,
+                            "digital_products_recovery_sweep_interval_sec",
+                            300,
+                        )
+                        or 300
+                    ),
+                )
+                next_digital_products_recovery_at = ran_at + timedelta(seconds=interval_sec)
+
+        if _utc_now() >= next_proxy_ops_summary_at:
+            try:
+                report = await summarize_proxy_events(hours=24)
+                total = int(report.get("total") or 0)
+                failed = int(report.get("failed") or 0)
+                fail_rate = float(report.get("fail_rate_percent") or 0.0)
+                logging.info(
+                    "proxy ops summary total=%s failed=%s fail_rate=%.2f%%",
+                    total,
+                    failed,
+                    fail_rate,
+                )
+                threshold = float(
+                    getattr(settings, "proxy_ops_failure_alert_threshold_percent", 45.0) or 45.0
+                )
+                if total >= 20 and fail_rate >= threshold:
+                    chat_id, thread_id = await _owner_target_for_balance_alert()
+                    if isinstance(chat_id, int):
+                        preferred_bot = await _pick_owner_bot(running_public_bots, current_owner_map)
+                        reasons = report.get("top_reasons") or []
+                        reasons_text = "\n".join(
+                            f"- {str(item.get('reason') or 'unknown')}: {int(item.get('count') or 0)}"
+                            for item in reasons[:4]
+                        ) or "-"
+                        alert_text = (
+                            "Proxy operations alert (24h)\n\n"
+                            f"Total events: {total}\n"
+                            f"Failed: {failed}\n"
+                            f"Fail rate: {fail_rate:.2f}%\n"
+                            f"Threshold: {threshold:.2f}%\n\n"
+                            f"Top reasons:\n{reasons_text}"
+                        )
+                        sent = await _send_owner_alert_via_any_bot(
+                            running_bots=running_public_bots,
+                            preferred_bot=preferred_bot,
+                            chat_id=chat_id,
+                            thread_id=thread_id,
+                            text=alert_text,
+                        )
+                        if not sent:
+                            logging.error("proxy ops alert send failed for all bots")
+            except Exception as exc:
+                logging.error("proxy ops summary failed: %s", exc)
+            finally:
+                ran_at = _utc_now()
+                sched_state["last_proxy_ops_summary_at"] = ran_at.isoformat()
+                _save_sched_state(sched_state)
+                interval_sec = max(300, int(getattr(settings, "proxy_ops_summary_interval_sec", 3600) or 3600))
+                next_proxy_ops_summary_at = ran_at + timedelta(seconds=interval_sec)
+
+        if _utc_now() >= next_proxy_validation_at:
+            try:
+                report = await run_proxy_catalog_validation()
+                issues = list(report.get("issues") or [])
+                logging.info(
+                    "proxy validation healthy=%s total_offers=%s issues=%s",
+                    bool(report.get("healthy")),
+                    int(report.get("total_offers") or 0),
+                    len(issues),
+                )
+                if issues:
+                    chat_id, thread_id = await _owner_target_for_balance_alert()
+                    if isinstance(chat_id, int):
+                        preferred_bot = await _pick_owner_bot(running_public_bots, current_owner_map)
+                        text = (
+                            "Proxy validation warning\n\n"
+                            f"Total offers: {int(report.get('total_offers') or 0)}\n"
+                            f"Issues: {len(issues)}\n"
+                            + "\n".join(f"- {x}" for x in issues[:8])
+                        )
+                        await _send_owner_alert_via_any_bot(
+                            running_bots=running_public_bots,
+                            preferred_bot=preferred_bot,
+                            chat_id=chat_id,
+                            thread_id=thread_id,
+                            text=text,
+                        )
+            except Exception as exc:
+                logging.error("proxy validation sweep failed: %s", exc)
+            finally:
+                ran_at = _utc_now()
+                sched_state["last_proxy_validation_at"] = ran_at.isoformat()
+                _save_sched_state(sched_state)
+                interval_sec = max(900, int(getattr(settings, "proxy_validation_interval_sec", 21600) or 21600))
+                next_proxy_validation_at = ran_at + timedelta(seconds=interval_sec)
+
+        if _utc_now() >= next_proxy_catalog_refresh_at:
+            try:
+                catalog = await get_proxy_catalog()
+                set_offers_cache(catalog)
+                logging.info("proxy catalog cache refreshed total=%s", len(catalog or []))
+            except Exception as exc:
+                logging.error("proxy catalog refresh failed: %s", exc)
+            finally:
+                ran_at = _utc_now()
+                sched_state["last_proxy_catalog_refresh_at"] = ran_at.isoformat()
+                _save_sched_state(sched_state)
+                interval_sec = max(900, int(getattr(settings, "proxy_catalog_refresh_interval_sec", 3600) or 3600))
+                next_proxy_catalog_refresh_at = ran_at + timedelta(seconds=interval_sec)
+
+        if _utc_now() >= next_digital_products_validation_at:
+            try:
+                report = await run_digital_products_validation()
+                issues = list(report.get("issues") or [])
+                logging.info(
+                    "digital-products validation healthy=%s games=%s gift_categories=%s issues=%s",
+                    bool(report.get("healthy")),
+                    int(report.get("games_count") or 0),
+                    int(report.get("gift_categories_count") or 0),
+                    len(issues),
+                )
+                if issues:
+                    chat_id, thread_id = await _owner_target_for_balance_alert()
+                    if isinstance(chat_id, int):
+                        preferred_bot = await _pick_owner_bot(running_public_bots, current_owner_map)
+                        text = (
+                            "Digital products validation warning\n\n"
+                            f"Games: {int(report.get('games_count') or 0)}\n"
+                            f"Gift categories: {int(report.get('gift_categories_count') or 0)}\n"
+                            f"Issues: {len(issues)}\n"
+                            + "\n".join(f"- {x}" for x in issues[:8])
+                        )
+                        await _send_owner_alert_via_any_bot(
+                            running_bots=running_public_bots,
+                            preferred_bot=preferred_bot,
+                            chat_id=chat_id,
+                            thread_id=thread_id,
+                            text=text,
+                        )
+            except Exception as exc:
+                logging.error("digital-products validation sweep failed: %s", exc)
+            finally:
+                ran_at = _utc_now()
+                sched_state["last_digital_products_validation_at"] = ran_at.isoformat()
+                _save_sched_state(sched_state)
+                interval_sec = max(
+                    900,
+                    int(
+                        getattr(
+                            settings,
+                            "digital_products_validation_interval_sec",
+                            21600,
+                        )
+                        or 21600
+                    ),
+                )
+                next_digital_products_validation_at = ran_at + timedelta(seconds=interval_sec)
+
+        if _utc_now() >= next_lifecycle_cleanup_at:
+            try:
+                cleanup = await run_lifecycle_cleanup(
+                    telemetry_retention_days=max(
+                        7, int(getattr(settings, "lifecycle_telemetry_retention_days", 30) or 30)
+                    ),
+                    number_events_retention_days=max(
+                        7, int(getattr(settings, "lifecycle_number_events_retention_days", 30) or 30)
+                    ),
+                    usage_retention_days=max(
+                        30, int(getattr(settings, "lifecycle_usage_retention_days", 180) or 180)
+                    ),
+                    order_archive_age_days=max(
+                        30, int(getattr(settings, "lifecycle_order_archive_age_days", 120) or 120)
+                    ),
+                    archived_orders_retention_days=max(
+                        90, int(getattr(settings, "lifecycle_orders_archive_retention_days", 365) or 365)
+                    ),
+                )
+                logging.info(
+                    "lifecycle cleanup proxy_events_deleted=%s number_events_deleted=%s usage_stats_deleted=%s orders_archived=%s orders_deleted_after_archive=%s archive_errors=%s",
+                    int(cleanup.get("proxy_events_deleted") or 0),
+                    int(cleanup.get("number_events_deleted") or 0),
+                    int(cleanup.get("usage_stats_deleted") or 0),
+                    int(cleanup.get("orders_archived") or 0),
+                    int(cleanup.get("orders_deleted_after_archive") or 0),
+                    int(cleanup.get("orders_archive_errors") or 0),
+                )
+            except Exception as exc:
+                logging.error("lifecycle cleanup failed: %s", exc)
+            finally:
+                ran_at = _utc_now()
+                sched_state["last_lifecycle_cleanup_at"] = ran_at.isoformat()
+                _save_sched_state(sched_state)
+                interval_sec = max(900, int(getattr(settings, "lifecycle_cleanup_interval_sec", 21600) or 21600))
+                next_lifecycle_cleanup_at = ran_at + timedelta(seconds=interval_sec)
+
+        if _utc_now() >= next_bot_subscription_sweep_at:
+            try:
+                report = await run_bot_subscription_sweep(
+                    limit=max(50, int(getattr(settings, "bot_subscription_sweep_limit", 500) or 500))
+                )
+                await _run_bot_subscription_expiry_notice_cycle(
+                    running_bots=running_public_bots,
+                    current_owner_map=current_owner_map,
+                    limit=max(50, int(getattr(settings, "bot_subscription_sweep_limit", 500) or 500)),
+                )
+                await _run_bot_subscription_notice_cycle(
+                    running_bots=running_public_bots,
+                    current_owner_map=current_owner_map,
+                    limit=max(50, int(getattr(settings, "bot_subscription_sweep_limit", 500) or 500)),
+                )
+                if any(int(report.get(k) or 0) for k in ("renewed", "status_changed")):
+                    logging.info(
+                        "bot subscription sweep scanned=%s renewed=%s status_changed=%s",
+                        int(report.get("scanned") or 0),
+                        int(report.get("renewed") or 0),
+                        int(report.get("status_changed") or 0),
+                    )
+            except Exception as exc:
+                logging.error("bot subscription sweep failed: %s", exc)
+            finally:
+                ran_at = _utc_now()
+                sched_state["last_bot_subscription_sweep_at"] = ran_at.isoformat()
+                _save_sched_state(sched_state)
+                interval_sec = max(60, int(getattr(settings, "bot_subscription_sweep_interval_sec", 300) or 300))
+                next_bot_subscription_sweep_at = ran_at + timedelta(seconds=interval_sec)
 
         if _utc_now() >= next_rental_protection_at:
             try:
@@ -697,15 +1546,15 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                     ),
                 )
                 alerts = sweep.get("alerts") or []
-                if alerts and running_bots:
+                if alerts and running_public_bots:
                     chat_id, thread_id = await _owner_target_for_balance_alert()
                     if not isinstance(chat_id, int):
                         logging.error("rental protection alert skipped: no owner-group target is configured")
                     else:
-                        preferred_bot = await _pick_owner_bot(running_bots, current_owner_map)
+                        preferred_bot = await _pick_owner_bot(running_public_bots, current_owner_map)
                         for alert in alerts:
                             sent = await _send_owner_alert_via_any_bot(
-                                running_bots=running_bots,
+                                running_bots=running_public_bots,
                                 preferred_bot=preferred_bot,
                                 chat_id=chat_id,
                                 thread_id=thread_id,
@@ -732,11 +1581,22 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                 interval_sec = max(30, int(getattr(settings, "numbers_rental_sweep_interval_sec", 60) or 60))
                 next_rental_protection_at = _utc_now() + timedelta(seconds=interval_sec)
 
+        if _utc_now() >= next_card_ex_release_at:
+            try:
+                stats = await release_due_cards(limit=200)
+                if int(stats.get("released") or 0) > 0:
+                    logging.info("card-ex release sweep released=%s", int(stats.get("released") or 0))
+            except Exception as exc:
+                logging.error("card-ex release sweep failed: %s", exc)
+            finally:
+                interval_sec = max(60, int(getattr(settings, "cardex_release_sweep_interval_sec", 600) or 600))
+                next_card_ex_release_at = _utc_now() + timedelta(seconds=interval_sec)
+
         if _utc_now() >= next_temp_recovery_sweep_at:
             try:
                 aggregate = {"checked": 0, "synced": 0, "code_received": 0, "timed_out": 0, "refund_retries": 0}
                 limit = max(50, int(getattr(settings, "numbers_temp_recovery_sweep_limit", 200) or 200))
-                for bot in running_bots:
+                for bot in running_main_bots:
                     stats = await run_temp_wait_recovery_sweep(bot=bot, limit=limit)
                     for key in aggregate.keys():
                         aggregate[key] += int(stats.get(key) or 0)
@@ -787,19 +1647,26 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                 )
                 next_unprovisioned_order_recovery_at = _utc_now() + timedelta(seconds=interval_sec)
 
-        await asyncio.sleep(poll_seconds)
+            await asyncio.sleep(poll_seconds)
+    finally:
+        await _stop_polling_group(public_dp, public_polling_task, running_public_bots)
+        await _stop_polling_group(main_dp, main_polling_task, running_main_bots)
+        await _stop_polling_group(digital_products_dp, digital_products_polling_task, running_digital_products_bots)
+        await _stop_polling_group(card_ex_dp, card_ex_polling_task, running_card_ex_bots)
 
 
 async def main() -> None:
     setup_logging()
     _acquire_single_instance_lock()
+    ai_notes = enforce_openrouter_only_mode()
+    for line in ai_notes:
+        logging.warning("ai policy: %s", line)
+    warnings = validate_runtime_security()
+    for line in warnings:
+        logging.warning("security warning: %s", line)
+    init_sentry(service_name="bot_manager")
     telegram_error_handler = install_telegram_error_handler(bot_token=settings.bot_admin_token)
-    await bootstrap_financial_indexes()
-    await bootstrap_custom_services_indexes()
-    await bootstrap_recharge_indexes()
-    await bootstrap_user_links_indexes()
-    await bootstrap_temp_number_stats_indexes()
-    await bootstrap_number_events_indexes()
+    await _run_startup_bootstraps()
 
     logging.info(
         "loaded settings: admin_token=%s main_token=%s smspool_key=%s herosms_key=%s smsman_key=%s",
@@ -825,6 +1692,8 @@ async def main() -> None:
 
 if __name__ == "__main__":
     try:
+        if hasattr(asyncio, "WindowsSelectorEventLoopPolicy") and os.name == "nt":
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot manager stopped!")

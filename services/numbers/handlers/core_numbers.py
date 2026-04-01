@@ -1,17 +1,17 @@
-﻿from aiogram import F, Router, types
+﻿from contextvars import ContextVar
+
+import asyncio
+from aiogram import BaseMiddleware, F, Router, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import settings
-from database.bots_repo import get_reseller_id_for_bot
-from database.reseller_settings_repo import get_exchange_rate
 from database.user_repo import get_user
-from keyboards.main_menu_kb import main_menu
-from keyboards.reseller_main_menu import reseller_main_menu
 from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.keyboards.core_numbers_kb import (
     country_kb,
+    no_availability_kb,
     number_type_kb,
     provider_choice_kb,
     rental_home_kb,
@@ -29,12 +29,26 @@ from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_callb
 from services.numbers.service_families import normalize_service_key
 from services.numbers.states.core_numbers_states import NumberFlow
 from services.numbers.data import tv_area_codes
+from utils.bot_menu_context import menu_for_current_bot
 from utils.provider_alias import provider_public_id
-from utils.permissions import is_reseller
 from utils.translations import t
+from utils.user_money import format_usd, format_usd_compact
 from utils.usage_stats_manager import increment_usage
 
 router = Router()
+_CURRENT_CALLBACK: ContextVar[types.CallbackQuery | None] = ContextVar("core_numbers_current_callback", default=None)
+
+
+class _CallbackContextMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        token = _CURRENT_CALLBACK.set(event if isinstance(event, types.CallbackQuery) else None)
+        try:
+            return await handler(event, data)
+        finally:
+            _CURRENT_CALLBACK.reset(token)
+
+
+router.callback_query.middleware(_CallbackContextMiddleware())
 _COUNTRY_ISO = {
     str(item.get("code")): str(item.get("iso") or "").upper()
     for item in COUNTRIES_LIST
@@ -71,6 +85,99 @@ async def _safe_edit_text(
         raise
 
 
+async def _loading_text_animator(
+    bot,
+    *,
+    chat_id: int,
+    message_id: int,
+    base_text: str,
+    stop_event: asyncio.Event,
+    max_dots: int = 10,
+    interval_sec: float = 1.0,
+) -> None:
+    dots = 1
+    while not stop_event.is_set():
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=f"{base_text}{'.' * dots}",
+                reply_markup=None,
+            )
+        except TelegramBadRequest:
+            return
+        except Exception:
+            return
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_sec)
+            return
+        except asyncio.TimeoutError:
+            dots = 1 if dots >= max_dots else dots + 1
+
+
+def _start_loading_text_animator(
+    bot,
+    *,
+    chat_id: int,
+    message_id: int,
+    base_text: str,
+) -> tuple[asyncio.Event, asyncio.Task]:
+    stop_event = asyncio.Event()
+    task = asyncio.create_task(
+        _loading_text_animator(
+            bot,
+            chat_id=chat_id,
+            message_id=message_id,
+            base_text=base_text,
+            stop_event=stop_event,
+        )
+    )
+    return stop_event, task
+
+
+async def _stop_loading_text_animator(stop_event: asyncio.Event | None, task: asyncio.Task | None) -> None:
+    if stop_event is not None:
+        stop_event.set()
+    if task is None:
+        return
+    try:
+        await task
+    except Exception:
+        pass
+
+
+async def _safe_callback_answer(
+    callback: types.CallbackQuery | str | None = None,
+    text: str | None = None,
+    *,
+    show_alert: bool | None = None,
+) -> bool:
+    target_callback: types.CallbackQuery | None
+    if callback is not None and hasattr(callback, "answer"):
+        target_callback = callback
+    else:
+        target_callback = _CURRENT_CALLBACK.get()
+        if isinstance(callback, str) and text is None:
+            text = callback
+
+    if target_callback is None:
+        return False
+
+    kwargs: dict[str, object] = {}
+    if text is not None:
+        kwargs["text"] = text
+    if show_alert is not None:
+        kwargs["show_alert"] = show_alert
+    try:
+        await target_callback.answer(**kwargs)
+        return True
+    except TelegramBadRequest as exc:
+        msg = str(exc).lower()
+        if "query is too old" in msg or "query id is invalid" in msg or "response timeout expired" in msg:
+            return False
+        raise
+
+
 def _country_iso(country_code: str | None) -> str:
     if not country_code:
         return ""
@@ -81,16 +188,7 @@ def _normalize_service(value: str) -> str:
     return normalize_service_key(value or "")
 
 
-async def _resolve_usd_to_syp_rate(bot_id: int | None) -> float:
-    try:
-        if bot_id is not None:
-            reseller_id = await get_reseller_id_for_bot(int(bot_id))
-            if reseller_id:
-                rate = float(await get_exchange_rate(int(reseller_id)))
-                if rate > 0:
-                    return rate
-    except Exception:
-        pass
+async def _resolve_usd_to_syp_rate() -> float:
     try:
         fallback = float(getattr(settings, "numbers_usd_to_syp_fallback", 118) or 118)
     except Exception:
@@ -111,10 +209,7 @@ async def _return_to_main_menu(callback: types.CallbackQuery, state: FSMContext)
     except Exception:
         pass
 
-    if await is_reseller(callback.from_user.id, bot_id=bot_id):
-        await callback.message.answer(t(lang, "main_menu"), reply_markup=reseller_main_menu(lang))
-    else:
-        await callback.message.answer(t(lang, "main_menu"), reply_markup=main_menu(lang))
+    await callback.message.answer(t(lang, "main_menu"), reply_markup=await menu_for_current_bot(lang, bot_id))
 
 
 def _is_unlimited_service(service_key: str) -> bool:
@@ -173,30 +268,55 @@ def _compose_numbers_screen(title: str, context_lines: list[str] | None = None, 
     return "\n".join(lines)
 
 
-def _rental_provider_period_title(lang: str) -> str:
-    if str(lang or "").lower().startswith("ar"):
-        return (
-            "اختر المزود ومدة الرقم\n"
-            "تنبيه: Server 1 لا يدعم تحديد الولاية.\n"
-            "تنبيه: Server 2 عند تحديد الولاية يضاف +2$."
-        )
-    return (
-        "Choose rental provider and period\n"
-        "Notice: Server 1 does not support state targeting.\n"
-        "Notice: Server 2 adds +2$ when a state is selected."
+def _provider_screen_padding(prices: dict[str, dict] | None = None) -> list[str]:
+    return []
+
+
+def _numbers_mode_name(lang: str, num_type: str | None) -> str:
+    return t(lang, "rental_numbers") if str(num_type or "").strip().lower() == "rental" else t(lang, "temp_numbers")
+
+
+def _country_entry_text(lang: str, num_type: str) -> str:
+    return _compose_numbers_screen(
+        t(lang, "choose_country_or_search"),
+        [f"{t(lang, 'temp_mode_label')}: {_numbers_mode_name(lang, num_type)}"],
+        trailing_lines=[t(lang, "numbers_country_search_hint")],
     )
+
+
+def _rental_home_text(lang: str) -> str:
+    return _compose_numbers_screen(
+        t(lang, "rental_menu_title"),
+        trailing_lines=[t(lang, "rental_home_context_hint")],
+    )
+
+
+def _numbers_unavailable_text(
+    lang: str,
+    *,
+    title: str,
+    service: str | None = None,
+    country_code: str | None = None,
+    state_code: str | None = None,
+) -> str:
+    return _compose_numbers_screen(
+        title,
+        _numbers_context_lines(
+            lang,
+            service=service,
+            country_code=country_code,
+            state_code=state_code,
+        ),
+        trailing_lines=[t(lang, "numbers_try_other_choice_hint")],
+    )
+
+
+def _rental_provider_period_title(lang: str) -> str:
+    return t(lang, "rental_provider_period_title")
 
 
 def _us_state_prompt(lang: str) -> str:
-    if str(lang or "").lower().startswith("ar"):
-        return (
-            "تم اختيار الولايات المتحدة. اختر الولاية.\n\n"
-            "إذا الولاية غير مهمة للخدمة المطلوبة، اكتب Any State لتحصل غالبًا على سعر أفضل وتوفر أعلى."
-        )
-    return (
-        "United States selected. Choose a state.\n\n"
-        "If state is not important for your service, use Any State to usually get cheaper and stronger availability."
-    )
+    return t(lang, "numbers_us_state_prompt")
 
 
 _AVG_COMPARE_HOURS = (24, 72, 168, 336, 720)  # 1d, 3d, 7d, 14d, 30d
@@ -305,7 +425,7 @@ def _format_provider_rental_snapshot(provider_options: dict[str, list[dict]], la
         lines: list[str] = []
 
         # Show all returned packages for each provider, wrapped across lines.
-        tokens = [f"{_duration_compact(d)} {best_by_duration[d]:.2f}$" for d in durations]
+        tokens = [f"{_duration_compact(d)} {format_usd(best_by_duration[d])}" for d in durations]
         chunk_size = 5
         for i in range(0, len(tokens), chunk_size):
             lines.append(", ".join(tokens[i : i + chunk_size]))
@@ -318,9 +438,9 @@ def _format_provider_rental_snapshot(provider_options: dict[str, list[dict]], la
     text = "\n\n".join(blocks)
     if has_tv:
         if str(lang or "").lower().startswith("ar"):
-            text += "\n\nملاحظة: في S2 إذا اخترت ولاية، السعر يزيد +2$."
+            text += f"\n\nملاحظة: في S2 إذا اخترت ولاية، السعر يزيد +{format_usd_compact(2)}."
         else:
-            text += "\n\nNote: for S2, selecting a state adds +2$."
+            text += f"\n\nNote: for S2, selecting a state adds +{format_usd_compact(2)}."
     return text
 
 
@@ -420,19 +540,16 @@ def _build_rental_confirm_text(
     if renewable:
         lines.append(f"{t(lang, 'rental_billing_cycle_label')}: {t(lang, 'tv_billing_cycle_auto_new')}")
     price_usd = float(option.get("price") or 0)
-    if usd_to_syp and float(usd_to_syp) > 0:
-        lines.append(f"{t(lang, 'price_label')}: {price_usd:.2f}$ ({(price_usd * float(usd_to_syp)):.1f} SYP)")
-    else:
-        lines.append(f"{t(lang, 'price_label')}: {price_usd:.2f}$")
+    lines.append(f"{t(lang, 'price_label')}: {format_usd(price_usd)}")
     lines.append("")
     if str(lang or "").lower().startswith("ar"):
         lines.append("⚠️ تنويه مهم:")
         lines.append("• Server 1 لا يدعم تحديد الولاية.")
-        lines.append("• Server 2 يدعم الولاية، واختيار ولاية يضيف +2$.")
+        lines.append(f"• Server 2 يدعم الولاية، واختيار ولاية يضيف +{format_usd_compact(2)}.")
     else:
         lines.append("⚠️ Important notice:")
         lines.append("• Server 1 does not support state targeting.")
-        lines.append("• Server 2 supports state targeting; selecting a state adds +2$.")
+        lines.append(f"• Server 2 supports state targeting; selecting a state adds +{format_usd_compact(2)}.")
     lines.append("")
     lines.append(t(lang, "confirm_purchase_question"))
     return "\n".join(lines)
@@ -463,7 +580,7 @@ async def choose_number_type(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(num_type=num_type)
     if num_type == "rental":
         sent = await _safe_edit_text(callback.message, 
-            t(lang, "rental_menu_title"),
+            _rental_home_text(lang),
             reply_markup=rental_home_kb(lang),
         )
         await state.update_data(last_msg_id=sent.message_id)
@@ -471,7 +588,7 @@ async def choose_number_type(callback: types.CallbackQuery, state: FSMContext):
         return
     sent = await _safe_edit_text(
         callback.message,
-        t(lang, "choose_country_or_search"),
+        _country_entry_text(lang, "temp"),
         reply_markup=country_kb(lang),
     )
     await state.update_data(last_msg_id=sent.message_id)
@@ -484,7 +601,7 @@ async def rental_add_number(callback: types.CallbackQuery, state: FSMContext):
     lang = data.get("lang", "en")
     sent = await _safe_edit_text(
         callback.message,
-        t(lang, "choose_country_or_search"),
+        _country_entry_text(lang, "rental"),
         reply_markup=country_kb(lang),
     )
     await state.update_data(last_msg_id=sent.message_id, num_type="rental")
@@ -495,7 +612,7 @@ async def rental_add_number(callback: types.CallbackQuery, state: FSMContext):
 async def rental_menu(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
-    await _safe_edit_text(callback.message, t(lang, "rental_menu_title"), reply_markup=rental_home_kb(lang))
+    await _safe_edit_text(callback.message, _rental_home_text(lang), reply_markup=rental_home_kb(lang))
     await state.set_state(NumberFlow.rental_home)
 
 
@@ -506,7 +623,7 @@ async def back_from_country_entry(callback: types.CallbackQuery, state: FSMConte
     if data.get("num_type") == "rental":
         await _safe_edit_text(
             callback.message,
-            t(lang, "rental_menu_title"),
+            _rental_home_text(lang),
             reply_markup=rental_home_kb(lang),
         )
         await state.set_state(NumberFlow.rental_home)
@@ -524,10 +641,10 @@ async def back_to_country(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
     if data.get("num_type") == "rental":
-        await _safe_edit_text(callback.message, t(lang, "rental_menu_title"), reply_markup=rental_home_kb(lang))
+        await _safe_edit_text(callback.message, _rental_home_text(lang), reply_markup=rental_home_kb(lang))
         await state.set_state(NumberFlow.rental_home)
         return
-    await _safe_edit_text(callback.message, t(lang, "choose_country_or_search"), reply_markup=country_kb(lang))
+    await _safe_edit_text(callback.message, _country_entry_text(lang, "temp"), reply_markup=country_kb(lang))
     await state.set_state(NumberFlow.country)
 
 
@@ -558,7 +675,7 @@ async def back_to_rental_providers(callback: types.CallbackQuery, state: FSMCont
     lang = data.get("lang", "en")
     provider_rows = data.get("rental_provider_rows") or []
     if not provider_rows:
-        return await callback.answer(t(lang, "no_rental_options"), show_alert=True)
+        return await _safe_callback_answer(t(lang, "no_rental_options"), show_alert=True)
     provider_options = data.get("rental_provider_options") or {}
     usd_to_syp_rate = float(data.get("usd_to_syp_rate") or 0)
     text = _compose_numbers_screen(
@@ -693,11 +810,11 @@ async def handle_inline_state_selection(message: types.Message, state: FSMContex
         return
 
     await state.update_data(state=state_code if num_type == "temp" else "none")
+    country_code = data.get("country")
     text = _compose_numbers_screen(
         _service_prompt_bold(lang),
         _numbers_context_lines(lang, country_code=country_code, state_code=state_code),
     )
-    country_code = data.get("country")
     kb = service_kb(lang, num_type=num_type, country_code=country_code)
 
     if last_msg_id:
@@ -743,17 +860,19 @@ async def choose_any_state(callback: types.CallbackQuery, state: FSMContext):
                 parse_mode="HTML",
             )
             await state.set_state(NumberFlow.service)
-            return await callback.answer()
+            return await _safe_callback_answer()
         except Exception:
             pass
     sent = await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
     await state.update_data(last_msg_id=sent.message_id)
     await state.set_state(NumberFlow.service)
-    await callback.answer()
+    await _safe_callback_answer()
 
 
 @router.message(F.text.startswith("/select_service_"))
 async def handle_inline_service_selection(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "en")
     service_key = message.text.replace("/select_service_", "")
     await message.delete()
     await _load_service_prices(message.chat.id, message.bot, state, service_key)
@@ -761,6 +880,8 @@ async def handle_inline_service_selection(message: types.Message, state: FSMCont
 
 @router.callback_query(lambda c: c.data and c.data.startswith("flow:service:"))
 async def choose_service(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "en")
     service_name = callback.data.split(":", 2)[2]
     await _load_service_prices(callback.message.chat.id, callback.message.bot, state, service_name)
 
@@ -773,18 +894,40 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
     country = data.get("country")
     state_code = data.get("state")
     last_msg_id = data.get("last_msg_id")
-    usd_to_syp_rate = await _resolve_usd_to_syp_rate(bot.id)
+    usd_to_syp_rate = await _resolve_usd_to_syp_rate()
 
     if num_type == "rental":
+        loading_stop = None
+        loading_task = None
         if last_msg_id:
             try:
                 await bot.edit_message_text(chat_id=chat_id, message_id=last_msg_id, text=t(lang, "loading_prices"), reply_markup=None)
+                loading_stop, loading_task = _start_loading_text_animator(
+                    bot,
+                    chat_id=chat_id,
+                    message_id=last_msg_id,
+                    base_text=t(lang, "loading_prices"),
+                )
             except Exception:
                 pass
-        rent_prices = await get_all_rental_prices(service_name, country)
+        try:
+            rent_prices = await get_all_rental_prices(service_name, country)
+        finally:
+            await _stop_loading_text_animator(loading_stop, loading_task)
         if not rent_prices:
             if last_msg_id:
-                await bot.edit_message_text(chat_id=chat_id, message_id=last_msg_id, text=t(lang, "no_rental_options"))
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=last_msg_id,
+                    text=_numbers_unavailable_text(
+                        lang,
+                        title=t(lang, "no_rental_options"),
+                        service=service_name,
+                        country_code=str(country or ""),
+                        state_code=str(state_code or ""),
+                    ),
+                    reply_markup=no_availability_kb(lang),
+                )
             return
 
         unlimited_mode = _is_unlimited_service(service_name)
@@ -835,9 +978,31 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
                 }
             )
 
-        if not provider_options:
+        provider_rows = [
+            row
+            for row in provider_rows
+            if bool(row.get("available_for_buy", True)) or (show_all_for_testing and bool(row.get("testing_visible")))
+        ]
+        provider_options = {
+            code: rows
+            for code, rows in provider_options.items()
+            if any(str(row.get("provider") or "").strip().lower() == code for row in provider_rows)
+        }
+
+        if not provider_options or not provider_rows:
             if last_msg_id:
-                await bot.edit_message_text(chat_id=chat_id, message_id=last_msg_id, text=t(lang, "no_rental_options"))
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=last_msg_id,
+                    text=_numbers_unavailable_text(
+                        lang,
+                        title=t(lang, "no_rental_options"),
+                        service=service_name,
+                        country_code=str(country or ""),
+                        state_code=str(state_code or ""),
+                    ),
+                    reply_markup=no_availability_kb(lang),
+                )
             return
 
         provider_rows.sort(key=lambda x: float(x.get("avg_price") or 0))
@@ -869,19 +1034,36 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
         return
 
     # Unified temp flow: go directly to provider list.
+    loading_stop = None
+    loading_task = None
     if last_msg_id:
         try:
             await bot.edit_message_text(chat_id=chat_id, message_id=last_msg_id, text=t(lang, "loading_prices"))
+            loading_stop, loading_task = _start_loading_text_animator(
+                bot,
+                chat_id=chat_id,
+                message_id=last_msg_id,
+                base_text=t(lang, "loading_prices"),
+            )
         except Exception:
             pass
-    prices = await get_all_prices(service_name, country, state_code)
+    try:
+        prices = await get_all_prices(service_name, country, state_code)
+    finally:
+        await _stop_loading_text_animator(loading_stop, loading_task)
     if not prices:
         if last_msg_id:
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=last_msg_id,
-                text=t(lang, "no_prices_available"),
-                reply_markup=service_kb(lang, num_type="temp", country_code=country),
+                text=_numbers_unavailable_text(
+                    lang,
+                    title=t(lang, "no_prices_available"),
+                    service=service_name,
+                    country_code=str(country or ""),
+                    state_code=str(state_code or ""),
+                ),
+                reply_markup=no_availability_kb(lang),
             )
         await state.set_state(NumberFlow.service)
         return
@@ -889,6 +1071,35 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
         increment_usage(service_name)
     except Exception:
         pass
+    show_all_for_testing = bool(getattr(settings, "numbers_show_all_providers_for_testing", False))
+    prices = {
+        code: info
+        for code, info in prices.items()
+        if (
+            (
+                bool(info.get("available_for_buy", True))
+                and bool(str(info.get("api_service_name") or "").strip())
+                and float(info.get("price", 0) or 0) > 0
+            )
+            or (show_all_for_testing and bool(info.get("testing_visible")))
+        )
+    }
+    if not prices:
+        if last_msg_id:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=last_msg_id,
+                text=_numbers_unavailable_text(
+                    lang,
+                    title=t(lang, "no_prices_available"),
+                    service=service_name,
+                    country_code=str(country or ""),
+                    state_code=str(state_code or ""),
+                ),
+                reply_markup=no_availability_kb(lang),
+            )
+        await state.set_state(NumberFlow.service)
+        return
     await state.update_data(available_prices=prices)
     if last_msg_id:
         await bot.edit_message_text(
@@ -902,6 +1113,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
                     country_code=str(country or ""),
                     state_code=str(state_code or ""),
                 ),
+                trailing_lines=_provider_screen_padding(prices),
             ),
             reply_markup=provider_choice_kb(prices, lang=lang, usd_to_syp=usd_to_syp_rate),
         )
@@ -915,7 +1127,7 @@ async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
     if await _handle_rental_exit_callback_guard(callback, state, target="main", lang=lang):
         return
     await _return_to_main_menu(callback, state)
-    await callback.answer()
+    await _safe_callback_answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("rentprov:"))
@@ -927,7 +1139,7 @@ async def choose_rental_provider(callback: types.CallbackQuery, state: FSMContex
     options = provider_map.get(provider_code) or []
     usd_to_syp_rate = float(data.get("usd_to_syp_rate") or 0)
     if not options:
-        return await callback.answer(t(lang, "no_rental_options"), show_alert=True)
+        return await _safe_callback_answer(t(lang, "no_rental_options"), show_alert=True)
 
     await state.update_data(
         selected_rental_provider=provider_code,
@@ -938,7 +1150,7 @@ async def choose_rental_provider(callback: types.CallbackQuery, state: FSMContex
     if provider_code == "textverified":
         duration_rows = _prepare_tv_duration_rows(options)
         if not duration_rows:
-            return await callback.answer(t(lang, "no_rental_options"), show_alert=True)
+            return await _safe_callback_answer(t(lang, "no_rental_options"), show_alert=True)
         await state.update_data(tv_duration_rows=duration_rows, tv_selected_duration=None, tv_selected_option_base=None)
         await _safe_edit_text(callback.message, 
             _compose_numbers_screen(
@@ -979,7 +1191,7 @@ async def tv_choose_duration(callback: types.CallbackQuery, state: FSMContext):
     usd_to_syp_rate = float(data.get("usd_to_syp_rate") or 0)
     selected = [row for row in options if str(row.get("tv_duration_key") or "").strip() == duration_key]
     if not selected:
-        return await callback.answer(t(lang, "no_rental_options"), show_alert=True)
+        return await _safe_callback_answer(t(lang, "no_rental_options"), show_alert=True)
 
     nonrenew_price = None
     renew_price = None
@@ -1018,7 +1230,7 @@ async def tv_renew_back(callback: types.CallbackQuery, state: FSMContext):
     rows = data.get("tv_duration_rows") or []
     usd_to_syp_rate = float(data.get("usd_to_syp_rate") or 0)
     if not rows:
-        return await callback.answer(t(lang, "no_rental_options"), show_alert=True)
+        return await _safe_callback_answer(t(lang, "no_rental_options"), show_alert=True)
     await state.update_data(awaiting_tv_state=False)
     await _safe_edit_text(callback.message, 
         _compose_numbers_screen(
@@ -1046,7 +1258,7 @@ async def tv_choose_renew_mode(callback: types.CallbackQuery, state: FSMContext)
     usd_to_syp_rate = float(data.get("usd_to_syp_rate") or 0)
     selected = _pick_tv_option(options, duration_key, is_renewable)
     if not selected:
-        return await callback.answer(t(lang, "no_rental_options"), show_alert=True)
+        return await _safe_callback_answer(t(lang, "no_rental_options"), show_alert=True)
     selected["tv_is_renewable"] = bool(is_renewable)
     if is_renewable:
         selected["rental_billing_cycle_label"] = t(lang, "tv_billing_cycle_auto_new")
@@ -1075,7 +1287,7 @@ async def tv_state_back(callback: types.CallbackQuery, state: FSMContext):
     usd_to_syp_rate = float(data.get("usd_to_syp_rate") or 0)
     selected = [row for row in options if str(row.get("tv_duration_key") or "").strip() == duration_key]
     if not selected:
-        return await callback.answer(t(lang, "no_rental_options"), show_alert=True)
+        return await _safe_callback_answer(t(lang, "no_rental_options"), show_alert=True)
     nonrenew_price = None
     renew_price = None
     for row in selected:
@@ -1111,7 +1323,7 @@ async def tv_state_with(callback: types.CallbackQuery, state: FSMContext):
     lang = data.get("lang", "en")
     base = data.get("tv_selected_option_base") or {}
     if not base:
-        return await callback.answer(t(lang, "invalid_order_info"), show_alert=True)
+        return await _safe_callback_answer(t(lang, "invalid_order_info"), show_alert=True)
     await state.update_data(awaiting_tv_state=True)
     await _safe_edit_text(callback.message, 
         _compose_numbers_screen(
@@ -1141,7 +1353,7 @@ async def tv_state_none(callback: types.CallbackQuery, state: FSMContext):
     base = data.get("tv_selected_option_base") or {}
     usd_to_syp_rate = float(data.get("usd_to_syp_rate") or 0)
     if not base:
-        return await callback.answer(t(lang, "invalid_order_info"), show_alert=True)
+        return await _safe_callback_answer(t(lang, "invalid_order_info"), show_alert=True)
     option = dict(base)
     option["tv_with_state"] = False
     option["state_code"] = "none"
@@ -1151,5 +1363,7 @@ async def tv_state_none(callback: types.CallbackQuery, state: FSMContext):
     text = _build_rental_confirm_text(service_name=service_name, country=country, option=option, lang=lang, usd_to_syp=usd_to_syp_rate)
     await _safe_edit_text(callback.message, text, reply_markup=rental_confirm_kb(lang))
     await state.set_state(NumberFlow.rental_confirm)
+
+
 
 

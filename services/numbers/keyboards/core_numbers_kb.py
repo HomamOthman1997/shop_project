@@ -4,9 +4,10 @@ import re
 from config import settings
 from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.manager import RENTAL_UNLIMITED_SERVICE_KEY
-from utils.provider_alias import provider_public_id
+from utils.provider_alias import provider_display_name, provider_public_id
 from utils.services_keyboard import build_services_keyboard
 from utils.translations import t
+from utils.user_money import format_usd
 
 _COUNTRY_CODE_TO_ISO = {
     str(item.get("code")): str(item.get("iso") or "").upper()
@@ -28,6 +29,7 @@ _SUCCESS_RATE_DISPLAY_MIN_ATTEMPTS = max(
     1,
     int(getattr(settings, "numbers_success_rate_display_min_attempts", 5) or 5),
 )
+_HIDDEN_TEMP_PROVIDER_CODES = {"smsman", "smsman_s6"}
 
 
 def _format_success_rate(value: float | int | str | None, attempts: int | None = None) -> str:
@@ -91,19 +93,11 @@ def _normalize_duration_text(value: str) -> str:
 
 
 def _duration_price_label(duration_text: str, price: float) -> str:
-    return f"{_normalize_duration_text(duration_text)} | {float(price):.2f}$"
+    return f"{_normalize_duration_text(duration_text)} | {format_usd(price)}"
 
 
 def _price_dual_label(price_usd: float, usd_to_syp: float | None = None) -> str:
-    usd_text = f"{float(price_usd):.2f}$"
-    try:
-        rate = float(usd_to_syp or 0)
-    except Exception:
-        rate = 0.0
-    if rate <= 0:
-        return usd_text
-    syp_value = float(price_usd) * rate
-    return f"{usd_text} ({syp_value:.1f} SYP)"
+    return format_usd(price_usd)
 
 
 def _can_show_unlimited(country_code: str | None) -> bool:
@@ -191,25 +185,58 @@ def service_kb(lang: str = "en", num_type: str = "temp", country_code: str | Non
     return kb
 
 
+def no_availability_kb(lang: str = "en") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "back_to_services"), callback_data="flow:service:back")],
+            [InlineKeyboardButton(text=t(lang, "back_to_countries"), callback_data="flow:country:back")],
+            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger", icon_custom_emoji_id=_ICON_CANCEL)],
+        ]
+    )
+
+
 def provider_choice_kb(prices: dict, lang: str = "en", usd_to_syp: float | None = None) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(inline_keyboard=[])
+    show_all_for_testing = bool(getattr(settings, "numbers_show_all_providers_for_testing", False))
     for provider_code, info in sorted(prices.items(), key=lambda kv: _provider_sort_key(kv[0])):
+        if str(provider_code or "").strip().lower() in _HIDDEN_TEMP_PROVIDER_CODES:
+            continue
         price_val = float(info.get("price", 0) or 0)
         can_buy = bool(info.get("available_for_buy", True)) and bool(str(info.get("api_service_name") or "").strip()) and price_val > 0
+        testing_visible = bool(info.get("testing_visible"))
+        if not can_buy and not (show_all_for_testing and testing_visible):
+            continue
         success_rate_label = _format_success_rate(
             info.get("success_rate", 100),
             attempts=info.get("success_attempts", 0),
         )
-        price_label = _price_dual_label(price_val, usd_to_syp=usd_to_syp) if can_buy else "N/A"
+        if price_val > 0:
+            price_label = _price_dual_label(price_val, usd_to_syp=usd_to_syp)
+        else:
+            price_label = "N/A"
+        location_tag = ""
+        provider_state_code = str(info.get("provider_state_code") or "").strip().upper()
+        provider_country_iso = str(info.get("provider_country_iso") or "").strip().upper()
+        if provider_state_code:
+            location_tag = f" [{provider_state_code}]"
+        elif provider_country_iso:
+            location_tag = f" [{provider_country_iso}]"
+        provider_row_callback = f"buy_provider:{provider_code}"
+        provider_info_callback = f"buy_provider_info:{provider_code}"
         kb.inline_keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=f"{provider_public_id(provider_code)} | {price_label}",
-                    callback_data=f"buy_provider:{provider_code}",
+                    text=f"{provider_display_name(provider_code)}{location_tag} | ⭐ {success_rate_label}",
+                    callback_data=provider_info_callback,
+                    style="primary",
                 ),
                 InlineKeyboardButton(
-                    text=f"⭐ {success_rate_label}",
-                    callback_data=f"buy_provider:{provider_code}",
+                    text=price_label,
+                    callback_data=provider_info_callback,
+                ),
+                InlineKeyboardButton(
+                    text=t(lang, "buy_plain"),
+                    callback_data=provider_row_callback,
                 ),
             ]
         )
@@ -261,8 +288,8 @@ def rental_providers_kb(
     unlimited_mode = any(str(row.get("pricing_mode") or "").strip().lower() == "monthly" for row in provider_rows)
 
     if unlimited_mode:
-        # Unlimited view: force provider ordering so S3 appears first.
-        provider_order = {"s3": 0, "s2": 1, "s1": 2, "s4": 3, "s5": 4}
+        # Unlimited view: force provider ordering by internal provider codes.
+        provider_order = {"smspool": 0, "textverified": 1, "herosms": 2, "pvadeals": 3, "alisms": 4}
         ordered_rows = sorted(
             provider_rows,
             key=lambda item: (
@@ -277,28 +304,22 @@ def rental_providers_kb(
         provider_code = str(row.get("provider") or "").strip().lower()
         if not provider_code:
             continue
-        public_id = provider_public_id(provider_code)
+        row_is_buyable = bool(row.get("available_for_buy", True))
+        row_testing_visible = bool(row.get("testing_visible"))
+        if not row_is_buyable and not (bool(getattr(settings, "numbers_show_all_providers_for_testing", False)) and row_testing_visible):
+            continue
+        provider_name = provider_display_name(provider_code)
         options = provider_options.get(provider_code) or []
         pricing_mode = str(row.get("pricing_mode") or "").strip().lower()
         avg_price = float(row.get("avg_price") or 0.0)
         country_label = str(row.get("country_label") or "").strip() or "US"
 
-        header_text = public_id
+        header_text = provider_name
         header_style = None
         has_monthly_summary = bool((not options) and pricing_mode == "monthly" and avg_price > 0)
         if has_monthly_summary:
-            header_text = f"{public_id} | Monthly price ({country_label}): {avg_price:.2f}$"
-        if has_monthly_summary:
-            header_style = "success" if public_id == "S2" else None
-        elif unlimited_mode and provider_code == "s3":
-            header_text = "Server 1"
-            header_style = "success"
-        elif public_id == "S1":
-            header_text = "Server 1"
-            header_style = "primary"
-        elif public_id == "S2":
-            header_text = "Server 2"
-            header_style = "success"
+            header_text = f"{provider_name} | Monthly price ({country_label}): {format_usd(avg_price)}"
+        header_style = "primary"
 
         # Header button (display grouping for provider).
         kb.inline_keyboard.append(
@@ -327,13 +348,13 @@ def rental_providers_kb(
                 callback_data=f"rentpick:{provider_code}:{dur}",
             )
 
-        if unlimited_mode and provider_code == "s3":
+        if unlimited_mode and provider_code == "smspool":
             # Unlimited: expose only 1D / 7D / 28D for S3.
             fixed_durations = (24, 168, 672)
             row_buttons = [btn for btn in (_mk_btn(d) for d in fixed_durations) if btn is not None]
             if row_buttons:
                 kb.inline_keyboard.append(row_buttons)
-        elif public_id == "S1":
+        elif provider_code == "herosms":
             # Keep hours on first row, and move day-based durations to following rows.
             hour_row: list[InlineKeyboardButton] = []
             for d in (2, 4, 12):
@@ -356,42 +377,25 @@ def rental_providers_kb(
                 row_buttons = [btn for btn in (_mk_btn(d) for d in extras[i : i + 3]) if btn is not None]
                 if row_buttons:
                     kb.inline_keyboard.append(row_buttons)
-        elif public_id == "S2":
-            # Keep 30D strictly in the second row.
-            first_row_durations = [24, 72, 168, 336]  # 1d, 3d, 7d, 14d
-            second_row_durations = [720, 2160, 8760]  # 30d, 90d, 365d
-
-            main_buttons: list[InlineKeyboardButton] = []
-            for d in first_row_durations:
-                if d not in best_by_duration:
-                    continue
+        elif provider_code == "textverified":
+            # Keep Server 2 grouped as:
+            # 1D / 3D / 7D
+            # 14D / 30D
+            first_row: list[InlineKeyboardButton] = []
+            for d in (24, 72, 168):
                 btn = _mk_btn(d)
                 if btn is not None:
-                    main_buttons.append(btn)
-            if main_buttons:
-                for i in range(0, len(main_buttons), 3):
-                    kb.inline_keyboard.append(main_buttons[i : i + 3])
+                    first_row.append(btn)
+            if first_row:
+                kb.inline_keyboard.append(first_row)
 
-            # Second row: show 30d/90d/365d (live if available, placeholder otherwise for long durations).
-            long_row: list[InlineKeyboardButton] = []
-            if 720 in best_by_duration:
-                btn = _mk_btn(720)
+            second_row: list[InlineKeyboardButton] = []
+            for d in (336, 720):
+                btn = _mk_btn(d)
                 if btn is not None:
-                    long_row.append(btn)
-            for d in (2160, 8760):
-                if d in best_by_duration:
-                    btn = _mk_btn(d)
-                    if btn is not None:
-                        long_row.append(btn)
-                else:
-                    long_row.append(
-                        InlineKeyboardButton(
-                            text=f"{_duration_label_compact(d)} | XX.X$",
-                            callback_data=f"rentna:{provider_code}:{d}",
-                        )
-                    )
-            if long_row:
-                kb.inline_keyboard.append(long_row)
+                    second_row.append(btn)
+            if second_row:
+                kb.inline_keyboard.append(second_row)
         else:
             durations = sorted(best_by_duration.keys())
             for i in range(0, len(durations), 3):
@@ -470,7 +474,7 @@ def rental_options_kb(options: list[dict], lang: str = "en", usd_to_syp: float |
 def rental_confirm_kb(lang: str = "en") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data="rent:confirm", style="success", icon_custom_emoji_id=_ICON_CONFIRM)],
+            [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data="rent:confirm:final", style="success", icon_custom_emoji_id=_ICON_CONFIRM)],
             [InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:rental_providers:back")],
             [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="rent:cancel", style="danger", icon_custom_emoji_id=_ICON_CANCEL)],
         ]

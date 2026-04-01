@@ -1,7 +1,7 @@
 import json
 import os
 from functools import lru_cache
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
 from services.numbers.service_families import (
     CANONICAL_SERVICE_KEYS,
@@ -85,7 +85,73 @@ def _load_display_names() -> Dict[str, str]:
         except FileNotFoundError:
             pass
 
+    try:
+        from services.numbers.data import pvadeals_services
+
+        for item in pvadeals_services.DATA:
+            service = item.get("name", "")
+            norm = _norm_name(service)
+            if norm:
+                names.setdefault(norm, service)
+    except ImportError:
+        try:
+            with open(os.path.join(_DATA_DIR, "pvadeals_services.json"), encoding="utf-8") as f:
+                for item in json.load(f):
+                    service = item.get("name", "")
+                    norm = _norm_name(service)
+                    if norm:
+                        names.setdefault(norm, service)
+        except FileNotFoundError:
+            pass
+
     return names
+
+
+def _load_provider_catalog_names(provider_code: str) -> Dict[str, str]:
+    names: Dict[str, str] = {}
+    if provider_code != "pvadeals":
+        return names
+    try:
+        from services.numbers.data import pvadeals_services
+
+        items = pvadeals_services.DATA
+    except ImportError:
+        try:
+            with open(os.path.join(_DATA_DIR, "pvadeals_services.json"), encoding="utf-8") as f:
+                items = json.load(f)
+        except FileNotFoundError:
+            items = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        service = str(item.get("name") or "").strip()
+        norm = _norm_name(service)
+        if norm:
+            names.setdefault(norm, service)
+    return names
+
+
+def _inject_provider_catalog_mappings(result: Dict[str, Any], provider_code: str) -> None:
+    provider_names = _load_provider_catalog_names(provider_code)
+    if not provider_names:
+        return
+    for key, entry in result.items():
+        if not isinstance(entry, dict):
+            continue
+        providers = entry.setdefault("providers", {})
+        if providers.get(provider_code):
+            continue
+        candidates = [key, entry.get("display_name")]
+        matched_value = None
+        for candidate in candidates:
+            norm = _norm_name(str(candidate or ""))
+            if not norm:
+                continue
+            matched_value = provider_names.get(norm)
+            if matched_value:
+                break
+        if matched_value:
+            providers[provider_code] = matched_value
 
 
 def _dedupe_aliases(values: list[Any]) -> list[str]:
@@ -204,6 +270,7 @@ def _load_map() -> Dict[str, Any]:
     for key, display_name in DISPLAY_NAME_OVERRIDES.items():
         if key in result:
             result[key]["display_name"] = display_name
+    _inject_provider_catalog_mappings(result, "pvadeals")
 
     return result
 
@@ -211,10 +278,93 @@ def _load_map() -> Dict[str, Any]:
 SERVICE_MAP = _load_map()
 
 
-def get_provider_service_name(service_key: str, provider_code: str) -> str:
+def resolve_canonical_service_key(service_key: str) -> str:
     normalized_key = _norm_name(service_key)
-    normalized_key = CANONICAL_SERVICE_KEYS.get(normalized_key, normalized_key)
-    entry = SERVICE_MAP.get(normalized_key)
+    if not normalized_key:
+        return ""
+    return CANONICAL_SERVICE_KEYS.get(normalized_key, normalized_key)
+
+
+def get_service_entry(service_key: str) -> dict[str, Any] | None:
+    canonical = resolve_canonical_service_key(service_key)
+    if not canonical:
+        return None
+    entry = SERVICE_MAP.get(canonical)
+    if not isinstance(entry, dict):
+        return None
+    return entry
+
+
+def get_service_display_name(service_key: str) -> str | None:
+    entry = get_service_entry(service_key)
+    if not entry:
+        return None
+    name = entry.get("display_name")
+    if name is None:
+        return None
+    return str(name)
+
+
+def get_service_aliases(service_key: str) -> tuple[str, ...]:
+    entry = get_service_entry(service_key)
+    if not entry:
+        return tuple()
+    aliases = _dedupe_aliases(list(entry.get("aliases") or []))
+    return tuple(aliases)
+
+
+def get_service_provider_map(service_key: str) -> dict[str, Any]:
+    entry = get_service_entry(service_key)
+    if not entry:
+        return {}
+    providers = entry.get("providers") or {}
+    if not isinstance(providers, dict):
+        return {}
+    return dict(providers)
+
+
+def iter_service_entries() -> list[tuple[str, dict[str, Any]]]:
+    return [
+        (str(key), dict(value))
+        for key, value in SERVICE_MAP.items()
+        if isinstance(key, str) and isinstance(value, dict)
+    ]
+
+
+def list_service_keys() -> list[str]:
+    return sorted(SERVICE_MAP.keys())
+
+
+def get_service_search_tokens(service_key: str) -> tuple[str, ...]:
+    canonical = resolve_canonical_service_key(service_key)
+    if not canonical:
+        return tuple()
+    entry = get_service_entry(canonical)
+    if not entry:
+        return tuple()
+    tokens: list[Any] = [canonical, entry.get("display_name")]
+    tokens.extend(list(entry.get("aliases") or []))
+    return tuple(_dedupe_aliases(tokens))
+
+
+def find_service_keys_by_alias(value: str) -> tuple[str, ...]:
+    needle = _norm_name(value)
+    if not needle:
+        return tuple()
+    direct = resolve_canonical_service_key(needle)
+    matches: list[str] = []
+    if direct and direct in SERVICE_MAP:
+        matches.append(direct)
+    for key, entry in SERVICE_MAP.items():
+        aliases = _dedupe_aliases(list(entry.get("aliases") or []))
+        if needle in aliases and key not in matches:
+            matches.append(key)
+    return tuple(matches)
+
+
+def get_provider_service_name(service_key: str, provider_code: str) -> str:
+    entry = get_service_entry(service_key)
     if entry:
         return entry.get("providers", {}).get(provider_code, service_key)
     return service_key
+

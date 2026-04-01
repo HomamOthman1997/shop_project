@@ -20,6 +20,21 @@ async def test_resolve_service_code_by_name(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_resolve_service_code_does_not_fuzzy_match_unknown(monkeypatch):
+    provider = SMSManProvider()
+
+    async def fake_services(force_refresh=False):
+        return [
+            {"id": 1, "name": "Telegram", "code": "tg"},
+            {"id": 2, "name": "WhatsApp", "code": "wa"},
+        ]
+
+    monkeypatch.setattr(provider, "list_services", fake_services)
+    code = await provider.resolve_service_code("gmail")
+    assert code is None
+
+
+@pytest.mark.asyncio
 async def test_get_price_parses_nested_payload(monkeypatch):
     provider = SMSManProvider()
     monkeypatch.setattr(settings, "smsman_price_currency", "USD")

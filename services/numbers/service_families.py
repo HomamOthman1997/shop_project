@@ -11,7 +11,9 @@ def normalize_service_key(value: str) -> str:
 
 
 _RAW_SERVICE_FAMILY_GROUPS: Dict[str, tuple[str, ...]] = {
-    "gmail": ("google", "googlegmail", "googlechat", "googleplay", "googlesend"),
+    # Keep Google product lines separate.
+    # Gmail should not absorb other Google services like Google Voice/Play/Chat.
+    "gmail": ("googlegmail",),
     "microsoft": ("microsoftazure", "microsoftoutlook", "microsoftrewards", "microsoftxboxlive"),
     "capitalone": ("capitalonecafe", "capitaloneshopping"),
     "match": ("matchmeetic",),
@@ -19,6 +21,7 @@ _RAW_SERVICE_FAMILY_GROUPS: Dict[str, tuple[str, ...]] = {
     "sendgrid": ("twiliosendgrid",),
     "tencent": ("tencentcloud", "tencentqq"),
     "amazonwebservices": ("amazonamazonwebservices",),
+    "anthropic": ("claude", "claudeai", "claudeaianthropic"),
     "battlenet": ("battlenetblizzard",),
     "blablacar": ("blabla",),
     "brandedsurveys": ("brandedsurvey",),
@@ -60,7 +63,7 @@ _RAW_SERVICE_FAMILY_GROUPS: Dict[str, tuple[str, ...]] = {
     "taptap": ("taptapsend",),
     "tipalti": ("wpstipalti",),
     "twitter": ("twitterx",),
-    # Unify Swagbucks-like bundle variants (TV + SMSPool long bundle key)
+    # Explicit business-approved merges only.
     "swagbucks": (
         "inboxdollars",
         "inboxpounds",
@@ -68,12 +71,12 @@ _RAW_SERVICE_FAMILY_GROUPS: Dict[str, tuple[str, ...]] = {
         "ysense",
         "adgatesurvey",
         "tadapoll",
-        "pay",
         "swagbucksinboxdollarsinboxpoundsmypointsysensenoonesadgatesurveytadapollpay",
     ),
     "united": ("unitedairlines",),
     "viavan": ("viaappviavan",),
     "wagerweb": ("wagerwebeu",),
+    "walmart": ("walmart4",),
     "webull": ("webullpay",),
     "weee": ("weee!",),
     "winzo": ("winzogame",),
@@ -116,13 +119,14 @@ CANONICAL_SERVICE_KEYS = _build_canonical_map(SERVICE_FAMILY_GROUPS)
 
 
 DISPLAY_NAME_OVERRIDES: Dict[str, str] = {
-    "gmail": "Gmail / Google",
+    "gmail": "Gmail",
     "microsoft": "Microsoft Family",
     "capitalone": "Capital One Family",
     "mercado": "Mercado Family",
     "sendgrid": "SendGrid / Twilio SendGrid",
     "tencent": "Tencent Family",
     "amazonwebservices": "Amazon Web Services",
+    "anthropic": "Claude / Anthropic",
     "battlenet": "Battle.net / Blizzard",
     "blablacar": "BlaBlaCar",
     "brandedsurveys": "Branded Surveys",

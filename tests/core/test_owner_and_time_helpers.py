@@ -7,11 +7,12 @@ import pytest
 
 sys.path.insert(0, os.getcwd())
 
+from config import settings
 from database.financial_ledger import _cycle_bounds
 from handlers.admin_services import _parse_owner_target_payload
 from handlers.main_menu import _as_utc as main_menu_as_utc
 from handlers.reseller_recharge import _build_reseller_stats_text
-from middlewares.version_check import _as_utc as version_check_as_utc
+from middlewares.version_check import _as_utc as version_check_as_utc, _allow_owner_panel_callback
 
 
 def test_parse_owner_target_payload_chat_and_topic():
@@ -55,6 +56,14 @@ def test_as_utc_helpers_convert_naive_and_aware():
     assert converted.hour == 10
 
 
+def test_owner_panel_callback_bypass_only_for_owner():
+    owner_id = int(settings.owner_id)
+    assert _allow_owner_panel_callback(owner_id, "owner_panel:open") is True
+    assert _allow_owner_panel_callback(owner_id, "owner_pm:open") is True
+    assert _allow_owner_panel_callback(owner_id, "lang_en") is False
+    assert _allow_owner_panel_callback(1, "owner_panel:open") is False
+
+
 @pytest.mark.asyncio
 async def test_reseller_stats_text_renders(monkeypatch):
     async def fake_balance(_rid, wallet_type="main"):
@@ -86,6 +95,7 @@ async def test_reseller_stats_text_renders(monkeypatch):
         recharge_requests=RechargeRequests(),
         user_reseller_links=FixedCount(18),
         bots=FixedCount(2),
+        orders=FixedCount(3),
     )
 
     import handlers.reseller_recharge as reseller_recharge

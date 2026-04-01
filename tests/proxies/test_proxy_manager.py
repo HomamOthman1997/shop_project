@@ -22,9 +22,12 @@ class DummyProvider:
     async def refresh_proxy(self, order_data, *, with_check=False):
         return {"success": True, "endpoint": "8.8.8.8:1000", "order_id": "R1"}
 
+    async def reconfigure_proxy(self, order_data, offer):
+        return {"success": True, "endpoint": "9.9.9.9:2000", "order_id": "R2"}
 
-def test_proxy_registry_limited_to_two_providers():
-    assert set(manager.PROXY_PROVIDERS.keys()) == {"9proxy", "4g"}
+
+def test_proxy_registry_limited_to_enabled_providers():
+    assert set(manager.PROXY_PROVIDERS.keys()) == {"4g"}
 
 
 @pytest.mark.asyncio
@@ -123,3 +126,30 @@ async def test_verify_proxy_offer_delivery_gate_disabled(monkeypatch):
     monkeypatch.setattr(manager.settings, "proxy_quality_gate_enabled", False, raising=False)
     res = await manager.verify_proxy_offer_delivery("10.0.0.1:1000")
     assert res["allowed"] is True
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_proxy_order_routes_to_provider(monkeypatch):
+    patched = {
+        "4g": DummyProvider(),
+    }
+    monkeypatch.setattr(manager, "PROXY_PROVIDERS", patched)
+    async def _fake_quality(_endpoint):
+        return {"allowed": True, "decision": "pass", "reason": "ok"}
+
+    monkeypatch.setattr(manager, "verify_proxy_offer_delivery", _fake_quality)
+
+    result = await manager.reconfigure_proxy_order(
+        {"provider": "4g", "provider_order_id": "551", "_id": "oid-1"},
+        {"provider": "4g", "offer_id": "1:2182", "country": "US"},
+    )
+    assert result["success"] is True
+    assert result["endpoint"] == "9.9.9.9:2000"
+
+
+def test_unlimited_category_accepts_only_golden_4g():
+    from services.proxies.handlers.proxy_flow import _category_provider_match
+
+    assert _category_provider_match({"provider": "4g", "title": "Golden Package | Verizon 5G | 5G"}, "unlimited") is True
+    assert _category_provider_match({"provider": "4g", "title": "Silver Package | Verizon 5G | 5G"}, "unlimited") is False
+    assert _category_provider_match({"provider": "4g", "title": "Injection Package | Verizon 5G | 5G"}, "unlimited") is False

@@ -24,7 +24,11 @@ async def bind_bot_logs_target(*, chat_id: int, message_thread_id: int | None = 
 
 
 async def get_bot_logs_target() -> dict[str, Any] | None:
-    doc = await db.system_settings.find_one({"_id": _DOC_ID}) or {}
+    try:
+        doc = await db.system_settings.find_one({"_id": _DOC_ID}) or {}
+    except Exception:
+        # Logging must not crash runtime when DB is temporarily unreachable.
+        return None
     chat_id = doc.get("chat_id")
     if not isinstance(chat_id, int):
         return None

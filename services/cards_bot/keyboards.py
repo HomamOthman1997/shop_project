@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+
+
+def cards_main_menu(lang: str | None = None) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Sell Card"), KeyboardButton(text="Wallet")],
+            [KeyboardButton(text="My Cards"), KeyboardButton(text="Withdraw")],
+            [KeyboardButton(text="My Withdrawals"), KeyboardButton(text="Support")],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def submit_brand_kb(top_brands: list[str]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for brand in top_brands:
+        row.append(InlineKeyboardButton(text=brand, callback_data=f"cardx:brand:{brand}"))
+        if len(row) >= 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="Type Brand", callback_data="cardx:brandsearch")])
+    rows.append([InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def submit_brand_results_kb(brands: list[str]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for brand in brands:
+        row.append(InlineKeyboardButton(text=brand, callback_data=f"cardx:brand:{brand}"))
+        if len(row) >= 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="Back", callback_data="cardx:brandtop")])
+    rows.append([InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def denomination_kb(values: list[str] | None = None) -> InlineKeyboardMarkup:
+    base = ["1", "2", "3", "4", "5", "10", "15", "20", "25", "50", "100"]
+    current = []
+    seen = set()
+    for item in (base + (values or [])):
+        text = str(item).strip()
+        if not text or text in seen:
+            continue
+        current.append(text)
+        seen.add(text)
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for value in current:
+        row.append(InlineKeyboardButton(text=value, callback_data=f"cardx:den:{value}"))
+        if len(row) >= 4:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="Manual Value", callback_data="cardx:den:manual")])
+    rows.append([InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def currency_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="USD", callback_data="cardx:cur:USD"),
+                InlineKeyboardButton(text="EUR", callback_data="cardx:cur:EUR"),
+                InlineKeyboardButton(text="GBP", callback_data="cardx:cur:GBP"),
+            ],
+            [InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")],
+        ]
+    )
+
+
+def region_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="USA", callback_data="cardx:reg:USA"),
+                InlineKeyboardButton(text="UK", callback_data="cardx:reg:UK"),
+                InlineKeyboardButton(text="CA", callback_data="cardx:reg:CA"),
+            ],
+            [
+                InlineKeyboardButton(text="EU", callback_data="cardx:reg:EU"),
+                InlineKeyboardButton(text="GLOBAL", callback_data="cardx:reg:GLOBAL"),
+            ],
+            [InlineKeyboardButton(text="Skip", callback_data="cardx:reg:GLOBAL")],
+            [InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")],
+        ]
+    )
+
+
+def confirm_submit_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Confirm", callback_data="cardx:confirm"),
+                InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel"),
+            ]
+        ]
+    )
+
+
+def withdraw_currency_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="USD", callback_data="cardx:wcur:USD"),
+                InlineKeyboardButton(text="Local", callback_data="cardx:wcur:SYP"),
+            ],
+            [InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")],
+        ]
+    )
+
+
+def withdraw_confirm_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Confirm", callback_data="cardx:wconfirm"),
+                InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel"),
+            ]
+        ]
+    )
+
+
+def admin_review_actions_kb(card_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Accept", callback_data=f"cardx:admin:accept:{card_id}"),
+                InlineKeyboardButton(text="Reject", callback_data=f"cardx:admin:reject:{card_id}"),
+            ]
+        ]
+    )
+
+
+def admin_withdraw_actions_kb(withdrawal_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Approve", callback_data=f"cardx:admin:wapprove:{withdrawal_id}"),
+                InlineKeyboardButton(text="Reject", callback_data=f"cardx:admin:wreject:{withdrawal_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="Paid", callback_data=f"cardx:admin:wpaid:{withdrawal_id}"),
+            ],
+        ]
+    )

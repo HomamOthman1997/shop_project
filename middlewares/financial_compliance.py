@@ -8,7 +8,6 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from config import OWNER_ID
 from database.bots_repo import get_reseller_id_for_bot
-from database.financial_ledger import get_reseller_financial_lock
 
 
 logger = logging.getLogger("financial_compliance")
@@ -72,92 +71,4 @@ class FinancialComplianceMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: Dict[str, Any],
     ) -> Any:
-        bot = data.get("bot")
-        if bot is None:
-            return await handler(event, data)
-
-        from_user = getattr(event, "from_user", None)
-        if from_user and int(from_user.id) == int(OWNER_ID):
-            return await handler(event, data)
-
-        now_ts = monotonic()
-        bot_runtime_key = id(bot)
-
-        bot_id = self._get_cached_bot_id(bot_runtime_key, now_ts)
-        if bot_id is None:
-            bot_id = int((await bot.get_me()).id)
-            self._set_cached_bot_id(bot_runtime_key, bot_id, now_ts)
-
-        reseller_id = self._get_cached_reseller_id(bot_id, now_ts)
-        if reseller_id is None:
-            resolved = await get_reseller_id_for_bot(int(bot_id))
-            reseller_id = int(resolved or 0)
-            self._set_cached_reseller_id(bot_id, reseller_id, now_ts)
-        if not reseller_id:
-            return await handler(event, data)
-
-        lock = self._get_cached_lock(reseller_id, bot_id, now_ts)
-        if lock is False:
-            lock = await get_reseller_financial_lock(int(reseller_id), bot_id=int(bot_id))
-            self._set_cached_lock(reseller_id, bot_id, lock if isinstance(lock, dict) else None, now_ts)
-        if not lock:
-            return await handler(event, data)
-
-        cycle_key = str(lock.get("cycle_key") or "-")
-        due_at = lock.get("payment_due_at")
-        if isinstance(due_at, datetime):
-            due_at = due_at if due_at.tzinfo else due_at.replace(tzinfo=UTC)
-            due_txt = due_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
-        else:
-            due_txt = "-"
-
-        amount_due = float(lock.get("net_due") or 0.0)
-        text = (
-            "Services are temporarily suspended for this reseller bot due to unpaid monthly obligations.\n\n"
-            f"Cycle: {cycle_key}\n"
-            f"Reseller ID: {int(reseller_id)}\n"
-            f"Bot ID: {int(bot_id)}\n"
-            f"Amount due: {amount_due:.2f}$\n"
-            f"Payment deadline was: {due_txt}\n\n"
-            "This lock applies only to this reseller and this bot.\n"
-            "Services will be re-enabled after the owner confirms full payment."
-        )
-
-        user_id = int(getattr(from_user, "id", 0) or 0)
-        cooldown_key = (user_id, int(bot_id))
-        last_ts = self._last_notice_at.get(cooldown_key, 0.0)
-        should_notify = (now_ts - last_ts) >= 20.0
-
-        if isinstance(event, Message):
-            if should_notify:
-                self._last_notice_at[cooldown_key] = now_ts
-                logger.warning(
-                    "financial lock blocked message | reseller_id=%s bot_id=%s user_id=%s cycle=%s due=%s amount_due=%.2f",
-                    reseller_id,
-                    bot_id,
-                    user_id,
-                    cycle_key,
-                    due_txt,
-                    amount_due,
-                )
-                await event.answer(text)
-            return None
-
-        if isinstance(event, CallbackQuery):
-            if should_notify:
-                self._last_notice_at[cooldown_key] = now_ts
-                logger.warning(
-                    "financial lock blocked callback | reseller_id=%s bot_id=%s user_id=%s cycle=%s due=%s amount_due=%.2f",
-                    reseller_id,
-                    bot_id,
-                    user_id,
-                    cycle_key,
-                    due_txt,
-                    amount_due,
-                )
-                await event.answer("Services are suspended until monthly dues are paid.", show_alert=True)
-            else:
-                await event.answer()
-            return None
-
         return await handler(event, data)

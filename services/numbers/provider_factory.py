@@ -29,6 +29,10 @@ class ProviderFactory:
                 from .providers.smsman_provider import SMSManProvider
 
                 cls._instances[name] = SMSManProvider()
+            elif name == "pvadeals":
+                from .providers.pvadeals_provider import PVADealsProvider
+
+                cls._instances[name] = PVADealsProvider()
             else:
                 raise ValueError(f"Unknown provider '{name}'")
 

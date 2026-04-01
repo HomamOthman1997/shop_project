@@ -31,6 +31,9 @@ async def bootstrap_custom_services_indexes() -> None:
     await db.custom_services.create_index([("reseller_id", 1), ("node_type", 1), ("is_active", 1)], background=True)
     await db.custom_services.create_index([("reseller_id", 1), ("name", 1)], background=True)
     await db.custom_services.create_index([("reseller_id", 1), ("catalog_type", 1), ("parent_id", 1), ("is_active", 1)], background=True)
+    await db.custom_service_preorders.create_index([("endpoint_id", 1), ("status", 1), ("created_at", 1)], background=True)
+    await db.custom_service_preorders.create_index([("order_id", 1)], unique=True, background=True)
+    await db.custom_service_preorders.create_index([("buyer_user_id", 1), ("status", 1), ("created_at", 1)], background=True)
 
 
 async def ensure_root_node(reseller_id: int, *, catalog_type: str = "custom") -> dict:
@@ -142,6 +145,7 @@ async def create_endpoint(
         "inventory_items": [],
         "product_info_text": "",
         "min_qty": max(1, int(min_qty)),
+        "preorder_enabled": False,
         "created_at": now,
         "updated_at": now,
     }
@@ -181,6 +185,33 @@ async def update_endpoint(
                 "price": float(price),
                 "available_qty": int(next_available),
                 "min_qty": max(1, int(min_qty)),
+                "updated_at": datetime.now(UTC),
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def set_endpoint_preorder_enabled(
+    node_id,
+    reseller_id: int,
+    enabled: bool,
+    *,
+    catalog_type: Optional[str] = None,
+) -> Optional[dict]:
+    query = {
+        "_id": _to_oid(node_id),
+        "reseller_id": int(reseller_id),
+        "node_type": "endpoint",
+        "is_active": True,
+    }
+    if catalog_type is not None:
+        query["catalog_type"] = _norm_catalog_type(catalog_type)
+    return await db.custom_services.find_one_and_update(
+        query,
+        {
+            "$set": {
+                "preorder_enabled": bool(enabled),
                 "updated_at": datetime.now(UTC),
             }
         },
@@ -638,6 +669,7 @@ async def clone_catalog_from_reseller_template(
                 clone_doc["price"] = float(src.get("price") or 0.0)
                 clone_doc["available_qty"] = int(src.get("available_qty") or 0)
                 clone_doc["min_qty"] = max(1, int(src.get("min_qty") or 1))
+                clone_doc["preorder_enabled"] = False
                 clone_doc["inventory_items"] = list(src.get("inventory_items") or [])
                 clone_doc["product_info_text"] = str(src.get("product_info_text") or "").strip()
                 clone_doc["delivery_type"] = str(src.get("delivery_type") or "").strip().lower()
@@ -655,4 +687,110 @@ async def clone_catalog_from_reseller_template(
                 queue.append((src["_id"], ins.inserted_id))
 
     return {"success": True, "reason": "ok", "copied": copied}
+
+
+async def create_preorder_request(
+    *,
+    endpoint_id,
+    catalog_owner_id: int,
+    wallet_scope_id: int,
+    buyer_user_id: int,
+    order_id,
+    qty: int,
+    unit_price: float,
+    total_price: float,
+    service_name: str,
+    catalog_type: str = "custom",
+) -> dict:
+    now = datetime.now(UTC)
+    doc = {
+        "endpoint_id": _to_oid(endpoint_id),
+        "catalog_owner_id": int(catalog_owner_id),
+        "wallet_scope_id": int(wallet_scope_id),
+        "buyer_user_id": int(buyer_user_id),
+        "order_id": order_id,
+        "qty": max(1, int(qty)),
+        "unit_price": float(unit_price),
+        "total_price": float(total_price),
+        "service_name": str(service_name or "").strip(),
+        "catalog_type": _norm_catalog_type(catalog_type),
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now,
+        "fulfilled_at": None,
+        "fulfilled_by": None,
+    }
+    res = await db.custom_service_preorders.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return doc
+
+
+async def get_preorder_request(preorder_id) -> Optional[dict]:
+    return await db.custom_service_preorders.find_one({"_id": _to_oid(preorder_id)})
+
+
+async def get_pending_preorder_position(preorder_id) -> int:
+    row = await get_preorder_request(preorder_id)
+    if not row or str(row.get("status") or "") != "pending":
+        return 0
+    count = await db.custom_service_preorders.count_documents(
+        {
+            "endpoint_id": row.get("endpoint_id"),
+            "status": "pending",
+            "created_at": {"$lt": row.get("created_at")},
+        }
+    )
+    return int(count) + 1
+
+
+async def get_next_pending_preorder(endpoint_id) -> Optional[dict]:
+    return await db.custom_service_preorders.find_one(
+        {"endpoint_id": _to_oid(endpoint_id), "status": "pending"},
+        sort=[("created_at", 1)],
+    )
+
+
+async def mark_preorder_fulfilling(preorder_id, *, actor_id: int) -> Optional[dict]:
+    return await db.custom_service_preorders.find_one_and_update(
+        {"_id": _to_oid(preorder_id), "status": "pending"},
+        {
+            "$set": {
+                "status": "fulfilling",
+                "updated_at": datetime.now(UTC),
+                "fulfilling_by": int(actor_id),
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def reset_preorder_to_pending(preorder_id) -> Optional[dict]:
+    return await db.custom_service_preorders.find_one_and_update(
+        {"_id": _to_oid(preorder_id), "status": "fulfilling"},
+        {
+            "$set": {
+                "status": "pending",
+                "updated_at": datetime.now(UTC),
+            },
+            "$unset": {
+                "fulfilling_by": "",
+            },
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def mark_preorder_fulfilled(preorder_id, *, actor_id: int) -> Optional[dict]:
+    return await db.custom_service_preorders.find_one_and_update(
+        {"_id": _to_oid(preorder_id), "status": {"$in": ["pending", "fulfilling"]}},
+        {
+            "$set": {
+                "status": "fulfilled",
+                "updated_at": datetime.now(UTC),
+                "fulfilled_at": datetime.now(UTC),
+                "fulfilled_by": int(actor_id),
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
 

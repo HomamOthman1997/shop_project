@@ -2,6 +2,7 @@
 
 from config import settings
 from .mongo import db
+from utils.user_cache import invalidate_user_cache
 
 
 async def get_user(telegram_id: int):
@@ -36,10 +37,12 @@ async def get_user_reseller_for_bot(telegram_id: int, bot_id: int):
 
 async def update_user_language(telegram_id: int, language: str):
     await db.users.update_one({"telegram_id": telegram_id}, {"$set": {"language": language}})
+    await invalidate_user_cache(int(telegram_id))
 
 
 async def update_user_version(telegram_id: int, version: int):
     await db.users.update_one({"telegram_id": telegram_id}, {"$set": {"bot_version": version}})
+    await invalidate_user_cache(int(telegram_id))
 
 
 async def get_user_by_username(username: str):
@@ -73,6 +76,19 @@ async def get_user_reseller_links(telegram_id: int) -> list[dict]:
     return await db.user_reseller_links.find({"telegram_id": int(telegram_id)}).to_list(None)
 
 
+async def bootstrap_user_indexes():
+    await db.users.create_index(
+        [("telegram_id", 1)],
+        unique=True,
+        background=True,
+    )
+    await db.users.create_index(
+        [("username", 1)],
+        background=True,
+        sparse=True,
+    )
+
+
 async def bootstrap_user_links_indexes():
     await db.user_reseller_links.create_index(
         [("telegram_id", 1), ("bot_id", 1)],
@@ -87,8 +103,10 @@ async def bootstrap_user_links_indexes():
 
 async def ban_user(telegram_id: int):
     await db.users.update_one({"telegram_id": telegram_id}, {"$set": {"banned": True}})
+    await invalidate_user_cache(int(telegram_id))
 
 
 async def unban_user(telegram_id: int):
     await db.users.update_one({"telegram_id": telegram_id}, {"$set": {"banned": False}})
+    await invalidate_user_cache(int(telegram_id))
 

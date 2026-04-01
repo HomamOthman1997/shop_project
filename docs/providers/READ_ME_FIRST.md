@@ -36,3 +36,35 @@
   - Local mirror: `docs/providers/raw/textverified_openapi_v2_latest.json`
 - Manual summary:
   - `docs/providers/manual/textverified_api_reference.json`
+
+## Reloadly (DP1)
+- Airtime / top-up local manual reference:
+  - `docs/providers/manual/reloadly_api_reference.json`
+- Official sources used:
+  - https://documenter.getpostman.com/view/3428998/2sAYXCkJe9
+  - https://developers.reloadly.com/
+  - https://support.reloadly.com/locating-your-api-credentials
+- Scope intentionally limited to:
+  - OAuth for top-ups
+  - airtime countries/operators
+  - pricing/fx/discounts/promotions
+  - top-up transaction execution and reporting
+- Explicitly excluded for now:
+  - gift cards
+  - utility payments
+  - other Reloadly product families
+
+## eSIM Access (DP2)
+- eSIM reseller local manual reference:
+  - `docs/providers/manual/esimaccess_api_reference.json`
+- Official source used:
+  - https://docs.esimaccess.com/
+- Current local scope:
+  - package listing
+  - profile ordering/query
+  - balance query
+  - usage check
+  - top-up
+  - lifecycle actions and webhook registration
+- Auth shape captured locally as:
+  - API key header `RT-AccessCode`
