@@ -593,6 +593,15 @@ def _normalize_proxy_category(value: str | None) -> str:
     return ""
 
 
+def _enabled_proxy_categories() -> list[str]:
+    categories: list[str] = []
+    if "4g" in PROXY_PROVIDERS:
+        categories.append("unlimited")
+    if "9proxy" in PROXY_PROVIDERS:
+        categories.append("consumptive")
+    return categories
+
+
 def _category_provider_match(offer: dict, category: str) -> bool:
     provider = str(offer.get("provider") or "").strip().lower()
     billing_type = str(offer.get("billing_type") or "").strip().lower()
@@ -808,6 +817,7 @@ async def _state_lang(state: FSMContext, user_id: int) -> tuple[dict, str]:
 
 async def _render_proxy_type_menu(message: types.Message, state: FSMContext, lang: str):
     text = f"{t(lang, 'proxy_type_title')}\n\n{t(lang, 'proxy_type_hint')}"
+    enabled_categories = _enabled_proxy_categories()
     type_msg_id = (await state.get_data()).get("proxy_type_msg")
     if type_msg_id:
         try:
@@ -815,7 +825,11 @@ async def _render_proxy_type_menu(message: types.Message, state: FSMContext, lan
                 chat_id=message.chat.id,
                 message_id=int(type_msg_id),
                 text=text,
-                reply_markup=proxy_type_kb(lang),
+                reply_markup=proxy_type_kb(
+                    lang,
+                    show_unlimited="unlimited" in enabled_categories,
+                    show_consumptive="consumptive" in enabled_categories,
+                ),
             )
             return
         except TelegramBadRequest as exc:
@@ -823,7 +837,14 @@ async def _render_proxy_type_menu(message: types.Message, state: FSMContext, lan
                 return
         except Exception:
             pass
-    sent = await message.answer(text, reply_markup=proxy_type_kb(lang))
+    sent = await message.answer(
+        text,
+        reply_markup=proxy_type_kb(
+            lang,
+            show_unlimited="unlimited" in enabled_categories,
+            show_consumptive="consumptive" in enabled_categories,
+        ),
+    )
     await state.update_data(proxy_type_msg=sent.message_id)
 
 
@@ -954,7 +975,8 @@ async def proxy_disabled_command_guard(message: types.Message, state: FSMContext
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
     await state.clear()
-    await message.answer(_proxy_service_disabled_text(lang), reply_markup=menu_for_current_bot(lang))
+    bot_id = (await message.bot.get_me()).id
+    await message.answer(_proxy_service_disabled_text(lang), reply_markup=await menu_for_current_bot(lang, bot_id))
 
 
 @router.message(lambda msg: _is_btn(msg.text, "btn_proxies"))
@@ -968,7 +990,8 @@ async def open_proxy_menu(message: types.Message, state: FSMContext):
 
     if not PROXY_PROVIDERS:
         await state.clear()
-        await message.answer(_proxy_service_disabled_text(lang), reply_markup=menu_for_current_bot(lang))
+        bot_id = (await message.bot.get_me()).id
+        await message.answer(_proxy_service_disabled_text(lang), reply_markup=await menu_for_current_bot(lang, bot_id))
         return
 
     await state.clear()
@@ -1024,7 +1047,7 @@ async def proxy_select_type(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     _data, lang = await _state_lang(state, int(callback.from_user.id))
     category = _normalize_proxy_category(callback.data.split(":", 2)[2])
-    if category not in {"unlimited", "consumptive"}:
+    if category not in set(_enabled_proxy_categories()):
         return await callback.answer(t(lang, "proxy_invalid_type"), show_alert=True)
 
     await state.update_data(
@@ -1096,11 +1119,40 @@ async def select_proxy_state(message: types.Message, state: FSMContext):
     if len(parts) != 2:
         return
     country = decode_token(parts[0])
-    state_name = decode_token(parts[1])
+    location_name = decode_token(parts[1])
+    data = await state.get_data()
+    catalog = data.get("proxy_catalog") or get_offers_cache()
+    country_offers = filter_offers(catalog, country=country or None)
+
+    state_values = {
+        str(row.get("state") or "").strip()
+        for row in country_offers
+        if str(row.get("state") or "").strip() and str(row.get("state") or "").strip().lower() != "any"
+    }
+    city_values = {
+        str(row.get("city") or "").strip()
+        for row in country_offers
+        if str(row.get("city") or "").strip() and str(row.get("city") or "").strip().lower() != "any"
+    }
+
+    selected_state = None
+    selected_city = None
+    if location_name:
+        lowered = location_name.lower()
+        for value in state_values:
+            if value.lower() == lowered:
+                selected_state = value
+                break
+        if selected_state is None:
+            for value in city_values:
+                if value.lower() == lowered:
+                    selected_city = value
+                    break
+
     await state.update_data(
         proxy_country=country or None,
-        proxy_state=state_name or None,
-        proxy_city=None,
+        proxy_state=selected_state,
+        proxy_city=selected_city,
         proxy_protocol=None,
         proxy_provider=None,
         proxy_period=None,
@@ -1567,7 +1619,8 @@ async def proxy_offer_set_duration(callback: types.CallbackQuery, state: FSMCont
 
 async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, user_id: int, lang: str, offer: dict) -> None:
     if not PROXY_PROVIDERS:
-        await message.answer(_proxy_service_disabled_text(lang), reply_markup=menu_for_current_bot(lang))
+        bot_id = (await message.bot.get_me()).id
+        await message.answer(_proxy_service_disabled_text(lang), reply_markup=await menu_for_current_bot(lang, bot_id))
         await state.clear()
         return
 

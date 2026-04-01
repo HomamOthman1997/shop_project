@@ -23,15 +23,20 @@ def _provider_success_label(lang: str, value: float | int | str | None = None) -
     return f"{t(lang, 'success_rate_short')}: {_format_success_rate(value)}"
 
 
-def proxy_type_kb(lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "proxy_type_unlimited"), callback_data="proxy:type:unlimited")],
-            [InlineKeyboardButton(text=t(lang, "proxy_type_consumptive"), callback_data="proxy:type:consumptive")],
-            [InlineKeyboardButton(text=t(lang, "back"), callback_data="proxy:back_main")],
-            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="proxy:back_main", style="danger")],
-        ]
-    )
+def proxy_type_kb(
+    lang: str,
+    *,
+    show_unlimited: bool = True,
+    show_consumptive: bool = True,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if show_unlimited:
+        rows.append([InlineKeyboardButton(text=t(lang, "proxy_type_unlimited"), callback_data="proxy:type:unlimited")])
+    if show_consumptive:
+        rows.append([InlineKeyboardButton(text=t(lang, "proxy_type_consumptive"), callback_data="proxy:type:consumptive")])
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="proxy:back_main")])
+    rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="proxy:back_main", style="danger")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def proxy_entry_kb(lang: str) -> InlineKeyboardMarkup:

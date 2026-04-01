@@ -25,6 +25,13 @@ def _norm(value: str | None) -> str:
     return (value or "").strip()
 
 
+def _matches_filter(selected: str, actual: str) -> bool:
+    if not selected or selected == "Any":
+        return True
+    actual_norm = actual or "Any"
+    return actual_norm.lower() in {selected.lower(), "any"}
+
+
 def build_index(offers: list[dict]) -> dict:
     countries: set[str] = set()
     states_by_country: dict[str, set[str]] = defaultdict(set)
@@ -100,17 +107,17 @@ def filter_offers(
         oca = _norm(offer.get("carrier")) or op
         ope = _norm(offer.get("period")) or "Any"
 
-        if c and c != "Any" and oc not in {c, "Any"}:
+        if not _matches_filter(c, oc):
             continue
-        if s and s != "Any" and os not in {s, "Any"}:
+        if not _matches_filter(s, os):
             continue
-        if ci and ci != "Any" and oci not in {ci, "Any"}:
+        if not _matches_filter(ci, oci):
             continue
-        if p and p != "Any" and op != p:
+        if p and p != "Any" and op.lower() != p.lower():
             continue
-        if ca and ca != "Any" and oca != ca:
+        if ca and ca != "Any" and oca.lower() != ca.lower():
             continue
-        if pe and pe != "Any" and ope != pe:
+        if pe and pe != "Any" and ope.lower() != pe.lower():
             continue
         out.append(offer)
     return out

@@ -320,7 +320,7 @@ async def test_proxy_type_menu_aliases_buy_menu(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_proxy_select_type_loads_catalog_and_renders_panel(monkeypatch):
-    callback = DummyCallback("proxy:type:consumptive")
+    callback = DummyCallback("proxy:type:unlimited")
     state = DummyState({"proxy_lang": "en"})
     calls = {}
 
@@ -343,9 +343,68 @@ async def test_proxy_select_type_loads_catalog_and_renders_panel(monkeypatch):
 
     assert calls["refresh"] is True
     assert calls["panel"] == 321
-    assert state.data["proxy_category"] == "consumptive"
+    assert state.data["proxy_category"] == "unlimited"
     assert state.data["proxy_panel_msg"] == 321
     assert state.state == proxy_flow.ProxyFlow.menu
+
+
+@pytest.mark.asyncio
+async def test_proxy_select_type_rejects_suspended_category(monkeypatch):
+    callback = DummyCallback("proxy:type:consumptive")
+    state = DummyState({"proxy_lang": "en"})
+
+    monkeypatch.setattr(proxy_flow, "get_user", lambda _user_id: {"language": "en"})
+
+    await proxy_flow.proxy_select_type(callback, state)
+
+    assert callback.answers
+    assert callback.answers[-1][1].get("show_alert") is True
+
+
+@pytest.mark.asyncio
+async def test_select_proxy_state_falls_back_to_city_for_city_only_country():
+    message = type(
+        "Msg",
+        (),
+        {
+            "text": f"/proxy_state_{proxy_flow.encode_token('GERMANY')}~{proxy_flow.encode_token('Berlin')}",
+            "message_id": 111,
+            "chat": type("Chat", (), {"id": 222})(),
+            "bot": type("Bot", (), {})(),
+            "delete": staticmethod(lambda: None),
+        },
+    )()
+    state = DummyState(
+        {
+            "proxy_lang": "en",
+            "proxy_category": "unlimited",
+            "proxy_catalog": [
+                {"country": "GERMANY", "state": "Any", "city": "Berlin", "provider": "4g", "carrier": "Carrier", "period": "Rotation 30m"}
+            ],
+        }
+    )
+
+    async def _fake_delete():
+        return None
+
+    message.delete = _fake_delete
+
+    captured = {}
+
+    async def _fake_render(msg, current_state):
+        captured["rendered"] = msg.message_id
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(proxy_flow, "_render_proxy_panel", _fake_render)
+    try:
+        await proxy_flow.select_proxy_state(message, state)
+    finally:
+        monkeypatch.undo()
+
+    assert captured["rendered"] == 111
+    assert state.data["proxy_country"] == "GERMANY"
+    assert state.data["proxy_state"] is None
+    assert state.data["proxy_city"] == "Berlin"
 
 
 def test_proxy_keyboards_use_live_back_callbacks():

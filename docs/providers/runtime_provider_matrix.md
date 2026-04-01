@@ -19,6 +19,7 @@ This file is generated from source code and is intended to prevent docs/runtime 
 
 | Provider | Active in runtime registry |
 |---|---:|
+| 4g | ✅ |
 
 ## Source files
 
