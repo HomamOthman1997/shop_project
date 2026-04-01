@@ -26,8 +26,8 @@ class DummyProvider:
         return {"success": True, "endpoint": "9.9.9.9:2000", "order_id": "R2"}
 
 
-def test_proxy_registry_limited_to_enabled_providers():
-    assert set(manager.PROXY_PROVIDERS.keys()) == {"4g"}
+def test_proxy_registry_can_be_empty_when_disabled():
+    assert set(manager.PROXY_PROVIDERS.keys()) == set()
 
 
 @pytest.mark.asyncio

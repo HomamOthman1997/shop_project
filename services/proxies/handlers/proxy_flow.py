@@ -39,6 +39,7 @@ from services.proxies.keyboards.proxy_kb import (
     proxy_type_kb,
 )
 from services.proxies.manager import (
+    PROXY_PROVIDERS,
     get_proxy_catalog,
     proxy_change_check_price,
     proxy_change_only_cooldown_minutes,
@@ -463,6 +464,11 @@ def _proxy_duration_hint(lang: str) -> str:
     return "اختر مدة الشراء. السعر ظاهر على كل خيار." if str(lang).lower().startswith("ar") else "Choose rental duration. Price is shown on each option."
 
 
+def _proxy_service_disabled_text(lang: str) -> str:
+    if str(lang).lower().startswith("ar"):
+        return "خدمة البروكسي متوقفة حالياً بشكل مؤقت.\n\nرجاء المحاولة لاحقاً."
+    return "Proxy service is temporarily disabled right now.\n\nPlease try again later."
+
 def _proxy_password_prompt_text(lang: str, username: str) -> str:
     if str(lang).lower().startswith("ar"):
         return f"اسم المستخدم الجاهز: {username}\n\nأرسل كلمة مرور البروكسي الآن."
@@ -761,6 +767,22 @@ def _quality_reason_text(lang: str, reason: str | None) -> str:
     return str(reason or "quality_gate_failed")
 
 
+def _provider_error_text(lang: str, payload: dict | None) -> str:
+    raw = payload if isinstance(payload, dict) else {}
+    code = str(raw.get("title") or raw.get("error") or "").strip().upper()
+    if code in {"AUTH_FAILED", "PERMISSION_DENIED", "INVALID_API_KEY", "UNAUTHORIZED", "FORBIDDEN"}:
+        return "Authorization rejected by provider" if lang == "en" else "تم رفض صلاحية المزود (Authorization)"
+    if code in {"NOT_CONFIGURED", "UNKNOWN_PROVIDER"}:
+        return "Provider unavailable" if lang == "en" else "المزود غير متاح حالياً"
+    if code in {"QUALITY_FAIL", "QUALITY_GATE_FAILED"}:
+        return "Proxy quality check failed" if lang == "en" else "فشل فحص جودة البروكسي"
+    if code in {"REQUEST_ERROR", "TIMEOUT", "NETWORK_ERROR", "REFRESH_FAILED", "RECONFIGURE_FAILED"}:
+        return "Provider request failed" if lang == "en" else "فشل الاتصال بمزود البروكسي"
+    details = str(raw.get("details") or raw.get("message") or "").strip()
+    if details:
+        return details[:120]
+    return provider_generic_error(lang)
+
 async def _refresh_catalog_in_state(state: FSMContext):
     data = await state.get_data()
     category = _normalize_proxy_category(data.get("proxy_category"))
@@ -918,6 +940,23 @@ async def _load_user_proxy_order(raw_id: str, user_id: int) -> tuple[ObjectId | 
     return order_oid, order
 
 
+@router.callback_query(lambda c: (not PROXY_PROVIDERS) and c.data and str(c.data).startswith("proxy:"))
+async def proxy_disabled_callback_guard(callback: types.CallbackQuery, state: FSMContext):
+    _data, lang = await _state_lang(state, int(callback.from_user.id))
+    await state.clear()
+    if callback.message:
+        await _safe_edit_text(callback.message, _proxy_service_disabled_text(lang))
+    await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
+
+
+@router.message(lambda m: (not PROXY_PROVIDERS) and m.text and str(m.text).startswith("/proxy_"))
+async def proxy_disabled_command_guard(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await state.clear()
+    await message.answer(_proxy_service_disabled_text(lang), reply_markup=menu_for_current_bot(lang))
+
+
 @router.message(lambda msg: _is_btn(msg.text, "btn_proxies"))
 async def open_proxy_menu(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
@@ -926,6 +965,11 @@ async def open_proxy_menu(message: types.Message, state: FSMContext):
         await message.answer("\u2800", reply_markup=ReplyKeyboardRemove())
     except Exception:
         pass
+
+    if not PROXY_PROVIDERS:
+        await state.clear()
+        await message.answer(_proxy_service_disabled_text(lang), reply_markup=menu_for_current_bot(lang))
+        return
 
     await state.clear()
     await state.update_data(
@@ -950,6 +994,8 @@ async def open_proxy_menu(message: types.Message, state: FSMContext):
 async def proxy_buy_menu(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     await state.update_data(
         proxy_category=_normalize_proxy_category(data.get("proxy_category")),
         proxy_country=None,
@@ -1167,6 +1213,8 @@ async def proxy_quick_city(callback: types.CallbackQuery, state: FSMContext):
 async def proxy_refresh_catalog(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     category = _normalize_proxy_category(data.get("proxy_category"))
     if not category:
         await state.update_data(proxy_panel_msg=callback.message.message_id)
@@ -1203,6 +1251,8 @@ async def proxy_refresh_catalog(callback: types.CallbackQuery, state: FSMContext
 async def proxy_back_to_search(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     category = _normalize_proxy_category(data.get("proxy_category"))
     if not category:
         await state.update_data(proxy_panel_msg=callback.message.message_id)
@@ -1246,6 +1296,8 @@ async def proxy_back_to_search(callback: types.CallbackQuery, state: FSMContext)
 async def proxy_set_provider(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     token = callback.data.split(":", 2)[2]
     provider_code = decode_token(token).strip()
     providers = _available_proxy_providers(data)
@@ -1260,6 +1312,8 @@ async def proxy_set_provider(callback: types.CallbackQuery, state: FSMContext):
 async def proxy_set_protocol(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     token = callback.data.split(":", 2)[2]
     protocol = decode_token(token).strip().lower()
     protocols = _available_proxy_protocols(data)
@@ -1274,6 +1328,8 @@ async def proxy_set_protocol(callback: types.CallbackQuery, state: FSMContext):
 async def proxy_set_period(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     token = callback.data.split(":", 2)[2]
     period = decode_token(token).strip()
     periods = _available_proxy_periods(data)
@@ -1329,6 +1385,8 @@ async def proxy_set_period(callback: types.CallbackQuery, state: FSMContext):
 async def proxy_set_duration(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     token = callback.data.split(":", 2)[2]
     duration_value = decode_token(token).strip()
     options = _duration_option_map(data)
@@ -1344,6 +1402,8 @@ async def proxy_set_duration(callback: types.CallbackQuery, state: FSMContext):
 async def proxy_list_offers(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     category = _normalize_proxy_category(data.get("proxy_category"))
     if not category:
         await state.update_data(proxy_panel_msg=callback.message.message_id)
@@ -1400,6 +1460,8 @@ async def proxy_list_offers(callback: types.CallbackQuery, state: FSMContext):
 async def proxy_offer_details(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     filtered = data.get("proxy_filtered") or []
     try:
         idx = int(callback.data.split(":", 2)[2])
@@ -1476,6 +1538,8 @@ async def proxy_offer_details(callback: types.CallbackQuery, state: FSMContext):
 async def proxy_offer_set_duration(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     base_offer = data.get("proxy_selected_offer") or {}
     if not base_offer:
         return await callback.answer(t(lang, "proxy_invalid_selection"), show_alert=True)
@@ -1502,6 +1566,11 @@ async def proxy_offer_set_duration(callback: types.CallbackQuery, state: FSMCont
 
 
 async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, user_id: int, lang: str, offer: dict) -> None:
+    if not PROXY_PROVIDERS:
+        await message.answer(_proxy_service_disabled_text(lang), reply_markup=menu_for_current_bot(lang))
+        await state.clear()
+        return
+
     bot_id = (await message.bot.get_me()).id
     reseller_id = await _resolve_user_reseller(user_id, bot_id)
     sale_price = float(offer.get("price") or 0.0)
@@ -1554,7 +1623,7 @@ async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, 
             await update_order_status(order_id, "failed")
             await _safe_edit_text(
                 processing,
-                t(lang, "proxy_rent_failed").format(error=provider_generic_error(lang))
+                t(lang, "proxy_rent_failed").format(error=_provider_error_text(lang, result.get("raw")))
             )
             return
 
@@ -1608,7 +1677,7 @@ async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, 
         logger.exception("Proxy rent failed for user %s order %s: %s", user_id, order_id, exc)
         await _safe_edit_text(
             processing,
-            t(lang, "proxy_rent_failed").format(error=provider_generic_error(lang))
+            t(lang, "proxy_rent_failed").format(error=_provider_error_text(lang, {"title": "REQUEST_ERROR", "details": str(exc)}))
         )
         return
 
@@ -1674,6 +1743,8 @@ async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, 
 async def proxy_rent_confirm(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     offer = data.get("proxy_selected_offer") or {}
     if not offer:
         return await callback.answer(t(lang, "invalid_order_info"), show_alert=True)
@@ -1702,6 +1773,8 @@ async def proxy_rent_confirm(callback: types.CallbackQuery, state: FSMContext):
 async def proxy_reconfigure_confirm(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     raw_order_id = str(data.get("proxy_manage_order_id") or "").strip()
     offer = data.get("proxy_selected_offer") or {}
     if not raw_order_id or not offer:
@@ -1726,7 +1799,7 @@ async def proxy_reconfigure_confirm(callback: types.CallbackQuery, state: FSMCon
         )
         return await _safe_edit_text(
             callback.message,
-            t(lang, "proxy_change_failed").format(error=provider_generic_error(lang)),
+            t(lang, "proxy_change_failed").format(error=_provider_error_text(lang, refreshed.get("raw"))),
             reply_markup=proxy_order_actions_kb(str(order_oid), lang, can_reconfigure=True),
         )
 
@@ -1794,6 +1867,8 @@ async def proxy_reconfigure_confirm(callback: types.CallbackQuery, state: FSMCon
 async def proxy_password_back(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     await state.update_data(proxy_custom_username=None, proxy_custom_password=None)
     text = _proxy_offer_text(
         lang,
@@ -1836,6 +1911,8 @@ async def proxy_receive_password(message: types.Message, state: FSMContext):
 async def proxy_my_orders(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data, lang = await _state_lang(state, int(callback.from_user.id))
+    if not PROXY_PROVIDERS:
+        return await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
     rows = await list_user_proxy_orders(callback.from_user.id, limit=20)
     if not rows:
         await _safe_edit_text(
@@ -1961,7 +2038,7 @@ async def proxy_order_change_only(callback: types.CallbackQuery, state: FSMConte
         )
         return await _safe_edit_text(
             callback.message,
-            t(lang, "proxy_change_failed").format(error=provider_generic_error(lang)),
+            t(lang, "proxy_change_failed").format(error=_provider_error_text(lang, refreshed.get("raw"))),
             reply_markup=proxy_order_actions_kb(str(order_oid), lang, can_reconfigure=_proxy_order_can_reconfigure(order)),
         )
 
@@ -2075,7 +2152,7 @@ async def proxy_order_change_check(callback: types.CallbackQuery, state: FSMCont
         error_payload = refreshed.get("raw")
         return await _safe_edit_text(
             callback.message,
-            t(lang, "proxy_change_failed").format(error=provider_generic_error(lang)),
+            t(lang, "proxy_change_failed").format(error=_provider_error_text(lang, refreshed.get("raw"))),
             reply_markup=proxy_order_actions_kb(str(order_oid), lang, can_reconfigure=_proxy_order_can_reconfigure(order)),
         )
 

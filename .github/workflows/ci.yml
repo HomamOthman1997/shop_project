@@ -26,6 +26,10 @@ jobs:
         run: |
           python -m compileall -q handlers services database utils scripts tests bot.py bot_manager.py
 
+      - name: Provider matrix check
+        run: |
+          python scripts/provider_matrix_report.py --check
+
       - name: Run pytest
         run: |
           pytest -q tests/core tests/database tests/numbers tests/proxies tests/game_store

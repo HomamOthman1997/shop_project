@@ -10,7 +10,8 @@ from services.proxies.providers.fourg_proxy_provider import FourGProxyProvider
 from services.proxies.risk_engine import verify_proxy_endpoint
 
 PROXY_PROVIDERS = {
-    "4g": FourGProxyProvider(),
+    # 4G proxy lane is intentionally disabled for now (provider-side instability).
+    # Keep registry empty until upstream service becomes reliable again.
 }
 
 
