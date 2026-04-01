@@ -6,6 +6,7 @@ sys.path.insert(0, os.getcwd())
 from services.proxies.handlers.proxy_inline import (
     _parse_locator_and_search,
     _article,
+    _match_country_key,
     _match_index_key,
     _non_any_values,
     _proxy_country_iso,
@@ -65,3 +66,11 @@ def test_match_index_key_is_case_insensitive():
 def test_match_index_key_returns_raw_value_when_not_found():
     mapping = {"United States": ["California"]}
     assert _match_index_key(mapping, "Canada") == "Canada"
+
+
+def test_match_country_key_checks_states_and_cities_maps():
+    index = {
+        "states_by_country": {},
+        "cities_by_country": {"Germany": ["Berlin"]},
+    }
+    assert _match_country_key(index, "germany") == "Germany"

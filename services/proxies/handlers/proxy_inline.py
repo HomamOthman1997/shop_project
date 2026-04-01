@@ -122,6 +122,18 @@ def _match_index_key(mapping: dict, wanted: str) -> str:
     return raw
 
 
+def _match_country_key(index: dict, wanted: str) -> str:
+    raw = str(wanted or "").strip()
+    if not raw:
+        return ""
+    for mapping_name in ("states_by_country", "cities_by_country"):
+        mapping = index.get(mapping_name) or {}
+        matched = _match_index_key(mapping, raw)
+        if matched in mapping:
+            return matched
+    return raw
+
+
 def _article(
     result_id: str,
     title: str,
@@ -220,7 +232,7 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
         if rest:
             country_locator, search_term = _parse_locator_and_search(rest)
             country = decode_token(country_locator) or country_locator
-            matched_country = _match_index_key(index["states_by_country"], country)
+            matched_country = _match_country_key(index, country)
             country_tok = encode_token(matched_country or country)
             states = _non_any_values(index["states_by_country"].get(matched_country, []))
             city_fallback = _non_any_values(index["cities_by_country"].get(matched_country, []))
@@ -254,7 +266,7 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
             if ":" in locator_raw:
                 country_part, state_part = locator_raw.split(":", 1)
                 country = decode_token(country_part) or country_part
-                matched_country = _match_index_key(index["states_by_country"], country)
+                matched_country = _match_country_key(index, country)
                 state = decode_token(state_part) or state_part
                 matched_state = state
                 for candidate in index["states_by_country"].get(matched_country, []):
@@ -286,7 +298,7 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
             else:
                 # New default flow: country -> city (state optional)
                 country = decode_token(locator_raw) or locator_raw
-                matched_country = _match_index_key(index.get("states_by_country", {}), country)
+                matched_country = _match_country_key(index, country)
                 country_tok = encode_token(matched_country or country)
                 cities = _non_any_values(index.get("cities_by_country", {}).get(matched_country, []))
                 fallback_states = _non_any_values(index.get("states_by_country", {}).get(matched_country, []))
