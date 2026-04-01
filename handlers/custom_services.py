@@ -1111,6 +1111,7 @@ async def _render_node(
     is_builder: bool,
     catalog_type: str,
     viewer_user_id: int | None = None,
+    edit_existing_message: bool = False,
 ) -> None:
     node = await get_node(node_id, reseller_id=reseller_id, catalog_type=catalog_type)
     if not node:
@@ -1209,7 +1210,7 @@ async def _render_node(
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "edit_plain"), callback_data=f"cstm:edit:{node['_id']}")])
             kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "custom_set_stock"), callback_data=f"cstm:delivery:{node['_id']}")])
             kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "product_info_plain"), callback_data=f"cstm:pinfo:{node['_id']}")])
-            if await _can_toggle_preorder(int(message_or_cb.from_user.id), message_or_cb.bot):
+            if await _can_toggle_preorder(viewer_id, message_or_cb.bot):
                 kb_rows.append(
                     [
                         InlineKeyboardButton(
@@ -1276,7 +1277,10 @@ async def _render_node(
         if message_or_cb.message:
             await _safe_edit_text(message_or_cb.message, text, reply_markup=kb)
     else:
-        await message_or_cb.answer(text, reply_markup=kb)
+        if edit_existing_message:
+            await _safe_edit_text(message_or_cb, text, reply_markup=kb)
+        else:
+            await message_or_cb.answer(text, reply_markup=kb)
 
     await state.update_data(
         custom_current_node=str(node["_id"]),
@@ -1323,6 +1327,7 @@ async def open_custom_user(message: types.Message, state: FSMContext):
             is_builder=True,
             catalog_type=_CATALOG_CUSTOM,
             viewer_user_id=message.from_user.id,
+            edit_existing_message=True,
         )
 
     await state.update_data(
@@ -1342,6 +1347,7 @@ async def open_custom_user(message: types.Message, state: FSMContext):
         is_builder=False,
         catalog_type=_CATALOG_CUSTOM,
         viewer_user_id=message.from_user.id,
+        edit_existing_message=True,
     )
 
 
