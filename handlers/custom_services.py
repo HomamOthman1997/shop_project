@@ -1,6 +1,8 @@
 ﻿from __future__ import annotations
 
+import html
 import logging
+import re
 
 from aiogram import Bot, Router, types
 from aiogram.exceptions import TelegramBadRequest
@@ -149,6 +151,60 @@ def _services_landing_kb(lang: str, *, show_builder: bool) -> InlineKeyboardMark
 
 def _is_cancel_input(text: str | None) -> bool:
     return (text or "").strip().lower() in _CANCEL_INPUTS
+
+
+def _normalize_stock_block(block: str) -> str:
+    lines = [line.strip() for line in str(block or "").splitlines() if line.strip()]
+    normalized: list[str] = []
+    label_map = {
+        "الايميل": "Email",
+        "email": "Email",
+        "كلمة السر": "Password",
+        "password": "Password",
+        "الريكفري": "Recovery",
+        "recovery": "Recovery",
+    }
+    for line in lines:
+        if ":" in line:
+            key, value = line.split(":", 1)
+        elif "：" in line:
+            key, value = line.split("：", 1)
+        else:
+            normalized.append(line)
+            continue
+        canonical = label_map.get(key.strip().lower())
+        if canonical:
+            normalized.append(f"{canonical}: {value.strip()}")
+        else:
+            normalized.append(f"{key.strip()}: {value.strip()}")
+    return "\n".join(normalized).strip()
+
+
+def _parse_inventory_payload(text: str) -> list[str]:
+    raw = html.unescape(str(text or "").strip())
+    if not raw:
+        return []
+
+    normalized = re.sub(r"(?i)<br\s*/?>", "\n", raw)
+    normalized = re.sub(r"(?is)</?(div|span|label|p|textarea|body|html)[^>]*>", "\n", normalized)
+    normalized = re.sub(r"[ \t]+\n", "\n", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
+
+    blocks = []
+    for block in re.split(r"(?:\n\s*={3,}\s*\n|={3,})", normalized):
+        item = _normalize_stock_block(block)
+        if item:
+            blocks.append(item)
+    if blocks:
+        labeled_blocks = sum(
+            1
+            for block in blocks
+            if any(line.startswith(("Email:", "Password:", "Recovery:")) for line in block.splitlines())
+        )
+        if labeled_blocks == len(blocks):
+            return blocks
+
+    return [line.strip() for line in normalized.splitlines() if line.strip()]
 
 
 async def _safe_edit_text(
@@ -1638,7 +1694,7 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
     text = str(message.text or "").strip()
     if not text:
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_send_stock_lines_plain_text"))
-    items = [line.strip() for line in text.splitlines() if line.strip()]
+    items = _parse_inventory_payload(text)
     if not items:
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_no_valid_stock_lines"))
     updated = await set_endpoint_inventory(

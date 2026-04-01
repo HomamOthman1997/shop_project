@@ -14,6 +14,7 @@ from handlers.custom_services import (
     _endpoint_ready_for_sale,
     _is_cancel_input,
     _is_id_info_trigger,
+    _parse_inventory_payload,
     _is_services_trigger,
 )
 from utils.translations import t
@@ -95,6 +96,39 @@ def test_endpoint_preorder_flag_reads_boolean():
     assert _endpoint_preorder_enabled({"preorder_enabled": True}) is True
     assert _endpoint_preorder_enabled({"preorder_enabled": False}) is False
     assert _endpoint_preorder_enabled({}) is False
+
+
+def test_parse_inventory_payload_supports_email_blocks():
+    payload = """Email: first@example.com
+Password: pass-1
+Recovery: No Recovery
+=================
+Email: second@example.com
+Password: pass-2
+Recovery: No Recovery
+"""
+
+    assert _parse_inventory_payload(payload) == [
+        "Email: first@example.com\nPassword: pass-1\nRecovery: No Recovery",
+        "Email: second@example.com\nPassword: pass-2\nRecovery: No Recovery",
+    ]
+
+
+def test_parse_inventory_payload_supports_html_and_arabic_labels():
+    payload = (
+        "الايميل: first@example.com<br>"
+        "كلمة السر : pass-1<br>"
+        "الريكفري : لا يوجد<br>"
+        "=================<br>"
+        "الايميل: second@example.com<br>"
+        "كلمة السر : pass-2<br>"
+        "الريكفري : لا يوجد"
+    )
+
+    assert _parse_inventory_payload(payload) == [
+        "Email: first@example.com\nPassword: pass-1\nRecovery: لا يوجد",
+        "Email: second@example.com\nPassword: pass-2\nRecovery: لا يوجد",
+    ]
 
 
 @pytest.mark.asyncio
