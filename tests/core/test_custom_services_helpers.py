@@ -10,10 +10,15 @@ sys.path.insert(0, os.getcwd())
 import handlers.custom_services as custom_services
 from handlers.custom_services import (
     _builder_add_options_kb,
+    _can_manage_builder,
+    _can_manage_builder_structure,
+    _allowed_buy_quantities,
+    _buy_qty_kb,
     _endpoint_preorder_enabled,
     _endpoint_ready_for_sale,
     _is_cancel_input,
     _is_id_info_trigger,
+    _custom_services_admin_ids,
     _parse_inventory_payload,
     _is_services_trigger,
 )
@@ -79,6 +84,31 @@ def test_builder_add_options_for_folder_and_endpoint():
     assert "cstm:adde:x2" not in endpoint_actions
     assert "cstm:adds:x2" not in endpoint_actions
     assert "cstm:addse:x2" not in endpoint_actions
+
+
+def test_email_services_allow_multi_quantity_presets():
+    endpoint = {"name": "GMAIL Fresh"}
+    assert _allowed_buy_quantities(endpoint, {"buy_service_name": "GMAIL Fresh"}) == [1, 5, 10]
+
+
+def test_non_email_services_allow_only_single_quantity():
+    endpoint = {"name": "Netflix"}
+    assert _allowed_buy_quantities(endpoint, {"buy_service_name": "Netflix"}) == [1]
+
+
+def test_buy_qty_keyboard_filters_to_supported_quantities():
+    kb = _buy_qty_kb(
+        lang="en",
+        endpoint_id="ep1",
+        min_qty=1,
+        available_qty=6,
+        back_node_id="root1",
+        quantities=[1, 5],
+    )
+    labels = [btn.text for row in kb.inline_keyboard for btn in row]
+    assert "1" in labels
+    assert "5" in labels
+    assert "10" not in labels
 
 
 def test_endpoint_ready_for_sale_variants():
@@ -147,9 +177,38 @@ async def test_owner_can_open_builder_on_main_bot(monkeypatch):
 
     monkeypatch.setattr(custom_services, "is_main_bot", _fake_main)
     monkeypatch.setattr(custom_services, "OWNER_ID", 9001)
+    monkeypatch.setattr(custom_services.settings, "custom_services_admin_ids", "")
 
     assert await custom_services._can_open_builder_catalog(9001, _Bot()) is True
     assert await custom_services._can_open_builder_catalog(9002, _Bot()) is False
+
+
+def test_custom_services_admin_ids_parses_csv(monkeypatch):
+    monkeypatch.setattr(custom_services.settings, "custom_services_admin_ids", " 12, 34,invalid,,56 ")
+    assert _custom_services_admin_ids() == {12, 34, 56}
+
+
+@pytest.mark.asyncio
+async def test_main_bot_admin_gets_operational_access_only(monkeypatch):
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=111)
+
+    async def _fake_is_reseller(*_args, **_kwargs):
+        return False
+
+    async def _fake_main(_bot_id):
+        return True
+
+    monkeypatch.setattr(custom_services, "_is_current_bot_reseller", _fake_is_reseller)
+    monkeypatch.setattr(custom_services, "is_main_bot", _fake_main)
+    monkeypatch.setattr(custom_services, "OWNER_ID", 9001)
+    monkeypatch.setattr(custom_services.settings, "custom_services_admin_ids", "9002, 9003")
+
+    assert await custom_services._can_open_builder_catalog(9002, _Bot()) is True
+    assert await _can_manage_builder(9002, _Bot()) is True
+    assert await _can_manage_builder_structure(9002, _Bot()) is False
+    assert await _can_manage_builder_structure(9001, _Bot()) is True
 
 
 @pytest.mark.asyncio

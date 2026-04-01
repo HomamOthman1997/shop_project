@@ -251,16 +251,70 @@ async def _resolve_catalog_owner_id(user_id: int, bot_id: int) -> int | None:
     return await _resolve_user_reseller(user_id, bot_id)
 
 
-async def _can_open_builder_catalog(user_id: int, bot: Bot) -> bool:
+def _custom_services_admin_ids() -> set[int]:
+    raw = str(getattr(settings, "custom_services_admin_ids", "") or "").strip()
+    if not raw:
+        return set()
+    ids: set[int] = set()
+    for chunk in raw.split(","):
+        token = str(chunk or "").strip()
+        if not token:
+            continue
+        try:
+            value = int(token)
+        except Exception:
+            continue
+        if value > 0:
+            ids.add(value)
+    return ids
+
+
+async def _custom_services_access_level(user_id: int, bot: Bot) -> str:
     if await _is_current_bot_reseller(user_id, bot):
-        return True
+        return "full"
     if await is_main_bot((await bot.get_me()).id):
-        return int(user_id) == int(OWNER_ID)
-    return False
+        if int(user_id) == int(OWNER_ID):
+            return "full"
+        if int(user_id) in _custom_services_admin_ids():
+            return "ops"
+    return "none"
+
+
+async def _can_open_builder_catalog(user_id: int, bot: Bot) -> bool:
+    return (await _custom_services_access_level(user_id, bot)) in {"full", "ops"}
 
 
 async def _can_manage_builder(user_id: int, bot: Bot) -> bool:
-    return await _can_open_builder_catalog(user_id, bot)
+    return (await _custom_services_access_level(user_id, bot)) in {"full", "ops"}
+
+
+async def _can_manage_builder_structure(user_id: int, bot: Bot) -> bool:
+    return (await _custom_services_access_level(user_id, bot)) == "full"
+
+
+async def _can_toggle_preorder(user_id: int, bot: Bot) -> bool:
+    return (await _custom_services_access_level(user_id, bot)) in {"full", "ops"} and await is_main_bot((await bot.get_me()).id)
+
+
+def _state_catalog_owner_id(data: dict | None) -> int | None:
+    try:
+        value = int((data or {}).get("custom_catalog_owner_id") or 0)
+    except Exception:
+        return None
+    return value if value > 0 else None
+
+
+async def _builder_catalog_owner_id(user_id: int, bot: Bot, data: dict | None = None) -> int | None:
+    state_owner_id = _state_catalog_owner_id(data)
+    if state_owner_id:
+        return state_owner_id
+    access_level = await _custom_services_access_level(user_id, bot)
+    if access_level == "none":
+        return None
+    if await is_main_bot((await bot.get_me()).id):
+        owner_id = int(OWNER_ID or 0)
+        return owner_id if owner_id > 0 else None
+    return int(user_id)
 
 
 def _endpoint_ready_for_sale(endpoint: dict | None) -> bool:
@@ -589,8 +643,11 @@ async def _render_node(
     parent_id = node.get("parent_id")
     catalog_title = "ID INFO" if normalized_catalog == _CATALOG_ID_INFO else t("en", "custom_services_title")
     viewer_lang = await _user_lang(int(message_or_cb.from_user.id))
+    access_level = await _custom_services_access_level(int(message_or_cb.from_user.id), message_or_cb.bot) if is_builder else "none"
+    can_manage_ops = access_level in {"full", "ops"}
+    can_manage_structure = access_level == "full"
 
-    if node_type == "folder" and is_builder and layout_mode:
+    if node_type == "folder" and is_builder and layout_mode and can_manage_structure:
         kb_rows.extend(_children_grid_preview_rows(children))
         if children:
             kb_rows.append([InlineKeyboardButton(text=t("en", "divider_plain"), callback_data="cstm:noop:divider")])
@@ -634,16 +691,19 @@ async def _render_node(
             f"{t(viewer_lang, 'product_info_plain')}: {t(viewer_lang, 'set_plain') if has_product_info else t(viewer_lang, 'not_set_plain')}\n"
             f"Preorder: {'Enabled' if preorder_enabled else 'Disabled'}"
         )
-        if is_builder:
-            kb_rows.append(
-                [
-                    InlineKeyboardButton(text=t(viewer_lang, "rename_plain"), callback_data=f"cstm:rename:{node['_id']}"),
-                    InlineKeyboardButton(text=t(viewer_lang, "edit_plain"), callback_data=f"cstm:edit:{node['_id']}"),
-                ]
-            )
+        if is_builder and can_manage_ops:
+            if can_manage_structure:
+                kb_rows.append(
+                    [
+                        InlineKeyboardButton(text=t(viewer_lang, "rename_plain"), callback_data=f"cstm:rename:{node['_id']}"),
+                        InlineKeyboardButton(text=t(viewer_lang, "edit_plain"), callback_data=f"cstm:edit:{node['_id']}"),
+                    ]
+                )
+            else:
+                kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "edit_plain"), callback_data=f"cstm:edit:{node['_id']}")])
             kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "custom_set_stock"), callback_data=f"cstm:delivery:{node['_id']}")])
             kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "product_info_plain"), callback_data=f"cstm:pinfo:{node['_id']}")])
-            if int(message_or_cb.from_user.id) == int(OWNER_ID) and await is_main_bot((await message_or_cb.bot.get_me()).id):
+            if await _can_toggle_preorder(int(message_or_cb.from_user.id), message_or_cb.bot):
                 kb_rows.append(
                     [
                         InlineKeyboardButton(
@@ -652,14 +712,15 @@ async def _render_node(
                         )
                     ]
                 )
-            endpoint_move = await _move_controls_for_node(
-                reseller_id=reseller_id,
-                node=node,
-                catalog_type=normalized_catalog,
-            )
-            if endpoint_move:
-                kb_rows.append(endpoint_move)
-            kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "delete_plain"), callback_data=f"cstm:del:{node['_id']}")])
+            if can_manage_structure:
+                endpoint_move = await _move_controls_for_node(
+                    reseller_id=reseller_id,
+                    node=node,
+                    catalog_type=normalized_catalog,
+                )
+                if endpoint_move:
+                    kb_rows.append(endpoint_move)
+                kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "delete_plain"), callback_data=f"cstm:del:{node['_id']}")])
         else:
             if _endpoint_ready_for_sale(node):
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "buy_plain"), callback_data=f"cstm:buy:{node['_id']}")])
@@ -680,9 +741,9 @@ async def _render_node(
             text = f"{catalog_title}\n\n{name}\n{t(viewer_lang, 'custom_no_items_in_folder')}"
 
         if is_builder:
-            if layout_mode:
+            if layout_mode and can_manage_structure:
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "done_plain"), callback_data=f"cstm:layoutdone:{node['_id']}")])
-            else:
+            elif can_manage_structure:
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "add_plain"), callback_data=f"cstm:add:{node['_id']}")])
                 kb_rows.append(
                     [
@@ -778,7 +839,7 @@ async def open_services_catalog_entry(callback: types.CallbackQuery, state: FSMC
 async def open_services_builder_entry(callback: types.CallbackQuery, state: FSMContext):
     lang = await _user_lang(callback.from_user.id)
     bot_id = (await callback.bot.get_me()).id
-    if not await is_main_bot(bot_id) or int(callback.from_user.id) != int(OWNER_ID):
+    if not await is_main_bot(bot_id) or not await _can_open_builder_catalog(callback.from_user.id, callback.bot):
         return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
     await state.clear()
     root = await ensure_root_node(int(OWNER_ID), catalog_type=_CATALOG_CUSTOM)
@@ -989,7 +1050,7 @@ async def open_node(callback: types.CallbackQuery, state: FSMContext):
     catalog_owner_id_state = int(data.get("custom_catalog_owner_id") or 0)
 
     if explicit_mode == "builder":
-        expected_owner_id = int(OWNER_ID) if main_bot_flow and not is_owner_reseller else int(callback.from_user.id)
+        expected_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, data)
         if not await _can_open_builder_catalog(callback.from_user.id, callback.bot) or int(node.get("reseller_id") or 0) != expected_owner_id:
             return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
         is_builder = True
@@ -1007,9 +1068,8 @@ async def open_node(callback: types.CallbackQuery, state: FSMContext):
         is_builder = False
     else:
         # Fallback: if owner/reseller opens own node, treat as builder; otherwise user mode checks.
-        if is_owner_reseller and int(node.get("reseller_id") or 0) == int(callback.from_user.id):
-            is_builder = True
-        elif main_bot_flow and int(callback.from_user.id) == int(OWNER_ID) and int(node.get("reseller_id") or 0) == int(OWNER_ID):
+        fallback_builder_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, data)
+        if fallback_builder_owner_id and int(node.get("reseller_id") or 0) == int(fallback_builder_owner_id):
             is_builder = True
         else:
             if main_bot_flow:
@@ -1035,11 +1095,15 @@ async def open_node(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:add:"))
 async def add_options(callback: types.CallbackQuery, state: FSMContext):
-    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+    if not await _can_manage_builder_structure(callback.from_user.id, callback.bot):
         return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "access_denied_plain"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
-    node = await get_node(node_id, reseller_id=callback.from_user.id)
+    node = await get_node(node_id, reseller_id=catalog_owner_id)
     if not node:
         return await callback.answer(t(await _user_lang(callback.from_user.id), "node_not_found_plain"), show_alert=True)
 
@@ -1047,7 +1111,7 @@ async def add_options(callback: types.CallbackQuery, state: FSMContext):
         can_add_folder = True
         if str(node.get("node_type") or "") == "folder":
             children = await list_children(
-                callback.from_user.id,
+                catalog_owner_id,
                 node["_id"],
                 catalog_type=_catalog_type_from_node(node),
             )
@@ -1077,12 +1141,16 @@ async def add_options(callback: types.CallbackQuery, state: FSMContext):
     )
 )
 async def add_entry_start(callback: types.CallbackQuery, state: FSMContext):
-    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+    if not await _can_manage_builder_structure(callback.from_user.id, callback.bot):
         return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
     lang = await _user_lang(callback.from_user.id)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
 
     _, mode, anchor_id = callback.data.split(":", 2)
-    anchor = await get_node(anchor_id, reseller_id=callback.from_user.id)
+    anchor = await get_node(anchor_id, reseller_id=catalog_owner_id)
     if not anchor:
         return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
 
@@ -1094,7 +1162,7 @@ async def add_entry_start(callback: types.CallbackQuery, state: FSMContext):
         parent_id = anchor.get("parent_id")
         if not parent_id:
             return await callback.answer(t(lang, "custom_node_has_no_parent"), show_alert=True)
-        parent_node = await get_node(parent_id, reseller_id=callback.from_user.id)
+        parent_node = await get_node(parent_id, reseller_id=catalog_owner_id)
         if not parent_node or str(parent_node.get("node_type") or "") != "folder":
             return await callback.answer(t(lang, "custom_parent_folder_not_found"), show_alert=True)
         anchor = parent_node
@@ -1103,7 +1171,7 @@ async def add_entry_start(callback: types.CallbackQuery, state: FSMContext):
 
     if mode == "addf":
         children = await list_children(
-            callback.from_user.id,
+            catalog_owner_id,
             anchor["_id"],
             catalog_type=_catalog_type_from_node(anchor),
         )
@@ -1138,11 +1206,15 @@ async def add_entry_start(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:stateback:"))
 async def builder_state_back(callback: types.CallbackQuery, state: FSMContext):
-    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+    if not await _can_manage_builder_structure(callback.from_user.id, callback.bot):
         return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "access_denied_plain"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
-    node = await get_node(node_id, reseller_id=callback.from_user.id)
+    node = await get_node(node_id, reseller_id=catalog_owner_id)
     if not node:
         await state.clear()
         return await callback.answer(t(await _user_lang(callback.from_user.id), "node_not_found_plain"), show_alert=True)
@@ -1154,7 +1226,7 @@ async def builder_state_back(callback: types.CallbackQuery, state: FSMContext):
         await _render_node(
             callback,
             state,
-            callback.from_user.id,
+            catalog_owner_id,
             node["_id"],
             is_builder=True,
             catalog_type=catalog_type,
@@ -1163,18 +1235,23 @@ async def builder_state_back(callback: types.CallbackQuery, state: FSMContext):
 
 @router.message(CustomBuilderStates.waiting_name)
 async def add_entry_name(message: types.Message, state: FSMContext):
-    if not await _can_manage_builder(message.from_user.id, message.bot):
+    if not await _can_manage_builder_structure(message.from_user.id, message.bot):
+        await state.clear()
+        return
+    data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(message.from_user.id, message.bot, data)
+    if not catalog_owner_id:
         await state.clear()
         return
 
     if _is_cancel_input(message.text):
-        catalog_type = str((await state.get_data()).get("custom_catalog_type") or _CATALOG_CUSTOM)
+        catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
         await state.clear()
-        root = await ensure_root_node(message.from_user.id, catalog_type=catalog_type)
+        root = await ensure_root_node(catalog_owner_id, catalog_type=catalog_type)
         return await _render_node(
             message,
             state,
-            message.from_user.id,
+            catalog_owner_id,
             root["_id"],
             is_builder=True,
             catalog_type=catalog_type,
@@ -1184,9 +1261,8 @@ async def add_entry_name(message: types.Message, state: FSMContext):
     if not name:
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_name_cannot_be_empty"))
 
-    data = await state.get_data()
     add_mode = str(data.get("builder_add_mode") or "")
-    anchor = await get_node(data.get("builder_anchor_id"), reseller_id=message.from_user.id)
+    anchor = await get_node(data.get("builder_anchor_id"), reseller_id=catalog_owner_id)
     if not anchor:
         await state.clear()
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_anchor_not_found"))
@@ -1196,7 +1272,7 @@ async def add_entry_name(message: types.Message, state: FSMContext):
 
     if add_mode == "addf":
         children = await list_children(
-            message.from_user.id,
+            catalog_owner_id,
             anchor["_id"],
             catalog_type=catalog_type,
         )
@@ -1207,18 +1283,18 @@ async def add_entry_name(message: types.Message, state: FSMContext):
             return await _render_node(
                 message,
                 state,
-                message.from_user.id,
+                catalog_owner_id,
                 return_node_id,
                 is_builder=True,
                 catalog_type=catalog_type,
             )
-        await create_folder(message.from_user.id, anchor["_id"], name, catalog_type=catalog_type)
+        await create_folder(catalog_owner_id, anchor["_id"], name, catalog_type=catalog_type)
         await state.clear()
         await message.answer(t(await _user_lang(message.from_user.id), "custom_folder_created"))
         return await _render_node(
             message,
             state,
-            message.from_user.id,
+            catalog_owner_id,
             return_node_id,
             is_builder=True,
             catalog_type=catalog_type,
@@ -1236,11 +1312,15 @@ async def add_entry_name(message: types.Message, state: FSMContext):
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:rename:"))
 async def rename_node_start(callback: types.CallbackQuery, state: FSMContext):
     lang = await _user_lang(callback.from_user.id)
-    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+    if not await _can_manage_builder_structure(callback.from_user.id, callback.bot):
         return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
-    node = await get_node(node_id, reseller_id=callback.from_user.id)
+    node = await get_node(node_id, reseller_id=catalog_owner_id)
     if not node:
         return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
 
@@ -1264,28 +1344,32 @@ async def rename_node_start(callback: types.CallbackQuery, state: FSMContext):
 @router.message(CustomBuilderStates.waiting_rename)
 async def rename_node_submit(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    if data.get("custom_mode") == "builder" and not await _can_manage_builder(message.from_user.id, message.bot):
+    if data.get("custom_mode") == "builder" and not await _can_manage_builder_structure(message.from_user.id, message.bot):
+        await state.clear()
+        return
+    catalog_owner_id = await _builder_catalog_owner_id(message.from_user.id, message.bot, data)
+    if not catalog_owner_id:
         await state.clear()
         return
 
     if _is_cancel_input(message.text):
-        catalog_type = str((await state.get_data()).get("custom_catalog_type") or _CATALOG_CUSTOM)
-        node_id = (await state.get_data()).get("rename_return_node_id")
+        catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
+        node_id = data.get("rename_return_node_id")
         await state.clear()
         if node_id:
             return await _render_node(
                 message,
                 state,
-                message.from_user.id,
+                catalog_owner_id,
                 node_id,
                 is_builder=True,
                 catalog_type=catalog_type,
             )
-        root = await ensure_root_node(message.from_user.id, catalog_type=catalog_type)
+        root = await ensure_root_node(catalog_owner_id, catalog_type=catalog_type)
         return await _render_node(
             message,
             state,
-            message.from_user.id,
+            catalog_owner_id,
             root["_id"],
             is_builder=True,
             catalog_type=catalog_type,
@@ -1297,7 +1381,7 @@ async def rename_node_submit(message: types.Message, state: FSMContext):
 
     node_id = data.get("rename_node_id")
     catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
-    updated = await rename_node(node_id, message.from_user.id, new_name, catalog_type=catalog_type)
+    updated = await rename_node(node_id, catalog_owner_id, new_name, catalog_type=catalog_type)
     await state.clear()
     if not updated:
         return await message.answer(t(await _user_lang(message.from_user.id), "node_not_found_plain"))
@@ -1306,7 +1390,7 @@ async def rename_node_submit(message: types.Message, state: FSMContext):
     return await _render_node(
         message,
         state,
-        message.from_user.id,
+        catalog_owner_id,
         updated["_id"],
         is_builder=True,
         catalog_type=catalog_type,
@@ -1316,11 +1400,15 @@ async def rename_node_submit(message: types.Message, state: FSMContext):
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:edittxt:"))
 async def edit_display_text_start(callback: types.CallbackQuery, state: FSMContext):
     lang = await _user_lang(callback.from_user.id)
-    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+    if not await _can_manage_builder_structure(callback.from_user.id, callback.bot):
         return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
-    node = await get_node(node_id, reseller_id=callback.from_user.id)
+    node = await get_node(node_id, reseller_id=catalog_owner_id)
     if not node:
         return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
     if str(node.get("node_type") or "") != "folder":
@@ -1346,12 +1434,16 @@ async def edit_display_text_start(callback: types.CallbackQuery, state: FSMConte
 
 @router.message(CustomBuilderStates.waiting_display_text)
 async def edit_display_text_submit(message: types.Message, state: FSMContext):
-    if not await _can_manage_builder(message.from_user.id, message.bot):
+    data = await state.get_data()
+    if not await _can_manage_builder_structure(message.from_user.id, message.bot):
+        await state.clear()
+        return
+    catalog_owner_id = await _builder_catalog_owner_id(message.from_user.id, message.bot, data)
+    if not catalog_owner_id:
         await state.clear()
         return
 
     if _is_cancel_input(message.text):
-        data = await state.get_data()
         catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
         node_id = data.get("edit_text_return_node_id")
         await state.clear()
@@ -1359,22 +1451,21 @@ async def edit_display_text_submit(message: types.Message, state: FSMContext):
             return await _render_node(
                 message,
                 state,
-                message.from_user.id,
+                catalog_owner_id,
                 node_id,
                 is_builder=True,
                 catalog_type=catalog_type,
             )
-        root = await ensure_root_node(message.from_user.id, catalog_type=catalog_type)
+        root = await ensure_root_node(catalog_owner_id, catalog_type=catalog_type)
         return await _render_node(
             message,
             state,
-            message.from_user.id,
+            catalog_owner_id,
             root["_id"],
             is_builder=True,
             catalog_type=catalog_type,
         )
 
-    data = await state.get_data()
     node_id = data.get("edit_text_node_id")
     catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
     raw_text = (message.text or "").strip()
@@ -1385,7 +1476,7 @@ async def edit_display_text_submit(message: types.Message, state: FSMContext):
 
     updated = await update_node_display_text(
         node_id=node_id,
-        reseller_id=message.from_user.id,
+        reseller_id=catalog_owner_id,
         display_text=raw_text,
         catalog_type=catalog_type,
     )
@@ -1397,7 +1488,7 @@ async def edit_display_text_submit(message: types.Message, state: FSMContext):
     return await _render_node(
         message,
         state,
-        message.from_user.id,
+        catalog_owner_id,
         updated["_id"],
         is_builder=True,
         catalog_type=catalog_type,
@@ -1410,15 +1501,19 @@ async def add_endpoint_price(message: types.Message, state: FSMContext):
     if data.get("custom_mode") == "builder" and not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
+    catalog_owner_id = await _builder_catalog_owner_id(message.from_user.id, message.bot, data)
+    if data.get("custom_mode") == "builder" and not catalog_owner_id:
+        await state.clear()
+        return
 
     if _is_cancel_input(message.text):
-        catalog_type = str((await state.get_data()).get("custom_catalog_type") or _CATALOG_CUSTOM)
+        catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
         await state.clear()
-        root = await ensure_root_node(message.from_user.id, catalog_type=catalog_type)
+        root = await ensure_root_node(catalog_owner_id or message.from_user.id, catalog_type=catalog_type)
         return await _render_node(
             message,
             state,
-            message.from_user.id,
+            catalog_owner_id or message.from_user.id,
             root["_id"],
             is_builder=True,
             catalog_type=catalog_type,
@@ -1447,15 +1542,19 @@ async def add_endpoint_stock(message: types.Message, state: FSMContext):
     if data.get("custom_mode") == "builder" and not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
+    catalog_owner_id = await _builder_catalog_owner_id(message.from_user.id, message.bot, data)
+    if data.get("custom_mode") == "builder" and not catalog_owner_id:
+        await state.clear()
+        return
 
     if _is_cancel_input(message.text):
-        catalog_type = str((await state.get_data()).get("custom_catalog_type") or _CATALOG_CUSTOM)
+        catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
         await state.clear()
-        root = await ensure_root_node(message.from_user.id, catalog_type=catalog_type)
+        root = await ensure_root_node(catalog_owner_id or message.from_user.id, catalog_type=catalog_type)
         return await _render_node(
             message,
             state,
-            message.from_user.id,
+            catalog_owner_id or message.from_user.id,
             root["_id"],
             is_builder=True,
             catalog_type=catalog_type,
@@ -1484,15 +1583,19 @@ async def add_endpoint_min(message: types.Message, state: FSMContext):
     if data.get("custom_mode") == "builder" and not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
+    catalog_owner_id = await _builder_catalog_owner_id(message.from_user.id, message.bot, data)
+    if data.get("custom_mode") == "builder" and not catalog_owner_id:
+        await state.clear()
+        return
 
     if _is_cancel_input(message.text):
-        catalog_type = str((await state.get_data()).get("custom_catalog_type") or _CATALOG_CUSTOM)
+        catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
         await state.clear()
-        root = await ensure_root_node(message.from_user.id, catalog_type=catalog_type)
+        root = await ensure_root_node(catalog_owner_id or message.from_user.id, catalog_type=catalog_type)
         return await _render_node(
             message,
             state,
-            message.from_user.id,
+            catalog_owner_id or message.from_user.id,
             root["_id"],
             is_builder=True,
             catalog_type=catalog_type,
@@ -1510,7 +1613,7 @@ async def add_endpoint_min(message: types.Message, state: FSMContext):
     if data.get("edit_endpoint_id"):
         updated = await update_endpoint(
             data.get("edit_endpoint_id"),
-            message.from_user.id,
+            catalog_owner_id or message.from_user.id,
             price=float(data.get("edit_price")),
             available_qty=int(data.get("edit_stock")),
             min_qty=min_qty,
@@ -1526,22 +1629,22 @@ async def add_endpoint_min(message: types.Message, state: FSMContext):
             return await _render_node(
                 message,
                 state,
-                message.from_user.id,
+                catalog_owner_id or message.from_user.id,
                 return_node_id,
                 is_builder=True,
                 catalog_type=catalog_type,
             )
-        root = await ensure_root_node(message.from_user.id, catalog_type=catalog_type)
+        root = await ensure_root_node(catalog_owner_id or message.from_user.id, catalog_type=catalog_type)
         return await _render_node(
             message,
             state,
-            message.from_user.id,
+            catalog_owner_id or message.from_user.id,
             root["_id"],
             is_builder=True,
             catalog_type=catalog_type,
         )
 
-    anchor = await get_node(data.get("builder_anchor_id"), reseller_id=message.from_user.id)
+    anchor = await get_node(data.get("builder_anchor_id"), reseller_id=catalog_owner_id or message.from_user.id)
     if not anchor:
         await state.clear()
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_anchor_not_found"))
@@ -1551,7 +1654,7 @@ async def add_endpoint_min(message: types.Message, state: FSMContext):
 
     parent_id = anchor["_id"] if data.get("builder_add_mode") == "adde" else anchor.get("parent_id")
     await create_endpoint(
-        reseller_id=message.from_user.id,
+        reseller_id=catalog_owner_id or message.from_user.id,
         parent_id=parent_id,
         name=str(data.get("builder_name") or "").strip(),
         price=float(data.get("builder_price")),
@@ -1566,7 +1669,7 @@ async def add_endpoint_min(message: types.Message, state: FSMContext):
     await _render_node(
         message,
         state,
-        message.from_user.id,
+        catalog_owner_id or message.from_user.id,
         return_node_id,
         is_builder=True,
         catalog_type=catalog_type,
@@ -1578,9 +1681,13 @@ async def edit_endpoint_start(callback: types.CallbackQuery, state: FSMContext):
     lang = await _user_lang(callback.from_user.id)
     if not await _can_manage_builder(callback.from_user.id, callback.bot):
         return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
-    endpoint = await get_node(node_id, reseller_id=callback.from_user.id)
+    endpoint = await get_node(node_id, reseller_id=catalog_owner_id)
     if not endpoint or endpoint.get("node_type") != "endpoint":
         return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
 
@@ -1602,19 +1709,21 @@ async def edit_endpoint_start(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:preordertoggle:"))
 async def toggle_endpoint_preorder(callback: types.CallbackQuery, state: FSMContext):
-    if int(callback.from_user.id) != int(OWNER_ID):
-        return await callback.answer("No permission", show_alert=True)
-    if not await is_main_bot((await callback.bot.get_me()).id):
+    if not await _can_toggle_preorder(callback.from_user.id, callback.bot):
         return await callback.answer("Main-bot only", show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer("No permission", show_alert=True)
 
     node_id = str(callback.data or "").split(":", 2)[2]
-    endpoint = await get_node(node_id, reseller_id=int(callback.from_user.id))
+    endpoint = await get_node(node_id, reseller_id=catalog_owner_id)
     if not endpoint or endpoint.get("node_type") != "endpoint":
         return await callback.answer("Endpoint not found", show_alert=True)
 
     updated = await set_endpoint_preorder_enabled(
         endpoint["_id"],
-        int(callback.from_user.id),
+        catalog_owner_id,
         not _endpoint_preorder_enabled(endpoint),
         catalog_type=_catalog_type_from_node(endpoint),
     )
@@ -1625,7 +1734,7 @@ async def toggle_endpoint_preorder(callback: types.CallbackQuery, state: FSMCont
         await _render_node(
             callback,
             state,
-            int(callback.from_user.id),
+            catalog_owner_id,
             updated["_id"],
             is_builder=True,
             catalog_type=_catalog_type_from_node(updated),
@@ -1638,9 +1747,13 @@ async def set_delivery_start(callback: types.CallbackQuery, state: FSMContext):
     lang = await _user_lang(callback.from_user.id)
     if not await _can_manage_builder(callback.from_user.id, callback.bot):
         return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
-    endpoint = await get_node(node_id, reseller_id=callback.from_user.id)
+    endpoint = await get_node(node_id, reseller_id=catalog_owner_id)
     if not endpoint or endpoint.get("node_type") != "endpoint":
         return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
 
@@ -1661,11 +1774,14 @@ async def set_delivery_start(callback: types.CallbackQuery, state: FSMContext):
 
 @router.message(CustomBuilderStates.waiting_delivery_payload)
 async def set_delivery_submit(message: types.Message, state: FSMContext):
+    data = await state.get_data()
     if not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
-
-    data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(message.from_user.id, message.bot, data)
+    if not catalog_owner_id:
+        await state.clear()
+        return
     catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
     endpoint_id = data.get("delivery_endpoint_id")
     return_node_id = data.get("delivery_return_node_id")
@@ -1676,16 +1792,16 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
             return await _render_node(
                 message,
                 state,
-                message.from_user.id,
+                catalog_owner_id,
                 return_node_id,
                 is_builder=True,
                 catalog_type=catalog_type,
             )
-        root = await ensure_root_node(message.from_user.id, catalog_type=catalog_type)
+        root = await ensure_root_node(catalog_owner_id, catalog_type=catalog_type)
         return await _render_node(
             message,
             state,
-            message.from_user.id,
+            catalog_owner_id,
             root["_id"],
             is_builder=True,
             catalog_type=catalog_type,
@@ -1699,7 +1815,7 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_no_valid_stock_lines"))
     updated = await set_endpoint_inventory(
         endpoint_id,
-        message.from_user.id,
+        catalog_owner_id,
         inventory_items=items,
         catalog_type=catalog_type,
     )
@@ -1712,7 +1828,7 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
     return await _render_node(
         message,
         state,
-        message.from_user.id,
+        catalog_owner_id,
         updated["_id"],
         is_builder=True,
         catalog_type=catalog_type,
@@ -1724,9 +1840,13 @@ async def set_product_info_start(callback: types.CallbackQuery, state: FSMContex
     lang = await _user_lang(callback.from_user.id)
     if not await _can_manage_builder(callback.from_user.id, callback.bot):
         return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
-    endpoint = await get_node(node_id, reseller_id=callback.from_user.id)
+    endpoint = await get_node(node_id, reseller_id=catalog_owner_id)
     if not endpoint or endpoint.get("node_type") != "endpoint":
         return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
 
@@ -1747,11 +1867,14 @@ async def set_product_info_start(callback: types.CallbackQuery, state: FSMContex
 
 @router.message(CustomBuilderStates.waiting_product_info)
 async def set_product_info_submit(message: types.Message, state: FSMContext):
+    data = await state.get_data()
     if not await _can_manage_builder(message.from_user.id, message.bot):
         await state.clear()
         return
-
-    data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(message.from_user.id, message.bot, data)
+    if not catalog_owner_id:
+        await state.clear()
+        return
     catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
     endpoint_id = data.get("product_info_endpoint_id")
     return_node_id = data.get("product_info_return_node_id")
@@ -1762,7 +1885,7 @@ async def set_product_info_submit(message: types.Message, state: FSMContext):
             return await _render_node(
                 message,
                 state,
-                message.from_user.id,
+                catalog_owner_id,
                 return_node_id,
                 is_builder=True,
                 catalog_type=catalog_type,
@@ -1773,7 +1896,7 @@ async def set_product_info_submit(message: types.Message, state: FSMContext):
     text = "" if raw == "-" else raw
     updated = await update_endpoint_product_info(
         endpoint_id,
-        message.from_user.id,
+        catalog_owner_id,
         text,
         catalog_type=catalog_type,
     )
@@ -1785,7 +1908,7 @@ async def set_product_info_submit(message: types.Message, state: FSMContext):
     return await _render_node(
         message,
         state,
-        message.from_user.id,
+        catalog_owner_id,
         updated["_id"],
         is_builder=True,
         catalog_type=catalog_type,
@@ -1795,11 +1918,15 @@ async def set_product_info_submit(message: types.Message, state: FSMContext):
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:del:"))
 async def delete_node_cb(callback: types.CallbackQuery, state: FSMContext):
     lang = await _user_lang(callback.from_user.id)
-    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+    if not await _can_manage_builder_structure(callback.from_user.id, callback.bot):
         return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
 
     node_id = callback.data.split(":", 2)[2]
-    node = await get_node(node_id, reseller_id=callback.from_user.id)
+    node = await get_node(node_id, reseller_id=catalog_owner_id)
     if not node:
         return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
 
@@ -1807,28 +1934,28 @@ async def delete_node_cb(callback: types.CallbackQuery, state: FSMContext):
         return await callback.answer(t(lang, "custom_root_folder_cannot_be_deleted"), show_alert=True)
 
     if str(node.get("node_type") or "") == "folder":
-        children = await list_children(callback.from_user.id, node["_id"], catalog_type=_catalog_type_from_node(node))
+        children = await list_children(catalog_owner_id, node["_id"], catalog_type=_catalog_type_from_node(node))
         if children:
             return await callback.answer(t(lang, "custom_folder_not_empty_cannot_delete"), show_alert=True)
 
     parent_id = node.get("parent_id")
     catalog_type = _catalog_type_from_node(node)
-    modified = await deactivate_node(node_id, callback.from_user.id, catalog_type=catalog_type)
+    modified = await deactivate_node(node_id, catalog_owner_id, catalog_type=catalog_type)
     await callback.answer(t(lang, "custom_deleted_items").format(count=modified))
 
     if callback.message:
         target_node_id = None
         if parent_id:
-            parent_node = await get_node(parent_id, reseller_id=callback.from_user.id, catalog_type=catalog_type)
+            parent_node = await get_node(parent_id, reseller_id=catalog_owner_id, catalog_type=catalog_type)
             if parent_node:
                 target_node_id = parent_node["_id"]
         if target_node_id is None:
-            root = await ensure_root_node(callback.from_user.id, catalog_type=catalog_type)
+            root = await ensure_root_node(catalog_owner_id, catalog_type=catalog_type)
             target_node_id = root["_id"]
         await _render_node(
             callback,
             state,
-            callback.from_user.id,
+            catalog_owner_id,
             target_node_id,
             is_builder=True,
             catalog_type=catalog_type,
@@ -1838,8 +1965,12 @@ async def delete_node_cb(callback: types.CallbackQuery, state: FSMContext):
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:move:"))
 async def move_node_cb(callback: types.CallbackQuery, state: FSMContext):
     lang = await _user_lang(callback.from_user.id)
-    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+    if not await _can_manage_builder_structure(callback.from_user.id, callback.bot):
         return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
 
     parts = str(callback.data or "").split(":", 3)
     if len(parts) != 4:
@@ -1849,7 +1980,7 @@ async def move_node_cb(callback: types.CallbackQuery, state: FSMContext):
     if direction not in {"up", "down", "left", "right"}:
         return await callback.answer(t(lang, "custom_invalid_move_direction"), show_alert=True)
 
-    node = await get_node(node_id, reseller_id=callback.from_user.id)
+    node = await get_node(node_id, reseller_id=catalog_owner_id)
     if not node:
         return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
     if bool(node.get("is_root")):
@@ -1858,7 +1989,7 @@ async def move_node_cb(callback: types.CallbackQuery, state: FSMContext):
     catalog_type = _catalog_type_from_node(node)
     ok, reason = await move_node_in_parent(
         node_id=node["_id"],
-        reseller_id=callback.from_user.id,
+        reseller_id=catalog_owner_id,
         direction=direction,
         catalog_type=catalog_type,
     )
@@ -1871,14 +2002,14 @@ async def move_node_cb(callback: types.CallbackQuery, state: FSMContext):
 
     parent_id = node.get("parent_id")
     if not parent_id:
-        root = await ensure_root_node(callback.from_user.id, catalog_type=catalog_type)
+        root = await ensure_root_node(catalog_owner_id, catalog_type=catalog_type)
         parent_id = root["_id"]
     await callback.answer(t(lang, "custom_moved_plain"))
     if callback.message:
         await _render_node(
             callback,
             state,
-            callback.from_user.id,
+            catalog_owner_id,
             parent_id,
             is_builder=True,
             catalog_type=catalog_type,
@@ -1910,10 +2041,14 @@ async def custom_panel_cancel(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:layout:"))
 async def open_layout_mode(callback: types.CallbackQuery, state: FSMContext):
-    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+    if not await _can_manage_builder_structure(callback.from_user.id, callback.bot):
         return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "access_denied_plain"), show_alert=True)
     node_id = callback.data.split(":", 2)[2]
-    node = await get_node(node_id, reseller_id=callback.from_user.id)
+    node = await get_node(node_id, reseller_id=catalog_owner_id)
     if not node or str(node.get("node_type") or "") != "folder":
         return await callback.answer(t(await _user_lang(callback.from_user.id), "custom_folder_not_found"), show_alert=True)
     catalog_type = _catalog_type_from_node(node)
@@ -1923,7 +2058,7 @@ async def open_layout_mode(callback: types.CallbackQuery, state: FSMContext):
         await _render_node(
             callback,
             state,
-            callback.from_user.id,
+            catalog_owner_id,
             node["_id"],
             is_builder=True,
             catalog_type=catalog_type,
@@ -1932,10 +2067,14 @@ async def open_layout_mode(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:layoutdone:"))
 async def close_layout_mode(callback: types.CallbackQuery, state: FSMContext):
-    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+    if not await _can_manage_builder_structure(callback.from_user.id, callback.bot):
         return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(await _user_lang(callback.from_user.id), "access_denied_plain"), show_alert=True)
     node_id = callback.data.split(":", 2)[2]
-    node = await get_node(node_id, reseller_id=callback.from_user.id)
+    node = await get_node(node_id, reseller_id=catalog_owner_id)
     if not node:
         await state.update_data(custom_layout_node_id=None)
         return await callback.answer(t(await _user_lang(callback.from_user.id), "node_not_found_plain"), show_alert=True)
@@ -1946,7 +2085,7 @@ async def close_layout_mode(callback: types.CallbackQuery, state: FSMContext):
         await _render_node(
             callback,
             state,
-            callback.from_user.id,
+            catalog_owner_id,
             node["_id"],
             is_builder=True,
             catalog_type=catalog_type,
@@ -1961,8 +2100,9 @@ def _buy_qty_kb(
     available_qty: int,
     back_node_id: str,
     preorder: bool = False,
+    quantities: list[int] | None = None,
 ) -> InlineKeyboardMarkup:
-    presets = [1, 5, 10]
+    presets = list(quantities or [1, 5, 10])
     if preorder:
         options = [q for q in presets if q >= int(min_qty)]
         if not options:
@@ -1988,6 +2128,23 @@ def _buy_qty_kb(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _service_supports_multi_qty(endpoint: dict | None, data: dict | None = None) -> bool:
+    parts = [
+        str((data or {}).get("buy_service_name") or "").strip().lower(),
+        str((endpoint or {}).get("name") or "").strip().lower(),
+    ]
+    haystack = " ".join(part for part in parts if part)
+    if not haystack:
+        return False
+    return any(token in haystack for token in ("email", "gmail", "icloud"))
+
+
+def _allowed_buy_quantities(endpoint: dict | None, data: dict | None = None) -> list[int]:
+    if _service_supports_multi_qty(endpoint, data):
+        return [1, 5, 10]
+    return [1]
+
+
 def _buy_confirm_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -2005,6 +2162,13 @@ async def _ask_buy_qty(message: types.Message, endpoint: dict, data: dict) -> No
     min_qty = int(data.get("buy_min_qty", 1))
     available_qty = int(endpoint.get("available_qty", 0))
     preorder = bool(data.get("buy_is_preorder"))
+    allowed_quantities = _allowed_buy_quantities(endpoint, data)
+    if preorder:
+        options = [q for q in allowed_quantities if q >= int(min_qty)]
+    else:
+        options = [q for q in allowed_quantities if q >= int(min_qty) and q <= int(available_qty)]
+    if not options:
+        options = [1]
     await message.answer(
         "Choose preorder quantity" if preorder else t(lang, "choose_quantity_plain"),
         reply_markup=_buy_qty_kb(
@@ -2014,6 +2178,7 @@ async def _ask_buy_qty(message: types.Message, endpoint: dict, data: dict) -> No
             available_qty=available_qty,
             back_node_id=str(data.get("buy_return_node_id") or endpoint.get("parent_id") or endpoint["_id"]),
             preorder=preorder,
+            quantities=options,
         ),
     )
 
@@ -2030,16 +2195,16 @@ async def _show_buy_confirm(message: types.Message, state: FSMContext, endpoint:
 
     await state.update_data(buy_pending_qty=int(qty))
     await state.set_state(CustomBuilderStates.waiting_buy_confirm)
-    await message.answer(
+    summary = (
         f"{t(lang, 'product_plain')}: {service_name}\n"
         f"{t(lang, 'requested_qty_plain')}: {int(qty)}\n"
         f"{t(lang, 'available_qty_plain')}: {'-' if preorder else available_qty}\n"
         f"{t(lang, 'price_label')}: {format_usd(total)}"
     )
     if product_info:
-        await message.answer(product_info)
+        summary = f"{summary}\n\n{product_info}"
     await message.answer(
-        "Confirm preorder?" if preorder else t(lang, "confirm_purchase_question"),
+        f"{summary}\n\n{'Confirm preorder?' if preorder else t(lang, 'confirm_purchase_question')}",
         reply_markup=_buy_confirm_kb(lang),
     )
 
@@ -2215,7 +2380,6 @@ async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) 
                 exc,
             )
 
-        return_node_id = data.get("buy_return_node_id")
         await state.clear()
         await message.answer(
             t(lang, "custom_purchase_success_summary").format(
@@ -2226,15 +2390,6 @@ async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) 
                 delivery=t(lang, "sent_plain") if delivery_ok else t(lang, "custom_delivery_not_configured_or_failed"),
             )
         )
-        if return_node_id:
-            await _render_node(
-                message,
-                state,
-                catalog_owner_id,
-                return_node_id,
-                is_builder=False,
-                catalog_type=catalog_type,
-            )
     except Exception as exc:
         logger.exception("Custom service purchase flow failed: %s", exc)
         if order_id is not None:
@@ -2323,6 +2478,9 @@ async def choose_buy_qty(callback: types.CallbackQuery, state: FSMContext):
     preorder_flow = bool(data.get("buy_is_preorder"))
     if not preorder_flow and not _endpoint_ready_for_sale(endpoint):
         return await callback.answer(t(lang, "custom_endpoint_not_ready_for_sale"), show_alert=True)
+    allowed_quantities = _allowed_buy_quantities(endpoint, data)
+    if qty not in allowed_quantities:
+        return await callback.answer(t(lang, "custom_invalid_quantity"), show_alert=True)
     min_qty = int(data.get("buy_min_qty", 1))
     if qty < min_qty:
         return await callback.answer(t(lang, "custom_minimum_quantity_is").format(min_qty=min_qty), show_alert=True)
@@ -2402,6 +2560,9 @@ async def handle_buy_qty(message: types.Message, state: FSMContext):
     except Exception:
         return await message.answer(t(lang, "custom_invalid_quantity"))
 
+    allowed_quantities = _allowed_buy_quantities(endpoint, data)
+    if qty not in allowed_quantities:
+        return await message.answer(t(lang, "custom_invalid_quantity"))
     min_qty = int(data.get("buy_min_qty", 1))
     if qty < min_qty:
         return await message.answer(t(lang, "custom_minimum_quantity_is").format(min_qty=min_qty))

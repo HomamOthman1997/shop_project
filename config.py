@@ -175,6 +175,7 @@ class Settings(BaseSettings):
     referral_reward_percent: float = 0.0
     referral_max_reward_usd: float = 0.0
     referral_min_order_usd: float = 0.0
+    custom_services_admin_ids: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
