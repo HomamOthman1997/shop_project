@@ -1110,6 +1110,7 @@ async def _render_node(
     *,
     is_builder: bool,
     catalog_type: str,
+    viewer_user_id: int | None = None,
 ) -> None:
     node = await get_node(node_id, reseller_id=reseller_id, catalog_type=catalog_type)
     if not node:
@@ -1120,9 +1121,10 @@ async def _render_node(
             await message_or_cb.answer(err)
         return
 
+    viewer_id = int(viewer_user_id or message_or_cb.from_user.id)
     normalized_catalog = _catalog_type_from_node(node)
     if _ID_INFO_ARCHIVED and normalized_catalog == _CATALOG_ID_INFO:
-        user = await get_user(int(message_or_cb.from_user.id))
+        user = await get_user(viewer_id)
         lang = (user or {}).get("language", "en")
         await state.clear()
         if isinstance(message_or_cb, types.CallbackQuery):
@@ -1143,8 +1145,8 @@ async def _render_node(
     layout_mode = bool(is_builder and node_type == "folder" and layout_node_id == str(node.get("_id")))
     parent_id = node.get("parent_id")
     catalog_title = "ID INFO" if normalized_catalog == _CATALOG_ID_INFO else t("en", "custom_services_title")
-    viewer_lang = await _user_lang(int(message_or_cb.from_user.id))
-    access_level = await _custom_services_access_level(int(message_or_cb.from_user.id), message_or_cb.bot) if is_builder else "none"
+    viewer_lang = await _user_lang(viewer_id)
+    access_level = await _custom_services_access_level(viewer_id, message_or_cb.bot) if is_builder else "none"
     can_manage_ops = access_level in {"full", "ops"}
     can_manage_structure = access_level == "full"
 
@@ -1290,21 +1292,39 @@ async def open_custom_user(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
     bot_id = (await message.bot.get_me()).id
+    can_open_builder = await is_main_bot(bot_id) and await _can_open_builder_catalog(message.from_user.id, message.bot)
     catalog_owner_id = await _resolve_catalog_owner_id(message.from_user.id, bot_id)
     wallet_scope_id = await _resolve_user_reseller(message.from_user.id, bot_id)
     if not catalog_owner_id or not wallet_scope_id:
         return await message.answer(t(lang, "no_custom_services"))
 
-    owner_builder_available = await is_main_bot(bot_id) and int(message.from_user.id) == int(OWNER_ID)
     root = await ensure_root_node(catalog_owner_id, catalog_type=_CATALOG_CUSTOM)
     children = await list_children(int(catalog_owner_id), root["_id"], catalog_type=_CATALOG_CUSTOM)
-    if not children and not owner_builder_available:
+    if not children and not can_open_builder:
         return await message.answer(t(lang, "no_custom_services"), reply_markup=ReplyKeyboardRemove())
+    landing = await message.answer("\u2800", reply_markup=ReplyKeyboardRemove())
 
-    await message.answer(
-        _services_landing_text(lang, owner_builder_available=owner_builder_available),
-        reply_markup=ReplyKeyboardRemove(),
-    )
+    if can_open_builder:
+        owner_root = await ensure_root_node(int(OWNER_ID), catalog_type=_CATALOG_CUSTOM)
+        await state.update_data(
+            custom_bot_id=bot_id,
+            custom_catalog_owner_id=int(OWNER_ID),
+            custom_wallet_scope_id=int(wallet_scope_id),
+            custom_root_node_id=str(owner_root["_id"]),
+            custom_mode="builder",
+            custom_catalog_type=_CATALOG_CUSTOM,
+            custom_financial_mode=_FINANCIAL_CUSTOM,
+        )
+        return await _render_node(
+            landing,
+            state,
+            int(OWNER_ID),
+            owner_root["_id"],
+            is_builder=True,
+            catalog_type=_CATALOG_CUSTOM,
+            viewer_user_id=message.from_user.id,
+        )
+
     await state.update_data(
         custom_bot_id=bot_id,
         custom_catalog_owner_id=int(catalog_owner_id),
@@ -1314,9 +1334,14 @@ async def open_custom_user(message: types.Message, state: FSMContext):
         custom_catalog_type=_CATALOG_CUSTOM,
         custom_financial_mode=_FINANCIAL_CUSTOM,
     )
-    await message.answer(
-        t(lang, "services_entry_prompt"),
-        reply_markup=_services_landing_kb(lang, show_builder=owner_builder_available),
+    return await _render_node(
+        landing,
+        state,
+        int(catalog_owner_id),
+        root["_id"],
+        is_builder=False,
+        catalog_type=_CATALOG_CUSTOM,
+        viewer_user_id=message.from_user.id,
     )
 
 

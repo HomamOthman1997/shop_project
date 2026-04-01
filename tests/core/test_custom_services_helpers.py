@@ -345,6 +345,174 @@ def test_custom_services_admin_ids_parses_csv(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_open_custom_user_goes_directly_to_catalog_for_regular_user(monkeypatch):
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=111)
+
+    class _Message:
+        def __init__(self):
+            self.text = "Custom Services"
+            self.bot = _Bot()
+            self.from_user = SimpleNamespace(id=5001)
+            self.answers = []
+
+        async def answer(self, text, **kwargs):
+            self.answers.append({"text": text, "kwargs": kwargs})
+            return SimpleNamespace(message_id=1)
+
+    class _State:
+        def __init__(self):
+            self.data = {}
+            self.cleared = False
+
+        async def clear(self):
+            self.cleared = True
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def get_data(self):
+            return dict(self.data)
+
+    rendered = {}
+
+    async def _fake_get_user(_user_id):
+        return {"language": "en"}
+
+    async def _fake_main(_bot_id):
+        return True
+
+    async def _fake_can_open_builder(_user_id, _bot):
+        return False
+
+    async def _fake_owner(_user_id, _bot_id):
+        return 7001
+
+    async def _fake_wallet(_user_id, _bot_id):
+        return 7001
+
+    async def _fake_root(_owner_id, **_kwargs):
+        return {"_id": "root1"}
+
+    async def _fake_children(*_args, **_kwargs):
+        return [{"_id": "folder1", "node_type": "folder"}]
+
+    async def _fake_render(message_or_cb, state, reseller_id, node_id, *, is_builder, catalog_type, **_kwargs):
+        rendered.update(
+            {
+                "reseller_id": reseller_id,
+                "node_id": node_id,
+                "is_builder": is_builder,
+                "catalog_type": catalog_type,
+            }
+        )
+
+    monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
+    monkeypatch.setattr(custom_services, "is_main_bot", _fake_main)
+    monkeypatch.setattr(custom_services, "_can_open_builder_catalog", _fake_can_open_builder)
+    monkeypatch.setattr(custom_services, "_resolve_catalog_owner_id", _fake_owner)
+    monkeypatch.setattr(custom_services, "_resolve_user_reseller", _fake_wallet)
+    monkeypatch.setattr(custom_services, "ensure_root_node", _fake_root)
+    monkeypatch.setattr(custom_services, "list_children", _fake_children)
+    monkeypatch.setattr(custom_services, "_render_node", _fake_render)
+
+    message = _Message()
+    state = _State()
+
+    await custom_services.open_custom_user(message, state)
+
+    assert state.cleared is True
+    assert rendered["is_builder"] is False
+    assert rendered["node_id"] == "root1"
+    assert len(message.answers) == 1
+
+
+@pytest.mark.asyncio
+async def test_open_custom_user_goes_directly_to_builder_for_admin(monkeypatch):
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=111)
+
+    class _Message:
+        def __init__(self):
+            self.text = "Custom Services"
+            self.bot = _Bot()
+            self.from_user = SimpleNamespace(id=9002)
+            self.answers = []
+
+        async def answer(self, text, **kwargs):
+            self.answers.append({"text": text, "kwargs": kwargs})
+            return SimpleNamespace(message_id=1)
+
+    class _State:
+        def __init__(self):
+            self.data = {}
+
+        async def clear(self):
+            self.data.clear()
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def get_data(self):
+            return dict(self.data)
+
+    rendered = {}
+
+    async def _fake_get_user(_user_id):
+        return {"language": "en"}
+
+    async def _fake_main(_bot_id):
+        return True
+
+    async def _fake_can_open_builder(_user_id, _bot):
+        return True
+
+    async def _fake_owner(_user_id, _bot_id):
+        return 7001
+
+    async def _fake_wallet(_user_id, _bot_id):
+        return 7001
+
+    async def _fake_root(_owner_id, **_kwargs):
+        return {"_id": "root-owner"}
+
+    async def _fake_children(*_args, **_kwargs):
+        return []
+
+    async def _fake_render(message_or_cb, state, reseller_id, node_id, *, is_builder, catalog_type, **_kwargs):
+        rendered.update(
+            {
+                "reseller_id": reseller_id,
+                "node_id": node_id,
+                "is_builder": is_builder,
+                "catalog_type": catalog_type,
+            }
+        )
+
+    monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
+    monkeypatch.setattr(custom_services, "is_main_bot", _fake_main)
+    monkeypatch.setattr(custom_services, "_can_open_builder_catalog", _fake_can_open_builder)
+    monkeypatch.setattr(custom_services, "_resolve_catalog_owner_id", _fake_owner)
+    monkeypatch.setattr(custom_services, "_resolve_user_reseller", _fake_wallet)
+    monkeypatch.setattr(custom_services, "ensure_root_node", _fake_root)
+    monkeypatch.setattr(custom_services, "list_children", _fake_children)
+    monkeypatch.setattr(custom_services, "_render_node", _fake_render)
+    monkeypatch.setattr(custom_services, "OWNER_ID", 9001)
+
+    message = _Message()
+    state = _State()
+
+    await custom_services.open_custom_user(message, state)
+
+    assert rendered["is_builder"] is True
+    assert rendered["reseller_id"] == 9001
+    assert rendered["node_id"] == "root-owner"
+    assert len(message.answers) == 1
+
+
+@pytest.mark.asyncio
 async def test_main_bot_admin_gets_operational_access_only(monkeypatch):
     class _Bot:
         async def get_me(self):
