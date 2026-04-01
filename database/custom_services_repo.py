@@ -37,6 +37,27 @@ def _default_custom_root_folders() -> list[str]:
     ]
 
 
+async def _seed_default_custom_root_folders(reseller_id: int, root_id, *, now: datetime | None = None) -> None:
+    timestamp = now or datetime.now(UTC)
+    await db.custom_services.insert_many(
+        [
+            {
+                "reseller_id": int(reseller_id),
+                "catalog_type": "custom",
+                "name": name,
+                "node_type": "folder",
+                "parent_id": _to_oid(root_id),
+                "is_root": False,
+                "is_active": True,
+                "position": idx,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }
+            for idx, name in enumerate(_default_custom_root_folders())
+        ]
+    )
+
+
 async def bootstrap_custom_services_indexes() -> None:
     await db.custom_services.create_index([("reseller_id", 1), ("parent_id", 1), ("is_active", 1)], background=True)
     await db.custom_services.create_index([("reseller_id", 1), ("node_type", 1), ("is_active", 1)], background=True)
@@ -60,6 +81,17 @@ async def ensure_root_node(reseller_id: int, *, catalog_type: str = "custom") ->
         }
     )
     if root:
+        if catalog == "custom":
+            child_count = await db.custom_services.count_documents(
+                {
+                    "reseller_id": int(reseller_id),
+                    "catalog_type": catalog,
+                    "parent_id": root["_id"],
+                    "is_active": True,
+                }
+            )
+            if child_count == 0:
+                await _seed_default_custom_root_folders(reseller_id, root["_id"], now=now)
         return root
     doc = {
         "reseller_id": reseller_id,
@@ -76,24 +108,7 @@ async def ensure_root_node(reseller_id: int, *, catalog_type: str = "custom") ->
     res = await db.custom_services.insert_one(doc)
     doc["_id"] = res.inserted_id
     if catalog == "custom":
-        now = datetime.now(UTC)
-        await db.custom_services.insert_many(
-            [
-                {
-                    "reseller_id": reseller_id,
-                    "catalog_type": catalog,
-                    "name": name,
-                    "node_type": "folder",
-                    "parent_id": doc["_id"],
-                    "is_root": False,
-                    "is_active": True,
-                    "position": idx,
-                    "created_at": now,
-                    "updated_at": now,
-                }
-                for idx, name in enumerate(_default_custom_root_folders())
-            ]
-        )
+        await _seed_default_custom_root_folders(reseller_id, doc["_id"], now=now)
     return doc
 
 
@@ -123,6 +138,7 @@ async def _next_position(reseller_id: int, parent_id=None, *, catalog_type: str 
             "reseller_id": reseller_id,
             "catalog_type": _norm_catalog_type(catalog_type),
             "parent_id": _to_oid(parent_id),
+            "is_active": True,
         },
         sort=[("position", -1)],
     )

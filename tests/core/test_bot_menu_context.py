@@ -64,6 +64,6 @@ def test_main_menus_do_not_show_custom_services_button():
         if btn.callback_data
     ]
 
-    assert t("en", "btn_services") not in main_buttons
-    assert t("en", "btn_services") not in reseller_buttons
-    assert "rsmenu:custom_services" not in inline_callbacks
+    assert t("en", "btn_services") in main_buttons
+    assert t("en", "btn_services") in reseller_buttons
+    assert "rsmenu:custom_services" in inline_callbacks

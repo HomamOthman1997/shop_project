@@ -6,6 +6,7 @@ def reseller_main_menu(lang: str = "en") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
+                InlineKeyboardButton(text=t(lang, "btn_services"), callback_data="rsmenu:custom_services"),
                 InlineKeyboardButton(text=t(lang, "btn_reseller_balance"), callback_data="rsmenu:balance"),
             ],
             [

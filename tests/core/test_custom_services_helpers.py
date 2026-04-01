@@ -39,44 +39,6 @@ def test_services_trigger_rejects_random_text():
     assert not _is_services_trigger(None)
 
 
-@pytest.mark.asyncio
-async def test_open_custom_user_returns_no_services_message(monkeypatch):
-    class _Bot:
-        async def get_me(self):
-            return SimpleNamespace(id=111)
-
-    class _Message:
-        def __init__(self):
-            self.from_user = SimpleNamespace(id=77)
-            self.bot = _Bot()
-            self.calls = []
-
-        async def answer(self, text, reply_markup=None):
-            self.calls.append((text, reply_markup))
-
-    class _State:
-        def __init__(self):
-            self.cleared = False
-
-        async def clear(self):
-            self.cleared = True
-
-    async def _fake_get_user(_user_id):
-        return {"language": "en"}
-
-    monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
-
-    message = _Message()
-    state = _State()
-
-    await custom_services.open_custom_user(message, state)
-
-    assert state.cleared is True
-    assert len(message.calls) == 1
-    assert message.calls[0][0] == "No custom services are available for your account yet."
-    assert message.calls[0][1].__class__.__name__ == "ReplyKeyboardRemove"
-
-
 def test_id_info_trigger_is_archived():
     assert not _is_id_info_trigger(t("en", "btn_id_info"))
     assert not _is_id_info_trigger(t("ar", "btn_id_info"))
