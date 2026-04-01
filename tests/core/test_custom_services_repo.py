@@ -86,3 +86,31 @@ async def test_ensure_root_node_seeds_existing_empty_root(monkeypatch):
         "BANKS",
         "PAYPAL",
     ]
+
+
+@pytest.mark.asyncio
+async def test_set_endpoint_inventory_persists_raw_payload_and_warnings(monkeypatch):
+    captured = {}
+
+    class _Collection:
+        async def find_one_and_update(self, query, update, return_document=None):
+            captured["query"] = query
+            captured["update"] = update
+            return {"_id": query["_id"]}
+
+    monkeypatch.setattr(repo, "db", SimpleNamespace(custom_services=_Collection()))
+
+    await repo.set_endpoint_inventory(
+        ObjectId(),
+        77,
+        inventory_items=["A", "B"],
+        raw_payload="RAW INPUT",
+        parse_warnings=["warn-1", "warn-2"],
+        catalog_type="custom",
+    )
+
+    payload = captured["update"]["$set"]
+    assert payload["inventory_items"] == ["A", "B"]
+    assert payload["inventory_raw_payload"] == "RAW INPUT"
+    assert payload["inventory_parse_warnings"] == ["warn-1", "warn-2"]
+    assert payload["available_qty"] == 2

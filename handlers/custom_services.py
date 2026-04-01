@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import html
+import json
 import logging
 import re
 
@@ -180,7 +181,361 @@ def _normalize_stock_block(block: str) -> str:
     return "\n".join(normalized).strip()
 
 
-def _parse_inventory_payload(text: str) -> list[str]:
+def _is_probable_ssn_table(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return "|" in lowered and "ssn" in lowered and "dob" in lowered and "email" in lowered
+
+
+def _is_probable_ssn_spaced_table(text: str) -> bool:
+    lines = [line.strip().lower() for line in str(text or "").splitlines() if line.strip()]
+    if len(lines) < 2:
+        return False
+    header = lines[0]
+    return all(token in header for token in ("first", "last", "address", "city", "zip", "dob", "ssn"))
+
+
+def _is_probable_ssn_block(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return (
+        "account information" in lowered
+        or "primary email:" in lowered
+        or "mail pass:" in lowered
+        or "\nssn:" in lowered
+    )
+
+
+def _is_probable_ssn_json(text: str) -> bool:
+    stripped = str(text or "").strip()
+    return (
+        stripped.startswith("{")
+        and '"ssn"' in stripped.lower()
+        and ('"first_name"' in stripped.lower() or '"last_name"' in stripped.lower())
+    )
+
+
+def _normalize_gender(value: str) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    lowered = raw.lower()
+    if lowered in {"m", "male"}:
+        return "Male (m)"
+    if lowered in {"f", "female"}:
+        return "Female (f)"
+    return raw
+
+
+def _clean_structured_value(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.lower() in {"null", "none", "n/a", "na"}:
+        return ""
+    return re.sub(r"\s+", " ", raw).strip()
+
+
+def _format_birthdate(value: str) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        year, month, day = raw.split("-")
+        return f"{int(month)}/{int(day)}/{int(year)}"
+    return raw
+
+
+def _format_ssn(value: str) -> str | None:
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) == 9:
+        return f"{digits[:3]}-{digits[3:5]}-{digits[5:]}"
+    raw = str(value or "").strip()
+    return raw or None
+
+
+def _format_phone(value: str) -> str | None:
+    raw = _clean_structured_value(value)
+    if not raw:
+        return None
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) == 10:
+        return f"{digits[:3]} {digits[3:6]}-{digits[6:]}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"{digits[1:4]} {digits[4:7]}-{digits[7:]}"
+    return raw
+
+
+def _parse_pipe_delimited_ssn_rows(text: str) -> list[str]:
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    if not lines:
+        return []
+    header_idx = next((idx for idx, line in enumerate(lines) if "|" in line and "ssn" in line.lower() and "dob" in line.lower()), -1)
+    if header_idx < 0:
+        return []
+    headers = [part.strip().lower() for part in lines[header_idx].split("|")]
+    records: list[str] = []
+    for line in lines[header_idx + 1:]:
+        if "|" not in line:
+            continue
+        values = [part.strip() for part in line.split("|")]
+        if len(values) < 3:
+            continue
+        row = {headers[idx]: values[idx] if idx < len(values) else "" for idx in range(len(headers))}
+        dob_value = str(row.get("dob", "") or row.get("dob (year-month-day)", "")).strip()
+        fields = {
+            "SSN": _format_ssn(row.get("ssn", "")) or "",
+            "Birthdate": _format_birthdate(dob_value) or "",
+            "Last Name": _clean_structured_value(str(row.get("lastname") or "")),
+            "First Name": _clean_structured_value(str(row.get("firstname") or "")),
+            "Middle Name": _clean_structured_value(str(row.get("middle") or "")),
+            "Address": _clean_structured_value(str(row.get("address") or "")),
+            "City": _clean_structured_value(str(row.get("city") or "")),
+            "State": _clean_structured_value(str(row.get("state") or "")).upper(),
+            "Zip": _clean_structured_value(str(row.get("zip") or "")),
+            "Phone": _format_phone(str(row.get("phone") or "")) or "",
+            "Email": _clean_structured_value(str(row.get("email") or "")),
+            "Driver License": _clean_structured_value(str(row.get("driver license") or "")),
+            "Issuing State": _clean_structured_value(str(row.get("iss_state") or "")).upper(),
+        }
+        rendered = _render_ssn_record(fields)
+        if rendered:
+            records.append(rendered)
+    return records
+
+
+def _parse_spaced_ssn_rows(text: str) -> list[str]:
+    lines = [line.rstrip() for line in str(text or "").splitlines() if line.strip()]
+    if len(lines) < 2:
+        return []
+    header_parts = [part.strip().lower() for part in re.split(r"\s{2,}", lines[0].strip()) if part.strip()]
+    expected = ["first", "last", "address", "city", "st", "zip", "dob", "ssn"]
+    if header_parts[: len(expected)] != expected:
+        return []
+
+    records: list[str] = []
+    for raw_line in lines[1:]:
+        parts = [part.strip() for part in re.split(r"\s{2,}", raw_line.strip()) if part.strip()]
+        if len(parts) < 8:
+            continue
+        row = dict(zip(expected, parts[-8:], strict=False))
+        first_tokens = str(row.get("first") or "").split()
+        fields = {
+            "SSN": _format_ssn(row.get("ssn", "")) or "",
+            "Birthdate": _format_birthdate(row.get("dob", "")) or "",
+            "Last Name": _clean_structured_value(str(row.get("last") or "")),
+            "First Name": first_tokens[0] if first_tokens else "",
+            "Middle Name": _clean_structured_value(" ".join(first_tokens[1:])) if len(first_tokens) > 1 else "",
+            "Address": _clean_structured_value(str(row.get("address") or "")),
+            "City": _clean_structured_value(str(row.get("city") or "")),
+            "State": _clean_structured_value(str(row.get("st") or "")).upper(),
+            "Zip": _clean_structured_value(str(row.get("zip") or "")),
+        }
+        rendered = _render_ssn_record(fields)
+        if rendered:
+            records.append(rendered)
+    return records
+
+
+def _split_numbered_blocks(text: str) -> list[str]:
+    chunks = [chunk.strip() for chunk in re.split(r"(?im)^\s*Number:\s*\d+\s*$", str(text or "")) if chunk.strip()]
+    return chunks
+
+
+def _looks_like_state_token(token: str) -> bool:
+    raw = str(token or "").strip()
+    return bool(re.fullmatch(r"[A-Za-z]{2}", raw))
+
+
+def _looks_like_phone_token(token: str) -> bool:
+    digits = re.sub(r"\D", "", str(token or ""))
+    return 10 <= len(digits) <= 11
+
+
+def _looks_like_zip_token(token: str) -> bool:
+    return bool(re.fullmatch(r"\d{5}(?:-\d{4})?", str(token or "").strip()))
+
+
+def _looks_like_dob_token(token: str) -> bool:
+    return bool(re.fullmatch(r"\d{1,2}/\d{1,2}/\d{4}", str(token or "").strip()))
+
+
+def _normalize_inline_ssn_payload(value: str) -> dict[str, str]:
+    tokens = [tok for tok in re.split(r"\s+", str(value or "").strip()) if tok]
+    if not tokens:
+        return {}
+    if tokens and tokens[-1].upper() in {"USA", "US"}:
+        tokens = tokens[:-1]
+    if len(tokens) < 7:
+        return {}
+    phone = tokens.pop() if tokens and _looks_like_phone_token(tokens[-1]) else ""
+    ssn = tokens.pop() if tokens and re.fullmatch(r"\d{9}", tokens[-1]) else ""
+    dob = tokens.pop() if tokens and _looks_like_dob_token(tokens[-1]) else ""
+    zip_code = tokens.pop() if tokens and _looks_like_zip_token(tokens[-1]) else ""
+    state = tokens.pop() if tokens and _looks_like_state_token(tokens[-1]) else ""
+    if not all([phone, ssn, dob, zip_code, state]):
+        return {}
+
+    addr_start = next((idx for idx, token in enumerate(tokens) if re.search(r"\d", token)), -1)
+    if addr_start <= 0:
+        return {
+            "Birthdate": _format_birthdate(dob) or dob,
+            "Phone": phone,
+            "SSN": _format_ssn(ssn) or ssn,
+            "State": state,
+            "Zip": zip_code,
+        }
+
+    street_suffixes = {"st", "street", "rd", "road", "ave", "avenue", "dr", "drive", "ct", "court", "ln", "lane", "blvd", "way", "apt", "unit", "f11", "se", "sw", "ne", "nw"}
+    city_tokens: list[str] = []
+    tail = tokens[addr_start:]
+    while tail:
+        candidate = tail[-1]
+        lowered = candidate.lower()
+        if city_tokens and (re.search(r"\d", candidate) or lowered in street_suffixes):
+            break
+        if re.search(r"\d", candidate) and not city_tokens:
+            break
+        city_tokens.insert(0, tail.pop())
+        if len(city_tokens) >= 2:
+            break
+    name_tokens = tokens[:addr_start]
+    address_tokens = tail
+    first_name = name_tokens[0] if name_tokens else ""
+    last_name = name_tokens[-1] if len(name_tokens) >= 2 else ""
+    middle_name = " ".join(name_tokens[1:-1]).strip() if len(name_tokens) > 2 else ""
+    return {
+        "SSN": _format_ssn(ssn) or ssn,
+        "Birthdate": _format_birthdate(dob) or dob,
+        "First Name": _clean_structured_value(first_name),
+        "Middle Name": _clean_structured_value(middle_name),
+        "Last Name": _clean_structured_value(last_name),
+        "Address": _clean_structured_value(" ".join(address_tokens)),
+        "City": _clean_structured_value(" ".join(city_tokens)),
+        "State": _clean_structured_value(state).upper(),
+        "Zip": _clean_structured_value(zip_code),
+        "Phone": _format_phone(phone) or phone,
+    }
+
+
+def _render_ssn_record(fields: dict[str, str]) -> str:
+    ordered_keys = [
+        "SSN",
+        "Gender",
+        "Birthdate",
+        "Maiden Name",
+        "Last Name",
+        "First Name",
+        "Middle Name",
+        "Address",
+        "City",
+        "State",
+        "Zip",
+        "Phone",
+        "Email",
+        "Recovery Email",
+        "Mail Password",
+        "Bank Password",
+        "Driver License",
+        "Issuing State",
+        "CC Type",
+        "CCN",
+        "CVV",
+        "Expiration Date",
+    ]
+    lines = [f"{key}: {str(fields[key]).strip()}" for key in ordered_keys if str(fields.get(key) or "").strip()]
+    return "\n\n".join(lines).strip()
+
+
+def _parse_ssn_json_records(text: str) -> list[str]:
+    stripped = str(text or "").strip()
+    candidates: list[dict[str, object]] = []
+    try:
+        loaded = json.loads(stripped)
+        if isinstance(loaded, list):
+            candidates.extend(item for item in loaded if isinstance(item, dict))
+        elif isinstance(loaded, dict):
+            candidates.append(loaded)
+    except json.JSONDecodeError:
+        for block in re.split(r"\n\s*\n", stripped):
+            candidate = block.strip().rstrip(",")
+            if not candidate.startswith("{"):
+                continue
+            try:
+                loaded = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(loaded, dict):
+                candidates.append(loaded)
+
+    records: list[str] = []
+    for row in candidates:
+        address = " ".join(
+            part.strip()
+            for part in [str(row.get("addr1") or ""), str(row.get("addr2") or "")]
+            if part and str(part).strip()
+        ).strip()
+        fields = {
+            "SSN": _format_ssn(str(row.get("ssn") or "")) or "",
+            "Gender": _normalize_gender(str(row.get("gender") or "")) or "",
+            "Birthdate": _format_birthdate(str(row.get("dob") or "")) or "",
+            "Last Name": _clean_structured_value(str(row.get("last_name") or "")),
+            "First Name": _clean_structured_value(str(row.get("first_name") or "")),
+            "Middle Name": _clean_structured_value(str(row.get("middle_name") or "")),
+            "Address": _clean_structured_value(address),
+            "City": _clean_structured_value(str(row.get("city") or "")),
+            "State": _clean_structured_value(str(row.get("state") or "")).upper(),
+            "Zip": _clean_structured_value(str(row.get("zip") or "")),
+            "Phone": _format_phone(str(row.get("phone") or "")) or "",
+            "Email": _clean_structured_value(str(row.get("email") or "")),
+            "Driver License": _clean_structured_value(str(row.get("driver_license") or row.get("driver license") or "")),
+            "Issuing State": _clean_structured_value(str(row.get("iss_state") or "")).upper(),
+        }
+        rendered = _render_ssn_record(fields)
+        if rendered:
+            records.append(rendered)
+    return records
+
+
+def _parse_ssn_blocks(text: str) -> list[str]:
+    records: list[str] = []
+    for block in _split_numbered_blocks(text):
+        fields: dict[str, str] = {}
+        for raw_line in [line.strip() for line in str(block or "").splitlines() if line.strip()]:
+            if raw_line.lower() == "account information":
+                continue
+            if ":" not in raw_line:
+                continue
+            key, value = raw_line.split(":", 1)
+            label = key.strip().lower()
+            data = value.strip()
+            if label in {"primary email", "email"}:
+                fields["Email"] = data
+            elif label in {"recovary email", "recovery email"}:
+                fields["Recovery Email"] = data
+            elif label == "mail pass":
+                fields["Mail Password"] = data
+            elif label == "bank pass":
+                fields["Bank Password"] = data
+            elif label == "gender":
+                gender = _normalize_gender(data)
+                if gender:
+                    fields["Gender"] = gender
+            elif label == "ssn":
+                parsed = _normalize_inline_ssn_payload(data)
+                if parsed:
+                    fields.update({k: v for k, v in parsed.items() if v})
+                else:
+                    ssn = _format_ssn(data)
+                    if ssn:
+                        fields["SSN"] = ssn
+            else:
+                fields[key.strip()] = data
+        rendered = _render_ssn_record(fields)
+        if rendered:
+            records.append(rendered)
+    return records
+
+
+def _parse_generic_inventory_payload(text: str) -> list[str]:
     raw = html.unescape(str(text or "").strip())
     if not raw:
         return []
@@ -205,6 +560,99 @@ def _parse_inventory_payload(text: str) -> list[str]:
             return blocks
 
     return [line.strip() for line in normalized.splitlines() if line.strip()]
+
+
+def _parse_inventory_payload(text: str, *, ssn_mode: bool = True) -> list[str]:
+    raw = html.unescape(str(text or "").strip())
+    if not raw:
+        return []
+
+    if ssn_mode and _is_probable_ssn_json(raw):
+        parsed_json = _parse_ssn_json_records(raw)
+        if parsed_json:
+            return parsed_json
+
+    if ssn_mode and _is_probable_ssn_table(raw):
+        parsed_rows = _parse_pipe_delimited_ssn_rows(raw)
+        if parsed_rows:
+            return parsed_rows
+
+    if ssn_mode and _is_probable_ssn_spaced_table(raw):
+        parsed_rows = _parse_spaced_ssn_rows(raw)
+        if parsed_rows:
+            return parsed_rows
+
+    if ssn_mode and _is_probable_ssn_block(raw):
+        parsed_blocks = _parse_ssn_blocks(raw)
+        if parsed_blocks:
+            return parsed_blocks
+
+    return _parse_generic_inventory_payload(raw)
+
+
+def _is_ssn_stock_context(endpoint: dict | None, parent_node: dict | None = None) -> bool:
+    parts = [
+        str((endpoint or {}).get("name") or ""),
+        str((parent_node or {}).get("name") or ""),
+    ]
+    return "ssn" in " ".join(parts).lower()
+
+
+async def _is_ssn_stock_endpoint(endpoint: dict | None, reseller_id: int) -> bool:
+    current = endpoint
+    parent = None
+    visited: set[str] = set()
+    while current:
+        if _is_ssn_stock_context(current, parent):
+            return True
+        parent_id = current.get("parent_id")
+        if not parent_id:
+            return False
+        parent_key = str(parent_id)
+        if parent_key in visited:
+            return False
+        visited.add(parent_key)
+        parent = await get_node(parent_id, reseller_id=reseller_id)
+        current = parent
+    return False
+
+
+def _ssn_missing_field_warnings(items: list[str]) -> list[str]:
+    warnings: list[str] = []
+    required_labels = ["SSN:", "Birthdate:", "Last Name:", "First Name:", "Address:", "City:", "State:", "Zip:"]
+    for idx, item in enumerate(items, start=1):
+        missing = [label.rstrip(":") for label in required_labels if label not in str(item or "")]
+        if missing:
+            warnings.append(f"Record {idx} is incomplete: missing {', '.join(missing)}")
+    return warnings
+
+
+def _parse_inventory_submission(text: str, *, ssn_mode: bool) -> tuple[list[str], str, list[str]]:
+    raw_payload = html.unescape(str(text or "").strip())
+    if not raw_payload:
+        return [], "", []
+    items = _parse_inventory_payload(raw_payload, ssn_mode=ssn_mode)
+    warnings = _ssn_missing_field_warnings(items) if ssn_mode else []
+    return items, raw_payload, warnings
+
+
+def _stock_preview_text(items: list[str], warnings: list[str]) -> str:
+    preview_items = [str(item or "").strip() for item in items[:2] if str(item or "").strip()]
+    lines = [f"Parsed stock items: {len(items)}"]
+    if warnings:
+        lines.append(f"Warnings: {len(warnings)}")
+    if preview_items:
+        lines.extend(["", "Preview:", "", "\n\n=================\n\n".join(preview_items)])
+        if len(items) > len(preview_items):
+            lines.extend(["", f"... and {len(items) - len(preview_items)} more"])
+    if warnings:
+        lines.extend(["", "Warnings:"])
+        for warning in warnings[:5]:
+            lines.append(f"- {warning}")
+        if len(warnings) > 5:
+            lines.append(f"- ... and {len(warnings) - 5} more")
+    lines.extend(["", "Save this stock?"])
+    return "\n".join(lines).strip()
 
 
 async def _safe_edit_text(
@@ -333,6 +781,35 @@ def _endpoint_preorder_enabled(endpoint: dict | None) -> bool:
     return bool((endpoint or {}).get("preorder_enabled"))
 
 
+def _public_available_qty(endpoint: dict | None) -> int:
+    node = endpoint or {}
+    delivery_type = str(node.get("delivery_type") or "").strip().lower()
+    if delivery_type == "inventory":
+        return len([item for item in list(node.get("inventory_items") or []) if str(item or "").strip()])
+    if _endpoint_ready_for_sale(node):
+        return max(0, int(node.get("available_qty") or 0))
+    return 0
+
+
+def _public_endpoint_text(endpoint: dict, *, catalog_title: str, lang: str) -> str:
+    name = str(endpoint.get("name") or "").strip()
+    price = float(endpoint.get("price", 0) or 0)
+    available = _public_available_qty(endpoint)
+    product_info = str(endpoint.get("product_info_text") or "").strip()
+    lines = [
+        catalog_title,
+        "",
+        f"{t(lang, 'name_plain')}: {name}",
+        f"{t(lang, 'price_label')}: {format_usd(price)}",
+        f"{t(lang, 'available_plain')}: {available}",
+    ]
+    if product_info:
+        lines.extend(["", product_info])
+    elif available <= 0 and not _endpoint_preorder_enabled(endpoint):
+        lines.extend(["", t(lang, "custom_service_unavailable")])
+    return "\n".join(lines).strip()
+
+
 async def _can_use_preorder(endpoint: dict | None, bot: Bot) -> bool:
     if not endpoint or not _endpoint_preorder_enabled(endpoint):
         return False
@@ -415,6 +892,7 @@ class CustomBuilderStates(StatesGroup):
     waiting_rename = State()
     waiting_display_text = State()
     waiting_delivery_payload = State()
+    waiting_delivery_preview = State()
     waiting_product_info = State()
     waiting_buy_qty = State()
     waiting_buy_confirm = State()
@@ -703,17 +1181,20 @@ async def _render_node(
         delivery_status = t(viewer_lang, "configured_plain") if delivery_type in {"text", "photo", "document", "inventory"} else t(viewer_lang, "not_configured_plain")
         has_product_info = bool(str(node.get("product_info_text") or "").strip())
         preorder_enabled = _endpoint_preorder_enabled(node)
-        text = (
-            f"{catalog_title} - {t(viewer_lang, 'endpoint_plain')}\n\n"
-            f"{t(viewer_lang, 'name_plain')}: {node.get('name')}\n"
-            f"{t(viewer_lang, 'price_label')}: {format_usd(price)}\n"
-            f"{t(viewer_lang, 'available_plain')}: {stock}\n"
-            f"{t(viewer_lang, 'minimum_qty_plain')}: {min_q}\n"
-            f"{t(viewer_lang, 'delivery_plain')}: {delivery_status}\n"
-            f"{t(viewer_lang, 'stock_items_plain')}: {inventory_count}\n"
-            f"{t(viewer_lang, 'product_info_plain')}: {t(viewer_lang, 'set_plain') if has_product_info else t(viewer_lang, 'not_set_plain')}\n"
-            f"Preorder: {'Enabled' if preorder_enabled else 'Disabled'}"
-        )
+        if is_builder:
+            text = (
+                f"{catalog_title} - {t(viewer_lang, 'endpoint_plain')}\n\n"
+                f"{t(viewer_lang, 'name_plain')}: {node.get('name')}\n"
+                f"{t(viewer_lang, 'price_label')}: {format_usd(price)}\n"
+                f"{t(viewer_lang, 'available_plain')}: {stock}\n"
+                f"{t(viewer_lang, 'minimum_qty_plain')}: {min_q}\n"
+                f"{t(viewer_lang, 'delivery_plain')}: {delivery_status}\n"
+                f"{t(viewer_lang, 'stock_items_plain')}: {inventory_count}\n"
+                f"{t(viewer_lang, 'product_info_plain')}: {t(viewer_lang, 'set_plain') if has_product_info else t(viewer_lang, 'not_set_plain')}\n"
+                f"Preorder: {'Enabled' if preorder_enabled else 'Disabled'}"
+            )
+        else:
+            text = _public_endpoint_text(node, catalog_title=catalog_title, lang=viewer_lang)
         if is_builder and can_manage_ops:
             if can_manage_structure:
                 kb_rows.append(
@@ -1592,12 +2073,72 @@ async def add_endpoint_stock(message: types.Message, state: FSMContext):
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_quantity_zero_or_greater"))
 
     if data.get("edit_endpoint_id"):
-        await state.update_data(edit_stock=stock)
-    else:
-        await state.update_data(builder_stock=stock)
+        updated = await update_endpoint(
+            data.get("edit_endpoint_id"),
+            catalog_owner_id or message.from_user.id,
+            price=float(data.get("edit_price")),
+            available_qty=stock,
+            min_qty=1,
+            catalog_type=str(data.get("custom_catalog_type") or _CATALOG_CUSTOM),
+        )
+        return_node_id = data.get("edit_return_node_id")
+        catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
+        await state.clear()
+        if not updated:
+            return await message.answer(t(await _user_lang(message.from_user.id), "custom_endpoint_not_found"))
 
-    await state.set_state(CustomBuilderStates.waiting_min_qty)
-    await message.answer(t(await _user_lang(message.from_user.id), "custom_send_minimum_quantity"))
+        await message.answer(t(await _user_lang(message.from_user.id), "custom_endpoint_updated"))
+        if return_node_id:
+            return await _render_node(
+                message,
+                state,
+                catalog_owner_id or message.from_user.id,
+                return_node_id,
+                is_builder=True,
+                catalog_type=catalog_type,
+            )
+        root = await ensure_root_node(catalog_owner_id or message.from_user.id, catalog_type=catalog_type)
+        return await _render_node(
+            message,
+            state,
+            catalog_owner_id or message.from_user.id,
+            root["_id"],
+            is_builder=True,
+            catalog_type=catalog_type,
+        )
+    else:
+        anchor = await get_node(data.get("builder_anchor_id"), reseller_id=catalog_owner_id or message.from_user.id)
+        if not anchor:
+            await state.clear()
+            return await message.answer(t(await _user_lang(message.from_user.id), "custom_anchor_not_found"))
+        if bool(anchor.get("is_root")):
+            await state.clear()
+            return await message.answer(t(await _user_lang(message.from_user.id), "custom_main_folder_subfolders_only"))
+
+        parent_id = anchor["_id"] if data.get("builder_add_mode") == "adde" else anchor.get("parent_id")
+        catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
+        await create_endpoint(
+            reseller_id=catalog_owner_id or message.from_user.id,
+            parent_id=parent_id,
+            name=str(data.get("builder_name") or "").strip(),
+            price=float(data.get("builder_price")),
+            available_qty=stock,
+            min_qty=1,
+            catalog_type=catalog_type,
+        )
+
+        return_node_id = data.get("builder_return_node_id") or str(anchor["_id"])
+        await state.clear()
+        await message.answer(t(await _user_lang(message.from_user.id), "custom_endpoint_created_success"))
+        await _render_node(
+            message,
+            state,
+            catalog_owner_id or message.from_user.id,
+            return_node_id,
+            is_builder=True,
+            catalog_type=catalog_type,
+        )
+        return
 
 
 @router.message(CustomBuilderStates.waiting_min_qty)
@@ -1808,7 +2349,10 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
     catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
     endpoint_id = data.get("delivery_endpoint_id")
     return_node_id = data.get("delivery_return_node_id")
-
+    endpoint = await get_node(endpoint_id, reseller_id=catalog_owner_id)
+    if not endpoint or endpoint.get("node_type") != "endpoint":
+        await state.clear()
+        return await message.answer(t(await _user_lang(message.from_user.id), "custom_endpoint_not_found"))
     if _is_cancel_input(message.text):
         await state.clear()
         if return_node_id:
@@ -1833,29 +2377,110 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
     text = str(message.text or "").strip()
     if not text:
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_send_stock_lines_plain_text"))
-    items = _parse_inventory_payload(text)
+    ssn_mode = await _is_ssn_stock_endpoint(endpoint, catalog_owner_id)
+    items, raw_payload, warnings = _parse_inventory_submission(text, ssn_mode=ssn_mode)
     if not items:
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_no_valid_stock_lines"))
+    await state.update_data(
+        delivery_preview_raw_payload=raw_payload,
+        delivery_preview_items=items,
+        delivery_preview_warnings=warnings,
+        delivery_preview_ssn_mode=ssn_mode,
+    )
+    await state.set_state(CustomBuilderStates.waiting_delivery_preview)
+    await message.answer(
+        _stock_preview_text(items, warnings),
+        reply_markup=_stock_preview_kb(await _user_lang(message.from_user.id)),
+    )
+
+
+@router.callback_query(lambda c: c.data == "cstm:stockretry")
+async def retry_delivery_stock_preview(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        await state.clear()
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    await state.set_state(CustomBuilderStates.waiting_delivery_payload)
+    if callback.message:
+        await callback.message.answer(t(lang, "custom_send_stock_lines"))
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "cstm:stockcancel")
+async def cancel_delivery_stock_preview(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = await _user_lang(callback.from_user.id)
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, data)
+    return_node_id = data.get("delivery_return_node_id")
+    catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
+    await state.clear()
+    if not catalog_owner_id:
+        return await callback.answer()
+    target_node = return_node_id
+    if not target_node:
+        root = await ensure_root_node(catalog_owner_id, catalog_type=catalog_type)
+        target_node = root["_id"]
+    if callback.message and target_node:
+        await _render_node(
+            callback,
+            state,
+            catalog_owner_id,
+            target_node,
+            is_builder=True,
+            catalog_type=catalog_type,
+        )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "cstm:stocksave")
+async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        await state.clear()
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, data)
+    if not catalog_owner_id:
+        await state.clear()
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+
+    endpoint_id = data.get("delivery_endpoint_id")
+    catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
+    items = [str(item or "").strip() for item in list(data.get("delivery_preview_items") or []) if str(item or "").strip()]
+    raw_payload = str(data.get("delivery_preview_raw_payload") or "").strip()
+    warnings = [str(item or "").strip() for item in list(data.get("delivery_preview_warnings") or []) if str(item or "").strip()]
+    if not items:
+        await state.set_state(CustomBuilderStates.waiting_delivery_payload)
+        if callback.message:
+            await callback.message.answer(t(lang, "custom_send_stock_lines"))
+        return await callback.answer()
+
     updated = await set_endpoint_inventory(
         endpoint_id,
         catalog_owner_id,
         inventory_items=items,
+        raw_payload=raw_payload,
+        parse_warnings=warnings,
         catalog_type=catalog_type,
     )
-
     await state.clear()
     if not updated:
-        return await message.answer(t(await _user_lang(message.from_user.id), "custom_failed_save_delivery_payload"))
-
-    await message.answer(t(await _user_lang(message.from_user.id), "custom_stock_saved").format(count=len(items)))
-    return await _render_node(
-        message,
-        state,
-        catalog_owner_id,
-        updated["_id"],
-        is_builder=True,
-        catalog_type=catalog_type,
-    )
+        return await callback.answer(t(lang, "custom_failed_save_delivery_payload"), show_alert=True)
+    if callback.message:
+        saved_text = t(lang, "custom_stock_saved").format(count=len(items))
+        if warnings:
+            saved_text = f"{saved_text}\nWarnings: {len(warnings)}"
+        await callback.message.answer(saved_text)
+        await _render_node(
+            callback,
+            state,
+            catalog_owner_id,
+            updated["_id"],
+            is_builder=True,
+            catalog_type=catalog_type,
+        )
+    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:pinfo:"))
@@ -2184,6 +2809,18 @@ def _purchase_complete_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="cstm:cancel")],
+        ]
+    )
+
+
+def _stock_preview_kb(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Save Stock", callback_data="cstm:stocksave")],
+            [
+                InlineKeyboardButton(text="✏️ Send Again", callback_data="cstm:stockretry"),
+                InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data="cstm:stockcancel"),
+            ],
         ]
     )
 

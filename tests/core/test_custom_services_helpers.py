@@ -14,12 +14,16 @@ from handlers.custom_services import (
     _can_manage_builder_structure,
     _allowed_buy_quantities,
     _buy_qty_kb,
+    _is_ssn_stock_context,
     _endpoint_preorder_enabled,
     _endpoint_ready_for_sale,
     _is_cancel_input,
     _is_id_info_trigger,
     _custom_services_admin_ids,
+    _parse_inventory_submission,
     _parse_inventory_payload,
+    _public_available_qty,
+    _public_endpoint_text,
     _is_services_trigger,
 )
 from utils.translations import t
@@ -159,6 +163,158 @@ def test_parse_inventory_payload_supports_html_and_arabic_labels():
         "Email: first@example.com\nPassword: pass-1\nRecovery: لا يوجد",
         "Email: second@example.com\nPassword: pass-2\nRecovery: لا يوجد",
     ]
+
+
+def test_parse_inventory_payload_supports_numbered_ssn_blocks():
+    payload = """Number: 1
+
+Account Information
+
+Primary Email: alfred69dorsey@gmail.com
+
+Recovary Email: osamah99dwaji@gmail.com
+
+Mail Pass: ALFRED69DORSEY@@
+
+Bank Pass: ALFRED69DORSEY@@
+
+SSN: ALFRED DORSEY  4400 SE NAEF RD F11  MILWAUKEE  OR  97267  10/26/2000  541591832  5037375270  USA
+
+GENDER: M
+"""
+    parsed = _parse_inventory_payload(payload)
+
+    assert len(parsed) == 1
+    assert "SSN: 541-59-1832" in parsed[0]
+    assert "Gender: Male (m)" in parsed[0]
+    assert "Birthdate: 10/26/2000" in parsed[0]
+    assert "First Name: ALFRED" in parsed[0]
+    assert "Last Name: DORSEY" in parsed[0]
+    assert "Address: 4400 SE NAEF RD F11" in parsed[0]
+    assert "City: MILWAUKEE" in parsed[0]
+    assert "State: OR" in parsed[0]
+    assert "Zip: 97267" in parsed[0]
+    assert "Phone: 503 737-5270" in parsed[0]
+    assert "Email: alfred69dorsey@gmail.com" in parsed[0]
+
+
+def test_parse_inventory_payload_supports_pipe_delimited_ssn_rows():
+    payload = """ssn | dob (year-month-day) | firstname|  middle| lastname | address | city | state | zip | phone | email | driver license | iss_state
+612344358|1990-02-05|Karina||Pedraza|10157 palazzo Marcelli ct |Las Vegas|NV|89147|725 265-5670|Kpedraza1116@outlook.com|2102423544|NV
+"""
+    parsed = _parse_inventory_payload(payload)
+
+    assert len(parsed) == 1
+    assert "SSN: 612-34-4358" in parsed[0]
+    assert "Birthdate: 2/5/1990" in parsed[0]
+    assert "First Name: Karina" in parsed[0]
+    assert "Last Name: Pedraza" in parsed[0]
+    assert "Address: 10157 palazzo Marcelli ct" in parsed[0]
+    assert "City: Las Vegas" in parsed[0]
+    assert "State: NV" in parsed[0]
+    assert "Driver License: 2102423544" in parsed[0]
+
+
+def test_parse_inventory_payload_supports_spaced_ssn_rows():
+    payload = """first  last  address  city  st  zip  dob  ssn
+SHERVON  ADAMS  859 WILLIAM ST  POMONA  CA  91768  11/13/1976  626868571
+PHYLLIS J  MORGAN  1873 SILVER OAKS CIR APT B  AURORA  IL  60504  3/15/1950  361822211
+"""
+    parsed = _parse_inventory_payload(payload)
+
+    assert len(parsed) == 2
+    assert "SSN: 626-86-8571" in parsed[0]
+    assert "Birthdate: 11/13/1976" in parsed[0]
+    assert "First Name: SHERVON" in parsed[0]
+    assert "Last Name: ADAMS" in parsed[0]
+    assert "City: POMONA" in parsed[0]
+    assert "State: CA" in parsed[0]
+    assert "SSN: 361-82-2211" in parsed[1]
+    assert "Birthdate: 3/15/1950" in parsed[1]
+    assert "First Name: PHYLLIS" in parsed[1]
+    assert "Middle Name: J" in parsed[1]
+    assert "Last Name: MORGAN" in parsed[1]
+    assert "Address: 1873 SILVER OAKS CIR APT B" in parsed[1]
+
+
+def test_parse_inventory_payload_supports_json_ssn_rows():
+    payload = """{"ssn": "063460145", "first_name": "ROSANNE", "last_name": "HANTON", "middle_name": "", "dob": "09/07/1954", "gender": "F", "email": "rhanton@boriken.org", "phone": "", "addr1": "221 East 122nd Street", "addr2": "3204", "city": "New York", "state": "NY", "zip": 10035, "country": null}"""
+    parsed = _parse_inventory_payload(payload)
+
+    assert len(parsed) == 1
+    assert "SSN: 063-46-0145" in parsed[0]
+    assert "Gender: Female (f)" in parsed[0]
+    assert "Birthdate: 09/07/1954" in parsed[0]
+    assert "First Name: ROSANNE" in parsed[0]
+    assert "Last Name: HANTON" in parsed[0]
+    assert "Address: 221 East 122nd Street 3204" in parsed[0]
+    assert "City: New York" in parsed[0]
+    assert "State: NY" in parsed[0]
+    assert "Zip: 10035" in parsed[0]
+    assert "Email: rhanton@boriken.org" in parsed[0]
+
+
+def test_parse_inventory_payload_can_skip_ssn_parsing_for_non_ssn_services():
+    payload = """first  last  address  city  st  zip  dob  ssn
+SHERVON  ADAMS  859 WILLIAM ST  POMONA  CA  91768  11/13/1976  626868571
+"""
+    parsed = _parse_inventory_payload(payload, ssn_mode=False)
+
+    assert parsed == [
+        "first  last  address  city  st  zip  dob  ssn",
+        "SHERVON  ADAMS  859 WILLIAM ST  POMONA  CA  91768  11/13/1976  626868571",
+    ]
+
+
+def test_parse_inventory_submission_adds_incomplete_ssn_warnings():
+    payload = """{"ssn": "063460145", "first_name": "ROSANNE", "last_name": "HANTON"}"""
+    items, raw_payload, warnings = _parse_inventory_submission(payload, ssn_mode=True)
+
+    assert len(items) == 1
+    assert raw_payload == payload
+    assert warnings
+    assert "Birthdate" in warnings[0]
+    assert "Address" in warnings[0]
+
+
+def test_is_ssn_stock_context_checks_endpoint_and_parent():
+    assert _is_ssn_stock_context({"name": "California Fullz"}, {"name": "SSN"}) is True
+    assert _is_ssn_stock_context({"name": "SSN Deluxe"}, None) is True
+    assert _is_ssn_stock_context({"name": "GMAIL Fresh"}, {"name": "Email"}) is False
+
+
+def test_public_available_qty_hides_unconfigured_endpoint_stock():
+    endpoint = {
+        "name": "OUTLOOK",
+        "delivery_type": "",
+        "available_qty": 1,
+        "inventory_items": [],
+        "preorder_enabled": False,
+    }
+    assert _public_available_qty(endpoint) == 0
+
+
+def test_public_endpoint_text_hides_internal_builder_fields():
+    endpoint = {
+        "name": "GMAIL",
+        "price": 1.0,
+        "available_qty": 1,
+        "inventory_items": [],
+        "delivery_type": "",
+        "product_info_text": "",
+        "preorder_enabled": False,
+        "min_qty": 1,
+    }
+    text = _public_endpoint_text(endpoint, catalog_title="Custom Services", lang="en")
+
+    assert "Name: GMAIL" in text
+    assert "Price:" in text
+    assert "Available: 0" in text
+    assert "Minimum Qty" not in text
+    assert "Delivery:" not in text
+    assert "Stock Items:" not in text
+    assert "Preorder:" not in text
+    assert "Product Info:" not in text
 
 
 @pytest.mark.asyncio

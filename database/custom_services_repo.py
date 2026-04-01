@@ -189,6 +189,8 @@ async def create_endpoint(
         "price": float(price),
         "available_qty": int(available_qty),
         "inventory_items": [],
+        "inventory_raw_payload": "",
+        "inventory_parse_warnings": [],
         "product_info_text": "",
         "min_qty": max(1, int(min_qty)),
         "preorder_enabled": False,
@@ -344,6 +346,8 @@ async def set_endpoint_inventory(
     reseller_id: int,
     *,
     inventory_items: list[str],
+    raw_payload: str | None = None,
+    parse_warnings: list[str] | None = None,
     catalog_type: Optional[str] = None,
 ) -> Optional[dict]:
     query = {
@@ -360,6 +364,8 @@ async def set_endpoint_inventory(
 
     payload = {
         "inventory_items": cleaned,
+        "inventory_raw_payload": str(raw_payload or "").strip(),
+        "inventory_parse_warnings": [str(item or "").strip() for item in (parse_warnings or []) if str(item or "").strip()],
         "available_qty": len(cleaned),
         "delivery_type": "inventory",
         "delivery_text": None,
@@ -717,6 +723,8 @@ async def clone_catalog_from_reseller_template(
                 clone_doc["min_qty"] = max(1, int(src.get("min_qty") or 1))
                 clone_doc["preorder_enabled"] = False
                 clone_doc["inventory_items"] = list(src.get("inventory_items") or [])
+                clone_doc["inventory_raw_payload"] = str(src.get("inventory_raw_payload") or "").strip()
+                clone_doc["inventory_parse_warnings"] = [str(x or "").strip() for x in list(src.get("inventory_parse_warnings") or []) if str(x or "").strip()]
                 clone_doc["product_info_text"] = str(src.get("product_info_text") or "").strip()
                 clone_doc["delivery_type"] = str(src.get("delivery_type") or "").strip().lower()
                 clone_doc["delivery_text"] = str(src.get("delivery_text") or "").strip()
