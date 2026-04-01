@@ -147,7 +147,7 @@ async def test_execute_buy_uses_reserve_for_text_delivery(monkeypatch):
     assert claim_calls == []
     assert delivery_calls == []
     assert message.edits
-    assert "Purchased successfully" in message.edits[-1]["text"]
+    assert "Purchase Completed" in message.edits[-1]["text"]
     assert "payload" in message.edits[-1]["text"]
 
 
