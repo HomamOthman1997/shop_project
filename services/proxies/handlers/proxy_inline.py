@@ -109,6 +109,19 @@ def _non_any_values(values: list[str] | None) -> list[str]:
     ]
 
 
+def _match_index_key(mapping: dict, wanted: str) -> str:
+    raw = str(wanted or "").strip()
+    if not raw:
+        return ""
+    if raw in mapping:
+        return raw
+    raw_lc = raw.lower()
+    for key in mapping.keys():
+        if str(key or "").strip().lower() == raw_lc:
+            return str(key)
+    return raw
+
+
 def _article(
     result_id: str,
     title: str,
@@ -206,14 +219,15 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
         rest = query[len("proxy state") :].strip()
         if rest:
             country_locator, search_term = _parse_locator_and_search(rest)
-            country_tok = encode_token(country_locator)
             country = decode_token(country_locator) or country_locator
-            states = index["states_by_country"].get(country, [])
+            matched_country = _match_index_key(index["states_by_country"], country)
+            country_tok = encode_token(matched_country or country)
+            states = index["states_by_country"].get(matched_country, [])
             session = await SessionManager.get_session()
             for state in states:
                 if _contains(state, search_term):
                     st_tok = encode_token(state)
-                    state_code = _proxy_state_code(country, state)
+                    state_code = _proxy_state_code(matched_country or country, state)
                     thumb_url = (
                         await resolve_state_icon_url(state_code, state, session)
                         if state_code
@@ -223,7 +237,7 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
                         _article(
                             _safe_result_id("ps", country_tok, st_tok),
                             str(state or "").strip().title(),
-                            f"Code: {state_code}" if state_code else _proxy_country_title(country),
+                            f"Code: {state_code}" if state_code else _proxy_country_title(matched_country or country),
                             f"/proxy_state_{country_tok}~{st_tok}",
                             thumb_url=thumb_url,
                         )
@@ -237,18 +251,24 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
             # Legacy format: country:state
             if ":" in locator_raw:
                 country_part, state_part = locator_raw.split(":", 1)
-                country_tok = country_part
-                state_tok = state_part
                 country = decode_token(country_part) or country_part
+                matched_country = _match_index_key(index["states_by_country"], country)
                 state = decode_token(state_part) or state_part
-                cities = index["cities_by_country_state"].get((country, state), [])
+                matched_state = state
+                for candidate in index["states_by_country"].get(matched_country, []):
+                    if str(candidate or "").strip().lower() == str(state or "").strip().lower():
+                        matched_state = candidate
+                        break
+                country_tok = encode_token(matched_country or country)
+                state_tok = encode_token(matched_state or state)
+                cities = index["cities_by_country_state"].get((matched_country or country, matched_state or state), [])
                 session = await SessionManager.get_session()
                 for city in cities:
                     if _contains(city, search_term):
                         city_tok = encode_token(city)
-                        state_code = _proxy_state_code(country, state)
+                        state_code = _proxy_state_code(matched_country or country, matched_state or state)
                         thumb_url = (
-                            await resolve_state_icon_url(state_code, state, session)
+                            await resolve_state_icon_url(state_code, matched_state or state, session)
                             if state_code
                             else get_generic_service_icon_url(city or "City")
                         )
@@ -256,7 +276,7 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
                             _article(
                                 _safe_result_id("pci_legacy", country_tok, state_tok, city_tok),
                                 str(city or "").strip().title(),
-                                f"Code: {state_code}" if state_code else f"{country.title()} / {state.title()}",
+                                f"Code: {state_code}" if state_code else f"{(matched_country or country).title()} / {(matched_state or state).title()}",
                                 f"/proxy_city_{country_tok}~{state_tok}~{city_tok}",
                                 thumb_url=thumb_url,
                             )
@@ -264,15 +284,16 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
             else:
                 # New default flow: country -> city (state optional)
                 country = decode_token(locator_raw) or locator_raw
-                country_tok = encode_token(country)
-                cities = _non_any_values(index.get("cities_by_country", {}).get(country, []))
-                fallback_states = _non_any_values(index.get("states_by_country", {}).get(country, []))
+                matched_country = _match_index_key(index.get("states_by_country", {}), country)
+                country_tok = encode_token(matched_country or country)
+                cities = _non_any_values(index.get("cities_by_country", {}).get(matched_country, []))
+                fallback_states = _non_any_values(index.get("states_by_country", {}).get(matched_country, []))
                 candidates = cities or fallback_states
                 session = await SessionManager.get_session()
                 for city in candidates:
                     if _contains(city, search_term):
                         city_tok = encode_token(city)
-                        state_code = _proxy_state_code(country, city)
+                        state_code = _proxy_state_code(matched_country or country, city)
                         thumb_url = (
                             await resolve_state_icon_url(state_code, city, session)
                             if state_code
@@ -280,12 +301,12 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
                         )
                         results.append(
                             _article(
-                                _safe_result_id("pci", country_tok, city_tok),
-                                str(city or "").strip().title(),
-                                f"Code: {state_code}" if state_code else _proxy_country_title(country),
-                                f"/proxy_city_{country_tok}~{city_tok}",
-                                thumb_url=thumb_url,
-                            )
+                            _safe_result_id("pci", country_tok, city_tok),
+                            str(city or "").strip().title(),
+                            f"Code: {state_code}" if state_code else _proxy_country_title(matched_country or country),
+                            f"/proxy_city_{country_tok}~{city_tok}",
+                            thumb_url=thumb_url,
                         )
+                    )
 
     await _safe_inline_answer(inline_query, results[:50])
