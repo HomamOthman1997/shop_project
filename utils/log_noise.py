@@ -17,6 +17,12 @@ class TransientNetworkNoiseFilter(logging.Filter):
         text = str(message or "").lower()
 
         if logger_name.startswith("aiogram.dispatcher"):
+            if "telegramconflicterror" in text or "terminated by other getupdates request" in text:
+                if "failed to fetch updates" in text:
+                    return True, "aiogram:failed_fetch_updates:conflict"
+                if "sleep for" in text and "try again" in text:
+                    return True, "aiogram:failed_fetch_updates:conflict_backoff"
+                return True, "aiogram:failed_fetch_updates:conflict_generic"
             if "failed to fetch updates" in text and (
                 "telegramnetworkerror" in text
                 or "cannot connect to host api.telegram.org" in text
