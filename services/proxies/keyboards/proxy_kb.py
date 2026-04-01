@@ -98,7 +98,7 @@ def proxy_search_kb(
             [
                 InlineKeyboardButton(
                     text=t(lang, "proxy_search_state_city"),
-                    switch_inline_query_current_chat=f'proxy city "{country}" ',
+                    switch_inline_query_current_chat=f'proxy state "{country}" ',
                     style="primary",
                 )
             ]

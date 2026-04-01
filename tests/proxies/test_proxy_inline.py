@@ -60,3 +60,8 @@ def test_match_index_key_is_case_insensitive():
     }
     assert _match_index_key(mapping, "UNITED STATES") == "United States"
     assert _match_index_key(mapping, "germany") == "Germany"
+
+
+def test_match_index_key_returns_raw_value_when_not_found():
+    mapping = {"United States": ["California"]}
+    assert _match_index_key(mapping, "Canada") == "Canada"

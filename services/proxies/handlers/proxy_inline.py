@@ -222,21 +222,23 @@ async def proxy_inline_search(inline_query: types.InlineQuery):
             country = decode_token(country_locator) or country_locator
             matched_country = _match_index_key(index["states_by_country"], country)
             country_tok = encode_token(matched_country or country)
-            states = index["states_by_country"].get(matched_country, [])
+            states = _non_any_values(index["states_by_country"].get(matched_country, []))
+            city_fallback = _non_any_values(index["cities_by_country"].get(matched_country, []))
+            location_values = states or city_fallback
             session = await SessionManager.get_session()
-            for state in states:
-                if _contains(state, search_term):
-                    st_tok = encode_token(state)
-                    state_code = _proxy_state_code(matched_country or country, state)
+            for location in location_values:
+                if _contains(location, search_term):
+                    st_tok = encode_token(location)
+                    state_code = _proxy_state_code(matched_country or country, location)
                     thumb_url = (
-                        await resolve_state_icon_url(state_code, state, session)
+                        await resolve_state_icon_url(state_code, location, session)
                         if state_code
-                        else get_generic_service_icon_url(state or "State")
+                        else get_generic_service_icon_url(location or "State")
                     )
                     results.append(
                         _article(
                             _safe_result_id("ps", country_tok, st_tok),
-                            str(state or "").strip().title(),
+                            str(location or "").strip().title(),
                             f"Code: {state_code}" if state_code else _proxy_country_title(matched_country or country),
                             f"/proxy_state_{country_tok}~{st_tok}",
                             thumb_url=thumb_url,
