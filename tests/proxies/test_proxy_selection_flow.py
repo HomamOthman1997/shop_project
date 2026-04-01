@@ -39,6 +39,14 @@ def test_proxy_filter_offers_supports_provider_and_period():
     assert narrowed == [offers[0]]
 
 
+def test_provider_error_text_masks_provider_balance_shortage():
+    text = proxy_flow._provider_error_text(
+        "en",
+        {"title": "REQUEST_ERROR", "details": "Your balance is insufficient"},
+    )
+    assert text == "Provider is temporarily unavailable. Please try again after 30 minutes."
+
+
 def test_proxy_location_mode_prefers_state_over_city_and_falls_back_to_city():
     data = {
         "proxy_country": "UNITED STATES",

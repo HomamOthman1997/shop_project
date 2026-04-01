@@ -779,15 +779,46 @@ def _quality_reason_text(lang: str, reason: str | None) -> str:
 def _provider_error_text(lang: str, payload: dict | None) -> str:
     raw = payload if isinstance(payload, dict) else {}
     code = str(raw.get("title") or raw.get("error") or "").strip().upper()
+    details = str(raw.get("details") or raw.get("message") or "").strip()
+    details_upper = details.upper()
+    temporary_public_error = (
+        "Provider is temporarily unavailable. Please try again after 30 minutes."
+        if lang == "en"
+        else "المزوّد غير متاح حاليا. حاول مرة أخرى بعد 30 دقيقة."
+    )
     if code in {"AUTH_FAILED", "PERMISSION_DENIED", "INVALID_API_KEY", "UNAUTHORIZED", "FORBIDDEN"}:
         return "Authorization rejected by provider" if lang == "en" else "تم رفض صلاحية المزود (Authorization)"
+    if code in {
+        "INSUFFICIENT_BALANCE",
+        "INSUFFICIENT_FUNDS",
+        "BALANCE_LOW",
+        "BALANCE_EXHAUSTED",
+        "OUT_OF_STOCK",
+        "TEMPORARY_FAILURE",
+        "TEMPORARILY_UNAVAILABLE",
+    }:
+        return temporary_public_error
     if code in {"NOT_CONFIGURED", "UNKNOWN_PROVIDER"}:
         return "Provider unavailable" if lang == "en" else "المزود غير متاح حالياً"
     if code in {"QUALITY_FAIL", "QUALITY_GATE_FAILED"}:
         return "Proxy quality check failed" if lang == "en" else "فشل فحص جودة البروكسي"
+    if any(
+        marker in details_upper
+        for marker in (
+            "YOUR BALANCE IS INSUFFICIENT",
+            "INSUFFICIENT BALANCE",
+            "INSUFFICIENT_FUNDS",
+            "BALANCE IS INSUFFICIENT",
+            "BALANCE TOO LOW",
+            "LOW BALANCE",
+            "OUT OF STOCK",
+            "TEMPORARILY UNAVAILABLE",
+            "TRY AGAIN LATER",
+        )
+    ):
+        return temporary_public_error
     if code in {"REQUEST_ERROR", "TIMEOUT", "NETWORK_ERROR", "REFRESH_FAILED", "RECONFIGURE_FAILED"}:
         return "Provider request failed" if lang == "en" else "فشل الاتصال بمزود البروكسي"
-    details = str(raw.get("details") or raw.get("message") or "").strip()
     if details:
         return details[:120]
     return provider_generic_error(lang)
