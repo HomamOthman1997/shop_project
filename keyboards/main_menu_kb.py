@@ -5,7 +5,6 @@ from utils.translations import t
 
 def main_menu(lang: str) -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton(text=t(lang, "btn_services"))],
         [
             KeyboardButton(text=t(lang, "btn_proxies")),
             KeyboardButton(text=t(lang, "btn_numbers")),
@@ -25,7 +24,6 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
 
 def reseller_user_main_menu(lang: str) -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton(text=t(lang, "btn_services"))],
         [
             KeyboardButton(text=t(lang, "btn_balance")),
             KeyboardButton(text=t(lang, "btn_settings")),

@@ -2,10 +2,13 @@ import os
 import sys
 
 import pytest
+from utils.translations import t
 
 sys.path.insert(0, os.getcwd())
 
 from utils import bot_menu_context
+from keyboards.main_menu_kb import main_menu, reseller_user_main_menu
+from keyboards.reseller_main_menu import reseller_main_menu
 
 
 class _DummyMessage:
@@ -49,3 +52,18 @@ async def test_send_digital_products_message_clears_reply_keyboard_first(monkeyp
     assert message.calls[0][1].__class__.__name__ == "ReplyKeyboardRemove"
     assert message.calls[1][0]
     assert message.calls[1][1].__class__.__name__ == "InlineKeyboardMarkup"
+
+
+def test_main_menus_do_not_show_custom_services_button():
+    main_buttons = [btn.text for row in main_menu("en").keyboard for btn in row]
+    reseller_buttons = [btn.text for row in reseller_user_main_menu("en").keyboard for btn in row]
+    inline_callbacks = [
+        btn.callback_data
+        for row in reseller_main_menu("en").inline_keyboard
+        for btn in row
+        if btn.callback_data
+    ]
+
+    assert t("en", "btn_services") not in main_buttons
+    assert t("en", "btn_services") not in reseller_buttons
+    assert "rsmenu:custom_services" not in inline_callbacks

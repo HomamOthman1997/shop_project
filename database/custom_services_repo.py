@@ -26,6 +26,17 @@ def _norm_catalog_type(catalog_type: str | None) -> str:
     return "custom"
 
 
+def _default_custom_root_folders() -> list[str]:
+    return [
+        "Email",
+        "SSN",
+        "ICloud",
+        "VISA CARD",
+        "BANKS",
+        "PAYPAL",
+    ]
+
+
 async def bootstrap_custom_services_indexes() -> None:
     await db.custom_services.create_index([("reseller_id", 1), ("parent_id", 1), ("is_active", 1)], background=True)
     await db.custom_services.create_index([("reseller_id", 1), ("node_type", 1), ("is_active", 1)], background=True)
@@ -64,6 +75,25 @@ async def ensure_root_node(reseller_id: int, *, catalog_type: str = "custom") ->
     }
     res = await db.custom_services.insert_one(doc)
     doc["_id"] = res.inserted_id
+    if catalog == "custom":
+        now = datetime.now(UTC)
+        await db.custom_services.insert_many(
+            [
+                {
+                    "reseller_id": reseller_id,
+                    "catalog_type": catalog,
+                    "name": name,
+                    "node_type": "folder",
+                    "parent_id": doc["_id"],
+                    "is_root": False,
+                    "is_active": True,
+                    "position": idx,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                for idx, name in enumerate(_default_custom_root_folders())
+            ]
+        )
     return doc
 
 

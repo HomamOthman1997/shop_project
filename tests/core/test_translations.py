@@ -31,3 +31,11 @@ def test_numbers_purchase_notices_arabic_are_not_corrupted():
     assert "????" not in confirmed
     assert "الرصيد الحالي" in refunded
     assert "الرصيد الحالي" in confirmed
+
+
+def test_numbers_us_state_prompt_arabic_is_not_corrupted():
+    prompt = t("ar", "numbers_us_state_prompt")
+
+    assert "????" not in prompt
+    assert "الولايات المتحدة" in prompt
+    assert "Any State" in prompt

@@ -673,31 +673,7 @@ async def open_custom_user(message: types.Message, state: FSMContext):
     await state.clear()
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
-    bot_id = (await message.bot.get_me()).id
-    catalog_owner_id = await _resolve_catalog_owner_id(message.from_user.id, bot_id)
-    wallet_scope_id = await _resolve_user_reseller(message.from_user.id, bot_id)
-    if not catalog_owner_id or not wallet_scope_id:
-        return await message.answer(t(lang, "no_custom_services"))
-
-    owner_builder_available = await is_main_bot(bot_id) and int(message.from_user.id) == int(OWNER_ID)
-    root = await ensure_root_node(catalog_owner_id, catalog_type=_CATALOG_CUSTOM)
-    children = await list_children(int(catalog_owner_id), root["_id"], catalog_type=_CATALOG_CUSTOM)
-    if not children and not owner_builder_available:
-        return await message.answer(t(lang, "no_custom_services"), reply_markup=ReplyKeyboardRemove())
-
-    await message.answer(
-        _services_landing_text(lang, owner_builder_available=owner_builder_available),
-        reply_markup=ReplyKeyboardRemove(),
-    )
-    await state.update_data(
-        custom_bot_id=bot_id,
-        custom_catalog_owner_id=int(catalog_owner_id),
-        custom_wallet_scope_id=int(wallet_scope_id),
-        custom_root_node_id=str(root["_id"]),
-        custom_mode="user",
-        custom_catalog_type=_CATALOG_CUSTOM,
-        custom_financial_mode=_FINANCIAL_CUSTOM,
-    )
+    return await message.answer(t(lang, "no_custom_services"), reply_markup=ReplyKeyboardRemove())
     await message.answer(
         t(lang, "services_entry_prompt"),
         reply_markup=_services_landing_kb(lang, show_builder=owner_builder_available),
@@ -847,37 +823,9 @@ async def open_id_info_builder(message: types.Message, state: FSMContext):
 
 @router.callback_query(lambda c: c.data == "rsmenu:custom_services")
 async def open_custom_builder_from_menu(callback: types.CallbackQuery, state: FSMContext):
-    bot_id = (await callback.bot.get_me()).id
-    if not await _can_open_builder_catalog(callback.from_user.id, callback.bot):
-        return await callback.answer(t(await _user_lang(callback.from_user.id), "reseller_only_command"), show_alert=True)
-    lang = (await get_user(callback.from_user.id) or {}).get("language", "en")
-    if not await is_main_bot(bot_id):
-        setup_status = await get_reseller_setup_status(callback.from_user.id)
-        if not bool(setup_status.get("ready")):
-            await callback.answer(t(lang, "reseller_setup_blocked_alert"), show_alert=True)
-            if callback.message:
-                await callback.message.answer(render_reseller_setup_notice(lang, setup_status))
-            return
-    await callback.answer()
     await state.clear()
-    catalog_owner_id = int(OWNER_ID) if await is_main_bot(bot_id) else int(callback.from_user.id)
-    root = await ensure_root_node(catalog_owner_id, catalog_type=_CATALOG_CUSTOM)
-    await state.update_data(
-        custom_catalog_owner_id=catalog_owner_id,
-        custom_mode="builder",
-        custom_catalog_type=_CATALOG_CUSTOM,
-        custom_financial_mode=_FINANCIAL_CUSTOM,
-    )
-    if callback.message:
-        await _render_node(
-            callback,
-            state,
-            catalog_owner_id,
-            root["_id"],
-            is_builder=True,
-            catalog_type=_CATALOG_CUSTOM,
-        )
-        await callback.message.answer(_builder_help_text(lang))
+    lang = (await get_user(callback.from_user.id) or {}).get("language", "en")
+    return await callback.answer(t(lang, "no_custom_services"), show_alert=True)
 
 
 @router.callback_query(lambda c: c.data == "rsmenu:id_info_services")
