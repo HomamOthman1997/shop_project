@@ -472,6 +472,29 @@ async def _send_endpoint_delivery(
     return False
 
 
+def _delivery_preview_text(
+    *,
+    endpoint: dict,
+    qty: int,
+    lang: str,
+    stock_items: list[str] | None = None,
+) -> str | None:
+    qty_line = t(lang, "custom_qty_line").format(qty=int(qty))
+    if stock_items:
+        payload = "\n".join([str(item or "").strip() for item in stock_items if str(item or "").strip()])
+        if not payload:
+            return None
+        return t(lang, "custom_digital_delivery_block").format(payload=payload, qty_line=qty_line)
+
+    delivery_type = str(endpoint.get("delivery_type") or "").strip().lower()
+    if delivery_type == "text":
+        text = str(endpoint.get("delivery_text") or "").strip()
+        if not text:
+            return None
+        return t(lang, "custom_digital_delivery_block").format(payload=text, qty_line=qty_line)
+    return None
+
+
 def _node_btn(node: dict) -> InlineKeyboardButton:
     name = str(node.get("name") or t("en", "unnamed_plain"))
     return InlineKeyboardButton(
@@ -2157,6 +2180,14 @@ def _buy_confirm_kb(lang: str) -> InlineKeyboardMarkup:
     )
 
 
+def _purchase_complete_kb(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="cstm:cancel")],
+        ]
+    )
+
+
 async def _ask_buy_qty(message: types.Message, endpoint: dict, data: dict) -> None:
     lang = await _user_lang(message.from_user.id)
     min_qty = int(data.get("buy_min_qty", 1))
@@ -2209,7 +2240,13 @@ async def _show_buy_confirm(message: types.Message, state: FSMContext, endpoint:
     )
 
 
-async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) -> None:
+async def _execute_buy(
+    message: types.Message,
+    state: FSMContext,
+    user_id: int,
+    *,
+    result_message: types.Message | None = None,
+) -> None:
     user = await get_user(user_id)
     lang = (user or {}).get("language", "en")
     data = await state.get_data()
@@ -2363,15 +2400,24 @@ async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) 
             return
 
         delivery_ok = False
+        delivery_preview = _delivery_preview_text(
+            endpoint=endpoint,
+            qty=qty,
+            lang=lang,
+            stock_items=claimed_items,
+        )
         try:
-            delivery_ok = await _send_endpoint_delivery(
-                bot=message.bot,
-                user_id=user_id,
-                endpoint=endpoint,
-                qty=qty,
-                lang=lang,
-                stock_items=claimed_items,
-            )
+            if delivery_preview is not None and result_message is not None:
+                delivery_ok = True
+            else:
+                delivery_ok = await _send_endpoint_delivery(
+                    bot=message.bot,
+                    user_id=user_id,
+                    endpoint=endpoint,
+                    qty=qty,
+                    lang=lang,
+                    stock_items=claimed_items,
+                )
         except Exception as exc:
             logger.exception(
                 "Digital delivery failed endpoint=%s user=%s err=%s",
@@ -2381,15 +2427,27 @@ async def _execute_buy(message: types.Message, state: FSMContext, user_id: int) 
             )
 
         await state.clear()
-        await message.answer(
-            t(lang, "custom_purchase_success_summary").format(
-                service=data.get("buy_service_name") or endpoint.get("name"),
-                qty=qty,
-                total=total,
-                remaining_qty=remaining_qty,
-                delivery=t(lang, "sent_plain") if delivery_ok else t(lang, "custom_delivery_not_configured_or_failed"),
-            )
+        summary_text = t(lang, "custom_purchase_success_summary").format(
+            service=data.get("buy_service_name") or endpoint.get("name"),
+            qty=qty,
+            total=total,
+            remaining_qty=remaining_qty,
+            delivery=t(lang, "sent_plain") if delivery_ok else t(lang, "custom_delivery_not_configured_or_failed"),
         )
+        if delivery_preview is not None and result_message is not None:
+            try:
+                await _safe_edit_text(
+                    result_message,
+                    f"{delivery_preview}\n\n{summary_text}",
+                    reply_markup=_purchase_complete_kb(lang),
+                )
+            except Exception:
+                await message.answer(f"{delivery_preview}\n\n{summary_text}", reply_markup=_purchase_complete_kb(lang))
+        else:
+            await message.answer(
+                summary_text,
+                reply_markup=_purchase_complete_kb(lang),
+            )
     except Exception as exc:
         logger.exception("Custom service purchase flow failed: %s", exc)
         if order_id is not None:
@@ -2519,7 +2577,7 @@ async def confirm_buy_endpoint(callback: types.CallbackQuery, state: FSMContext)
     if qty <= 0:
         return await callback.answer(t(lang, "custom_choose_quantity_first"), show_alert=True)
     if callback.message:
-        await _execute_buy(callback.message, state, callback.from_user.id)
+        await _execute_buy(callback.message, state, callback.from_user.id, result_message=callback.message)
     await callback.answer()
 
 

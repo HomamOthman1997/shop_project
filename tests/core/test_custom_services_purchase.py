@@ -28,11 +28,16 @@ class _FakeState:
 class _FakeMessage:
     def __init__(self):
         self.answers = []
+        self.edits = []
         self.bot = SimpleNamespace()
         self.from_user = SimpleNamespace(id=77)
 
     async def answer(self, text, **kwargs):
         self.answers.append({"text": str(text), "kwargs": kwargs})
+        return SimpleNamespace(message_id=1)
+
+    async def edit_text(self, text, **kwargs):
+        self.edits.append({"text": str(text), "kwargs": kwargs})
         return SimpleNamespace(message_id=1)
 
 
@@ -127,13 +132,6 @@ async def test_execute_buy_uses_reserve_for_text_delivery(monkeypatch):
     async def _fake_update_order_status(*_args, **_kwargs):
         return None
 
-    async def _fake_send_endpoint_delivery(**kwargs):
-        delivery_calls.append(kwargs)
-        return True
-
-    async def _fake_render_node(*_args, **_kwargs):
-        return None
-
     monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
     monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
     monkeypatch.setattr(custom_services, "reserve_endpoint_stock", _fake_reserve)
@@ -142,15 +140,15 @@ async def test_execute_buy_uses_reserve_for_text_delivery(monkeypatch):
     monkeypatch.setattr(custom_services.FinancialManager, "process_custom_purchase", _fake_process_custom_purchase)
     monkeypatch.setattr(custom_services, "update_order_details", _fake_update_order_details)
     monkeypatch.setattr(custom_services, "update_order_status", _fake_update_order_status)
-    monkeypatch.setattr(custom_services, "_send_endpoint_delivery", _fake_send_endpoint_delivery)
-    monkeypatch.setattr(custom_services, "_render_node", _fake_render_node)
 
-    await custom_services._execute_buy(message, state, 77)
+    await custom_services._execute_buy(message, state, 77, result_message=message)
 
     assert reserve_calls == [2]
     assert claim_calls == []
-    assert delivery_calls and delivery_calls[0]["lang"] == "en"
-    assert any("Purchased successfully" in row["text"] for row in message.answers)
+    assert delivery_calls == []
+    assert message.edits
+    assert "Purchased successfully" in message.edits[-1]["text"]
+    assert "payload" in message.edits[-1]["text"]
 
 
 @pytest.mark.asyncio
