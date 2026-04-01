@@ -158,6 +158,15 @@ async def menu_for_current_bot(lang: str, bot_or_id):
     return main_menu(lang)
 
 
+async def _remove_reply_keyboard_if_message(target: types.Message | types.CallbackQuery) -> None:
+    if isinstance(target, types.CallbackQuery):
+        return
+    try:
+        await target.answer("\u2800", reply_markup=types.ReplyKeyboardRemove())
+    except Exception:
+        return
+
+
 async def send_main_bot_message(
     target: types.Message | types.CallbackQuery,
     *,
@@ -166,6 +175,7 @@ async def send_main_bot_message(
 ) -> None:
     text = await main_bot_services_text(lang)
     kb = main_bot_services_kb(lang, back_callback=back_callback)
+    await _remove_reply_keyboard_if_message(target)
     if isinstance(target, types.CallbackQuery):
         if target.message:
             await target.message.answer(text, reply_markup=kb)
@@ -184,6 +194,7 @@ async def send_digital_products_message(
     if url:
         rows.append([types.InlineKeyboardButton(text=t(lang, "open_digital_products_button"), url=url)])
     kb = types.InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+    await _remove_reply_keyboard_if_message(target)
     if isinstance(target, types.CallbackQuery):
         if target.message:
             await target.message.answer(text, reply_markup=kb)
