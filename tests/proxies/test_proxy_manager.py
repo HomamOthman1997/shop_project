@@ -26,6 +26,17 @@ class DummyProvider:
         return {"success": True, "endpoint": "9.9.9.9:2000", "order_id": "R2"}
 
 
+class DummyUsernameProvider(DummyProvider):
+    def __init__(self, available: set[str]):
+        super().__init__()
+        self.available = set(available)
+        self.checked: list[str] = []
+
+    async def check_username_available(self, username: str):
+        self.checked.append(username)
+        return username in self.available
+
+
 def test_proxy_registry_keeps_4g_enabled_while_9proxy_is_suspended():
     assert set(manager.PROXY_PROVIDERS.keys()) == {"4g"}
 
@@ -153,3 +164,15 @@ def test_unlimited_category_accepts_only_golden_4g():
     assert _category_provider_match({"provider": "4g", "title": "Golden Package | Verizon 5G | 5G"}, "unlimited") is True
     assert _category_provider_match({"provider": "4g", "title": "Silver Package | Verizon 5G | 5G"}, "unlimited") is False
     assert _category_provider_match({"provider": "4g", "title": "Injection Package | Verizon 5G | 5G"}, "unlimited") is False
+
+
+@pytest.mark.asyncio
+async def test_reserve_available_4g_username_uses_short_ph_prefix(monkeypatch):
+    provider = DummyUsernameProvider({"PH315"})
+    monkeypatch.setattr(manager, "PROXY_PROVIDERS", {"4g": provider})
+    monkeypatch.setattr(manager.secrets, "randbelow", lambda _n: 315)
+
+    username = await manager.reserve_available_4g_username()
+
+    assert username == "PH315"
+    assert provider.checked == ["PH315"]

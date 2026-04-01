@@ -253,7 +253,7 @@ async def rent_proxy_offer(offer: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-async def reserve_available_4g_username(prefix: str = "CyberZone", *, attempts: int = 30) -> str:
+async def reserve_available_4g_username(prefix: str = "PH", *, attempts: int = 30) -> str:
     provider = PROXY_PROVIDERS.get("4g")
     if not provider or not hasattr(provider, "check_username_available"):
         return ""
