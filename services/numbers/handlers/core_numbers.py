@@ -58,14 +58,10 @@ _COUNTRY_ISO = {
 
 async def _hide_reply_keyboard(message: types.Message, lang: str) -> None:
     try:
-        sent = await message.answer(
-            t(lang, "keyboard_cleanup_placeholder"),
+        await message.answer(
+            "\u2800",
             reply_markup=types.ReplyKeyboardRemove(),
         )
-        try:
-            await sent.delete()
-        except Exception:
-            pass
     except Exception:
         pass
 

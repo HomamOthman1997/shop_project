@@ -825,7 +825,7 @@ async def owner_panel_action(callback: types.CallbackQuery, state: FSMContext):
     if action == "send_test_log":
         import logging
 
-        logging.getLogger("owner.logs").error("Owner test log: manual test from owner panel.")
+        logging.getLogger("owner.logs").info("Owner test log: manual test from owner panel.")
         if callback.message:
             await callback.message.answer("Test log emitted. Check the bound logs topic.")
         return await callback.answer("Sent")

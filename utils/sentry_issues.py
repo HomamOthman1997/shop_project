@@ -35,10 +35,11 @@ async def fetch_sentry_project_issues(*, hours: int = 24, limit: int = 20) -> li
     window_hours = max(1, min(int(hours or 24), 168))
     rows_limit = max(1, min(int(limit or 20), 100))
 
+    stats_period = "24h" if window_hours <= 24 else "14d"
     query = {
         "query": "is:unresolved",
         "sort": "freq",
-        "statsPeriod": f"{window_hours}h",
+        "statsPeriod": stats_period,
         "limit": str(rows_limit),
     }
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}

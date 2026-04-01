@@ -1,4 +1,5 @@
 import base64
+import binascii
 from collections import defaultdict
 from datetime import UTC, datetime
 
@@ -65,7 +66,12 @@ def decode_token(token: str) -> str:
     if not t:
         return ""
     padding = "=" * ((4 - len(t) % 4) % 4)
-    return base64.urlsafe_b64decode((t + padding).encode("ascii")).decode("utf-8", errors="ignore")
+    try:
+        decoded = base64.urlsafe_b64decode((t + padding).encode("ascii")).decode("utf-8", errors="ignore")
+    except (binascii.Error, ValueError, UnicodeEncodeError):
+        return ""
+    # Accept only values that round-trip through our encoder.
+    return decoded if encode_token(decoded) == t else ""
 
 
 def filter_offers(

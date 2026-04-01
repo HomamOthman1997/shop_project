@@ -922,11 +922,10 @@ async def _load_user_proxy_order(raw_id: str, user_id: int) -> tuple[ObjectId | 
 async def open_proxy_menu(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
-    cleanup_message: types.Message | None = None
     try:
-        cleanup_message = await message.answer("\u2800", reply_markup=ReplyKeyboardRemove())
+        await message.answer("\u2800", reply_markup=ReplyKeyboardRemove())
     except Exception:
-        cleanup_message = None
+        pass
 
     await state.clear()
     await state.update_data(
@@ -944,11 +943,6 @@ async def open_proxy_menu(message: types.Message, state: FSMContext):
         proxy_panel_msg=None,
     )
     await _render_proxy_entry_menu(message, state, lang)
-    if cleanup_message:
-        try:
-            await cleanup_message.delete()
-        except Exception:
-            pass
     await state.set_state(ProxyFlow.menu)
 
 

@@ -13,6 +13,7 @@ from services.proxies.handlers.proxy_inline import (
     _proxy_country_title,
     _proxy_state_code,
 )
+from services.proxies.catalog_cache import decode_token
 
 
 def test_proxy_country_title_and_iso():
@@ -74,3 +75,7 @@ def test_match_country_key_checks_states_and_cities_maps():
         "cities_by_country": {"Germany": ["Berlin"]},
     }
     assert _match_country_key(index, "germany") == "Germany"
+
+
+def test_decode_token_returns_empty_for_plain_text_locator():
+    assert decode_token("UNITED STATES") == ""
