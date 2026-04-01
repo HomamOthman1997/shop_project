@@ -259,7 +259,7 @@ async def reserve_available_4g_username(prefix: str = "PH", *, attempts: int = 3
         return ""
     tried: set[str] = set()
     for _ in range(max(1, attempts)):
-        candidate = f"{prefix}{secrets.randbelow(1000):03d}"
+        candidate = f"{prefix}{secrets.randbelow(10000):04d}"
         if candidate in tried:
             continue
         tried.add(candidate)

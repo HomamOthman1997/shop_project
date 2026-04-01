@@ -168,11 +168,11 @@ def test_unlimited_category_accepts_only_golden_4g():
 
 @pytest.mark.asyncio
 async def test_reserve_available_4g_username_uses_short_ph_prefix(monkeypatch):
-    provider = DummyUsernameProvider({"PH315"})
+    provider = DummyUsernameProvider({"PH0315"})
     monkeypatch.setattr(manager, "PROXY_PROVIDERS", {"4g": provider})
     monkeypatch.setattr(manager.secrets, "randbelow", lambda _n: 315)
 
     username = await manager.reserve_available_4g_username()
 
-    assert username == "PH315"
-    assert provider.checked == ["PH315"]
+    assert username == "PH0315"
+    assert provider.checked == ["PH0315"]
