@@ -71,13 +71,13 @@ def test_builder_add_options_for_folder_and_endpoint():
 
     assert "cstm:addf:x1" in folder_actions
     assert "cstm:adde:x1" in folder_actions
-    assert "cstm:adds:x1" in folder_actions
-    assert "cstm:addse:x1" in folder_actions
+    assert "cstm:adds:x1" not in folder_actions
+    assert "cstm:addse:x1" not in folder_actions
 
     assert "cstm:addf:x2" not in endpoint_actions
     assert "cstm:adde:x2" not in endpoint_actions
-    assert "cstm:adds:x2" in endpoint_actions
-    assert "cstm:addse:x2" in endpoint_actions
+    assert "cstm:adds:x2" not in endpoint_actions
+    assert "cstm:addse:x2" not in endpoint_actions
 
 
 def test_endpoint_ready_for_sale_variants():

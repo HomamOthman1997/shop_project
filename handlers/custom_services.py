@@ -383,11 +383,6 @@ def _builder_add_options_kb(
             rows.append([InlineKeyboardButton(text=t("en", "custom_add_folder"), callback_data=f"cstm:addf:{node_id}")])
         if not is_root:
             rows.append([InlineKeyboardButton(text=t("en", "custom_add_endpoint"), callback_data=f"cstm:adde:{node_id}")])
-        rows.append([InlineKeyboardButton(text=t("en", "custom_add_sibling_folder"), callback_data=f"cstm:adds:{node_id}")])
-        rows.append([InlineKeyboardButton(text=t("en", "custom_add_sibling_endpoint"), callback_data=f"cstm:addse:{node_id}")])
-    else:
-        rows.append([InlineKeyboardButton(text=t("en", "custom_add_sibling_folder"), callback_data=f"cstm:adds:{node_id}")])
-        rows.append([InlineKeyboardButton(text=t("en", "custom_add_sibling_endpoint"), callback_data=f"cstm:addse:{node_id}")])
     rows.append([InlineKeyboardButton(text=t("en", "back"), callback_data=f"cstm:open:{node_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
