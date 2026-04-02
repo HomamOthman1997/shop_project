@@ -1246,10 +1246,8 @@ async def _render_node(
         custom_display_text = str(node.get("display_text") or "").strip()
         if custom_display_text:
             text = custom_display_text
-        elif children:
-            text = f"{catalog_title}\n\n{name}\n{t(viewer_lang, 'items_count_plain').format(count=len(children))}"
         else:
-            text = f"{catalog_title}\n\n{name}\n{t(viewer_lang, 'custom_no_items_in_folder')}"
+            text = catalog_title if bool(node.get("is_root")) else name
 
         if is_builder:
             if layout_mode and can_manage_structure:
