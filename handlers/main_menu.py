@@ -14,7 +14,7 @@ from database.bots_repo import get_reseller_id_for_bot
 from database.financial_ledger import get_reseller_wallet_balance, get_user_wallet_balance
 from database.mongo import db
 from database.recharge_repo import create_recharge_request
-from database.owner_payment_settings_repo import get_owner_payment_methods
+from database.owner_payment_settings_repo import get_owner_exchange_rate, get_owner_payment_methods
 from database.reseller_settings_repo import (
     get_exchange_rate_meta,
     get_exchange_routing,
