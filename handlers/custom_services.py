@@ -1306,7 +1306,7 @@ async def open_custom_user(message: types.Message, state: FSMContext):
     children = await list_children(int(catalog_owner_id), root["_id"], catalog_type=_CATALOG_CUSTOM)
     if not children and not can_open_builder:
         return await message.answer(t(lang, "no_custom_services"), reply_markup=ReplyKeyboardRemove())
-    landing = await message.answer("\u2800", reply_markup=ReplyKeyboardRemove())
+    landing = await message.answer("Loading...", reply_markup=ReplyKeyboardRemove())
 
     if can_open_builder:
         owner_root = await ensure_root_node(int(OWNER_ID), catalog_type=_CATALOG_CUSTOM)
