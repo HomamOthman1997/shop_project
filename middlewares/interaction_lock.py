@@ -16,7 +16,7 @@ class InteractionLockMiddleware(BaseMiddleware):
         self._guard = asyncio.Lock()
         self._callback_inflight_wait_sec = max(
             0.05,
-            float(getattr(settings, "interaction_lock_callback_wait_ms", 350) or 350) / 1000.0,
+            float(getattr(settings, "interaction_lock_callback_wait_ms", 175) or 175) / 1000.0,
         )
         self._callback_inflight_poll_sec = 0.05
 
@@ -130,8 +130,8 @@ class InteractionLockMiddleware(BaseMiddleware):
                 return None
 
         now = time.monotonic()
-        callback_window = max(75, int(getattr(settings, "interaction_lock_callback_window_ms", 450) or 450)) / 1000.0
-        message_window = max(100, int(getattr(settings, "interaction_lock_message_window_ms", 900) or 900)) / 1000.0
+        callback_window = max(75, int(getattr(settings, "interaction_lock_callback_window_ms", 225) or 225)) / 1000.0
+        message_window = max(100, int(getattr(settings, "interaction_lock_message_window_ms", 450) or 450)) / 1000.0
 
         if is_callback:
             wait_deadline = now + self._callback_inflight_wait_sec
