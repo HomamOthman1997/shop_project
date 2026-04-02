@@ -664,7 +664,11 @@ async def _safe_edit_text(
     try:
         await message.edit_text(text, reply_markup=reply_markup)
     except TelegramBadRequest as exc:
-        if "message is not modified" in str(exc).lower():
+        error_text = str(exc).lower()
+        if "message is not modified" in error_text:
+            return
+        if "message can't be edited" in error_text or "message cant be edited" in error_text:
+            await message.answer(text, reply_markup=reply_markup)
             return
         raise
 
