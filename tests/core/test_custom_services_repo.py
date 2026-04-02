@@ -43,8 +43,9 @@ async def test_ensure_root_node_seeds_default_custom_folders(monkeypatch):
         "VISA CARD",
         "BANKS",
         "PAYPAL",
+        "Preorder",
     ]
-    assert [row["position"] for row in child_docs] == [0, 1, 2, 3, 4, 5]
+    assert [row["position"] for row in child_docs] == [0, 1, 2, 3, 4, 5, 6]
 
 
 @pytest.mark.asyncio
@@ -85,6 +86,7 @@ async def test_ensure_root_node_seeds_existing_empty_root(monkeypatch):
         "VISA CARD",
         "BANKS",
         "PAYPAL",
+        "Preorder",
     ]
 
 

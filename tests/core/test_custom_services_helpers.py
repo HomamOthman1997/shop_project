@@ -9,6 +9,7 @@ sys.path.insert(0, os.getcwd())
 
 import handlers.custom_services as custom_services
 from handlers.custom_services import (
+    _auto_fulfill_inventory_preorders,
     _builder_add_options_kb,
     _can_manage_builder,
     _can_manage_builder_structure,
@@ -162,6 +163,22 @@ def test_parse_inventory_payload_supports_html_and_arabic_labels():
     assert _parse_inventory_payload(payload) == [
         "Email: first@example.com\nPassword: pass-1\nRecovery: لا يوجد",
         "Email: second@example.com\nPassword: pass-2\nRecovery: لا يوجد",
+    ]
+
+
+def test_parse_inventory_payload_splits_repeated_email_blocks_without_separators():
+    payload = """Email: first@example.com
+Password: pass-1
+Recovery: No Recovery
+
+Email: second@example.com
+Password: pass-2
+Recovery: No Recovery
+"""
+
+    assert _parse_inventory_payload(payload, ssn_mode=False) == [
+        "Email: first@example.com\nPassword: pass-1\nRecovery: No Recovery",
+        "Email: second@example.com\nPassword: pass-2\nRecovery: No Recovery",
     ]
 
 
@@ -580,3 +597,60 @@ async def test_deactivate_node_cascades(monkeypatch):
     modified = await repo.deactivate_node(root, 77)
     assert modified == 4
     assert set(fake_collection.updated_ids) == {root, child_a, child_b, grand_child}
+
+
+@pytest.mark.asyncio
+async def test_auto_fulfill_inventory_preorders_delivers_fifo(monkeypatch):
+    deliveries = []
+    order_updates = []
+    statuses = []
+    queue = [{"_id": "pre1", "buyer_user_id": 88, "order_id": "ord1", "qty": 1}, None]
+
+    async def _fake_next_pending(_endpoint_id):
+        return queue.pop(0)
+
+    async def _fake_claim(*_args, **_kwargs):
+        return {
+            "claimed_items": ["Email: first@example.com\nPassword: p1\nRecovery: No Recovery"],
+            "remaining_qty": 0,
+        }
+
+    async def _fake_mark_fulfilling(preorder_id, actor_id):
+        return {"_id": preorder_id, "buyer_user_id": 88, "order_id": "ord1", "qty": 1}
+
+    async def _fake_mark_fulfilled(preorder_id, actor_id):
+        return {"_id": preorder_id}
+
+    async def _fake_get_user(_user_id):
+        return {"language": "en"}
+
+    async def _fake_send_delivery(**kwargs):
+        deliveries.append(kwargs)
+        return True
+
+    async def _fake_update_order_details(order_id, payload):
+        order_updates.append((order_id, payload))
+
+    async def _fake_update_order_status(order_id, status):
+        statuses.append((order_id, status))
+
+    monkeypatch.setattr(custom_services, "get_next_pending_preorder", _fake_next_pending)
+    monkeypatch.setattr(custom_services, "claim_endpoint_inventory", _fake_claim)
+    monkeypatch.setattr(custom_services, "mark_preorder_fulfilling", _fake_mark_fulfilling)
+    monkeypatch.setattr(custom_services, "mark_preorder_fulfilled", _fake_mark_fulfilled)
+    monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
+    monkeypatch.setattr(custom_services, "_send_endpoint_delivery", _fake_send_delivery)
+    monkeypatch.setattr(custom_services, "update_order_details", _fake_update_order_details)
+    monkeypatch.setattr(custom_services, "update_order_status", _fake_update_order_status)
+
+    delivered = await _auto_fulfill_inventory_preorders(
+        bot=SimpleNamespace(),
+        endpoint={"_id": "ep1", "name": "GMAIL"},
+        catalog_owner_id=77,
+        catalog_type="custom",
+    )
+
+    assert delivered == ["pre1"]
+    assert deliveries and deliveries[0]["user_id"] == 88
+    assert statuses == [("ord1", "success")]
+    assert order_updates and order_updates[0][1]["custom_preorder_fulfilled_automatically"] is True

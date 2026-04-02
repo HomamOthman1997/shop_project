@@ -59,9 +59,9 @@ def is_valid_token(text: str):
 def _normalize_token_input(raw: str) -> str:
     if not raw:
         return ""
-    cleaned = raw.strip().strip("`'\"")
+    cleaned = raw.strip().strip("`'\"<>[](){}")
     # Normalize common unicode punctuation that breaks token parsing.
-    cleaned = cleaned.replace(":", ":").replace("?", ":")
+    cleaned = re.sub(r"[：﹕꞉∶ː]", ":", cleaned)
     cleaned = re.sub(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\s]+", "", cleaned)
     return cleaned
 
@@ -70,7 +70,7 @@ def _extract_token_input(raw: str) -> str:
     cleaned = _normalize_token_input(raw)
     if not cleaned:
         return ""
-    m = re.search(r"(\d{9,10}:[A-Za-z0-9_-]{30,})", cleaned)
+    m = re.search(r"(\d{8,12}:[A-Za-z0-9_-]{20,})", cleaned)
     if m:
         return m.group(1)
     return cleaned

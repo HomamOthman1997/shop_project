@@ -1021,6 +1021,7 @@ async def receive_recharge_proof(message: types.Message, state: FSMContext):
             "per_credit": float(method.get("per_credit", 1.0)),
             "credits": credits,
             "wallet_scope": "main_bot" if main_bot_flow else "reseller_bot",
+            "source_bot_id": int(await _current_bot_id(message.bot) or 0),
         },
         wallet_type="user",
     )
@@ -1069,6 +1070,8 @@ async def receive_recharge_proof_text(message: types.Message, state: FSMContext)
     raw = (message.text or "").strip()
     data = await state.get_data()
     flow_lang = data.get("recharge_lang", "en")
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", flow_lang)
 
     if _is_btn(raw, "btn_cancel") or _is_btn(raw, "btn_back_main"):
         await state.clear()
@@ -1094,11 +1097,11 @@ async def receive_recharge_proof_text(message: types.Message, state: FSMContext)
 
     if _is_btn(raw, "btn_back"):
         await state.set_state(RechargeFlow.waiting_amount)
-        return await message.answer(t(flow_lang, "send_amount_now"), reply_markup=_pay_nav_kb(flow_lang))
+        return await message.answer(t(lang, "send_amount_now"), reply_markup=_pay_nav_kb(lang))
 
     return await message.answer(
-        t(flow_lang, "send_payment_proof_screenshot_now"),
-        reply_markup=_pay_nav_kb(flow_lang),
+        t(lang, "send_payment_proof_screenshot_now"),
+        reply_markup=_pay_nav_kb(lang),
     )
 
 

@@ -34,7 +34,7 @@ def proxy_type_kb(
         rows.append([InlineKeyboardButton(text=t(lang, "proxy_type_unlimited"), callback_data="proxy:type:unlimited")])
     if show_consumptive:
         rows.append([InlineKeyboardButton(text=t(lang, "proxy_type_consumptive"), callback_data="proxy:type:consumptive")])
-    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="proxy:back_main")])
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="proxy:back_step")])
     rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="proxy:back_main", style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -144,7 +144,7 @@ def proxy_provider_kb(provider_codes: list[str], lang: str) -> InlineKeyboardMar
     for provider_code in provider_codes[:20]:
         token = encode_token(provider_code)
         rows.append([InlineKeyboardButton(text=str(provider_code), callback_data=f"proxy:set_provider:{token}")])
-    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="proxy:search")])
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="proxy:back_step")])
     rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="proxy:back_main", style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -170,7 +170,7 @@ def proxy_offers_kb(offers: list[dict], lang: str, protocol: str | None = None) 
         buttons.append(InlineKeyboardButton(text=f"Port: {port_text}", callback_data=f"proxy:offer:{idx}"))
     for idx in range(0, len(buttons), 2):
         rows.append(buttons[idx : idx + 2])
-    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="proxy:search")])
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="proxy:back_step")])
     rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="proxy:back_main", style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

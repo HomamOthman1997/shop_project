@@ -34,6 +34,7 @@ def _default_custom_root_folders() -> list[str]:
         "VISA CARD",
         "BANKS",
         "PAYPAL",
+        "Preorder",
     ]
 
 

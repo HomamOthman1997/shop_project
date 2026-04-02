@@ -20,11 +20,16 @@ from database.custom_services_repo import (
     create_folder,
     deactivate_node,
     ensure_root_node,
+    get_next_pending_preorder,
     get_pending_preorder_position,
+    get_preorder_request,
     get_node,
     list_children,
+    mark_preorder_fulfilling,
+    mark_preorder_fulfilled,
     move_node_in_parent,
     rename_node,
+    reset_preorder_to_pending,
     release_endpoint_stock,
     reserve_endpoint_stock,
     set_endpoint_preorder_enabled,
@@ -556,8 +561,44 @@ def _parse_generic_inventory_payload(text: str) -> list[str]:
             for block in blocks
             if any(line.startswith(("Email:", "Password:", "Recovery:")) for line in block.splitlines())
         )
-        if labeled_blocks == len(blocks):
+        single_email_blocks = all(
+            sum(1 for line in block.splitlines() if line.lower().startswith("email:")) <= 1
+            for block in blocks
+        )
+        if labeled_blocks == len(blocks) and single_email_blocks:
             return blocks
+
+    labeled_groups: list[str] = []
+    current_group: list[str] = []
+    label_pattern = re.compile(r"^(Email|Password|Recovery)\s*:", re.IGNORECASE)
+    for raw_line in normalized.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if current_group:
+                labeled_groups.append("\n".join(current_group))
+                current_group = []
+            continue
+        if label_pattern.match(line):
+            normalized_line = line
+            if ":" in normalized_line:
+                key, value = normalized_line.split(":", 1)
+                normalized_line = f"{key.strip().title()}: {value.strip()}"
+            if normalized_line.lower().startswith("email:") and current_group:
+                labeled_groups.append("\n".join(current_group))
+                current_group = []
+            current_group.append(normalized_line)
+            if len(current_group) >= 3:
+                labels = {row.split(":", 1)[0].strip().lower() for row in current_group if ":" in row}
+                if {"email", "password", "recovery"}.issubset(labels):
+                    labeled_groups.append("\n".join(current_group))
+                    current_group = []
+            continue
+        if current_group:
+            current_group.append(line)
+    if current_group:
+        labeled_groups.append("\n".join(current_group))
+    if labeled_groups and all(any(item.startswith(prefix) for prefix in ("Email:", "Password:", "Recovery:")) for block in labeled_groups for item in block.splitlines()):
+        return [block.strip() for block in labeled_groups if block.strip()]
 
     return [line.strip() for line in normalized.splitlines() if line.strip()]
 
@@ -952,6 +993,92 @@ async def _send_endpoint_delivery(
         await bot.send_document(chat_id=int(user_id), document=file_id, caption=caption)
         return True
     return False
+
+
+async def _auto_fulfill_inventory_preorders(
+    *,
+    bot: Bot,
+    endpoint: dict,
+    catalog_owner_id: int,
+    catalog_type: str,
+) -> list[str]:
+    delivered: list[str] = []
+    endpoint_id = endpoint.get("_id")
+    if not endpoint_id:
+        return delivered
+
+    while True:
+        preorder = await get_next_pending_preorder(endpoint_id)
+        if not preorder:
+            break
+
+        qty = max(1, int(preorder.get("qty") or 1))
+        claim = await claim_endpoint_inventory(endpoint_id, catalog_owner_id, qty, catalog_type=catalog_type)
+        if not claim:
+            break
+
+        preorder_id = str(preorder.get("_id") or "").strip()
+        claimed = await mark_preorder_fulfilling(preorder_id, actor_id=0)
+        if not claimed:
+            await release_endpoint_stock(
+                endpoint_id,
+                catalog_owner_id,
+                qty,
+                catalog_type=catalog_type,
+                claimed_items=list(claim.get("claimed_items") or []),
+            )
+            break
+
+        buyer_user_id = int(claimed.get("buyer_user_id") or 0)
+        order_id = claimed.get("order_id")
+        claimed_items = [str(item or "").strip() for item in list(claim.get("claimed_items") or []) if str(item or "").strip()]
+        if buyer_user_id <= 0 or not claimed_items:
+            await reset_preorder_to_pending(preorder_id)
+            await release_endpoint_stock(
+                endpoint_id,
+                catalog_owner_id,
+                qty,
+                catalog_type=catalog_type,
+                claimed_items=claimed_items,
+            )
+            break
+
+        try:
+            user = await get_user(buyer_user_id)
+            lang = str((user or {}).get("language") or "en")
+            await _send_endpoint_delivery(
+                bot=bot,
+                user_id=buyer_user_id,
+                endpoint=endpoint,
+                qty=qty,
+                lang=lang,
+                stock_items=claimed_items,
+            )
+            await mark_preorder_fulfilled(preorder_id, actor_id=0)
+            if order_id:
+                await update_order_details(
+                    order_id,
+                    {
+                        "status": "success",
+                        "custom_preorder_fulfilled_automatically": True,
+                        "remaining_qty": int(claim.get("remaining_qty") or 0),
+                    },
+                )
+                await update_order_status(order_id, "success")
+            delivered.append(preorder_id)
+        except Exception:
+            logger.exception("Custom preorder auto-fulfill failed preorder=%s", preorder_id)
+            await reset_preorder_to_pending(preorder_id)
+            await release_endpoint_stock(
+                endpoint_id,
+                catalog_owner_id,
+                qty,
+                catalog_type=catalog_type,
+                claimed_items=claimed_items,
+            )
+            break
+
+    return delivered
 
 
 def _delivery_preview_text(
@@ -2500,16 +2627,25 @@ async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMC
     await state.clear()
     if not updated:
         return await callback.answer(t(lang, "custom_failed_save_delivery_payload"), show_alert=True)
+    fulfilled_preorders = await _auto_fulfill_inventory_preorders(
+        bot=callback.bot,
+        endpoint=updated,
+        catalog_owner_id=catalog_owner_id,
+        catalog_type=catalog_type,
+    )
+    refreshed = await get_node(updated["_id"], reseller_id=catalog_owner_id, catalog_type=catalog_type) or updated
     if callback.message:
         saved_text = t(lang, "custom_stock_saved").format(count=len(items))
         if warnings:
             saved_text = f"{saved_text}\nWarnings: {len(warnings)}"
+        if fulfilled_preorders:
+            saved_text = f"{saved_text}\nPreorders fulfilled: {len(fulfilled_preorders)}"
         await callback.message.answer(saved_text)
         await _render_node(
             callback,
             state,
             catalog_owner_id,
-            updated["_id"],
+            refreshed["_id"],
             is_builder=True,
             catalog_type=catalog_type,
         )

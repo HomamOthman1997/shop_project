@@ -489,6 +489,7 @@ def _proxy_offer_text(lang: str, offer: dict, protocol: str | None, *, include_d
     country = str(offer.get("country") or "-").strip()
     state = str(offer.get("state") or "Any").strip()
     city = str(offer.get("city") or "Any").strip()
+    location = state if city in {"", "Any", state} else city if state in {"", "Any"} else f"{state} / {city}"
     period = str(offer.get("period") or "-").strip()
     protocol_text = str(protocol or offer.get("protocol") or "http").upper()
     lines: list[str]
@@ -498,8 +499,7 @@ def _proxy_offer_text(lang: str, offer: dict, protocol: str | None, *, include_d
             "",
             f"المزوّد: {carrier}",
             f"الدولة: {country}",
-            f"الولاية: {state}",
-            f"المدينة: {city}",
+            f"الولاية/المدينة: {location}",
             f"البروتوكول: {protocol_text}",
             f"الروتيشن: {period}",
         ]
@@ -516,8 +516,7 @@ def _proxy_offer_text(lang: str, offer: dict, protocol: str | None, *, include_d
             "",
             f"Carrier: {carrier}",
             f"Country: {country}",
-            f"State: {state}",
-            f"City: {city}",
+            f"State/City: {location}",
             f"Protocol: {protocol_text}",
             f"Rotation: {period}",
         ]
@@ -2303,3 +2302,39 @@ async def proxy_back_main(callback: types.CallbackQuery, state: FSMContext):
     bot_id = (await callback.bot.get_me()).id
     await callback.message.answer(t(lang, "main_menu"), reply_markup=await menu_for_current_bot(lang, bot_id))
     await callback.answer()
+
+
+@router.callback_query(F.data == "proxy:back_step")
+async def proxy_back_step(callback: types.CallbackQuery, state: FSMContext):
+    data, _lang = await _state_lang(state, int(callback.from_user.id))
+    if not callback.message:
+        await callback.answer()
+        return
+
+    updates: dict[str, object | None] = {}
+    if data.get("proxy_selected_offer"):
+        await state.update_data(proxy_selected_offer=None)
+        await callback.answer()
+        await proxy_list_offers(callback, state)
+        return
+    if data.get("proxy_period"):
+        updates.update(proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
+    elif data.get("proxy_provider"):
+        updates.update(proxy_provider=None, proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
+    elif data.get("proxy_protocol"):
+        updates.update(proxy_protocol=None, proxy_provider=None, proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
+    elif data.get("proxy_city"):
+        updates.update(proxy_city=None, proxy_protocol=None, proxy_provider=None, proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
+    elif data.get("proxy_state"):
+        updates.update(proxy_state=None, proxy_city=None, proxy_protocol=None, proxy_provider=None, proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
+    elif data.get("proxy_country"):
+        updates.update(proxy_country=None, proxy_state=None, proxy_city=None, proxy_protocol=None, proxy_provider=None, proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
+    else:
+        await callback.answer()
+        await proxy_back_main(callback, state)
+        return
+
+    await state.update_data(**updates)
+    await callback.answer()
+    await _render_proxy_panel(callback.message, state)
+    await state.set_state(ProxyFlow.menu)

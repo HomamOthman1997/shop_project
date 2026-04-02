@@ -420,12 +420,10 @@ def test_proxy_keyboards_use_live_back_callbacks():
     assert "proxy:type_menu" in entry_callbacks
 
     provider_callbacks = [btn.callback_data for row in proxy_provider_kb(["A"], "en").inline_keyboard for btn in row if btn.callback_data]
-    assert "proxy:search" in provider_callbacks
-    assert "proxy:back_step" not in provider_callbacks
+    assert "proxy:back_step" in provider_callbacks
 
     offers_callbacks = [btn.callback_data for row in proxy_offers_kb([{"offer_id": "1"}], "en").inline_keyboard for btn in row if btn.callback_data]
-    assert "proxy:search" in offers_callbacks
-    assert "proxy:back_step" not in offers_callbacks
+    assert "proxy:back_step" in offers_callbacks
 
     offer_action_callbacks = [btn.callback_data for row in proxy_offer_actions_kb("en").inline_keyboard for btn in row if btn.callback_data]
     assert "proxy:list" in offer_action_callbacks
@@ -443,3 +441,46 @@ def test_proxy_keyboards_use_live_back_callbacks():
         if btn.callback_data
     ]
     assert "proxy:order:reconfigure:oid-1" in reconfigure_callbacks
+
+
+def test_proxy_offer_text_combines_state_and_city():
+    text = proxy_flow._proxy_offer_text(
+        "en",
+        {"carrier": "AT&T", "country": "UNITED STATES", "state": "Texas", "city": "Dallas", "period": "Rotation 30m"},
+        "http",
+    )
+    assert "State/City: Texas / Dallas" in text
+    ar_text = proxy_flow._proxy_offer_text(
+        "ar",
+        {"carrier": "AT&T", "country": "UNITED STATES", "state": "Texas", "city": "Dallas", "period": "Rotation 30m"},
+        "http",
+    )
+    assert "الولاية/المدينة: Texas / Dallas" in ar_text
+
+
+@pytest.mark.asyncio
+async def test_proxy_back_step_clears_last_filter(monkeypatch):
+    callback = DummyCallback("proxy:back_step")
+    state = DummyState(
+        {
+            "proxy_lang": "en",
+            "proxy_category": "unlimited",
+            "proxy_country": "UNITED STATES",
+            "proxy_state": "Texas",
+            "proxy_protocol": "http",
+            "proxy_provider": "4g",
+            "proxy_period": "Rotation 30m",
+        }
+    )
+    rendered = {}
+
+    async def _fake_render(message, current_state):
+        rendered["message_id"] = message.message_id
+
+    monkeypatch.setattr(proxy_flow, "_render_proxy_panel", _fake_render)
+
+    await proxy_flow.proxy_back_step(callback, state)
+
+    assert rendered["message_id"] == 321
+    assert state.data["proxy_period"] is None
+    assert state.data["proxy_provider"] == "4g"

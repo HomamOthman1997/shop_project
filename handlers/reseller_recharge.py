@@ -55,6 +55,30 @@ from utils.user_money import format_usd
 router = Router()
 
 
+async def _resolve_request_user_notification_bot(req: dict, fallback_bot: Bot) -> Bot:
+    details = req.get("details") or {}
+    source_bot_id = int(details.get("source_bot_id") or 0)
+    fallback_id = int((await fallback_bot.get_me()).id)
+    if source_bot_id <= 0 or source_bot_id == fallback_id:
+        return fallback_bot
+
+    token = ""
+    try:
+        if source_bot_id == int(getattr(settings, "bot_main_id", 0) or 0):
+            token = str(getattr(settings, "bot_main_token", "") or "").strip()
+        elif source_bot_id == int(getattr(settings, "bot_admin_id", 0) or 0):
+            token = str(getattr(settings, "bot_admin_token", "") or "").strip()
+    except Exception:
+        token = ""
+
+    if not token:
+        bot_row = await db.bots.find_one({"bot_id": source_bot_id, "active": True}, {"token": 1})
+        token = str((bot_row or {}).get("token") or "").strip()
+    if not token:
+        return fallback_bot
+    return Bot(token=token, timeout=30)
+
+
 async def _clear_reply_markup_safely(message: types.Message | None) -> None:
     if not message:
         return
@@ -652,6 +676,7 @@ async def reseller_core_topup_proof(message: types.Message, state: FSMContext):
             "paid_currency": str(method.get("currency", "USD")).upper(),
             "per_credit": float(method.get("per_credit", 1.0)),
             "credits": credits,
+            "source_bot_id": int((await message.bot.get_me()).id),
         },
         wallet_type="reseller_main",
     )
@@ -1196,13 +1221,14 @@ async def _apply_owner_reseller_topup_decision(bot, owner_id: int, request_id: s
         return False, "Request not found after update", None
 
     if main_bot_user_topup:
+        notify_bot = await _resolve_request_user_notification_bot(req, bot)
         if decision == "accepted" and req.get("status") == "accepted":
             user_id = int(req.get("user_id") or 0)
             wallet_scope_id = int(req.get("reseller_id") or user_id)
             amount_done = float(req.get("approved_amount") or req.get("amount") or 0)
             new_bal = await get_user_wallet_balance(user_id, wallet_scope_id)
             try:
-                await bot.send_message(
+                await notify_bot.send_message(
                     user_id,
                     "Main Bot balance request accepted.\n"
                     f"Added credits: {amount_done:.4f}\n"
@@ -1210,17 +1236,29 @@ async def _apply_owner_reseller_topup_decision(bot, owner_id: int, request_id: s
                 )
             except Exception:
                 pass
+            finally:
+                if notify_bot is not bot:
+                    try:
+                        await notify_bot.session.close()
+                    except Exception:
+                        pass
             await _edit_request_card_message(bot, req)
             return True, "Main Bot balance request accepted", req
 
         if decision == "rejected" and req.get("status") == "rejected":
             try:
-                await bot.send_message(
+                await notify_bot.send_message(
                     int(req.get("user_id") or 0),
                     "Main Bot balance request rejected.",
                 )
             except Exception:
                 pass
+            finally:
+                if notify_bot is not bot:
+                    try:
+                        await notify_bot.session.close()
+                    except Exception:
+                        pass
             await _edit_request_card_message(bot, req)
             return True, "Main Bot balance request rejected", req
 
@@ -2373,11 +2411,15 @@ async def recharge_manual_start(callback: types.CallbackQuery, state: FSMContext
     paid_amount = float(details.get("paid_amount", 0) or 0)
     paid_currency = str(details.get("paid_currency", "USD")).upper()
     requested_credits = float(req.get("amount", 0) or 0)
+    per_credit = float(details.get("per_credit", 1.0) or 1.0)
+    entry_hint = "Enter approved amount in the same payment currency."
+    if paid_currency == "SYP":
+        entry_hint = f"Enter approved amount in SYP. It will be converted using 1 💲 = {per_credit:.2f} local."
     await callback.message.reply(
-        f"Enter manual credits (💲 credits) for request {req_id}.\n"
+        f"Enter approved amount for request {req_id}.\n"
         f"Paid amount by reseller: {paid_amount:.2f} {paid_currency}\n"
         f"Requested credits: {requested_credits:.4f}\n\n"
-        "Important: Do NOT enter paid amount in local currency here."
+        f"{entry_hint}"
     )
 
 
@@ -2393,16 +2435,27 @@ async def recharge_manual_apply(message: types.Message, state: FSMContext):
         await state.clear()
         return await message.answer("Request context lost. Try again.")
 
+    raw_amount = (message.text or "").strip()
     try:
-        amount = float((message.text or "").strip())
+        entered_amount = float(raw_amount)
     except Exception:
         return await message.answer("Invalid amount. Example: 10 or 10.50")
-    if amount <= 0:
+    if entered_amount <= 0:
         return await message.answer("Amount must be greater than zero.")
 
-    oid = ObjectId(req_id)
+    req = await db.recharge_requests.find_one({"_id": ObjectId(req_id)})
+    if not req:
+        await state.clear()
+        return await message.answer("Request already handled or missing.")
+    details = req.get("details") or {}
+    paid_currency = str(details.get("paid_currency", "USD")).upper()
+    per_credit = float(details.get("per_credit", 1.0) or 1.0)
+    if per_credit <= 0:
+        per_credit = 1.0
+    amount = entered_amount / per_credit if paid_currency == "SYP" else entered_amount
+
     updated = await update_recharge_request(
-        oid,
+        ObjectId(req_id),
         "accepted",
         message.from_user.id,
         decision_note="accepted_manual_amount",
@@ -2413,7 +2466,7 @@ async def recharge_manual_apply(message: types.Message, state: FSMContext):
     if not updated:
         return await message.answer("Request already handled or missing.")
 
-    req = await db.recharge_requests.find_one({"_id": oid})
+    req = await db.recharge_requests.find_one({"_id": ObjectId(req_id)})
     if req and req.get("status") == "accepted":
         try:
             reseller_id = int(req.get("reseller_id") or req.get("user_id"))
