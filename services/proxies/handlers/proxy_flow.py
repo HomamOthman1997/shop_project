@@ -1688,7 +1688,7 @@ async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, 
     try:
         result = await rent_proxy_offer(offer)
         if not result.get("success"):
-            logger.error(
+            logger.warning(
                 "proxy rent provider failure user_id=%s provider=%s offer_id=%s raw=%s",
                 user_id,
                 offer.get("provider"),
@@ -1714,7 +1714,7 @@ async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, 
         quality = await verify_proxy_offer_delivery(endpoint)
         if not quality.get("allowed"):
             quality_reason = str(quality.get("reason") or "quality_gate_failed")
-            logger.error(
+            logger.warning(
                 "proxy quality gate blocked user_id=%s order_id=%s provider=%s endpoint=%s decision=%s reason=%s",
                 user_id,
                 order_id,
@@ -1872,7 +1872,7 @@ async def proxy_reconfigure_confirm(callback: types.CallbackQuery, state: FSMCon
     await _safe_edit_text(callback.message, t(lang, "proxy_reconfigure_loading"))
     refreshed = await reconfigure_proxy_order(order, offer, with_check=True)
     if not refreshed.get("success"):
-        logger.error(
+        logger.warning(
             "proxy reconfigure failed user_id=%s order_id=%s provider=%s raw=%s quality=%s",
             callback.from_user.id,
             order_oid,
@@ -2112,7 +2112,7 @@ async def proxy_order_change_only(callback: types.CallbackQuery, state: FSMConte
     await _safe_edit_text(callback.message, t(lang, "proxy_change_processing"))
     refreshed = await refresh_proxy_order(order, with_check=False, max_attempts=1)
     if not refreshed.get("success"):
-        logger.error(
+        logger.warning(
             "proxy change-only failed user_id=%s order_id=%s provider=%s raw=%s",
             callback.from_user.id,
             order_oid,
@@ -2198,7 +2198,7 @@ async def proxy_order_change_check(callback: types.CallbackQuery, state: FSMCont
     await _safe_edit_text(callback.message, t(lang, "proxy_change_processing"))
     refreshed = await refresh_proxy_order(order, with_check=True, max_attempts=2)
     if not refreshed.get("success"):
-        logger.error(
+        logger.warning(
             "proxy change+check failed user_id=%s order_id=%s provider=%s raw=%s quality=%s attempts=%s",
             user_id,
             order_oid,

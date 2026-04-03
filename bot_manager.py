@@ -376,7 +376,7 @@ async def _run_provider_balance_alert_cycle(
 
     chat_id, thread_id = await _owner_target_for_balance_alert()
     if not isinstance(chat_id, int):
-        logging.error("provider balance alert skipped: no owner-group target is configured")
+        logging.warning("provider balance alert skipped: no owner-group target is configured")
         return
     bot = await _pick_owner_bot(running_bots, current_owner_map)
     lines = [
@@ -1549,7 +1549,7 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                 if alerts and running_public_bots:
                     chat_id, thread_id = await _owner_target_for_balance_alert()
                     if not isinstance(chat_id, int):
-                        logging.error("rental protection alert skipped: no owner-group target is configured")
+                        logging.warning("rental protection alert skipped: no owner-group target is configured")
                     else:
                         preferred_bot = await _pick_owner_bot(running_public_bots, current_owner_map)
                         for alert in alerts:
