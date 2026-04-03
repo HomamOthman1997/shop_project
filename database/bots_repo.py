@@ -77,19 +77,30 @@ async def get_bot_by_id(bot_id: int):
 async def get_reseller_id_for_bot(bot_id: int):
     bot = await get_bot_by_id(bot_id)
     if not bot:
-        try:
-            configured_digital_id = int(str(getattr(settings, "bot_digital_products_token", "") or "").split(":", 1)[0] or 0)
-        except Exception:
-            configured_digital_id = 0
-        try:
-            configured_card_id = int(str(getattr(settings, "bot_card_ex_token", "") or "").split(":", 1)[0] or 0)
-        except Exception:
-            configured_card_id = 0
-        if int(bot_id) in {configured_digital_id, configured_card_id}:
-            owner_id = int(getattr(settings, "owner_id", 0) or 0)
-            return owner_id or None
         return None
     return bot.get("owner_id")
+
+
+def _configured_platform_bot_ids() -> set[int]:
+    values: set[int] = set()
+    for attr in ("bot_main_token", "bot_digital_products_token", "bot_card_ex_token"):
+        try:
+            value = int(str(getattr(settings, attr, "") or "").split(":", 1)[0] or 0)
+        except Exception:
+            value = 0
+        if value > 0:
+            values.add(value)
+    return values
+
+
+async def get_store_owner_scope_for_bot(bot_id: int):
+    owner_id = await get_reseller_id_for_bot(bot_id)
+    if owner_id:
+        return owner_id
+    if int(bot_id) in _configured_platform_bot_ids():
+        platform_owner_id = int(getattr(settings, "owner_id", 0) or 0)
+        return platform_owner_id or None
+    return None
 
 
 async def update_reseller_info(bot_id, fullname, phone, address):

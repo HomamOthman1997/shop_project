@@ -14,7 +14,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeybo
 from rapidfuzz import fuzz
 
 from config import settings
-from database.bots_repo import get_reseller_id_for_bot
+from database.bots_repo import get_reseller_id_for_bot, get_store_owner_scope_for_bot
 from database.custom_services_repo import ensure_root_node, list_children
 from database.financial_ledger import create_order_v3, get_user_wallet_balance
 from database.digital_products_config_repo import get_digital_products_markup_percent
@@ -464,7 +464,7 @@ async def _resolve_user_reseller(user_id: int, bot_id: int) -> int | None:
     reseller_id = await get_user_reseller_for_bot(user_id, bot_id)
     if reseller_id:
         return int(reseller_id)
-    inferred = await get_reseller_id_for_bot(bot_id)
+    inferred = await get_store_owner_scope_for_bot(bot_id)
     if inferred:
         await set_user_reseller_for_bot(user_id, bot_id, int(inferred))
         return int(inferred)
@@ -473,7 +473,7 @@ async def _resolve_user_reseller(user_id: int, bot_id: int) -> int | None:
 
 async def _resolve_usd_to_syp_rate(bot_id: int) -> float:
     try:
-        reseller_id = await get_reseller_id_for_bot(int(bot_id))
+        reseller_id = await get_store_owner_scope_for_bot(int(bot_id))
         if reseller_id:
             rate = float(await get_exchange_rate(int(reseller_id)))
             if rate > 0:
@@ -1596,7 +1596,7 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery):
     if not selected:
         return await callback.answer(t(lang, "store_product_not_found"), show_alert=True)
 
-    reseller_id = await get_reseller_id_for_bot(callback.bot.id)
+    reseller_id = await get_store_owner_scope_for_bot(callback.bot.id)
     if not reseller_id:
         return await callback.answer(t(lang, "store_reseller_not_linked"), show_alert=True)
 
@@ -1852,7 +1852,7 @@ async def g2bulk_collect_server_id(message: types.Message, state: FSMContext):
 async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[str, Any], *, server_id: str) -> None:
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
-    reseller_id = await get_reseller_id_for_bot((await message.bot.get_me()).id)
+    reseller_id = await get_store_owner_scope_for_bot((await message.bot.get_me()).id)
     if not reseller_id:
         return await message.answer(t(lang, "store_reseller_not_linked"))
 
