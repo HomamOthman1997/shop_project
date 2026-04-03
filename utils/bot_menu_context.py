@@ -149,12 +149,12 @@ async def main_bot_services_text(lang: str) -> str:
 
 
 async def menu_for_current_bot(lang: str, bot_or_id):
-    if await is_reseller_owned_bot(bot_or_id):
-        return reseller_user_main_menu(lang)
     if await is_digital_products_bot(bot_or_id):
         return digital_products_main_menu(lang)
     if await is_card_ex_bot(bot_or_id):
         return cards_main_menu(lang)
+    if await is_reseller_owned_bot(bot_or_id):
+        return reseller_user_main_menu(lang)
     return main_menu(lang)
 
 

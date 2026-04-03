@@ -9,6 +9,7 @@ sys.path.insert(0, os.getcwd())
 from utils import bot_menu_context
 from keyboards.main_menu_kb import main_menu, reseller_user_main_menu
 from keyboards.reseller_main_menu import reseller_main_menu
+from services.cards_bot.keyboards import cards_main_menu
 
 
 class _DummyMessage:
@@ -67,3 +68,39 @@ def test_main_menus_do_not_show_custom_services_button():
     assert t("en", "btn_services") in main_buttons
     assert t("en", "btn_services") in reseller_buttons
     assert "rsmenu:custom_services" in inline_callbacks
+
+
+@pytest.mark.asyncio
+async def test_menu_for_current_bot_prioritizes_platform_store_bots_over_reseller_owned(monkeypatch):
+    async def _true(*_args, **_kwargs):
+        return True
+
+    async def _false(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _true)
+    monkeypatch.setattr(bot_menu_context, "is_digital_products_bot", _true)
+    monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _false)
+
+    kb = await bot_menu_context.menu_for_current_bot("ar", 123)
+    labels = [btn.text for row in kb.keyboard for btn in row]
+
+    assert labels == [btn.text for row in bot_menu_context.digital_products_main_menu("ar").keyboard for btn in row]
+
+
+@pytest.mark.asyncio
+async def test_menu_for_current_bot_uses_cards_menu_before_reseller_menu(monkeypatch):
+    async def _true(*_args, **_kwargs):
+        return True
+
+    async def _false(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _true)
+    monkeypatch.setattr(bot_menu_context, "is_digital_products_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _true)
+
+    kb = await bot_menu_context.menu_for_current_bot("ar", 123)
+    labels = [btn.text for row in kb.keyboard for btn in row]
+
+    assert labels == [btn.text for row in cards_main_menu("ar").keyboard for btn in row]
