@@ -981,6 +981,7 @@ async def receive_recharge_amount(message: types.Message, state: FSMContext):
     await state.update_data(
         recharge_paid_amount=paid_amount,
         recharge_credits=float(round(credits, 6)),
+        recharge_per_credit=float(per_credit),
     )
     await state.set_state(RechargeFlow.waiting_proof)
     flow_lang = data.get("recharge_lang", "en")
@@ -992,6 +993,7 @@ async def receive_recharge_proof(message: types.Message, state: FSMContext):
     data = await state.get_data()
     paid_amount = float(data.get("recharge_paid_amount") or 0)
     credits = float(data.get("recharge_credits") or 0)
+    per_credit = float(data.get("recharge_per_credit") or 1.0)
     method = data.get("recharge_method") or {}
     user = await get_user(message.from_user.id)
     lang = user.get("language", "en") if user else "en"
@@ -1018,7 +1020,7 @@ async def receive_recharge_proof(message: types.Message, state: FSMContext):
             "method_code": method.get("code"),
             "paid_amount": paid_amount,
             "paid_currency": str(method.get("currency", "USD")).upper(),
-            "per_credit": float(method.get("per_credit", 1.0)),
+            "per_credit": per_credit,
             "credits": credits,
             "wallet_scope": "main_bot" if main_bot_flow else "reseller_bot",
             "source_bot_id": int(await _current_bot_id(message.bot) or 0),

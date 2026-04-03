@@ -61,6 +61,12 @@ class InteractionLockMiddleware(BaseMiddleware):
         )
         return any(self._text_equals_key(clean, key) for key in section_keys)
 
+    def _is_fast_track_message(self, text: str) -> bool:
+        clean = (text or "").strip()
+        if not clean:
+            return False
+        return self._is_main_menu_intent(clean) or self._is_top_level_section_trigger(clean)
+
     @staticmethod
     async def _current_state_name(data: Dict[str, Any]) -> str:
         state = data.get("state")
@@ -167,10 +173,12 @@ class InteractionLockMiddleware(BaseMiddleware):
                     return None
                 self._last_callback_sig[user_id] = (sig, now)
             else:
-                next_allowed = float(self._next_allowed_at.get(user_id, 0.0) or 0.0)
-                if now < next_allowed:
-                    return None
-                self._next_allowed_at[user_id] = now + message_window
+                text = str(getattr(event, "text", "") or "").strip()
+                if not self._is_fast_track_message(text):
+                    next_allowed = float(self._next_allowed_at.get(user_id, 0.0) or 0.0)
+                    if now < next_allowed:
+                        return None
+                    self._next_allowed_at[user_id] = now + message_window
 
             self._inflight.add(user_id)
 
