@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from uuid import uuid4
+from bson import ObjectId
 
 from database.mongo import db
 
@@ -521,3 +522,11 @@ async def update_withdrawal_status(withdrawal_id: str, *, status: str, actor_use
 
 async def list_missing_pricing(limit: int = 20) -> list[dict[str, Any]]:
     return await db.cardex_missing_pricing.find({"status": "open"}).sort("last_seen_at", -1).limit(max(1, int(limit))).to_list(length=max(1, int(limit)))
+
+
+async def get_missing_pricing(missing_id: str) -> dict[str, Any] | None:
+    try:
+        oid = ObjectId(str(missing_id))
+    except Exception:
+        return None
+    return await db.cardex_missing_pricing.find_one({"_id": oid})

@@ -101,6 +101,23 @@ def card_ex_bot_url(start: str | None = None) -> str | None:
     return f"https://t.me/{username}?start={start or 'cards'}"
 
 
+def _cardex_admin_ids() -> set[int]:
+    raw = str(getattr(settings, "cardex_admin_ids", "") or "").strip()
+    values: set[int] = set()
+    for chunk in raw.split(","):
+        text = chunk.strip()
+        if not text:
+            continue
+        try:
+            values.add(int(text))
+        except Exception:
+            continue
+    owner_id = int(getattr(settings, "owner_id", 0) or 0)
+    if owner_id > 0:
+        values.add(owner_id)
+    return values
+
+
 async def resolve_digital_products_bot_id() -> int | None:
     global _cached_digital_products_bot_id
     if isinstance(_cached_digital_products_bot_id, int) and _cached_digital_products_bot_id > 0:
@@ -166,12 +183,12 @@ async def main_bot_services_text(lang: str) -> str:
     return t(lang, "main_bot_not_configured_text")
 
 
-async def menu_for_current_bot(lang: str, bot_or_id):
+async def menu_for_current_bot(lang: str, bot_or_id, user_id: int | None = None):
     kind = await resolve_bot_kind(bot_or_id)
     if kind == BOT_KIND_DIGITAL:
         return digital_products_main_menu(lang)
     if kind == BOT_KIND_CARD:
-        return cards_main_menu(lang)
+        return cards_main_menu(lang, is_admin=isinstance(user_id, int) and int(user_id) in _cardex_admin_ids())
     if kind == BOT_KIND_RESELLER:
         return reseller_user_main_menu(lang)
     return main_menu(lang)

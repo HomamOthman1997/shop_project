@@ -190,7 +190,7 @@ async def _open_digital_products_start_payload(message: types.Message, *, lang: 
     text = payload_text_map.get(payload)
     await message.answer(
         t(lang, "main_menu"),
-        reply_markup=await menu_for_current_bot(lang, int(await _resolve_runtime_bot_id(message.bot) or 0)),
+        reply_markup=await menu_for_current_bot(lang, int(await _resolve_runtime_bot_id(message.bot) or 0), user_id=message.from_user.id),
     )
     if text:
         await message.answer(text)
@@ -338,7 +338,7 @@ async def start_cmd(
         stage_started = monotonic()
         await message.answer(
             t(lang, "main_menu"),
-            reply_markup=await menu_for_current_bot(lang, bot_id)
+            reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id)
         )
         stage_ms["send_main_menu"] = (monotonic() - stage_started) * 1000.0
         stage_ms["active_order_notice"] = 0.0
@@ -360,7 +360,7 @@ async def start_cmd(
         stage_started = monotonic()
         await message.answer(
             t(lang, "main_menu"),
-            reply_markup=await menu_for_current_bot(lang, bot_id)
+            reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id)
         )
         stage_ms["send_main_menu"] = (monotonic() - stage_started) * 1000.0
         stage_ms["active_order_notice"] = 0.0
@@ -397,7 +397,7 @@ async def start_cmd(
             stage_started = monotonic()
             await message.answer(
                 t(lang, "main_menu"),
-                reply_markup=await menu_for_current_bot(lang, bot_id)
+                reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id)
             )
             stage_ms["send_main_menu"] = (monotonic() - stage_started) * 1000.0
             stage_ms["active_order_notice"] = 0.0
@@ -448,7 +448,7 @@ async def _forced_start_flow(message: types.Message, state: FSMContext):
     if (isinstance(main_bot_id, int) and bot_id == main_bot_id) or is_digital_products_runtime_bot:
         await message.answer(
             t(lang, "main_menu"),
-            reply_markup=await menu_for_current_bot(lang, bot_id)
+            reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id)
         )
         _notify_active_temp_order_background(message, lang)
         return
@@ -470,7 +470,7 @@ async def _forced_start_flow(message: types.Message, state: FSMContext):
     else:
         await message.answer(
             t(lang, "main_menu"),
-            reply_markup=await menu_for_current_bot(lang, bot_id)
+            reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id)
         )
         _notify_active_temp_order_background(message, lang)
 
@@ -492,7 +492,7 @@ async def clean_keyboard_command(message: types.Message, state: FSMContext):
     if await is_reseller(message.from_user.id, bot_id=bot_id):
         await message.answer(t(lang, "main_menu"), reply_markup=reseller_main_menu(lang))
     else:
-        await message.answer(t(lang, "main_menu"), reply_markup=await menu_for_current_bot(lang, bot_id))
+        await message.answer(t(lang, "main_menu"), reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id))
 
 
 @router.callback_query(lambda c: c.data == "force_start")

@@ -3,7 +3,7 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 
-def cards_main_menu(lang: str | None = None) -> ReplyKeyboardMarkup:
+def cards_main_menu(lang: str | None = None, *, is_admin: bool = False) -> ReplyKeyboardMarkup:
     is_ar = str(lang or "").lower().startswith("ar")
     sell = "بيع كرت" if is_ar else "Sell Card"
     wallet = "المحفظة" if is_ar else "Wallet"
@@ -11,14 +11,15 @@ def cards_main_menu(lang: str | None = None) -> ReplyKeyboardMarkup:
     withdraw = "طلب سحب" if is_ar else "Withdraw"
     my_withdrawals = "سحوباتي" if is_ar else "My Withdrawals"
     support = "الدعم" if is_ar else "Support"
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=sell), KeyboardButton(text=wallet)],
-            [KeyboardButton(text=my_cards), KeyboardButton(text=withdraw)],
-            [KeyboardButton(text=my_withdrawals), KeyboardButton(text=support)],
-        ],
-        resize_keyboard=True,
-    )
+    admin_panel = "لوحة الإدارة" if is_ar else "Admin Panel"
+    keyboard = [
+        [KeyboardButton(text=sell), KeyboardButton(text=wallet)],
+        [KeyboardButton(text=my_cards), KeyboardButton(text=withdraw)],
+        [KeyboardButton(text=my_withdrawals), KeyboardButton(text=support)],
+    ]
+    if is_admin:
+        keyboard.append([KeyboardButton(text=admin_panel)])
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 def submit_brand_kb(top_brands: list[str]) -> InlineKeyboardMarkup:
@@ -163,3 +164,44 @@ def admin_withdraw_actions_kb(withdrawal_id: str) -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+def cards_admin_panel_kb(lang: str | None = None) -> InlineKeyboardMarkup:
+    is_ar = str(lang or "").lower().startswith("ar")
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="تسعير ناقص" if is_ar else "Missing Pricing",
+                    callback_data="cardx:panel:missing_pricing",
+                ),
+                InlineKeyboardButton(
+                    text="بطاقات للمراجعة" if is_ar else "Cards Review",
+                    callback_data="cardx:panel:reviews",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="طلبات السحب" if is_ar else "Withdrawals",
+                    callback_data="cardx:panel:withdrawals",
+                ),
+            ],
+        ]
+    )
+
+
+def admin_missing_pricing_kb(rows: list[dict], lang: str | None = None) -> InlineKeyboardMarkup:
+    is_ar = str(lang or "").lower().startswith("ar")
+    keyboard: list[list[InlineKeyboardButton]] = []
+    for row in rows:
+        label = f"{row.get('brand')} | {float(row.get('denomination') or 0):.2f} {row.get('currency')} | {row.get('region')}"
+        keyboard.append([InlineKeyboardButton(text=label[:64], callback_data=f"cardx:pricepick:{row.get('_id')}")])
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                text="العودة للوحة" if is_ar else "Back to Panel",
+                callback_data="cardx:panel:open",
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)

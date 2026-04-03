@@ -9,6 +9,8 @@ from aiogram.fsm.context import FSMContext
 from config import settings
 from database.user_repo import create_user, get_user
 from services.cards_bot.keyboards import (
+    admin_missing_pricing_kb,
+    cards_admin_panel_kb,
     admin_review_actions_kb,
     admin_withdraw_actions_kb,
     cards_main_menu,
@@ -26,6 +28,7 @@ from services.cards_bot.service import (
     create_pricing_rule,
     create_withdrawal,
     ensure_user_from_telegram,
+    get_missing_pricing,
     get_wallet_snapshot,
     list_cards_for_review,
     list_cards_for_user,
@@ -39,7 +42,7 @@ from services.cards_bot.service import (
     submit_card,
     update_withdrawal_status,
 )
-from services.cards_bot.states import CardsSubmitFlow, CardsWithdrawFlow
+from services.cards_bot.states import CardsAdminFlow, CardsSubmitFlow, CardsWithdrawFlow
 from utils.user_money import format_usd
 
 router = Router()
@@ -47,6 +50,27 @@ router = Router()
 
 def _is_owner(user_id: int) -> bool:
     return int(user_id) == int(getattr(settings, "owner_id", 0) or 0)
+
+
+def _cards_admin_ids() -> set[int]:
+    raw = str(getattr(settings, "cardex_admin_ids", "") or "").strip()
+    values: set[int] = set()
+    for chunk in raw.split(","):
+        text = chunk.strip()
+        if not text:
+            continue
+        try:
+            values.add(int(text))
+        except Exception:
+            continue
+    owner_id = int(getattr(settings, "owner_id", 0) or 0)
+    if owner_id > 0:
+        values.add(owner_id)
+    return values
+
+
+def _is_cards_admin(user_id: int) -> bool:
+    return int(user_id) in _cards_admin_ids()
 
 
 def _is_btn(text: str | None, expected: str) -> bool:
@@ -94,6 +118,10 @@ async def _ensure_card_user(actor) -> tuple[dict, dict]:
         user_doc = await create_user(int(actor.id), str(actor.username or "").strip(), reseller_id=None)
     card_user = await ensure_user_from_telegram(actor)
     return user_doc, card_user
+
+
+def _cards_menu(lang: str, user_id: int):
+    return cards_main_menu(lang, is_admin=_is_cards_admin(user_id))
 
 
 def _fmt_money(value) -> str:
@@ -322,7 +350,7 @@ async def confirm_card_submission(callback: types.CallbackQuery, state: FSMConte
                     f"Card submitted successfully.\nReference: {card.get('_id')}",
                     f"تم إرسال البطاقة بنجاح.\nالمرجع: {card.get('_id')}",
                 ),
-                reply_markup=cards_main_menu(lang),
+                reply_markup=_cards_menu(lang, callback.from_user.id),
             )
         else:
             await callback.message.answer(
@@ -331,7 +359,7 @@ async def confirm_card_submission(callback: types.CallbackQuery, state: FSMConte
                     "This card price is not configured yet. It has been queued for owner pricing review.",
                     "تسعير هذه البطاقة غير مضبوط بعد. تمت إضافتها لقائمة التسعير عند الأونر.",
                 ),
-                reply_markup=cards_main_menu(lang),
+                reply_markup=_cards_menu(lang, callback.from_user.id),
             )
     await callback.answer()
 
@@ -473,7 +501,7 @@ async def confirm_withdraw(callback: types.CallbackQuery, state: FSMContext) -> 
                 f"Withdrawal request created.\nReference: {row.get('_id')}",
                 f"تم إنشاء طلب السحب.\nالمرجع: {row.get('_id')}",
             ),
-            reply_markup=cards_main_menu(lang),
+            reply_markup=_cards_menu(lang, callback.from_user.id),
         )
     await callback.answer()
 
@@ -506,9 +534,182 @@ async def open_support(message: types.Message) -> None:
     )
 
 
+def _admin_panel_text(lang: str) -> str:
+    return _t(
+        lang,
+        "Cards Admin Panel\n\nChoose the management section.",
+        "لوحة إدارة البطاقات\n\nاختر القسم الذي تريد إدارته.",
+    )
+
+
+def _missing_pricing_line(row: dict) -> str:
+    return f"{row.get('brand')} | {float(row.get('denomination') or 0):.2f} {row.get('currency')} | {row.get('region')}"
+
+
+async def _open_cards_admin_panel(target, *, lang: str) -> None:
+    text = _admin_panel_text(lang)
+    if isinstance(target, types.CallbackQuery):
+        if target.message:
+            await target.message.answer(text, reply_markup=cards_admin_panel_kb(lang))
+        await target.answer()
+    else:
+        await target.answer(text, reply_markup=cards_admin_panel_kb(lang))
+
+
+@router.message(Command("cards_admin"))
+@router.message(F.text.func(lambda text: _is_btn(text, "Admin Panel") or _is_btn(text, "لوحة الإدارة")))
+async def open_cards_admin_panel_message(message: types.Message, state: FSMContext) -> None:
+    if not _is_cards_admin(message.from_user.id):
+        return
+    user_doc = await _ensure_global_user(message)
+    await state.clear()
+    await _open_cards_admin_panel(message, lang=_lang(user_doc))
+
+
+@router.callback_query(F.data == "cardx:panel:open")
+async def open_cards_admin_panel_callback(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not _is_cards_admin(callback.from_user.id):
+        await callback.answer("No permission", show_alert=True)
+        return
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    await state.clear()
+    await _open_cards_admin_panel(callback, lang=_lang(user_doc))
+
+
+@router.callback_query(F.data == "cardx:panel:missing_pricing")
+async def open_missing_pricing_panel(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not _is_cards_admin(callback.from_user.id):
+        await callback.answer("No permission", show_alert=True)
+        return
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    lang = _lang(user_doc)
+    await state.clear()
+    rows = await list_missing_pricing(limit=20)
+    if not rows:
+        await callback.answer(_t(lang, "No missing pricing rows.", "لا توجد عناصر تسعير ناقصة."), show_alert=True)
+        return
+    if callback.message:
+        await callback.message.answer(
+            _t(lang, "Choose a pricing row to set rates.", "اختر عنصر التسعير الذي تريد ضبطه."),
+            reply_markup=admin_missing_pricing_kb(rows, lang),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("cardx:pricepick:"))
+async def pick_missing_pricing_row(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not _is_cards_admin(callback.from_user.id):
+        await callback.answer("No permission", show_alert=True)
+        return
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    lang = _lang(user_doc)
+    missing_id = str(callback.data or "").split(":")[-1].strip()
+    row = await get_missing_pricing(missing_id)
+    if not row:
+        await callback.answer(_t(lang, "Pricing row not found.", "تعذر العثور على عنصر التسعير."), show_alert=True)
+        return
+    await state.set_state(CardsAdminFlow.waiting_pricing_rates)
+    await state.update_data(cardx_missing_pricing_id=missing_id)
+    prompt = _t(
+        lang,
+        f"Set rates for:\n{_missing_pricing_line(row)}\n\nSend:\nCUSTOMER|TRADER\nExample: 80|78\nOr send a single value like 80 to use it for both.",
+        f"ضبط التسعير لـ:\n{_missing_pricing_line(row)}\n\nأرسل:\nCUSTOMER|TRADER\nمثال: 80|78\nأو أرسل قيمة واحدة مثل 80 ليتم اعتمادها لكلا النسبتين.",
+    )
+    if callback.message:
+        await callback.message.answer(prompt)
+    await callback.answer()
+
+
+@router.message(CardsAdminFlow.waiting_pricing_rates)
+async def save_missing_pricing_rates(message: types.Message, state: FSMContext) -> None:
+    if not _is_cards_admin(message.from_user.id):
+        return
+    user_doc = await _ensure_global_user(message)
+    lang = _lang(user_doc)
+    payload = str(message.text or "").strip()
+    parts = [part.strip() for part in payload.split("|") if part.strip()]
+    try:
+        if len(parts) == 1:
+            customer_rate = parse_decimal(parts[0])
+            trader_rate = customer_rate
+        elif len(parts) == 2:
+            customer_rate = parse_decimal(parts[0])
+            trader_rate = parse_decimal(parts[1])
+        else:
+            raise ValueError("invalid pricing format")
+    except Exception:
+        await message.answer(
+            _t(
+                lang,
+                "Invalid format. Send CUSTOMER|TRADER or a single value.",
+                "تنسيق غير صالح. أرسل CUSTOMER|TRADER أو قيمة واحدة.",
+            )
+        )
+        return
+    data = await state.get_data()
+    missing_id = str(data.get("cardx_missing_pricing_id") or "").strip()
+    row = await get_missing_pricing(missing_id)
+    if not row:
+        await state.clear()
+        await message.answer(_t(lang, "Pricing row no longer exists.", "عنصر التسعير لم يعد موجودًا."))
+        return
+    created = await create_pricing_rule(
+        actor_user_id=str(message.from_user.id),
+        brand=str(row.get("brand") or ""),
+        denomination=parse_decimal(str(row.get("denomination") or "")),
+        currency=str(row.get("currency") or "USD"),
+        region=str(row.get("region") or "GLOBAL"),
+        customer_buy_rate_percent=customer_rate,
+        trader_rate_percent=trader_rate,
+    )
+    await state.clear()
+    await message.answer(
+        _t(
+            lang,
+            f"Pricing saved:\n{_missing_pricing_line(created)}\nCustomer: {created.get('customer_buy_rate_percent')}\nTrader: {created.get('trader_rate_percent')}",
+            f"تم حفظ التسعير:\n{_missing_pricing_line(created)}\nالعميل: {created.get('customer_buy_rate_percent')}\nالتاجر: {created.get('trader_rate_percent')}",
+        ),
+        reply_markup=cards_admin_panel_kb(lang),
+    )
+
+
+@router.callback_query(F.data == "cardx:panel:reviews")
+async def open_cards_reviews_panel(callback: types.CallbackQuery) -> None:
+    if not _is_cards_admin(callback.from_user.id):
+        await callback.answer("No permission", show_alert=True)
+        return
+    rows = await list_cards_for_review(limit=10)
+    if not rows:
+        await callback.answer("No cards pending review.", show_alert=True)
+        return
+    for row in rows:
+        if callback.message:
+            await callback.message.answer(_fmt_card_line(row), reply_markup=admin_review_actions_kb(str(row.get("_id"))))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:panel:withdrawals")
+async def open_cards_withdrawals_panel(callback: types.CallbackQuery) -> None:
+    if not _is_cards_admin(callback.from_user.id):
+        await callback.answer("No permission", show_alert=True)
+        return
+    rows = await list_open_withdrawals(limit=10)
+    if not rows:
+        await callback.answer("No open withdrawals.", show_alert=True)
+        return
+    for row in rows:
+        text = (
+            f"{row.get('_id')} | user={row.get('user_id')} | {_fmt_money(row.get('requested_usd_amount'))} "
+            f"| {row.get('payout_currency')} | {row.get('status')}\n{row.get('notes') or '-'}"
+        )
+        if callback.message:
+            await callback.message.answer(text, reply_markup=admin_withdraw_actions_kb(str(row.get("_id"))))
+    await callback.answer()
+
+
 @router.message(Command("cards_reviews"))
 async def owner_cards_reviews(message: types.Message) -> None:
-    if not _is_owner(message.from_user.id):
+    if not _is_cards_admin(message.from_user.id):
         return
     rows = await list_cards_for_review(limit=10)
     if not rows:
@@ -520,7 +721,7 @@ async def owner_cards_reviews(message: types.Message) -> None:
 
 @router.message(Command("cards_missing_pricing"))
 async def owner_missing_pricing(message: types.Message) -> None:
-    if not _is_owner(message.from_user.id):
+    if not _is_cards_admin(message.from_user.id):
         return
     rows = await list_missing_pricing(limit=20)
     if not rows:
@@ -535,7 +736,7 @@ async def owner_missing_pricing(message: types.Message) -> None:
 
 @router.message(Command("cards_price"))
 async def owner_set_price(message: types.Message) -> None:
-    if not _is_owner(message.from_user.id):
+    if not _is_cards_admin(message.from_user.id):
         return
     payload = str(message.text or "").split(maxsplit=1)
     if len(payload) < 2:
@@ -564,7 +765,7 @@ async def owner_set_price(message: types.Message) -> None:
 
 @router.message(Command("cards_withdrawals"))
 async def owner_open_withdrawals(message: types.Message) -> None:
-    if not _is_owner(message.from_user.id):
+    if not _is_cards_admin(message.from_user.id):
         return
     rows = await list_open_withdrawals(limit=10)
     if not rows:
@@ -580,7 +781,7 @@ async def owner_open_withdrawals(message: types.Message) -> None:
 
 @router.callback_query(F.data.startswith("cardx:admin:accept:"))
 async def owner_accept_card(callback: types.CallbackQuery) -> None:
-    if not _is_owner(callback.from_user.id):
+    if not _is_cards_admin(callback.from_user.id):
         await callback.answer("No permission", show_alert=True)
         return
     card_id = str(callback.data or "").split(":")[-1].strip()
@@ -595,7 +796,7 @@ async def owner_accept_card(callback: types.CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("cardx:admin:reject:"))
 async def owner_reject_card(callback: types.CallbackQuery) -> None:
-    if not _is_owner(callback.from_user.id):
+    if not _is_cards_admin(callback.from_user.id):
         await callback.answer("No permission", show_alert=True)
         return
     card_id = str(callback.data or "").split(":")[-1].strip()
@@ -610,7 +811,7 @@ async def owner_reject_card(callback: types.CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("cardx:admin:w"))
 async def owner_withdraw_action(callback: types.CallbackQuery) -> None:
-    if not _is_owner(callback.from_user.id):
+    if not _is_cards_admin(callback.from_user.id):
         await callback.answer("No permission", show_alert=True)
         return
     raw = str(callback.data or "")

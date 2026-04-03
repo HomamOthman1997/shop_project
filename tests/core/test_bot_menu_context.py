@@ -107,6 +107,26 @@ async def test_menu_for_current_bot_uses_cards_menu_before_reseller_menu(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_menu_for_current_bot_shows_card_admin_button_for_admin_user(monkeypatch):
+    async def _false(*_args, **_kwargs):
+        return False
+
+    async def _true(*_args, **_kwargs):
+        return True
+
+    monkeypatch.setattr(bot_menu_context, "is_main_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_digital_products_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _true)
+    monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "_cardex_admin_ids", lambda: {10})
+
+    kb = await bot_menu_context.menu_for_current_bot("ar", 123, user_id=10)
+    labels = [btn.text for row in kb.keyboard for btn in row]
+
+    assert "لوحة الإدارة" in labels
+
+
+@pytest.mark.asyncio
 async def test_resolve_bot_kind_prioritizes_platform_kinds_over_reseller(monkeypatch):
     async def _true(*_args, **_kwargs):
         return True

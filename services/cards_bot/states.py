@@ -15,3 +15,7 @@ class CardsWithdrawFlow(StatesGroup):
     waiting_amount = State()
     waiting_currency = State()
     waiting_destination = State()
+
+
+class CardsAdminFlow(StatesGroup):
+    waiting_pricing_rates = State()
