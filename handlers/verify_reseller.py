@@ -633,6 +633,20 @@ async def _is_bot_id_already_registered(bot_id: int) -> bool:
     return doc is not None
 
 
+async def _has_pending_bot_request_for_bot_id(bot_id: int) -> bool:
+    doc = await db.bot_creation_requests.find_one(
+        {
+            "status": "pending",
+            "$or": [
+                {"payload.bot_id": int(bot_id)},
+                {"bot_id": int(bot_id)},
+            ],
+        },
+        {"_id": 1},
+    )
+    return doc is not None
+
+
 async def _resolve_template_reseller_id() -> int | None:
     username = str(getattr(settings, "main_bot_username", "") or "").strip().lstrip("@").lower()
     if not username:
