@@ -250,6 +250,17 @@ async def _get_bot_context(bot_id: int) -> dict:
     return dict(context)
 
 
+async def _should_show_channel_setup_warning(*, user_id: int, bot_id: int, inferred_reseller_id: int | None) -> bool:
+    if int(user_id) == int(getattr(settings, "owner_id", 0) or 0):
+        return True
+    if inferred_reseller_id and int(user_id) == int(inferred_reseller_id):
+        return True
+    try:
+        return await is_reseller(user_id, bot_id=bot_id)
+    except Exception:
+        return False
+
+
 @router.message(Command("start"))
 async def start_cmd(
     message: types.Message,
@@ -337,10 +348,25 @@ async def start_cmd(
 
     # Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ÙˆØ¬ÙˆØ¯ Ù‚Ù†Ø§Ø© Ø§Ø´ØªØ±Ø§Ùƒ
     if not subscription_channel:
-        _log_start_perf(started_at=started_at, user_id=user_id, bot_id=bot_id, outcome="no_channel", stage_ms=stage_ms)
-        return await message.answer(
-            t(lang, "no_channel_set")
+        if await _should_show_channel_setup_warning(
+            user_id=user_id,
+            bot_id=bot_id,
+            inferred_reseller_id=inferred_reseller_id,
+        ):
+            _log_start_perf(started_at=started_at, user_id=user_id, bot_id=bot_id, outcome="no_channel", stage_ms=stage_ms)
+            return await message.answer(
+                t(lang, "no_channel_set")
+            )
+        stage_started = monotonic()
+        await message.answer(
+            t(lang, "main_menu"),
+            reply_markup=await menu_for_current_bot(lang, bot_id)
         )
+        stage_ms["send_main_menu"] = (monotonic() - stage_started) * 1000.0
+        stage_ms["active_order_notice"] = 0.0
+        _notify_active_temp_order_background(message, lang)
+        _log_start_perf(started_at=started_at, user_id=user_id, bot_id=bot_id, outcome="no_channel_public_bypass", stage_ms=stage_ms)
+        return
 
     # Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ø§Ø´ØªØ±Ø§Ùƒ
     try:
