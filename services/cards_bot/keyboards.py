@@ -4,11 +4,18 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardBu
 
 
 def cards_main_menu(lang: str | None = None) -> ReplyKeyboardMarkup:
+    is_ar = str(lang or "").lower().startswith("ar")
+    sell = "بيع كرت" if is_ar else "Sell Card"
+    wallet = "المحفظة" if is_ar else "Wallet"
+    my_cards = "بطاقاتي" if is_ar else "My Cards"
+    withdraw = "طلب سحب" if is_ar else "Withdraw"
+    my_withdrawals = "سحوباتي" if is_ar else "My Withdrawals"
+    support = "الدعم" if is_ar else "Support"
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Sell Card"), KeyboardButton(text="Wallet")],
-            [KeyboardButton(text="My Cards"), KeyboardButton(text="Withdraw")],
-            [KeyboardButton(text="My Withdrawals"), KeyboardButton(text="Support")],
+            [KeyboardButton(text=sell), KeyboardButton(text=wallet)],
+            [KeyboardButton(text=my_cards), KeyboardButton(text=withdraw)],
+            [KeyboardButton(text=my_withdrawals), KeyboardButton(text=support)],
         ],
         resize_keyboard=True,
     )

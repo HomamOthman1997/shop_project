@@ -53,6 +53,22 @@ def _is_btn(text: str | None, expected: str) -> bool:
     return str(text or "").strip().lower() == expected.strip().lower()
 
 
+_CARD_MENU_ALIASES: dict[str, tuple[str, ...]] = {
+    "Sell Card": ("Sell Card", "بيع كرت"),
+    "Wallet": ("Wallet", "المحفظة"),
+    "My Cards": ("My Cards", "بطاقاتي"),
+    "Withdraw": ("Withdraw", "طلب سحب"),
+    "My Withdrawals": ("My Withdrawals", "سحوباتي"),
+    "Support": ("Support", "الدعم"),
+}
+
+
+def _is_menu_btn(text: str | None, action: str) -> bool:
+    candidates = _CARD_MENU_ALIASES.get(action, (action,))
+    raw = str(text or "").strip().lower()
+    return any(raw == candidate.strip().lower() for candidate in candidates)
+
+
 def _lang(user_doc: dict | None) -> str:
     return str((user_doc or {}).get("language") or "en")
 
@@ -121,7 +137,7 @@ async def _open_brand_picker(message: types.Message, *, lang: str) -> None:
     )
 
 
-@router.message(F.text.func(lambda text: _is_btn(text, "Sell Card")))
+@router.message(F.text.func(lambda text: _is_menu_btn(text, "Sell Card")))
 async def open_sell_card(message: types.Message, state: FSMContext) -> None:
     user_doc = await _ensure_global_user(message)
     lang = _lang(user_doc)
@@ -330,7 +346,7 @@ async def cancel_card_flow(callback: types.CallbackQuery, state: FSMContext) -> 
     await callback.answer()
 
 
-@router.message(F.text.func(lambda text: _is_btn(text, "Wallet")))
+@router.message(F.text.func(lambda text: _is_menu_btn(text, "Wallet")))
 async def open_wallet(message: types.Message) -> None:
     user_doc, card_user = await _ensure_card_user(message.from_user)
     lang = _lang(user_doc)
@@ -354,7 +370,7 @@ async def open_wallet(message: types.Message) -> None:
     )
 
 
-@router.message(F.text.func(lambda text: _is_btn(text, "My Cards")))
+@router.message(F.text.func(lambda text: _is_menu_btn(text, "My Cards")))
 async def open_my_cards(message: types.Message) -> None:
     user_doc, card_user = await _ensure_card_user(message.from_user)
     lang = _lang(user_doc)
@@ -368,7 +384,7 @@ async def open_my_cards(message: types.Message) -> None:
     )
 
 
-@router.message(F.text.func(lambda text: _is_btn(text, "Withdraw")))
+@router.message(F.text.func(lambda text: _is_menu_btn(text, "Withdraw")))
 async def start_withdraw(message: types.Message, state: FSMContext) -> None:
     user_doc = await _ensure_global_user(message)
     lang = _lang(user_doc)
@@ -462,7 +478,7 @@ async def confirm_withdraw(callback: types.CallbackQuery, state: FSMContext) -> 
     await callback.answer()
 
 
-@router.message(F.text.func(lambda text: _is_btn(text, "My Withdrawals")))
+@router.message(F.text.func(lambda text: _is_menu_btn(text, "My Withdrawals")))
 async def open_my_withdrawals(message: types.Message) -> None:
     user_doc, card_user = await _ensure_card_user(message.from_user)
     lang = _lang(user_doc)
@@ -477,7 +493,7 @@ async def open_my_withdrawals(message: types.Message) -> None:
     await message.answer(_t(lang, "My Withdrawals\n\n" + "\n".join(lines), "طلبات السحب\n\n" + "\n".join(lines)))
 
 
-@router.message(F.text.func(lambda text: _is_btn(text, "Support")))
+@router.message(F.text.func(lambda text: _is_menu_btn(text, "Support")))
 async def open_support(message: types.Message) -> None:
     user_doc = await _ensure_global_user(message)
     lang = _lang(user_doc)
