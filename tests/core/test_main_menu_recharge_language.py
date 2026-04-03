@@ -148,3 +148,4 @@ async def test_receive_recharge_proof_stores_effective_per_credit(monkeypatch):
 
     assert captured["details"]["paid_currency"] == "SYP"
     assert captured["details"]["per_credit"] == 4000.0
+    assert captured["details"]["source_bot_id"] == 8147766487

@@ -79,6 +79,28 @@ async def _resolve_request_user_notification_bot(req: dict, fallback_bot: Bot) -
     return Bot(token=token, timeout=30)
 
 
+async def _notify_recharge_request_user(
+    req: dict,
+    fallback_bot: Bot,
+    text: str,
+    *,
+    reply_markup=None,
+) -> None:
+    notify_bot = await _resolve_request_user_notification_bot(req, fallback_bot)
+    try:
+        await notify_bot.send_message(
+            int(req.get("user_id") or 0),
+            text,
+            reply_markup=reply_markup,
+        )
+    finally:
+        if notify_bot is not fallback_bot:
+            try:
+                await notify_bot.session.close()
+            except Exception:
+                pass
+
+
 async def _clear_reply_markup_safely(message: types.Message | None) -> None:
     if not message:
         return
@@ -1221,44 +1243,33 @@ async def _apply_owner_reseller_topup_decision(bot, owner_id: int, request_id: s
         return False, "Request not found after update", None
 
     if main_bot_user_topup:
-        notify_bot = await _resolve_request_user_notification_bot(req, bot)
         if decision == "accepted" and req.get("status") == "accepted":
             user_id = int(req.get("user_id") or 0)
             wallet_scope_id = int(req.get("reseller_id") or user_id)
             amount_done = float(req.get("approved_amount") or req.get("amount") or 0)
             new_bal = await get_user_wallet_balance(user_id, wallet_scope_id)
             try:
-                await notify_bot.send_message(
-                    user_id,
+                await _notify_recharge_request_user(
+                    req,
+                    bot,
                     "Main Bot balance request accepted.\n"
                     f"Added credits: {amount_done:.4f}\n"
                     f"Current Main Bot balance: {format_usd(new_bal)}",
                 )
             except Exception:
                 pass
-            finally:
-                if notify_bot is not bot:
-                    try:
-                        await notify_bot.session.close()
-                    except Exception:
-                        pass
             await _edit_request_card_message(bot, req)
             return True, "Main Bot balance request accepted", req
 
         if decision == "rejected" and req.get("status") == "rejected":
             try:
-                await notify_bot.send_message(
-                    int(req.get("user_id") or 0),
+                await _notify_recharge_request_user(
+                    req,
+                    bot,
                     "Main Bot balance request rejected.",
                 )
             except Exception:
                 pass
-            finally:
-                if notify_bot is not bot:
-                    try:
-                        await notify_bot.session.close()
-                    except Exception:
-                        pass
             await _edit_request_card_message(bot, req)
             return True, "Main Bot balance request rejected", req
 
@@ -2473,8 +2484,9 @@ async def recharge_manual_apply(message: types.Message, state: FSMContext):
             new_bal = await get_user_wallet_balance(int(req["user_id"]), reseller_id)
             u = await get_user(int(req["user_id"]))
             lang = (u or {}).get("language", "en")
-            await message.bot.send_message(
-                int(req["user_id"]),
+            await _notify_recharge_request_user(
+                req,
+                message.bot,
                 f"Recharge accepted manually.\nAmount: {amount:.4f} credits\nNew balance: {format_usd(new_bal)}",
                 reply_markup=balance_keyboard(lang),
             )
@@ -2565,8 +2577,9 @@ async def recharge_need_proof_send(message: types.Message, state: FSMContext):
             resize_keyboard=True,
             one_time_keyboard=False,
         )
-        await message.bot.send_message(
-            int(req["user_id"]),
+        await _notify_recharge_request_user(
+            req,
+            message.bot,
             "Your payment request needs clearer proof.\n\n"
             f"Reseller note:\n{note}\n\n"
             "Please submit a new payment proof to continue.\n"
