@@ -368,16 +368,12 @@ async def _show_phone_request_keyboard(bot: Bot, chat_id: int, lang: str):
 
 async def _refresh_reply_keyboard(bot: Bot, chat_id: int, reply_markup: ReplyKeyboardMarkup):
     try:
-        sent = await _safe_bot_send_message(
+        await _safe_bot_send_message(
             bot=bot,
             chat_id=chat_id,
             text=t("en", "keyboard_cleanup_placeholder"),
             reply_markup=reply_markup,
         )
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=sent.message_id)
-        except Exception:
-            pass
     except Exception:
         pass
 
