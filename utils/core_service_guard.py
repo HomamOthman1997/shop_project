@@ -3,7 +3,7 @@ from __future__ import annotations
 from aiogram import types
 
 from database.bots_repo import get_reseller_id_for_bot
-from utils.bot_menu_context import send_main_bot_message
+from utils.bot_menu_context import is_card_ex_bot, is_digital_products_bot, is_main_bot, send_main_bot_message
 
 
 def core_service_paused_text(lang: str) -> str:
@@ -30,6 +30,8 @@ async def _resolve_reseller_for_bot(bot) -> int:
 
 
 async def guard_core_service_message(message: types.Message, lang: str) -> bool:
+    if await is_main_bot(message.bot) or await is_digital_products_bot(message.bot) or await is_card_ex_bot(message.bot):
+        return True
     reseller_id = await _resolve_reseller_for_bot(message.bot)
     if reseller_id <= 0:
         return True
@@ -38,6 +40,8 @@ async def guard_core_service_message(message: types.Message, lang: str) -> bool:
 
 
 async def guard_core_service_callback(callback: types.CallbackQuery, lang: str) -> bool:
+    if await is_main_bot(callback.bot) or await is_digital_products_bot(callback.bot) or await is_card_ex_bot(callback.bot):
+        return True
     reseller_id = await _resolve_reseller_for_bot(callback.bot)
     if reseller_id <= 0:
         return True
