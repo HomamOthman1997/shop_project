@@ -48,6 +48,35 @@ async def test_recharge_proof_text_uses_current_user_language(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_receive_recharge_amount_uses_current_user_language(monkeypatch):
+    class _AmountState:
+        async def get_data(self):
+            return {
+                "recharge_lang": "en",
+                "recharge_method": {"currency": "USD"},
+            }
+
+        async def set_state(self, _state):
+            return None
+
+        async def update_data(self, **_kwargs):
+            return None
+
+    message = _FakeMessage("700")
+    state = _AmountState()
+
+    async def _fake_user(_user_id):
+        return {"language": "ar"}
+
+    monkeypatch.setattr(main_menu, "get_user", _fake_user)
+
+    await main_menu.receive_recharge_amount(message, state)
+
+    assert message.answers
+    assert message.answers[-1]["text"] == t("ar", "send_payment_proof_now")
+
+
+@pytest.mark.asyncio
 async def test_receive_recharge_proof_stores_effective_per_credit(monkeypatch):
     class _ProofState:
         async def get_data(self):

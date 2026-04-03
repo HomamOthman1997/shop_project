@@ -855,6 +855,8 @@ async def show_recharge_methods(message: types.Message, state: FSMContext):
 async def ask_recharge_amount(message: types.Message, state: FSMContext):
     text = (message.text or "").strip()
     data = await state.get_data()
+    user = await get_user(message.from_user.id)
+    flow_lang = (user or {}).get("language", data.get("recharge_lang", "en"))
 
     if _is_btn(text, "btn_cancel") or _is_btn(text, "btn_back_main"):
         await state.clear()
@@ -914,7 +916,6 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
     if raw_target:
         rendered_instructions = rendered_instructions.replace(raw_target, "").strip()
 
-    flow_lang = data.get("recharge_lang", "en")
     method_title = escape(str(selected.get("title") or selected.get("code") or t(flow_lang, "payment_plain")))
     currency = escape(currency_code)
     rate = effective_rate
@@ -928,7 +929,6 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
 
     await state.update_data(recharge_method=selected)
     await state.set_state(RechargeFlow.waiting_amount)
-    flow_lang = data.get("recharge_lang", "en")
     await message.answer(instructions, reply_markup=_pay_nav_kb(flow_lang), parse_mode="HTML")
     await message.answer(t(flow_lang, "send_amount_now"))
 
@@ -936,6 +936,8 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
 @router.message(RechargeFlow.waiting_amount)
 async def receive_recharge_amount(message: types.Message, state: FSMContext):
     raw = (message.text or "").strip()
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", (await state.get_data()).get("recharge_lang", "en"))
     if _is_btn(raw, "btn_cancel") or _is_btn(raw, "btn_back_main"):
         await state.clear()
         return await _return_main_menu(message, message.from_user.id)
@@ -960,16 +962,15 @@ async def receive_recharge_amount(message: types.Message, state: FSMContext):
         methods = data.get("recharge_methods") or []
         view = [(m.get("title", m.get("code")), m.get("code")) for m in methods]
         await state.set_state(RechargeFlow.waiting_method)
-        lang = (await state.get_data()).get("recharge_lang", "en")
         return await message.answer(t(lang, "choose_recharge_method"), reply_markup=recharge_methods_keyboard(view, lang=lang))
 
     try:
         paid_amount = float(raw)
     except Exception:
-        return await message.answer(t((await state.get_data()).get("recharge_lang", "en"), "invalid_amount_send_numeric"))
+        return await message.answer(t(lang, "invalid_amount_send_numeric"))
 
     if paid_amount <= 0:
-        return await message.answer(t((await state.get_data()).get("recharge_lang", "en"), "amount_must_be_greater_than_zero"))
+        return await message.answer(t(lang, "amount_must_be_greater_than_zero"))
 
     data = await state.get_data()
     method = data.get("recharge_method") or {}
@@ -984,8 +985,7 @@ async def receive_recharge_amount(message: types.Message, state: FSMContext):
         recharge_per_credit=float(per_credit),
     )
     await state.set_state(RechargeFlow.waiting_proof)
-    flow_lang = data.get("recharge_lang", "en")
-    await message.answer(t(flow_lang, "send_payment_proof_now"), reply_markup=_pay_nav_kb(flow_lang))
+    await message.answer(t(lang, "send_payment_proof_now"), reply_markup=_pay_nav_kb(lang))
 
 
 @router.message(RechargeFlow.waiting_proof, lambda msg: msg.photo)
