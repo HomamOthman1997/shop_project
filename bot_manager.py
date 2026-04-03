@@ -74,6 +74,8 @@ from services.digital_products.validation import run_digital_products_validation
 from utils.sentry_reporting import init_sentry
 from utils.log_noise import install_transient_noise_filter
 from utils.telegram_error_reporting import install_telegram_error_handler
+from utils.bot_kind_filter import BotKindFilter
+from utils.bot_menu_context import BOT_KIND_CARD, BOT_KIND_DIGITAL, BOT_KIND_MAIN, BOT_KIND_RESELLER
 
 _public_dispatcher_built = False
 _main_dispatcher_built = False
@@ -86,6 +88,13 @@ _LOCK_ACQUIRED = False
 _cached_main_bot_id: int | None = None
 _cached_admin_bot_id: int | None = None
 _cached_card_ex_bot_id: int | None = None
+
+
+def _restrict_router_to_kinds(router, *allowed_kinds: str):
+    kind_filter = BotKindFilter(*allowed_kinds)
+    router.message.filter(kind_filter)
+    router.callback_query.filter(kind_filter)
+    return router
 
 
 def _load_router_clone(module_name: str, file_path: str):
@@ -683,15 +692,15 @@ def build_public_dispatcher() -> Dispatcher:
     dp.message.middleware(FinancialComplianceMiddleware())
     dp.callback_query.middleware(FinancialComplianceMiddleware())
 
-    dp.include_router(start_base)
-    dp.include_router(language_base)
-    dp.include_router(subscription_base)
-    dp.include_router(main_menu_base)
-    dp.include_router(main_bot_redirects_router)
-    dp.include_router(_load_router_clone("handlers.custom_services_public_clone", "handlers/custom_services.py"))
-    dp.include_router(reseller_recharge_router)
-    dp.include_router(admin_services_router)
-    dp.include_router(owner_requests_router)
+    dp.include_router(_restrict_router_to_kinds(start_base, BOT_KIND_RESELLER))
+    dp.include_router(_restrict_router_to_kinds(language_base, BOT_KIND_RESELLER))
+    dp.include_router(_restrict_router_to_kinds(subscription_base, BOT_KIND_RESELLER))
+    dp.include_router(_restrict_router_to_kinds(main_menu_base, BOT_KIND_RESELLER))
+    dp.include_router(_restrict_router_to_kinds(main_bot_redirects_router, BOT_KIND_RESELLER))
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.custom_services_public_clone", "handlers/custom_services.py"), BOT_KIND_RESELLER))
+    dp.include_router(_restrict_router_to_kinds(reseller_recharge_router, BOT_KIND_RESELLER))
+    dp.include_router(_restrict_router_to_kinds(admin_services_router, BOT_KIND_RESELLER))
+    dp.include_router(_restrict_router_to_kinds(owner_requests_router, BOT_KIND_RESELLER))
     return dp
 
 
@@ -715,17 +724,17 @@ def build_main_dispatcher() -> Dispatcher:
     dp.message.middleware(FinancialComplianceMiddleware())
     dp.callback_query.middleware(FinancialComplianceMiddleware())
 
-    dp.include_router(_load_router_clone("handlers.start_main_clone", "handlers/start.py"))
-    dp.include_router(proxy_inline_router)
-    dp.include_router(numbers_inline_router)
-    dp.include_router(_load_router_clone("handlers.language_main_clone", "handlers/language.py"))
-    dp.include_router(_load_router_clone("handlers.subscription_main_clone", "handlers/subscription.py"))
-    dp.include_router(_load_router_clone("handlers.main_menu_main_clone", "handlers/main_menu.py"))
-    dp.include_router(proxy_flow_router)
-    dp.include_router(verify_reseller_base)
-    dp.include_router(custom_services_router)
-    dp.include_router(core_numbers_router)
-    dp.include_router(core_numbers_buy_router)
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.start_main_clone", "handlers/start.py"), BOT_KIND_MAIN))
+    dp.include_router(_restrict_router_to_kinds(proxy_inline_router, BOT_KIND_MAIN))
+    dp.include_router(_restrict_router_to_kinds(numbers_inline_router, BOT_KIND_MAIN))
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.language_main_clone", "handlers/language.py"), BOT_KIND_MAIN))
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.subscription_main_clone", "handlers/subscription.py"), BOT_KIND_MAIN))
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.main_menu_main_clone", "handlers/main_menu.py"), BOT_KIND_MAIN))
+    dp.include_router(_restrict_router_to_kinds(proxy_flow_router, BOT_KIND_MAIN))
+    dp.include_router(_restrict_router_to_kinds(verify_reseller_base, BOT_KIND_MAIN))
+    dp.include_router(_restrict_router_to_kinds(custom_services_router, BOT_KIND_MAIN))
+    dp.include_router(_restrict_router_to_kinds(core_numbers_router, BOT_KIND_MAIN))
+    dp.include_router(_restrict_router_to_kinds(core_numbers_buy_router, BOT_KIND_MAIN))
     return dp
 
 
@@ -748,11 +757,11 @@ def build_digital_products_dispatcher() -> Dispatcher:
     dp.message.middleware(FinancialComplianceMiddleware())
     dp.callback_query.middleware(FinancialComplianceMiddleware())
 
-    dp.include_router(_load_router_clone("handlers.start_digital_products_clone", "handlers/start.py"))
-    dp.include_router(_load_router_clone("handlers.language_digital_products_clone", "handlers/language.py"))
-    dp.include_router(_load_router_clone("handlers.subscription_digital_products_clone", "handlers/subscription.py"))
-    dp.include_router(_load_router_clone("handlers.main_menu_digital_products_clone", "handlers/main_menu.py"))
-    dp.include_router(store_sections_router)
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.start_digital_products_clone", "handlers/start.py"), BOT_KIND_DIGITAL))
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.language_digital_products_clone", "handlers/language.py"), BOT_KIND_DIGITAL))
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.subscription_digital_products_clone", "handlers/subscription.py"), BOT_KIND_DIGITAL))
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.main_menu_digital_products_clone", "handlers/main_menu.py"), BOT_KIND_DIGITAL))
+    dp.include_router(_restrict_router_to_kinds(store_sections_router, BOT_KIND_DIGITAL))
     return dp
 
 
@@ -775,9 +784,9 @@ def build_card_ex_dispatcher() -> Dispatcher:
     dp.message.middleware(FinancialComplianceMiddleware())
     dp.callback_query.middleware(FinancialComplianceMiddleware())
 
-    dp.include_router(_load_router_clone("handlers.start_card_ex_clone", "handlers/start.py"))
-    dp.include_router(_load_router_clone("handlers.language_card_ex_clone", "handlers/language.py"))
-    dp.include_router(card_ex_bot_router)
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.start_card_ex_clone", "handlers/start.py"), BOT_KIND_CARD))
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.language_card_ex_clone", "handlers/language.py"), BOT_KIND_CARD))
+    dp.include_router(_restrict_router_to_kinds(card_ex_bot_router, BOT_KIND_CARD))
     return dp
 
 

@@ -104,3 +104,19 @@ async def test_menu_for_current_bot_uses_cards_menu_before_reseller_menu(monkeyp
     labels = [btn.text for row in kb.keyboard for btn in row]
 
     assert labels == [btn.text for row in cards_main_menu("ar").keyboard for btn in row]
+
+
+@pytest.mark.asyncio
+async def test_resolve_bot_kind_prioritizes_platform_kinds_over_reseller(monkeypatch):
+    async def _true(*_args, **_kwargs):
+        return True
+
+    async def _false(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(bot_menu_context, "is_main_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_digital_products_bot", _true)
+    monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _true)
+
+    assert await bot_menu_context.resolve_bot_kind(123) == bot_menu_context.BOT_KIND_DIGITAL

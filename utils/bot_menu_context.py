@@ -13,6 +13,12 @@ _cached_digital_products_bot_id: int | None = None
 _cached_card_ex_bot_id: int | None = None
 _cached_main_bot_id: int | None = None
 
+BOT_KIND_MAIN = "main"
+BOT_KIND_DIGITAL = "digital"
+BOT_KIND_CARD = "card"
+BOT_KIND_RESELLER = "reseller"
+BOT_KIND_UNKNOWN = "unknown"
+
 
 def extract_bot_id_from_token(token: str | None) -> int | None:
     raw = str(token or "").strip()
@@ -129,6 +135,18 @@ async def is_card_ex_bot(bot_or_id) -> bool:
     return isinstance(target_bot_id, int) and bot_id == target_bot_id
 
 
+async def resolve_bot_kind(bot_or_id) -> str:
+    if await is_main_bot(bot_or_id):
+        return BOT_KIND_MAIN
+    if await is_digital_products_bot(bot_or_id):
+        return BOT_KIND_DIGITAL
+    if await is_card_ex_bot(bot_or_id):
+        return BOT_KIND_CARD
+    if await is_reseller_owned_bot(bot_or_id):
+        return BOT_KIND_RESELLER
+    return BOT_KIND_UNKNOWN
+
+
 def main_bot_services_kb(lang: str, *, back_callback: str = "back_to_main_menu") -> types.InlineKeyboardMarkup:
     rows: list[list[types.InlineKeyboardButton]] = []
     main_url = main_bot_url("hub")
@@ -149,11 +167,12 @@ async def main_bot_services_text(lang: str) -> str:
 
 
 async def menu_for_current_bot(lang: str, bot_or_id):
-    if await is_digital_products_bot(bot_or_id):
+    kind = await resolve_bot_kind(bot_or_id)
+    if kind == BOT_KIND_DIGITAL:
         return digital_products_main_menu(lang)
-    if await is_card_ex_bot(bot_or_id):
+    if kind == BOT_KIND_CARD:
         return cards_main_menu(lang)
-    if await is_reseller_owned_bot(bot_or_id):
+    if kind == BOT_KIND_RESELLER:
         return reseller_user_main_menu(lang)
     return main_menu(lang)
 
