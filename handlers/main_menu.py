@@ -49,6 +49,7 @@ from services.subscriptions.presentation import subscription_summary_lines
 from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_message_guard
 from utils.permissions import is_reseller
 from utils.recharge_ui import owner_reseller_topup_review_kb, user_recharge_review_kb
+from utils.loading_sticker import send_loading_sticker
 from utils.translations import t
 from utils.user_money import format_usd
 
@@ -221,9 +222,10 @@ async def _relay_support_payload(source_bot: Bot, bridge_bot: Bot, payload: dict
 
 async def _hide_reply_keyboard(message: types.Message, lang: str) -> None:
     try:
-        await message.answer(
-            t(lang, "keyboard_cleanup_placeholder"),
-            reply_markup=types.ReplyKeyboardRemove(),
+        await send_loading_sticker(
+            message,
+            remove_keyboard=True,
+            fallback_text=t(lang, "keyboard_cleanup_placeholder"),
         )
     except Exception:
         pass
@@ -449,24 +451,24 @@ async def _open_user_settings_message(message: types.Message, user_doc: dict | N
         bot_id=bot_id,
         user_id=message.from_user.id,
     )
-    sent = await message.answer(
-        t(lang, "keyboard_cleanup_placeholder"),
-        reply_markup=types.ReplyKeyboardRemove(),
+    await send_loading_sticker(
+        message,
+        remove_keyboard=True,
+        fallback_text=t(lang, "keyboard_cleanup_placeholder"),
     )
-    await _safe_edit_text(
-        sent,
+    await message.answer(
         text,
         reply_markup=_user_settings_main_kb(lang, user_doc),
     )
 
 
 async def _open_support_menu_message(message: types.Message, lang: str) -> None:
-    sent = await message.answer(
-        t(lang, "keyboard_cleanup_placeholder"),
-        reply_markup=types.ReplyKeyboardRemove(),
+    await send_loading_sticker(
+        message,
+        remove_keyboard=True,
+        fallback_text=t(lang, "keyboard_cleanup_placeholder"),
     )
-    await _safe_edit_text(
-        sent,
+    await message.answer(
         _support_menu_text(lang),
         reply_markup=_support_menu_kb(lang),
     )

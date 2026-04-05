@@ -44,6 +44,7 @@ from database.orders_repo import update_order_details, update_order_status
 from database.user_repo import get_user, get_user_reseller_for_bot, set_user_reseller_for_bot
 from utils.bot_menu_context import is_main_bot, menu_for_current_bot
 from utils.financial_manager import FinancialManager
+from utils.loading_sticker import send_loading_sticker
 from utils.permissions import is_reseller
 from utils.reseller_setup_guard import get_reseller_setup_status, render_reseller_setup_notice
 from utils.translations import t
@@ -1435,7 +1436,7 @@ async def open_custom_user(message: types.Message, state: FSMContext):
     children = await list_children(int(catalog_owner_id), root["_id"], catalog_type=_CATALOG_CUSTOM)
     if not children and not can_open_builder:
         return await message.answer(t(lang, "no_custom_services"), reply_markup=ReplyKeyboardRemove())
-    landing = await message.answer("Loading...", reply_markup=ReplyKeyboardRemove())
+    await send_loading_sticker(message, remove_keyboard=True, fallback_text="Loading...")
 
     if can_open_builder:
         owner_root = await ensure_root_node(int(OWNER_ID), catalog_type=_CATALOG_CUSTOM)
@@ -1449,14 +1450,14 @@ async def open_custom_user(message: types.Message, state: FSMContext):
             custom_financial_mode=_FINANCIAL_CUSTOM,
         )
         return await _render_node(
-            landing,
+            message,
             state,
             int(OWNER_ID),
             owner_root["_id"],
             is_builder=True,
             catalog_type=_CATALOG_CUSTOM,
             viewer_user_id=message.from_user.id,
-            edit_existing_message=True,
+            edit_existing_message=False,
         )
 
     await state.update_data(
@@ -1469,14 +1470,14 @@ async def open_custom_user(message: types.Message, state: FSMContext):
         custom_financial_mode=_FINANCIAL_CUSTOM,
     )
     return await _render_node(
-        landing,
+        message,
         state,
         int(catalog_owner_id),
         root["_id"],
         is_builder=False,
         catalog_type=_CATALOG_CUSTOM,
         viewer_user_id=message.from_user.id,
-        edit_existing_message=True,
+        edit_existing_message=False,
     )
 
 
