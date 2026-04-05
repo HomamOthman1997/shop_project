@@ -7,7 +7,6 @@ def balance_keyboard(lang="en"):
         keyboard=[
             [KeyboardButton(text=t(lang, "btn_add_balance"))],
             [KeyboardButton(text=t(lang, "btn_back_main"))],
-            [KeyboardButton(text=t(lang, "btn_cancel"))],
         ],
         resize_keyboard=True,
     )
