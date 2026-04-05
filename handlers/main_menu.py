@@ -426,13 +426,19 @@ async def _user_profile_settings_text(user_doc: dict | None, *, lang: str, bot_i
 
 async def _open_user_settings_message(message: types.Message, user_doc: dict | None, lang: str):
     bot_id = (await message.bot.get_me()).id
-    await message.answer(
-        await _user_settings_main_text(
-            user_doc,
-            lang=lang,
-            bot_id=bot_id,
-            user_id=message.from_user.id,
-        ),
+    text = await _user_settings_main_text(
+        user_doc,
+        lang=lang,
+        bot_id=bot_id,
+        user_id=message.from_user.id,
+    )
+    sent = await message.answer(
+        t(lang, "keyboard_cleanup_placeholder"),
+        reply_markup=types.ReplyKeyboardRemove(),
+    )
+    await _safe_edit_text(
+        sent,
+        text,
         reply_markup=_user_settings_main_kb(lang, user_doc),
     )
 
