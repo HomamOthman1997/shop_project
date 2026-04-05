@@ -443,6 +443,18 @@ async def _open_user_settings_message(message: types.Message, user_doc: dict | N
     )
 
 
+async def _open_support_menu_message(message: types.Message, lang: str) -> None:
+    sent = await message.answer(
+        t(lang, "keyboard_cleanup_placeholder"),
+        reply_markup=types.ReplyKeyboardRemove(),
+    )
+    await _safe_edit_text(
+        sent,
+        _support_menu_text(lang),
+        reply_markup=_support_menu_kb(lang),
+    )
+
+
 async def _send_support_header_if_needed(
     source_bot: Bot,
     *,
@@ -1265,10 +1277,8 @@ async def simple_menu_placeholders(message: types.Message, state: FSMContext):
     lang = user.get("language", "en") if user else "en"
     if _is_btn(message.text, "btn_support"):
         await state.clear()
-        await _hide_reply_keyboard(message, lang)
-        return await message.answer(_support_menu_text(lang), reply_markup=_support_menu_kb(lang))
+        return await _open_support_menu_message(message, lang)
     if _is_btn(message.text, "btn_settings"):
-        await _hide_reply_keyboard(message, lang)
         return await _open_user_settings_message(message, user, lang)
     if _is_btn(message.text, "btn_reseller_stats"):
         bot_id = (await message.bot.get_me()).id
