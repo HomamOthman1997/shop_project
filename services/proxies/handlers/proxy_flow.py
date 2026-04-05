@@ -1014,7 +1014,7 @@ async def open_proxy_menu(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
     try:
-        await message.answer("\u2800", reply_markup=ReplyKeyboardRemove())
+        await message.answer(t(lang, "keyboard_cleanup_placeholder"), reply_markup=ReplyKeyboardRemove())
     except Exception:
         pass
 

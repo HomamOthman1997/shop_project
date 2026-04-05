@@ -198,7 +198,7 @@ async def _remove_reply_keyboard_if_message(target: types.Message | types.Callba
     if isinstance(target, types.CallbackQuery):
         return
     try:
-        await target.answer("\u2800", reply_markup=types.ReplyKeyboardRemove())
+        await target.answer("...", reply_markup=types.ReplyKeyboardRemove())
     except Exception:
         return
 

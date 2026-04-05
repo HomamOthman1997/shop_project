@@ -204,14 +204,10 @@ async def _relay_support_payload(source_bot: Bot, bridge_bot: Bot, payload: dict
 
 async def _hide_reply_keyboard(message: types.Message, lang: str) -> None:
     try:
-        sent = await message.answer(
+        await message.answer(
             t(lang, "keyboard_cleanup_placeholder"),
             reply_markup=types.ReplyKeyboardRemove(),
         )
-        try:
-            await sent.delete()
-        except Exception:
-            pass
     except Exception:
         pass
 
