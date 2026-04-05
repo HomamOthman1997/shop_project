@@ -93,6 +93,20 @@ async def _current_bot_id(bot) -> int:
     return int(await resolve_runtime_bot_id(bot) or 0)
 
 
+async def _safe_edit_text(
+    message: types.Message,
+    text: str,
+    *,
+    reply_markup: types.InlineKeyboardMarkup | None = None,
+):
+    try:
+        return await message.edit_text(text, reply_markup=reply_markup)
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return message
+        raise
+
+
 def _support_bridge_token() -> str:
     return str(getattr(settings, "bot_admin_token", "") or "").strip()
 
