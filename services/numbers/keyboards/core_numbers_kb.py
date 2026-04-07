@@ -223,6 +223,8 @@ def provider_choice_kb(prices: dict, lang: str = "en", usd_to_syp: float | None 
             location_tag = f" [{provider_country_iso}]"
         provider_row_callback = f"buy_provider:{provider_code}"
         provider_info_callback = f"buy_provider_info:{provider_code}"
+        action_text = f"{t(lang, 'buy_plain')} | {price_label}" if can_buy and price_val > 0 else price_label
+        action_callback = provider_row_callback if can_buy else provider_info_callback
         kb.inline_keyboard.append(
             [
                 InlineKeyboardButton(
@@ -231,12 +233,8 @@ def provider_choice_kb(prices: dict, lang: str = "en", usd_to_syp: float | None 
                     style="primary",
                 ),
                 InlineKeyboardButton(
-                    text=price_label,
-                    callback_data=provider_info_callback,
-                ),
-                InlineKeyboardButton(
-                    text=t(lang, "buy_plain"),
-                    callback_data=provider_row_callback,
+                    text=action_text,
+                    callback_data=action_callback,
                 ),
             ]
         )

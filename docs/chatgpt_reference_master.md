@@ -14,8 +14,8 @@ This file is the canonical reference for the current project state.
 It supersedes older chat dumps for active implementation guidance.
 
 Historical files kept only as archive/reference:
-- docs/chatgpt.txt
-- docs/chatgpt_backup_2026-03-09.txt
+- docs/archive/chatgpt.txt
+- docs/archive/chatgpt_backup_2026-03-09.txt
 
 ====================================================
 2) Current Runtime Topology
@@ -244,7 +244,6 @@ Current locally tracked provider references:
 - TextVerified:
   - docs/providers/manual/textverified_api_reference.json
   - docs/providers/raw/textverified_openapi_v2.json
-  - docs/providers/raw/textverified_openapi_v2_latest.json
 - HeroSMS:
   - docs/providers/manual/herosms_api_reference.json
   - docs/providers/raw/herosms_openapi_en.json
@@ -268,7 +267,7 @@ B) Hardcoded text migration
 - translations.py is not yet the sole source for UI copy.
 
 C) Documentation lag outside this file
-- docs/chatgpt.txt and docs/chatgpt_backup_2026-03-09.txt are historical and no longer reflect the full current state.
+- docs/archive/chatgpt.txt and docs/archive/chatgpt_backup_2026-03-09.txt are historical and no longer reflect the full current state.
 
 D) Test alignment
 - Tests exist across core/database/numbers/proxies.

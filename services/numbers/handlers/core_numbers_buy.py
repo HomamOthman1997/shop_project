@@ -32,7 +32,82 @@ from database.orders_repo import (
 )
 from database.user_repo import get_user
 from database.financial_ledger import get_user_wallet_balance
-from services.numbers.data.countries import COUNTRIES_LIST
+from services.numbers.handlers.temp_order_utils import (
+    TEMP_CANCEL_AFTER_SEC,
+    TEMP_POLL_INTERVALS,
+    TEMP_PROVIDER_SAFETY_BUFFER_SEC,
+    TEMP_REFRESH_COOLDOWN_SEC,
+    TEMP_REFUND_RETRY_WINDOW_SEC,
+    TEMP_REUSE_WARRANTY_FALLBACK_SEC,
+    TEMP_REUSE_WARRANTY_SEC_BY_PROVIDER,
+    TEMP_WAIT_TIMEOUT_SEC,
+    _as_float,
+    _as_int,
+    _bool_text,
+    _clean_provider_error_text,
+    _coerce_utc_datetime,
+    _country_display_name,
+    _extract_explicit_reuse_warranty_sec,
+    _extract_new_sms_code,
+    _extract_provider_wait_timeout_sec,
+    _format_number_for_copy_html,
+    _format_number_for_copy_text,
+    _format_wait_time_short,
+    _is_expected_provider_failure,
+    _is_retryable_provider_cancel,
+    _is_temp_order_active_for_trust_gate,
+    _normalize_warranty_sec,
+    _order_reuse_warranty_sec,
+    _order_temp_timeout_sec,
+    _parse_provider_dt,
+    _poll_interval_for_provider,
+    _provider_default_reuse_warranty_sec,
+    _provider_error_text,
+    _resolve_reuse_warranty_sec,
+    _safe_code_text,
+    _seconds_between,
+    _seconds_from_text,
+    _seconds_left_until,
+    _seconds_until_timestamp,
+    _split_number_for_copy,
+    _temp_code_received_text,
+    _temp_elapsed_sec,
+    _temp_order_has_received_code,
+    _temp_refresh_cooldown_left,
+    _temp_reuse_policy_text,
+    _temp_waiting_text,
+    _to_utc_datetime,
+    _utc_now,
+    _warranty_minutes_text_value,
+)
+from services.numbers.handlers.rental_policy_utils import (
+    HERO_RENTAL_CANCEL_WINDOW_SEC,
+    RENTAL_EXIT_GUARD_FALLBACK_SYNC_WINDOW_SEC,
+    _is_within_hero_rental_cancel_window as _policy_is_within_hero_rental_cancel_window,
+    _rental_deadline_at as _policy_rental_deadline_at,
+    _rental_no_sms_yet,
+    _rental_protection_policy as _policy_rental_protection_policy,
+    _rental_safe_cutoff_at as _policy_rental_safe_cutoff_at,
+)
+from services.numbers.handlers.temp_provider_io import (
+    fetch_provider_sms as _fetch_provider_sms_impl,
+    provider_resend as _provider_resend_impl,
+)
+from services.numbers.handlers.temp_waiter_runtime import (
+    queue_temp_waiter as _queue_temp_waiter_impl,
+    send_temp_timeout_state as _send_temp_timeout_state_impl,
+    start_temp_waiter as _start_temp_waiter_impl,
+)
+from services.numbers.handlers.recovery_runtime import (
+    run_temp_wait_recovery_sweep as _run_temp_wait_recovery_sweep_impl,
+    run_unprovisioned_number_order_recovery_sweep as _run_unprovisioned_number_order_recovery_sweep_impl,
+)
+from services.numbers.handlers.event_logging import (
+    _log_number_event_from_order as _log_number_event_from_order_impl,
+    _log_rental_event as _log_rental_event_impl,
+    _log_temp_event as _log_temp_event_impl,
+    _number_event_context_from_order as _number_event_context_from_order_impl,
+)
 from services.numbers.keyboards.core_numbers_kb import (
     confirm_buy_kb,
     temp_code_received_kb,
@@ -79,62 +154,9 @@ class _CallbackContextMiddleware(BaseMiddleware):
 
 router.callback_query.middleware(_CallbackContextMiddleware())
 
-TEMP_WAIT_TIMEOUT_SEC = 300
-TEMP_PROVIDER_SAFETY_BUFFER_SEC = 60
-TEMP_CANCEL_AFTER_SEC = 180
-TEMP_REFRESH_COOLDOWN_SEC = 60
 TEMP_REFUND_RETRY_INTERVAL_SEC = 45
-TEMP_REFUND_RETRY_WINDOW_SEC = 900
-HERO_RENTAL_CANCEL_WINDOW_SEC = 1200
-RENTAL_EXIT_GUARD_FALLBACK_SYNC_WINDOW_SEC = 1800
 RENTAL_OWNER_ALERT_WINDOW_SEC = 180
-TEMP_REUSE_WARRANTY_FALLBACK_SEC = 900
-TEMP_REUSE_WARRANTY_SEC_BY_PROVIDER = {}
-TEMP_POLL_INTERVALS = {
-    "smsman": 6,
-    "smspool": 8,
-    "textverified": 8,
-    "herosms": 7,
-    "telabot": 10,
-}
 _HIDDEN_TEMP_PROVIDER_CODES = {"smsman", "smsman_s6"}
-
-_COUNTRY_NAME_BY_CODE = {
-    str(item.get("code") or "").strip(): str(item.get("name") or "").strip()
-    for item in COUNTRIES_LIST
-    if str(item.get("code") or "").strip()
-}
-
-_TEMP_WARRANTY_SECONDS_KEYS = (
-    "reuse_warranty_sec",
-    "warranty_sec",
-    "expires_in",
-    "expiresin",
-    "expires_in_seconds",
-    "expiresinseconds",
-    "expiration_seconds",
-    "ttl",
-    "ttl_sec",
-    "time_to_live",
-    "valid_for_sec",
-    "validforsec",
-)
-_TEMP_WARRANTY_EPOCH_KEYS = (
-    "expires_at",
-    "expiresat",
-    "expiration_at",
-    "expirationat",
-    "valid_until",
-    "validuntil",
-    "expire_at",
-    "expireat",
-)
-_TEMP_WARRANTY_TEXT_KEYS = (
-    "reuse_warranty",
-    "warranty",
-    "valid_for",
-    "expires_in_human",
-)
 
 
 def _main_reseller_bot_link() -> str | None:
@@ -300,19 +322,6 @@ def _purchase_charge_confirmed_notice_text(lang: str, *, amount: float, balance:
     return t(lang, "numbers_purchase_charge_confirmed_notice").format(amount=float(amount), balance=float(balance))
 
 
-def _country_display_name(country_value: Any, *, country_name: str | None = None) -> str:
-    direct_name = str(country_name or "").strip()
-    if direct_name:
-        return direct_name
-    raw = str(country_value or "").strip()
-    if not raw:
-        return "-"
-    code = "".join(ch for ch in raw if ch.isdigit())
-    if code and code in _COUNTRY_NAME_BY_CODE:
-        return _COUNTRY_NAME_BY_CODE[code]
-    return raw
-
-
 def _order_bot_id(order: dict | None) -> int | None:
     order = order or {}
     raw = order.get("telegram_bot_id")
@@ -322,34 +331,6 @@ def _order_bot_id(order: dict | None) -> int | None:
         return int(raw)
     except Exception:
         return None
-
-
-def _split_number_for_copy(raw_number: str | None, country_code: str | None) -> tuple[str | None, str]:
-    raw = str(raw_number or "").strip()
-    digits = "".join(ch for ch in raw if ch.isdigit()) or raw
-    cc = "".join(ch for ch in str(country_code or "").strip() if ch.isdigit())
-    if cc and 1 <= len(cc) <= 4 and isinstance(digits, str) and digits:
-        if digits.startswith(cc) and len(digits) > len(cc):
-            local_digits = digits[len(cc):]
-        else:
-            local_digits = digits
-        if local_digits:
-            return cc, local_digits
-    return None, raw if raw else str(digits)
-
-
-def _format_number_for_copy_html(raw_number: str | None, country_code: str | None) -> str:
-    cc, local = _split_number_for_copy(raw_number, country_code)
-    if cc:
-        return f"+{cc} <code>{html.escape(local)}</code>"
-    return f"<code>{html.escape(local)}</code>"
-
-
-def _format_number_for_copy_text(raw_number: str | None, country_code: str | None) -> str:
-    cc, local = _split_number_for_copy(raw_number, country_code)
-    if cc:
-        return f"+{cc} {local}"
-    return local
 
 
 def _rental_manage_kb(order_id: str, lang: str, can_renew: bool = False, back_callback: str | None = None) -> InlineKeyboardMarkup:
@@ -414,6 +395,60 @@ def _rental_near_cutoff_alert_text(order_id: Any, provider_label: str, user_id: 
         deadline=deadline,
         seconds_left=seconds_left,
     )
+
+
+def _provider_info_alert_text(lang: str, provider_code: str, info: dict[str, Any]) -> str:
+    info = info or {}
+    lines = [f"{t(lang, 'provider_label')}: {provider_public_id(provider_code)}"]
+    provider_country_iso = str(info.get("provider_country_iso") or "").strip().upper()
+    provider_state_code = str(info.get("provider_state_code") or "").strip().upper()
+    if provider_state_code:
+        lines.append(f"{t(lang, 'state_label')}: {provider_state_code}")
+    elif provider_country_iso:
+        lines.append(f"{t(lang, 'country_label')}: {provider_country_iso}")
+    try:
+        price_val = float(info.get("price") or 0)
+    except Exception:
+        price_val = 0.0
+    if price_val > 0:
+        lines.append(f"{t(lang, 'price_label')}: {format_usd(price_val)}")
+    success_rate = info.get("success_rate")
+    attempts = int(info.get("success_attempts") or 0)
+    rate_text = "-" if attempts < 1 else f"{float(success_rate or 0):.0f}%"
+    lines.append(f"{t(lang, 'success_rate_short')}: {rate_text}")
+    api_service = str(info.get("api_service_name") or "").strip()
+    if api_service:
+        lines.append(f"API: {api_service}")
+    if not bool(info.get("available_for_buy", True)):
+        reason = str(info.get("provider_reason") or "").strip()
+        if reason:
+            lines.append(reason)
+    return "\n".join(lines)
+
+
+def _rental_provider_info_alert_text(lang: str, provider_code: str, options: list[dict], summary: dict | None = None) -> str:
+    summary = summary or {}
+    lines = [f"{t(lang, 'provider_label')}: {provider_public_id(provider_code)}"]
+    durations: list[str] = []
+    for row in options or []:
+        try:
+            dur = int(row.get("duration") or 0)
+        except Exception:
+            dur = 0
+        if dur <= 0:
+            continue
+        label = str(row.get("duration_label") or _duration_text({"duration": dur}, lang)).strip()
+        if label and label not in durations:
+            durations.append(label)
+    if durations:
+        lines.append(f"{t(lang, 'provider_duration')}: {', '.join(durations[:6])}")
+    try:
+        avg_price = float(summary.get('avg_price') or 0)
+    except Exception:
+        avg_price = 0.0
+    if avg_price > 0:
+        lines.append(f"{t(lang, 'price_label')}: {format_usd(avg_price)}")
+    return "\n".join(lines)
 
 
 async def _return_to_main_menu_from_buy(callback: types.CallbackQuery, state: FSMContext, lang: str) -> None:
@@ -599,74 +634,6 @@ async def _handle_rental_exit_callback_guard(
     return True
 
 
-def _bool_text(value: bool, lang: str) -> str:
-    return t(lang, "yes") if bool(value) else t(lang, "no")
-
-
-def _as_float(value) -> float:
-    try:
-        return float(value)
-    except Exception:
-        return 0.0
-
-
-def _as_int(value, default: int = 0) -> int:
-    try:
-        return int(float(value))
-    except Exception:
-        return int(default)
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
-def _to_utc_datetime(value: datetime | None) -> datetime | None:
-    if not isinstance(value, datetime):
-        return None
-    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
-
-def _coerce_utc_datetime(value: Any) -> datetime | None:
-    if isinstance(value, datetime):
-        return _to_utc_datetime(value)
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except Exception:
-        return None
-    return _to_utc_datetime(parsed)
-
-
-def _seconds_between(later: datetime | None, earlier: datetime | None) -> int | None:
-    later_dt = _to_utc_datetime(later)
-    earlier_dt = _to_utc_datetime(earlier)
-    if not later_dt or not earlier_dt:
-        return None
-    return int((later_dt - earlier_dt).total_seconds())
-
-
-def _seconds_left_until(value: datetime | None) -> int:
-    target = _to_utc_datetime(value)
-    if not target:
-        return 0
-    return max(0, int((target - _utc_now()).total_seconds()))
-
-
-def _format_wait_time_short(seconds: int) -> str:
-    sec = max(0, int(seconds or 0))
-    minutes = (sec + 59) // 60
-    if minutes < 60:
-        return f"{minutes}m"
-    hours = minutes // 60
-    mins = minutes % 60
-    return f"{hours}h {mins}m" if mins else f"{hours}h"
-
-
 def _trust_alert_text(lang: str, *, mode: str, wait_sec: int) -> str:
     wait_txt = _format_wait_time_short(wait_sec)
     if mode == "active_order":
@@ -782,220 +749,6 @@ async def _evaluate_temp_trust_gate(
     return {"allowed": True}
 
 
-def _provider_default_reuse_warranty_sec(provider_code: str | None) -> int:
-    code = str(provider_code or "").strip().lower()
-    return int(TEMP_REUSE_WARRANTY_SEC_BY_PROVIDER.get(code, TEMP_REUSE_WARRANTY_FALLBACK_SEC))
-
-
-def _normalize_warranty_sec(value: int | float | None) -> int | None:
-    if value is None:
-        return None
-    sec = _as_int(value, 0)
-    if sec <= 0:
-        return None
-    # Keep temp warranty bounded to a sane range for UI and storage.
-    sec = max(60, min(sec, 7 * 24 * 3600))
-    return sec
-
-
-def _seconds_until_timestamp(raw_value, now_ts: float) -> int | None:
-    if raw_value in (None, ""):
-        return None
-    ts_value: float | None = None
-    if isinstance(raw_value, (int, float)):
-        ts_value = float(raw_value)
-    elif isinstance(raw_value, str):
-        text = raw_value.strip()
-        if not text:
-            return None
-        if re.fullmatch(r"-?\d+(\.\d+)?", text):
-            try:
-                ts_value = float(text)
-            except Exception:
-                ts_value = None
-        else:
-            try:
-                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-                if parsed.tzinfo is None:
-                    parsed = parsed.replace(tzinfo=UTC)
-                ts_value = parsed.timestamp()
-            except Exception:
-                ts_value = None
-    if ts_value is None:
-        return None
-    # Support millisecond timestamps.
-    if ts_value > 10_000_000_000:
-        ts_value = ts_value / 1000.0
-    delta = int(ts_value - now_ts)
-    if delta <= 0:
-        return None
-    return delta
-
-
-def _seconds_from_text(raw_value) -> int | None:
-    text = str(raw_value or "").strip().lower()
-    if not text:
-        return None
-    patterns = (
-        (r"(\d+)\s*(?:seconds?|secs?|s)\b", 1),
-        (r"(\d+)\s*(?:minutes?|mins?|m)\b", 60),
-        (r"(\d+)\s*(?:hours?|hrs?|h)\b", 3600),
-        (r"(\d+)\s*(?:days?|d)\b", 24 * 3600),
-    )
-    for pattern, multiplier in patterns:
-        match = re.search(pattern, text)
-        if not match:
-            continue
-        try:
-            value = int(match.group(1))
-        except Exception:
-            continue
-        if value > 0:
-            return value * multiplier
-    return None
-
-
-def _extract_explicit_reuse_warranty_sec(payload) -> int | None:
-    if payload in (None, ""):
-        return None
-    now_ts = _utc_now().timestamp()
-    queue = [payload]
-    seen: set[int] = set()
-
-    while queue:
-        current = queue.pop(0)
-        if isinstance(current, dict):
-            current_id = id(current)
-            if current_id in seen:
-                continue
-            seen.add(current_id)
-            for key, value in current.items():
-                key_norm = str(key or "").strip().lower()
-                if key_norm in _TEMP_WARRANTY_SECONDS_KEYS:
-                    sec = _normalize_warranty_sec(_as_int(value, 0))
-                    if sec:
-                        return sec
-                if key_norm in _TEMP_WARRANTY_EPOCH_KEYS:
-                    sec = _normalize_warranty_sec(_seconds_until_timestamp(value, now_ts))
-                    if sec:
-                        return sec
-                if key_norm in _TEMP_WARRANTY_TEXT_KEYS:
-                    sec = _normalize_warranty_sec(_seconds_from_text(value))
-                    if sec:
-                        return sec
-                if isinstance(value, (dict, list)):
-                    queue.append(value)
-        elif isinstance(current, list):
-            for item in current:
-                if isinstance(item, (dict, list)):
-                    queue.append(item)
-
-    return None
-
-
-def _resolve_reuse_warranty_sec(provider_code: str | None, buy_response: dict | None = None) -> int:
-    # Unified policy: fixed 15-minute reuse warranty for all providers.
-    # Keep provider payload warranty hints ignored to avoid inconsistent UX.
-    return _provider_default_reuse_warranty_sec(provider_code)
-
-
-def _warranty_minutes_text_value(warranty_sec: int | None) -> int:
-    sec = _normalize_warranty_sec(warranty_sec)
-    if not sec:
-        sec = TEMP_REUSE_WARRANTY_FALLBACK_SEC
-    return max(1, (int(sec) + 59) // 60)
-
-
-def _order_reuse_warranty_sec(order: dict | None) -> int:
-    order = order or {}
-    sec = _normalize_warranty_sec(_as_int(order.get("temp_reuse_warranty_sec"), 0))
-    if sec:
-        return sec
-
-    created_at = _to_utc_datetime(order.get("created_at"))
-    warranty_until = _to_utc_datetime(order.get("temp_reuse_warranty_until"))
-    if created_at and warranty_until:
-        derived = _normalize_warranty_sec(int((warranty_until - created_at).total_seconds()))
-        if derived:
-            return derived
-
-    fallback = _provider_default_reuse_warranty_sec(order.get("provider"))
-    return int(_normalize_warranty_sec(fallback) or TEMP_REUSE_WARRANTY_FALLBACK_SEC)
-
-
-def _temp_reuse_policy_text(lang: str, warranty_sec: int | None) -> str:
-    minutes = _warranty_minutes_text_value(warranty_sec)
-    line_1 = t(lang, "temp_reuse_warranty_line").format(minutes=minutes)
-    line_2 = t(lang, "temp_reuse_resend_note")
-    line_3 = t(lang, "temp_reuse_cost_note")
-    return f"{line_1}\n{line_2}\n{line_3}"
-
-
-def _temp_waiting_text(
-    *,
-    lang: str,
-    provider_code: str,
-    number: str,
-    country_code: str | None,
-    interval_sec: int,
-    elapsed_sec: int = 0,
-    reuse_warranty_sec: int | None = None,
-    service_name: str | None = None,
-) -> str:
-    provider_public = provider_public_id(provider_code)
-    provider_label = provider_public
-    if provider_public.upper().startswith("S") and provider_public[1:].isdigit():
-        provider_label = f"Server{provider_public[1:]}"
-
-    raw_number = str(number or "").strip()
-    digits = "".join(ch for ch in raw_number if ch.isdigit()) or raw_number
-    cc = "".join(ch for ch in str(country_code or "").strip() if ch.isdigit())
-    if cc and 1 <= len(cc) <= 4 and isinstance(digits, str) and digits:
-        if digits.startswith(cc) and len(digits) > len(cc):
-            local_digits = digits[len(cc):]
-        else:
-            local_digits = digits
-        pretty_number = f"+{cc} {local_digits}".strip()
-    else:
-        pretty_number = raw_number if raw_number else str(digits)
-
-    # UX: show a calm synthetic progress counter and freeze it once cancel becomes available.
-    shown_elapsed = min(max(0, int(elapsed_sec or 0)), TEMP_CANCEL_AFTER_SEC)
-    refresh_count = max(0, int(shown_elapsed // 30))
-    number_mono = _format_number_for_copy_html(pretty_number, country_code)
-    text = t(lang, "temp_waiting_code").format(
-        provider=provider_label,
-        number=number_mono,
-        refreshes=refresh_count,
-    )
-    details = [
-        text,
-        f"{t(lang, 'country_label')}: {_country_display_name(country_code)}",
-    ]
-    if service_name:
-        details.append(f"{t(lang, 'service_label')}: {html.escape(str(service_name))}")
-    details.append(_temp_reuse_policy_text(lang, reuse_warranty_sec))
-    return "\n".join(details)
-
-
-def _temp_code_received_text(lang: str, code: str, order: dict | None = None) -> str:
-    order = order or {}
-    number_value = _format_number_for_copy_html(
-        str(order.get("provider_number") or "").strip(),
-        str(order.get("temp_country") or "").strip(),
-    )
-    service_value = str(order.get("temp_service_key") or order.get("service_id") or "-")
-    return "\n".join(
-        [
-            f"📱 {t(lang, 'number_label')}: {number_value}",
-            f"🧩 {t(lang, 'service_label')}: {html.escape(service_value)}",
-            f"{t(lang, 'country_label')}: {_country_display_name(order.get('temp_country'))}",
-            f"{t(lang, 'provider_label')}: {provider_public_id(str(order.get('provider') or ''))}",
-            _temp_reuse_policy_text(lang, _order_reuse_warranty_sec(order)),
-        ]
-    )
-
-
 def _temp_code_notice_text(lang: str, *, code: str, amount: float, balance: float) -> str:
     code_value = _safe_code_text(code)
     return "\n".join(
@@ -1008,92 +761,6 @@ def _temp_code_notice_text(lang: str, *, code: str, amount: float, balance: floa
             ),
         ]
     )
-
-
-def _poll_interval_for_provider(provider_code: str) -> int:
-    return int(TEMP_POLL_INTERVALS.get(str(provider_code or "").lower(), 8))
-
-
-def _parse_provider_dt(raw_value) -> datetime | None:
-    text = str(raw_value or "").strip()
-    if not text:
-        return None
-    candidates = (
-        text,
-        text.replace("Z", "+00:00"),
-        text.replace(" ", "T"),
-        text.replace(" ", "T").replace("Z", "+00:00"),
-    )
-    for item in candidates:
-        try:
-            dt = datetime.fromisoformat(item)
-            if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
-                return dt.replace(tzinfo=UTC)
-            return dt.astimezone(UTC)
-        except Exception:
-            continue
-    return None
-
-
-def _extract_provider_wait_timeout_sec(buy_res: dict | None) -> int | None:
-    if not isinstance(buy_res, dict):
-        return None
-    raw = buy_res.get("raw")
-    if not isinstance(raw, dict):
-        return None
-    started = _parse_provider_dt(raw.get("activationTime"))
-    ended = _parse_provider_dt(raw.get("activationEndTime"))
-    if not started or not ended:
-        return None
-    duration = int((ended - started).total_seconds())
-    if duration <= 0:
-        return None
-    safe_duration = max(60, duration - TEMP_PROVIDER_SAFETY_BUFFER_SEC)
-    return safe_duration
-
-
-def _order_temp_timeout_sec(order: dict | None) -> int:
-    if not isinstance(order, dict):
-        return TEMP_WAIT_TIMEOUT_SEC
-    try:
-        sec = int(order.get("temp_wait_timeout_sec") or 0)
-    except Exception:
-        sec = 0
-    return sec if sec > 0 else TEMP_WAIT_TIMEOUT_SEC
-
-
-def _temp_elapsed_sec(order: dict, now: datetime | None = None) -> int:
-    now_dt = _to_utc_datetime(now) or _utc_now()
-    started_at = _to_utc_datetime(order.get("temp_wait_started_at") or order.get("created_at")) or now_dt
-    return max(0, int((now_dt - started_at).total_seconds()))
-
-
-def _temp_refresh_cooldown_left(order: dict, now: datetime | None = None) -> int:
-    now_dt = _to_utc_datetime(now) or _utc_now()
-    last_refresh = _to_utc_datetime(order.get("temp_last_refresh_at"))
-    if not last_refresh:
-        return 0
-    delta = int((now_dt - last_refresh).total_seconds())
-    return max(0, TEMP_REFRESH_COOLDOWN_SEC - delta)
-
-
-def _is_temp_order_active_for_trust_gate(order: dict | None, now: datetime | None = None) -> bool:
-    order = order or {}
-    state = str(order.get("temp_wait_state") or "").strip().lower()
-    if state not in {"waiting", "code_received", "refund_pending"}:
-        return False
-
-    elapsed = _temp_elapsed_sec(order, now=now)
-    timeout_sec = _order_temp_timeout_sec(order)
-    reuse_warranty_sec = _order_reuse_warranty_sec(order)
-
-    if state == "code_received":
-        return elapsed < max(timeout_sec, reuse_warranty_sec)
-
-    if state == "refund_pending":
-        return elapsed < max(timeout_sec, TEMP_REFUND_RETRY_WINDOW_SEC)
-
-    return elapsed < timeout_sec
 
 
 def _build_temp_action_keyboard(order: dict, lang: str) -> InlineKeyboardMarkup:
@@ -1191,99 +858,6 @@ async def _sync_temp_wait_controls(bot, order: dict, lang: str):
         text=text,
         reply_markup=_build_temp_action_keyboard(order, lang),
         parse_mode="HTML",
-    )
-
-
-def _safe_code_text(value: str) -> str:
-    return str(value or "").strip().replace("\n", " ")[:200]
-
-
-def _clean_provider_error_text(value: str) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    text = re.sub(r"<[^>]*>", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
-def _provider_error_text(raw) -> str:
-    if isinstance(raw, dict):
-        for key in ("errorDescription", "message", "error", "detail"):
-            cleaned = _clean_provider_error_text(raw.get(key))
-            if cleaned:
-                return cleaned
-        pools = raw.get("pools")
-        if isinstance(pools, dict):
-            parts: list[str] = []
-            for pool_name, pool_info in pools.items():
-                if isinstance(pool_info, dict):
-                    msg = _clean_provider_error_text(pool_info.get("message"))
-                    if msg:
-                        parts.append(f"{pool_name}: {msg}")
-            if parts:
-                return " | ".join(parts)
-        return _clean_provider_error_text(str(raw)) or "provider_error"
-    cleaned = _clean_provider_error_text(raw)
-    return cleaned or "provider_error"
-
-
-_EXPECTED_PROVIDER_FAILURE_MARKERS = (
-    "out of stock",
-    "unavailable",
-    "insufficient balance",
-    "balance_error",
-    "no numbers",
-    "not enough balance",
-    "service not available",
-    "no free phones",
-    "temporarily unavailable",
-)
-
-
-def _is_expected_provider_failure(raw) -> bool:
-    text = _provider_error_text(raw).lower()
-    if not text:
-        return False
-    return any(marker in text for marker in _EXPECTED_PROVIDER_FAILURE_MARKERS)
-
-
-def _extract_new_sms_code(messages: list, seen_codes: set[str]) -> str | None:
-    for raw in messages or []:
-        code = _safe_code_text(str(raw))
-        if not code:
-            continue
-        if code in seen_codes:
-            continue
-        return code
-    return None
-
-
-def _temp_order_has_received_code(order: dict | None) -> bool:
-    order = order or {}
-    if _as_int(order.get("temp_codes_count"), 0) > 0:
-        return True
-    if order.get("temp_first_sms_at"):
-        return True
-    if str(order.get("temp_last_code") or "").strip():
-        return True
-    codes = order.get("temp_codes") or []
-    if isinstance(codes, list):
-        for code in codes:
-            if str(code or "").strip():
-                return True
-    return False
-
-
-def _is_retryable_provider_cancel(raw: Any) -> bool:
-    text = _provider_error_text(raw).lower()
-    if not text:
-        return False
-    return (
-        "early_cancel_denied" in text
-        or "early cancel denied" in text
-        or "try again later" in text
-        or "wait" in text
     )
 
 
@@ -1595,23 +1169,11 @@ async def _load_user_order(raw_id: str, user_id: int) -> tuple[ObjectId | None, 
 
 
 def _number_event_context_from_order(order: dict | None, *, number_mode: str | None = None) -> dict[str, Any]:
-    order = order or {}
-    sale_price, cost_price = extract_order_amounts(order)
-    return {
-        "order_id": order.get("_id"),
-        "user_id": int(order.get("user_id") or 0),
-        "reseller_id": int(order.get("reseller_id") or 0) or None,
-        "provider": str(order.get("provider") or order.get("provisioning_provider") or ""),
-        "service_id": str(order.get("service_id") or ""),
-        "number_mode": str(number_mode or order.get("number_mode") or "").strip().lower(),
-        "status_before": str(order.get("status") or ""),
-        "sale_price": sale_price,
-        "cost_price": cost_price,
-        "provider_order_id": str(order.get("provider_order_id") or ""),
-        "provider_number": str(order.get("provider_number") or ""),
-        "country": str(order.get("temp_country") or order.get("rental_country") or order.get("provisioning_country") or ""),
-        "state": str(order.get("temp_state") or order.get("rental_state_code") or order.get("provisioning_state_code") or ""),
-    }
+    return _number_event_context_from_order_impl(
+        order,
+        number_mode=number_mode,
+        extract_order_amounts=extract_order_amounts,
+    )
 
 
 async def _log_number_event_from_order(
@@ -1622,43 +1184,25 @@ async def _log_number_event_from_order(
     status_after: str | None = None,
     number_mode: str | None = None,
 ) -> None:
-    try:
-        ctx = _number_event_context_from_order(order, number_mode=number_mode)
-        await number_events_repo.log_number_order_event(
-            order_id=ctx["order_id"],
-            user_id=ctx["user_id"],
-            reseller_id=ctx["reseller_id"],
-            provider=ctx["provider"],
-            service_id=ctx["service_id"],
-            number_mode=ctx["number_mode"],
-            event=event,
-            status_before=ctx["status_before"],
-            status_after=status_after,
-            sale_price=ctx["sale_price"],
-            cost_price=ctx["cost_price"],
-            provider_order_id=ctx["provider_order_id"],
-            provider_number=ctx["provider_number"],
-            country=ctx["country"],
-            state=ctx["state"],
-            payload=payload or {},
-        )
-    except Exception:
-        logger.exception("number event log failed: event=%s order=%s", event, (order or {}).get("_id"))
+    await _log_number_event_from_order_impl(
+        order,
+        event,
+        payload=payload,
+        status_after=status_after,
+        number_mode=number_mode,
+        extract_order_amounts=extract_order_amounts,
+        number_events_repo_obj=number_events_repo,
+    )
 
 
 async def _log_temp_event(order: dict, event: str, payload: dict | None = None):
-    try:
-        await temp_number_stats_repo.log_temp_number_event(
-            order.get("_id"),
-            user_id=int(order.get("user_id") or 0),
-            provider=str(order.get("provider") or ""),
-            service_id=str(order.get("service_id") or ""),
-            event=event,
-            payload=payload or {},
-        )
-    except Exception:
-        logger.exception("temp event log failed: event=%s order=%s", event, order.get("_id"))
-    await _log_number_event_from_order(order, event, payload=payload, number_mode="temp")
+    await _log_temp_event_impl(
+        order,
+        event,
+        payload=payload,
+        temp_number_stats_repo_obj=temp_number_stats_repo,
+        log_number_event_from_order_cb=_log_number_event_from_order,
+    )
 
 
 async def _log_rental_event(
@@ -1670,18 +1214,14 @@ async def _log_rental_event(
     event: str,
     payload: dict | None = None,
 ):
-    await _log_number_event_from_order(
-        {
-            "_id": order_id,
-            "user_id": int(user_id or 0),
-            "reseller_id": None,
-            "provider": provider,
-            "service_id": service_id,
-            "number_mode": "rental",
-        },
-        event,
+    await _log_rental_event_impl(
+        order_id=order_id,
+        user_id=user_id,
+        provider=provider,
+        service_id=service_id,
+        event=event,
         payload=payload,
-        number_mode="rental",
+        log_number_event_from_order_cb=_log_number_event_from_order,
     )
 
 
@@ -1724,94 +1264,43 @@ async def _maybe_send_purchase_charge_confirmed_notice(
         logger.exception("failed to send deferred purchase debit notice for order=%s", order.get("_id"))
 
 
-def _rental_no_sms_yet(order: dict | None) -> bool:
-    order = order or {}
-    if order.get("rental_sms_received_at"):
-        return False
-    count = _as_int(order.get("rental_sms_count"), 0)
-    if count > 0:
-        return False
-    return True
+def _rental_protection_policy(provider_code: str | None) -> dict[str, Any]:
+    return _policy_rental_protection_policy(
+        provider_code,
+        rental_watch_poll_sec=getattr(settings, "numbers_rental_watch_poll_sec", 30),
+        rental_guard_fallback_sync_window_sec=getattr(
+            settings,
+            "numbers_rental_guard_fallback_sync_window_sec",
+            RENTAL_EXIT_GUARD_FALLBACK_SYNC_WINDOW_SEC,
+        ),
+        rental_safe_cutoff_sec=getattr(settings, "numbers_rental_safe_cutoff_sec", 60),
+        hero_cancel_window_sec=getattr(settings, "numbers_hero_rental_cancel_window_sec", HERO_RENTAL_CANCEL_WINDOW_SEC),
+        smspool_refund_window_sec=getattr(settings, "numbers_smspool_rental_refund_window_sec", None),
+        textverified_refund_window_sec=getattr(settings, "numbers_textverified_rental_refund_window_sec", None),
+    )
 
 
 def _is_within_hero_rental_cancel_window(order: dict | None) -> bool:
-    order = order or {}
-    start_dt = _to_utc_datetime(order.get("rental_started_at")) or _to_utc_datetime(order.get("created_at"))
-    if not start_dt:
-        return False
-    now = _utc_now()
-    return (now - start_dt).total_seconds() <= float(getattr(settings, "numbers_hero_rental_cancel_window_sec", HERO_RENTAL_CANCEL_WINDOW_SEC) or HERO_RENTAL_CANCEL_WINDOW_SEC)
-
-
-def _rental_protection_policy(provider_code: str | None) -> dict[str, Any]:
-    code = str(provider_code or "").strip().lower()
-    poll_sec = max(20, int(getattr(settings, "numbers_rental_watch_poll_sec", 30) or 30))
-    fallback_sync_window = max(
-        300,
-        int(
-            getattr(
-                settings,
-                "numbers_rental_guard_fallback_sync_window_sec",
-                RENTAL_EXIT_GUARD_FALLBACK_SYNC_WINDOW_SEC,
-            )
-            or RENTAL_EXIT_GUARD_FALLBACK_SYNC_WINDOW_SEC
+    return _policy_is_within_hero_rental_cancel_window(
+        order,
+        hero_cancel_window_sec=getattr(
+            settings,
+            "numbers_hero_rental_cancel_window_sec",
+            HERO_RENTAL_CANCEL_WINDOW_SEC,
         ),
     )
-    policy = {
-        "provider": code,
-        "close_method": "finish",
-        "refund_deadline_sec": None,
-        "safe_cutoff_sec": max(30, int(getattr(settings, "numbers_rental_safe_cutoff_sec", 60) or 60)),
-        "watch_poll_sec": poll_sec,
-        "fallback_sync_window_sec": fallback_sync_window,
-    }
-    if code == "herosms":
-        policy["close_method"] = "cancel"
-        policy["refund_deadline_sec"] = max(
-            60,
-            int(getattr(settings, "numbers_hero_rental_cancel_window_sec", HERO_RENTAL_CANCEL_WINDOW_SEC) or HERO_RENTAL_CANCEL_WINDOW_SEC),
-        )
-    elif code == "smspool":
-        deadline = getattr(settings, "numbers_smspool_rental_refund_window_sec", None)
-        if deadline not in (None, ""):
-            try:
-                policy["refund_deadline_sec"] = max(60, int(deadline))
-            except Exception:
-                policy["refund_deadline_sec"] = None
-    elif code == "textverified":
-        deadline = getattr(settings, "numbers_textverified_rental_refund_window_sec", None)
-        if deadline not in (None, ""):
-            try:
-                policy["refund_deadline_sec"] = max(60, int(deadline))
-            except Exception:
-                policy["refund_deadline_sec"] = None
-    return policy
 
 
 def _rental_deadline_at(order: dict | None) -> datetime | None:
-    order = order or {}
-    explicit = _to_utc_datetime(order.get("rental_refund_deadline_at"))
-    if explicit:
-        return explicit
-    start_dt = _to_utc_datetime(order.get("rental_started_at")) or _to_utc_datetime(order.get("created_at"))
-    if not start_dt:
-        return None
-    deadline_sec = _rental_protection_policy(order.get("provider")).get("refund_deadline_sec")
-    if not deadline_sec:
-        return None
-    return datetime.fromtimestamp(start_dt.timestamp() + int(deadline_sec), tz=UTC)
+    order = dict(order or {})
+    order.setdefault("rental_protection_policy", _rental_protection_policy(order.get("provider")))
+    return _policy_rental_deadline_at(order)
 
 
 def _rental_safe_cutoff_at(order: dict | None) -> datetime | None:
-    order = order or {}
-    explicit = _to_utc_datetime(order.get("rental_safe_cutoff_at"))
-    if explicit:
-        return explicit
-    deadline_at = _rental_deadline_at(order)
-    if not deadline_at:
-        return None
-    safe_cutoff_sec = int(_rental_protection_policy(order.get("provider")).get("safe_cutoff_sec") or 60)
-    return datetime.fromtimestamp(deadline_at.timestamp() - max(30, safe_cutoff_sec), tz=UTC)
+    order = dict(order or {})
+    order.setdefault("rental_protection_policy", _rental_protection_policy(order.get("provider")))
+    return _policy_rental_safe_cutoff_at(order)
 
 
 async def _sync_rental_sms_snapshot(order_id, order: dict | None) -> dict[str, Any]:
@@ -2261,123 +1750,30 @@ async def run_rental_protection_sweep(
 
 
 async def run_temp_wait_recovery_sweep(*, bot, limit: int = 200) -> dict[str, Any]:
-    stats = {
-        "checked": 0,
-        "synced": 0,
-        "code_received": 0,
-        "timed_out": 0,
-        "refund_retries": 0,
-    }
-    if bot is None:
-        return stats
-
-    try:
-        bot_id = int(getattr(bot, "_cached_bot_id", 0) or 0)
-        if bot_id <= 0:
-            me = await bot.get_me()
-            bot_id = int(me.id)
-            setattr(bot, "_cached_bot_id", bot_id)
-    except Exception:
-        bot_id = 0
-
-    orders = await list_open_temp_orders_for_recovery(limit=int(limit))
-    now_dt = _utc_now()
-    for order in orders:
-        stats["checked"] += 1
-        order_id = order.get("_id")
-        if not order_id:
-            continue
-        order_bot_id = _order_bot_id(order)
-        if bot_id and order_bot_id and order_bot_id != bot_id:
-            continue
-
-        latest = await get_order(order_id)
-        if not latest:
-            continue
-        if str(latest.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
-            continue
-
-        user = await get_user(int(latest.get("user_id") or 0))
-        lang = (user or {}).get("language", "en")
-        wait_state = str(latest.get("temp_wait_state") or "").strip().lower()
-
-        if wait_state == "refund_pending":
-            result = await _cancel_and_refund_temp_order(
-                order_id=order_id,
-                order=latest,
-                actor_user_id=int(latest.get("user_id") or 0),
-                reason="global_temp_recovery_retry",
-                require_no_sms=True,
-            )
-            if result.get("success"):
-                stats["refund_retries"] += 1
-                with suppress(Exception):
-                    await _safe_edit_message(
-                        bot,
-                        chat_id=int(latest.get("temp_wait_chat_id") or 0),
-                        message_id=int(latest.get("temp_wait_message_id") or 0),
-                        text=t(lang, "temp_timeout_refunded_retry"),
-                        reply_markup=_temp_post_refund_kb(str(order_id), lang=lang, allow_replace=True),
-                    )
-            continue
-
-        if wait_state == "code_received":
-            continue
-
-        provider = str(latest.get("provider") or "").strip()
-        provider_order_id = str(latest.get("provider_order_id") or "").strip()
-        if not provider or not provider_order_id:
-            continue
-
-        seen_codes = set(str(x) for x in (latest.get("temp_codes") or []) if x not in (None, ""))
-        sms_data = await _fetch_provider_sms(provider, provider_order_id)
-        code = _extract_new_sms_code((sms_data or {}).get("messages") or [], seen_codes)
-        if code:
-            code = _safe_code_text(code)
-            code_now = _utc_now()
-            updated_codes = list(seen_codes)
-            updated_codes.append(code)
-            patch = {
-                "temp_wait_state": "code_received",
-                "temp_last_sms_at": code_now,
-                "temp_last_code": code,
-                "temp_codes": updated_codes,
-                "temp_codes_count": len(updated_codes),
-            }
-            if not latest.get("temp_first_sms_at"):
-                patch["temp_first_sms_at"] = code_now
-                seconds_to_first_sms = _seconds_between(code_now, latest.get("created_at"))
-                if seconds_to_first_sms is not None:
-                    patch["temp_seconds_to_first_sms"] = seconds_to_first_sms
-            await update_order_details(order_id, patch)
-            await _log_temp_event(
-                latest,
-                "code_received_recovery",
-                {"code_len": len(code)},
-            )
-            with suppress(Exception):
-                await _safe_edit_message(
-                    bot,
-                    chat_id=int(latest.get("temp_wait_chat_id") or 0),
-                    message_id=int(latest.get("temp_wait_message_id") or 0),
-                    text=_temp_code_received_text(lang, code, latest),
-                    reply_markup=temp_code_received_kb(str(order_id), lang=lang),
-                    parse_mode="HTML",
-                )
-            stats["code_received"] += 1
-            continue
-
-        started_at = _to_utc_datetime(latest.get("temp_wait_started_at")) or _to_utc_datetime(latest.get("created_at")) or now_dt
-        timeout_sec = _order_temp_timeout_sec(latest)
-        if now_dt.timestamp() >= (started_at.timestamp() + timeout_sec):
-            await _send_temp_timeout_state(bot, latest, lang)
-            stats["timed_out"] += 1
-            continue
-
-        await _sync_temp_wait_controls(bot, latest, lang)
-        stats["synced"] += 1
-
-    return stats
+    return await _run_temp_wait_recovery_sweep_impl(
+        bot=bot,
+        limit=int(limit),
+        utc_now=_utc_now,
+        list_open_temp_orders_for_recovery=list_open_temp_orders_for_recovery,
+        order_bot_id=_order_bot_id,
+        get_order=get_order,
+        get_user=get_user,
+        cancel_and_refund_temp_order=_cancel_and_refund_temp_order,
+        safe_edit_message=_safe_edit_message,
+        temp_post_refund_kb=_temp_post_refund_kb,
+        translations_t=t,
+        fetch_provider_sms=_fetch_provider_sms,
+        extract_new_sms_code=_extract_new_sms_code,
+        safe_code_text=_safe_code_text,
+        seconds_between=_seconds_between,
+        update_order_details=update_order_details,
+        log_temp_event=_log_temp_event,
+        temp_code_received_text=_temp_code_received_text,
+        temp_code_received_kb=temp_code_received_kb,
+        order_temp_timeout_sec=_order_temp_timeout_sec,
+        send_temp_timeout_state=_send_temp_timeout_state,
+        sync_temp_wait_controls=_sync_temp_wait_controls,
+    )
 
 
 async def run_unprovisioned_number_order_recovery_sweep(
@@ -2385,179 +1781,45 @@ async def run_unprovisioned_number_order_recovery_sweep(
     limit: int = 100,
     grace_sec: int = 120,
 ) -> dict[str, Any]:
-    stats = {"checked": 0, "refunded": 0, "refund_failures": 0, "skipped_recent": 0}
-    now_dt = _utc_now()
-    orders = await list_paid_number_orders_missing_provider(limit=int(limit))
-    for order in orders:
-        stats["checked"] += 1
-        order_id = order.get("_id")
-        if not order_id:
-            continue
-        charged_at = _to_utc_datetime(order.get("provisioning_charged_at")) or _to_utc_datetime(order.get("created_at"))
-        if not charged_at or (now_dt - charged_at).total_seconds() < int(grace_sec):
-            stats["skipped_recent"] += 1
-            continue
-
-        sale_price, cost_price = extract_order_amounts(order)
-        refund_ok, refund_msg = await FinancialManager.refund_core_purchase(
-            int(order.get("user_id") or 0),
-            order_id,
-            sale_price,
-            cost_price,
-            reseller_id=int(order.get("reseller_id") or order.get("user_id") or 0),
-        )
-        if refund_ok:
-            await update_order_status(order_id, "refunded")
-            await update_order_details(
-                order_id,
-                {
-                    "provisioning_state": "recovered_refunded_unprovisioned",
-                    "provisioning_recovered_at": now_dt,
-                    "provisioning_recovery_reason": "missing_provider_order_id",
-                },
-            )
-            await _log_number_event_from_order(
-                order,
-                "refund_success",
-                payload={"source": "unprovisioned_recovery"},
-                status_after="refunded",
-                number_mode=str(order.get("number_mode") or ""),
-            )
-            stats["refunded"] += 1
-            continue
-
-        await update_order_details(
-            order_id,
-            {
-                "provisioning_state": "recovery_refund_failed",
-                "provisioning_recovery_last_at": now_dt,
-                "provisioning_recovery_last_error": str(refund_msg or "unknown_error"),
-            },
-        )
-        await _log_number_event_from_order(
-            order,
-            "refund_failed",
-            payload={"source": "unprovisioned_recovery", "raw": str(refund_msg or "unknown_error")},
-            status_after=str(order.get("status") or "paid"),
-            number_mode=str(order.get("number_mode") or ""),
-        )
-        stats["refund_failures"] += 1
-    return stats
+    return await _run_unprovisioned_number_order_recovery_sweep_impl(
+        limit=int(limit),
+        grace_sec=int(grace_sec),
+        utc_now=_utc_now,
+        list_paid_number_orders_missing_provider=list_paid_number_orders_missing_provider,
+        to_utc_datetime=_to_utc_datetime,
+        extract_order_amounts=extract_order_amounts,
+        financial_manager=FinancialManager,
+        update_order_status=update_order_status,
+        update_order_details=update_order_details,
+        log_number_event_from_order=_log_number_event_from_order,
+    )
 
 
 async def _fetch_provider_sms(provider_code: str, provider_order_id: str) -> dict:
-    prov = PROVIDERS.get(str(provider_code or "").lower())
-    if not prov:
-        return {"success": False, "messages": [], "raw": "provider_not_found"}
-    if not hasattr(prov, "get_sms"):
-        return {"success": False, "messages": [], "raw": "get_sms_not_supported"}
-    try:
-        return await prov.get_sms(provider_order_id)
-    except Exception as exc:
-        return {"success": False, "messages": [], "raw": str(exc)}
+    return await _fetch_provider_sms_impl(PROVIDERS, provider_code, provider_order_id)
 
 
 async def _provider_resend(provider_code: str, provider_order_id: str) -> dict:
-    prov = PROVIDERS.get(str(provider_code or "").lower())
-    if not prov:
-        return {"success": False}
-    # SMSPool numbers can continue receiving messages without explicit resend trigger.
-    if str(provider_code or "").lower() == "smspool":
-        return {"success": True, "order_id": provider_order_id}
-    if hasattr(prov, "resend"):
-        try:
-            res = await prov.resend(provider_order_id)
-            if isinstance(res, dict):
-                ok = bool(res.get("success"))
-                if not ok:
-                    return {"success": False}
-                out = {"success": True, "order_id": str(res.get("order_id") or provider_order_id)}
-                number = str(res.get("number") or "").strip()
-                if number:
-                    out["number"] = number
-                return out
-            if bool(res):
-                return {"success": True, "order_id": provider_order_id}
-            return {"success": False}
-        except Exception:
-            return {"success": False}
-    return {"success": False}
+    return await _provider_resend_impl(PROVIDERS, provider_code, provider_order_id)
 
 
 async def _send_temp_timeout_state(bot, order: dict, lang: str):
-    now = _utc_now()
-    await _log_number_event_from_order(
-        order,
-        "deadline_reached",
-        payload={"source": "temp_wait_timeout"},
-        number_mode="temp",
-    )
-    # New behavior: auto-cancel + auto-refund after timeout (no SMS received).
-    result = await _cancel_and_refund_temp_order(
-        order_id=order["_id"],
+    await _send_temp_timeout_state_impl(
+        bot=bot,
         order=order,
-        actor_user_id=int(order.get("user_id") or 0),
-        reason="timeout_auto_refund",
-        require_no_sms=True,
-    )
-    if result.get("success"):
-        await update_order_details(
-            order["_id"],
-            {
-                "temp_wait_timeout_at": now,
-                "temp_wait_state": "auto_refunded",
-                "temp_replace_enabled": True,
-            },
-        )
-        await _safe_edit_message(
-            bot,
-            chat_id=int(order.get("temp_wait_chat_id") or 0),
-            message_id=int(order.get("temp_wait_message_id") or 0),
-            text=t(lang, "temp_timeout_refunded_retry"),
-            reply_markup=_temp_post_refund_kb(str(order["_id"]), lang=lang, allow_replace=True),
-        )
-        await _log_number_event_from_order(
-            order,
-            "auto_protection_triggered",
-            payload={"source": "temp_wait_timeout"},
-            status_after="cancelled",
-            number_mode="temp",
-        )
-        await _log_temp_event(order, "wait_timeout_auto_refunded", {"timeout_sec": _order_temp_timeout_sec(order)})
-        return
-
-    # Fallback: keep previous timeout state if auto-refund fails for any reason.
-    await update_order_details(
-        order["_id"],
-        {
-            "temp_wait_timeout_at": now,
-            "temp_wait_state": "refund_pending",
-            "temp_replace_enabled": True,
-            "temp_refund_retry_last_at": now,
-            "temp_refund_retry_reason": str(result.get("reason") or "provider_cancel_failed"),
-        },
-    )
-    refreshed = await get_order(order["_id"])
-    if refreshed:
-        await _sync_temp_wait_controls(bot, refreshed, lang)
-    await _log_temp_event(
-        order,
-        "wait_timeout",
-        {
-            "timeout_sec": _order_temp_timeout_sec(order),
-            "auto_refund_failed": True,
-            "auto_refund_reason": str(result.get("reason") or ""),
-        },
-    )
-    # Keep retrying provider cancel+refund in the background to avoid balance leakage.
-    asyncio.create_task(
-        _retry_temp_refund_until_success(
-            bot=bot,
-            order_id=order["_id"],
-            actor_user_id=int(order.get("user_id") or 0),
-            lang=lang,
-            source_reason="timeout_auto_refund",
-        )
+        lang=lang,
+        utc_now=_utc_now,
+        log_number_event_from_order=_log_number_event_from_order,
+        cancel_and_refund_temp_order=_cancel_and_refund_temp_order,
+        update_order_details=update_order_details,
+        safe_edit_message=_safe_edit_message,
+        temp_post_refund_kb=_temp_post_refund_kb,
+        translations_t=t,
+        log_temp_event=_log_temp_event,
+        order_temp_timeout_sec=_order_temp_timeout_sec,
+        get_order=get_order,
+        sync_temp_wait_controls=_sync_temp_wait_controls,
+        retry_temp_refund_until_success=_retry_temp_refund_until_success,
     )
 
 
@@ -2568,106 +1830,38 @@ async def _start_temp_waiter(
     lang: str,
     is_second_code: bool = False,
 ):
-    order_id = order.get("_id")
-    if not order_id:
-        return
-    provider_code = str(order.get("provider") or "").lower()
-    provider_order_id = str(order.get("provider_order_id") or "")
-    chat_id = int(order.get("temp_wait_chat_id") or 0)
-    msg_id = int(order.get("temp_wait_message_id") or 0)
-    if not provider_code or not provider_order_id or not chat_id or not msg_id:
-        return
-
-    interval = _poll_interval_for_provider(provider_code)
-    started_at = _utc_now()
-    await update_order_details(
-        order_id,
-        {
-            "temp_wait_state": "waiting",
-            "temp_wait_started_at": started_at,
-            "temp_wait_interval_sec": interval,
-        },
+    await _start_temp_waiter_impl(
+        bot=bot,
+        order=order,
+        lang=lang,
+        is_second_code=bool(is_second_code),
+        poll_interval_for_provider=_poll_interval_for_provider,
+        utc_now=_utc_now,
+        update_order_details=update_order_details,
+        log_temp_event=_log_temp_event,
+        order_temp_timeout_sec=_order_temp_timeout_sec,
+        get_order=get_order,
+        fetch_provider_sms=_fetch_provider_sms,
+        extract_new_sms_code=_extract_new_sms_code,
+        seconds_between=_seconds_between,
+        maybe_send_purchase_charge_confirmed_notice=_maybe_send_purchase_charge_confirmed_notice,
+        safe_edit_message=_safe_edit_message,
+        temp_code_received_text=_temp_code_received_text,
+        temp_code_received_kb=temp_code_received_kb,
+        send_temp_timeout_state_cb=_send_temp_timeout_state,
+        sync_temp_wait_controls=_sync_temp_wait_controls,
     )
-    await _log_temp_event(order, "wait_started", {"interval_sec": interval, "second_code": bool(is_second_code)})
-
-    deadline = started_at.timestamp() + _order_temp_timeout_sec(order)
-    while _utc_now().timestamp() < deadline:
-        current = await get_order(order_id)
-        if not current:
-            return
-        if str(current.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
-            return
-        if str(current.get("provider_order_id") or "") != provider_order_id:
-            # A newer replacement order session was started for this logical flow.
-            return
-
-        seen_codes = set(str(x) for x in (current.get("temp_codes") or []) if x not in (None, ""))
-        sms_data = await _fetch_provider_sms(provider_code, provider_order_id)
-        messages = sms_data.get("messages") or []
-        code = _extract_new_sms_code(messages, seen_codes)
-        if code:
-            now = _utc_now()
-            codes = list(seen_codes)
-            codes.append(code)
-            patch = {
-                "temp_wait_state": "code_received",
-                "temp_last_sms_at": now,
-                "temp_last_code": code,
-                "temp_codes": codes,
-                "temp_codes_count": len(codes),
-            }
-            if not current.get("temp_first_sms_at"):
-                patch["temp_first_sms_at"] = now
-                seconds_to_first_sms = _seconds_between(now, current.get("created_at"))
-                if seconds_to_first_sms is not None:
-                    patch["temp_seconds_to_first_sms"] = seconds_to_first_sms
-            await update_order_details(order_id, patch)
-            seconds_since_purchase = _seconds_between(now, current.get("created_at"))
-            await _log_temp_event(
-                current,
-                "code_received",
-                {
-                    "code_len": len(code),
-                    "seconds_since_purchase": seconds_since_purchase,
-                    "second_code": bool(is_second_code),
-                },
-            )
-            updated_order = await get_order(order_id) or current
-            await _maybe_send_purchase_charge_confirmed_notice(
-                bot=bot,
-                chat_id=chat_id,
-                order=updated_order,
-                lang=lang,
-                code=code,
-            )
-            await _safe_edit_message(
-                bot,
-                chat_id=chat_id,
-                message_id=msg_id,
-                text=_temp_code_received_text(lang, code, updated_order),
-                reply_markup=temp_code_received_kb(str(order_id), lang=lang),
-                parse_mode="HTML",
-            )
-            return
-
-        await _sync_temp_wait_controls(bot, current, lang)
-        await asyncio.sleep(interval)
-
-    refreshed = await get_order(order_id)
-    if refreshed:
-        await _send_temp_timeout_state(bot, refreshed, lang)
 
 
 async def _queue_temp_waiter(bot, order: dict, lang: str, is_second_code: bool = False):
-    task = asyncio.create_task(_start_temp_waiter(bot=bot, order=order, lang=lang, is_second_code=is_second_code))
-    def _done(t: asyncio.Task) -> None:
-        try:
-            _ = t.exception()
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            logger.exception("temp waiter task failed unexpectedly")
-    task.add_done_callback(_done)
+    await _queue_temp_waiter_impl(
+        bot=bot,
+        order=order,
+        lang=lang,
+        is_second_code=bool(is_second_code),
+        start_temp_waiter_cb=_start_temp_waiter,
+        logger_obj=logger,
+    )
 
 
 @router.callback_query(lambda c: c.data == "flow:rental:my")
@@ -2768,13 +1962,39 @@ async def provider_selected(callback: types.CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("buy_provider_info:"))
-async def provider_info_noop(callback: types.CallbackQuery):
-    await _safe_callback_answer()
+async def provider_info_noop(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    provider_code = str((callback.data or "").split(":", 1)[1] if ":" in str(callback.data or "") else "").strip().lower()
+    info = None
+    try:
+        data = await state.get_data()
+        info = (data.get("available_prices") or {}).get(provider_code)
+    except Exception:
+        info = None
+    if info is None:
+        await _safe_callback_answer()
+        return
+    await _safe_callback_answer(_provider_info_alert_text(lang, provider_code, info), show_alert=True)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("renthead:"))
-async def rental_provider_header_noop(callback: types.CallbackQuery):
-    await _safe_callback_answer()
+async def rental_provider_header_noop(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    provider_code = str((callback.data or "").split(":", 1)[1] if ":" in str(callback.data or "") else "").strip().lower()
+    data = await state.get_data()
+    provider_options = data.get("rental_provider_options") or {}
+    provider_rows = data.get("rental_provider_rows") or []
+    options = provider_options.get(provider_code) or []
+    summary = next((row for row in provider_rows if str(row.get("provider") or "").strip().lower() == provider_code), None)
+    if not options and not summary:
+        await _safe_callback_answer()
+        return
+    await _safe_callback_answer(
+        _rental_provider_info_alert_text(lang, provider_code, options, summary=summary),
+        show_alert=True,
+    )
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("rentna:"))

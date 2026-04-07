@@ -1008,8 +1008,10 @@ async def receive_recharge_amount(message: types.Message, state: FSMContext):
     data = await state.get_data()
     method = data.get("recharge_method") or {}
     currency_code = str(method.get("currency", "USD")).upper()
-    global_rate = await get_owner_exchange_rate()
-    per_credit = float(global_rate) if currency_code == "SYP" else 1.0
+    per_credit = 1.0
+    if currency_code == "SYP":
+        global_rate = await get_owner_exchange_rate()
+        per_credit = float(global_rate)
     credits = paid_amount / per_credit
 
     await state.update_data(

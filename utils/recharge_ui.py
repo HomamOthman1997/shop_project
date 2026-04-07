@@ -1,23 +1,28 @@
 from __future__ import annotations
 
 from aiogram import types
+
 from utils.translations import t
 
 
-def _as_float(value, default: float = 0.0) -> float:
+def _as_float(value: object, default: float = 0.0) -> float:
     try:
         return float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return float(default)
 
 
-def owner_reseller_topup_review_kb(request_id, lang: str = "en") -> types.InlineKeyboardMarkup:
+def _inline_button(*, lang: str, text_key: str, callback_data: str) -> types.InlineKeyboardButton:
+    return types.InlineKeyboardButton(text=t(lang, text_key), callback_data=callback_data)
+
+
+def owner_reseller_topup_review_kb(request_id: object, lang: str = "en") -> types.InlineKeyboardMarkup:
     rid = str(request_id)
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text=t(lang, "owner_accept_sent_amount_button"), callback_data=f"owner_rchg:accept:{rid}")],
-            [types.InlineKeyboardButton(text=t(lang, "owner_manual_amount_button"), callback_data=f"owner_rchg:manual:{rid}")],
-            [types.InlineKeyboardButton(text=t(lang, "owner_reject_button"), callback_data=f"owner_rchg:reject:{rid}")],
+            [_inline_button(lang=lang, text_key="owner_accept_sent_amount_button", callback_data=f"owner_rchg:accept:{rid}")],
+            [_inline_button(lang=lang, text_key="owner_manual_amount_button", callback_data=f"owner_rchg:manual:{rid}")],
+            [_inline_button(lang=lang, text_key="owner_reject_button", callback_data=f"owner_rchg:reject:{rid}")],
         ]
     )
 
@@ -45,13 +50,13 @@ def format_owner_reseller_topup_text(req: dict, *, include_approved: bool = True
     return "\n".join(lines)
 
 
-def user_recharge_review_kb(request_id, lang: str = "en") -> types.InlineKeyboardMarkup:
+def user_recharge_review_kb(request_id: object, lang: str = "en") -> types.InlineKeyboardMarkup:
     rid = str(request_id)
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text=t(lang, "reseller_add_sent_amount_button"), callback_data=f"recharge_accept_{rid}")],
-            [types.InlineKeyboardButton(text=t(lang, "reseller_add_manual_amount_button"), callback_data=f"recharge_manual_{rid}")],
-            [types.InlineKeyboardButton(text=t(lang, "reseller_need_more_proof_button"), callback_data=f"recharge_needproof_{rid}")],
-            [types.InlineKeyboardButton(text=t(lang, "owner_reject_button"), callback_data=f"recharge_reject_{rid}")],
+            [_inline_button(lang=lang, text_key="reseller_add_sent_amount_button", callback_data=f"recharge_accept_{rid}")],
+            [_inline_button(lang=lang, text_key="reseller_add_manual_amount_button", callback_data=f"recharge_manual_{rid}")],
+            [_inline_button(lang=lang, text_key="reseller_need_more_proof_button", callback_data=f"recharge_needproof_{rid}")],
+            [_inline_button(lang=lang, text_key="owner_reject_button", callback_data=f"recharge_reject_{rid}")],
         ]
     )

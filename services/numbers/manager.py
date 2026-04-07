@@ -1,28 +1,48 @@
 import asyncio
-import json
 import logging
 import time
 from typing import Any
 
 from config import settings
 from database import temp_number_stats_repo
-from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.data import smspool_services, telabot_services, textverified_services
+from services.numbers.manager_helpers import (
+    _country_iso_value,
+    _extract_balance_value,
+    _extract_provider_location,
+    _normalize_key,
+    _price_match,
+    _service_candidate_keys,
+    _service_display_name,
+    _service_matches_name,
+    _service_name_variants,
+    _to_float,
+)
+from services.numbers.manager_runtime import (
+    _price_screen_balance_timeout_sec as _runtime_price_screen_balance_timeout_sec,
+    _price_screen_provider_timeout_sec as _runtime_price_screen_provider_timeout_sec,
+    _provider_balance as _runtime_provider_balance,
+    _provider_balance_with_timeout as _runtime_provider_balance_with_timeout,
+    _provider_service_catalog_cache_ttl_sec as _runtime_provider_service_catalog_cache_ttl_sec,
+    _provider_timeout_sec as _runtime_provider_timeout_sec,
+    _service_resolution_timeout_sec as _runtime_service_resolution_timeout_sec,
+    _simulated_provider_balances as _runtime_simulated_provider_balances,
+)
+from services.numbers.manager_resolution import (
+    _log_provider_attempt_event,
+    _log_provider_resolution_event,
+    _log_provider_resolution_failure,
+    _service_resolution_snapshot,
+)
 from services.numbers.providers.herosms_provider import HeroSMSProvider
-from services.numbers.providers.error_normalizer import normalize_provider_error
 from services.numbers.providers.smsman_provider import SMSManProvider
 from services.numbers.providers.smspool_provider import SMSPoolProvider
 from services.numbers.providers.telabot_provider import TelabotProvider
 from services.numbers.providers.textverified_provider import TextVerifiedProvider
 from services.numbers.providers.pvadeals_provider import PVADealsProvider
 from services.numbers.providers.alisms_provider import AliSMSProvider
-from services.numbers.service_families import (
-    normalize_service_key,
-)
 from services.numbers.service_map import (
     SERVICE_MAP,
-    get_service_aliases,
-    get_service_display_name,
     get_service_provider_map,
     resolve_canonical_service_key,
 )
@@ -116,65 +136,22 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {
 _PROVIDER_BALANCE_CACHE: dict[str, dict[str, Any]] = {}
 _SERVICE_RESOLUTION_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
 _PROVIDER_SERVICE_LIST_CACHE: dict[str, dict[str, Any]] = {}
-_COUNTRY_ISO_BY_CODE = {
-    str(item.get("code") or "").strip(): str(item.get("iso") or "").strip().upper()
-    for item in COUNTRIES_LIST
-    if str(item.get("code") or "").strip()
-}
-_COUNTRY_NAME_TO_ISO = {
-    str(item.get("name") or "").strip().lower(): str(item.get("iso") or "").strip().upper()
-    for item in COUNTRIES_LIST
-    if str(item.get("name") or "").strip()
-}
 
 
 def _provider_timeout_sec(kind: str, provider_code: str | None = None) -> float:
-    if kind == "rental":
-        base = float(getattr(settings, "numbers_rental_provider_timeout_sec", 10.0) or 10.0)
-        # Keep rental UI responsive: cap long waits unless explicitly overridden very low.
-        base = min(base, 7.0)
-        # TextVerified rental pricing can block UI when API slows down; keep tighter timeout.
-        if str(provider_code or "").strip().lower() == "textverified":
-            tv_override = getattr(settings, "numbers_textverified_rental_timeout_sec", None)
-            if tv_override not in (None, ""):
-                try:
-                    return max(3.0, float(tv_override))
-                except Exception:
-                    pass
-            return max(3.0, min(base, 5.0))
-        return max(3.0, base)
-    base = float(getattr(settings, "numbers_provider_timeout_sec", 12.0) or 12.0)
-    return max(3.0, base)
+    return _runtime_provider_timeout_sec(settings, kind, provider_code)
 
 
 def _price_screen_provider_timeout_sec(provider_code: str | None = None) -> float:
-    explicit = getattr(settings, "numbers_price_screen_provider_timeout_sec", None)
-    if explicit not in (None, ""):
-        try:
-            return max(1.0, float(explicit))
-        except Exception:
-            pass
-    return max(1.0, min(_provider_timeout_sec("temp", provider_code), 5.5))
+    return _runtime_price_screen_provider_timeout_sec(settings, provider_code)
 
 
 def _service_resolution_timeout_sec(provider_code: str | None = None) -> float:
-    explicit = getattr(settings, "numbers_service_resolution_timeout_sec", None)
-    if explicit not in (None, ""):
-        try:
-            return max(0.5, float(explicit))
-        except Exception:
-            pass
-    code = str(provider_code or "").strip().lower()
-    if code == "textverified":
-        return 2.5
-    return 2.0
+    return _runtime_service_resolution_timeout_sec(settings, provider_code)
 
 
 def _provider_service_catalog_cache_ttl_sec() -> int:
-    try:
-        return max(0, int(getattr(settings, "numbers_provider_service_catalog_cache_ttl_sec", 900) or 900))
-    except Exception:
-        return 900
+    return _runtime_provider_service_catalog_cache_ttl_sec(settings)
 
 
 async def _provider_list_services_cached(provider_code: str, provider_obj: Any) -> Any:
@@ -217,121 +194,12 @@ async def _provider_resolve_service_code_with_timeout(provider_code: str, provid
     return str(result)
 
 
-def _country_iso_value(country_value: str | None) -> str:
-    raw = str(country_value or "").strip()
-    if not raw:
-        return ""
-    normalized = raw.lower().replace(" ", "")
-    if normalized in {"us", "usa", "unitedstates", "unitedstatesofamerica"}:
-        return "US"
-    if normalized in {"gb", "uk", "unitedkingdom", "greatbritain"}:
-        return "GB"
-    if len(raw) == 2 and raw.isalpha():
-        return raw.upper()
-    if raw in _COUNTRY_ISO_BY_CODE:
-        return _COUNTRY_ISO_BY_CODE.get(raw, "").upper()
-    by_name = _COUNTRY_NAME_TO_ISO.get(raw.lower())
-    if by_name:
-        return by_name
-    return raw.upper()
-
-
-def _price_match(value: Any, expected: float | None) -> bool:
-    try:
-        actual = float(value)
-        target = float(expected)
-    except Exception:
-        return False
-    return abs(actual - target) <= 1e-9
-
-
-def _extract_provider_location(
-    provider_code: str,
-    *,
-    api_service_name: str | None,
-    price_data: dict[str, Any],
-) -> tuple[str, str]:
-    code = str(provider_code or "").strip().lower()
-    state_code = str(price_data.get("provider_state") or price_data.get("provider_state_code") or "").strip().upper()
-    country_iso = _country_iso_value(
-        str(
-            price_data.get("provider_country_iso")
-            or price_data.get("provider_country")
-            or ""
-        ).strip()
-    )
-    if state_code or country_iso:
-        return state_code, country_iso
-
-    raw = price_data.get("raw")
-    base_price = _to_float(price_data.get("base_price") or price_data.get("price"))
-    api_name = str(api_service_name or price_data.get("api_service_name") or "").strip()
-
-    if code == "pvadeals" and isinstance(raw, dict):
-        return "", _country_iso_value(str(raw.get("country") or "").strip())
-
-    if code == "smspool" and isinstance(raw, list):
-        for row in raw:
-            if not isinstance(row, dict):
-                continue
-            if str(row.get("service") or "").strip() != api_name:
-                continue
-            if not _price_match(row.get("price"), base_price):
-                continue
-            iso = _country_iso_value(
-                str(
-                    row.get("short_name")
-                    or row.get("country")
-                    or row.get("country_name")
-                    or row.get("name")
-                    or row.get("tag")
-                    or ""
-                ).strip()
-            )
-            if iso:
-                return "", iso
-
-    if code == "alisms" and isinstance(raw, dict):
-        service_block = next((value for value in raw.values() if isinstance(value, dict)), None)
-        if isinstance(service_block, dict) and service_block:
-            country_id = next(iter(service_block.keys()), "")
-            iso = _country_iso_value(str(country_id or "").strip())
-            if iso:
-                return "", iso
-
-    if code in {"textverified", "telabot"}:
-        return "", "US"
-
-    return "", ""
-
-
 def _price_screen_balance_timeout_sec() -> float:
-    try:
-        value = float(getattr(settings, "numbers_price_screen_balance_timeout_sec", 2.0) or 2.0)
-    except Exception:
-        value = 2.0
-    return max(0.5, value)
+    return _runtime_price_screen_balance_timeout_sec(settings)
 
 
 def _simulated_provider_balances() -> dict[str, float]:
-    raw = str(getattr(settings, "numbers_provider_balance_simulation", "") or "").strip()
-    if not raw:
-        return {}
-    try:
-        data = json.loads(raw)
-    except Exception:
-        logger.warning("invalid numbers_provider_balance_simulation json")
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    out: dict[str, float] = {}
-    for key, value in data.items():
-        try:
-            amount = float(value)
-        except Exception:
-            continue
-        out[str(key or "").strip().lower()] = amount
-    return out
+    return _runtime_simulated_provider_balances(settings)
 
 
 def get_provider_capabilities(provider_code: str | None) -> dict[str, Any]:
@@ -440,211 +308,27 @@ async def _apply_dynamic_success_rates(results: dict[str, Any], service_id: str)
         info["success_sample_sufficient"] = bool(row.get("sample_sufficient"))
 
 
-def _normalize_key(value: str) -> str:
-    return normalize_service_key(value)
-
-
 def _is_unlimited_rental_service(service_key: str) -> bool:
     return _normalize_key(service_key) == _normalize_key(RENTAL_UNLIMITED_SERVICE_KEY)
 
 
-def _service_name_variants(value: str) -> set[str]:
-    raw = str(value or "").strip()
-    if not raw:
-        return set()
-    variants = {_normalize_key(raw)}
-    for part in raw.replace("|", "/").split("/"):
-        part_norm = _normalize_key(part)
-        if part_norm:
-            variants.add(part_norm)
-    return {item for item in variants if item}
-
-
-def _service_candidate_keys(value: str) -> set[str]:
-    canonical = resolve_canonical_service_key(value)
-    if not canonical:
-        return set()
-    keys = {canonical}
-    keys.update(get_service_aliases(canonical))
-    base = _normalize_key(value)
-    if base:
-        keys.add(base)
-    return {item for item in keys if item}
-
-
-def _service_matches_name(service_key: str, provider_name: str) -> bool:
-    target_keys = set()
-    for item in _service_candidate_keys(service_key):
-        target_keys.update(_service_name_variants(item))
-    name_keys = _service_name_variants(provider_name)
-    if not target_keys or not name_keys:
-        return False
-    return bool(target_keys & name_keys)
-
-
-def _service_display_name(service_key: str) -> str | None:
-    return get_service_display_name(service_key)
-
-
-def _service_resolution_snapshot(service_key: str, provider_code: str) -> dict[str, Any]:
-    canonical = resolve_canonical_service_key(service_key)
-    provider_code_norm = str(provider_code or "").strip().lower()
-    provider_map = get_service_provider_map(canonical or service_key)
-    return {
-        "requested_service": str(service_key or ""),
-        "canonical_service": canonical,
-        "display_name": get_service_display_name(canonical or service_key) or str(service_key or ""),
-        "provider_code": provider_code_norm,
-        "provider_mapped_value": provider_map.get(provider_code_norm),
-        "provider_candidates": sorted(_service_candidate_keys(service_key)),
-        "resolved_provider_service": None,
-        "provider_reason": "",
-    }
-
-
-def _log_provider_resolution_failure(resolution: dict[str, Any]) -> None:
-    logger.info(
-        "provider service unresolved provider=%s requested=%s canonical=%s reason=%s candidates=%s",
-        resolution.get("provider_code", ""),
-        resolution.get("requested_service", ""),
-        resolution.get("canonical_service", ""),
-        resolution.get("provider_reason", ""),
-        ",".join(str(item) for item in (resolution.get("provider_candidates") or [])),
-    )
-
-
-def _log_provider_resolution_event(
-    resolution: dict[str, Any],
-    *,
-    phase: str,
-    country: str | None = None,
-    state: str | None = None,
-) -> None:
-    requested = str(resolution.get("requested_service") or "").strip()
-    canonical = str(resolution.get("canonical_service") or "").strip()
-    resolved = str(resolution.get("resolved_provider_service") or "").strip()
-    reason = str(resolution.get("provider_reason") or "").strip()
-    provider = str(resolution.get("provider_code") or "").strip().lower()
-    display_name = str(resolution.get("display_name") or "").strip()
-    candidates = ",".join(str(item) for item in (resolution.get("provider_candidates") or []))
-    is_mismatch = bool(resolved) and normalize_service_key(requested) != normalize_service_key(resolved)
-    if not is_mismatch and reason not in {"resolved_static_mapping", "resolved_provider_lookup"}:
-        return
-    logger.info(
-        "provider resolution %s provider=%s requested=%s canonical=%s resolved=%s display=%s reason=%s country=%s state=%s candidates=%s mismatch=%s",
-        phase,
-        provider,
-        requested,
-        canonical,
-        resolved,
-        display_name,
-        reason,
-        str(country or ""),
-        str(state or ""),
-        candidates,
-        is_mismatch,
-    )
-
-
-def _log_provider_attempt_event(
-    *,
-    phase: str,
-    provider_code: str,
-    requested_service: str | None,
-    api_service_name: str | None,
-    country: str | None,
-    state: str | None,
-    success: bool,
-    reason: str | None = None,
-    raw: Any = None,
-) -> None:
-    normalized = normalize_provider_error(raw) if not bool(success) else {"code": "", "message": ""}
-    logger.info(
-        "provider attempt %s provider=%s requested=%s api_service=%s country=%s state=%s success=%s reason=%s normalized_code=%s normalized_message=%s",
-        phase,
-        str(provider_code or "").strip().lower(),
-        str(requested_service or "").strip(),
-        str(api_service_name or "").strip(),
-        str(country or ""),
-        str(state or ""),
-        bool(success),
-        str(reason or "").strip(),
-        str(normalized.get("code") or ""),
-        str(normalized.get("message") or ""),
-    )
-
-
-def _to_float(value: Any) -> float | None:
-    try:
-        return float(value)
-    except Exception:
-        return None
-
-
-def _extract_balance_value(raw_balance: Any) -> float | None:
-    if raw_balance is None:
-        return None
-    if isinstance(raw_balance, (int, float, str)):
-        return _to_float(raw_balance)
-    if isinstance(raw_balance, dict):
-        for key in ("balance", "currentBalance", "available", "amount", "value"):
-            if key in raw_balance:
-                parsed = _to_float(raw_balance.get(key))
-                if parsed is not None:
-                    return parsed
-        # Telabot balance payload: {"status":"ok","message":"0.14"}
-        if "message" in raw_balance:
-            parsed = _to_float(raw_balance.get("message"))
-            if parsed is not None:
-                return parsed
-    return None
-
-
 async def _provider_balance(provider_obj: Any) -> float | None:
-    return await _provider_balance_with_timeout(provider_obj)
+    return await _runtime_provider_balance(
+        provider_obj,
+        settings_obj=settings,
+        providers=PROVIDERS,
+        balance_cache=_PROVIDER_BALANCE_CACHE,
+    )
 
 
 async def _provider_balance_with_timeout(provider_obj: Any, *, timeout_sec: float | None = None) -> float | None:
-    provider_name = str(getattr(provider_obj, "__class__", type("X", (), {})).__name__ or "").lower()
-    simulated_balances = _simulated_provider_balances()
-    if provider_name:
-        simulated = simulated_balances.get(provider_name)
-        if simulated is not None:
-            return float(simulated)
-    for provider_code, candidate in PROVIDERS.items():
-        if candidate is provider_obj:
-            simulated = simulated_balances.get(str(provider_code or "").strip().lower())
-            if simulated is not None:
-                return float(simulated)
-    ttl = max(0, int(getattr(settings, "numbers_provider_balance_cache_ttl_sec", 90) or 0))
-    now_ts = time.time()
-    cached_entry: dict[str, Any] | None = None
-    if provider_name and ttl > 0:
-        cached = _PROVIDER_BALANCE_CACHE.get(provider_name)
-        if isinstance(cached, dict):
-            cached_entry = cached
-            ts = float(cached.get("ts") or 0.0)
-            if (now_ts - ts) <= float(ttl):
-                return _extract_balance_value(cached.get("value"))
-    if not hasattr(provider_obj, "get_balance"):
-        return None
-    if timeout_sec in (None, ""):
-        timeout_value = 8.0
-    else:
-        try:
-            timeout_value = max(0.5, float(timeout_sec))
-        except Exception:
-            timeout_value = 8.0
-    try:
-        raw_balance = await asyncio.wait_for(provider_obj.get_balance(), timeout=timeout_value)
-    except Exception:
-        return _extract_balance_value((cached_entry or {}).get("value"))
-    if provider_name and ttl > 0:
-        _PROVIDER_BALANCE_CACHE[provider_name] = {"ts": now_ts, "value": raw_balance}
-    parsed_balance = _extract_balance_value(raw_balance)
-    if parsed_balance is None:
-        return _extract_balance_value((cached_entry or {}).get("value"))
-    return parsed_balance
+    return await _runtime_provider_balance_with_timeout(
+        provider_obj,
+        settings_obj=settings,
+        providers=PROVIDERS,
+        balance_cache=_PROVIDER_BALANCE_CACHE,
+        timeout_sec=timeout_sec,
+    )
 
 
 async def get_provider_service_resolution_dynamic(service_key: str, provider_code: str) -> dict[str, Any]:

@@ -337,7 +337,7 @@ async def _send_reseller_balance(message: types.Message, reseller_id: int, lang:
     )
 
 
-async def _build_reseller_stats_text(reseller_id: int, bot_id: int) -> str:
+async def _build_reseller_stats_text(reseller_id: int, bot_id: int | None = None) -> str:
     rid = int(reseller_id)
     main_balance = await get_reseller_wallet_balance(rid, wallet_type="main")
     earnings_balance = await get_reseller_wallet_balance(rid, wallet_type="earnings")
@@ -347,7 +347,11 @@ async def _build_reseller_stats_text(reseller_id: int, bot_id: int) -> str:
     active_bots = await db.bots.count_documents({"owner_id": rid, "active": True})
     methods = await get_payment_methods(rid)
     rate = await get_exchange_rate(rid)
-    subscription = await get_bot_subscription(int(bot_id))
+    resolved_bot_id = int(bot_id or 0)
+    if resolved_bot_id <= 0:
+        subscription = {}
+    else:
+        subscription = await get_bot_subscription(resolved_bot_id)
 
     return (
         "Reseller Stats\n\n"

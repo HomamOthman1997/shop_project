@@ -220,7 +220,7 @@ def _merge_google_gmail(result: Dict[str, Any]) -> None:
         ("google", "googlegmail", "googlechat", "googleplay", "googlesend"),
     )
     if "gmail" in result:
-        result["gmail"]["display_name"] = DISPLAY_NAME_OVERRIDES.get("gmail", "Gmail / Google")
+        result["gmail"]["display_name"] = "Gmail / Google"
 
 
 @lru_cache(maxsize=1)

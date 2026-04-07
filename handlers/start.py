@@ -98,26 +98,8 @@ async def _has_active_rental_order(user_id: int) -> bool:
 
 
 async def _get_active_order_flags(user_id: int) -> tuple[bool, bool]:
-    cutoff = datetime.now(UTC) - _TEMP_START_NOTICE_MAX_AGE
-    docs = await db.orders.find(
-        {
-            "user_id": int(user_id),
-            "status": {"$in": ["success", "pending", "paid"]},
-            "$or": [
-                {
-                    "number_mode": "temp",
-                    "temp_wait_state": {"$in": ["waiting", "code_received"]},
-                    "created_at": {"$gte": cutoff},
-                },
-                {
-                    "number_mode": "rental",
-                },
-            ],
-        },
-        {"_id": 1, "number_mode": 1},
-    ).to_list(length=4)
-    has_temp = any(str(doc.get("number_mode")) == "temp" for doc in docs)
-    has_rental = any(str(doc.get("number_mode")) == "rental" for doc in docs)
+    has_temp = await _has_active_temp_order(user_id)
+    has_rental = await _has_active_rental_order(user_id)
     return has_temp, has_rental
 
 

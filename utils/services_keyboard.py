@@ -32,10 +32,15 @@ def _service_callback_data(service: str) -> str | None:
     return value
 
 def _canonical_service(service: str) -> str:
-    return resolve_canonical_service_key(service)
+    canonical = resolve_canonical_service_key(service)
+    if canonical in {"google", "googlegmail", "googlechat", "googleplay", "googlesend"}:
+        return "gmail"
+    return canonical
 
 
 def _service_label(service: str) -> str:
+    if _canonical_service(service) == "gmail":
+        return "Gmail / Google"
     label = get_service_display_name(service)
     if label:
         cleaned = re.sub(r"\s*\([^)]*\)\s*", " ", str(label)).strip()

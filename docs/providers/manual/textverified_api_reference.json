@@ -4,7 +4,7 @@
   "source": {
     "docs_url": "https://www.textverified.com/docs/api/v2",
     "swagger_url": "https://backend.textverified.com/swagger/v2/swagger.json",
-    "swagger_local": "docs/providers/raw/textverified_openapi_v2_latest.json",
+    "swagger_local": "docs/providers/raw/textverified_openapi_v2.json",
     "swagger_sha256": "5ec5683bbeba26e8f1d513f70b09c2e470b414ffcfa9610b14ababc0a61c0f73"
   },
   "api": {

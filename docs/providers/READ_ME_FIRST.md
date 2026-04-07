@@ -33,7 +33,6 @@
 - Latest official swagger checked on 2026-03-12:
   - `https://backend.textverified.com/swagger/v2/swagger.json`
   - SHA256: `5ec5683bbeba26e8f1d513f70b09c2e470b414ffcfa9610b14ababc0a61c0f73`
-  - Local mirror: `docs/providers/raw/textverified_openapi_v2_latest.json`
 - Manual summary:
   - `docs/providers/manual/textverified_api_reference.json`
 

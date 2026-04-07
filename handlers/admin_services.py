@@ -1,6 +1,7 @@
 ﻿from datetime import UTC, datetime
 
 from datetime import timedelta
+from urllib.parse import parse_qs, urlparse
 from bson import ObjectId
 
 from aiogram import Bot, Router, types
@@ -73,6 +74,50 @@ _reseller_targets_cache: dict[str, object] = {
 }
 _OWNER_USERS_PICKER_REQUEST_ID = 91001
 _OWNER_CHAT_PICKER_REQUEST_ID = 91002
+
+
+def _parse_owner_target_payload(raw: str) -> tuple[int, int | None] | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+
+    parts = text.replace("|", " ").replace(",", " ").replace(":", " ").split()
+    if len(parts) == 2 and parts[0].startswith("-100") and parts[0][4:].isdigit() and parts[1].isdigit():
+        return int(parts[0]), int(parts[1])
+    if len(parts) == 1 and parts[0].startswith("-100") and parts[0][4:].isdigit():
+        return int(parts[0]), None
+
+    candidate = text
+    if candidate.startswith("t.me/") or candidate.startswith("telegram.me/"):
+        candidate = "https://" + candidate
+    if not (candidate.startswith("http://") or candidate.startswith("https://")):
+        return None
+
+    parsed = urlparse(candidate)
+    host = (parsed.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if host not in {"t.me", "telegram.me"}:
+        return None
+
+    thread_id = None
+    query = parse_qs(parsed.query or "")
+    for key in ("thread", "topic", "comment"):
+        value = (query.get(key) or [None])[0]
+        if value is not None and str(value).isdigit():
+            thread_id = int(value)
+            break
+
+    path_parts = [part for part in (parsed.path or "").split("/") if part]
+    if len(path_parts) >= 2 and path_parts[0] == "c" and path_parts[1].isdigit():
+        chat_id = int(f"-100{path_parts[1]}")
+        if thread_id is None and len(path_parts) >= 3 and path_parts[2].isdigit():
+            thread_id = int(path_parts[2])
+        if thread_id is None and len(path_parts) >= 4 and path_parts[3].isdigit():
+            thread_id = int(path_parts[3])
+        return chat_id, thread_id
+
+    return None
 
 
 def _configured_numbers_markup_percent() -> float:

@@ -16,7 +16,7 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from config import settings
+from config import OWNER_ID, settings
 from database.bots_repo import add_bot, update_bot_channel, update_reseller_info, verify_bot
 from services.subscriptions.bot_subscription_service import get_bot_subscription
 from database.custom_services_repo import clone_catalog_from_reseller_template
@@ -50,6 +50,75 @@ PHONE_PROMPT_MSG_ID_KEY = "verify_phone_prompt_msg_id"
 ADDRESS_PROMPT_MSG_ID_KEY = "verify_address_prompt_msg_id"
 CHANNEL_PROMPT_MSG_ID_KEY = "verify_channel_prompt_msg_id"
 FLOW_REF_KEY = "verify_flow_ref"
+
+
+async def _notify_requester_via_source_bot(_req: dict, *, approved: bool) -> None:
+    return None
+
+
+async def owner_review_callback(callback: types.CallbackQuery):
+    owner_id = int(globals().get("OWNER_ID", 0) or 0)
+    if int(callback.from_user.id) != owner_id:
+        return await callback.answer("No permission", show_alert=True)
+
+    parts = str(callback.data or "").split(":", 2)
+    if len(parts) != 3:
+        return await callback.answer("Invalid review payload", show_alert=True)
+    action, raw_id = parts[1], parts[2]
+    try:
+        request_id = uuid.UUID(raw_id)  # type: ignore[arg-type]
+    except Exception:
+        from bson import ObjectId
+
+        try:
+            request_id = ObjectId(raw_id)
+        except Exception:
+            return await callback.answer("Invalid request id", show_alert=True)
+
+    req = await db.bot_creation_requests.find_one({"_id": request_id, "status": "pending"})
+    if not req:
+        return await callback.answer("Request not found", show_alert=True)
+
+    payload = dict(req.get("payload") or {})
+    lang = str(req.get("requester_lang") or "en")
+    if action == "reject":
+        await db.bot_creation_requests.update_one(
+            {"_id": request_id},
+            {"$set": {"status": "rejected", "reviewed_at": datetime.now(UTC), "reviewed_by": int(callback.from_user.id)}},
+        )
+        await _notify_requester_via_source_bot(req, approved=False)
+        if callback.message:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+        return await callback.answer(t(lang, "request_rejected"))
+
+    if action != "approve":
+        return await callback.answer("Invalid review action", show_alert=True)
+
+    exists = await db.bots.find_one({"bot_id": payload.get("bot_id")})
+    if not exists:
+        await add_bot(payload["bot_token"], int(req.get("requester_id") or 0), payload["bot_id"])
+    await update_bot_channel(payload["bot_id"], payload["channel"])
+    await update_reseller_info(payload["bot_id"], payload["fullname"], payload["phone"], payload["address"])
+    await verify_bot(payload["bot_id"])
+    await clone_catalog_from_reseller_template(
+        source_reseller_id=int(req.get("requester_id") or 0),
+        target_reseller_id=int(req.get("requester_id") or 0),
+        catalog_type="custom",
+    )
+    await db.bot_creation_requests.update_one(
+        {"_id": request_id},
+        {"$set": {"status": "approved", "reviewed_at": datetime.now(UTC), "reviewed_by": int(callback.from_user.id)}},
+    )
+    await _notify_requester_via_source_bot(req, approved=True)
+    if callback.message:
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+    return await callback.answer(t(lang, "request_approved"))
 
 
 def is_valid_token(text: str):

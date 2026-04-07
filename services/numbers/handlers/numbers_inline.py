@@ -182,15 +182,14 @@ def _iso_to_flag(iso: str | None) -> str:
     return "".join(chr(0x1F1E6 + (ord(ch) - base)) for ch in code)
 
 
-def _country_inline_title(item: dict[str, Any]) -> str:
+def _country_inline_title(item: dict[str, Any], query: str = "") -> str:
     iso = str(item.get("iso") or "").strip().upper()
     name = str(item.get("name") or "").strip()
-    if iso == "US":
-        label = "USA"
-    else:
-        label = name or iso or str(item.get("code") or "").strip()
-    flag = _iso_to_flag(iso)
-    return f"{label} {flag}".strip()
+    normalized_query = _normalize_search_text(query)
+    if iso == "US" and normalized_query in {"us", "usa"}:
+        flag = _iso_to_flag(iso)
+        return f"USA {flag}".strip()
+    return name or iso or str(item.get("code") or "").strip()
 
 
 def _state_inline_title(code: str, name: str) -> str:
@@ -590,7 +589,7 @@ async def handle_smart_search(inline_query: types.InlineQuery):
             quick_codes.add(code)
             name = str(item.get("name") or code)
             iso = str(item.get("iso") or "").upper()
-            title = _country_inline_title(item)
+            title = _country_inline_title(item, query)
             quick_rows.append((code, name, iso, title))
         quick_thumbs = await asyncio.gather(
             *(resolve_country_icon_url(iso, name, session) for code, name, iso, title in quick_rows),
@@ -618,7 +617,7 @@ async def handle_smart_search(inline_query: types.InlineQuery):
                 continue
             name = item["name"]
             iso = str(item.get("iso") or "").upper()
-            title = _country_inline_title(item)
+            title = _country_inline_title(item, query)
             country_rows.append((str(code), name, iso, title))
         thumbs = await asyncio.gather(
             *(resolve_country_icon_url(iso, name, session) for code, name, iso, title in country_rows),

@@ -42,7 +42,6 @@
       "title": "TextVerified",
       "doc_type": "openapi+manual",
       "doc_path": "docs/providers/raw/textverified_openapi_v2.json",
-      "raw_latest_path": "docs/providers/raw/textverified_openapi_v2_latest.json",
       "notes_path": "docs/providers/manual/textverified_api_reference.json"
     },
     {
