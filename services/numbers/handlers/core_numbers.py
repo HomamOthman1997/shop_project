@@ -25,7 +25,7 @@ from services.numbers.keyboards.core_numbers_kb import (
     tv_state_choice_kb,
 )
 from services.numbers.manager import RENTAL_UNLIMITED_SERVICE_KEY, get_all_prices, get_all_rental_prices
-from services.numbers.manager import provider_allows_rental
+from services.numbers.manager import TEMP_NOT_LISTED_SERVICE_KEY, provider_allows_rental
 from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_callback_guard
 from services.numbers.service_families import normalize_service_key
 from services.numbers.states.core_numbers_states import NumberFlow
@@ -874,8 +874,11 @@ async def handle_inline_service_selection(message: types.Message, state: FSMCont
     data = await state.get_data()
     lang = data.get("lang", "en")
     service_key = message.text.replace("/select_service_", "", 1)
+    lookup_not_listed = False
     if service_key.startswith(_INLINE_SERVICE_QUERY_PREFIX):
         service_key = unquote(service_key.split(":", 1)[1]).strip()
+        lookup_not_listed = True
+    await state.update_data(service_lookup_not_listed=lookup_not_listed)
     await message.delete()
     await _load_service_prices(message.chat.id, message.bot, state, service_key)
 
@@ -888,6 +891,7 @@ async def choose_service(callback: types.CallbackQuery, state: FSMContext):
     current_message_id = getattr(getattr(callback, "message", None), "message_id", None)
     if not data.get("last_msg_id") and current_message_id:
         await state.update_data(last_msg_id=current_message_id)
+    await state.update_data(service_lookup_not_listed=False)
     await _load_service_prices(callback.message.chat.id, callback.message.bot, state, service_name)
 
 
@@ -895,6 +899,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
     data = await state.get_data()
     lang = data.get("lang", "en")
     num_type = data.get("num_type", "temp")
+    lookup_not_listed = bool(data.get("service_lookup_not_listed"))
     await state.update_data(service=service_name)
     country = data.get("country")
     state_code = data.get("state")
@@ -926,6 +931,10 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
             rent_prices = await get_all_rental_prices(service_name, country)
         finally:
             await _stop_loading_text_animator(loading_stop, loading_task)
+        pricing_service_key = service_name
+        if not rent_prices and lookup_not_listed and not _is_unlimited_service(service_name):
+            pricing_service_key = RENTAL_UNLIMITED_SERVICE_KEY
+            rent_prices = await get_all_rental_prices(pricing_service_key, country)
         if not rent_prices:
             if last_msg_id:
                 await bot.edit_message_text(
@@ -942,7 +951,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
                 )
             return
 
-        unlimited_mode = _is_unlimited_service(service_name)
+        unlimited_mode = _is_unlimited_service(pricing_service_key)
         country_label = _country_iso(str(country) if country is not None else None) or str(country or "").strip().upper()
         show_all_for_testing = bool(getattr(settings, "numbers_show_all_providers_for_testing", False))
 
@@ -951,7 +960,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
         for provider_code, info in rent_prices.items():
             if not provider_allows_rental(
                 provider_code,
-                service_key=service_name,
+                service_key=pricing_service_key,
                 country_iso=_country_iso(country),
                 state_selected=bool(state_code and str(state_code).strip().lower() != "none"),
             ):
@@ -1058,6 +1067,8 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
         prices = await get_all_prices(service_name, country, state_code)
     finally:
         await _stop_loading_text_animator(loading_stop, loading_task)
+    if not prices and lookup_not_listed:
+        prices = await get_all_prices(TEMP_NOT_LISTED_SERVICE_KEY, country, state_code)
     if not prices:
         if last_msg_id:
             await bot.edit_message_text(

@@ -1217,6 +1217,9 @@ async def test_handle_inline_service_selection_decodes_not_listed_query(monkeypa
         async def get_data(self):
             return {"lang": "en"}
 
+        async def update_data(self, **kw):
+            return None
+
     class DummyBot:
         pass
 
@@ -1236,6 +1239,161 @@ async def test_handle_inline_service_selection_decodes_not_listed_query(monkeypa
     assert msg.deleted is True
     assert captured["chat_id"] == 321
     assert captured["service_name"] == "my custom app"
+
+
+@pytest.mark.asyncio
+async def test_not_listed_rental_falls_back_to_unlimited_generic(monkeypatch):
+    import services.numbers.handlers.core_numbers as core
+
+    calls: list[str] = []
+
+    async def fake_get_all_rental_prices(service_name, country):
+        calls.append(service_name)
+        if service_name == "my custom app":
+            return {}
+        assert service_name == core.RENTAL_UNLIMITED_SERVICE_KEY
+        return {
+            "pvadeals": {
+                "success": True,
+                "api_service_name": "ALL_SERVICES",
+                "options": [
+                    {"country": "US", "duration": 672, "price": 12.99, "count": 1, "duration_label": "28d"}
+                ],
+                "available_for_buy": True,
+                "success_rate": 100.0,
+                "success_attempts": 0,
+            }
+        }
+
+    async def fake_rate():
+        return 0.0
+
+    monkeypatch.setattr(core, "get_all_rental_prices", fake_get_all_rental_prices)
+    monkeypatch.setattr(core, "_resolve_usd_to_syp_rate", fake_rate)
+
+    class DummyBot:
+        def __init__(self):
+            self.edits = []
+
+        async def edit_message_text(self, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+            self.edits.append(
+                {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": text,
+                    "reply_markup": reply_markup,
+                    "parse_mode": parse_mode,
+                }
+            )
+            class R:
+                pass
+            return R()
+
+    class DummyState:
+        def __init__(self):
+            self._data = {
+                "lang": "en",
+                "num_type": "rental",
+                "country": "1",
+                "state": "none",
+                "last_msg_id": 777,
+                "service_lookup_not_listed": True,
+            }
+            self.state = None
+
+        async def get_data(self):
+            return dict(self._data)
+
+        async def update_data(self, **kw):
+            self._data.update(kw)
+
+        async def set_state(self, s):
+            self.state = s
+
+    bot = DummyBot()
+    state = DummyState()
+    await core._load_service_prices(123, bot, state, "my custom app")
+
+    assert calls == ["my custom app", core.RENTAL_UNLIMITED_SERVICE_KEY]
+    assert state.state == core.NumberFlow.rental_providers
+    assert "Choose rental provider and period" in bot.edits[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_not_listed_temp_falls_back_to_generic_providers(monkeypatch):
+    import services.numbers.handlers.core_numbers as core
+
+    calls: list[str] = []
+
+    async def fake_get_all_prices(service_name, country, state_code):
+        calls.append(service_name)
+        if service_name == "my custom app":
+            return {}
+        assert service_name == core.TEMP_NOT_LISTED_SERVICE_KEY
+        return {
+            "textverified": {
+                "success": True,
+                "price": 0.99,
+                "base_price": 0.99,
+                "api_service_name": "servicenotlisted",
+                "available_for_buy": True,
+                "success_rate": 100.0,
+                "success_attempts": 0,
+            }
+        }
+
+    async def fake_rate():
+        return 0.0
+
+    monkeypatch.setattr(core, "get_all_prices", fake_get_all_prices)
+    monkeypatch.setattr(core, "_resolve_usd_to_syp_rate", fake_rate)
+
+    class DummyBot:
+        def __init__(self):
+            self.edits = []
+
+        async def edit_message_text(self, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+            self.edits.append(
+                {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": text,
+                    "reply_markup": reply_markup,
+                    "parse_mode": parse_mode,
+                }
+            )
+            class R:
+                pass
+            return R()
+
+    class DummyState:
+        def __init__(self):
+            self._data = {
+                "lang": "en",
+                "num_type": "temp",
+                "country": "1",
+                "state": "none",
+                "last_msg_id": 777,
+                "service_lookup_not_listed": True,
+            }
+            self.state = None
+
+        async def get_data(self):
+            return dict(self._data)
+
+        async def update_data(self, **kw):
+            self._data.update(kw)
+
+        async def set_state(self, s):
+            self.state = s
+
+    bot = DummyBot()
+    state = DummyState()
+    await core._load_service_prices(123, bot, state, "my custom app")
+
+    assert calls == ["my custom app", core.TEMP_NOT_LISTED_SERVICE_KEY]
+    assert state.state == core.NumberFlow.confirm_buy
+    assert "Choose provider" in bot.edits[-1]["text"]
 
 
 @pytest.mark.asyncio

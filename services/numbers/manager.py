@@ -65,6 +65,7 @@ PROVIDERS: dict[str, Any] = {
 
 RENTAL_PROVIDER_CODES: tuple[str, ...] = ("smspool", "herosms", "textverified", "pvadeals")
 RENTAL_UNLIMITED_SERVICE_KEY = "rental_unlimited"
+TEMP_NOT_LISTED_SERVICE_KEY = "not_listed_generic"
 # backward compatibility alias
 SMSPOOL_OPEN_RENTAL_SERVICE_KEY = RENTAL_UNLIMITED_SERVICE_KEY
 UNLIMITED_RENTAL_ALLOWED_ISO: frozenset[str] = frozenset({"US", "CA", "GB"})
@@ -72,6 +73,12 @@ UNLIMITED_RENTAL_PROVIDER_SERVICE_NAMES: dict[str, str] = {
     "smspool": RENTAL_UNLIMITED_SERVICE_KEY,
     "textverified": "allservices",
     "pvadeals": PVADealsProvider.ALL_SERVICES_SERVICE_ID,
+}
+TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES: dict[str, str] = {
+    "smspool": "817",
+    "textverified": "servicenotlisted",
+    "telabot": "Unknown",
+    "pvadeals": "Website not in the list (Unknown)",
 }
 
 PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {
@@ -599,8 +606,13 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
                     primary["__second_lane"] = dict(lanes[1])
                 return (code, primary)
 
-            resolution = await get_provider_service_resolution_dynamic(service_key, code)
-            api_service_name = str(service_key or "") if code == "alisms" else str(resolution.get("resolved_provider_service") or "")
+            if _normalize_key(service_key) == _normalize_key(TEMP_NOT_LISTED_SERVICE_KEY):
+                api_service_name = str(TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES.get(code) or "").strip()
+                resolution["resolved_provider_service"] = api_service_name
+                resolution["provider_reason"] = "resolved_not_listed_fallback" if api_service_name else "service_not_supported"
+            else:
+                resolution = await get_provider_service_resolution_dynamic(service_key, code)
+                api_service_name = str(service_key or "") if code == "alisms" else str(resolution.get("resolved_provider_service") or "")
             if not api_service_name:
                 if not balance_task.done():
                     balance_task.cancel()
