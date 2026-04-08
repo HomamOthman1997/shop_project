@@ -1119,6 +1119,86 @@ async def test_state_selection_edits_message(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_choose_service_uses_callback_message_when_last_msg_missing(monkeypatch):
+    from services.numbers.handlers.core_numbers import choose_service
+    import services.numbers.handlers.core_numbers as core
+    from aiogram import types
+
+    async def fake_get_all_rental_prices(service_name, country):
+        assert service_name == "gmail"
+        assert country == "1"
+        return {
+            "textverified": {
+                "success": True,
+                "api_service_name": "gmail",
+                "options": [
+                    {"country": "1", "duration": 24, "price": 1.98, "count": 1, "duration_label": "1d"},
+                    {"country": "1", "duration": 72, "price": 2.42, "count": 1, "duration_label": "3d"},
+                ],
+                "available_for_buy": False,
+                "provider_reason": "provider_balance_low",
+                "testing_visible": True,
+                "success_rate": 100.0,
+                "success_attempts": 0,
+            }
+        }
+
+    async def fake_rate():
+        return 0.0
+
+    monkeypatch.setattr(core, "get_all_rental_prices", fake_get_all_rental_prices)
+    monkeypatch.setattr(core, "_resolve_usd_to_syp_rate", fake_rate)
+
+    class DummyBot:
+        def __init__(self):
+            self.edited = {}
+        async def edit_message_text(self, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+            self.edited = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "reply_markup": reply_markup,
+                "parse_mode": parse_mode,
+            }
+            class R:
+                pass
+            return R()
+
+    class DummyMessage:
+        def __init__(self):
+            self.chat = types.Chat(id=123, type="private")
+            self.message_id = 777
+            self.bot = DummyBot()
+
+    class DummyCallback:
+        def __init__(self):
+            self.data = "flow:service:gmail"
+            self.message = DummyMessage()
+            self.from_user = types.User(id=1, is_bot=False, first_name="u")
+        async def answer(self, *args, **kwargs):
+            return True
+
+    class DummyState:
+        def __init__(self):
+            self._data = {"lang": "en", "num_type": "rental", "country": "1"}
+            self.state = None
+        async def get_data(self):
+            return self._data
+        async def update_data(self, **kw):
+            self._data.update(kw)
+        async def set_state(self, s):
+            self.state = s
+
+    callback = DummyCallback()
+    state = DummyState()
+    await choose_service(callback, state)
+
+    assert state._data["last_msg_id"] == 777
+    assert callback.message.bot.edited.get("message_id") == 777
+    assert "Choose rental provider and period" in callback.message.bot.edited.get("text", "")
+
+
+@pytest.mark.asyncio
 async def test_reseller_id_fallback():
     """Main-bot number orders always use the user itself as reseller_id."""
     import services.numbers.handlers.core_numbers_buy as hb

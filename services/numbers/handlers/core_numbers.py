@@ -881,6 +881,9 @@ async def choose_service(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
     service_name = callback.data.split(":", 2)[2]
+    current_message_id = getattr(getattr(callback, "message", None), "message_id", None)
+    if not data.get("last_msg_id") and current_message_id:
+        await state.update_data(last_msg_id=current_message_id)
     await _load_service_prices(callback.message.chat.id, callback.message.bot, state, service_name)
 
 
@@ -892,6 +895,13 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
     country = data.get("country")
     state_code = data.get("state")
     last_msg_id = data.get("last_msg_id")
+    if not last_msg_id:
+        current_callback = _CURRENT_CALLBACK.get()
+        current_message = getattr(current_callback, "message", None)
+        current_message_id = getattr(current_message, "message_id", None)
+        if current_message_id:
+            last_msg_id = current_message_id
+            await state.update_data(last_msg_id=last_msg_id)
     usd_to_syp_rate = await _resolve_usd_to_syp_rate()
 
     if num_type == "rental":
