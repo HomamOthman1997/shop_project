@@ -1397,6 +1397,88 @@ async def test_not_listed_temp_falls_back_to_generic_providers(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_load_service_prices_temp_requires_country_selection(monkeypatch):
+    import services.numbers.handlers.core_numbers as core
+
+    async def fail_get_all_prices(*args, **kwargs):
+        raise AssertionError("pricing should not run without country")
+
+    monkeypatch.setattr(core, "get_all_prices", fail_get_all_prices)
+
+    class DummyBot:
+        def __init__(self):
+            self.edits = []
+
+        async def edit_message_text(self, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+            self.edits.append({"chat_id": chat_id, "message_id": message_id, "text": text, "reply_markup": reply_markup})
+            class R:
+                pass
+            return R()
+
+    class DummyState:
+        def __init__(self):
+            self._data = {"lang": "en", "num_type": "temp", "last_msg_id": 777}
+            self.state = None
+
+        async def get_data(self):
+            return dict(self._data)
+
+        async def update_data(self, **kw):
+            self._data.update(kw)
+
+        async def set_state(self, s):
+            self.state = s
+
+    bot = DummyBot()
+    state = DummyState()
+    await core._load_service_prices(123, bot, state, "gmail")
+
+    assert state.state == core.NumberFlow.country
+    assert "Choose country" in bot.edits[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_load_service_prices_rental_requires_country_selection(monkeypatch):
+    import services.numbers.handlers.core_numbers as core
+
+    async def fail_get_all_rental_prices(*args, **kwargs):
+        raise AssertionError("rental pricing should not run without country")
+
+    monkeypatch.setattr(core, "get_all_rental_prices", fail_get_all_rental_prices)
+
+    class DummyBot:
+        def __init__(self):
+            self.edits = []
+
+        async def edit_message_text(self, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+            self.edits.append({"chat_id": chat_id, "message_id": message_id, "text": text, "reply_markup": reply_markup})
+            class R:
+                pass
+            return R()
+
+    class DummyState:
+        def __init__(self):
+            self._data = {"lang": "en", "num_type": "rental", "last_msg_id": 777}
+            self.state = None
+
+        async def get_data(self):
+            return dict(self._data)
+
+        async def update_data(self, **kw):
+            self._data.update(kw)
+
+        async def set_state(self, s):
+            self.state = s
+
+    bot = DummyBot()
+    state = DummyState()
+    await core._load_service_prices(123, bot, state, "gmail")
+
+    assert state.state == core.NumberFlow.country
+    assert "Choose country" in bot.edits[-1]["text"]
+
+
+@pytest.mark.asyncio
 async def test_reseller_id_fallback():
     """Main-bot number orders always use the user itself as reseller_id."""
     import services.numbers.handlers.core_numbers_buy as hb

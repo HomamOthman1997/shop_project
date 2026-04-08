@@ -55,6 +55,7 @@ _COUNTRY_ISO = {
     for item in COUNTRIES_LIST
     if str(item.get("code") or "").strip()
 }
+_VALID_COUNTRY_CODES = set(_COUNTRY_ISO.keys())
 _INLINE_SERVICE_QUERY_PREFIX = "query:"
 
 
@@ -210,6 +211,29 @@ async def _return_to_main_menu(callback: types.CallbackQuery, state: FSMContext)
     await callback.message.answer(t(lang, "main_menu"), reply_markup=await menu_for_current_bot(lang, bot_id))
 
 
+async def _redirect_to_country_selection(
+    chat_id: int,
+    bot,
+    state: FSMContext,
+    *,
+    lang: str,
+    num_type: str,
+    last_msg_id: int | None,
+) -> None:
+    text = _country_entry_text(lang, num_type)
+    if last_msg_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=last_msg_id,
+                text=text,
+                reply_markup=country_kb(lang),
+            )
+        except Exception:
+            pass
+    await state.set_state(NumberFlow.country)
+
+
 def _is_unlimited_service(service_key: str) -> bool:
     return _normalize_service(service_key) == _normalize_service(RENTAL_UNLIMITED_SERVICE_KEY)
 
@@ -226,6 +250,13 @@ def _country_display_name(country_code: str | None) -> str:
         if str(item.get("code") or "").strip() == raw:
             return str(item.get("name") or raw).strip() or raw
     return raw
+
+
+def _has_valid_country_selection(country_code: str | None) -> bool:
+    code = str(country_code or "").strip()
+    if not code or code.lower() == "none":
+        return False
+    return code in _VALID_COUNTRY_CODES
 
 
 def _state_display_name(lang: str, state_code: str | None) -> str:
@@ -911,6 +942,16 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
         if current_message_id:
             last_msg_id = current_message_id
             await state.update_data(last_msg_id=last_msg_id)
+    if not _has_valid_country_selection(country):
+        await _redirect_to_country_selection(
+            chat_id,
+            bot,
+            state,
+            lang=lang,
+            num_type="rental" if num_type == "rental" else "temp",
+            last_msg_id=last_msg_id,
+        )
+        return
     usd_to_syp_rate = await _resolve_usd_to_syp_rate()
 
     if num_type == "rental":
