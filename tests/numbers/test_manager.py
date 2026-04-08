@@ -317,7 +317,7 @@ async def test_get_all_rental_prices_filters_options_by_provider_balance(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_get_all_rental_prices_hides_provider_when_no_affordable_option(monkeypatch):
+async def test_get_all_rental_prices_keeps_provider_visible_when_no_affordable_option(monkeypatch):
     class _RentalDummy:
         async def get_rental_prices(self, service, country=None):
             return {
@@ -336,7 +336,9 @@ async def test_get_all_rental_prices_hides_provider_when_no_affordable_option(mo
     monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
 
     result = await manager.get_all_rental_prices("gmail", "US")
-    assert "textverified" not in result
+    assert "textverified" in result
+    assert result["textverified"]["available_for_buy"] is False
+    assert result["textverified"]["provider_reason"] == "provider_balance_low"
 
 
 @pytest.mark.asyncio

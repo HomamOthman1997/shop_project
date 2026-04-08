@@ -927,6 +927,7 @@ async def get_all_rental_prices(service_key: str, country: str | None):
                         row["price"] = round(base_price * (1.0 + markup_pct / 100.0), 4) if base_price > 0 else base_price
                         enriched_options.append(row)
                     rent_data["options"] = enriched_options
+                insufficient_balance = False
                 if provider_balance is not None:
                     affordable_options: list[dict[str, Any]] = []
                     for option in (rent_data.get("options") or []):
@@ -939,23 +940,19 @@ async def get_all_rental_prices(service_key: str, country: str | None):
                         if option_price > 0 and provider_balance + 1e-9 >= option_price:
                             affordable_options.append(option)
                     if not affordable_options:
-                        if not show_all_for_testing:
-                            return (code, None)
-                        rent_data["options"] = []
+                        insufficient_balance = True
                         rent_data["available_for_buy"] = False
                         rent_data["provider_reason"] = "provider_balance_low"
                         rent_data["testing_visible"] = True
                     else:
                         rent_data["options"] = affordable_options
                 rent_data["api_service_name"] = api_service_name
-                rent_data["available_for_buy"] = True
+                rent_data["available_for_buy"] = bool(rent_data.get("options")) and not insufficient_balance
                 if provider_balance is not None:
                     rent_data["provider_balance"] = float(provider_balance)
-                    if not rent_data.get("options"):
+                    if not rent_data.get("options") or insufficient_balance:
                         rent_data["available_for_buy"] = False
                         rent_data["provider_reason"] = "provider_balance_low"
-                        if show_all_for_testing:
-                            rent_data["testing_visible"] = True
                 elif show_all_for_testing:
                     rent_data["available_for_buy"] = False
                     rent_data["provider_reason"] = "provider_balance_unknown"

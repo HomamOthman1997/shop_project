@@ -302,12 +302,14 @@ def rental_providers_kb(
         provider_code = str(row.get("provider") or "").strip().lower()
         if not provider_code:
             continue
+        options = provider_options.get(provider_code) or []
         row_is_buyable = bool(row.get("available_for_buy", True))
         row_testing_visible = bool(row.get("testing_visible"))
-        if not row_is_buyable and not (bool(getattr(settings, "numbers_show_all_providers_for_testing", False)) and row_testing_visible):
+        if not row_is_buyable and not options and not (
+            bool(getattr(settings, "numbers_show_all_providers_for_testing", False)) and row_testing_visible
+        ):
             continue
         provider_name = provider_display_name(provider_code)
-        options = provider_options.get(provider_code) or []
         pricing_mode = str(row.get("pricing_mode") or "").strip().lower()
         avg_price = float(row.get("avg_price") or 0.0)
         country_label = str(row.get("country_label") or "").strip() or "US"

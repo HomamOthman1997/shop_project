@@ -974,11 +974,6 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
                 }
             )
 
-        provider_rows = [
-            row
-            for row in provider_rows
-            if bool(row.get("available_for_buy", True)) or (show_all_for_testing and bool(row.get("testing_visible")))
-        ]
         provider_options = {
             code: rows
             for code, rows in provider_options.items()
