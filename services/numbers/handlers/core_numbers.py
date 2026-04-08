@@ -540,12 +540,14 @@ def _build_rental_confirm_text(
     lines.append("")
     if str(lang or "").lower().startswith("ar"):
         lines.append("⚠️ تنويه مهم:")
-        lines.append("• Server 1 لا يدعم تحديد الولاية.")
-        lines.append(f"• Server 2 يدعم الولاية، واختيار ولاية يضيف +{format_usd_compact(2)}.")
+        lines.append("• Alpha قد يوفّر مددًا بالساعات أو بالأيام حسب التوفر.")
+        lines.append(f"• Bravo يضيف +{format_usd_compact(2)} عند اختيار ولاية.")
+        lines.append("• Echo يعرض حالياً مددًا يومية.")
     else:
         lines.append("⚠️ Important notice:")
-        lines.append("• Server 1 does not support state targeting.")
-        lines.append(f"• Server 2 supports state targeting; selecting a state adds +{format_usd_compact(2)}.")
+        lines.append("• Alpha may offer hourly or daily durations depending on availability.")
+        lines.append(f"• Bravo adds +{format_usd_compact(2)} when a state is selected.")
+        lines.append("• Echo currently shows day-based durations.")
     lines.append("")
     lines.append(t(lang, "confirm_purchase_question"))
     return "\n".join(lines)
