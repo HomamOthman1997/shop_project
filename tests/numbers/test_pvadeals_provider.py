@@ -252,6 +252,60 @@ async def test_pvadeals_rent_number_posts_duration_days(monkeypatch, sample_cata
 
 
 @pytest.mark.asyncio
+async def test_pvadeals_all_services_unlimited_is_28_days_only(monkeypatch):
+    session = DummySession({})
+
+    async def fake_get_session():
+        return session
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+    provider = PVADealsProvider()
+
+    result = await provider.get_rental_prices("ALL_SERVICES", country="US")
+    assert result["success"] is True
+    assert result["options"] == [
+        {
+            "country": "United States",
+            "duration": 672,
+            "duration_days": 28,
+            "duration_label": "28d",
+            "price": 12.99,
+            "count": 1,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pvadeals_all_services_rent_number_posts_fixed_duration(monkeypatch):
+    rental_payload = {
+        "success": True,
+        "data": {
+            "_id": "ltr_all_1",
+            "number": "+13130001234",
+            "serviceId": "ALL_SERVICES",
+            "serviceName": "All Services",
+            "amount": 12.99,
+            "endTime": "2026-04-07T00:00:00.000Z",
+        },
+    }
+    session = DummySession(
+        {
+            ("POST", "https://prod-v3.pvadeals.com/v3/api/purchase-ltr"): DummyResponse(status=200, json_data=rental_payload),
+        }
+    )
+
+    async def fake_get_session():
+        return session
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+    provider = PVADealsProvider()
+
+    result = await provider.rent_number("ALL_SERVICES", country="US", duration=7)
+    assert result["success"] is True
+    assert session.calls[-1]["json"] == {"serviceId": "ALL_SERVICES", "duration": 28}
+
+
+@pytest.mark.asyncio
 async def test_pvadeals_get_sms_reads_request_details(monkeypatch):
     request_payload = {
         "success": True,

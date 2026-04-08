@@ -71,7 +71,7 @@ UNLIMITED_RENTAL_ALLOWED_ISO: frozenset[str] = frozenset({"US", "CA", "GB"})
 UNLIMITED_RENTAL_PROVIDER_SERVICE_NAMES: dict[str, str] = {
     "smspool": RENTAL_UNLIMITED_SERVICE_KEY,
     "textverified": "allservices",
-    "pvadeals": "Website not in the list (Unknown)",
+    "pvadeals": PVADealsProvider.ALL_SERVICES_SERVICE_ID,
 }
 
 PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {

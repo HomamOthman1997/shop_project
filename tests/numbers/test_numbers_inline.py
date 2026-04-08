@@ -58,3 +58,18 @@ async def test_tvstate_inline_titles_show_name_only():
     assert "California" in titles
     assert all(getattr(item, "thumbnail_url", None) not in (None, "") for item in query.results)
     assert all(getattr(item, "description", None) in (None, "") for item in query.results)
+
+
+@pytest.mark.asyncio
+async def test_service_inline_not_listed_preserves_search_query(monkeypatch):
+    monkeypatch.setattr(numbers_inline, "SERVICE_MAP", {})
+    monkeypatch.setattr(numbers_inline, "_throttled", lambda *args, **kwargs: False)
+
+    query = DummyInlineQuery("service my custom app")
+    await numbers_inline.handle_smart_search(query)
+
+    assert query.results is not None
+    assert len(query.results) == 1
+    result = query.results[0]
+    assert result.title == "Service Not Listed"
+    assert result.input_message_content.message_text == "/select_service_query:my%20custom%20app"

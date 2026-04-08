@@ -16,3 +16,7 @@ class SessionManager:
         if cls._session and not cls._session.closed:
             await cls._session.close()
             cls._session = None
+
+    @classmethod
+    async def close_session(cls):
+        await cls.close()

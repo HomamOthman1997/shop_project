@@ -6,6 +6,7 @@ import re
 import time
 from collections import defaultdict, deque
 from typing import Any
+from urllib.parse import quote
 
 from aiogram import Router, types
 from rapidfuzz import fuzz
@@ -47,6 +48,7 @@ _TV_ALLOWED_STATES = set(tv_area_codes.DATA.keys())
 _DEFAULT_QUICK_COUNTRY_ISO = ("US", "GB", "DE", "FR")
 _INLINE_RESULT_ICON_VERSION = "ic2"
 _INLINE_CACHE_TIME_SEC = 12
+_SERVICE_INLINE_QUERY_PREFIX = "query:"
 
 
 def _load_usage():
@@ -172,6 +174,11 @@ def _service_items() -> list[tuple[str, dict[str, Any]]]:
         for key, info in SERVICE_MAP.items()
         if isinstance(key, str) and isinstance(info, dict)
     ]
+
+
+def _service_query_fallback_payload(search_text: str) -> str:
+    encoded = quote(str(search_text or "").strip(), safe="")
+    return f"/select_service_{_SERVICE_INLINE_QUERY_PREFIX}{encoded}"
 
 
 def _iso_to_flag(iso: str | None) -> str:
@@ -490,7 +497,7 @@ async def handle_smart_search(inline_query: types.InlineQuery):
                     title="Service Not Listed",
                     thumbnail_url=get_no_icon_url(),
                     input_message_content=types.InputTextMessageContent(
-                        message_text=f"/select_service_{_SERVICE_NOT_LISTED_KEY}"
+                        message_text=_service_query_fallback_payload(search_text)
                     ),
                 )
             )

@@ -1199,6 +1199,46 @@ async def test_choose_service_uses_callback_message_when_last_msg_missing(monkey
 
 
 @pytest.mark.asyncio
+async def test_handle_inline_service_selection_decodes_not_listed_query(monkeypatch):
+    from services.numbers.handlers.core_numbers import handle_inline_service_selection
+    import services.numbers.handlers.core_numbers as core
+    from aiogram import types
+
+    captured: dict[str, object] = {}
+
+    async def fake_load_service_prices(chat_id, bot, state, service_name):
+        captured["chat_id"] = chat_id
+        captured["bot"] = bot
+        captured["service_name"] = service_name
+
+    monkeypatch.setattr(core, "_load_service_prices", fake_load_service_prices)
+
+    class DummyState:
+        async def get_data(self):
+            return {"lang": "en"}
+
+    class DummyBot:
+        pass
+
+    class DummyMessage:
+        def __init__(self):
+            self.text = "/select_service_query:my%20custom%20app"
+            self.chat = types.Chat(id=321, type="private")
+            self.bot = DummyBot()
+            self.deleted = False
+
+        async def delete(self):
+            self.deleted = True
+
+    msg = DummyMessage()
+    await handle_inline_service_selection(msg, DummyState())
+
+    assert msg.deleted is True
+    assert captured["chat_id"] == 321
+    assert captured["service_name"] == "my custom app"
+
+
+@pytest.mark.asyncio
 async def test_reseller_id_fallback():
     """Main-bot number orders always use the user itself as reseller_id."""
     import services.numbers.handlers.core_numbers_buy as hb

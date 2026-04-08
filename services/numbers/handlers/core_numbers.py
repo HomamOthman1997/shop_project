@@ -1,6 +1,7 @@
 ﻿from contextvars import ContextVar
 
 import asyncio
+from urllib.parse import unquote
 from aiogram import BaseMiddleware, F, Router, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
@@ -54,6 +55,7 @@ _COUNTRY_ISO = {
     for item in COUNTRIES_LIST
     if str(item.get("code") or "").strip()
 }
+_INLINE_SERVICE_QUERY_PREFIX = "query:"
 
 
 async def _hide_reply_keyboard(message: types.Message, lang: str) -> None:
@@ -871,7 +873,9 @@ async def choose_any_state(callback: types.CallbackQuery, state: FSMContext):
 async def handle_inline_service_selection(message: types.Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
-    service_key = message.text.replace("/select_service_", "")
+    service_key = message.text.replace("/select_service_", "", 1)
+    if service_key.startswith(_INLINE_SERVICE_QUERY_PREFIX):
+        service_key = unquote(service_key.split(":", 1)[1]).strip()
     await message.delete()
     await _load_service_prices(message.chat.id, message.bot, state, service_key)
 

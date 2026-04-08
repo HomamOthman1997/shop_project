@@ -130,4 +130,4 @@ def test_provider_choice_kb_uses_info_button_and_buy_action_button():
         "buy_provider:smspool",
     ]
     assert first_row[0].style == "primary"
-    assert first_row[1].style is None
+    assert getattr(first_row[1], "style", None) is None

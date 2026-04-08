@@ -27,6 +27,12 @@ class PVADealsProvider(BaseProvider):
     DEFAULT_BASE = "https://prod-v3.pvadeals.com/v3/api"
     SERVICE_CACHE_TTL_SECONDS = 600
     RETRY_DELAYS: tuple[float, ...] = (0.4, 1.0)
+    ALL_SERVICES_SERVICE_ID = "ALL_SERVICES"
+    # The documented all-services SKU is a dedicated 28-day rental and is not
+    # present in the live /services/all catalog, so we keep a docs-backed
+    # fallback quote for the selector screen.
+    ALL_SERVICES_DURATION_DAYS = 28
+    ALL_SERVICES_DOCUMENTED_PRICE = 12.99
     RENTAL_PRICE_FIELDS: tuple[tuple[str, int, str], ...] = (
         ("LTR3price", 3, "3d"),
         ("LTR7price", 7, "7d"),
@@ -436,6 +442,28 @@ class PVADealsProvider(BaseProvider):
         return self._response_ok(status, payload)
 
     async def get_rental_prices(self, service: str, country: str | None = None) -> dict[str, Any]:
+        if str(service or "").strip().upper() == self.ALL_SERVICES_SERVICE_ID:
+            target_country = self._country_target(country) or "provider"
+            return {
+                "success": True,
+                "options": [
+                    {
+                        "country": target_country,
+                        "duration": int(self.ALL_SERVICES_DURATION_DAYS * 24),
+                        "duration_days": int(self.ALL_SERVICES_DURATION_DAYS),
+                        "duration_label": "28d",
+                        "price": float(self.ALL_SERVICES_DOCUMENTED_PRICE),
+                        "count": 1,
+                    }
+                ],
+                "raw": {
+                    "serviceId": self.ALL_SERVICES_SERVICE_ID,
+                    "country": target_country,
+                    "documented_fallback": True,
+                    "duration_days": self.ALL_SERVICES_DURATION_DAYS,
+                    "price": self.ALL_SERVICES_DOCUMENTED_PRICE,
+                },
+            }
         entry = await self._find_service_entry(service, country=country, require_rental=True)
         if not entry:
             return {"success": False, "options": [], "raw": "service_not_found"}
@@ -458,13 +486,17 @@ class PVADealsProvider(BaseProvider):
 
     async def rent_number(self, service: str, country: str | None = None, duration: int = 3, **kwargs) -> dict[str, Any]:
         days = int(kwargs.get("duration_days") or duration or 3)
-        if days not in {3, 7, 14, 30}:
-            days = 3
-        entry = await self._find_service_entry(service, country=country, require_rental=True)
-        if not entry:
-            return {"success": False, "raw": "service_not_found"}
-
-        body: dict[str, Any] = {"serviceId": str(entry.get("_id")), "duration": days}
+        service_token = str(service or "").strip()
+        if service_token.upper() == self.ALL_SERVICES_SERVICE_ID:
+            days = self.ALL_SERVICES_DURATION_DAYS
+            body: dict[str, Any] = {"serviceId": self.ALL_SERVICES_SERVICE_ID, "duration": days}
+        else:
+            if days not in {3, 7, 14, 30}:
+                days = 3
+            entry = await self._find_service_entry(service, country=country, require_rental=True)
+            if not entry:
+                return {"success": False, "raw": "service_not_found"}
+            body = {"serviceId": str(entry.get("_id")), "duration": days}
         area_code = str(kwargs.get("area_code") or kwargs.get("areacode") or "").strip()
         if area_code:
             body["areaCode"] = area_code

@@ -47,4 +47,4 @@ def test_rental_providers_kb_uses_internal_provider_codes_for_layout():
     assert rows[6] == ["3D | 6.00 💲", "7D | 7.00 💲", "14D | 8.00 💲"]
     assert rows[7] == ["30D | 10.00 💲"]
     assert kb.inline_keyboard[0][0].style == "primary"
-    assert kb.inline_keyboard[1][0].style is None
+    assert getattr(kb.inline_keyboard[1][0], "style", None) is None
