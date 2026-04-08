@@ -941,6 +941,8 @@ def test_service_keyboard_rental_has_open_button(monkeypatch):
 
     kb = service_kb(num_type="rental", country_code="1")
     callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+    assert kb.inline_keyboard[0][0].callback_data == f"flow:service:{manager.SMSPOOL_OPEN_RENTAL_SERVICE_KEY}"
+    assert kb.inline_keyboard[0][0].style == "success"
     assert f"flow:service:{manager.SMSPOOL_OPEN_RENTAL_SERVICE_KEY}" in callbacks
 
 
@@ -954,6 +956,19 @@ def test_service_keyboard_rental_hides_open_for_other_countries(monkeypatch):
     kb = service_kb(num_type="rental", country_code="90")  # Turkey
     first_btn = kb.inline_keyboard[0][0]
     assert first_btn.callback_data != f"flow:service:{manager.SMSPOOL_OPEN_RENTAL_SERVICE_KEY}"
+
+
+def test_service_keyboard_search_stays_above_back_to_countries(monkeypatch):
+    from services.numbers.keyboards.core_numbers_kb import service_kb
+    import utils.services_keyboard as sku
+
+    monkeypatch.setattr(sku, "load_top_services", lambda: ["one", "two"])
+    monkeypatch.setattr(sku, "load_full_services", lambda: ["one", "two", "three"])
+
+    kb = service_kb(num_type="rental", country_code="1")
+    rows = kb.inline_keyboard
+    assert getattr(rows[-3][0], "switch_inline_query_current_chat", None) == "service "
+    assert rows[-2][0].callback_data == "flow:country:back"
 
 
 def test_rental_options_keyboard_per_provider_list():
@@ -1316,7 +1331,7 @@ async def test_not_listed_rental_falls_back_to_unlimited_generic(monkeypatch):
 
     assert calls == ["my custom app", core.RENTAL_UNLIMITED_SERVICE_KEY]
     assert state.state == core.NumberFlow.rental_providers
-    assert "Choose rental provider and period" in bot.edits[-1]["text"]
+    assert "Choose unlimited-rental provider and period" in bot.edits[-1]["text"]
 
 
 @pytest.mark.asyncio

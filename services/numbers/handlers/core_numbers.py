@@ -340,7 +340,9 @@ def _numbers_unavailable_text(
     )
 
 
-def _rental_provider_period_title(lang: str) -> str:
+def _rental_provider_period_title(lang: str, *, unlimited_mode: bool = False) -> str:
+    if unlimited_mode:
+        return t(lang, "rental_unlimited_provider_period_title")
     return t(lang, "rental_provider_period_title")
 
 
@@ -709,8 +711,9 @@ async def back_to_rental_providers(callback: types.CallbackQuery, state: FSMCont
         return await _safe_callback_answer(t(lang, "no_rental_options"), show_alert=True)
     provider_options = data.get("rental_provider_options") or {}
     usd_to_syp_rate = float(data.get("usd_to_syp_rate") or 0)
+    unlimited_mode = any(str(row.get("pricing_mode") or "").strip().lower() == "monthly" for row in provider_rows)
     text = _compose_numbers_screen(
-        _rental_provider_period_title(lang),
+        _rental_provider_period_title(lang, unlimited_mode=unlimited_mode),
         _numbers_context_lines(
             lang,
             service=str(data.get("service") or ""),
@@ -1072,7 +1075,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
             usd_to_syp_rate=usd_to_syp_rate,
         )
         text = _compose_numbers_screen(
-            _rental_provider_period_title(lang),
+            _rental_provider_period_title(lang, unlimited_mode=unlimited_mode),
             _numbers_context_lines(
                 lang,
                 service=service_name,

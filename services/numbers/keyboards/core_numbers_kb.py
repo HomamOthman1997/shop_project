@@ -168,18 +168,19 @@ def service_kb(lang: str = "en", num_type: str = "temp", country_code: str | Non
     base_kb = build_services_keyboard()
     search_button = InlineKeyboardButton(text=t(lang, "search_service"), switch_inline_query_current_chat="service ", style="primary")
     kb = InlineKeyboardMarkup(inline_keyboard=[])
-    kb.inline_keyboard.append([search_button])
     if num_type == "rental" and _can_show_unlimited(country_code):
         kb.inline_keyboard.append(
             [
                 InlineKeyboardButton(
                     text=t(lang, "unlimited_rental_service"),
                     callback_data=f"flow:service:{RENTAL_UNLIMITED_SERVICE_KEY}",
+                    style="success",
                 )
             ]
         )
     for row in base_kb.inline_keyboard:
         kb.inline_keyboard.append(row)
+    kb.inline_keyboard.append([search_button])
     kb.inline_keyboard.append([InlineKeyboardButton(text=t(lang, "back_to_countries"), callback_data="flow:country:back")])
     kb.inline_keyboard.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger", icon_custom_emoji_id=_ICON_CANCEL)])
     return kb
