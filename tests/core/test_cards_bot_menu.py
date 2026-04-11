@@ -15,6 +15,7 @@ def test_cards_main_menu_uses_arabic_labels_for_ar():
     kb = cards_main_menu("ar")
     labels = [button.text for row in kb.keyboard for button in row]
     assert "بيع كرت" in labels
+    assert "🗂 بطاقات وقسائم" in labels
     assert "المحفظة" in labels
     assert "بطاقاتي" in labels
     assert "طلب سحب" in labels
