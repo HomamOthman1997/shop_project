@@ -86,6 +86,7 @@ async def test_menu_for_current_bot_prioritizes_platform_store_bots_over_reselle
     labels = [btn.text for row in kb.keyboard for btn in row]
 
     assert labels == [btn.text for row in bot_menu_context.digital_products_main_menu("ar").keyboard for btn in row]
+    assert t("ar", "btn_giftcards") in labels
 
 
 @pytest.mark.asyncio
