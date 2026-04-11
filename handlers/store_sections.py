@@ -26,6 +26,16 @@ from database.user_repo import get_user, get_user_reseller_for_bot, set_user_res
 from utils.bot_menu_context import menu_for_current_bot
 from services.digital_products.g2bulk_client import G2BulkClient
 from services.digital_products.catalog_service import get_catalog_snapshot, get_game_topups
+from services.digital_products.esim_route_service import (
+    available_days as esim_available_days,
+    choose_best_multi_area,
+    country_slug,
+    package_button_label as esim_package_button_label,
+    package_summary as esim_package_summary,
+    plans_for_days as esim_plans_for_days,
+    search_countries as esim_search_countries,
+    single_country_plans,
+)
 from utils.core_service_guard import finance_error_public_text, guard_core_service_callback, guard_core_service_message
 from utils.financial_manager import FinancialManager
 from utils.translations import t
@@ -157,6 +167,13 @@ _GAME_GROUP_OVERRIDES: dict[str, dict[str, tuple[str, ...]]] = {
 class GameStoreFlow(StatesGroup):
     waiting_topup_player = State()
     waiting_topup_server = State()
+
+
+class EsimRouteFlow(StatesGroup):
+    choosing_countries = State()
+    single_country_prompt = State()
+    choosing_days = State()
+    choosing_package = State()
 
 
 def _to_float(value: Any) -> float:
@@ -1086,6 +1103,182 @@ def _service_button_style(name: str) -> str:
     return _brand_button_style(name)
 
 
+_ESIM_INLINE_PREFIX = "esim_country"
+_ESIM_PICK_PREFIX = "__esim_country__::"
+
+
+def _esim_text(lang: str, en: str, ar: str) -> str:
+    return ar if str(lang).lower().startswith("ar") else en
+
+
+def _esim_country_pick_token(country: str) -> str:
+    return f"{_ESIM_PICK_PREFIX}{country}"
+
+
+def _parse_esim_country_pick(text: str | None) -> str | None:
+    raw = str(text or "").strip()
+    if not raw.startswith(_ESIM_PICK_PREFIX):
+        return None
+    country = raw[len(_ESIM_PICK_PREFIX) :].strip()
+    return country or None
+
+
+def _esim_countries_text(lang: str, countries: list[str]) -> str:
+    if countries:
+        joined = "، ".join(countries) if str(lang).lower().startswith("ar") else ", ".join(countries)
+        return _esim_text(lang, f"Current route: {joined}", f"رحلتك الحالية: {joined}")
+    return _esim_text(lang, "No countries selected yet.", "لم يتم اختيار أي دولة بعد.")
+
+
+def _esim_route_keyboard(lang: str, countries: list[str]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if len(countries) < 5:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=_esim_text(lang, "🌍 Choose Country", "🌍 اختر دولة"),
+                    switch_inline_query_current_chat=f"{_ESIM_INLINE_PREFIX} ",
+                )
+            ]
+        )
+    for country in countries:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=_esim_text(lang, f"Remove {country}", f"إلغاء اختيار {country}"),
+                    callback_data=f"esim:remove:{country_slug(country)}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(text=_esim_text(lang, "✅ Done", "✅ انتهى اختيار الدول"), callback_data="esim:done"),
+            InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu"),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _esim_single_country_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=_esim_text(lang, "🌍 Choose More Countries", "🌍 اختيار دول أخرى"), callback_data="esim:single:add_more"),
+            ],
+            [
+                InlineKeyboardButton(text=_esim_text(lang, "➡️ Continue With This Country", "➡️ استمرار بهذه الدولة فقط"), callback_data="esim:single:continue"),
+            ],
+            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")],
+        ]
+    )
+
+
+def _esim_days_keyboard(lang: str, days: list[int], *, back_callback: str) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for day in days:
+        row.append(InlineKeyboardButton(text=_esim_text(lang, f"{day} Days", f"{day} يوم"), callback_data=f"esim:days:{day}"))
+        if len(row) >= 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data=back_callback)])
+    rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _esim_package_keyboard(lang: str, plans: list[dict[str, Any]], *, back_callback: str) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for index, row in enumerate(plans):
+        rows.append([InlineKeyboardButton(text=esim_package_button_label(row, lang=lang), callback_data=f"esim:pkg:{index}")])
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data=back_callback)])
+    rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _esim_store_route_message_id(state: FSMContext, message_id: int | None) -> None:
+    if isinstance(message_id, int) and message_id > 0:
+        await state.update_data(esim_route_message_id=message_id)
+
+
+async def _esim_render_route_screen(
+    *,
+    target: types.Message | types.CallbackQuery,
+    state: FSMContext,
+    lang: str,
+    note: str | None = None,
+) -> None:
+    data = await state.get_data()
+    countries = list(data.get("esim_selected_countries") or [])
+    text = _esim_text(
+        lang,
+        "eSIM Route\n\nChoose the countries you will pass through.",
+        "eSIM الرحلة\n\nاختر الدول التي ستمر بها.",
+    )
+    text += f"\n\n{_esim_countries_text(lang, countries)}"
+    if note:
+        text += f"\n\n{note}"
+    kb = _esim_route_keyboard(lang, countries)
+    if isinstance(target, types.CallbackQuery):
+        if target.message:
+            await target.message.edit_text(text, reply_markup=kb)
+    else:
+        sent = await target.answer(text, reply_markup=kb)
+        await _esim_store_route_message_id(state, getattr(sent, "message_id", None))
+
+
+async def _esim_edit_route_message(
+    *,
+    message: types.Message,
+    state: FSMContext,
+    lang: str,
+    note: str | None = None,
+) -> None:
+    data = await state.get_data()
+    route_message_id = int(data.get("esim_route_message_id") or 0)
+    countries = list(data.get("esim_selected_countries") or [])
+    text = _esim_text(
+        lang,
+        "eSIM Route\n\nChoose the countries you will pass through.",
+        "eSIM الرحلة\n\nاختر الدول التي ستمر بها.",
+    )
+    text += f"\n\n{_esim_countries_text(lang, countries)}"
+    if note:
+        text += f"\n\n{note}"
+    kb = _esim_route_keyboard(lang, countries)
+    if route_message_id > 0:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=route_message_id,
+                text=text,
+                reply_markup=kb,
+            )
+            return
+        except Exception:
+            pass
+    sent = await message.answer(text, reply_markup=kb)
+    await _esim_store_route_message_id(state, getattr(sent, "message_id", None))
+
+
+def _esim_match_summary_text(lang: str, countries: list[str], match: dict[str, Any]) -> str:
+    chosen = "، ".join(countries) if str(lang).lower().startswith("ar") else ", ".join(countries)
+    covered = "، ".join(match.get("covered") or []) if str(lang).lower().startswith("ar") else ", ".join(match.get("covered") or [])
+    missing = "، ".join(match.get("missing") or []) if str(lang).lower().startswith("ar") else ", ".join(match.get("missing") or [])
+    if match.get("coverage_full"):
+        return _esim_text(
+            lang,
+            f"Best plan for your route\n\nChosen countries: {chosen}\nSuggested coverage: {match.get('region_name')}\n\nChoose duration.",
+            f"أفضل باقة لرحلتك\n\nالدول المختارة: {chosen}\nالتغطية المقترحة: {match.get('region_name')}\n\nاختر المدة.",
+        )
+    return _esim_text(
+        lang,
+        f"No plan fully covers the route.\n\nChosen countries: {chosen}\nBest available coverage: {match.get('region_name')}\nCovers: {covered or '-'}\nDoes not cover: {missing or '-'}\n\nChoose duration to continue.",
+        f"لا توجد باقة تغطي الرحلة كاملة.\n\nالدول المختارة: {chosen}\nأفضل تغطية متاحة: {match.get('region_name')}\nيغطي: {covered or '-'}\nلا يغطي: {missing or '-'}\n\nاختر المدة للمتابعة.",
+    )
+
+
 @router.message(lambda m: _is_giftcards_trigger(m.text))
 async def open_giftcards_section(message: types.Message, state):
     user = await get_user(message.from_user.id)
@@ -1124,14 +1317,216 @@ async def open_mobile_topups_section(message: types.Message):
 
 
 @router.message(lambda m: _is_esim_trigger(m.text))
-async def open_esim_section(message: types.Message):
+async def open_esim_section(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
+    await state.clear()
+    await state.set_state(EsimRouteFlow.choosing_countries)
+    await state.update_data(esim_selected_countries=[], esim_selected_mode="", esim_selected_days=0, esim_candidate_plans=[])
     await _hide_reply_keyboard(message, lang)
-    await message.answer(
-        t(lang, "digital_products_esim_placeholder"),
-        reply_markup=_coming_soon_kb(lang),
+    await _esim_render_route_screen(target=message, state=state, lang=lang)
+
+
+@router.inline_query(lambda iq: (iq.query or "").strip().lower().startswith(_ESIM_INLINE_PREFIX))
+async def inline_esim_country_search(iq: types.InlineQuery):
+    user_id = int(getattr(iq.from_user, "id", 0) or 0)
+    if user_id <= 0:
+        return await iq.answer([], cache_time=5, is_personal=True)
+    query = re.sub(rf"^\s*{_ESIM_INLINE_PREFIX}\s*", "", str(iq.query or "").strip(), flags=re.IGNORECASE)
+    countries = esim_search_countries(query, limit=20)
+    results: list[types.InlineQueryResultArticle] = []
+    for country in countries:
+        results.append(
+            types.InlineQueryResultArticle(
+                id=f"esim_country_{country_slug(country)}",
+                title=country,
+                description=_esim_text("en", "Add this country to your route", "أضف هذه الدولة إلى الرحلة"),
+                input_message_content=types.InputTextMessageContent(message_text=_esim_country_pick_token(country)),
+            )
+        )
+    await iq.answer(results, cache_time=5, is_personal=True)
+
+
+@router.message(EsimRouteFlow.choosing_countries)
+async def handle_esim_country_pick(message: types.Message, state: FSMContext):
+    country = _parse_esim_country_pick(message.text)
+    if not country:
+        return
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    data = await state.get_data()
+    selected = list(data.get("esim_selected_countries") or [])
+    if country == "Syria":
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        await _esim_edit_route_message(message=message, state=state, lang=lang)
+        return
+    if country not in selected and len(selected) < 5:
+        selected.append(country)
+        await state.update_data(esim_selected_countries=selected)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    await _esim_edit_route_message(message=message, state=state, lang=lang)
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("esim:remove:"))
+async def remove_esim_country(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    slug = str(callback.data or "").split(":", 2)[-1].strip()
+    data = await state.get_data()
+    selected = [name for name in list(data.get("esim_selected_countries") or []) if country_slug(name) != slug]
+    await state.update_data(esim_selected_countries=selected)
+    await state.set_state(EsimRouteFlow.choosing_countries)
+    await _esim_render_route_screen(target=callback, state=state, lang=lang)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "esim:single:add_more")
+async def esim_single_add_more(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await state.set_state(EsimRouteFlow.choosing_countries)
+    await _esim_render_route_screen(target=callback, state=state, lang=lang)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "esim:done")
+async def esim_finish_country_selection(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    data = await state.get_data()
+    selected = [name for name in list(data.get("esim_selected_countries") or []) if name != "Syria"]
+    await state.update_data(esim_selected_countries=selected)
+    if not selected:
+        await _esim_render_route_screen(
+            target=callback,
+            state=state,
+            lang=lang,
+            note=_esim_text(lang, "Choose at least one country first.", "اختر دولة واحدة على الأقل أولًا."),
+        )
+        await callback.answer()
+        return
+    if len(selected) == 1:
+        await state.set_state(EsimRouteFlow.single_country_prompt)
+        text = _esim_text(
+            lang,
+            f"You selected one country only: {selected[0]}\n\nYou can add more countries to cover the whole route, or continue with this country only.",
+            f"اخترت دولة واحدة فقط: {selected[0]}\n\nيمكنك إضافة دول أخرى لتغطية كامل الرحلة، أو الاستمرار بهذه الدولة فقط.",
+        )
+        if callback.message:
+            await callback.message.edit_text(text, reply_markup=_esim_single_country_keyboard(lang))
+        await callback.answer()
+        return
+
+    match = choose_best_multi_area(selected)
+    if not match:
+        await _esim_render_route_screen(
+            target=callback,
+            state=state,
+            lang=lang,
+            note=_esim_text(lang, "No suitable route package was found yet.", "لم نجد باقة مناسبة لهذه الرحلة حتى الآن."),
+        )
+        await callback.answer()
+        return
+    days = esim_available_days(match["plans"])
+    await state.set_state(EsimRouteFlow.choosing_days)
+    await state.update_data(esim_selected_mode="route", esim_route_match=match, esim_candidate_plans=match["plans"])
+    if callback.message:
+        await callback.message.edit_text(
+            _esim_match_summary_text(lang, selected, match),
+            reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:single:add_more"),
+        )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "esim:single:continue")
+async def esim_continue_single_country(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    data = await state.get_data()
+    selected = list(data.get("esim_selected_countries") or [])
+    country = selected[0] if selected else ""
+    plans = single_country_plans(country)
+    if not plans:
+        await callback.answer(_esim_text(lang, "No eSIM plans found for this country yet.", "لا توجد باقات eSIM لهذه الدولة حاليًا."), show_alert=True)
+        return
+    days = esim_available_days(plans)
+    await state.set_state(EsimRouteFlow.choosing_days)
+    await state.update_data(esim_selected_mode="single", esim_candidate_plans=plans)
+    text = _esim_text(
+        lang,
+        f"Country: {country}\n\nChoose duration.",
+        f"الدولة: {country}\n\nاختر المدة.",
     )
+    if callback.message:
+        await callback.message.edit_text(text, reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:single:add_more"))
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("esim:days:"))
+async def esim_choose_days(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    days = int(str(callback.data or "").split(":")[-1].strip() or 0)
+    data = await state.get_data()
+    plans = esim_plans_for_days(list(data.get("esim_candidate_plans") or []), days)
+    if not plans:
+        await callback.answer(_esim_text(lang, "No packages found for this duration.", "لا توجد باقات لهذه المدة."), show_alert=True)
+        return
+    await state.set_state(EsimRouteFlow.choosing_package)
+    await state.update_data(esim_selected_days=days, esim_filtered_day_plans=plans)
+    header = _esim_text(lang, f"Available packages for {days} days", f"الحزم المتاحة لمدة {days} يوم")
+    if callback.message:
+        await callback.message.edit_text(
+            header,
+            reply_markup=_esim_package_keyboard(lang, plans, back_callback="esim:single:continue" if data.get("esim_selected_mode") == "single" else "esim:done"),
+        )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("esim:pkg:"))
+async def esim_choose_package(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    index = int(str(callback.data or "").split(":")[-1].strip() or 0)
+    data = await state.get_data()
+    plans = list(data.get("esim_filtered_day_plans") or [])
+    if index < 0 or index >= len(plans):
+        await callback.answer(_esim_text(lang, "Package not found.", "الباقة غير موجودة."), show_alert=True)
+        return
+    row = plans[index]
+    selected = list(data.get("esim_selected_countries") or [])
+    mode = str(data.get("esim_selected_mode") or "route")
+    summary_lines = [
+        _esim_text(lang, "eSIM Summary", "ملخص باقة eSIM"),
+        "",
+        _esim_countries_text(lang, selected),
+    ]
+    if mode == "route":
+        match = dict(data.get("esim_route_match") or {})
+        if match:
+            summary_lines.append(_esim_text(lang, f"Suggested coverage: {match.get('region_name')}", f"التغطية المقترحة: {match.get('region_name')}"))
+            missing = list(match.get("missing") or [])
+            if missing:
+                joined = ", ".join(missing) if not lang.startswith("ar") else "، ".join(missing)
+                summary_lines.append(_esim_text(lang, f"Not covered: {joined}", f"غير مغطى: {joined}"))
+    summary_lines.extend(["", esim_package_summary(row, lang=lang), "", _esim_text(lang, "Direct purchase will be connected in the next step.", "الشراء المباشر سيتم ربطه في الخطوة التالية.")])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data=f"esim:days:{int(data.get('esim_selected_days') or 0)}")],
+            [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")],
+        ]
+    )
+    if callback.message:
+        await callback.message.edit_text("\n".join(summary_lines), reply_markup=kb)
+    await callback.answer()
 
 
 @router.message(lambda m: _is_store_trigger(m.text))
