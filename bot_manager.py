@@ -761,7 +761,12 @@ def build_digital_products_dispatcher() -> Dispatcher:
     dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.language_digital_products_clone", "handlers/language.py"), BOT_KIND_DIGITAL))
     dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.subscription_digital_products_clone", "handlers/subscription.py"), BOT_KIND_DIGITAL))
     dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.main_menu_digital_products_clone", "handlers/main_menu.py"), BOT_KIND_DIGITAL))
-    dp.include_router(_restrict_router_to_kinds(store_sections_router, BOT_KIND_DIGITAL))
+    dp.include_router(
+        _restrict_router_to_kinds(
+            _load_router_clone("handlers.store_sections_digital_clone", "handlers/store_sections.py"),
+            BOT_KIND_DIGITAL,
+        )
+    )
     return dp
 
 
@@ -786,7 +791,12 @@ def build_card_ex_dispatcher() -> Dispatcher:
 
     dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.start_card_ex_clone", "handlers/start.py"), BOT_KIND_CARD))
     dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.language_card_ex_clone", "handlers/language.py"), BOT_KIND_CARD))
-    dp.include_router(_restrict_router_to_kinds(store_sections_router, BOT_KIND_CARD))
+    dp.include_router(
+        _restrict_router_to_kinds(
+            _load_router_clone("handlers.store_sections_card_clone", "handlers/store_sections.py"),
+            BOT_KIND_CARD,
+        )
+    )
     dp.include_router(_restrict_router_to_kinds(card_ex_bot_router, BOT_KIND_CARD))
     return dp
 
