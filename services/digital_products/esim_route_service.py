@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from config import settings
+from services.digital_products.esim_access_client import EsimAccessClient
+
 
 _CATALOG_PATH = Path(__file__).resolve().parents[2] / "data" / "esim_catalog.json"
+_LIVE_CACHE: dict[str, Any] = {"expires_at": 0.0, "rows": None, "coverage_map": None, "countries": None}
 
 _MULTI_AREA_COVERAGE: dict[str, set[str]] = {
     "Europe (30+ areas)": {
@@ -292,6 +297,20 @@ def _normalize_country(name: str) -> str:
     return " ".join(str(name or "").strip().split())
 
 
+def _normalize_coverage_map(raw: dict[str, set[str] | list[str]]) -> dict[str, set[str]]:
+    normalized: dict[str, set[str]] = {}
+    for name, countries in (raw or {}).items():
+        region_name = _normalize_country(name)
+        if not region_name:
+            continue
+        normalized[region_name] = {
+            _normalize_country(country)
+            for country in (countries or [])
+            if _normalize_country(country) and _normalize_country(country) != "Syria"
+        }
+    return normalized
+
+
 def searchable_countries() -> list[str]:
     values: set[str] = set()
     for row in _catalog():
@@ -305,6 +324,26 @@ def searchable_countries() -> list[str]:
     return sorted(values)
 
 
+def _rows_from_source(rows: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    return list(rows or [])
+
+
+def _coverage_map_from_source(coverage_map: dict[str, set[str]] | None) -> dict[str, set[str]]:
+    return _normalize_coverage_map(coverage_map or _MULTI_AREA_COVERAGE)
+
+
+def _searchable_countries_from(rows: list[dict[str, Any]], coverage_map: dict[str, set[str]]) -> list[str]:
+    values: set[str] = set()
+    for row in rows:
+        if str(row.get("type") or "").strip() == "Single":
+            region = _normalize_country(str(row.get("region") or ""))
+            if region and region != "Syria":
+                values.add(region)
+    for countries in coverage_map.values():
+        values.update(_normalize_country(name) for name in countries if _normalize_country(name) and _normalize_country(name) != "Syria")
+    return sorted(values)
+
+
 def search_countries(query: str, *, limit: int = 20) -> list[str]:
     raw = _normalize_country(query).lower()
     countries = searchable_countries()
@@ -315,15 +354,19 @@ def search_countries(query: str, *, limit: int = 20) -> list[str]:
     return (starts + contains)[:limit]
 
 
-def single_country_plans(country: str) -> list[dict[str, Any]]:
+def _single_country_plans_from(rows: list[dict[str, Any]], country: str) -> list[dict[str, Any]]:
     target = _normalize_country(country)
-    rows = [
+    selected = [
         row
-        for row in _catalog()
+        for row in rows
         if str(row.get("type") or "").strip() == "Single" and _normalize_country(str(row.get("region") or "")) == target
     ]
-    rows.sort(key=_money_key)
-    return rows
+    selected.sort(key=_money_key)
+    return selected
+
+
+def single_country_plans(country: str) -> list[dict[str, Any]]:
+    return _single_country_plans_from(_catalog(), country)
 
 
 def available_days(rows: list[dict[str, Any]]) -> list[int]:
@@ -433,19 +476,28 @@ def choose_best_multi_area(countries: list[str]) -> dict[str, Any] | None:
 
 
 def route_available_days(countries: list[str]) -> list[int]:
+    return _route_available_days_from(_catalog(), _MULTI_AREA_COVERAGE, countries)
+
+
+def _route_available_days_from(
+    rows: list[dict[str, Any]],
+    coverage_map: dict[str, set[str]] | dict[str, list[str]],
+    countries: list[str],
+) -> list[int]:
     wanted = {_normalize_country(name) for name in countries if _normalize_country(name) and _normalize_country(name) != "Syria"}
     values: set[int] = set()
     for country in wanted:
-        values.update(available_days(single_country_plans(country)))
-    for region_name, coverage in _MULTI_AREA_COVERAGE.items():
+        values.update(available_days(_single_country_plans_from(rows, country)))
+    normalized_map = _normalize_coverage_map(coverage_map)
+    for region_name, coverage in normalized_map.items():
         if not (wanted & coverage):
             continue
-        rows = [
+        region_rows = [
             row
-            for row in _catalog()
+            for row in rows
             if str(row.get("type") or "").strip() == "Multi-Area" and _normalize_country(str(row.get("region") or "")) == region_name
         ]
-        values.update(available_days(rows))
+        values.update(available_days(region_rows))
     return sorted(day for day in values if day > 0)
 
 
@@ -454,7 +506,23 @@ def _single_country_best(country: str, *, days: int, usage_key: str) -> dict[str
     return rows[0] if rows else None
 
 
+def _single_country_best_from(rows: list[dict[str, Any]], country: str, *, days: int, usage_key: str) -> dict[str, Any] | None:
+    selected = plans_for_usage(plans_for_days(_single_country_plans_from(rows, country), days), usage_key)
+    return selected[0] if selected else None
+
+
 def build_route_offers(countries: list[str], *, days: int, usage_key: str) -> list[dict[str, Any]]:
+    return _build_route_offers_from(_catalog(), _MULTI_AREA_COVERAGE, countries, days=days, usage_key=usage_key)
+
+
+def _build_route_offers_from(
+    rows: list[dict[str, Any]],
+    coverage_map: dict[str, set[str]] | dict[str, list[str]],
+    countries: list[str],
+    *,
+    days: int,
+    usage_key: str,
+) -> list[dict[str, Any]]:
     wanted = [_normalize_country(name) for name in countries if _normalize_country(name) and _normalize_country(name) != "Syria"]
     if not wanted:
         return []
@@ -464,7 +532,7 @@ def build_route_offers(countries: list[str], *, days: int, usage_key: str) -> li
     single_parts: list[dict[str, Any]] = []
     all_singles_ok = True
     for country in wanted:
-        row = _single_country_best(country, days=days, usage_key=usage_key)
+        row = _single_country_best_from(rows, country, days=days, usage_key=usage_key)
         if not row:
             all_singles_ok = False
             break
@@ -485,7 +553,8 @@ def build_route_offers(countries: list[str], *, days: int, usage_key: str) -> li
             }
         )
 
-    for region_name, coverage in _MULTI_AREA_COVERAGE.items():
+    normalized_map = _normalize_coverage_map(coverage_map)
+    for region_name, coverage in normalized_map.items():
         covered = [name for name in wanted if name in coverage]
         if not covered:
             continue
@@ -493,7 +562,7 @@ def build_route_offers(countries: list[str], *, days: int, usage_key: str) -> li
             plans_for_days(
                 [
                     row
-                    for row in _catalog()
+                    for row in rows
                     if str(row.get("type") or "").strip() == "Multi-Area"
                     and _normalize_country(str(row.get("region") or "")) == region_name
                 ],
@@ -520,7 +589,7 @@ def build_route_offers(countries: list[str], *, days: int, usage_key: str) -> li
         )
         if len(missing) == 1:
             leftover = missing[0]
-            extra = _single_country_best(leftover, days=days, usage_key=usage_key)
+            extra = _single_country_best_from(rows, leftover, days=days, usage_key=usage_key)
             if extra:
                 offers.append(
                     {
@@ -562,7 +631,17 @@ def build_route_offers(countries: list[str], *, days: int, usage_key: str) -> li
 
 
 def build_single_country_offers(country: str, *, days: int, usage_key: str) -> list[dict[str, Any]]:
-    rows = plans_for_usage(plans_for_days(single_country_plans(country), days), usage_key)
+    return _build_single_country_offers_from(_catalog(), country, days=days, usage_key=usage_key)
+
+
+def _build_single_country_offers_from(
+    rows: list[dict[str, Any]],
+    country: str,
+    *,
+    days: int,
+    usage_key: str,
+) -> list[dict[str, Any]]:
+    rows = plans_for_usage(plans_for_days(_single_country_plans_from(rows, country), days), usage_key)
     offers: list[dict[str, Any]] = []
     for row in rows[:5]:
         offers.append(
@@ -689,3 +768,221 @@ def offer_summary(offer: dict[str, Any], *, lang: str) -> str:
         lines.append(package_summary(dict(part.get("plan") or {}), lang=lang))
         lines.append("")
     return "\n".join(line for line in lines if line is not None).strip()
+
+
+def _data_type_label(value: Any) -> str:
+    mapping = {
+        1: "Data in Total",
+        2: "Daily Limit (Speed Reduced)",
+        3: "Daily Limit (Service Cut-off)",
+        4: "Daily Unlimited",
+    }
+    try:
+        return mapping.get(int(value), "Data")
+    except Exception:
+        return "Data"
+
+
+def _volume_to_gb_text(volume_bytes: Any) -> str:
+    try:
+        value = float(volume_bytes or 0.0) / (1024.0 ** 3)
+    except Exception:
+        value = 0.0
+    if value <= 0:
+        return "0"
+    if value >= 1:
+        text = f"{value:.2f}".rstrip("0").rstrip(".")
+        return text
+    value_mb = value * 1024.0
+    text = f"{value_mb:.0f}"
+    return f"{text}MB"
+
+
+def _extract_response_obj(payload: dict[str, Any]) -> Any:
+    obj = payload.get("obj")
+    if obj is not None:
+        return obj
+    for key in ("data", "result"):
+        if key in payload:
+            return payload.get(key)
+    return None
+
+
+def _iter_location_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    obj = _extract_response_obj(payload)
+    if isinstance(obj, dict):
+        for key in ("locationList", "locations", "list", "rows"):
+            value = obj.get(key)
+            if isinstance(value, list):
+                return [row for row in value if isinstance(row, dict)]
+    if isinstance(obj, list):
+        return [row for row in obj if isinstance(row, dict)]
+    return []
+
+
+def _iter_package_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    obj = _extract_response_obj(payload)
+    if isinstance(obj, dict):
+        for key in ("packageList", "packages", "list", "rows"):
+            value = obj.get(key)
+            if isinstance(value, list):
+                return [row for row in value if isinstance(row, dict)]
+    if isinstance(obj, list):
+        return [row for row in obj if isinstance(row, dict)]
+    return []
+
+
+def _parse_location_dataset(payload: dict[str, Any]) -> tuple[dict[str, str], dict[str, set[str]]]:
+    code_to_name: dict[str, str] = {}
+    multi_map: dict[str, set[str]] = {}
+    for row in _iter_location_items(payload):
+        code = str(row.get("code") or "").strip().upper()
+        name = _normalize_country(str(row.get("name") or ""))
+        row_type = int(row.get("type") or 0)
+        if code and name and row_type == 1:
+            code_to_name[code] = name
+        if row_type == 2 and name:
+            sub_locations = row.get("subLocation") or row.get("subLocations") or []
+            countries: set[str] = set()
+            if isinstance(sub_locations, list):
+                for child in sub_locations:
+                    if not isinstance(child, dict):
+                        continue
+                    child_code = str(child.get("code") or "").strip().upper()
+                    child_name = _normalize_country(str(child.get("name") or ""))
+                    if child_code and child_name:
+                        code_to_name[child_code] = child_name
+                    if child_name and child_name != "Syria":
+                        countries.add(child_name)
+            if countries:
+                multi_map[name] = countries
+    return code_to_name, multi_map
+
+
+def _normalize_live_catalog(
+    package_payload: dict[str, Any],
+    location_payload: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, set[str]], list[str]]:
+    code_to_name, location_multi_map = _parse_location_dataset(location_payload)
+    rows: list[dict[str, Any]] = []
+    coverage_map: dict[str, set[str]] = dict(location_multi_map)
+    searchable: set[str] = set()
+    for item in _iter_package_items(package_payload):
+        location_codes = [str(part or "").strip().upper() for part in str(item.get("location") or "").split(",") if str(part or "").strip()]
+        location_names = [_normalize_country(code_to_name.get(code, code)) for code in location_codes if _normalize_country(code_to_name.get(code, code))]
+        location_names = [name for name in location_names if name != "Syria"]
+        package_name = str(item.get("name") or "").strip()
+        description = _normalize_country(str(item.get("description") or ""))
+        data_type_code = int(item.get("dataType") or 0)
+        package_type = "Multi-Area" if len(location_names) > 1 else "Single"
+        region_name = location_names[0] if package_type == "Single" and location_names else (description or package_name or "Region")
+        if package_type == "Multi-Area" and location_names:
+            coverage_map.setdefault(region_name, set()).update(location_names)
+        if package_type == "Single" and region_name:
+            searchable.add(region_name)
+        try:
+            price_usd = float(item.get("price") or 0.0) / 10000.0
+        except Exception:
+            price_usd = 0.0
+        rows.append(
+            {
+                "type": package_type,
+                "region": region_name,
+                "name": package_name,
+                "description": description,
+                "data_type": _data_type_label(data_type_code),
+                "data_type_code": data_type_code,
+                "price_usd": price_usd,
+                "code": str(item.get("packageCode") or "").strip(),
+                "package_code": str(item.get("packageCode") or "").strip(),
+                "slug": str(item.get("slug") or "").strip(),
+                "gbs": _volume_to_gb_text(item.get("volume")),
+                "days": int(item.get("duration") or item.get("unusedValidTime") or 0),
+                "speed": str(item.get("speed") or "").strip(),
+                "support_topup_type": int(item.get("supportTopUpType") or 0),
+                "location_codes": location_codes,
+                "location_names": location_names,
+                "retail_price_usd": float(item.get("retailPrice") or 0.0) / 10000.0 if item.get("retailPrice") is not None else 0.0,
+            }
+        )
+    searchable.update(name for names in coverage_map.values() for name in names)
+    searchable.discard("Syria")
+    rows.sort(key=_money_key)
+    return rows, _normalize_coverage_map(coverage_map), sorted(searchable)
+
+
+async def _fetch_live_dataset(force: bool = False) -> tuple[list[dict[str, Any]], dict[str, set[str]], list[str]] | None:
+    if not settings.esim_access_code or not settings.esim_access_secret_key:
+        return None
+    now = asyncio.get_running_loop().time()
+    cached_rows = _LIVE_CACHE.get("rows")
+    cached_map = _LIVE_CACHE.get("coverage_map")
+    cached_countries = _LIVE_CACHE.get("countries")
+    if (
+        not force
+        and cached_rows is not None
+        and cached_map is not None
+        and cached_countries is not None
+        and float(_LIVE_CACHE.get("expires_at") or 0.0) > now
+    ):
+        return list(cached_rows), dict(cached_map), list(cached_countries)
+    client = EsimAccessClient()
+    try:
+        package_payload, location_payload = await asyncio.gather(
+            client.list_packages(package_type="BASE"),
+            client.list_locations(),
+        )
+    except Exception:
+        return None
+    if not bool(package_payload.get("success")):
+        return None
+    rows, coverage_map, countries = _normalize_live_catalog(package_payload, location_payload if isinstance(location_payload, dict) else {})
+    if not rows:
+        return None
+    _LIVE_CACHE["rows"] = rows
+    _LIVE_CACHE["coverage_map"] = coverage_map
+    _LIVE_CACHE["countries"] = countries
+    _LIVE_CACHE["expires_at"] = now + max(30.0, float(getattr(settings, "esim_access_catalog_cache_ttl_sec", 600) or 600))
+    return list(rows), dict(coverage_map), list(countries)
+
+
+async def live_or_local_dataset() -> tuple[list[dict[str, Any]], dict[str, set[str]], list[str], bool]:
+    live = await _fetch_live_dataset()
+    if live is not None:
+        rows, coverage_map, countries = live
+        return rows, coverage_map, countries, True
+    rows = _catalog()
+    coverage_map = _normalize_coverage_map(_MULTI_AREA_COVERAGE)
+    countries = _searchable_countries_from(rows, coverage_map)
+    return list(rows), coverage_map, countries, False
+
+
+async def search_countries_live(query: str, *, limit: int = 20) -> list[str]:
+    rows, coverage_map, _, _ = await live_or_local_dataset()
+    raw = _normalize_country(query).lower()
+    countries = _searchable_countries_from(rows, coverage_map)
+    if not raw:
+        return countries[:limit]
+    starts = [name for name in countries if name.lower().startswith(raw)]
+    contains = [name for name in countries if raw in name.lower() and name not in starts]
+    return (starts + contains)[:limit]
+
+
+async def single_country_plans_live(country: str) -> list[dict[str, Any]]:
+    rows, _, _, _ = await live_or_local_dataset()
+    return _single_country_plans_from(rows, country)
+
+
+async def route_available_days_live(countries: list[str]) -> list[int]:
+    rows, coverage_map, _, _ = await live_or_local_dataset()
+    return _route_available_days_from(rows, coverage_map, countries)
+
+
+async def build_route_offers_live(countries: list[str], *, days: int, usage_key: str) -> list[dict[str, Any]]:
+    rows, coverage_map, _, _ = await live_or_local_dataset()
+    return _build_route_offers_from(rows, coverage_map, countries, days=days, usage_key=usage_key)
+
+
+async def build_single_country_offers_live(country: str, *, days: int, usage_key: str) -> list[dict[str, Any]]:
+    rows, _, _, _ = await live_or_local_dataset()
+    return _build_single_country_offers_from(rows, country, days=days, usage_key=usage_key)

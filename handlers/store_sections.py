@@ -6,8 +6,10 @@ import os
 import re
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
+from uuid import uuid4
 
 from aiogram import Router, types
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
@@ -26,10 +28,13 @@ from database.user_repo import get_user, get_user_reseller_for_bot, set_user_res
 from utils.bot_menu_context import menu_for_current_bot
 from services.digital_products.g2bulk_client import G2BulkClient
 from services.digital_products.catalog_service import get_catalog_snapshot, get_game_topups
+from services.digital_products.esim_access_client import EsimAccessClient
 from services.digital_products.esim_route_service import (
     available_days as esim_available_days,
     build_single_country_offers,
+    build_single_country_offers_live,
     build_route_offers,
+    build_route_offers_live,
     choose_recommended_offer,
     country_slug,
     offer_button_label as esim_offer_button_label,
@@ -37,8 +42,11 @@ from services.digital_products.esim_route_service import (
     plans_for_days as esim_plans_for_days,
     plans_for_usage as esim_plans_for_usage,
     route_available_days,
+    route_available_days_live,
     search_countries as esim_search_countries,
+    search_countries_live as esim_search_countries_live,
     single_country_plans,
+    single_country_plans_live,
     usage_label as esim_usage_label,
 )
 from utils.core_service_guard import finance_error_public_text, guard_core_service_callback, guard_core_service_message
@@ -181,6 +189,7 @@ class EsimRouteFlow(StatesGroup):
     choosing_days = State()
     choosing_usage = State()
     choosing_package = State()
+    confirming_purchase = State()
 
 
 def _to_float(value: Any) -> float:
@@ -256,17 +265,50 @@ async def _edit_callback_target(
     reply_markup: InlineKeyboardMarkup | None = None,
 ) -> bool:
     if callback.message:
-        await callback.message.edit_text(text, reply_markup=reply_markup)
-        return True
+        try:
+            await callback.message.edit_text(text, reply_markup=reply_markup)
+            return True
+        except TelegramBadRequest as exc:
+            if "message is not modified" in str(exc).lower():
+                return True
+            if "message can't be edited" not in str(exc).lower():
+                raise
+            sent = await callback.message.answer(text, reply_markup=reply_markup)
+            callback.message = sent
+            return True
     inline_message_id = str(getattr(callback, "inline_message_id", "") or "").strip()
     if inline_message_id:
-        await callback.bot.edit_message_text(
-            inline_message_id=inline_message_id,
-            text=text,
-            reply_markup=reply_markup,
-        )
-        return True
+        try:
+            await callback.bot.edit_message_text(
+                inline_message_id=inline_message_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+            return True
+        except TelegramBadRequest as exc:
+            if "message is not modified" in str(exc).lower():
+                return True
+            raise
     return False
+
+
+async def _safe_edit_message(
+    message: types.Message,
+    text: str,
+    *,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> bool:
+    try:
+        await message.edit_text(text, reply_markup=reply_markup)
+        return True
+    except TelegramBadRequest as exc:
+        lowered = str(exc).lower()
+        if "message is not modified" in lowered:
+            return True
+        if "message can't be edited" in lowered:
+            await message.answer(text, reply_markup=reply_markup)
+            return True
+        raise
 
 
 def _is_games_trigger(text: str | None) -> bool:
@@ -1178,6 +1220,7 @@ def _esim_route_keyboard(lang: str, countries: list[str], *, mode: str = "multi"
             InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu"),
         ]
     )
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="esim:back:mode")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1230,6 +1273,16 @@ def _esim_package_keyboard(lang: str, offers: list[dict[str, Any]], *, back_call
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _esim_summary_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data="esim:buy")],
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data="esim:back:usage")],
+            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")],
+        ]
+    )
+
+
 async def _esim_render_offer_summary(
     *,
     callback: types.CallbackQuery,
@@ -1248,17 +1301,103 @@ async def _esim_render_offer_summary(
         _esim_text(lang, f"Usage: {esim_usage_label(usage_key, lang=lang)}", f"حجم الاستخدام: {esim_usage_label(usage_key, lang=lang)}"),
         "",
         esim_offer_summary(offer, lang=lang),
-        "",
-        _esim_text(lang, "Direct purchase will be connected in the next step.", "الشراء المباشر سيتم ربطه في الخطوة التالية."),
     ]
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "back"), callback_data=f"esim:usage:{usage_key}")],
-            [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")],
-        ]
-    )
+    kb = _esim_summary_keyboard(lang)
     if callback.message:
-        await callback.message.edit_text("\n".join(summary_lines), reply_markup=kb)
+        await _safe_edit_message(callback.message, "\n".join(summary_lines), reply_markup=kb)
+
+
+def _esim_price_to_units(price_usd: float) -> int:
+    return int(round(float(price_usd or 0.0) * 10000))
+
+
+def _esim_service_ref(offer: dict[str, Any]) -> str:
+    refs: list[str] = []
+    for part in offer.get("parts") or []:
+        plan = dict(part.get("plan") or {})
+        ref = str(plan.get("slug") or plan.get("package_code") or plan.get("code") or part.get("country") or part.get("region_name") or "").strip()
+        if ref:
+            refs.append(ref)
+    return "esim:" + "|".join(refs)
+
+
+def _esim_package_info_list(offer: dict[str, Any], *, days: int) -> list[dict[str, Any]]:
+    package_info_list: list[dict[str, Any]] = []
+    for part in offer.get("parts") or []:
+        plan = dict(part.get("plan") or {})
+        row: dict[str, Any] = {"count": 1}
+        package_code = str(plan.get("package_code") or plan.get("code") or "").strip()
+        slug = str(plan.get("slug") or "").strip()
+        if package_code:
+            row["packageCode"] = package_code
+        elif slug:
+            row["packageCode"] = slug
+        else:
+            continue
+        row["price"] = _esim_price_to_units(float(plan.get("price_usd") or 0.0))
+        if int(plan.get("data_type_code") or 0) in {2, 3, 4}:
+            row["periodNum"] = int(days)
+        package_info_list.append(row)
+    return package_info_list
+
+
+async def _esim_query_profiles_wait(
+    client: EsimAccessClient,
+    *,
+    order_no: str,
+    attempts: int = 6,
+    delay_sec: float = 5.0,
+) -> dict[str, Any] | None:
+    last_resp: dict[str, Any] | None = None
+    for attempt in range(max(1, int(attempts))):
+        last_resp = await client.query_profiles(order_no=order_no, page_num=1, page_size=50)
+        if bool(last_resp.get("success")):
+            return last_resp
+        error_code = str(last_resp.get("errorCode") or "").strip()
+        if error_code != "200010":
+            return last_resp
+        if attempt < attempts - 1:
+            await asyncio.sleep(max(0.0, float(delay_sec)))
+    return last_resp
+
+
+def _esim_extract_profiles(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    obj = payload.get("obj")
+    if isinstance(obj, dict):
+        value = obj.get("esimList")
+        if isinstance(value, list):
+            return [row for row in value if isinstance(row, dict)]
+    return []
+
+
+def _esim_delivery_text(
+    *,
+    lang: str,
+    profiles: list[dict[str, Any]],
+    sale_price: float,
+    balance: float,
+    order_id: str,
+    order_no: str,
+) -> str:
+    lines = [
+        t(lang, "purchase_complete_plain"),
+        f"{t(lang, 'store_debited_label')}: {format_usd(float(sale_price or 0.0))}",
+        f"{t(lang, 'store_balance_label')}: {format_usd(float(balance or 0.0))}",
+        f"{t(lang, 'store_order_label')}: {order_id}",
+    ]
+    if order_no:
+        lines.append(f"{t(lang, 'store_provider_ref_label')}: {order_no}")
+    for index, profile in enumerate(profiles, start=1):
+        lines.extend(
+            [
+                "",
+                _esim_text(lang, f"eSIM #{index}", f"eSIM #{index}"),
+                f"ICCID: {str(profile.get('iccid') or '-').strip()}",
+                f"QR: {str(profile.get('qrCodeUrl') or '-').strip()}",
+                f"AC: {str(profile.get('ac') or '-').strip()}",
+            ]
+        )
+    return "\n".join(lines)
 
 
 async def _esim_store_route_message_id(state: FSMContext, message_id: int | None) -> None:
@@ -1287,7 +1426,7 @@ async def _esim_render_route_screen(
     kb = _esim_route_keyboard(lang, countries, mode=mode)
     if isinstance(target, types.CallbackQuery):
         if target.message:
-            await target.message.edit_text(text, reply_markup=kb)
+            await _safe_edit_message(target.message, text, reply_markup=kb)
     else:
         sent = await target.answer(text, reply_markup=kb)
         await _esim_store_route_message_id(state, getattr(sent, "message_id", None))
@@ -1322,6 +1461,9 @@ async def _esim_edit_route_message(
                 reply_markup=kb,
             )
             return
+        except TelegramBadRequest as exc:
+            if "message is not modified" in str(exc).lower():
+                return
         except Exception:
             pass
     sent = await message.answer(text, reply_markup=kb)
@@ -1407,6 +1549,7 @@ async def open_esim_section(message: types.Message, state: FSMContext):
         esim_candidate_plans=[],
         esim_usage_key="",
         esim_filtered_offers=[],
+        esim_recommended_offer=None,
     )
     await _hide_reply_keyboard(message, lang)
     sent = await message.answer(_esim_mode_text(lang), reply_markup=_esim_mode_keyboard(lang))
@@ -1419,7 +1562,7 @@ async def inline_esim_country_search(iq: types.InlineQuery):
     if user_id <= 0:
         return await iq.answer([], cache_time=5, is_personal=True)
     query = re.sub(rf"^\s*{_ESIM_INLINE_PREFIX}\s*", "", str(iq.query or "").strip(), flags=re.IGNORECASE)
-    countries = esim_search_countries(query, limit=20)
+    countries = await esim_search_countries_live(query, limit=20)
     results: list[types.InlineQueryResultArticle] = []
     for country in countries:
         results.append(
@@ -1459,7 +1602,7 @@ async def handle_esim_country_pick(message: types.Message, state: FSMContext):
     except Exception:
         pass
     if mode == "single" and selected:
-        plans = single_country_plans(selected[0])
+        plans = await single_country_plans_live(selected[0])
         if not plans:
             await _esim_edit_route_message(
                 message=message,
@@ -1483,12 +1626,15 @@ async def handle_esim_country_pick(message: types.Message, state: FSMContext):
                     chat_id=message.chat.id,
                     message_id=route_message_id,
                     text=text,
-                    reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:mode:single"),
+                    reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:back:route"),
                 )
                 return
+            except TelegramBadRequest as exc:
+                if "message is not modified" in str(exc).lower():
+                    return
             except Exception:
                 pass
-        sent = await message.answer(text, reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:mode:single"))
+        sent = await message.answer(text, reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:back:route"))
         await _esim_store_route_message_id(state, getattr(sent, "message_id", None))
         return
     await _esim_edit_route_message(message=message, state=state, lang=lang)
@@ -1526,11 +1672,40 @@ async def esim_choose_mode(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@router.callback_query(lambda c: c.data == "esim:back:mode")
+async def esim_back_to_mode(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await state.set_state(EsimRouteFlow.choosing_mode)
+    await state.update_data(
+        esim_selection_mode="",
+        esim_selected_mode="",
+        esim_selected_countries=[],
+        esim_selected_days=0,
+        esim_usage_key="",
+        esim_filtered_offers=[],
+        esim_recommended_offer=None,
+    )
+    if callback.message:
+        await _safe_edit_message(callback.message, _esim_mode_text(lang), reply_markup=_esim_mode_keyboard(lang))
+    await callback.answer()
+
+
 @router.callback_query(lambda c: c.data == "esim:single:add_more")
 async def esim_single_add_more(callback: types.CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
     await state.set_state(EsimRouteFlow.choosing_countries)
+    await _esim_render_route_screen(target=callback, state=state, lang=lang)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "esim:back:route")
+async def esim_back_to_route(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await state.set_state(EsimRouteFlow.choosing_countries)
+    await state.update_data(esim_selected_days=0, esim_usage_key="", esim_filtered_offers=[], esim_recommended_offer=None)
     await _esim_render_route_screen(target=callback, state=state, lang=lang)
     await callback.answer()
 
@@ -1559,11 +1734,11 @@ async def esim_finish_country_selection(callback: types.CallbackQuery, state: FS
             f"اخترت دولة واحدة فقط: {selected[0]}\n\nيمكنك إضافة دول أخرى لتغطية كامل الرحلة، أو الاستمرار بهذه الدولة فقط.",
         )
         if callback.message:
-            await callback.message.edit_text(text, reply_markup=_esim_single_country_keyboard(lang))
+            await _safe_edit_message(callback.message, text, reply_markup=_esim_single_country_keyboard(lang))
         await callback.answer()
         return
 
-    days = route_available_days(selected)
+    days = await route_available_days_live(selected)
     if not days:
         await _esim_render_route_screen(
             target=callback,
@@ -1576,9 +1751,10 @@ async def esim_finish_country_selection(callback: types.CallbackQuery, state: FS
     await state.set_state(EsimRouteFlow.choosing_days)
     await state.update_data(esim_selected_mode="route", esim_selected_days=0, esim_usage_key="", esim_filtered_offers=[])
     if callback.message:
-        await callback.message.edit_text(
+        await _safe_edit_message(
+            callback.message,
             _esim_days_prompt_text(lang, selected),
-            reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:single:add_more"),
+            reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:back:route"),
         )
     await callback.answer()
 
@@ -1590,7 +1766,7 @@ async def esim_continue_single_country(callback: types.CallbackQuery, state: FSM
     data = await state.get_data()
     selected = list(data.get("esim_selected_countries") or [])
     country = selected[0] if selected else ""
-    plans = single_country_plans(country)
+    plans = await single_country_plans_live(country)
     if not plans:
         await callback.answer(_esim_text(lang, "No eSIM plans found for this country yet.", "لا توجد باقات eSIM لهذه الدولة حاليًا."), show_alert=True)
         return
@@ -1603,7 +1779,7 @@ async def esim_continue_single_country(callback: types.CallbackQuery, state: FSM
         f"الدولة: {country}\n\nاختر المدة.",
     )
     if callback.message:
-        await callback.message.edit_text(text, reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:single:add_more"))
+        await _safe_edit_message(callback.message, text, reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:back:route"))
     await callback.answer()
 
 
@@ -1618,9 +1794,35 @@ async def esim_choose_days(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(esim_selected_days=days, esim_usage_key="", esim_filtered_offers=[])
     header = _esim_usage_prompt_text(lang, selected, days)
     if callback.message:
-        await callback.message.edit_text(
+        await _safe_edit_message(
+            callback.message,
             header,
-            reply_markup=_esim_usage_keyboard(lang, back_callback="esim:single:continue" if data.get("esim_selected_mode") == "single" else "esim:done"),
+            reply_markup=_esim_usage_keyboard(lang, back_callback="esim:back:days"),
+        )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "esim:back:days")
+async def esim_back_to_days(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    data = await state.get_data()
+    selected = list(data.get("esim_selected_countries") or [])
+    mode = str(data.get("esim_selected_mode") or "route")
+    if mode == "single":
+        country = selected[0] if selected else ""
+        days = esim_available_days(await single_country_plans_live(country))
+        text = _esim_text(lang, f"Country: {country}\n\nChoose duration.", f"الدولة: {country}\n\nاختر المدة.")
+    else:
+        days = await route_available_days_live(selected)
+        text = _esim_days_prompt_text(lang, selected)
+    await state.set_state(EsimRouteFlow.choosing_days)
+    await state.update_data(esim_usage_key="", esim_filtered_offers=[], esim_recommended_offer=None)
+    if callback.message:
+        await _safe_edit_message(
+            callback.message,
+            text,
+            reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:back:route"),
         )
     await callback.answer()
 
@@ -1636,9 +1838,9 @@ async def esim_choose_usage(callback: types.CallbackQuery, state: FSMContext):
     mode = str(data.get("esim_selected_mode") or "route")
     if mode == "single":
         country = selected[0] if selected else ""
-        offers = build_single_country_offers(country, days=days, usage_key=usage_key)
+        offers = await build_single_country_offers_live(country, days=days, usage_key=usage_key)
     else:
-        offers = build_route_offers(selected, days=days, usage_key=usage_key)
+        offers = await build_route_offers_live(selected, days=days, usage_key=usage_key)
     if not offers:
         await callback.answer(
             _esim_text(lang, "No offers matched this duration and usage.", "لا توجد عروض تطابق هذه المدة وحجم الاستخدام."),
@@ -1655,6 +1857,23 @@ async def esim_choose_usage(callback: types.CallbackQuery, state: FSMContext):
         return
     await state.update_data(esim_usage_key=usage_key, esim_filtered_offers=offers, esim_recommended_offer=recommended)
     await _esim_render_offer_summary(callback=callback, state=state, lang=lang, offer=recommended)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "esim:back:usage")
+async def esim_back_to_usage(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    data = await state.get_data()
+    selected = list(data.get("esim_selected_countries") or [])
+    days = int(data.get("esim_selected_days") or 0)
+    await state.set_state(EsimRouteFlow.choosing_usage)
+    if callback.message:
+        await _safe_edit_message(
+            callback.message,
+            _esim_usage_prompt_text(lang, selected, days),
+            reply_markup=_esim_usage_keyboard(lang, back_callback="esim:back:days"),
+        )
     await callback.answer()
 
 
@@ -1680,12 +1899,126 @@ async def esim_choose_package(callback: types.CallbackQuery, state: FSMContext):
     summary_lines.extend(["", esim_offer_summary(offer, lang=lang), "", _esim_text(lang, "Direct purchase will be connected in the next step.", "الشراء المباشر سيتم ربطه في الخطوة التالية.")])
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "back"), callback_data=f"esim:usage:{str(data.get('esim_usage_key') or 'low')}")],
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data="esim:back:usage")],
             [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")],
         ]
     )
     if callback.message:
-        await callback.message.edit_text("\n".join(summary_lines), reply_markup=kb)
+        await _safe_edit_message(callback.message, "\n".join(summary_lines), reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "esim:buy")
+async def esim_buy_recommended_offer(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
+    data = await state.get_data()
+    offer = dict(data.get("esim_recommended_offer") or {})
+    if not offer:
+        return await callback.answer(_esim_text(lang, "No offer selected.", "لا يوجد عرض محدد."), show_alert=True)
+    if not settings.esim_access_code or not settings.esim_access_secret_key:
+        return await callback.answer(_esim_text(lang, "eSIM provider is not configured yet.", "مزود eSIM غير مضبوط بعد."), show_alert=True)
+    reseller_id = await get_store_owner_scope_for_bot(callback.bot.id)
+    if not reseller_id:
+        return await callback.answer(t(lang, "store_reseller_not_linked"), show_alert=True)
+
+    markup_percent = await _resolve_digital_products_markup_percent()
+    cost_price = float(_money_decimal(offer.get("price_usd") or 0.0))
+    sale_price = float(_apply_markup_decimal(cost_price, markup_percent))
+    order, err = await _core_charge(
+        user_id=int(callback.from_user.id),
+        reseller_id=int(reseller_id),
+        service_ref_id=_esim_service_ref(offer),
+        sale_price=sale_price,
+        cost_price=cost_price,
+    )
+    if not order or err:
+        return await callback.answer(err or t(lang, "purchase_failed_plain"), show_alert=True)
+
+    client = EsimAccessClient()
+    package_info_list = _esim_package_info_list(offer, days=int(data.get("esim_selected_days") or 0))
+    if not package_info_list:
+        await _core_refund(
+            user_id=int(callback.from_user.id),
+            reseller_id=int(reseller_id),
+            order=order,
+            sale_price=sale_price,
+            cost_price=cost_price,
+        )
+        return await callback.answer(_esim_text(lang, "Invalid eSIM package data.", "بيانات باقة eSIM غير صالحة."), show_alert=True)
+
+    provider_resp = await client.order_profiles(
+        transaction_id=f"esim-{uuid4().hex}",
+        amount=_esim_price_to_units(cost_price),
+        package_info_list=package_info_list,
+    )
+    if not bool(provider_resp.get("success")):
+        await _core_refund(
+            user_id=int(callback.from_user.id),
+            reseller_id=int(reseller_id),
+            order=order,
+            sale_price=sale_price,
+            cost_price=cost_price,
+        )
+        await update_order_details(order["_id"], {"provider_response": provider_resp, "provider_error": str(provider_resp.get('errorMessage') or 'esim_order_failed')})
+        return await callback.answer(
+            _esim_text(lang, "eSIM purchase failed. The amount was refunded.", "فشل شراء eSIM وتمت إعادة المبلغ."),
+            show_alert=True,
+        )
+
+    order_no = str(((provider_resp.get("obj") or {}) if isinstance(provider_resp.get("obj"), dict) else {}).get("orderNo") or "").strip()
+    await update_order_details(
+        order["_id"],
+        {
+            "provider_code": "esim_access",
+            "provider_order_id": order_no,
+            "provider_response": provider_resp,
+            "number_mode": "digital_products",
+            "delivery_type": "esim",
+        },
+    )
+
+    query_resp = await _esim_query_profiles_wait(client, order_no=order_no) if order_no else None
+    profiles = _esim_extract_profiles(query_resp or {})
+    if not profiles:
+        await update_order_details(order["_id"], {"provider_status_response": query_resp, "provider_manual_review_required": True})
+        await update_order_status(order["_id"], "paid")
+        if callback.message:
+            await _safe_edit_message(
+                callback.message,
+                _esim_text(
+                    lang,
+                    "Your eSIM order was created and is being prepared. We will deliver it shortly.",
+                    "تم إنشاء طلب eSIM وهو قيد التجهيز. سيتم تسليمه بعد قليل.",
+                ),
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")]]
+                ),
+            )
+        await callback.answer()
+        return
+
+    await update_order_details(order["_id"], {"provider_status_response": query_resp, "delivery_profiles": profiles})
+    await update_order_status(order["_id"], "success")
+    balance = await get_user_wallet_balance(callback.from_user.id, int(reseller_id))
+    delivery_text = _esim_delivery_text(
+        lang=lang,
+        profiles=profiles,
+        sale_price=sale_price,
+        balance=float(balance or 0.0),
+        order_id=str(order.get("_id")),
+        order_no=order_no,
+    )
+    if callback.message:
+        await _safe_edit_message(
+            callback.message,
+            delivery_text,
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")]]
+            ),
+        )
     await callback.answer()
 
 

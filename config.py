@@ -117,8 +117,14 @@ class Settings(BaseSettings):
     fourg_proxy_password: Optional[str] = None
     fourg_proxy_default_price: float = 0.0
     fourg_proxy_package_prices: Optional[str] = None
+    cyberyozh_proxy_base_url: str = "https://app.cyberyozh.com/api/v1"
+    cyberyozh_proxy_key: Optional[str] = None
     g2bulk_base_url: str = "https://api.g2bulk.com"
     g2bulk_api_key: Optional[str] = None
+    esim_access_api_base: str = "https://api.esimaccess.com/api/v1/open"
+    esim_access_code: Optional[str] = None
+    esim_access_secret_key: Optional[str] = None
+    esim_access_catalog_cache_ttl_sec: int = 600
     reloadly_client_id: Optional[str] = None
     reloadly_client_secret: Optional[str] = None
     g2bulk_catalog_cache_ttl_sec: int = 120
