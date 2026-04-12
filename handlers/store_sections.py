@@ -175,6 +175,7 @@ class GameStoreFlow(StatesGroup):
 
 
 class EsimRouteFlow(StatesGroup):
+    choosing_mode = State()
     choosing_countries = State()
     single_country_prompt = State()
     choosing_days = State()
@@ -1136,13 +1137,24 @@ def _esim_countries_text(lang: str, countries: list[str]) -> str:
     return _esim_text(lang, "No countries selected yet.", "لم يتم اختيار أي دولة بعد.")
 
 
-def _esim_route_keyboard(lang: str, countries: list[str]) -> InlineKeyboardMarkup:
+def _esim_mode_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=_esim_text(lang, "One Country", "اختيار دولة واحدة"), callback_data="esim:mode:single")],
+            [InlineKeyboardButton(text=_esim_text(lang, "Multiple Countries", "اختيار دول متعددة"), callback_data="esim:mode:multi")],
+            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")],
+        ]
+    )
+
+
+def _esim_route_keyboard(lang: str, countries: list[str], *, mode: str = "multi") -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    if len(countries) < 5:
+    max_count = 5 if mode == "multi" else 1
+    if len(countries) < max_count:
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=_esim_text(lang, "🌍 Choose Country", "🌍 اختر دولة"),
+                    text=_esim_text(lang, "🌍 Choose Another Country", "🌍 اختر دولة أخرى") if countries else _esim_text(lang, "🌍 Choose Country", "🌍 اختر دولة"),
                     switch_inline_query_current_chat=f"{_ESIM_INLINE_PREFIX} ",
                 )
             ]
@@ -1263,6 +1275,7 @@ async def _esim_render_route_screen(
 ) -> None:
     data = await state.get_data()
     countries = list(data.get("esim_selected_countries") or [])
+    mode = str(data.get("esim_selection_mode") or "multi")
     text = _esim_text(
         lang,
         "eSIM Route\n\nChoose the countries you will pass through.",
@@ -1271,7 +1284,7 @@ async def _esim_render_route_screen(
     text += f"\n\n{_esim_countries_text(lang, countries)}"
     if note:
         text += f"\n\n{note}"
-    kb = _esim_route_keyboard(lang, countries)
+    kb = _esim_route_keyboard(lang, countries, mode=mode)
     if isinstance(target, types.CallbackQuery):
         if target.message:
             await target.message.edit_text(text, reply_markup=kb)
@@ -1290,6 +1303,7 @@ async def _esim_edit_route_message(
     data = await state.get_data()
     route_message_id = int(data.get("esim_route_message_id") or 0)
     countries = list(data.get("esim_selected_countries") or [])
+    mode = str(data.get("esim_selection_mode") or "multi")
     text = _esim_text(
         lang,
         "eSIM Route\n\nChoose the countries you will pass through.",
@@ -1298,7 +1312,7 @@ async def _esim_edit_route_message(
     text += f"\n\n{_esim_countries_text(lang, countries)}"
     if note:
         text += f"\n\n{note}"
-    kb = _esim_route_keyboard(lang, countries)
+    kb = _esim_route_keyboard(lang, countries, mode=mode)
     if route_message_id > 0:
         try:
             await message.bot.edit_message_text(
@@ -1329,6 +1343,14 @@ def _esim_usage_prompt_text(lang: str, countries: list[str], days: int) -> str:
         lang,
         f"Selected countries: {chosen}\nDuration: {days} days\n\nChoose the expected data usage.",
         f"الدول المختارة: {chosen}\nالمدة: {days} يوم\n\nاختر حجم الاستخدام المتوقع.",
+    )
+
+
+def _esim_mode_text(lang: str) -> str:
+    return _esim_text(
+        lang,
+        "eSIM\n\nChoose how you want to search:\n- One country\n- Multiple countries",
+        "eSIM\n\nاختر طريقة البحث:\n- اختيار دولة واحدة\n- اختيار دول متعددة",
     )
 
 
@@ -1376,10 +1398,19 @@ async def open_esim_section(message: types.Message, state: FSMContext):
     if not await guard_core_service_message(message, lang):
         return
     await state.clear()
-    await state.set_state(EsimRouteFlow.choosing_countries)
-    await state.update_data(esim_selected_countries=[], esim_selected_mode="", esim_selected_days=0, esim_candidate_plans=[])
+    await state.set_state(EsimRouteFlow.choosing_mode)
+    await state.update_data(
+        esim_selected_countries=[],
+        esim_selected_mode="",
+        esim_selection_mode="",
+        esim_selected_days=0,
+        esim_candidate_plans=[],
+        esim_usage_key="",
+        esim_filtered_offers=[],
+    )
     await _hide_reply_keyboard(message, lang)
-    await _esim_render_route_screen(target=message, state=state, lang=lang)
+    sent = await message.answer(_esim_mode_text(lang), reply_markup=_esim_mode_keyboard(lang))
+    await _esim_store_route_message_id(state, getattr(sent, "message_id", None))
 
 
 @router.inline_query(lambda iq: (iq.query or "").strip().lower().startswith(_ESIM_INLINE_PREFIX))
@@ -1411,6 +1442,7 @@ async def handle_esim_country_pick(message: types.Message, state: FSMContext):
     lang = (user or {}).get("language", "en")
     data = await state.get_data()
     selected = list(data.get("esim_selected_countries") or [])
+    mode = str(data.get("esim_selection_mode") or "multi")
     if country == "Syria":
         try:
             await message.delete()
@@ -1418,13 +1450,47 @@ async def handle_esim_country_pick(message: types.Message, state: FSMContext):
             pass
         await _esim_edit_route_message(message=message, state=state, lang=lang)
         return
-    if country not in selected and len(selected) < 5:
+    max_count = 1 if mode == "single" else 5
+    if country not in selected and len(selected) < max_count:
         selected.append(country)
         await state.update_data(esim_selected_countries=selected)
     try:
         await message.delete()
     except Exception:
         pass
+    if mode == "single" and selected:
+        plans = single_country_plans(selected[0])
+        if not plans:
+            await _esim_edit_route_message(
+                message=message,
+                state=state,
+                lang=lang,
+                note=_esim_text(lang, "No eSIM plans found for this country yet.", "لا توجد باقات eSIM لهذه الدولة حاليًا."),
+            )
+            return
+        days = esim_available_days(plans)
+        await state.set_state(EsimRouteFlow.choosing_days)
+        await state.update_data(esim_selected_mode="single", esim_selected_days=0, esim_usage_key="", esim_filtered_offers=[])
+        route_message_id = int((await state.get_data()).get("esim_route_message_id") or 0)
+        text = _esim_text(
+            lang,
+            f"Country: {selected[0]}\n\nChoose duration.",
+            f"الدولة: {selected[0]}\n\nاختر المدة.",
+        )
+        if route_message_id > 0:
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=route_message_id,
+                    text=text,
+                    reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:mode:single"),
+                )
+                return
+            except Exception:
+                pass
+        sent = await message.answer(text, reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:mode:single"))
+        await _esim_store_route_message_id(state, getattr(sent, "message_id", None))
+        return
     await _esim_edit_route_message(message=message, state=state, lang=lang)
 
 
@@ -1443,6 +1509,20 @@ async def remove_esim_country(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data == "esim:noop")
 async def esim_noop(callback: types.CallbackQuery):
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("esim:mode:"))
+async def esim_choose_mode(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    mode = str(callback.data or "").split(":")[-1].strip().lower()
+    if mode not in {"single", "multi"}:
+        await callback.answer()
+        return
+    await state.set_state(EsimRouteFlow.choosing_countries)
+    await state.update_data(esim_selection_mode=mode, esim_selected_countries=[])
+    await _esim_render_route_screen(target=callback, state=state, lang=lang)
     await callback.answer()
 
 
