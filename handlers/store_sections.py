@@ -30,6 +30,7 @@ from services.digital_products.esim_route_service import (
     available_days as esim_available_days,
     build_single_country_offers,
     build_route_offers,
+    choose_recommended_offer,
     country_slug,
     offer_button_label as esim_offer_button_label,
     offer_summary as esim_offer_summary,
@@ -1217,6 +1218,37 @@ def _esim_package_keyboard(lang: str, offers: list[dict[str, Any]], *, back_call
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+async def _esim_render_offer_summary(
+    *,
+    callback: types.CallbackQuery,
+    state: FSMContext,
+    lang: str,
+    offer: dict[str, Any],
+) -> None:
+    data = await state.get_data()
+    selected = list(data.get("esim_selected_countries") or [])
+    usage_key = str(data.get("esim_usage_key") or "low")
+    summary_lines = [
+        _esim_text(lang, "Recommended eSIM", "أفضل باقة مقترحة"),
+        "",
+        _esim_countries_text(lang, selected),
+        _esim_text(lang, f"Duration: {int(data.get('esim_selected_days') or 0)} days", f"المدة: {int(data.get('esim_selected_days') or 0)} يوم"),
+        _esim_text(lang, f"Usage: {esim_usage_label(usage_key, lang=lang)}", f"حجم الاستخدام: {esim_usage_label(usage_key, lang=lang)}"),
+        "",
+        esim_offer_summary(offer, lang=lang),
+        "",
+        _esim_text(lang, "Direct purchase will be connected in the next step.", "الشراء المباشر سيتم ربطه في الخطوة التالية."),
+    ]
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data=f"esim:usage:{usage_key}")],
+            [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")],
+        ]
+    )
+    if callback.message:
+        await callback.message.edit_text("\n".join(summary_lines), reply_markup=kb)
+
+
 async def _esim_store_route_message_id(state: FSMContext, message_id: int | None) -> None:
     if isinstance(message_id, int) and message_id > 0:
         await state.update_data(esim_route_message_id=message_id)
@@ -1534,17 +1566,15 @@ async def esim_choose_usage(callback: types.CallbackQuery, state: FSMContext):
         )
         return
     await state.set_state(EsimRouteFlow.choosing_package)
-    await state.update_data(esim_usage_key=usage_key, esim_filtered_offers=offers)
-    title = _esim_text(
-        lang,
-        f"Matching offers\n\nUsage: {esim_usage_label(usage_key, lang=lang)}",
-        f"العروض المناسبة\n\nحجم الاستخدام: {esim_usage_label(usage_key, lang=lang)}",
-    )
-    if callback.message:
-        await callback.message.edit_text(
-            title,
-            reply_markup=_esim_package_keyboard(lang, offers, back_callback=f"esim:days:{days}"),
+    recommended = choose_recommended_offer(offers, absolute_threshold_usd=1.0)
+    if not recommended:
+        await callback.answer(
+            _esim_text(lang, "No recommended offer was found.", "لم نجد عرضًا مناسبًا."),
+            show_alert=True,
         )
+        return
+    await state.update_data(esim_usage_key=usage_key, esim_filtered_offers=offers, esim_recommended_offer=recommended)
+    await _esim_render_offer_summary(callback=callback, state=state, lang=lang, offer=recommended)
     await callback.answer()
 
 

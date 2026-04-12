@@ -581,6 +581,55 @@ def build_single_country_offers(country: str, *, days: int, usage_key: str) -> l
     return offers
 
 
+def _offer_complexity_rank(offer: dict[str, Any]) -> int:
+    offer_type = str(offer.get("offer_type") or "").strip().lower()
+    if offer_type == "single_region":
+        return 0
+    if offer_type == "single_country":
+        return 1
+    if offer_type == "region_plus_single":
+        return 2
+    if offer_type == "all_singles":
+        return 3
+    return 9
+
+
+def choose_recommended_offer(
+    offers: list[dict[str, Any]],
+    *,
+    absolute_threshold_usd: float = 1.0,
+) -> dict[str, Any] | None:
+    if not offers:
+        return None
+    ranked = sorted(
+        offers,
+        key=lambda item: (
+            0 if item.get("coverage_full") else 1,
+            float(item.get("price_usd") or 0.0),
+            _offer_complexity_rank(item),
+        ),
+    )
+    best = ranked[0]
+    best_price = float(best.get("price_usd") or 0.0)
+    best_complexity = _offer_complexity_rank(best)
+    if best_price <= 0:
+        return best
+
+    for candidate in ranked[1:]:
+        if bool(candidate.get("coverage_full")) != bool(best.get("coverage_full")):
+            continue
+        candidate_complexity = _offer_complexity_rank(candidate)
+        if candidate_complexity >= best_complexity:
+            continue
+        candidate_price = float(candidate.get("price_usd") or 0.0)
+        delta = candidate_price - best_price
+        if delta < 0:
+            continue
+        if delta <= absolute_threshold_usd:
+            return candidate
+    return best
+
+
 def package_button_label(row: dict[str, Any], *, lang: str) -> str:
     allowance = _allowance_label(row, lang=lang)
     price = float(row.get("price_usd") or 0.0)

@@ -7,6 +7,7 @@ from services.digital_products.esim_route_service import (
     available_days,
     build_route_offers,
     build_single_country_offers,
+    choose_recommended_offer,
     choose_best_multi_area,
     plans_for_days,
     route_available_days,
@@ -67,3 +68,13 @@ def test_build_single_country_offers_for_one_country():
     offers = build_single_country_offers("Turkey", days=7, usage_key="low")
     assert offers
     assert offers[0]["offer_type"] == "single_country"
+
+
+def test_choose_recommended_offer_prefers_simpler_region_when_difference_is_one_or_less():
+    offers = [
+        {"offer_type": "all_singles", "coverage_full": True, "price_usd": 17.43},
+        {"offer_type": "single_region", "coverage_full": True, "price_usd": 18.00},
+    ]
+    chosen = choose_recommended_offer(offers, absolute_threshold_usd=1.0)
+    assert chosen is not None
+    assert chosen["offer_type"] == "single_region"
