@@ -28,13 +28,17 @@ from services.digital_products.g2bulk_client import G2BulkClient
 from services.digital_products.catalog_service import get_catalog_snapshot, get_game_topups
 from services.digital_products.esim_route_service import (
     available_days as esim_available_days,
-    choose_best_multi_area,
+    build_single_country_offers,
+    build_route_offers,
     country_slug,
-    package_button_label as esim_package_button_label,
-    package_summary as esim_package_summary,
+    offer_button_label as esim_offer_button_label,
+    offer_summary as esim_offer_summary,
     plans_for_days as esim_plans_for_days,
+    plans_for_usage as esim_plans_for_usage,
+    route_available_days,
     search_countries as esim_search_countries,
     single_country_plans,
+    usage_label as esim_usage_label,
 )
 from utils.core_service_guard import finance_error_public_text, guard_core_service_callback, guard_core_service_message
 from utils.financial_manager import FinancialManager
@@ -173,6 +177,7 @@ class EsimRouteFlow(StatesGroup):
     choosing_countries = State()
     single_country_prompt = State()
     choosing_days = State()
+    choosing_usage = State()
     choosing_package = State()
 
 
@@ -1192,10 +1197,21 @@ def _esim_days_keyboard(lang: str, days: list[int], *, back_callback: str) -> In
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _esim_package_keyboard(lang: str, plans: list[dict[str, Any]], *, back_callback: str) -> InlineKeyboardMarkup:
+def _esim_usage_keyboard(lang: str, *, back_callback: str) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=_esim_text(lang, "Less than 5 GB", "أقل من 5 GB"), callback_data="esim:usage:low")],
+        [InlineKeyboardButton(text=_esim_text(lang, "5 to 10 GB", "من 5 إلى 10 GB"), callback_data="esim:usage:mid")],
+        [InlineKeyboardButton(text=_esim_text(lang, "More than 10 GB", "أكثر من 10 GB"), callback_data="esim:usage:high")],
+        [InlineKeyboardButton(text=t(lang, "back"), callback_data=back_callback)],
+        [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _esim_package_keyboard(lang: str, offers: list[dict[str, Any]], *, back_callback: str) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    for index, row in enumerate(plans):
-        rows.append([InlineKeyboardButton(text=esim_package_button_label(row, lang=lang), callback_data=f"esim:pkg:{index}")])
+    for index, row in enumerate(offers):
+        rows.append([InlineKeyboardButton(text=esim_offer_button_label(row, lang=lang), callback_data=f"esim:pkg:{index}")])
     rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data=back_callback)])
     rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -1266,20 +1282,21 @@ async def _esim_edit_route_message(
     await _esim_store_route_message_id(state, getattr(sent, "message_id", None))
 
 
-def _esim_match_summary_text(lang: str, countries: list[str], match: dict[str, Any]) -> str:
+def _esim_days_prompt_text(lang: str, countries: list[str]) -> str:
     chosen = "، ".join(countries) if str(lang).lower().startswith("ar") else ", ".join(countries)
-    covered = "، ".join(match.get("covered") or []) if str(lang).lower().startswith("ar") else ", ".join(match.get("covered") or [])
-    missing = "، ".join(match.get("missing") or []) if str(lang).lower().startswith("ar") else ", ".join(match.get("missing") or [])
-    if match.get("coverage_full"):
-        return _esim_text(
-            lang,
-            f"Best plan for your route\n\nChosen countries: {chosen}\nSuggested coverage: {match.get('region_name')}\n\nChoose duration.",
-            f"أفضل باقة لرحلتك\n\nالدول المختارة: {chosen}\nالتغطية المقترحة: {match.get('region_name')}\n\nاختر المدة.",
-        )
     return _esim_text(
         lang,
-        f"No plan fully covers the route.\n\nChosen countries: {chosen}\nBest available coverage: {match.get('region_name')}\nCovers: {covered or '-'}\nDoes not cover: {missing or '-'}\n\nChoose duration to continue.",
-        f"لا توجد باقة تغطي الرحلة كاملة.\n\nالدول المختارة: {chosen}\nأفضل تغطية متاحة: {match.get('region_name')}\nيغطي: {covered or '-'}\nلا يغطي: {missing or '-'}\n\nاختر المدة للمتابعة.",
+        f"Selected countries: {chosen}\n\nChoose the trip duration.",
+        f"الدول المختارة: {chosen}\n\nاختر مدة الرحلة.",
+    )
+
+
+def _esim_usage_prompt_text(lang: str, countries: list[str], days: int) -> str:
+    chosen = "، ".join(countries) if str(lang).lower().startswith("ar") else ", ".join(countries)
+    return _esim_text(
+        lang,
+        f"Selected countries: {chosen}\nDuration: {days} days\n\nChoose the expected data usage.",
+        f"الدول المختارة: {chosen}\nالمدة: {days} يوم\n\nاختر حجم الاستخدام المتوقع.",
     )
 
 
@@ -1434,22 +1451,21 @@ async def esim_finish_country_selection(callback: types.CallbackQuery, state: FS
         await callback.answer()
         return
 
-    match = choose_best_multi_area(selected)
-    if not match:
+    days = route_available_days(selected)
+    if not days:
         await _esim_render_route_screen(
             target=callback,
             state=state,
             lang=lang,
-            note=_esim_text(lang, "No suitable route package was found yet.", "لم نجد باقة مناسبة لهذه الرحلة حتى الآن."),
+            note=_esim_text(lang, "No route plans were found for the selected countries yet.", "لم نجد باقات رحلة لهذه الدول حتى الآن."),
         )
         await callback.answer()
         return
-    days = esim_available_days(match["plans"])
     await state.set_state(EsimRouteFlow.choosing_days)
-    await state.update_data(esim_selected_mode="route", esim_route_match=match, esim_candidate_plans=match["plans"])
+    await state.update_data(esim_selected_mode="route", esim_selected_days=0, esim_usage_key="", esim_filtered_offers=[])
     if callback.message:
         await callback.message.edit_text(
-            _esim_match_summary_text(lang, selected, match),
+            _esim_days_prompt_text(lang, selected),
             reply_markup=_esim_days_keyboard(lang, days, back_callback="esim:single:add_more"),
         )
     await callback.answer()
@@ -1468,7 +1484,7 @@ async def esim_continue_single_country(callback: types.CallbackQuery, state: FSM
         return
     days = esim_available_days(plans)
     await state.set_state(EsimRouteFlow.choosing_days)
-    await state.update_data(esim_selected_mode="single", esim_candidate_plans=plans)
+    await state.update_data(esim_selected_mode="single", esim_selected_days=0, esim_usage_key="", esim_filtered_offers=[])
     text = _esim_text(
         lang,
         f"Country: {country}\n\nChoose duration.",
@@ -1485,17 +1501,49 @@ async def esim_choose_days(callback: types.CallbackQuery, state: FSMContext):
     lang = (user or {}).get("language", "en")
     days = int(str(callback.data or "").split(":")[-1].strip() or 0)
     data = await state.get_data()
-    plans = esim_plans_for_days(list(data.get("esim_candidate_plans") or []), days)
-    if not plans:
-        await callback.answer(_esim_text(lang, "No packages found for this duration.", "لا توجد باقات لهذه المدة."), show_alert=True)
-        return
-    await state.set_state(EsimRouteFlow.choosing_package)
-    await state.update_data(esim_selected_days=days, esim_filtered_day_plans=plans)
-    header = _esim_text(lang, f"Available packages for {days} days", f"الحزم المتاحة لمدة {days} يوم")
+    selected = list(data.get("esim_selected_countries") or [])
+    await state.set_state(EsimRouteFlow.choosing_usage)
+    await state.update_data(esim_selected_days=days, esim_usage_key="", esim_filtered_offers=[])
+    header = _esim_usage_prompt_text(lang, selected, days)
     if callback.message:
         await callback.message.edit_text(
             header,
-            reply_markup=_esim_package_keyboard(lang, plans, back_callback="esim:single:continue" if data.get("esim_selected_mode") == "single" else "esim:done"),
+            reply_markup=_esim_usage_keyboard(lang, back_callback="esim:single:continue" if data.get("esim_selected_mode") == "single" else "esim:done"),
+        )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("esim:usage:"))
+async def esim_choose_usage(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    usage_key = str(callback.data or "").split(":")[-1].strip().lower()
+    data = await state.get_data()
+    selected = list(data.get("esim_selected_countries") or [])
+    days = int(data.get("esim_selected_days") or 0)
+    mode = str(data.get("esim_selected_mode") or "route")
+    if mode == "single":
+        country = selected[0] if selected else ""
+        offers = build_single_country_offers(country, days=days, usage_key=usage_key)
+    else:
+        offers = build_route_offers(selected, days=days, usage_key=usage_key)
+    if not offers:
+        await callback.answer(
+            _esim_text(lang, "No offers matched this duration and usage.", "لا توجد عروض تطابق هذه المدة وحجم الاستخدام."),
+            show_alert=True,
+        )
+        return
+    await state.set_state(EsimRouteFlow.choosing_package)
+    await state.update_data(esim_usage_key=usage_key, esim_filtered_offers=offers)
+    title = _esim_text(
+        lang,
+        f"Matching offers\n\nUsage: {esim_usage_label(usage_key, lang=lang)}",
+        f"العروض المناسبة\n\nحجم الاستخدام: {esim_usage_label(usage_key, lang=lang)}",
+    )
+    if callback.message:
+        await callback.message.edit_text(
+            title,
+            reply_markup=_esim_package_keyboard(lang, offers, back_callback=f"esim:days:{days}"),
         )
     await callback.answer()
 
@@ -1506,30 +1554,23 @@ async def esim_choose_package(callback: types.CallbackQuery, state: FSMContext):
     lang = (user or {}).get("language", "en")
     index = int(str(callback.data or "").split(":")[-1].strip() or 0)
     data = await state.get_data()
-    plans = list(data.get("esim_filtered_day_plans") or [])
-    if index < 0 or index >= len(plans):
+    offers = list(data.get("esim_filtered_offers") or [])
+    if index < 0 or index >= len(offers):
         await callback.answer(_esim_text(lang, "Package not found.", "الباقة غير موجودة."), show_alert=True)
         return
-    row = plans[index]
+    offer = offers[index]
     selected = list(data.get("esim_selected_countries") or [])
-    mode = str(data.get("esim_selected_mode") or "route")
     summary_lines = [
         _esim_text(lang, "eSIM Summary", "ملخص باقة eSIM"),
         "",
         _esim_countries_text(lang, selected),
+        _esim_text(lang, f"Duration: {int(data.get('esim_selected_days') or 0)} days", f"المدة: {int(data.get('esim_selected_days') or 0)} يوم"),
+        _esim_text(lang, f"Usage: {esim_usage_label(str(data.get('esim_usage_key') or 'low'), lang=lang)}", f"حجم الاستخدام: {esim_usage_label(str(data.get('esim_usage_key') or 'low'), lang=lang)}"),
     ]
-    if mode == "route":
-        match = dict(data.get("esim_route_match") or {})
-        if match:
-            summary_lines.append(_esim_text(lang, f"Suggested coverage: {match.get('region_name')}", f"التغطية المقترحة: {match.get('region_name')}"))
-            missing = list(match.get("missing") or [])
-            if missing:
-                joined = ", ".join(missing) if not lang.startswith("ar") else "، ".join(missing)
-                summary_lines.append(_esim_text(lang, f"Not covered: {joined}", f"غير مغطى: {joined}"))
-    summary_lines.extend(["", esim_package_summary(row, lang=lang), "", _esim_text(lang, "Direct purchase will be connected in the next step.", "الشراء المباشر سيتم ربطه في الخطوة التالية.")])
+    summary_lines.extend(["", esim_offer_summary(offer, lang=lang), "", _esim_text(lang, "Direct purchase will be connected in the next step.", "الشراء المباشر سيتم ربطه في الخطوة التالية.")])
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "back"), callback_data=f"esim:days:{int(data.get('esim_selected_days') or 0)}")],
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data=f"esim:usage:{str(data.get('esim_usage_key') or 'low')}")],
             [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")],
         ]
     )
