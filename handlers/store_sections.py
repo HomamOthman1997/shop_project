@@ -1145,9 +1145,13 @@ def _esim_route_keyboard(lang: str, countries: list[str]) -> InlineKeyboardMarku
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=_esim_text(lang, f"Remove {country}", f"إلغاء اختيار {country}"),
+                    text=country,
+                    callback_data="esim:noop",
+                ),
+                InlineKeyboardButton(
+                    text=_esim_text(lang, "✖️ Remove", "✖️ إزالة"),
                     callback_data=f"esim:remove:{country_slug(country)}",
-                )
+                ),
             ]
         )
     rows.append(
@@ -1385,6 +1389,11 @@ async def remove_esim_country(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(esim_selected_countries=selected)
     await state.set_state(EsimRouteFlow.choosing_countries)
     await _esim_render_route_screen(target=callback, state=state, lang=lang)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "esim:noop")
+async def esim_noop(callback: types.CallbackQuery):
     await callback.answer()
 
 
