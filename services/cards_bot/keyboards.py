@@ -2,21 +2,19 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
-from utils.translations import t
-
 
 def cards_main_menu(lang: str | None = None, *, is_admin: bool = False) -> ReplyKeyboardMarkup:
     is_ar = str(lang or "").lower().startswith("ar")
     sell = "بيع كرت" if is_ar else "Sell Card"
-    buy_voucher = t(lang or "en", "btn_giftcards")
     wallet = "المحفظة" if is_ar else "Wallet"
     my_cards = "بطاقاتي" if is_ar else "My Cards"
     withdraw = "طلب سحب" if is_ar else "Withdraw"
     my_withdrawals = "سحوباتي" if is_ar else "My Withdrawals"
     support = "الدعم" if is_ar else "Support"
     admin_panel = "لوحة الإدارة" if is_ar else "Admin Panel"
+
     keyboard = [
-        [KeyboardButton(text=sell), KeyboardButton(text=buy_voucher)],
+        [KeyboardButton(text=sell)],
         [KeyboardButton(text=wallet), KeyboardButton(text=my_cards)],
         [KeyboardButton(text=withdraw), KeyboardButton(text=my_withdrawals)],
         [KeyboardButton(text=support)],
