@@ -508,7 +508,8 @@ def _proxy_offer_text(lang: str, offer: dict, protocol: str | None, *, include_d
         if include_prices:
             base_price = float(offer.get('base_price') or 0.0)
             sale_price = float(offer.get('price') or 0.0)
-            lines.append(f"السعر الأساسي: {base_price:.2f}$")
+            if base_price > 0 and abs(base_price - sale_price) > 0.0001:
+                lines.append(f"السعر الأساسي: {base_price:.2f}$")
             lines.append(f"السعر: {sale_price:.2f}$")
     else:
         lines = [
@@ -525,7 +526,8 @@ def _proxy_offer_text(lang: str, offer: dict, protocol: str | None, *, include_d
         if include_prices:
             base_price = float(offer.get('base_price') or 0.0)
             sale_price = float(offer.get('price') or 0.0)
-            lines.append(f"Base price: {base_price:.2f}$")
+            if base_price > 0 and abs(base_price - sale_price) > 0.0001:
+                lines.append(f"Base price: {base_price:.2f}$")
             lines.append(f"Price: {sale_price:.2f}$")
     return "\n".join(lines).strip()
 
@@ -594,7 +596,7 @@ def _normalize_proxy_category(value: str | None) -> str:
 
 def _enabled_proxy_categories() -> list[str]:
     categories: list[str] = []
-    if "4g" in PROXY_PROVIDERS:
+    if "4g" in PROXY_PROVIDERS or "cyberyozh" in PROXY_PROVIDERS:
         categories.append("unlimited")
     if "9proxy" in PROXY_PROVIDERS:
         categories.append("consumptive")
@@ -605,8 +607,13 @@ def _category_provider_match(offer: dict, category: str) -> bool:
     provider = str(offer.get("provider") or "").strip().lower()
     billing_type = str(offer.get("billing_type") or "").strip().lower()
     title = str(offer.get("title") or "").strip().lower()
+    raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
     if category == "unlimited":
-        return provider == "4g" and "golden package" in title
+        if provider == "4g":
+            return "golden package" in title
+        if provider == "cyberyozh":
+            return str(raw.get("proxy_category") or "").strip().lower() == "residential_static"
+        return False
     if category == "consumptive":
         if provider != "9proxy":
             return False
@@ -807,18 +814,21 @@ def _provider_error_text(lang: str, payload: dict | None) -> str:
             "YOUR BALANCE IS INSUFFICIENT",
             "INSUFFICIENT BALANCE",
             "INSUFFICIENT_FUNDS",
+            "PROVIDER_BALANCE_LOW",
+            "BALANCE_LOW",
             "BALANCE IS INSUFFICIENT",
             "BALANCE TOO LOW",
             "LOW BALANCE",
             "OUT OF STOCK",
             "TEMPORARILY UNAVAILABLE",
+            "API:",
             "TRY AGAIN LATER",
         )
     ):
         return temporary_public_error
     if code in {"REQUEST_ERROR", "TIMEOUT", "NETWORK_ERROR", "REFRESH_FAILED", "RECONFIGURE_FAILED"}:
         return "Provider request failed" if lang == "en" else "فشل الاتصال بمزود البروكسي"
-    if details:
+    if details and "PROVIDER_BALANCE_LOW" not in details_upper:
         return details[:120]
     return provider_generic_error(lang)
 

@@ -147,7 +147,7 @@ async def _start_create_bot_flow(message: types.Message, state: FSMContext, *, l
     )
 
     await state.update_data(**{INTRO_MSG_ID_KEY: None, FLOW_REF_KEY: _new_flow_ref(), "lang": lang})
-    await _hide_verify_reply_keyboard(message.bot, message.chat.id)
+    await _hide_verify_reply_keyboard(message.bot, message.chat.id, state)
     await _set_or_edit_prompt(
         bot=message.bot,
         chat_id=message.chat.id,

@@ -395,6 +395,13 @@ async def _set_or_edit_prompt(
             )
             await state.update_data(**{PROMPT_MSG_ID_KEY: msg_id})
             return
+        except TelegramBadRequest as exc:
+            msg = str(exc).lower()
+            if "message is not modified" in msg:
+                await state.update_data(**{PROMPT_MSG_ID_KEY: msg_id})
+                return
+            if "message can't be edited" not in msg:
+                pass
         except Exception:
             pass
 
