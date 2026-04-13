@@ -1073,6 +1073,10 @@ async def receive_channel(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = user.get("language", "en") if user else "en"
     raw = (message.text or "").strip()
+    token = _extract_token_input(raw)
+    if is_valid_token(token):
+        await state.set_state(VerifyReseller.waiting_for_token)
+        return await save_token(message, state)
     await _safe_delete_user_message(message, context="verify_waiting_channel_text")
     channel_norm = _normalize_channel_input(raw)
     if not channel_norm:
