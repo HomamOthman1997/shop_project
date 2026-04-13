@@ -50,6 +50,7 @@ PHONE_PROMPT_MSG_ID_KEY = "verify_phone_prompt_msg_id"
 ADDRESS_PROMPT_MSG_ID_KEY = "verify_address_prompt_msg_id"
 CHANNEL_PROMPT_MSG_ID_KEY = "verify_channel_prompt_msg_id"
 FLOW_REF_KEY = "verify_flow_ref"
+REPLY_KB_ANCHOR_MSG_ID_KEY = "verify_reply_kb_anchor_msg_id"
 
 
 async def _notify_requester_via_source_bot(_req: dict, *, approved: bool) -> None:
@@ -154,11 +155,17 @@ def _verify_nav_kb(lang: str, include_back: bool) -> types.InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def _verify_confirm_kb(lang: str) -> types.InlineKeyboardMarkup:
+def _verify_confirm_kb(
+    lang: str,
+    *,
+    setup_required: bool = False,
+) -> types.InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text=t(lang, "confirm_create_bot"), callback_data="verify:confirm_create")
-    kb.button(text=t(lang, "verify_create_group_add_bot"), callback_data="verify:open_group_create")
-    kb.button(text=t(lang, "verify_setup_help"), callback_data="verify:setup_help")
+    if setup_required:
+        kb.button(text=t(lang, "verify_create_group_add_bot"), callback_data="verify:open_group_create")
+        kb.button(text=t(lang, "verify_recheck_setup"), callback_data="verify:confirm_create")
+    else:
+        kb.button(text=t(lang, "confirm_create_bot"), callback_data="verify:confirm_create")
     kb.button(text=t(lang, "back"), callback_data="verify_nav:back")
     kb.button(text=t(lang, "cancel"), callback_data="verify:cancel_create", style="danger")
     kb.adjust(1)
@@ -228,7 +235,7 @@ def _verify_setup_help_kb(lang: str, group_add_url: str) -> types.InlineKeyboard
     kb = InlineKeyboardBuilder()
     kb.button(text=t(lang, "verify_create_group_add_bot"), url=group_add_url)
     kb.button(text=t(lang, "verify_recheck_setup"), callback_data="verify:confirm_create")
-    kb.button(text=t(lang, "back"), callback_data="verify_nav:back")
+    kb.button(text=t(lang, "back"), callback_data="verify:back_summary")
     kb.button(text=t(lang, "cancel"), callback_data="verify:cancel_create", style="danger")
     kb.adjust(1)
     return kb.as_markup()
@@ -425,40 +432,61 @@ async def _delete_state_message_by_key(bot: Bot, chat_id: int, state: FSMContext
     await state.update_data(**{key: None})
 
 
-async def _show_channel_picker_prompt(bot: Bot, chat_id: int, state: FSMContext, lang: str):
-    # Apply channel picker reply keyboard without adding visible extra messages.
-    await _refresh_reply_keyboard(bot=bot, chat_id=chat_id, reply_markup=_channel_request_kb(lang))
-
-
-async def _show_phone_request_keyboard(bot: Bot, chat_id: int, lang: str):
-    # Apply phone-contact reply keyboard without adding visible extra messages.
-    await _refresh_reply_keyboard(bot=bot, chat_id=chat_id, reply_markup=_phone_request_kb(lang))
-
-
-async def _refresh_reply_keyboard(bot: Bot, chat_id: int, reply_markup: ReplyKeyboardMarkup):
+async def _clear_reply_keyboard_anchor(bot: Bot, chat_id: int, state: FSMContext) -> None:
+    data = await state.get_data()
+    anchor_id = data.get(REPLY_KB_ANCHOR_MSG_ID_KEY)
+    if not anchor_id:
+        return
     try:
-        await _safe_bot_send_message(
-            bot=bot,
-            chat_id=chat_id,
-            text=t("en", "keyboard_cleanup_placeholder"),
-            reply_markup=reply_markup,
-        )
+        await bot.delete_message(chat_id=chat_id, message_id=int(anchor_id))
     except Exception:
         pass
+    await state.update_data(**{REPLY_KB_ANCHOR_MSG_ID_KEY: None})
 
 
-async def _hide_reply_keyboard(bot: Bot, chat_id: int):
+async def _show_channel_picker_prompt(bot: Bot, chat_id: int, state: FSMContext, lang: str):
+    await _refresh_reply_keyboard(bot=bot, chat_id=chat_id, state=state, reply_markup=_channel_request_kb(lang))
+
+
+async def _show_phone_request_keyboard(bot: Bot, chat_id: int, state: FSMContext, lang: str):
+    await _refresh_reply_keyboard(bot=bot, chat_id=chat_id, state=state, reply_markup=_phone_request_kb(lang))
+
+
+async def _refresh_reply_keyboard(
+    bot: Bot,
+    chat_id: int,
+    state: FSMContext | None = None,
+    reply_markup: ReplyKeyboardMarkup | None = None,
+):
+    if reply_markup is None:
+        return
+    if state is not None:
+        await _clear_reply_keyboard_anchor(bot, chat_id, state)
     try:
         sent = await _safe_bot_send_message(
             bot=bot,
             chat_id=chat_id,
-            text=t("en", "keyboard_cleanup_placeholder"),
+            text="\u2800",
+            reply_markup=reply_markup,
+        )
+        if state is not None:
+            await state.update_data(**{REPLY_KB_ANCHOR_MSG_ID_KEY: getattr(sent, "message_id", None)})
+    except Exception:
+        pass
+
+
+async def _hide_reply_keyboard(bot: Bot, chat_id: int, state: FSMContext | None = None):
+    if state is not None:
+        await _clear_reply_keyboard_anchor(bot, chat_id, state)
+    try:
+        sent = await _safe_bot_send_message(
+            bot=bot,
+            chat_id=chat_id,
+            text="\u2800",
             reply_markup=ReplyKeyboardRemove(),
         )
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=sent.message_id)
-        except Exception:
-            pass
+        if state is not None:
+            await state.update_data(**{REPLY_KB_ANCHOR_MSG_ID_KEY: getattr(sent, "message_id", None)})
     except Exception:
         pass
 
@@ -475,8 +503,9 @@ async def _return_to_main_menu(target: types.Message | types.CallbackQuery, user
     await _delete_state_message_by_key(bot, chat_id, state, PHONE_PROMPT_MSG_ID_KEY)
     await _delete_state_message_by_key(bot, chat_id, state, ADDRESS_PROMPT_MSG_ID_KEY)
     await _delete_state_message_by_key(bot, chat_id, state, CHANNEL_PROMPT_MSG_ID_KEY)
+    await _clear_reply_keyboard_anchor(bot, chat_id, state)
     if await is_reseller(user_id, bot_id=bot_id):
-        await _hide_reply_keyboard(bot, chat_id)
+        await _hide_reply_keyboard(bot, chat_id, state)
     await state.clear()
     if isinstance(target, types.CallbackQuery):
         await target.message.answer(t(lang, "main_menu"), reply_markup=markup)
@@ -525,28 +554,20 @@ def _build_preflight_block(lang: str, checks: dict) -> str:
     if checks.get("warning"):
         lines.append(f"{t(lang, 'warning_plain')}: {checks['warning']}")
     if not bool(checks.get("reseller_group")):
-        if is_ar:
-            lines.extend(
-                [
-                    "",
-                    t(lang, "preflight_optional_after_approval_title"),
-                    t(lang, "preflight_optional_after_approval_step_1"),
-                    t(lang, "preflight_optional_after_approval_step_2"),
-                    t(lang, "preflight_optional_after_approval_step_3"),
-                    t(lang, "preflight_optional_after_approval_step_4"),
-                ]
-            )
-        else:
-            lines.extend(
-                [
-                    "",
-                    t(lang, "preflight_optional_after_approval_title"),
-                    t(lang, "preflight_optional_after_approval_step_1"),
-                    t(lang, "preflight_optional_after_approval_step_2"),
-                    t(lang, "preflight_optional_after_approval_step_3"),
-                    t(lang, "preflight_optional_after_approval_step_4"),
-                ]
-            )
+        lines.extend(
+            [
+                "",
+                (
+                    "خطوات مطلوبة قبل التفعيل:"
+                    if is_ar
+                    else "Required steps before activation:"
+                ),
+                t(lang, "preflight_optional_after_approval_step_1"),
+                t(lang, "preflight_optional_after_approval_step_2"),
+                t(lang, "preflight_optional_after_approval_step_3"),
+                t(lang, "preflight_optional_after_approval_step_4"),
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -668,8 +689,6 @@ async def _run_preflight_checks(data: dict, requester_id: int | None = None) -> 
         out["error"] = "bot is not admin in channel"
         return False, out
 
-    # Group/topic routing is no longer a hard blocker during create request.
-    # It is validated as advisory and enforced after approval/onboarding.
     rid = int(requester_id or 0)
     if rid > 0:
         try:
@@ -690,6 +709,10 @@ async def _run_preflight_checks(data: dict, requester_id: int | None = None) -> 
                 out["warning"] = "payment routing group is not configured yet"
         except Exception as exc:
             out["warning"] = f"group setup check skipped: {exc}"
+    if not out["reseller_group"]:
+        if not out["error"]:
+            out["error"] = out["warning"] or "reseller payment routing group is not ready"
+        return False, out
 
     return True, out
 
@@ -864,7 +887,7 @@ async def ask_token(message: types.Message, state: FSMContext):
         await send_main_bot_message(message, lang=lang)
         return
     await state.update_data(**{INTRO_MSG_ID_KEY: None, FLOW_REF_KEY: _new_flow_ref(), "lang": lang})
-    await _hide_reply_keyboard(message.bot, message.chat.id)
+    await _hide_reply_keyboard(message.bot, message.chat.id, state)
 
     await _set_or_edit_prompt(
         bot=message.bot,
@@ -1117,7 +1140,7 @@ async def _handle_channel_value(message: types.Message, state: FSMContext, lang:
 
     await state.update_data(channel_verified=True, admin_verified=True)
     await _delete_state_message_by_key(message.bot, message.chat.id, state, CHANNEL_PROMPT_MSG_ID_KEY)
-    await _hide_reply_keyboard(message.bot, message.chat.id)
+    await _hide_reply_keyboard(message.bot, message.chat.id, state)
     await _set_or_edit_prompt(
         bot=message.bot,
         chat_id=message.chat.id,
@@ -1196,7 +1219,7 @@ async def recheck_channel_admin(callback: types.CallbackQuery, state: FSMContext
 
     await state.update_data(channel_verified=True, admin_verified=True)
     await _delete_state_message_by_key(callback.bot, callback.message.chat.id, state, CHANNEL_PROMPT_MSG_ID_KEY)
-    await _hide_reply_keyboard(callback.bot, callback.message.chat.id)
+    await _hide_reply_keyboard(callback.bot, callback.message.chat.id, state)
     await _set_or_edit_prompt(
         bot=callback.bot,
         chat_id=callback.message.chat.id,
@@ -1236,7 +1259,7 @@ async def receive_fullname(message: types.Message, state: FSMContext):
         reply_markup=_verify_nav_kb(lang, include_back=True),
         parse_mode="HTML",
     )
-    await _show_phone_request_keyboard(message.bot, message.chat.id, lang)
+    await _show_phone_request_keyboard(message.bot, message.chat.id, state, lang)
     await state.update_data(**{PHONE_PROMPT_MSG_ID_KEY: None})
     await state.set_state(VerifyReseller.waiting_for_phone)
 
@@ -1258,12 +1281,12 @@ async def receive_phone(message: types.Message, state: FSMContext):
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
-        await _show_phone_request_keyboard(message.bot, message.chat.id, lang)
+        await _show_phone_request_keyboard(message.bot, message.chat.id, state, lang)
         return
     phone = (message.contact.phone_number or "").strip()
     phone_country = _extract_phone_country(phone)
     await state.update_data(phone=phone, phone_country=phone_country)
-    await _hide_reply_keyboard(message.bot, message.chat.id)
+    await _hide_reply_keyboard(message.bot, message.chat.id, state)
     await state.update_data(**{ADDRESS_PROMPT_MSG_ID_KEY: None})
     await _set_or_edit_prompt(
         bot=message.bot,
@@ -1288,7 +1311,7 @@ async def receive_phone_text_fallback(message: types.Message, state: FSMContext)
     if phone:
         phone_country = _extract_phone_country(phone)
         await state.update_data(phone=phone, phone_country=phone_country)
-        await _hide_reply_keyboard(message.bot, message.chat.id)
+        await _hide_reply_keyboard(message.bot, message.chat.id, state)
         await state.update_data(**{ADDRESS_PROMPT_MSG_ID_KEY: None})
         await _set_or_edit_prompt(
             bot=message.bot,
@@ -1308,7 +1331,7 @@ async def receive_phone_text_fallback(message: types.Message, state: FSMContext)
         reply_markup=_verify_nav_kb(lang, include_back=True),
         parse_mode="HTML",
     )
-    await _show_phone_request_keyboard(message.bot, message.chat.id, lang)
+    await _show_phone_request_keyboard(message.bot, message.chat.id, state, lang)
     await state.update_data(**{PHONE_PROMPT_MSG_ID_KEY: None})
 
 
@@ -1346,7 +1369,7 @@ async def receive_address(message: types.Message, state: FSMContext):
         chat_id=message.chat.id,
         state=state,
         text=_as_html_quote(summary_text),
-        reply_markup=_verify_confirm_kb(lang),
+        reply_markup=_verify_confirm_kb(lang, setup_required=not bool(preflight_ok)),
         parse_mode="HTML",
     )
     await state.set_state(VerifyReseller.waiting_for_confirm)
@@ -1354,7 +1377,7 @@ async def receive_address(message: types.Message, state: FSMContext):
 
 @router.callback_query(
     VerifyReseller.waiting_for_confirm,
-    lambda c: c.data in {"verify:confirm_create", "verify:cancel_create", "verify:open_group_create", "verify:setup_help"},
+    lambda c: c.data in {"verify:confirm_create", "verify:cancel_create", "verify:open_group_create", "verify:back_summary"},
 )
 async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
@@ -1363,13 +1386,26 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
 
-    if callback.data in {"verify:open_group_create", "verify:setup_help"}:
+    if callback.data == "verify:back_summary":
+        data = await state.get_data()
+        preflight_checks = data.get("preflight_checks") or {}
+        summary_text = _build_summary_text(data, lang, preflight_checks)
+        await _set_or_edit_prompt(
+            bot=callback.bot,
+            chat_id=callback.message.chat.id,
+            state=state,
+            text=_as_html_quote(summary_text),
+            reply_markup=_verify_confirm_kb(lang, setup_required=not bool(data.get("preflight_ok"))),
+            parse_mode="HTML",
+            preferred_message_id=callback.message.message_id,
+        )
+        await callback.answer()
+        return
+
+    if callback.data == "verify:open_group_create":
         data = await state.get_data()
         group_url = _add_to_group_url(str(data.get("bot_username") or ""))
-        setup_help_text = (
-            f"{t(lang, 'verify_setup_help_text')}\n\n"
-            f"{t(lang, 'preflight_optional_after_approval_title')}"
-        )
+        setup_help_text = f"{t(lang, 'verify_setup_help_text')}\n\n{t(lang, 'preflight_required_before_approval_title')}"
         await _set_or_edit_prompt(
             bot=callback.bot,
             chat_id=callback.message.chat.id,
@@ -1394,7 +1430,7 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
             chat_id=callback.message.chat.id,
             state=state,
             text=_as_html_quote(f"{_build_summary_text(data, lang)}\n\n{_missing_fields_text(lang, data)}"),
-            reply_markup=_verify_confirm_kb(lang),
+            reply_markup=_verify_confirm_kb(lang, setup_required=True),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
         )
@@ -1413,7 +1449,7 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
             chat_id=callback.message.chat.id,
             state=state,
             text=_as_html_quote(f"{summary_text}\n\n{t(lang, 'preflight_fix_and_retry')}"),
-            reply_markup=_verify_confirm_kb(lang),
+            reply_markup=_verify_confirm_kb(lang, setup_required=True),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
         )
@@ -1440,7 +1476,7 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
             chat_id=callback.message.chat.id,
             state=state,
             text=_as_html_quote(f"{_build_summary_text(data, lang, preflight_checks)}\n\n{insufficient_text}"),
-            reply_markup=_verify_confirm_kb(lang),
+            reply_markup=_verify_confirm_kb(lang, setup_required=not bool(preflight_ok)),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
         )
@@ -1485,7 +1521,7 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
                 chat_id=callback.message.chat.id,
                 state=state,
                 text=_as_html_quote(f"{_build_summary_text(data, lang, preflight_checks)}\n\n{insufficient_text}"),
-                reply_markup=_verify_confirm_kb(lang),
+                reply_markup=_verify_confirm_kb(lang, setup_required=not bool(preflight_ok)),
                 parse_mode="HTML",
                 preferred_message_id=callback.message.message_id,
             )
@@ -1613,7 +1649,7 @@ async def verify_navigation(callback: types.CallbackQuery, state: FSMContext):
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
-        await _show_phone_request_keyboard(callback.bot, callback.message.chat.id, lang)
+        await _show_phone_request_keyboard(callback.bot, callback.message.chat.id, state, lang)
         return
 
     if current == VerifyReseller.waiting_for_confirm.state:
