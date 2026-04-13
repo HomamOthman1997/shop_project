@@ -6,15 +6,24 @@ def reseller_main_menu(lang: str = "en") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=t(lang, "btn_services"), callback_data="rsmenu:custom_services"),
+                InlineKeyboardButton(text="لوحة التحكم", callback_data="rsmenu:dashboard"),
                 InlineKeyboardButton(text=t(lang, "btn_reseller_balance"), callback_data="rsmenu:balance"),
             ],
             [
-                InlineKeyboardButton(text="إذاعة", callback_data="rsmenu:broadcast"),
-                InlineKeyboardButton(text=t(lang, "btn_reseller_settings"), callback_data="rsmenu:settings"),
+                InlineKeyboardButton(text=t(lang, "btn_services"), callback_data="rsmenu:custom_services"),
+                InlineKeyboardButton(text=t(lang, "btn_cyberzone_services"), callback_data="rsmenu:main_bot_services"),
             ],
             [
-                InlineKeyboardButton(text=t(lang, "btn_cyberzone_services"), callback_data="rsmenu:main_bot_services"),
+                InlineKeyboardButton(text="طلبات الشحن", callback_data="rsmenu:recharge_requests"),
+                InlineKeyboardButton(text="تعديل رصيد مستخدم", callback_data="rsmenu:adjust_user_balance"),
+            ],
+            [
+                InlineKeyboardButton(text="شحن رصيد البوت الرئيسي", callback_data="rsmenu:core_topup"),
+                InlineKeyboardButton(text="إذاعة", callback_data="rsmenu:broadcast"),
+            ],
+            [
+                InlineKeyboardButton(text="الإحصائيات", callback_data="rsmenu:stats"),
+                InlineKeyboardButton(text=t(lang, "btn_reseller_settings"), callback_data="rsmenu:settings"),
             ],
         ]
     )

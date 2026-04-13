@@ -468,10 +468,13 @@ def _parse_cycle_key_or_none(raw: str) -> str | None:
 def _owner_panel_main_kb() -> types.InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="Dashboard", callback_data="owner_panel:act:dashboard")
-    kb.button(text="Subscriptions", callback_data="owner_panel:cat:subscriptions")
-    kb.button(text="Main Bot", callback_data="owner_panel:cat:main_bot")
-    kb.button(text="System", callback_data="owner_panel:cat:system")
-    kb.adjust(1, 2, 1)
+    kb.button(text="Resellers & Subscriptions", callback_data="owner_panel:cat:subscriptions")
+    kb.button(text="Main Bot Finance", callback_data="owner_panel:cat:main_bot")
+    kb.button(text="Routing & Alerts", callback_data="owner_panel:cat:system")
+    kb.button(text="Broadcast", callback_data="owner_panel:act:broadcast")
+    kb.button(text="Owner Payment Methods", callback_data="owner_panel:act:owner_payment_methods")
+    kb.button(text="Reseller Topup Requests", callback_data="owner_panel:act:reseller_topup_requests")
+    kb.adjust(1, 2, 2, 1)
     return kb.as_markup()
 
 
@@ -662,11 +665,12 @@ async def _build_owner_dashboard_text() -> str:
 def _owner_panel_home_text() -> str:
     return (
         "Owner Panel\n\n"
-        "Choose a section:\n"
+        "Choose a section or a quick action:\n"
         "- Dashboard: platform status and totals\n"
-        "- Subscriptions: reseller deposits and topup review\n"
-        "- Main Bot: owner payment methods and pricing\n"
-        "- System: routing, support topics, logs, and alerts"
+        "- Resellers & Subscriptions: deposits and topup review\n"
+        "- Main Bot Finance: methods, rates, and pricing\n"
+        "- Routing & Alerts: support topics, logs, and provider alerts\n"
+        "- Quick actions below open the most-used owner operations directly"
     )
 
 
@@ -707,11 +711,15 @@ async def owner_panel_category(callback: types.CallbackQuery, state: FSMContext)
     if callback.message:
         await _hide_owner_reply_keyboard(callback.message)
         hints = {
-            "subscriptions": "Bot subscriptions and reseller funding operations.",
-            "main_bot": "Main bot pricing, methods, and platform controls.",
-            "system": "System routing and owner target settings.",
+            "subscriptions": "Bot subscriptions, reseller deposits, and topup review.",
+            "main_bot": "Owner payment methods, exchange rate, broadcast, and pricing controls.",
+            "system": "Routing targets, support topics, logs, and provider alerts.",
         }
-        display_category = "Main Bot" if category == "main_bot" else category.title()
+        display_category = {
+            "subscriptions": "Resellers & Subscriptions",
+            "main_bot": "Main Bot Finance",
+            "system": "Routing & Alerts",
+        }.get(category, category.title())
         await _safe_edit_text(
             callback.message,
             f"Owner Panel / {display_category}\n\n{hints.get(category, '')}",
