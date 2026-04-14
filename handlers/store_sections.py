@@ -1102,6 +1102,33 @@ async def _resolve_digital_products_markup_percent() -> float:
         return 7.0
 
 
+def _resolve_esim_markup_percent() -> float:
+    return 25.0
+
+
+def _resolve_physical_sim_markup_percent(section: str) -> float:
+    return 25.0 if str(section or "").strip().lower() == "data" else 10.0
+
+
+def _apply_markup_to_esim_offer(offer: dict[str, Any], *, markup_percent: float) -> dict[str, Any]:
+    clone = dict(offer or {})
+    base_offer_price = float(_money_decimal(clone.get("price_usd") or 0.0))
+    clone["_cost_price_usd"] = base_offer_price
+    clone["price_usd"] = float(_apply_markup_decimal(base_offer_price, markup_percent))
+    parts: list[dict[str, Any]] = []
+    for part in list(clone.get("parts") or []):
+        part_clone = dict(part or {})
+        plan = dict(part_clone.get("plan") or {})
+        plan_cost = float(_money_decimal(plan.get("price_usd") or 0.0))
+        plan["_cost_price_usd"] = plan_cost
+        plan["price_usd"] = float(_apply_markup_decimal(plan_cost, markup_percent))
+        part_clone["plan"] = plan
+        parts.append(part_clone)
+    if parts:
+        clone["parts"] = parts
+    return clone
+
+
 def _fmt_dual_price(usd: float, usd_to_syp_rate: float) -> str:
     return format_usd(_to_float(usd))
 
@@ -1880,7 +1907,7 @@ def _esim_package_info_list(offer: dict[str, Any], *, days: int) -> list[dict[st
             row["packageCode"] = slug
         else:
             continue
-        row["price"] = _esim_price_to_units(float(plan.get("price_usd") or 0.0))
+        row["price"] = _esim_price_to_units(float(plan.get("_cost_price_usd") or plan.get("price_usd") or 0.0))
         if int(plan.get("data_type_code") or 0) in {2, 3, 4}:
             row["periodNum"] = int(days)
         package_info_list.append(row)
@@ -2194,7 +2221,7 @@ async def sim_topup_collect_phone(message: types.Message, state: FSMContext):
         await state.update_data(sim_country_code=country_code)
         if brand_key:
             offers = await _sim_fetch_offers(country_code, str((await state.get_data()).get("sim_section_kind") or ""), brand=brand_key)
-            markup_percent = await _resolve_digital_products_markup_percent()
+            markup_percent = _resolve_physical_sim_markup_percent(str((await state.get_data()).get("sim_section_kind") or ""))
             prepared = _sim_prepare_offers(offers, section=str((await state.get_data()).get("sim_section_kind") or ""), markup_percent=markup_percent)
             if prepared:
                 await state.set_state(SimTopupFlow.choosing_offer)
@@ -2319,7 +2346,7 @@ async def sim_topup_choose_brand(callback: types.CallbackQuery, state: FSMContex
     brands = await _sim_country_brands(country_code, section)
     brand_name = next((str(row.get("name") or brand_key) for row in brands if str(row.get("brand") or "").strip() == brand_key), brand_key)
     offers = await _sim_fetch_offers(country_code, section, brand=brand_key)
-    markup_percent = await _resolve_digital_products_markup_percent()
+    markup_percent = _resolve_physical_sim_markup_percent(section)
     prepared = _sim_prepare_offers(offers, section=section, markup_percent=markup_percent)
     if not prepared:
         await callback.answer(_sim_text(lang, "No fixed offers were found for this operator.", "لا توجد عروض ثابتة لهذا المشغل."), show_alert=True)
@@ -2390,7 +2417,7 @@ async def sim_topup_buy(callback: types.CallbackQuery, state: FSMContext):
         return await callback.answer(_sim_text(lang, "Missing top-up data.", "بيانات الشحن ناقصة."), show_alert=True)
 
     cost_price = float(_money_decimal(offer.get("_cost_price_usd") or _sim_offer_price_usd(offer)))
-    sale_price = float(_money_decimal(offer.get("_sale_price_usd") or _apply_markup_decimal(cost_price, await _resolve_digital_products_markup_percent())))
+    sale_price = float(_money_decimal(offer.get("_sale_price_usd") or _apply_markup_decimal(cost_price, _resolve_physical_sim_markup_percent(str(data.get("sim_section_kind") or "")))))
     order, err = await _core_charge(
         user_id=int(callback.from_user.id),
         reseller_id=int(reseller_id),
@@ -2778,6 +2805,8 @@ async def esim_choose_usage(callback: types.CallbackQuery, state: FSMContext):
         offers = await build_single_country_offers_live(country, days=days, usage_key=usage_key)
     else:
         offers = await build_route_offers_live(selected, days=days, usage_key=usage_key)
+    markup_percent = _resolve_esim_markup_percent()
+    offers = [_apply_markup_to_esim_offer(row, markup_percent=markup_percent) for row in offers]
     if not offers:
         await callback.answer(
             _esim_text(lang, "No offers matched this duration and usage.", "لا توجد عروض تطابق هذه المدة وحجم الاستخدام."),
@@ -2861,9 +2890,8 @@ async def esim_buy_recommended_offer(callback: types.CallbackQuery, state: FSMCo
     if not reseller_id:
         return await callback.answer(t(lang, "store_reseller_not_linked"), show_alert=True)
 
-    markup_percent = await _resolve_digital_products_markup_percent()
-    cost_price = float(_money_decimal(offer.get("price_usd") or 0.0))
-    sale_price = float(_apply_markup_decimal(cost_price, markup_percent))
+    cost_price = float(_money_decimal(offer.get("_cost_price_usd") or offer.get("price_usd") or 0.0))
+    sale_price = float(_money_decimal(offer.get("price_usd") or _apply_markup_decimal(cost_price, _resolve_esim_markup_percent())))
     order, err = await _core_charge(
         user_id=int(callback.from_user.id),
         reseller_id=int(reseller_id),
