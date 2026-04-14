@@ -282,9 +282,11 @@ _SIM_COUNTRY_TOKEN_PREFIX = "__simtopup_country__:"
 _ISO3166_TAB = (Path(getattr(_pytz, "__file__", "")).resolve().parent / "zoneinfo" / "iso3166.tab") if _pytz else None
 _ISO3166_FALLBACK = {
     "AE": "United Arab Emirates",
+    "BH": "Bahrain",
     "CA": "Canada",
     "CY": "Cyprus",
     "DE": "Germany",
+    "DZ": "Algeria",
     "EG": "Egypt",
     "FR": "France",
     "GB": "United Kingdom",
@@ -292,18 +294,27 @@ _ISO3166_FALLBACK = {
     "ID": "Indonesia",
     "IN": "India",
     "IT": "Italy",
+    "IQ": "Iraq",
     "JP": "Japan",
+    "JO": "Jordan",
     "KR": "South Korea",
+    "KW": "Kuwait",
+    "LB": "Lebanon",
+    "MA": "Morocco",
     "MY": "Malaysia",
     "OM": "Oman",
+    "PS": "Palestine",
     "QA": "Qatar",
     "SA": "Saudi Arabia",
     "SG": "Singapore",
+    "SY": "Syria",
     "TH": "Thailand",
+    "TN": "Tunisia",
     "TR": "Turkey",
     "UA": "Ukraine",
     "US": "United States",
     "VN": "Vietnam",
+    "YE": "Yemen",
 }
 _PHONE_PREFIX_COUNTRY_MAP: list[tuple[str, str]] = [
     ("+971", "AE"),
@@ -2220,25 +2231,26 @@ async def sim_topup_collect_phone(message: types.Message, state: FSMContext):
             text=_sim_text(lang, "Send a valid phone number in international format.\nExample: +447700900000", "أرسل رقمًا صحيحًا بصيغة دولية.\nمثال: +447700900000"),
             reply_markup=_sim_phone_keyboard(lang),
         )
-    await state.update_data(sim_phone=phone)
+    await state.update_data(sim_phone=phone, sim_country_code="", sim_brand_key="", sim_brand_name="", sim_offers=[], sim_selected_offer=None)
     try:
         await message.delete()
     except Exception:
         pass
 
     client = ZenditClient()
-    country_code = ""
+    prefix_country_code = _sim_country_from_phone(phone)
+    country_code = prefix_country_code
     brand_key = ""
     brand_name = ""
     if client.configured():
         status, payload = await client.msisdn_lookup(phone)
         if status == 200 and isinstance(payload, dict):
             lookup = dict(payload.get("result") or payload.get("data") or payload)
-            country_code = str(lookup.get("country") or lookup.get("countryCode") or lookup.get("iso2") or "").strip().upper()
+            lookup_country_code = str(lookup.get("country") or lookup.get("countryCode") or lookup.get("iso2") or "").strip().upper()
+            if not country_code and lookup_country_code:
+                country_code = lookup_country_code
             brand_key = str(lookup.get("brand") or lookup.get("operatorCode") or lookup.get("operatorId") or "").strip()
             brand_name = str(lookup.get("brandName") or lookup.get("operatorName") or lookup.get("brand") or "").strip()
-    if not country_code:
-        country_code = _sim_country_from_phone(phone)
     if len(country_code) == 2:
         await state.update_data(sim_country_code=country_code)
         if brand_key:
