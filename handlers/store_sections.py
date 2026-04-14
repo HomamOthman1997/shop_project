@@ -5,8 +5,15 @@ import json
 import os
 import re
 from decimal import Decimal, ROUND_HALF_UP
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+try:
+    import pytz as _pytz
+except Exception:
+    _pytz = None
+
 
 from aiogram import Router, types
 from aiogram.exceptions import TelegramBadRequest
@@ -29,6 +36,7 @@ from utils.bot_menu_context import menu_for_current_bot
 from services.digital_products.g2bulk_client import G2BulkClient
 from services.digital_products.catalog_service import get_catalog_snapshot, get_game_topups
 from services.digital_products.esim_access_client import EsimAccessClient
+from services.digital_products.zendit_client import ZenditClient
 from services.digital_products.esim_route_service import (
     available_days as esim_available_days,
     build_single_country_offers,
@@ -192,6 +200,17 @@ class EsimRouteFlow(StatesGroup):
     confirming_purchase = State()
 
 
+class SimTopupFlow(StatesGroup):
+    choosing_topup_kind = State()
+    choosing_physical_kind = State()
+    waiting_phone = State()
+    choosing_country = State()
+    waiting_brand_search = State()
+    choosing_brand = State()
+    choosing_offer = State()
+    confirming_purchase = State()
+
+
 def _to_float(value: Any) -> float:
     try:
         return float(value)
@@ -256,6 +275,483 @@ async def _hide_reply_keyboard(message: types.Message, lang: str) -> None:
             pass
     except Exception:
         pass
+
+
+_SIM_COUNTRY_INLINE_PREFIX = "simcountry"
+_SIM_COUNTRY_TOKEN_PREFIX = "__simtopup_country__:"
+_ISO3166_TAB = (Path(getattr(_pytz, "__file__", "")).resolve().parent / "zoneinfo" / "iso3166.tab") if _pytz else None
+_ISO3166_FALLBACK = {
+    "AE": "United Arab Emirates",
+    "CA": "Canada",
+    "CY": "Cyprus",
+    "DE": "Germany",
+    "EG": "Egypt",
+    "FR": "France",
+    "GB": "United Kingdom",
+    "GR": "Greece",
+    "ID": "Indonesia",
+    "IN": "India",
+    "IT": "Italy",
+    "JP": "Japan",
+    "KR": "South Korea",
+    "MY": "Malaysia",
+    "OM": "Oman",
+    "QA": "Qatar",
+    "SA": "Saudi Arabia",
+    "SG": "Singapore",
+    "TH": "Thailand",
+    "TR": "Turkey",
+    "UA": "Ukraine",
+    "US": "United States",
+    "VN": "Vietnam",
+}
+_SIM_TOPUP_CACHE: dict[str, Any] = {
+    "countries_balance": {"expires_at": 0.0, "rows": []},
+    "countries_data": {"expires_at": 0.0, "rows": []},
+    "brands": {},
+}
+
+
+def _sim_text(lang: str, en_text: str, ar_text: str) -> str:
+    return ar_text if str(lang or "en").lower().startswith("ar") else en_text
+
+
+def _sim_subtype(section: str) -> str:
+    return "Mobile Bundle" if str(section or "").strip().lower() == "data" else "Mobile Top Up"
+
+
+def _sim_country_display_name(country_code: str) -> str:
+    code = str(country_code or "").strip().upper()
+    if len(code) != 2:
+        return code
+    try:
+        if _ISO3166_TAB and _ISO3166_TAB.exists():
+            for raw_line in _ISO3166_TAB.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 2 and parts[0].strip().upper() == code:
+                    return parts[1].strip()
+    except Exception:
+        pass
+    return _ISO3166_FALLBACK.get(code, code)
+
+
+def _sim_country_token(country_code: str) -> str:
+    code = str(country_code or "").strip().upper()
+    return f"{_SIM_COUNTRY_TOKEN_PREFIX}{code}"
+
+
+def _sim_offer_price_usd(row: dict[str, Any]) -> Decimal:
+    price = dict(row.get("price") or {})
+    fixed = _to_decimal(price.get("fixed") or 0)
+    divisor = _to_decimal(price.get("currencyDivisor") or 1)
+    if divisor <= 0:
+        divisor = Decimal("1")
+    return (fixed / divisor).quantize(TWOPLACES, rounding=ROUND_HALF_UP)
+
+
+def _sim_offer_send_label(row: dict[str, Any], *, lang: str) -> str:
+    send = dict(row.get("send") or {})
+    fixed = _to_decimal(send.get("fixed") or 0)
+    divisor = _to_decimal(send.get("currencyDivisor") or 1)
+    if divisor <= 0:
+        divisor = Decimal("1")
+    send_value = (fixed / divisor).quantize(TWOPLACES, rounding=ROUND_HALF_UP)
+    currency = str(send.get("currency") or "").strip().upper()
+    if currency and send_value > 0:
+        return _sim_text(lang, f"Value: {send_value} {currency}", f"القيمة: {send_value} {currency}")
+    data_gb = _to_float(row.get("dataGB") or 0)
+    days = _to_int(row.get("durationDays") or 0)
+    if data_gb > 0:
+        return _sim_text(lang, f"Data: {data_gb:g} GB", f"الداتا: {data_gb:g} GB")
+    if days > 0:
+        return _sim_text(lang, f"Duration: {days} days", f"المدة: {days} يوم")
+    return _sim_text(lang, "Offer", "العرض")
+
+
+def _sim_offer_label(row: dict[str, Any], *, lang: str) -> str:
+    title = _sim_offer_send_label(row, lang=lang)
+    price_usd = _money_decimal(row.get("_sale_price_usd") or _sim_offer_price_usd(row))
+    return f"{title} | {format_usd(float(price_usd))}"
+
+
+def _sim_offer_summary_text(row: dict[str, Any], *, lang: str) -> str:
+    lines = [
+        _sim_text(lang, "SIM TopUp Summary", "ملخص شحن الشريحة"),
+        "",
+        f"{_sim_text(lang, 'Country', 'الدولة')}: {_sim_country_display_name(str(row.get('country') or ''))}",
+        f"{_sim_text(lang, 'Operator', 'المشغل')}: {str(row.get('brandName') or row.get('brand') or '-').strip()}",
+        f"{_sim_text(lang, 'Type', 'النوع')}: {_sim_text(lang, 'Balance', 'رصيد') if str(row.get('_section_kind') or '').lower() == 'balance' else _sim_text(lang, 'Data', 'داتا')}",
+        _sim_offer_send_label(row, lang=lang),
+        f"{t(lang, 'price_label')}: {format_usd(float(_money_decimal(row.get('_sale_price_usd') or _sim_offer_price_usd(row))))}",
+    ]
+    return "\n".join(lines)
+
+
+def _sim_prepare_offers(rows: list[dict[str, Any]], *, section: str, markup_percent: float) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["_section_kind"] = str(section or "").strip().lower()
+        item["_cost_price_usd"] = float(_sim_offer_price_usd(item))
+        item["_sale_price_usd"] = float(_apply_markup_decimal(item["_cost_price_usd"], markup_percent))
+        prepared.append(item)
+    prepared.sort(key=lambda row: (_money_decimal(row.get("_sale_price_usd") or 0), _norm(str(row.get("brandName") or row.get("brand") or ""))))
+    return prepared
+
+
+async def _sim_fetch_country_codes(section: str) -> list[str]:
+    bucket = "countries_data" if str(section).lower() == "data" else "countries_balance"
+    cached = dict(_SIM_TOPUP_CACHE.get(bucket) or {})
+    if float(cached.get("expires_at") or 0.0) > asyncio.get_event_loop().time():
+        return list(cached.get("rows") or [])
+
+    client = ZenditClient()
+    if not client.configured():
+        return []
+
+    subtype = _sim_subtype(section)
+    codes: set[str] = set()
+    limit = 1024
+    offset = 0
+    total = None
+    while total is None or offset < int(total or 0):
+        status, payload = await client.list_topup_offers(limit=limit, offset=offset, sub_type=subtype)
+        if status != 200 or not isinstance(payload, dict):
+            break
+        rows = [row for row in list(payload.get("list") or []) if isinstance(row, dict)]
+        total = int(payload.get("total") or 0)
+        if not rows:
+            break
+        for row in rows:
+            code = str(row.get("country") or "").strip().upper()
+            if len(code) == 2:
+                codes.add(code)
+        offset += limit
+
+    ordered = sorted(codes)
+    _SIM_TOPUP_CACHE[bucket] = {"expires_at": asyncio.get_event_loop().time() + 1800.0, "rows": ordered}
+    return ordered
+
+
+async def _sim_search_countries(section: str, query: str, limit: int = 20) -> list[dict[str, str]]:
+    q = _norm(query)
+    rows = []
+    codes: set[str] = set()
+    if str(section).strip().lower() == "all":
+        codes.update(await _sim_fetch_country_codes("balance"))
+        codes.update(await _sim_fetch_country_codes("data"))
+    else:
+        codes.update(await _sim_fetch_country_codes(section))
+    for code in codes:
+        name = _sim_country_display_name(code)
+        hay = _norm(f"{code} {name}")
+        if q and q not in hay:
+            continue
+        rows.append({"code": code, "name": name})
+    if not q:
+        rows.sort(key=lambda item: item["name"])
+    return rows[:limit]
+
+
+async def _sim_country_brands(country_code: str, section: str) -> list[dict[str, str]]:
+    cache_key = f"{section}:{str(country_code or '').upper()}"
+    cached = dict((_SIM_TOPUP_CACHE.get("brands") or {}).get(cache_key) or {})
+    if float(cached.get("expires_at") or 0.0) > asyncio.get_event_loop().time():
+        return list(cached.get("rows") or [])
+
+    client = ZenditClient()
+    if not client.configured():
+        return []
+    subtype = _sim_subtype(section)
+    brands: dict[str, str] = {}
+    limit = 1024
+    offset = 0
+    total = None
+    while total is None or offset < int(total or 0):
+        status, payload = await client.list_topup_offers(
+            limit=limit,
+            offset=offset,
+            country=str(country_code or "").upper(),
+            sub_type=subtype,
+        )
+        if status != 200 or not isinstance(payload, dict):
+            break
+        rows = [row for row in list(payload.get("list") or []) if isinstance(row, dict)]
+        total = int(payload.get("total") or 0)
+        if not rows:
+            break
+        for row in rows:
+            key = str(row.get("brand") or "").strip()
+            label = str(row.get("brandName") or row.get("brand") or "").strip()
+            if key and label:
+                brands[key] = label
+        offset += limit
+
+    ordered = [{"brand": key, "name": brands[key]} for key in sorted(brands, key=lambda item: _norm(brands[item]))]
+    _SIM_TOPUP_CACHE.setdefault("brands", {})[cache_key] = {
+        "expires_at": asyncio.get_event_loop().time() + 1800.0,
+        "rows": ordered,
+    }
+    return ordered
+
+
+async def _sim_search_brands(country_code: str, section: str, query: str, limit: int = 12) -> list[dict[str, str]]:
+    q = _norm(query)
+    rows = []
+    for row in await _sim_country_brands(country_code, section):
+        hay = _norm(f"{row.get('brand')} {row.get('name')}")
+        if q and q not in hay and fuzz.partial_ratio(q, hay) < 70:
+            continue
+        rows.append(row)
+    return rows[:limit]
+
+
+async def _sim_fetch_offers(country_code: str, section: str, brand: str | None = None) -> list[dict[str, Any]]:
+    client = ZenditClient()
+    if not client.configured():
+        return []
+    subtype = _sim_subtype(section)
+    status, payload = await client.list_topup_offers(
+        limit=200,
+        offset=0,
+        country=str(country_code or "").upper(),
+        brand=brand or None,
+        sub_type=subtype,
+    )
+    if status != 200 or not isinstance(payload, dict):
+        return []
+    rows = [row for row in list(payload.get("list") or []) if isinstance(row, dict)]
+    filtered = [row for row in rows if str(row.get("priceType") or "FIXED").strip().upper() == "FIXED"]
+    filtered.sort(key=lambda row: (_sim_offer_price_usd(row), _norm(str(row.get("brandName") or row.get("brand")))))
+    return filtered
+
+
+def _sim_country_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=_sim_text(lang, "🌍 Choose Country", "🌍 اختر دولة"), switch_inline_query_current_chat=f"{_SIM_COUNTRY_INLINE_PREFIX} ")],
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data="simtopup:back:phone")],
+            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")],
+        ]
+    )
+
+
+def _sim_phone_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data="simtopup:back:physical")],
+            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")],
+        ]
+    )
+
+
+def _sim_brand_search_keyboard(lang: str, rows: list[dict[str, str]]) -> InlineKeyboardMarkup:
+    buttons = [[InlineKeyboardButton(text=str(row.get("name") or row.get("brand") or "-"), callback_data=f"simtopup:brand:{row.get('brand') or ''}")] for row in rows[:10]]
+    buttons.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="simtopup:back:country")])
+    buttons.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _sim_success_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")]]
+    )
+
+
+async def _sim_store_message_id(state: FSMContext, message_id: int | None) -> None:
+    if isinstance(message_id, int) and message_id > 0:
+        await state.update_data(simtopup_message_id=message_id)
+
+
+async def _sim_edit_anchor(
+    *,
+    message: types.Message,
+    state: FSMContext,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    data = await state.get_data()
+    message_id = int(data.get("simtopup_message_id") or 0)
+    if message_id > 0:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=message_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+            return
+        except TelegramBadRequest as exc:
+            lowered = str(exc).lower()
+            if "message is not modified" in lowered:
+                return
+            if "message can't be edited" not in lowered:
+                raise
+        except Exception:
+            pass
+    sent = await message.answer(text, reply_markup=reply_markup)
+    await _sim_store_message_id(state, getattr(sent, "message_id", None))
+
+
+async def _sim_render_hub(target: types.Message | types.CallbackQuery, state: FSMContext, lang: str) -> None:
+    text = _sim_text(
+        lang,
+        "SIM TopUp\n\nChoose the recharge type.",
+        "SIM TopUp\n\nاختر نوع الشحن.",
+    )
+    kb = _sim_topup_hub_keyboard(lang)
+    if isinstance(target, types.CallbackQuery) and target.message:
+        await _safe_edit_message(target.message, text, reply_markup=kb)
+        await _sim_store_message_id(state, getattr(target.message, "message_id", None))
+        return
+    if isinstance(target, types.Message):
+        sent = await target.answer(text, reply_markup=kb)
+        await _sim_store_message_id(state, getattr(sent, "message_id", None))
+
+
+async def _sim_render_physical_kind(target: types.Message | types.CallbackQuery, state: FSMContext, lang: str) -> None:
+    text = _sim_text(
+        lang,
+        "Physical SIM\n\nChoose what you want to recharge.",
+        "Physical SIM\n\nاختر ما الذي تريد شحنه.",
+    )
+    kb = _sim_physical_kind_keyboard(lang)
+    if isinstance(target, types.CallbackQuery) and target.message:
+        await _safe_edit_message(target.message, text, reply_markup=kb)
+        await _sim_store_message_id(state, getattr(target.message, "message_id", None))
+        return
+    if isinstance(target, types.Message):
+        sent = await target.answer(text, reply_markup=kb)
+        await _sim_store_message_id(state, getattr(sent, "message_id", None))
+
+
+async def _sim_render_phone_prompt(*, message: types.Message | None = None, callback: types.CallbackQuery | None = None, state: FSMContext, lang: str, section: str) -> None:
+    label = _sim_text(lang, "Balance", "رصيد") if str(section).lower() == "balance" else _sim_text(lang, "Data", "داتا")
+    text = _sim_text(
+        lang,
+        f"Physical SIM - {label}\n\nSend the phone number in international format.\nExample: +447700900000",
+        f"شريحة فعلية - {label}\n\nأرسل رقم الهاتف بصيغة دولية.\nمثال: +447700900000",
+    )
+    if callback and callback.message:
+        await _safe_edit_message(callback.message, text, reply_markup=_sim_phone_keyboard(lang))
+        await _sim_store_message_id(state, getattr(callback.message, "message_id", None))
+    elif message:
+        await _sim_edit_anchor(message=message, state=state, text=text, reply_markup=_sim_phone_keyboard(lang))
+
+
+async def _sim_render_country_prompt(*, message: types.Message | None = None, callback: types.CallbackQuery | None = None, state: FSMContext, lang: str, note: str | None = None) -> None:
+    text = _sim_text(
+        lang,
+        "Choose the SIM country.",
+        "اختر دولة الشريحة.",
+    )
+    if note:
+        text += f"\n\n{note}"
+    kb = _sim_country_keyboard(lang)
+    if callback and callback.message:
+        await _safe_edit_message(callback.message, text, reply_markup=kb)
+        await _sim_store_message_id(state, getattr(callback.message, "message_id", None))
+    elif message:
+        await _sim_edit_anchor(message=message, state=state, text=text, reply_markup=kb)
+
+
+async def _sim_render_brand_prompt(*, message: types.Message | None = None, callback: types.CallbackQuery | None = None, state: FSMContext, lang: str, country_code: str, section: str, note: str | None = None) -> None:
+    brands = await _sim_country_brands(country_code, section)
+    country_name = _sim_country_display_name(country_code)
+    if not brands:
+        text = _sim_text(
+            lang,
+            f"No operators were found for {country_name}. Choose another country.",
+            f"لم نجد مشغلين لـ {country_name}. اختر دولة أخرى.",
+        )
+        if callback and callback.message:
+            await _safe_edit_message(callback.message, text, reply_markup=_sim_country_keyboard(lang))
+        elif message:
+            await _sim_edit_anchor(message=message, state=state, text=text, reply_markup=_sim_country_keyboard(lang))
+        await state.set_state(SimTopupFlow.choosing_country)
+        return
+    text = _sim_text(
+        lang,
+        f"Country: {country_name}\n\nChoose the operator, or send its name.",
+        f"الدولة: {country_name}\n\nاختر المشغل أو أرسل اسمه.",
+    )
+    if note:
+        text += f"\n\n{note}"
+    kb = _sim_brand_search_keyboard(lang, brands)
+    if callback and callback.message:
+        await _safe_edit_message(callback.message, text, reply_markup=kb)
+        await _sim_store_message_id(state, getattr(callback.message, "message_id", None))
+    elif message:
+        await _sim_edit_anchor(message=message, state=state, text=text, reply_markup=kb)
+    await state.set_state(SimTopupFlow.waiting_brand_search)
+
+
+async def _sim_render_offers(*, callback: types.CallbackQuery | None = None, message: types.Message | None = None, state: FSMContext, lang: str, offers: list[dict[str, Any]]) -> None:
+    data = await state.get_data()
+    country_code = str(data.get("sim_country_code") or "").upper()
+    brand_name = str(data.get("sim_brand_name") or data.get("sim_brand_key") or "").strip()
+    section = str(data.get("sim_section_kind") or "").strip().lower()
+    kind_label = _sim_text(lang, "Balance", "رصيد") if section == "balance" else _sim_text(lang, "Data", "داتا")
+    text = _sim_text(
+        lang,
+        f"Physical SIM - {kind_label}\nCountry: {_sim_country_display_name(country_code)}\nOperator: {brand_name}\n\nChoose the offer.",
+        f"شريحة فعلية - {kind_label}\nالدولة: {_sim_country_display_name(country_code)}\nالمشغل: {brand_name}\n\nاختر العرض.",
+    )
+    kb = _sim_offer_keyboard(lang, offers)
+    if callback and callback.message:
+        await _safe_edit_message(callback.message, text, reply_markup=kb)
+        await _sim_store_message_id(state, getattr(callback.message, "message_id", None))
+    elif message:
+        await _sim_edit_anchor(message=message, state=state, text=text, reply_markup=kb)
+
+
+def _sim_topup_hub_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_esim"), callback_data="simtopup:esim")],
+            [InlineKeyboardButton(text=_sim_text(lang, "📱 Physical SIM", "📱 Physical SIM"), callback_data="simtopup:physical")],
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:menu")],
+            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")],
+        ]
+    )
+
+
+def _sim_physical_kind_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=_sim_text(lang, "💳 Balance", "💳 رصيد"), callback_data="simtopup:physical:balance")],
+            [InlineKeyboardButton(text=_sim_text(lang, "📦 Data", "📦 داتا"), callback_data="simtopup:physical:data")],
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data="simtopup:back:hub")],
+            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")],
+        ]
+    )
+
+
+def _sim_brand_keyboard(lang: str, rows: list[dict[str, str]]) -> InlineKeyboardMarkup:
+    buttons = [[InlineKeyboardButton(text=str(row.get("name") or row.get("brand") or "-"), callback_data=f"simtopup:brand:{row.get('brand') or ''}")] for row in rows]
+    buttons.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="simtopup:back:country")])
+    buttons.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _sim_offer_keyboard(lang: str, offers: list[dict[str, Any]]) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text=_sim_offer_label(row, lang=lang), callback_data=f"simtopup:offer:{index}")] for index, row in enumerate(offers[:20])]
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="simtopup:back:brand")])
+    rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _sim_summary_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data="simtopup:buy")],
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data="simtopup:back:offers")],
+            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")],
+        ]
+    )
 
 
 async def _edit_callback_target(
@@ -339,6 +835,21 @@ def _is_mobile_topups_trigger(text: str | None) -> bool:
         "mobile topups",
         "airtime",
         "/topup",
+    }
+    return raw in exact or lowered in exact
+
+
+def _is_sim_topup_trigger(text: str | None) -> bool:
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    lowered = raw.lower()
+    exact = {
+        t("en", "btn_sim_topup"),
+        t("ar", "btn_sim_topup"),
+        "sim topup",
+        "sim top-up",
+        "/simtopup",
     }
     return raw in exact or lowered in exact
 
@@ -1522,15 +2033,390 @@ async def open_giftcards_section(message: types.Message, state):
     return await message.answer(t(lang, "store_no_gift_categories"), reply_markup=ReplyKeyboardRemove())
 
 
-@router.message(lambda m: _is_mobile_topups_trigger(m.text))
-async def open_mobile_topups_section(message: types.Message):
+@router.message(lambda m: _is_mobile_topups_trigger(m.text) or _is_sim_topup_trigger(m.text))
+async def open_mobile_topups_section(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
-    await _hide_reply_keyboard(message, lang)
-    await message.answer(
-        t(lang, "digital_products_mobile_topups_placeholder"),
-        reply_markup=_coming_soon_kb(lang),
+    if not await guard_core_service_message(message, lang):
+        return
+    await state.clear()
+    await state.set_state(SimTopupFlow.choosing_topup_kind)
+    await state.update_data(
+        sim_section_kind="",
+        sim_phone="",
+        sim_country_code="",
+        sim_brand_key="",
+        sim_brand_name="",
+        sim_offers=[],
+        sim_selected_offer=None,
     )
+    await _hide_reply_keyboard(message, lang)
+    await _sim_render_hub(message, state, lang)
+
+
+@router.callback_query(lambda c: c.data == "simtopup:back:hub")
+async def sim_topup_back_to_hub(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await state.set_state(SimTopupFlow.choosing_topup_kind)
+    await _sim_render_hub(callback, state, lang)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "simtopup:esim")
+async def sim_topup_open_esim(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
+    await state.clear()
+    await state.set_state(EsimRouteFlow.choosing_mode)
+    await state.update_data(
+        esim_selected_countries=[],
+        esim_selected_mode="",
+        esim_selection_mode="",
+        esim_selected_days=0,
+        esim_candidate_plans=[],
+        esim_usage_key="",
+        esim_filtered_offers=[],
+        esim_recommended_offer=None,
+    )
+    if callback.message:
+        await _safe_edit_message(callback.message, _esim_mode_text(lang), reply_markup=_esim_mode_keyboard(lang))
+        await _esim_store_route_message_id(state, getattr(callback.message, "message_id", None))
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "simtopup:physical")
+async def sim_topup_open_physical(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
+    await state.set_state(SimTopupFlow.choosing_physical_kind)
+    await _sim_render_physical_kind(callback, state, lang)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "simtopup:back:physical")
+async def sim_topup_back_to_physical(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await state.set_state(SimTopupFlow.choosing_physical_kind)
+    await _sim_render_physical_kind(callback, state, lang)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("simtopup:physical:"))
+async def sim_topup_choose_physical_kind(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    section = str(callback.data or "").split(":")[-1].strip().lower()
+    if section not in {"balance", "data"}:
+        await callback.answer()
+        return
+    await state.set_state(SimTopupFlow.waiting_phone)
+    await state.update_data(sim_section_kind=section, sim_phone="", sim_country_code="", sim_brand_key="", sim_brand_name="", sim_offers=[], sim_selected_offer=None)
+    await _sim_render_phone_prompt(callback=callback, state=state, lang=lang, section=section)
+    await callback.answer()
+
+
+@router.message(SimTopupFlow.waiting_phone)
+async def sim_topup_collect_phone(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
+    raw_phone = str(message.text or "").strip()
+    phone = re.sub(r"[^\d+]", "", raw_phone)
+    if not phone or not phone.startswith("+") or len(re.sub(r"\D", "", phone)) < 7:
+        return await _sim_edit_anchor(
+            message=message,
+            state=state,
+            text=_sim_text(lang, "Send a valid phone number in international format.\nExample: +447700900000", "أرسل رقمًا صحيحًا بصيغة دولية.\nمثال: +447700900000"),
+            reply_markup=_sim_phone_keyboard(lang),
+        )
+    await state.update_data(sim_phone=phone)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    client = ZenditClient()
+    country_code = ""
+    brand_key = ""
+    brand_name = ""
+    if client.configured():
+        status, payload = await client.msisdn_lookup(phone)
+        if status == 200 and isinstance(payload, dict):
+            lookup = dict(payload.get("result") or payload.get("data") or payload)
+            country_code = str(lookup.get("country") or lookup.get("countryCode") or lookup.get("iso2") or "").strip().upper()
+            brand_key = str(lookup.get("brand") or lookup.get("operatorCode") or lookup.get("operatorId") or "").strip()
+            brand_name = str(lookup.get("brandName") or lookup.get("operatorName") or lookup.get("brand") or "").strip()
+    if len(country_code) == 2:
+        await state.update_data(sim_country_code=country_code)
+        if brand_key:
+            offers = await _sim_fetch_offers(country_code, str((await state.get_data()).get("sim_section_kind") or ""), brand=brand_key)
+            markup_percent = await _resolve_digital_products_markup_percent()
+            prepared = _sim_prepare_offers(offers, section=str((await state.get_data()).get("sim_section_kind") or ""), markup_percent=markup_percent)
+            if prepared:
+                await state.set_state(SimTopupFlow.choosing_offer)
+                await state.update_data(sim_brand_key=brand_key, sim_brand_name=brand_name or brand_key, sim_offers=prepared)
+                await _sim_render_offers(message=message, state=state, lang=lang, offers=prepared)
+                return
+        await _sim_render_brand_prompt(message=message, state=state, lang=lang, country_code=country_code, section=str((await state.get_data()).get("sim_section_kind") or ""))
+        return
+
+    await state.set_state(SimTopupFlow.choosing_country)
+    await _sim_render_country_prompt(message=message, state=state, lang=lang)
+
+
+@router.inline_query(lambda iq: (iq.query or "").strip().lower().startswith(_SIM_COUNTRY_INLINE_PREFIX))
+async def inline_sim_country_search(iq: types.InlineQuery):
+    query = re.sub(rf"^\s*{_SIM_COUNTRY_INLINE_PREFIX}\s*", "", str(iq.query or "").strip(), flags=re.IGNORECASE)
+    rows = await _sim_search_countries("all", query, limit=20)
+    results: list[types.InlineQueryResultArticle] = []
+    for row in rows:
+        code = str(row.get("code") or "").strip().upper()
+        name = str(row.get("name") or code).strip()
+        if not code:
+            continue
+        results.append(
+            types.InlineQueryResultArticle(
+                id=f"simtopup_country_{code}",
+                title=name,
+                description=code,
+                input_message_content=types.InputTextMessageContent(message_text=_sim_country_token(code)),
+            )
+        )
+    await iq.answer(results, cache_time=5, is_personal=True)
+
+
+@router.message(SimTopupFlow.choosing_country)
+async def sim_topup_pick_country(message: types.Message, state: FSMContext):
+    raw = str(message.text or "").strip()
+    if not raw.startswith(_SIM_COUNTRY_TOKEN_PREFIX):
+        return
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    code = raw[len(_SIM_COUNTRY_TOKEN_PREFIX):].strip().upper()
+    if len(code) != 2:
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    data = await state.get_data()
+    section = str(data.get("sim_section_kind") or "").strip().lower()
+    await state.update_data(sim_country_code=code, sim_brand_key="", sim_brand_name="", sim_offers=[], sim_selected_offer=None)
+    await _sim_render_brand_prompt(message=message, state=state, lang=lang, country_code=code, section=section)
+
+
+@router.callback_query(lambda c: c.data == "simtopup:back:phone")
+async def sim_topup_back_to_phone(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    section = str((await state.get_data()).get("sim_section_kind") or "").strip().lower()
+    await state.set_state(SimTopupFlow.waiting_phone)
+    await _sim_render_phone_prompt(callback=callback, state=state, lang=lang, section=section)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "simtopup:back:country")
+async def sim_topup_back_to_country(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await state.set_state(SimTopupFlow.choosing_country)
+    await _sim_render_country_prompt(callback=callback, state=state, lang=lang)
+    await callback.answer()
+
+
+@router.message(SimTopupFlow.waiting_brand_search)
+async def sim_topup_search_brand(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
+    query = str(message.text or "").strip()
+    data = await state.get_data()
+    country_code = str(data.get("sim_country_code") or "").strip().upper()
+    section = str(data.get("sim_section_kind") or "").strip().lower()
+    rows = await _sim_search_brands(country_code, section, query, limit=12)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    if not rows:
+        await _sim_render_brand_prompt(message=message, state=state, lang=lang, country_code=country_code, section=section, note=_sim_text(lang, "No matching operator was found. Try another name.", "لم نجد مشغلًا مطابقًا. جرّب اسمًا آخر."))
+        return
+    await _sim_edit_anchor(
+        message=message,
+        state=state,
+        text=_sim_text(lang, f"Country: {_sim_country_display_name(country_code)}\n\nChoose the operator.", f"الدولة: {_sim_country_display_name(country_code)}\n\nاختر المشغل."),
+        reply_markup=_sim_brand_keyboard(lang, rows),
+    )
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("simtopup:brand:"))
+async def sim_topup_choose_brand(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    brand_key = str(callback.data or "").split(":", 2)[-1].strip()
+    data = await state.get_data()
+    country_code = str(data.get("sim_country_code") or "").strip().upper()
+    section = str(data.get("sim_section_kind") or "").strip().lower()
+    brands = await _sim_country_brands(country_code, section)
+    brand_name = next((str(row.get("name") or brand_key) for row in brands if str(row.get("brand") or "").strip() == brand_key), brand_key)
+    offers = await _sim_fetch_offers(country_code, section, brand=brand_key)
+    markup_percent = await _resolve_digital_products_markup_percent()
+    prepared = _sim_prepare_offers(offers, section=section, markup_percent=markup_percent)
+    if not prepared:
+        await callback.answer(_sim_text(lang, "No fixed offers were found for this operator.", "لا توجد عروض ثابتة لهذا المشغل."), show_alert=True)
+        return
+    await state.set_state(SimTopupFlow.choosing_offer)
+    await state.update_data(sim_brand_key=brand_key, sim_brand_name=brand_name, sim_offers=prepared, sim_selected_offer=None)
+    await _sim_render_offers(callback=callback, state=state, lang=lang, offers=prepared)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "simtopup:back:brand")
+async def sim_topup_back_to_brand(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    data = await state.get_data()
+    country_code = str(data.get("sim_country_code") or "").strip().upper()
+    section = str(data.get("sim_section_kind") or "").strip().lower()
+    await _sim_render_brand_prompt(callback=callback, state=state, lang=lang, country_code=country_code, section=section)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("simtopup:offer:"))
+async def sim_topup_choose_offer(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    index = int(str(callback.data or "").split(":")[-1].strip() or 0)
+    offers = list((await state.get_data()).get("sim_offers") or [])
+    if index < 0 or index >= len(offers):
+        await callback.answer(_sim_text(lang, "Offer not found.", "العرض غير موجود."), show_alert=True)
+        return
+    offer = dict(offers[index])
+    await state.set_state(SimTopupFlow.confirming_purchase)
+    await state.update_data(sim_selected_offer=offer)
+    if callback.message:
+        await _safe_edit_message(callback.message, _sim_offer_summary_text(offer, lang=lang), reply_markup=_sim_summary_keyboard(lang))
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "simtopup:back:offers")
+async def sim_topup_back_to_offers(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    offers = list((await state.get_data()).get("sim_offers") or [])
+    await state.set_state(SimTopupFlow.choosing_offer)
+    await _sim_render_offers(callback=callback, state=state, lang=lang, offers=offers)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "simtopup:buy")
+async def sim_topup_buy(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
+    data = await state.get_data()
+    offer = dict(data.get("sim_selected_offer") or {})
+    if not offer:
+        return await callback.answer(_sim_text(lang, "No offer selected.", "لا يوجد عرض محدد."), show_alert=True)
+    client = ZenditClient()
+    if not client.configured():
+        return await callback.answer(_sim_text(lang, "Zendit is not configured yet.", "Zendit غير مضبوط بعد."), show_alert=True)
+    reseller_id = await get_store_owner_scope_for_bot(callback.bot.id)
+    if not reseller_id:
+        return await callback.answer(t(lang, "store_reseller_not_linked"), show_alert=True)
+    phone = str(data.get("sim_phone") or "").strip()
+    offer_id = str(offer.get("offerId") or offer.get("id") or "").strip()
+    if not phone or not offer_id:
+        return await callback.answer(_sim_text(lang, "Missing top-up data.", "بيانات الشحن ناقصة."), show_alert=True)
+
+    cost_price = float(_money_decimal(offer.get("_cost_price_usd") or _sim_offer_price_usd(offer)))
+    sale_price = float(_money_decimal(offer.get("_sale_price_usd") or _apply_markup_decimal(cost_price, await _resolve_digital_products_markup_percent())))
+    order, err = await _core_charge(
+        user_id=int(callback.from_user.id),
+        reseller_id=int(reseller_id),
+        service_ref_id=f"zendit:{offer_id}",
+        sale_price=sale_price,
+        cost_price=cost_price,
+    )
+    if not order or err:
+        return await callback.answer(err or t(lang, "purchase_failed_plain"), show_alert=True)
+
+    await callback.answer(t(lang, "processing_order"), show_alert=False)
+    transaction_id = f"zendit-{uuid4().hex}"
+    status, payload = await client.purchase_topup(
+        offer_id=offer_id,
+        recipient_phone_number=phone,
+        transaction_id=transaction_id,
+    )
+    await update_order_details(
+        order["_id"],
+        {
+            "provider_code": "zendit",
+            "provider_order_id": transaction_id,
+            "provider_response": payload,
+            "number_mode": "digital_products",
+            "delivery_type": "sim_topup",
+            "sim_phone": phone,
+            "sim_country_code": str(data.get("sim_country_code") or ""),
+            "sim_brand_name": str(data.get("sim_brand_name") or ""),
+            "sim_section_kind": str(data.get("sim_section_kind") or ""),
+        },
+    )
+    if status not in {200, 201}:
+        await _core_refund(
+            user_id=int(callback.from_user.id),
+            reseller_id=int(reseller_id),
+            order=order,
+            sale_price=sale_price,
+            cost_price=cost_price,
+        )
+        error_text = _extract_provider_error(payload)
+        await update_order_details(order["_id"], {"provider_error": error_text})
+        return await callback.answer(
+            _sim_text(lang, "Top-up failed and the amount was refunded.", "فشل الشحن وتمت إعادة المبلغ."),
+            show_alert=True,
+        )
+
+    tx_status, tx_payload = await client.get_topup_transaction(transaction_id)
+    await update_order_details(order["_id"], {"provider_status_response": tx_payload, "provider_http_status": tx_status})
+    provider_state = _norm(str((tx_payload or {}).get("status") or (tx_payload or {}).get("state") or ""))
+    if provider_state in {"failed", "rejected", "cancelled", "canceled"}:
+        await _core_refund(
+            user_id=int(callback.from_user.id),
+            reseller_id=int(reseller_id),
+            order=order,
+            sale_price=sale_price,
+            cost_price=cost_price,
+        )
+        return await callback.answer(
+            _sim_text(lang, "Top-up failed and the amount was refunded.", "فشل الشحن وتمت إعادة المبلغ."),
+            show_alert=True,
+        )
+
+    await update_order_status(order["_id"], "success" if provider_state in {"complete", "completed", "success", "successful"} else "paid")
+    balance = await get_user_wallet_balance(callback.from_user.id, int(reseller_id))
+    lines = [
+        t(lang, "purchase_complete_plain"),
+        f"{_sim_text(lang, 'Phone', 'الرقم')}: {phone}",
+        f"{_sim_text(lang, 'Operator', 'المشغل')}: {str(data.get('sim_brand_name') or data.get('sim_brand_key') or '-').strip()}",
+        _sim_offer_send_label(offer, lang=lang),
+        f"{t(lang, 'price_label')}: {format_usd(float(_money_decimal(sale_price)))}",
+        f"{t(lang, 'store_order_label')}: {order.get('_id')}",
+        f"{t(lang, 'store_provider_ref_label')}: {transaction_id}",
+        f"{t(lang, 'store_balance_label')}: {format_usd(float(balance or 0.0))}",
+    ]
+    if callback.message:
+        await _safe_edit_message(callback.message, "\n".join(lines), reply_markup=_sim_success_keyboard(lang))
+    await callback.answer()
 
 
 @router.message(lambda m: _is_esim_trigger(m.text))

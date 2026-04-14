@@ -44,10 +44,7 @@ def digital_products_main_menu(lang: str) -> ReplyKeyboardMarkup:
             KeyboardButton(text=t(lang, "btn_games_topups")),
             KeyboardButton(text=t(lang, "btn_giftcards")),
         ],
-        [
-            KeyboardButton(text=t(lang, "btn_mobile_topups")),
-            KeyboardButton(text=t(lang, "btn_esim")),
-        ],
+        [KeyboardButton(text=t(lang, "btn_sim_topup"))],
         [
             KeyboardButton(text=t(lang, "btn_balance")),
             KeyboardButton(text=t(lang, "btn_settings")),

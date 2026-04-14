@@ -125,6 +125,8 @@ class Settings(BaseSettings):
     esim_access_code: Optional[str] = None
     esim_access_secret_key: Optional[str] = None
     esim_access_catalog_cache_ttl_sec: int = 600
+    zendit_api_base: str = "https://api.zendit.io/v1"
+    zendit_api_token: Optional[str] = None
     reloadly_client_id: Optional[str] = None
     reloadly_client_secret: Optional[str] = None
     g2bulk_catalog_cache_ttl_sec: int = 120
