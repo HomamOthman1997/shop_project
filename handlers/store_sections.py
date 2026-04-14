@@ -305,6 +305,33 @@ _ISO3166_FALLBACK = {
     "US": "United States",
     "VN": "Vietnam",
 }
+_PHONE_PREFIX_COUNTRY_MAP: list[tuple[str, str]] = [
+    ("+971", "AE"),
+    ("+966", "SA"),
+    ("+965", "KW"),
+    ("+964", "IQ"),
+    ("+963", "SY"),
+    ("+962", "JO"),
+    ("+961", "LB"),
+    ("+970", "PS"),
+    ("+90", "TR"),
+    ("+380", "UA"),
+    ("+357", "CY"),
+    ("+20", "EG"),
+    ("+91", "IN"),
+    ("+62", "ID"),
+    ("+60", "MY"),
+    ("+66", "TH"),
+    ("+65", "SG"),
+    ("+82", "KR"),
+    ("+81", "JP"),
+    ("+44", "GB"),
+    ("+49", "DE"),
+    ("+33", "FR"),
+    ("+39", "IT"),
+    ("+30", "GR"),
+    ("+1", "US"),
+]
 _SIM_TOPUP_CACHE: dict[str, Any] = {
     "countries_balance": {"expires_at": 0.0, "rows": []},
     "countries_data": {"expires_at": 0.0, "rows": []},
@@ -341,6 +368,14 @@ def _sim_country_display_name(country_code: str) -> str:
 def _sim_country_token(country_code: str) -> str:
     code = str(country_code or "").strip().upper()
     return f"{_SIM_COUNTRY_TOKEN_PREFIX}{code}"
+
+
+def _sim_country_from_phone(phone: str) -> str:
+    raw = str(phone or "").strip()
+    for prefix, code in _PHONE_PREFIX_COUNTRY_MAP:
+        if raw.startswith(prefix):
+            return code
+    return ""
 
 
 def _sim_offer_price_usd(row: dict[str, Any]) -> Decimal:
@@ -532,7 +567,7 @@ async def _sim_fetch_offers(country_code: str, section: str, brand: str | None =
 def _sim_country_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=_sim_text(lang, "🌍 Choose Country", "🌍 اختر دولة"), switch_inline_query_current_chat=f"{_SIM_COUNTRY_INLINE_PREFIX} ")],
+            [InlineKeyboardButton(text=_sim_text(lang, "🌍 Choose Country", "🌍 اختر دولة"), switch_inline_query_current_chat=_SIM_COUNTRY_INLINE_PREFIX)],
             [InlineKeyboardButton(text=t(lang, "back"), callback_data="simtopup:back:phone")],
             [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")],
         ]
@@ -2153,6 +2188,8 @@ async def sim_topup_collect_phone(message: types.Message, state: FSMContext):
             country_code = str(lookup.get("country") or lookup.get("countryCode") or lookup.get("iso2") or "").strip().upper()
             brand_key = str(lookup.get("brand") or lookup.get("operatorCode") or lookup.get("operatorId") or "").strip()
             brand_name = str(lookup.get("brandName") or lookup.get("operatorName") or lookup.get("brand") or "").strip()
+    if not country_code:
+        country_code = _sim_country_from_phone(phone)
     if len(country_code) == 2:
         await state.update_data(sim_country_code=country_code)
         if brand_key:
@@ -2164,6 +2201,20 @@ async def sim_topup_collect_phone(message: types.Message, state: FSMContext):
                 await state.update_data(sim_brand_key=brand_key, sim_brand_name=brand_name or brand_key, sim_offers=prepared)
                 await _sim_render_offers(message=message, state=state, lang=lang, offers=prepared)
                 return
+        brands = await _sim_country_brands(country_code, str((await state.get_data()).get("sim_section_kind") or ""))
+        if not brands:
+            await state.set_state(SimTopupFlow.choosing_country)
+            await _sim_render_country_prompt(
+                message=message,
+                state=state,
+                lang=lang,
+                note=_sim_text(
+                    lang,
+                    f"Detected country: {_sim_country_display_name(country_code)}. This provider does not seem to have available offers for it right now. Choose another country if needed.",
+                    f"تم التعرف على الدولة: {_sim_country_display_name(country_code)}. يبدو أن هذا المزود لا يملك عروضًا متاحة لها حاليًا. اختر دولة أخرى عند الحاجة.",
+                ),
+            )
+            return
         await _sim_render_brand_prompt(message=message, state=state, lang=lang, country_code=country_code, section=str((await state.get_data()).get("sim_section_kind") or ""))
         return
 
