@@ -730,6 +730,13 @@ async def _sim_render_brand_prompt(*, message: types.Message | None = None, call
     brands = await _sim_country_brands(country_code, section)
     country_name = _sim_country_display_name(country_code)
     if not brands:
+        direct_offers = await _sim_fetch_offers(country_code, section, brand=None)
+        if direct_offers:
+            prepared = _sim_prepare_offers(direct_offers, section=section, markup_percent=_resolve_physical_sim_markup_percent(section))
+            await state.set_state(SimTopupFlow.choosing_offer)
+            await state.update_data(sim_brand_key="", sim_brand_name=_sim_text(lang, "All operators", "كل المشغلين"), sim_offers=prepared, sim_selected_offer=None)
+            await _sim_render_offers(message=message, callback=callback, state=state, lang=lang, offers=prepared)
+            return
         text = _sim_text(
             lang,
             f"No operators were found for {country_name}. Choose another country.",
@@ -2262,6 +2269,14 @@ async def sim_topup_collect_phone(message: types.Message, state: FSMContext):
                 await state.update_data(sim_brand_key=brand_key, sim_brand_name=brand_name or brand_key, sim_offers=prepared)
                 await _sim_render_offers(message=message, state=state, lang=lang, offers=prepared)
                 return
+        direct_offers = await _sim_fetch_offers(country_code, str((await state.get_data()).get("sim_section_kind") or ""), brand=None)
+        if direct_offers:
+            markup_percent = _resolve_physical_sim_markup_percent(str((await state.get_data()).get("sim_section_kind") or ""))
+            prepared = _sim_prepare_offers(direct_offers, section=str((await state.get_data()).get("sim_section_kind") or ""), markup_percent=markup_percent)
+            await state.set_state(SimTopupFlow.choosing_offer)
+            await state.update_data(sim_brand_key="", sim_brand_name=_sim_text(lang, "All operators", "كل المشغلين"), sim_offers=prepared, sim_selected_offer=None)
+            await _sim_render_offers(message=message, state=state, lang=lang, offers=prepared)
+            return
         brands = await _sim_country_brands(country_code, str((await state.get_data()).get("sim_section_kind") or ""))
         if not brands:
             await state.set_state(SimTopupFlow.choosing_country)
