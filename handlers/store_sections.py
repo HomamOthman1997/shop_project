@@ -313,10 +313,17 @@ _PHONE_PREFIX_COUNTRY_MAP: list[tuple[str, str]] = [
     ("+963", "SY"),
     ("+962", "JO"),
     ("+961", "LB"),
+    ("+968", "OM"),
+    ("+967", "YE"),
+    ("+974", "QA"),
+    ("+973", "BH"),
     ("+970", "PS"),
     ("+90", "TR"),
     ("+380", "UA"),
     ("+357", "CY"),
+    ("+216", "TN"),
+    ("+212", "MA"),
+    ("+213", "DZ"),
     ("+20", "EG"),
     ("+91", "IN"),
     ("+62", "ID"),
@@ -488,7 +495,22 @@ async def _sim_search_countries(section: str, query: str, limit: int = 20) -> li
         rows.append({"code": code, "name": name})
     if not q:
         rows.sort(key=lambda item: item["name"])
+    else:
+        rows.sort(key=lambda item: (0 if _norm(item["name"]).startswith(q) or _norm(item["code"]).startswith(q) else 1, item["name"]))
     return rows[:limit]
+
+
+async def _sim_country_matches(query: str, *, limit: int = 8) -> list[dict[str, str]]:
+    q = _norm(query)
+    if not q:
+        return []
+    rows = await _sim_search_countries("all", q, limit=limit)
+    if rows:
+        return rows
+    direct_code = str(query or "").strip().upper()
+    if len(direct_code) == 2:
+        return [{"code": direct_code, "name": _sim_country_display_name(direct_code)}]
+    return []
 
 
 async def _sim_country_brands(country_code: str, section: str) -> list[dict[str, str]]:
@@ -567,7 +589,7 @@ async def _sim_fetch_offers(country_code: str, section: str, brand: str | None =
 def _sim_country_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=_sim_text(lang, "🌍 Choose Country", "🌍 اختر دولة"), switch_inline_query_current_chat=_SIM_COUNTRY_INLINE_PREFIX)],
+            [InlineKeyboardButton(text=_sim_text(lang, "🌍 Choose Country", "🌍 اختر دولة"), switch_inline_query_current_chat=f"{_SIM_COUNTRY_INLINE_PREFIX} ")],
             [InlineKeyboardButton(text=t(lang, "back"), callback_data="simtopup:back:phone")],
             [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:menu")],
         ]
@@ -680,8 +702,8 @@ async def _sim_render_phone_prompt(*, message: types.Message | None = None, call
 async def _sim_render_country_prompt(*, message: types.Message | None = None, callback: types.CallbackQuery | None = None, state: FSMContext, lang: str, note: str | None = None) -> None:
     text = _sim_text(
         lang,
-        "Choose the SIM country.",
-        "اختر دولة الشريحة.",
+        "Choose the SIM country.\nYou can use the button below or send the country name/code directly.",
+        "اختر دولة الشريحة.\nيمكنك استخدام الزر أدناه أو إرسال اسم الدولة/رمزها مباشرة.",
     )
     if note:
         text += f"\n\n{note}"
@@ -2272,13 +2294,36 @@ async def inline_sim_country_search(iq: types.InlineQuery):
 
 @router.message(SimTopupFlow.choosing_country)
 async def sim_topup_pick_country(message: types.Message, state: FSMContext):
-    raw = str(message.text or "").strip()
-    if not raw.startswith(_SIM_COUNTRY_TOKEN_PREFIX):
-        return
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
-    code = raw[len(_SIM_COUNTRY_TOKEN_PREFIX):].strip().upper()
+    raw = str(message.text or "").strip()
+    code = ""
+    if raw.startswith(_SIM_COUNTRY_TOKEN_PREFIX):
+        code = raw[len(_SIM_COUNTRY_TOKEN_PREFIX):].strip().upper()
+    else:
+        matches = await _sim_country_matches(raw, limit=6)
+        if len(matches) == 1:
+            code = str(matches[0].get("code") or "").strip().upper()
+        elif len(matches) > 1:
+            lines = [_sim_text(lang, "Multiple countries matched. Send one of these names/codes:", "وجدت أكثر من دولة مطابقة. أرسل أحد هذه الأسماء/الرموز:")]
+            lines.extend([f"- {row.get('name')} ({row.get('code')})" for row in matches])
+            await _sim_edit_anchor(message=message, state=state, text="\n".join(lines), reply_markup=_sim_country_keyboard(lang))
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            return
     if len(code) != 2:
+        await _sim_edit_anchor(
+            message=message,
+            state=state,
+            text=_sim_text(lang, "Country not recognized. Send the country name/code or use the button below.", "لم أتعرف على الدولة. أرسل اسم الدولة/رمزها أو استخدم الزر أدناه."),
+            reply_markup=_sim_country_keyboard(lang),
+        )
+        try:
+            await message.delete()
+        except Exception:
+            pass
         return
     try:
         await message.delete()
