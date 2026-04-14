@@ -1062,9 +1062,9 @@ async def _resolve_usd_to_syp_rate(bot_id: int) -> float:
 
 async def _resolve_digital_products_markup_percent() -> float:
     try:
-        return float(await get_digital_products_markup_percent(2.0))
+        return float(await get_digital_products_markup_percent(7.0))
     except Exception:
-        return 2.0
+        return 7.0
 
 
 def _fmt_dual_price(usd: float, usd_to_syp_rate: float) -> str:
