@@ -361,8 +361,22 @@ def _sim_text(lang: str, en_text: str, ar_text: str) -> str:
     return ar_text if str(lang or "en").lower().startswith("ar") else en_text
 
 
+def _sim_allowed_subtypes(section: str) -> set[str]:
+    if str(section or "").strip().lower() == "data":
+        return {"mobile bundle", "mobile data"}
+    return {"mobile top up"}
+
+
 def _sim_subtype(section: str) -> str:
     return "Mobile Bundle" if str(section or "").strip().lower() == "data" else "Mobile Top Up"
+
+
+def _sim_row_matches_section(row: dict[str, Any], section: str) -> bool:
+    allowed = _sim_allowed_subtypes(section)
+    subtypes = [str(item or "").strip().lower() for item in list(row.get("subTypes") or [])]
+    if not subtypes:
+        return False
+    return any(item in allowed for item in subtypes)
 
 
 def _sim_country_display_name(country_code: str) -> str:
@@ -465,19 +479,19 @@ async def _sim_fetch_country_codes(section: str) -> list[str]:
     if not client.configured():
         return []
 
-    subtype = _sim_subtype(section)
     codes: set[str] = set()
     limit = 1024
     offset = 0
     total = None
     while total is None or offset < int(total or 0):
-        status, payload = await client.list_topup_offers(limit=limit, offset=offset, sub_type=subtype)
+        status, payload = await client.list_topup_offers(limit=limit, offset=offset)
         if status != 200 or not isinstance(payload, dict):
             break
-        rows = [row for row in list(payload.get("list") or []) if isinstance(row, dict)]
+        rows = [row for row in list(payload.get("list") or []) if isinstance(row, dict) and _sim_row_matches_section(row, section)]
         total = int(payload.get("total") or 0)
         if not rows:
-            break
+            offset += limit
+            continue
         for row in rows:
             code = str(row.get("country") or "").strip().upper()
             if len(code) == 2:
@@ -533,7 +547,6 @@ async def _sim_country_brands(country_code: str, section: str) -> list[dict[str,
     client = ZenditClient()
     if not client.configured():
         return []
-    subtype = _sim_subtype(section)
     brands: dict[str, str] = {}
     limit = 1024
     offset = 0
@@ -543,14 +556,14 @@ async def _sim_country_brands(country_code: str, section: str) -> list[dict[str,
             limit=limit,
             offset=offset,
             country=str(country_code or "").upper(),
-            sub_type=subtype,
         )
         if status != 200 or not isinstance(payload, dict):
             break
-        rows = [row for row in list(payload.get("list") or []) if isinstance(row, dict)]
+        rows = [row for row in list(payload.get("list") or []) if isinstance(row, dict) and _sim_row_matches_section(row, section)]
         total = int(payload.get("total") or 0)
         if not rows:
-            break
+            offset += limit
+            continue
         for row in rows:
             key = str(row.get("brand") or "").strip()
             label = str(row.get("brandName") or row.get("brand") or "").strip()
@@ -581,17 +594,15 @@ async def _sim_fetch_offers(country_code: str, section: str, brand: str | None =
     client = ZenditClient()
     if not client.configured():
         return []
-    subtype = _sim_subtype(section)
     status, payload = await client.list_topup_offers(
         limit=200,
         offset=0,
         country=str(country_code or "").upper(),
         brand=brand or None,
-        sub_type=subtype,
     )
     if status != 200 or not isinstance(payload, dict):
         return []
-    rows = [row for row in list(payload.get("list") or []) if isinstance(row, dict)]
+    rows = [row for row in list(payload.get("list") or []) if isinstance(row, dict) and _sim_row_matches_section(row, section)]
     filtered = [row for row in rows if str(row.get("priceType") or "FIXED").strip().upper() == "FIXED"]
     filtered.sort(key=lambda row: (_sim_offer_price_usd(row), _norm(str(row.get("brandName") or row.get("brand")))))
     return filtered
