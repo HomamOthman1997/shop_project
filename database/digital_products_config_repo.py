@@ -14,7 +14,7 @@ def _sanitize_percent(value: float) -> float:
     return max(0.0, min(500.0, pct))
 
 
-async def get_digital_products_markup_percent(default_value: float = 7.0) -> float:
+async def get_digital_products_markup_percent(default_value: float = 3.0) -> float:
     doc = await db.system_settings.find_one({"_id": _DOC_ID}, {"markup_percent": 1})
     if not doc or doc.get("markup_percent") is None:
         return _sanitize_percent(default_value)
