@@ -87,35 +87,16 @@ def proxy_search_kb(
     quick_location_options: list[tuple[str, str]] | None = None,
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
+    def _append_grid(options: list[tuple[str, str]], *, cols: int = 3, limit: int = 60) -> None:
+        cleaned = _clean_labeled_options(options)[:limit]
+        for idx in range(0, len(cleaned), cols):
+            pair = cleaned[idx : idx + cols]
+            rows.append([InlineKeyboardButton(text=label, callback_data=value) for label, value in pair])
 
     if not country:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=t(lang, "proxy_search_country"),
-                    switch_inline_query_current_chat="proxy country ",
-                    style="primary",
-                )
-            ]
-        )
-        options = _clean_labeled_options(quick_country_options)
-        for idx in range(0, min(len(options), 4), 2):
-            pair = options[idx : idx + 2]
-            rows.append([InlineKeyboardButton(text=label, callback_data=value) for label, value in pair])
+        _append_grid(quick_country_options, cols=3)
     elif (require_state and not state) or (require_city and not city) or (country and not state and not city and not can_list):
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=t(lang, "proxy_search_state_city"),
-                    switch_inline_query_current_chat=f'proxy state "{country}" ',
-                    style="primary",
-                )
-            ]
-        )
-        options = _clean_labeled_options(quick_location_options)
-        for idx in range(0, min(len(options), 6), 2):
-            pair = options[idx : idx + 2]
-            rows.append([InlineKeyboardButton(text=label, callback_data=value) for label, value in pair])
+        _append_grid(quick_location_options, cols=3)
     elif can_list:
         rows.append([InlineKeyboardButton(text=t(lang, "proxy_list_offers"), callback_data="proxy:list")])
 

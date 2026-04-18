@@ -265,7 +265,7 @@ def _quick_country_options(data: dict) -> list[tuple[str, str]]:
             continue
         counts[country] = counts.get(country, 0) + 1
     ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0].lower()))
-    return [(country, f"proxy:quick_country:{encode_token(country)}") for country, _count in ranked[:4]]
+    return [(country, f"proxy:quick_country:{encode_token(country)}") for country, _count in ranked]
 
 
 def _quick_location_options(data: dict) -> list[tuple[str, str]]:
@@ -281,7 +281,7 @@ def _quick_location_options(data: dict) -> list[tuple[str, str]]:
         counts[location] = counts.get(location, 0) + 1
     ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0].lower()))
     country_token = encode_token(country)
-    return [(location, f"proxy:quick_state:{country_token}:{encode_token(location)}") for location, _count in ranked[:8]]
+    return [(location, f"proxy:quick_state:{country_token}:{encode_token(location)}") for location, _count in ranked]
 
 
 def _available_proxy_provider_options(data: dict) -> list[tuple[str, str]]:
