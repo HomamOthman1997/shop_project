@@ -94,9 +94,46 @@ def proxy_search_kb(
             rows.append([InlineKeyboardButton(text=label, callback_data=value) for label, value in pair])
 
     if not country:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=t(lang, "proxy_search_country"),
+                    switch_inline_query_current_chat="proxy country ",
+                    style="primary",
+                )
+            ]
+        )
         _append_grid(quick_country_options, cols=3)
-    elif (require_state and not state) or (require_city and not city) or (country and not state and not city and not can_list):
-        _append_grid(quick_location_options, cols=3)
+    elif (require_state and not state) or (require_city and not city):
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=t(lang, "proxy_search_state_city"),
+                    switch_inline_query_current_chat=f'proxy state "{country}" ',
+                    style="primary",
+                )
+            ]
+        )
+    elif not protocol and protocol_options:
+        _append_grid(
+            [(label, f"proxy:set_protocol:{encode_token(value)}") for label, value in _clean_labeled_options(protocol_options)],
+            cols=1,
+        )
+    elif not provider and provider_options:
+        _append_grid(
+            [(label, f"proxy:set_provider:{encode_token(value)}") for label, value in _clean_labeled_options(provider_options)],
+            cols=1,
+        )
+    elif not period and period_options:
+        _append_grid(
+            [(label, f"proxy:set_period:{encode_token(value)}") for label, value in _clean_labeled_options(period_options)],
+            cols=1,
+        )
+    elif not duration and duration_options:
+        _append_grid(
+            [(label, f"proxy:set_duration:{encode_token(value)}") for label, value in _clean_labeled_options(duration_options)],
+            cols=1,
+        )
     elif can_list:
         rows.append([InlineKeyboardButton(text=t(lang, "proxy_list_offers"), callback_data="proxy:list")])
 
