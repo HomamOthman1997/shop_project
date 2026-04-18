@@ -217,7 +217,7 @@ def _filter_proxy_offers(data: dict) -> list[dict]:
     return [
         row for row in scoped
         if _offer_location_value(row).lower() == lowered
-    )
+    ]
 
 
 def _state_required(data: dict) -> bool:
