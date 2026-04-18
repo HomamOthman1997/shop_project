@@ -122,29 +122,6 @@ def proxy_search_kb(
                 )
             ]
         )
-    elif not protocol:
-        options = _clean_labeled_options(protocol_options)
-        options.sort(key=lambda item: (0 if item[1].strip().lower() == "http" else 1, item[0].lower()))
-        for label, value in options[:20]:
-            rows.append([InlineKeyboardButton(text=label, callback_data=f"proxy:set_protocol:{encode_token(value)}")])
-    elif not provider:
-        options = _clean_labeled_options(provider_options)
-        for label, value in options[:20]:
-            rows.append([InlineKeyboardButton(text=label, callback_data=f"proxy:set_provider:{encode_token(value)}")])
-    elif not period:
-        options = _clean_labeled_options(period_options)
-        for label, value in options[:20]:
-            rows.append([InlineKeyboardButton(text=label, callback_data=f"proxy:set_period:{encode_token(value)}")])
-    elif not duration and any((duration_options or [])):
-        options = _clean_labeled_options(duration_options)
-        for idx in range(0, min(len(options), 20), 2):
-            pair = options[idx : idx + 2]
-            rows.append(
-                [
-                    InlineKeyboardButton(text=label, callback_data=f"proxy:set_duration:{encode_token(value)}")
-                    for label, value in pair
-                ]
-            )
     elif can_list:
         rows.append([InlineKeyboardButton(text=t(lang, "proxy_list_offers"), callback_data="proxy:list")])
 
@@ -172,15 +149,10 @@ def proxy_period_kb(periods: list[str], lang: str) -> InlineKeyboardMarkup:
 
 def proxy_offers_kb(offers: list[dict], lang: str, protocol: str | None = None) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    buttons: list[InlineKeyboardButton] = []
     for idx, offer in enumerate(offers[:20]):
         raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
-        wanted_protocol = str(protocol or offer.get("protocol") or "http").strip().lower()
-        port_value = raw.get("socks_port") if wanted_protocol == "socks" else raw.get("http_port")
-        port_text = str(port_value or offer.get("offer_id") or "-").strip()
-        buttons.append(InlineKeyboardButton(text=f"Port: {port_text}", callback_data=f"proxy:offer:{idx}"))
-    for idx in range(0, len(buttons), 2):
-        rows.append(buttons[idx : idx + 2])
+        button_text = str(raw.get("button_label") or offer.get("title") or offer.get("offer_id") or "-").strip()
+        rows.append([InlineKeyboardButton(text=button_text, callback_data=f"proxy:offer:{idx}")])
     rows.extend(_nav_rows(lang, back_callback="proxy:back_step"))
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

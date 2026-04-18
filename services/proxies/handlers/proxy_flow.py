@@ -208,8 +208,6 @@ def _filter_proxy_offers(data: dict) -> list[dict]:
         country=data.get("proxy_country"),
         state=data.get("proxy_state") if mode == "state" else None,
         city=data.get("proxy_city") if mode == "city" else None,
-        carrier=data.get("proxy_provider"),
-        period=data.get("proxy_period"),
     )
 
 
@@ -241,27 +239,13 @@ def _available_proxy_providers(data: dict) -> list[str]:
 
 
 def _available_proxy_protocols(data: dict) -> list[str]:
-    mode = _location_mode(data)
-    offers = filter_offers(
-        data.get("proxy_catalog") or get_offers_cache(),
-        country=data.get("proxy_country"),
-        state=data.get("proxy_state") if mode == "state" else None,
-        city=data.get("proxy_city") if mode == "city" else None,
-    )
-    values = sorted(
-        {
-            str(protocol).strip().lower()
-            for row in offers
-            for protocol in (row.get("raw") or {}).get("protocol_options", ["http", "socks"])
-            if str(protocol).strip()
-        }
-    )
-    return values or ["http", "socks"]
+    _ = data
+    return []
 
 
 def _available_proxy_protocol_options(data: dict, lang: str) -> list[tuple[str, str]]:
-    labels = {"http": "HTTP", "socks": "SOCKS"}
-    return [(labels.get(value, value.upper()), value) for value in _available_proxy_protocols(data)]
+    _ = data, lang
+    return []
 
 
 def _quick_country_options(data: dict) -> list[tuple[str, str]]:
@@ -446,7 +430,6 @@ def _offers_with_duration_price(data: dict, offers: list[dict]) -> list[dict]:
                 item["duration_label"] = str(duration.get("label") or duration_value)
                 item["duration_value"] = duration_value
             break
-        item["protocol"] = str(data.get("proxy_protocol") or "http")
         out.append(item)
     return out
 
@@ -491,7 +474,6 @@ def _proxy_offer_text(lang: str, offer: dict, protocol: str | None, *, include_d
     city = str(offer.get("city") or "Any").strip()
     location = state if city in {"", "Any", state} else city if state in {"", "Any"} else f"{state} / {city}"
     period = str(offer.get("period") or "-").strip()
-    protocol_text = str(protocol or offer.get("protocol") or "http").upper()
     lines: list[str]
     if str(lang).lower().startswith("ar"):
         lines = [
@@ -500,7 +482,6 @@ def _proxy_offer_text(lang: str, offer: dict, protocol: str | None, *, include_d
             f"المزوّد: {carrier}",
             f"الدولة: {country}",
             f"الولاية/المدينة: {location}",
-            f"البروتوكول: {protocol_text}",
             f"الروتيشن: {period}",
         ]
         if include_duration:
@@ -518,7 +499,6 @@ def _proxy_offer_text(lang: str, offer: dict, protocol: str | None, *, include_d
             f"Carrier: {carrier}",
             f"Country: {country}",
             f"State/City: {location}",
-            f"Protocol: {protocol_text}",
             f"Rotation: {period}",
         ]
         if include_duration:
@@ -538,12 +518,6 @@ def _proxy_selection_ready(data: dict) -> bool:
     if _state_required(data) and not data.get("proxy_state"):
         return False
     if _city_required(data) and not data.get("proxy_city"):
-        return False
-    if not data.get("proxy_protocol"):
-        return False
-    if not data.get("proxy_provider"):
-        return False
-    if not data.get("proxy_period"):
         return False
     return True
 
@@ -747,6 +721,8 @@ def _proxy_manage_reconfigure_mode(data: dict) -> bool:
 def _order_detail_text(lang: str, order: dict) -> str:
     provider = provider_public_id(order.get("provider"))
     endpoint = str(order.get("proxy_endpoint") or "-")
+    http_endpoint = str(order.get("proxy_http_endpoint") or "").strip()
+    socks5_endpoint = str(order.get("proxy_socks5_endpoint") or "").strip()
     username = str(order.get("proxy_username") or "-")
     password = str(order.get("proxy_password") or "-")
     expires = str(order.get("proxy_expires_at") or "-")
@@ -757,10 +733,25 @@ def _order_detail_text(lang: str, order: dict) -> str:
     quality = order.get("proxy_last_quality") if isinstance(order.get("proxy_last_quality"), dict) else {}
     quality_decision = str(quality.get("decision") or "-")
     quality_reason = str(quality.get("reason") or "-")
+    endpoint_lines: list[str] = []
+    if http_endpoint or socks5_endpoint:
+        if str(lang).lower().startswith("ar"):
+            if http_endpoint:
+                endpoint_lines.append(f"HTTP: {http_endpoint}")
+            if socks5_endpoint:
+                endpoint_lines.append(f"SOCKS5: {socks5_endpoint}")
+        else:
+            if http_endpoint:
+                endpoint_lines.append(f"HTTP: {http_endpoint}")
+            if socks5_endpoint:
+                endpoint_lines.append(f"SOCKS5: {socks5_endpoint}")
+    else:
+        endpoint_lines.append(t(lang, "proxy_endpoint_line").format(endpoint=endpoint))
+    endpoint_block = "\n".join(endpoint_lines)
     return (
         f"{t(lang, 'proxy_order_details')}\n\n"
         f"{t(lang, 'proxy_provider_line').format(provider=provider)}\n"
-        f"{t(lang, 'proxy_endpoint_line').format(endpoint=endpoint)}\n"
+        f"{endpoint_block}\n"
         f"{t(lang, 'proxy_username_line').format(username=username)}\n"
         f"{t(lang, 'proxy_password_line').format(password=password)}\n"
         f"{t(lang, 'proxy_expires_line').format(expires=expires)}\n"
@@ -920,55 +911,43 @@ async def _render_proxy_panel(message: types.Message, state: FSMContext):
     country = data.get("proxy_country")
     state_name = data.get("proxy_state")
     city_name = data.get("proxy_city")
-    protocol = data.get("proxy_protocol")
-    provider = data.get("proxy_provider")
-    period = data.get("proxy_period")
     filtered = _filter_proxy_offers(data)
+    filtered = await _sort_offers_by_low_usage(filtered)
     await state.update_data(proxy_filtered=filtered)
     require_state = _state_required(data)
     require_city = _city_required(data)
     location_ready = country and not (require_state and not state_name) and not (require_city and not city_name)
-    protocol_options = _available_proxy_protocol_options(data, lang) if location_ready and not protocol else []
-    provider_options = _available_proxy_provider_options(data) if location_ready and protocol and not provider else []
-    period_options = _available_proxy_period_options(data) if provider and not period else []
-    duration_options = _available_proxy_duration_options(data) if period and not data.get("proxy_duration_value") else []
     if not country:
         hint = t(lang, "proxy_step_country")
     elif require_state and not state_name:
         hint = t(lang, "proxy_step_location")
     elif require_city and not city_name:
         hint = t(lang, "proxy_step_location")
-    elif not protocol:
-        hint = t(lang, "proxy_step_protocol")
-    elif not provider:
-        hint = t(lang, "proxy_step_provider")
-    elif not period:
-        hint = t(lang, "proxy_step_rotation")
     else:
         hint = t(lang, "proxy_step_list")
     if _proxy_manage_reconfigure_mode(data):
         text = f"{t(lang, 'proxy_panel_title')}\n\n{t(lang, 'proxy_reconfigure_hint')}\n\n{hint}"
     else:
         text = f"{t(lang, 'proxy_panel_title')}\n\n{hint}"
-    kb = proxy_search_kb(
-        lang,
-        country=country,
-        state=state_name,
-        city=city_name,
-        protocol=protocol,
-        provider=provider,
-        period=period,
-        duration=None,
-        require_state=require_state,
-        require_city=require_city,
-        can_list=_proxy_selection_ready(data),
-        protocol_options=protocol_options,
-        provider_options=provider_options,
-        period_options=period_options,
-        duration_options=[],
-        quick_country_options=_quick_country_options(data),
-        quick_location_options=_quick_location_options(data),
-    )
+    if location_ready:
+        text = (
+            f"{t(lang, 'proxy_offers_title')}\n\n"
+            f"{t(lang, 'proxy_least_used_hint')}\n"
+            f"{_proxy_filters_text(lang, country, state_name, city_name)}"
+        )
+        kb = proxy_offers_kb(filtered, lang)
+    else:
+        kb = proxy_search_kb(
+            lang,
+            country=country,
+            state=state_name,
+            city=city_name,
+            require_state=require_state,
+            require_city=require_city,
+            can_list=_proxy_selection_ready(data),
+            quick_country_options=_quick_country_options(data),
+            quick_location_options=_quick_location_options(data),
+        )
 
     panel_msg_id = data.get("proxy_panel_msg")
     if panel_msg_id:
@@ -1351,36 +1330,7 @@ async def proxy_back_to_search(callback: types.CallbackQuery, state: FSMContext)
         await _render_proxy_entry_menu(callback.message, state, lang)
         await state.set_state(ProxyFlow.menu)
         return
-    filtered = _filter_proxy_offers(data)
-    await state.update_data(proxy_filtered=filtered)
-
-    text = (
-        f"{t(lang, 'proxy_panel_title')}\n\n"
-        f"{t(lang, 'proxy_step_country') if not data.get('proxy_country') else t(lang, 'proxy_step_location') if ((_state_required(data) and not data.get('proxy_state')) or (_city_required(data) and not data.get('proxy_city'))) else t(lang, 'proxy_step_protocol') if not data.get('proxy_protocol') else t(lang, 'proxy_step_provider') if not data.get('proxy_provider') else t(lang, 'proxy_step_rotation') if not data.get('proxy_period') else t(lang, 'proxy_step_list')}"
-    )
-    await _safe_edit_text(
-        callback.message,
-        text,
-        reply_markup=proxy_search_kb(
-            lang,
-            country=data.get("proxy_country"),
-            state=data.get("proxy_state"),
-            city=data.get("proxy_city"),
-            protocol=data.get("proxy_protocol"),
-            provider=data.get("proxy_provider"),
-            period=data.get("proxy_period"),
-            duration=None,
-            require_state=_state_required(data),
-            require_city=_city_required(data),
-            can_list=_proxy_selection_ready(data),
-            protocol_options=_available_proxy_protocol_options(data, lang),
-            provider_options=_available_proxy_provider_options(data),
-            period_options=_available_proxy_period_options(data),
-            duration_options=[],
-            quick_country_options=_quick_country_options(data),
-            quick_location_options=_quick_location_options(data),
-        ),
-    )
+    await _render_proxy_panel(callback.message, state)
     await state.set_state(ProxyFlow.menu)
 
 
@@ -1505,46 +1455,7 @@ async def proxy_list_offers(callback: types.CallbackQuery, state: FSMContext):
 
     if not _proxy_selection_ready(data):
         return await callback.answer(t(lang, "proxy_complete_filters_first"), show_alert=True)
-
-    filtered = _filter_proxy_offers(data)
-    filtered = await _sort_offers_by_low_usage(filtered)
-    await state.update_data(proxy_filtered=filtered)
-
-    if not filtered:
-        return await _safe_edit_text(
-            callback.message,
-            t(lang, "proxy_no_filtered_offers"),
-            reply_markup=proxy_search_kb(
-                lang,
-                country=data.get("proxy_country"),
-                state=data.get("proxy_state"),
-                city=data.get("proxy_city"),
-                protocol=data.get("proxy_protocol"),
-                provider=data.get("proxy_provider"),
-                period=data.get("proxy_period"),
-                duration=None,
-                require_state=_state_required(data),
-                require_city=_city_required(data),
-                can_list=_proxy_selection_ready(data),
-                protocol_options=_available_proxy_protocol_options(data, lang),
-                provider_options=_available_proxy_provider_options(data),
-                period_options=_available_proxy_period_options(data),
-                duration_options=[],
-                quick_country_options=_quick_country_options(data),
-                quick_location_options=_quick_location_options(data),
-            ),
-        )
-
-    text = (
-        f"{t(lang, 'proxy_offers_title')}\n\n"
-        f"{t(lang, 'proxy_least_used_hint')}\n"
-        f"{_proxy_selection_text(lang, data)}"
-    )
-    await _safe_edit_text(
-        callback.message,
-        text,
-        reply_markup=proxy_offers_kb(filtered, lang, protocol=data.get("proxy_protocol")),
-    )
+    await _render_proxy_panel(callback.message, state)
     await state.set_state(ProxyFlow.offers)
 
 
@@ -1611,13 +1522,11 @@ async def proxy_offer_details(callback: types.CallbackQuery, state: FSMContext):
         f"{t(lang, 'proxy_country_line').format(country=offer.get('country'))}\n"
         f"{t(lang, 'proxy_state_line').format(state=offer.get('state'))}\n"
         f"{t(lang, 'proxy_city_line').format(city=offer.get('city'))}\n"
-        f"{t(lang, 'proxy_protocol_line').format(protocol=str(offer.get('protocol') or data.get('proxy_protocol') or 'http').upper())}\n"
         f"{t(lang, 'proxy_period_line').format(period=offer.get('period'))}\n"
         f"{t(lang, 'proxy_duration_line').format(duration=str(offer.get('duration_label') or data.get('proxy_duration_label') or '-'))}\n"
         f"{t(lang, 'proxy_billing_line').format(billing=offer.get('billing_type'))}\n"
         f"{t(lang, 'proxy_usage_count')}: {usage_count}\n"
         f"{t(lang, 'success_rate_short')}: {int(success_rate) if success_rate.is_integer() else f'{success_rate:.1f}'}%\n"
-        f"{t(lang, 'proxy_base_line').format(price=base_price)}\n"
         f"{t(lang, 'proxy_price_line').format(price=sale_price)}\n\n"
         f"{billing_note}\n"
         f"{quality_note}"
@@ -1721,7 +1630,9 @@ async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, 
             return
 
         endpoint = str(result.get("endpoint") or "")
-        quality = await verify_proxy_offer_delivery(endpoint)
+        http_endpoint = str(result.get("http_endpoint") or "").strip()
+        socks5_endpoint = str(result.get("socks5_endpoint") or "").strip()
+        quality = await verify_proxy_offer_delivery(http_endpoint or endpoint)
         if not quality.get("allowed"):
             quality_reason = str(quality.get("reason") or "quality_gate_failed")
             logger.warning(
@@ -1729,7 +1640,7 @@ async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, 
                 user_id,
                 order_id,
                 offer.get("provider"),
-                endpoint,
+                http_endpoint or endpoint,
                 quality.get("decision"),
                 quality_reason,
             )
@@ -1747,6 +1658,8 @@ async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, 
                     "provider": offer.get("provider"),
                     "provider_order_id": result.get("order_id"),
                     "proxy_endpoint": endpoint,
+                    "proxy_http_endpoint": http_endpoint or None,
+                    "proxy_socks5_endpoint": socks5_endpoint or None,
                     "proxy_quality_attempts": [quality],
                     "proxy_last_quality": quality,
                 },
@@ -1783,6 +1696,8 @@ async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, 
             "proxy_provider_start_port": result.get("start_port"),
             "proxy_start_port": result.get("start_port"),
             "proxy_endpoint": endpoint or "-",
+            "proxy_http_endpoint": http_endpoint or None,
+            "proxy_socks5_endpoint": socks5_endpoint or None,
             "proxy_username": result.get("username") or offer.get("username"),
             "proxy_password": result.get("password") or offer.get("password"),
             "proxy_expires_at": result.get("expires_at"),
@@ -1795,7 +1710,6 @@ async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, 
                 "provider": offer.get("provider"),
                 "offer_id": offer.get("offer_id"),
                 "title": offer.get("title"),
-                "protocol": offer.get("protocol"),
                 "country": offer.get("country"),
                 "state": offer.get("state"),
                 "city": offer.get("city"),
@@ -1813,14 +1727,48 @@ async def _execute_proxy_purchase(message: types.Message, state: FSMContext, *, 
     )
     await update_order_status(order_id, "success")
 
-    text = t(lang, "proxy_purchase_complete").format(
-        provider=provider_public_id(offer.get("provider")),
-        order_id=result.get("order_id") or "-",
-        endpoint=endpoint or "-",
-        username=result.get("username") or offer.get("username") or "-",
-        password=result.get("password") or offer.get("password") or "-",
-        expires=result.get("expires_at") or "-",
-    )
+    if str(lang).lower().startswith("ar"):
+        lines = [
+            "✅ تم شراء البروكسي بنجاح",
+            "",
+            f"🌐 المزوّد: {provider_public_id(offer.get('provider'))}",
+            f"🧾 رقم الطلب: {result.get('order_id') or '-'}",
+        ]
+        if http_endpoint:
+            lines.append(f"◽️ HTTP: {http_endpoint}")
+        if socks5_endpoint:
+            lines.append(f"◽️ SOCKS5: {socks5_endpoint}")
+        if not http_endpoint and not socks5_endpoint:
+            lines.append(f"🔌 العنوان: {endpoint or '-'}")
+        lines.extend(
+            [
+                f"👤 اسم المستخدم: {result.get('username') or offer.get('username') or '-'}",
+                f"🔐 كلمة المرور: {result.get('password') or offer.get('password') or '-'}",
+                f"⏳ تاريخ الانتهاء: {result.get('expires_at') or '-'}",
+            ]
+        )
+        text = "\n".join(lines)
+    else:
+        lines = [
+            "✅ Proxy Purchase Completed",
+            "",
+            f"🌐 Provider: {provider_public_id(offer.get('provider'))}",
+            f"🧾 Order: {result.get('order_id') or '-'}",
+        ]
+        if http_endpoint:
+            lines.append(f"◽️ HTTP: {http_endpoint}")
+        if socks5_endpoint:
+            lines.append(f"◽️ SOCKS5: {socks5_endpoint}")
+        if not http_endpoint and not socks5_endpoint:
+            lines.append(f"🔌 Endpoint: {endpoint or '-'}")
+        lines.extend(
+            [
+                f"👤 Username: {result.get('username') or offer.get('username') or '-'}",
+                f"🔐 Password: {result.get('password') or offer.get('password') or '-'}",
+                f"⏳ Expires: {result.get('expires_at') or '-'}",
+            ]
+        )
+        text = "\n".join(lines)
     if str(quality.get("decision") or "").lower().startswith("gray"):
         text = f"{text}\n\n{t(lang, 'proxy_quality_gray_note')}"
 
@@ -1915,6 +1863,8 @@ async def proxy_reconfigure_confirm(callback: types.CallbackQuery, state: FSMCon
             "proxy_provider_order_id": refreshed.get("order_id") or order.get("proxy_provider_order_id"),
             "provider_order_id": refreshed.get("order_id") or order.get("provider_order_id"),
             "proxy_endpoint": refreshed.get("endpoint") or order.get("proxy_endpoint"),
+            "proxy_http_endpoint": refreshed.get("http_endpoint") or order.get("proxy_http_endpoint"),
+            "proxy_socks5_endpoint": refreshed.get("socks5_endpoint") or order.get("proxy_socks5_endpoint"),
             "proxy_username": refreshed.get("username") or order.get("proxy_username"),
             "proxy_password": refreshed.get("password") or order.get("proxy_password"),
             "proxy_expires_at": refreshed.get("expires_at") or order.get("proxy_expires_at"),
@@ -1927,7 +1877,6 @@ async def proxy_reconfigure_confirm(callback: types.CallbackQuery, state: FSMCon
                 "provider": offer.get("provider"),
                 "offer_id": offer.get("offer_id"),
                 "title": offer.get("title"),
-                "protocol": offer.get("protocol"),
                 "country": offer.get("country"),
                 "state": offer.get("state"),
                 "city": offer.get("city"),
@@ -2151,6 +2100,8 @@ async def proxy_order_change_only(callback: types.CallbackQuery, state: FSMConte
             "proxy_provider_start_port": refreshed.get("start_port") or order.get("proxy_provider_start_port"),
             "proxy_start_port": refreshed.get("start_port") or order.get("proxy_start_port"),
             "proxy_endpoint": refreshed.get("endpoint") or order.get("proxy_endpoint"),
+            "proxy_http_endpoint": refreshed.get("http_endpoint") or order.get("proxy_http_endpoint"),
+            "proxy_socks5_endpoint": refreshed.get("socks5_endpoint") or order.get("proxy_socks5_endpoint"),
             "proxy_username": refreshed.get("username") or order.get("proxy_username"),
             "proxy_password": refreshed.get("password") or order.get("proxy_password"),
             "proxy_expires_at": refreshed.get("expires_at") or order.get("proxy_expires_at"),
@@ -2277,6 +2228,8 @@ async def proxy_order_change_check(callback: types.CallbackQuery, state: FSMCont
         "proxy_provider_start_port": refreshed.get("start_port") or order.get("proxy_provider_start_port"),
         "proxy_start_port": refreshed.get("start_port") or order.get("proxy_start_port"),
         "proxy_endpoint": refreshed.get("endpoint") or order.get("proxy_endpoint"),
+        "proxy_http_endpoint": refreshed.get("http_endpoint") or order.get("proxy_http_endpoint"),
+        "proxy_socks5_endpoint": refreshed.get("socks5_endpoint") or order.get("proxy_socks5_endpoint"),
         "proxy_username": refreshed.get("username") or order.get("proxy_username"),
         "proxy_password": refreshed.get("password") or order.get("proxy_password"),
         "proxy_expires_at": refreshed.get("expires_at") or order.get("proxy_expires_at"),
@@ -2325,20 +2278,15 @@ async def proxy_back_step(callback: types.CallbackQuery, state: FSMContext):
     if data.get("proxy_selected_offer"):
         await state.update_data(proxy_selected_offer=None)
         await callback.answer()
-        await proxy_list_offers(callback, state)
+        await _render_proxy_panel(callback.message, state)
+        await state.set_state(ProxyFlow.menu)
         return
-    if data.get("proxy_period"):
-        updates.update(proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
-    elif data.get("proxy_provider"):
-        updates.update(proxy_provider=None, proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
-    elif data.get("proxy_protocol"):
-        updates.update(proxy_protocol=None, proxy_provider=None, proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
-    elif data.get("proxy_city"):
-        updates.update(proxy_city=None, proxy_protocol=None, proxy_provider=None, proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
+    if data.get("proxy_city"):
+        updates.update(proxy_city=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
     elif data.get("proxy_state"):
-        updates.update(proxy_state=None, proxy_city=None, proxy_protocol=None, proxy_provider=None, proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
+        updates.update(proxy_state=None, proxy_city=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
     elif data.get("proxy_country"):
-        updates.update(proxy_country=None, proxy_state=None, proxy_city=None, proxy_protocol=None, proxy_provider=None, proxy_period=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
+        updates.update(proxy_country=None, proxy_state=None, proxy_city=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
     else:
         await callback.answer()
         await proxy_back_main(callback, state)

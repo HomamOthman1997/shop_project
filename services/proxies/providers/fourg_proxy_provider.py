@@ -555,6 +555,7 @@ class FourGProxyProvider(BaseProxyProvider):
         raw["package_name"] = package_name
         raw["duration_options"] = duration_options
         raw["protocol_options"] = ["http", "socks"]
+        raw["button_label"] = f"{carrier} - {self._rotation_period(row)}"
 
         return {
             "provider": "4g",
@@ -647,12 +648,33 @@ class FourGProxyProvider(BaseProxyProvider):
 
         host = src.get("host") or src.get("ip") or src.get("server")
         port = src.get("port")
+        http_port = (
+            src.get("http_port")
+            or src.get("httpPort")
+            or src.get("port_http")
+            or src.get("proxy_http_port")
+        )
+        socks5_port = (
+            src.get("socks5_port")
+            or src.get("socks_port")
+            or src.get("socks5Port")
+            or src.get("socksPort")
+            or src.get("port_socks")
+            or src.get("proxy_socks_port")
+        )
         endpoint = src.get("proxy") or src.get("endpoint")
         if not endpoint and host and port:
             endpoint = f"{host}:{port}"
+        http_endpoint = f"{host}:{http_port}" if host and http_port else None
+        socks5_endpoint = f"{host}:{socks5_port}" if host and socks5_port else None
 
         return {
             "order_id": src.get("id") or src.get("order_id") or src.get("account_id"),
+            "host": host,
+            "http_port": http_port,
+            "socks5_port": socks5_port,
+            "http_endpoint": http_endpoint,
+            "socks5_endpoint": socks5_endpoint,
             "endpoint": endpoint,
             "username": src.get("username") or src.get("user"),
             "password": src.get("password") or src.get("pass"),
