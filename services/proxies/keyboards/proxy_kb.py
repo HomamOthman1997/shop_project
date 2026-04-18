@@ -143,9 +143,16 @@ def proxy_period_kb(periods: list[str], lang: str) -> InlineKeyboardMarkup:
 
 def proxy_offers_kb(offers: list[dict], lang: str, protocol: str | None = None) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
+    carrier_counts: dict[str, int] = {}
     for idx, offer in enumerate(offers[:20]):
         raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
-        button_text = str(raw.get("button_label") or offer.get("title") or offer.get("offer_id") or "-").strip()
+        carrier = str(offer.get("carrier") or "").strip() or str(raw.get("service_provider_name") or "").strip() or "-"
+        period = str(offer.get("period") or "").strip()
+        carrier_key = carrier.lower()
+        carrier_counts[carrier_key] = carrier_counts.get(carrier_key, 0) + 1
+        button_text = f"{carrier}{carrier_counts[carrier_key]}"
+        if period and period != "-":
+            button_text = f"{button_text} - {period}"
         rows.append([InlineKeyboardButton(text=button_text, callback_data=f"proxy:offer:{idx}")])
     rows.extend(_nav_rows(lang, back_callback="proxy:back_step"))
     return InlineKeyboardMarkup(inline_keyboard=rows)
