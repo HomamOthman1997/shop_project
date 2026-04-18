@@ -154,6 +154,62 @@ def test_proxy_offers_keyboard_shows_modem_label_with_rotation():
     assert "5G Verizon2 - Rotation 15m" in texts
 
 
+def test_proxy_offers_keyboard_numbers_modems_per_filtered_state():
+    offers = proxy_flow._with_local_modem_labels(
+        [
+            {
+                "offer_id": "1",
+                "carrier": "5G T-Mobile",
+                "modem_label": "5G T-Mobile210",
+                "state": "California",
+                "period": "Rotation 30m",
+            },
+            {
+                "offer_id": "2",
+                "carrier": "5G T-Mobile",
+                "modem_label": "5G T-Mobile172",
+                "state": "California",
+                "period": "Rotation 15m",
+            },
+            {
+                "offer_id": "3",
+                "carrier": "5G Verizon",
+                "modem_label": "5G Verizon119",
+                "state": "California",
+                "period": "Rotation 30m",
+            },
+        ]
+    )
+
+    kb = proxy_offers_kb(offers, "en")
+    texts = [btn.text for row in kb.inline_keyboard for btn in row]
+
+    assert "5G T-Mobile1 - Rotation 30m" in texts
+    assert "5G T-Mobile2 - Rotation 15m" in texts
+    assert "5G Verizon1 - Rotation 30m" in texts
+    assert all("210" not in text and "172" not in text and "119" not in text for text in texts)
+
+
+def test_proxy_offer_text_prefers_local_state_label():
+    offer = proxy_flow._with_local_modem_labels(
+        [
+            {
+                "carrier": "5G T-Mobile",
+                "modem_label": "5G T-Mobile210",
+                "country": "UNITED STATES",
+                "state": "California",
+                "city": "Any",
+                "period": "Rotation 30m",
+            }
+        ]
+    )[0]
+
+    text = proxy_flow._proxy_offer_text("en", offer, "http")
+
+    assert "Carrier: 5G T-Mobile1" in text
+    assert "210" not in text
+
+
 def test_duration_option_map_and_price_markup():
     data = {
         "proxy_country": "UNITED STATES",

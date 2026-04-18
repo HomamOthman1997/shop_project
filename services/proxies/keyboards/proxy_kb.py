@@ -146,7 +146,13 @@ def proxy_offers_kb(offers: list[dict], lang: str, protocol: str | None = None) 
         raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
         carrier = str(offer.get("carrier") or "").strip() or str(raw.get("service_provider_name") or "").strip() or "-"
         period = str(offer.get("period") or "").strip()
-        modem_label = str(offer.get("modem_label") or raw.get("modem_label") or "").strip()
+        modem_label = str(
+            offer.get("display_modem_label")
+            or raw.get("display_modem_label")
+            or offer.get("modem_label")
+            or raw.get("modem_label")
+            or ""
+        ).strip()
         if modem_label:
             button_text = modem_label
         else:

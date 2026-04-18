@@ -543,6 +543,38 @@ def _dedupe_proxy_offers(offers: list[dict]) -> list[dict]:
     return unique
 
 
+def _local_modem_label_base(offer: dict) -> str:
+    raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
+    carrier = (
+        str(offer.get("carrier") or "").strip()
+        or str(raw.get("service_provider_name") or "").strip()
+        or str(offer.get("modem_label") or raw.get("modem_label") or "").strip()
+        or str(offer.get("provider") or "").strip()
+        or "Proxy"
+    )
+    return carrier.rstrip("0123456789").strip() or carrier
+
+
+def _with_local_modem_labels(offers: list[dict]) -> list[dict]:
+    counters: dict[tuple[str, str], int] = {}
+    labeled: list[dict] = []
+    for offer in offers:
+        item = dict(offer)
+        raw = dict(item.get("raw") or {}) if isinstance(item.get("raw"), dict) else {}
+        base = _local_modem_label_base(item)
+        provider = str(item.get("provider") or "").strip().lower()
+        key = (provider, base.lower())
+        counters[key] = counters.get(key, 0) + 1
+        local_label = f"{base}{counters[key]}"
+        item["display_modem_number"] = counters[key]
+        item["display_modem_label"] = local_label
+        raw["display_modem_number"] = counters[key]
+        raw["display_modem_label"] = local_label
+        item["raw"] = raw
+        labeled.append(item)
+    return labeled
+
+
 def _proxy_offer_heading(lang: str) -> str:
     return "تفاصيل عرض البروكسي" if str(lang).lower().startswith("ar") else "Proxy Offer Details"
 
@@ -574,7 +606,8 @@ def _valid_proxy_password(password: str) -> bool:
 def _proxy_offer_text(lang: str, offer: dict, protocol: str | None, *, include_duration: bool = False, duration_label: str | None = None, include_prices: bool = False) -> str:
     raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
     carrier = (
-        str(offer.get("modem_label") or raw.get("modem_label") or "").strip()
+        str(offer.get("display_modem_label") or raw.get("display_modem_label") or "").strip()
+        or str(offer.get("modem_label") or raw.get("modem_label") or "").strip()
         or str(offer.get("carrier") or "").strip()
         or str(offer.get("state") or "").strip()
         or "-"
@@ -1037,6 +1070,7 @@ async def _render_proxy_panel(message: types.Message, state: FSMContext):
     filtered = _filter_proxy_offers(data)
     filtered = await _sort_offers_by_low_usage(filtered)
     filtered = _dedupe_proxy_offers(filtered)
+    filtered = _with_local_modem_labels(filtered)
     await state.update_data(proxy_filtered=filtered)
     require_state = _state_required(data)
     require_city = _city_required(data)
