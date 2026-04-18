@@ -160,31 +160,53 @@ def _is_cancel_input(text: str | None) -> bool:
     return (text or "").strip().lower() in _CANCEL_INPUTS
 
 
+_STOCK_LABEL_ALIASES = {
+    "email": "Email",
+    "e-mail": "Email",
+    "mail": "Email",
+    "الايميل": "Email",
+    "الإيميل": "Email",
+    "ايميل": "Email",
+    "إيميل": "Email",
+    "البريد": "Email",
+    "بريد": "Email",
+    "password": "Password",
+    "pass": "Password",
+    "mail pass": "Password",
+    "كلمة السر": "Password",
+    "كلمه السر": "Password",
+    "كلمة المرور": "Password",
+    "كلمه المرور": "Password",
+    "الباسورد": "Password",
+    "باسورد": "Password",
+    "recovery": "Recovery",
+    "recovery email": "Recovery",
+    "الريكفري": "Recovery",
+    "ريكفري": "Recovery",
+    "استرداد": "Recovery",
+    "بريد الاسترداد": "Recovery",
+}
+
+
+def _normalize_stock_line(line: str) -> str:
+    raw = str(line or "").strip()
+    if not raw:
+        return ""
+    if ":" in raw:
+        key, value = raw.split(":", 1)
+    elif "：" in raw:
+        key, value = raw.split("：", 1)
+    else:
+        return raw
+    canonical = _STOCK_LABEL_ALIASES.get(key.strip().lower())
+    if canonical:
+        return f"{canonical}: {value.strip()}"
+    return f"{key.strip()}: {value.strip()}"
+
+
 def _normalize_stock_block(block: str) -> str:
     lines = [line.strip() for line in str(block or "").splitlines() if line.strip()]
-    normalized: list[str] = []
-    label_map = {
-        "الايميل": "Email",
-        "email": "Email",
-        "كلمة السر": "Password",
-        "password": "Password",
-        "الريكفري": "Recovery",
-        "recovery": "Recovery",
-    }
-    for line in lines:
-        if ":" in line:
-            key, value = line.split(":", 1)
-        elif "：" in line:
-            key, value = line.split("：", 1)
-        else:
-            normalized.append(line)
-            continue
-        canonical = label_map.get(key.strip().lower())
-        if canonical:
-            normalized.append(f"{canonical}: {value.strip()}")
-        else:
-            normalized.append(f"{key.strip()}: {value.strip()}")
-    return "\n".join(normalized).strip()
+    return "\n".join(normalized for line in lines if (normalized := _normalize_stock_line(line))).strip()
 
 
 def _is_probable_ssn_table(text: str) -> bool:
@@ -573,7 +595,7 @@ def _parse_generic_inventory_payload(text: str) -> list[str]:
     current_group: list[str] = []
     label_pattern = re.compile(r"^(Email|Password|Recovery)\s*:", re.IGNORECASE)
     for raw_line in normalized.splitlines():
-        line = raw_line.strip()
+        line = _normalize_stock_line(raw_line)
         if not line:
             if current_group:
                 labeled_groups.append("\n".join(current_group))
@@ -602,6 +624,11 @@ def _parse_generic_inventory_payload(text: str) -> list[str]:
         return [block.strip() for block in labeled_groups if block.strip()]
 
     return [line.strip() for line in normalized.splitlines() if line.strip()]
+
+
+def _format_stock_items_payload(stock_items: list[str] | None) -> str:
+    items = [str(item or "").strip() for item in list(stock_items or []) if str(item or "").strip()]
+    return "\n\n=================\n\n".join(items)
 
 
 def _parse_inventory_payload(text: str, *, ssn_mode: bool = True) -> list[str]:
@@ -955,7 +982,7 @@ async def _send_endpoint_delivery(
 ) -> bool:
     qty_line = t(lang, "custom_qty_line").format(qty=int(qty))
     if stock_items:
-        payload = "\n".join([str(item or "").strip() for item in stock_items if str(item or "").strip()])
+        payload = _format_stock_items_payload(stock_items)
         if not payload:
             return False
         await bot.send_message(
@@ -1091,7 +1118,7 @@ def _delivery_preview_text(
 ) -> str | None:
     qty_line = t(lang, "custom_qty_line").format(qty=int(qty))
     if stock_items:
-        payload = "\n".join([str(item or "").strip() for item in stock_items if str(item or "").strip()])
+        payload = _format_stock_items_payload(stock_items)
         if not payload:
             return None
         return t(lang, "custom_digital_delivery_block").format(payload=payload, qty_line=qty_line)

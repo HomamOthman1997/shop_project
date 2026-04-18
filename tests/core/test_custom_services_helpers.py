@@ -15,6 +15,7 @@ from handlers.custom_services import (
     _can_manage_builder_structure,
     _allowed_buy_quantities,
     _buy_qty_kb,
+    _delivery_preview_text,
     _is_ssn_stock_context,
     _endpoint_preorder_enabled,
     _endpoint_ready_for_sale,
@@ -180,6 +181,39 @@ Recovery: No Recovery
         "Email: first@example.com\nPassword: pass-1\nRecovery: No Recovery",
         "Email: second@example.com\nPassword: pass-2\nRecovery: No Recovery",
     ]
+
+
+def test_parse_inventory_payload_splits_repeated_arabic_email_blocks_without_separators():
+    payload = """الإيميل: first@example.com
+كلمة المرور: pass-1
+بريد الاسترداد: No Recovery
+
+الايميل: second@example.com
+الباسورد: pass-2
+ريكفري: No Recovery
+"""
+
+    assert _parse_inventory_payload(payload, ssn_mode=False) == [
+        "Email: first@example.com\nPassword: pass-1\nRecovery: No Recovery",
+        "Email: second@example.com\nPassword: pass-2\nRecovery: No Recovery",
+    ]
+
+
+def test_delivery_preview_separates_multiple_inventory_items():
+    text = _delivery_preview_text(
+        endpoint={"delivery_type": "inventory"},
+        qty=2,
+        lang="en",
+        stock_items=[
+            "Email: first@example.com\nPassword: pass-1",
+            "Email: second@example.com\nPassword: pass-2",
+        ],
+    )
+
+    assert text is not None
+    assert "=================" in text
+    assert "first@example.com" in text
+    assert "second@example.com" in text
 
 
 def test_parse_inventory_payload_supports_numbered_ssn_blocks():
