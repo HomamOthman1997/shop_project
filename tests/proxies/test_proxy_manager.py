@@ -38,7 +38,8 @@ class DummyUsernameProvider(DummyProvider):
 
 
 def test_proxy_registry_keeps_4g_enabled_while_9proxy_is_suspended():
-    assert set(manager.PROXY_PROVIDERS.keys()) == {"4g"}
+    assert "4g" in manager.PROXY_PROVIDERS
+    assert "9proxy" not in manager.PROXY_PROVIDERS
 
 
 @pytest.mark.asyncio
@@ -113,6 +114,48 @@ async def test_get_proxy_catalog_keeps_unpriced_when_disabled(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_proxy_catalog_numbers_modems_inside_each_carrier(monkeypatch):
+    patched = {
+        "4g": DummyProvider(
+            offers=[
+                {
+                    "offer_id": "1:302",
+                    "country": "US",
+                    "city": "NYC",
+                    "carrier": "5G T-Mobile",
+                    "price": 1.0,
+                    "raw": {"parent_proxy_id": 302},
+                },
+                {
+                    "offer_id": "1:301",
+                    "country": "US",
+                    "city": "NYC",
+                    "carrier": "5G T-Mobile",
+                    "price": 1.0,
+                    "raw": {"parent_proxy_id": 301},
+                },
+                {
+                    "offer_id": "1:401",
+                    "country": "US",
+                    "city": "NYC",
+                    "carrier": "5G Verizon",
+                    "price": 1.0,
+                    "raw": {"parent_proxy_id": 401},
+                },
+            ]
+        ),
+    }
+    monkeypatch.setattr(manager, "PROXY_PROVIDERS", patched)
+
+    offers = await manager.get_proxy_catalog()
+    labels_by_id = {offer["offer_id"]: offer["modem_label"] for offer in offers}
+
+    assert labels_by_id["1:301"] == "5G T-Mobile1"
+    assert labels_by_id["1:302"] == "5G T-Mobile2"
+    assert labels_by_id["1:401"] == "5G Verizon1"
+
+
+@pytest.mark.asyncio
 async def test_rent_proxy_offer_unknown_provider():
     result = await manager.rent_proxy_offer({"provider": "unknown", "offer_id": "1"})
     assert result["success"] is False
@@ -164,6 +207,8 @@ def test_unlimited_category_accepts_only_golden_4g():
     assert _category_provider_match({"provider": "4g", "title": "Golden Package | Verizon 5G | 5G"}, "unlimited") is True
     assert _category_provider_match({"provider": "4g", "title": "Silver Package | Verizon 5G | 5G"}, "unlimited") is False
     assert _category_provider_match({"provider": "4g", "title": "Injection Package | Verizon 5G | 5G"}, "unlimited") is False
+    assert _category_provider_match({"provider": "cyberyozh", "raw": {"proxy_category": "residential_static"}}, "unlimited") is True
+    assert _category_provider_match({"provider": "cyberyozh", "raw": {"proxy_category": "lte"}}, "unlimited") is False
 
 
 @pytest.mark.asyncio

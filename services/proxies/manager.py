@@ -6,6 +6,7 @@ from typing import Any
 
 from config import settings
 from database.proxy_telemetry_repo import record_proxy_event
+from services.proxies.providers.cyberyozh_proxy_provider import CyberYozhProxyProvider
 from services.proxies.providers.fourg_proxy_provider import FourGProxyProvider
 from services.proxies.risk_engine import verify_proxy_endpoint
 
@@ -13,6 +14,8 @@ PROXY_PROVIDERS = {
     "4g": FourGProxyProvider(),
     # Keep 9Proxy suspended until upstream auth/permission issues are resolved.
 }
+if str(getattr(settings, "cyberyozh_proxy_key", "") or "").strip():
+    PROXY_PROVIDERS["cyberyozh"] = CyberYozhProxyProvider()
 
 
 async def _record_proxy_event_safe(**kwargs: Any) -> None:
@@ -69,6 +72,51 @@ def _offer_event_extra(offer: dict[str, Any]) -> dict[str, Any]:
         "protocol": str(offer.get("protocol") or raw.get("protocol") or "").strip(),
         "duration_value": str(offer.get("duration_value") or raw.get("duration_value") or "").strip(),
     }
+
+
+def _offer_identity(offer: dict[str, Any]) -> str:
+    raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
+    for key in (
+        "parent_proxy_id",
+        "service_provider_city_id",
+        "service_provider_id",
+        "offer_id",
+        "id",
+    ):
+        value = str(raw.get(key) or offer.get(key) or "").strip()
+        if value:
+            return value
+    return str(offer.get("offer_id") or "").strip()
+
+
+def _offer_modem_sort_key(offer: dict[str, Any]) -> tuple[int, str]:
+    identity = _offer_identity(offer)
+    try:
+        return (0, f"{int(identity):012d}")
+    except Exception:
+        return (1, identity.lower())
+
+
+def _with_modem_labels(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for offer in offers:
+        provider = str(offer.get("provider") or "").strip().lower()
+        carrier = str(offer.get("carrier") or provider or "Proxy").strip()
+        groups.setdefault((provider, carrier.lower()), []).append(offer)
+
+    for grouped in groups.values():
+        grouped.sort(key=_offer_modem_sort_key)
+        for number, offer in enumerate(grouped, start=1):
+            carrier = str(offer.get("carrier") or offer.get("provider") or "Proxy").strip()
+            label = f"{carrier}{number}"
+            offer["modem_number"] = number
+            offer["modem_label"] = label
+            raw = offer.get("raw")
+            if isinstance(raw, dict):
+                raw["modem_number"] = number
+                raw["modem_label"] = label
+                raw["modem_identity"] = _offer_identity(offer)
+    return offers
 
 
 def _proxy_markup_pct() -> float:
@@ -222,7 +270,7 @@ async def get_proxy_catalog() -> list[dict[str, Any]]:
             float(x.get("price") or 0.0),
         )
     )
-    return offers
+    return _with_modem_labels(offers)
 
 
 async def rent_proxy_offer(offer: dict[str, Any]) -> dict[str, Any]:

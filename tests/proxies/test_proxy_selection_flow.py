@@ -458,6 +458,45 @@ def test_proxy_offer_text_combines_state_and_city():
     assert "الولاية/المدينة: Texas / Dallas" in ar_text
 
 
+def test_proxy_offer_text_prefers_modem_label():
+    text = proxy_flow._proxy_offer_text(
+        "en",
+        {
+            "carrier": "5G T-Mobile",
+            "modem_label": "5G T-Mobile3",
+            "country": "UNITED STATES",
+            "state": "Texas",
+            "city": "Dallas",
+            "period": "Rotation 30m",
+        },
+        "http",
+    )
+    assert "Carrier: 5G T-Mobile3" in text
+
+
+def test_dedupe_proxy_offers_keeps_distinct_modems_with_same_carrier_and_period():
+    offers = [
+        {
+            "provider": "4g",
+            "offer_id": "1:301",
+            "carrier": "5G T-Mobile",
+            "state": "Texas",
+            "city": "Dallas",
+            "period": "Rotation 30m",
+        },
+        {
+            "provider": "4g",
+            "offer_id": "1:302",
+            "carrier": "5G T-Mobile",
+            "state": "Texas",
+            "city": "Dallas",
+            "period": "Rotation 30m",
+        },
+    ]
+
+    assert proxy_flow._dedupe_proxy_offers(offers) == offers
+
+
 @pytest.mark.asyncio
 async def test_proxy_back_step_clears_last_filter(monkeypatch):
     callback = DummyCallback("proxy:back_step")

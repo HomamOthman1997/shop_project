@@ -20,20 +20,20 @@ _DURATION_ORDER = {
 }
 
 _CARRIER_NORMALIZATION_MAP = {
-    "5g at&t": "AT&T",
+    "5g at&t": "5G AT&T",
     "4g at&t": "AT&T",
     "at&t": "AT&T",
     "at&t internet services": "AT&T Internet Services",
-    "5g t-mobile": "T-Mobile",
+    "5g t-mobile": "5G T-Mobile",
     "4g t-mobile": "T-Mobile",
     "t-mobile": "T-Mobile",
     "t mobile": "T-Mobile",
     "tmobile": "T-Mobile",
-    "t-mobile 5g": "T-Mobile 5G",
-    "5g verizon": "Verizon 5G",
+    "t-mobile 5g": "5G T-Mobile",
+    "5g verizon": "5G Verizon",
     "4g verizon": "Verizon",
     "verizon": "Verizon",
-    "verizon 5g": "Verizon 5G",
+    "verizon 5g": "5G Verizon",
     "verizon fios": "Verizon Fios",
     "comcast cable": "Comcast Cable",
     "cox communications": "Cox Communications",
@@ -454,7 +454,7 @@ class FourGProxyProvider(BaseProxyProvider):
         raw = str(row.get("service_provider_name") or row.get("provider_name") or "").strip()
         if not raw:
             return "4G"
-        return " ".join(raw.replace("_", " ").split())
+        return FourGProxyProvider._normalize_carrier_name(raw)
 
     @staticmethod
     def _rotation_period(row: dict[str, Any]) -> str:

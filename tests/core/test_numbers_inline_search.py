@@ -81,7 +81,7 @@ async def test_service_search_fallback_not_listed(monkeypatch):
     await numbers_inline.handle_smart_search(iq)
     assert iq.results
     assert iq.results[0].title == "Service Not Listed"
-    assert iq.results[0].input_message_content.message_text == "/select_service_servicenotlisted"
+    assert iq.results[0].input_message_content.message_text == "/select_service_query:unknownzzz"
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,7 @@ _PROVIDER_PUBLIC_IDS: dict[str, str] = {
     # Proxy providers are also hidden behind the same public IDs.
     "9proxy": "S5",
     "4g": "S5",
+    "cyberyozh": "S6",
 }
 
 _PROVIDER_DISPLAY_NAMES: dict[str, str] = {

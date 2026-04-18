@@ -438,10 +438,12 @@ def _single_offer_with_duration_price(data: dict, offer: dict) -> dict:
 
 def _dedupe_proxy_offers(offers: list[dict]) -> list[dict]:
     unique: list[dict] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str]] = set()
     for offer in offers:
         raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
         key = (
+            str(offer.get("provider") or "").strip().lower(),
+            str(offer.get("offer_id") or raw.get("parent_proxy_id") or raw.get("id") or "").strip().lower(),
             str(_offer_location_value(offer) or "").strip().lower(),
             str(offer.get("carrier") or "").strip().lower(),
             str(offer.get("period") or raw.get("button_label") or "").strip().lower(),
@@ -482,7 +484,13 @@ def _valid_proxy_password(password: str) -> bool:
 
 
 def _proxy_offer_text(lang: str, offer: dict, protocol: str | None, *, include_duration: bool = False, duration_label: str | None = None, include_prices: bool = False) -> str:
-    carrier = str(offer.get("carrier") or "").strip() or str(offer.get("state") or "").strip() or "-"
+    raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
+    carrier = (
+        str(offer.get("modem_label") or raw.get("modem_label") or "").strip()
+        or str(offer.get("carrier") or "").strip()
+        or str(offer.get("state") or "").strip()
+        or "-"
+    )
     country = str(offer.get("country") or "-").strip()
     state = str(offer.get("state") or "Any").strip()
     city = str(offer.get("city") or "Any").strip()
