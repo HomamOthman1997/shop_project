@@ -114,26 +114,6 @@ def proxy_search_kb(
                 )
             ]
         )
-    elif not protocol and protocol_options:
-        _append_grid(
-            [(label, f"proxy:set_protocol:{encode_token(value)}") for label, value in _clean_labeled_options(protocol_options)],
-            cols=1,
-        )
-    elif not provider and provider_options:
-        _append_grid(
-            [(label, f"proxy:set_provider:{encode_token(value)}") for label, value in _clean_labeled_options(provider_options)],
-            cols=1,
-        )
-    elif not period and period_options:
-        _append_grid(
-            [(label, f"proxy:set_period:{encode_token(value)}") for label, value in _clean_labeled_options(period_options)],
-            cols=1,
-        )
-    elif not duration and duration_options:
-        _append_grid(
-            [(label, f"proxy:set_duration:{encode_token(value)}") for label, value in _clean_labeled_options(duration_options)],
-            cols=1,
-        )
     elif can_list:
         rows.append([InlineKeyboardButton(text=t(lang, "proxy_list_offers"), callback_data="proxy:list")])
 

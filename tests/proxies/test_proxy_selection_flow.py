@@ -103,24 +103,6 @@ def test_proxy_search_keyboard_supports_state_or_city_and_listing():
 
     kb = proxy_search_kb(
         "en",
-        country="UNITED STATES",
-        state="NY",
-        require_state=True,
-        protocol="http",
-        provider_options=[("AT&T (10)", "AT&T"), ("T-Mobile (12)", "T-Mobile")],
-    )
-    buttons = [btn for row in kb.inline_keyboard for btn in row]
-    texts = [btn.text for btn in buttons]
-    callbacks = [btn.callback_data for btn in buttons if btn.callback_data]
-    assert "AT&T (10)" in texts
-    assert "T-Mobile (12)" in texts
-    assert "proxy:pick_provider" not in callbacks
-    assert "proxy:pick_period" not in callbacks
-    provider_rows = [row for row in kb.inline_keyboard if row and row[0].callback_data and row[0].callback_data.startswith("proxy:set_provider:")]
-    assert all(len(row) == 1 for row in provider_rows)
-
-    kb = proxy_search_kb(
-        "en",
         country="GERMANY",
         require_city=True,
     )
@@ -131,45 +113,45 @@ def test_proxy_search_keyboard_supports_state_or_city_and_listing():
         "en",
         country="GERMANY",
         city="Berlin",
-        protocol="http",
-        provider="T-Mobile",
         require_city=True,
-        period_options=[("Rotation 30m", "Rotation 30m"), ("Rotation 60m", "Rotation 60m")],
+        can_list=True,
     )
     texts = [btn.text for row in kb.inline_keyboard for btn in row]
-    assert "Rotation 30m" in texts
+    assert "Show Matching Offers" in texts
 
 
-def test_proxy_search_keyboard_protocol_and_duration_steps():
+def test_proxy_search_keyboard_skips_protocol_provider_and_duration_steps():
     kb = proxy_search_kb(
         "en",
         country="UNITED STATES",
         state="NY",
         require_state=True,
+        can_list=True,
         protocol_options=[("HTTP", "http"), ("SOCKS", "socks")],
-    )
-    rows = kb.inline_keyboard
-    texts = [btn.text for row in rows for btn in row]
-    assert "HTTP" in texts
-    assert "SOCKS" in texts
-    assert rows[0][0].text == "HTTP"
-    assert len(rows[0]) == 1
-    assert rows[1][0].text == "SOCKS"
-    assert len(rows[1]) == 1
-
-    kb = proxy_search_kb(
-        "en",
-        country="UNITED STATES",
-        state="NY",
-        require_state=True,
-        protocol="http",
-        provider="T-Mobile",
-        period="Rotation 30s",
-        duration_options=[("3 Hour - 0.70$", "0.03"), ("1 Day - 1.20$", "1")],
+        provider_options=[("T-Mobile", "T-Mobile")],
+        period_options=[("Rotation 30m", "Rotation 30m")],
+        duration_options=[("1 Day - 1.00$", "1")],
     )
     texts = [btn.text for row in kb.inline_keyboard for btn in row]
-    assert "3 Hour - 0.70$" in texts
-    assert "1 Day - 1.20$" in texts
+    assert "Show Matching Offers" in texts
+    assert "HTTP" not in texts
+    assert "SOCKS" not in texts
+    assert "T-Mobile" not in texts
+    assert "Rotation 30m" not in texts
+    assert "1 Day - 1.00$" not in texts
+
+
+def test_proxy_offers_keyboard_shows_modem_label_with_rotation():
+    kb = proxy_offers_kb(
+        [
+            {"offer_id": "1", "modem_label": "5G T-Mobile1", "carrier": "5G T-Mobile", "period": "Rotation 30m"},
+            {"offer_id": "2", "modem_label": "5G Verizon2", "carrier": "5G Verizon", "period": "Rotation 15m"},
+        ],
+        "en",
+    )
+    texts = [btn.text for row in kb.inline_keyboard for btn in row]
+    assert "5G T-Mobile1 - Rotation 30m" in texts
+    assert "5G Verizon2 - Rotation 15m" in texts
 
 
 def test_duration_option_map_and_price_markup():
@@ -204,6 +186,30 @@ def test_duration_option_map_and_price_markup():
     assert priced[0]["base_price"] == 0.7
     assert priced[0]["price"] == 0.77
     assert priced[0]["protocol"] == "socks"
+
+
+def test_offer_default_purchase_options_choose_http_and_first_duration():
+    offer = {
+        "provider": "4g",
+        "offer_id": "1:301",
+        "base_price": 1.0,
+        "price": 1.1,
+        "raw": {
+            "protocol_options": ["socks", "http"],
+            "duration_options": [
+                {"value": "0.03", "label": "3 Hour", "price": 0.7},
+                {"value": "1", "label": "1 Day", "price": 1.0},
+            ],
+        },
+    }
+
+    prepared = proxy_flow._offer_with_default_purchase_options(offer)
+
+    assert prepared["protocol"] == "http"
+    assert prepared["duration_value"] == "1"
+    assert prepared["duration_label"] == "1 Day"
+    assert prepared["base_price"] == 1.0
+    assert prepared["price"] == 1.1
 
 
 def test_available_proxy_period_options_hide_load_and_price():
@@ -252,6 +258,30 @@ def test_available_proxy_provider_options_keep_raw_provider_names():
     assert ("5G AT&T", "5G AT&T") in options
     assert ("5G T-mobile", "5G T-mobile") in options
     assert ("T-MOBILE", "T-MOBILE") in options
+
+
+def test_proxy_selection_ready_after_country_and_state_only():
+    data = {
+        "proxy_country": "UNITED STATES",
+        "proxy_state": "Texas",
+        "proxy_location": "Texas",
+        "proxy_catalog": [
+            {
+                "country": "UNITED STATES",
+                "state": "Texas",
+                "city": "Dallas",
+                "carrier": "5G T-Mobile",
+                "provider": "4g",
+                "period": "Rotation 30m",
+                "raw": {"protocol_options": ["http", "socks"], "duration_options": [{"value": "1", "label": "1 Day", "price": 1.0}]},
+            }
+        ],
+    }
+
+    assert proxy_flow._proxy_selection_ready(data) is True
+    filtered = proxy_flow._filter_proxy_offers(data)
+    assert len(filtered) == 1
+    assert filtered[0]["period"] == "Rotation 30m"
 
 
 class DummyState:

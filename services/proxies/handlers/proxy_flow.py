@@ -331,6 +331,59 @@ def _available_proxy_provider_options(data: dict) -> list[tuple[str, str]]:
     return [(carrier, carrier) for carrier in values]
 
 
+def _offer_default_protocol(offer: dict) -> str:
+    raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
+    options = [
+        "socks" if str(item or "").strip().lower() == "socks5" else str(item or "").strip().lower()
+        for item in list(raw.get("protocol_options") or [])
+        if str(item or "").strip()
+    ]
+    current = str(offer.get("protocol") or raw.get("protocol") or "").strip().lower()
+    if current:
+        return "socks" if current == "socks5" else current
+    if "http" in options:
+        return "http"
+    return options[0] if options else "http"
+
+
+def _offer_with_default_purchase_options(offer: dict) -> dict:
+    item = dict(offer or {})
+    raw = dict(item.get("raw") or {}) if isinstance(item.get("raw"), dict) else {}
+    item["protocol"] = _offer_default_protocol(item)
+
+    duration_options = [row for row in list(raw.get("duration_options") or []) if isinstance(row, dict)]
+    if not duration_options or item.get("duration_value"):
+        return item
+
+    def _duration_sort_key(row: dict) -> tuple[int, float, str]:
+        label = str(row.get("label") or "").strip()
+        value = str(row.get("value") or "").strip()
+        try:
+            numeric = float(value)
+        except Exception:
+            numeric = 10_000.0
+        return (_PROXY_DURATION_ORDER.get(label, 1000), numeric, label.lower())
+
+    selected = sorted(duration_options, key=_duration_sort_key)[0]
+    value = str(selected.get("value") or "").strip()
+    label = str(selected.get("label") or value or "").strip()
+    if value:
+        item["duration_value"] = value
+    if label:
+        item["duration_label"] = label
+    try:
+        base_price = float(selected.get("price") or 0.0)
+    except Exception:
+        base_price = 0.0
+    if base_price > 0:
+        current_base = float(item.get("base_price") or 0.0)
+        current_sale = float(item.get("price") or current_base or 0.0)
+        markup_ratio = (current_sale / current_base) if current_base > 0 else 1.0
+        item["base_price"] = round(base_price, 4)
+        item["price"] = round(base_price * markup_ratio, 4)
+    return item
+
+
 def _available_proxy_periods(data: dict) -> list[str]:
     mode = _location_mode(data)
     offers = filter_offers(
@@ -573,14 +626,6 @@ def _proxy_selection_ready(data: dict) -> bool:
     if not data.get("proxy_country"):
         return False
     if _location_mode(data) and not data.get("proxy_location"):
-        return False
-    if _available_proxy_protocols(data) and not data.get("proxy_protocol"):
-        return False
-    if _available_proxy_providers(data) and not data.get("proxy_provider"):
-        return False
-    if _available_proxy_periods(data) and not data.get("proxy_period"):
-        return False
-    if _available_proxy_duration_options(data) and not data.get("proxy_duration_value"):
         return False
     return True
 
@@ -996,23 +1041,11 @@ async def _render_proxy_panel(message: types.Message, state: FSMContext):
     require_state = _state_required(data)
     require_city = _city_required(data)
     location_ready = country and (not _location_mode(data) or bool(selected_location))
-    protocol_options = _available_proxy_protocol_options(data, lang)
-    provider_options = _available_proxy_provider_options(data)
-    period_options = _available_proxy_period_options(data)
-    duration_options = _available_proxy_duration_options(data)
     selection_ready = _proxy_selection_ready(data)
     if not country:
         hint = t(lang, "proxy_step_country")
     elif _location_mode(data) and not selected_location:
         hint = t(lang, "proxy_step_location")
-    elif protocol_options and not data.get("proxy_protocol"):
-        hint = t(lang, "proxy_step_protocol")
-    elif provider_options and not data.get("proxy_provider"):
-        hint = t(lang, "proxy_step_provider")
-    elif period_options and not data.get("proxy_period"):
-        hint = t(lang, "proxy_step_rotation")
-    elif duration_options and not data.get("proxy_duration_value"):
-        hint = t(lang, "proxy_step_duration")
     else:
         hint = t(lang, "proxy_step_list")
     if _proxy_manage_reconfigure_mode(data):
@@ -1039,10 +1072,10 @@ async def _render_proxy_panel(message: types.Message, state: FSMContext):
             require_state=require_state,
             require_city=require_city,
             can_list=selection_ready,
-            protocol_options=protocol_options,
-            provider_options=provider_options,
-            period_options=period_options,
-            duration_options=duration_options,
+            protocol_options=[],
+            provider_options=[],
+            period_options=[],
+            duration_options=[],
             quick_country_options=_quick_country_options(data),
             quick_location_options=_quick_location_options(data),
         )
@@ -1584,7 +1617,7 @@ async def proxy_offer_details(callback: types.CallbackQuery, state: FSMContext):
     if idx < 0 or idx >= len(filtered):
         return await callback.answer(t(lang, "proxy_invalid_selection"), show_alert=True)
 
-    offer = filtered[idx]
+    offer = _offer_with_default_purchase_options(filtered[idx])
     await state.update_data(proxy_selected_offer=offer, proxy_duration_value=None, proxy_duration_label=None)
     if _proxy_manage_reconfigure_mode(data):
         text = _proxy_offer_text(
@@ -1608,11 +1641,12 @@ async def proxy_offer_details(callback: types.CallbackQuery, state: FSMContext):
     text = _proxy_offer_text(
         lang,
         offer,
-        data.get("proxy_protocol"),
-        include_duration=False,
-        include_prices=False,
-    ) + "\n\n" + _proxy_duration_hint(lang)
-    await _safe_edit_text(callback.message, text, reply_markup=proxy_offer_duration_kb(_available_proxy_duration_options(data), lang))
+        offer.get("protocol") or data.get("proxy_protocol"),
+        include_duration=bool(offer.get("duration_label")),
+        duration_label=offer.get("duration_label"),
+        include_prices=True,
+    )
+    await _safe_edit_text(callback.message, text, reply_markup=proxy_offer_actions_kb(lang))
     await state.set_state(ProxyFlow.offers)
     return
     base_price = float(offer.get("base_price") or 0.0)
@@ -2026,14 +2060,15 @@ async def proxy_password_back(callback: types.CallbackQuery, state: FSMContext):
     text = _proxy_offer_text(
         lang,
         data.get("proxy_selected_offer") or {},
-        data.get("proxy_protocol"),
-        include_duration=False,
-        include_prices=False,
-    ) + "\n\n" + _proxy_duration_hint(lang)
+        (data.get("proxy_selected_offer") or {}).get("protocol") or data.get("proxy_protocol"),
+        include_duration=bool((data.get("proxy_selected_offer") or {}).get("duration_label")),
+        duration_label=(data.get("proxy_selected_offer") or {}).get("duration_label"),
+        include_prices=True,
+    )
     await _safe_edit_text(
         callback.message,
         text,
-        reply_markup=proxy_offer_duration_kb(_available_proxy_duration_options(data), lang),
+        reply_markup=proxy_offer_actions_kb(lang),
     )
     await state.set_state(ProxyFlow.offers)
 
