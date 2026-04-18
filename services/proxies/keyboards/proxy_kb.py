@@ -102,7 +102,7 @@ def proxy_search_kb(
         for idx in range(0, min(len(options), 4), 2):
             pair = options[idx : idx + 2]
             rows.append([InlineKeyboardButton(text=label, callback_data=value) for label, value in pair])
-    elif require_state and not state:
+    elif (require_state and not state) or (require_city and not city) or (country and not state and not city and not can_list):
         rows.append(
             [
                 InlineKeyboardButton(
@@ -112,16 +112,10 @@ def proxy_search_kb(
                 )
             ]
         )
-    elif require_city and not city:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=t(lang, "proxy_search_state_city"),
-                    switch_inline_query_current_chat=f'proxy state "{country}" ',
-                    style="primary",
-                )
-            ]
-        )
+        options = _clean_labeled_options(quick_location_options)
+        for idx in range(0, min(len(options), 6), 2):
+            pair = options[idx : idx + 2]
+            rows.append([InlineKeyboardButton(text=label, callback_data=value) for label, value in pair])
     elif can_list:
         rows.append([InlineKeyboardButton(text=t(lang, "proxy_list_offers"), callback_data="proxy:list")])
 

@@ -183,40 +183,49 @@ def _location_mode(data: dict) -> str | None:
         return None
     offers = data.get("proxy_catalog") or get_offers_cache()
     scoped = filter_offers(offers, country=country)
-    states = {
-        str(row.get("state") or "").strip()
+    locations = {
+        _offer_location_value(row)
         for row in scoped
-        if str(row.get("state") or "").strip() and str(row.get("state") or "").strip().lower() != "any"
+        if _offer_location_value(row)
     }
-    if states:
-        return "state"
-    cities = {
-        str(row.get("city") or "").strip()
-        for row in scoped
-        if str(row.get("city") or "").strip() and str(row.get("city") or "").strip().lower() != "any"
-    }
-    if cities:
-        return "city"
+    if locations:
+        return "location"
     return None
+
+
+def _offer_location_value(offer: dict) -> str:
+    state = str(offer.get("state") or "").strip()
+    city = str(offer.get("city") or "").strip()
+    if state and state.lower() != "any":
+        return state
+    if city and city.lower() != "any":
+        return city
+    return ""
 
 
 def _filter_proxy_offers(data: dict) -> list[dict]:
     offers = data.get("proxy_catalog") or get_offers_cache()
     mode = _location_mode(data)
-    return filter_offers(
+    scoped = filter_offers(
         offers,
         country=data.get("proxy_country"),
-        state=data.get("proxy_state") if mode == "state" else None,
-        city=data.get("proxy_city") if mode == "city" else None,
+    )
+    selected_location = str(data.get("proxy_location") or "").strip()
+    if not selected_location:
+        return scoped
+    lowered = selected_location.lower()
+    return [
+        row for row in scoped
+        if _offer_location_value(row).lower() == lowered
     )
 
 
 def _state_required(data: dict) -> bool:
-    return _location_mode(data) == "state"
+    return False
 
 
 def _city_required(data: dict) -> bool:
-    return _location_mode(data) == "city"
+    return False
 
 
 def _available_proxy_providers(data: dict) -> list[str]:
@@ -263,28 +272,16 @@ def _quick_location_options(data: dict) -> list[tuple[str, str]]:
     country = str(data.get("proxy_country") or "").strip()
     if not country:
         return []
-    mode = _location_mode(data)
     offers = filter_offers(data.get("proxy_catalog") or get_offers_cache(), country=country)
     counts: dict[str, int] = {}
-    if mode == "state":
-        for row in offers:
-            state = str(row.get("state") or "").strip()
-            if not state or state.lower() == "any":
-                continue
-            counts[state] = counts.get(state, 0) + 1
-        ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0].lower()))
-        country_token = encode_token(country)
-        return [(state, f"proxy:quick_state:{country_token}:{encode_token(state)}") for state, _count in ranked[:4]]
-    if mode == "city":
-        for row in offers:
-            city = str(row.get("city") or "").strip()
-            if not city or city.lower() == "any":
-                continue
-            counts[city] = counts.get(city, 0) + 1
-        ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0].lower()))
-        country_token = encode_token(country)
-        return [(city, f"proxy:quick_city:{country_token}:{encode_token(city)}") for city, _count in ranked[:4]]
-    return []
+    for row in offers:
+        location = _offer_location_value(row)
+        if not location:
+            continue
+        counts[location] = counts.get(location, 0) + 1
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0].lower()))
+    country_token = encode_token(country)
+    return [(location, f"proxy:quick_state:{country_token}:{encode_token(location)}") for location, _count in ranked[:8]]
 
 
 def _available_proxy_provider_options(data: dict) -> list[tuple[str, str]]:
@@ -439,6 +436,23 @@ def _single_offer_with_duration_price(data: dict, offer: dict) -> dict:
     return priced[0] if priced else dict(offer)
 
 
+def _dedupe_proxy_offers(offers: list[dict]) -> list[dict]:
+    unique: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    for offer in offers:
+        raw = offer.get("raw") if isinstance(offer.get("raw"), dict) else {}
+        key = (
+            str(_offer_location_value(offer) or "").strip().lower(),
+            str(offer.get("carrier") or "").strip().lower(),
+            str(offer.get("period") or raw.get("button_label") or "").strip().lower(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(offer)
+    return unique
+
+
 def _proxy_offer_heading(lang: str) -> str:
     return "تفاصيل عرض البروكسي" if str(lang).lower().startswith("ar") else "Proxy Offer Details"
 
@@ -515,24 +529,15 @@ def _proxy_offer_text(lang: str, offer: dict, protocol: str | None, *, include_d
 def _proxy_selection_ready(data: dict) -> bool:
     if not data.get("proxy_country"):
         return False
-    if _state_required(data) and not data.get("proxy_state"):
-        return False
-    if _city_required(data) and not data.get("proxy_city"):
+    if _location_mode(data) and not data.get("proxy_location"):
         return False
     return True
 
 
 def _proxy_selection_text(lang: str, data: dict) -> str:
     country = data.get("proxy_country") or t(lang, "not_selected_plain")
-    mode = _location_mode(data)
-    location = t(lang, "not_needed_plain")
-    if mode == "state":
-        location = data.get("proxy_state") or t(lang, "not_selected_plain")
-    elif mode == "city":
-        location = data.get("proxy_city") or t(lang, "not_selected_plain")
-    provider = str(data.get("proxy_provider") or t(lang, "not_selected_plain"))
-    protocol = str(data.get("proxy_protocol") or t(lang, "not_selected_plain")).upper()
-    duration = str(data.get("proxy_duration_label") or data.get("proxy_period") or t(lang, "not_selected_plain"))
+    location = data.get("proxy_location") or t(lang, "not_needed_plain")
+    duration = str(data.get("proxy_duration_label") or t(lang, "not_selected_plain"))
     if str(lang).lower().startswith("ar"):
         return "\n".join(
             [
@@ -559,6 +564,27 @@ def _proxy_type_label(lang: str, proxy_type: str | None) -> str:
     if category == "consumptive":
         return t(lang, "proxy_type_consumptive")
     return t(lang, "proxy_type_unlimited")
+
+
+def _proxy_selection_text(lang: str, data: dict) -> str:
+    country = data.get("proxy_country") or t(lang, "not_selected_plain")
+    location = data.get("proxy_location") or t(lang, "not_needed_plain")
+    duration = str(data.get("proxy_duration_label") or t(lang, "not_selected_plain"))
+    if str(lang).lower().startswith("ar"):
+        return "\n".join(
+            [
+                f"الدولة: {country}",
+                f"الولاية/المدينة: {location}",
+                f"المدة: {duration}",
+            ]
+        )
+    return "\n".join(
+        [
+            f"Country: {country}",
+            f"State/City: {location}",
+            f"Duration: {duration}",
+        ]
+    )
 
 
 def _normalize_proxy_category(value: str | None) -> str:
@@ -911,17 +937,17 @@ async def _render_proxy_panel(message: types.Message, state: FSMContext):
     country = data.get("proxy_country")
     state_name = data.get("proxy_state")
     city_name = data.get("proxy_city")
+    selected_location = data.get("proxy_location")
     filtered = _filter_proxy_offers(data)
     filtered = await _sort_offers_by_low_usage(filtered)
+    filtered = _dedupe_proxy_offers(filtered)
     await state.update_data(proxy_filtered=filtered)
     require_state = _state_required(data)
     require_city = _city_required(data)
-    location_ready = country and not (require_state and not state_name) and not (require_city and not city_name)
+    location_ready = country and (not _location_mode(data) or bool(selected_location))
     if not country:
         hint = t(lang, "proxy_step_country")
-    elif require_state and not state_name:
-        hint = t(lang, "proxy_step_location")
-    elif require_city and not city_name:
+    elif _location_mode(data) and not selected_location:
         hint = t(lang, "proxy_step_location")
     else:
         hint = t(lang, "proxy_step_list")
@@ -1022,6 +1048,7 @@ async def open_proxy_menu(message: types.Message, state: FSMContext):
         proxy_country=None,
         proxy_state=None,
         proxy_city=None,
+        proxy_location=None,
         proxy_provider=None,
         proxy_period=None,
         proxy_filtered=[],
@@ -1043,6 +1070,7 @@ async def proxy_buy_menu(callback: types.CallbackQuery, state: FSMContext):
         proxy_country=None,
         proxy_state=None,
         proxy_city=None,
+        proxy_location=None,
         proxy_protocol=None,
         proxy_provider=None,
         proxy_period=None,
@@ -1074,6 +1102,7 @@ async def proxy_select_type(callback: types.CallbackQuery, state: FSMContext):
         proxy_country=None,
         proxy_state=None,
         proxy_city=None,
+        proxy_location=None,
         proxy_protocol=None,
         proxy_provider=None,
         proxy_period=None,
@@ -1117,6 +1146,7 @@ async def select_proxy_country(message: types.Message, state: FSMContext):
         proxy_country=country or None,
         proxy_state=None,
         proxy_city=None,
+        proxy_location=None,
         proxy_protocol=None,
         proxy_provider=None,
         proxy_period=None,
@@ -1172,6 +1202,7 @@ async def select_proxy_state(message: types.Message, state: FSMContext):
         proxy_country=country or None,
         proxy_state=selected_state,
         proxy_city=selected_city,
+        proxy_location=location_name or None,
         proxy_protocol=None,
         proxy_provider=None,
         proxy_period=None,
@@ -1203,6 +1234,7 @@ async def select_proxy_city(message: types.Message, state: FSMContext):
         proxy_country=country or None,
         proxy_state=state_name or None,
         proxy_city=city or None,
+        proxy_location=city or state_name or None,
         proxy_protocol=None,
         proxy_provider=None,
         proxy_period=None,
@@ -1226,6 +1258,7 @@ async def proxy_quick_country(callback: types.CallbackQuery, state: FSMContext):
         proxy_country=country or None,
         proxy_state=None,
         proxy_city=None,
+        proxy_location=None,
         proxy_protocol=None,
         proxy_provider=None,
         proxy_period=None,
@@ -1248,6 +1281,7 @@ async def proxy_quick_state(callback: types.CallbackQuery, state: FSMContext):
         proxy_country=country or None,
         proxy_state=state_name or None,
         proxy_city=None,
+        proxy_location=state_name or None,
         proxy_protocol=None,
         proxy_provider=None,
         proxy_period=None,
@@ -1270,6 +1304,7 @@ async def proxy_quick_city(callback: types.CallbackQuery, state: FSMContext):
         proxy_country=country or None,
         proxy_state=None,
         proxy_city=city or None,
+        proxy_location=city or None,
         proxy_protocol=None,
         proxy_provider=None,
         proxy_period=None,
@@ -2281,12 +2316,10 @@ async def proxy_back_step(callback: types.CallbackQuery, state: FSMContext):
         await _render_proxy_panel(callback.message, state)
         await state.set_state(ProxyFlow.menu)
         return
-    if data.get("proxy_city"):
-        updates.update(proxy_city=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
-    elif data.get("proxy_state"):
-        updates.update(proxy_state=None, proxy_city=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
+    if data.get("proxy_location"):
+        updates.update(proxy_location=None, proxy_state=None, proxy_city=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
     elif data.get("proxy_country"):
-        updates.update(proxy_country=None, proxy_state=None, proxy_city=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
+        updates.update(proxy_country=None, proxy_location=None, proxy_state=None, proxy_city=None, proxy_duration_value=None, proxy_duration_label=None, proxy_selected_offer=None, proxy_filtered=[])
     else:
         await callback.answer()
         await proxy_back_main(callback, state)
