@@ -32,7 +32,7 @@ from database.orders_repo import update_order_details, update_order_status
 from database.usage_stats_repo import increment_service_usage
 from database.reseller_settings_repo import get_exchange_rate
 from database.user_repo import get_user, get_user_reseller_for_bot, set_user_reseller_for_bot
-from utils.bot_menu_context import menu_for_current_bot
+from utils.bot_menu_context import is_digital_products_bot, is_main_bot, menu_for_current_bot
 from services.digital_products.g2bulk_client import G2BulkClient
 from services.digital_products.catalog_service import get_catalog_snapshot, get_game_topups
 from services.digital_products.esim_access_client import EsimAccessClient
@@ -1124,6 +1124,8 @@ def _build_gift_categories_rows(categories: list[dict[str, Any]]) -> list[list[I
 
 
 async def _resolve_user_reseller(user_id: int, bot_id: int) -> int | None:
+    if await is_main_bot(bot_id) or await is_digital_products_bot(bot_id):
+        return int(user_id)
     reseller_id = await get_user_reseller_for_bot(user_id, bot_id)
     if reseller_id:
         return int(reseller_id)
@@ -2491,7 +2493,7 @@ async def sim_topup_buy(callback: types.CallbackQuery, state: FSMContext):
     client = ZenditClient()
     if not client.configured():
         return await callback.answer(_sim_text(lang, "Zendit is not configured yet.", "Zendit غير مضبوط بعد."), show_alert=True)
-    reseller_id = await get_store_owner_scope_for_bot(callback.bot.id)
+    reseller_id = await _resolve_user_reseller(callback.from_user.id, callback.bot.id)
     if not reseller_id:
         return await callback.answer(t(lang, "store_reseller_not_linked"), show_alert=True)
     phone = str(data.get("sim_phone") or "").strip()
@@ -2969,7 +2971,7 @@ async def esim_buy_recommended_offer(callback: types.CallbackQuery, state: FSMCo
         return await callback.answer(_esim_text(lang, "No offer selected.", "لا يوجد عرض محدد."), show_alert=True)
     if not settings.esim_access_code or not settings.esim_access_secret_key:
         return await callback.answer(_esim_text(lang, "eSIM provider is not configured yet.", "مزود eSIM غير مضبوط بعد."), show_alert=True)
-    reseller_id = await get_store_owner_scope_for_bot(callback.bot.id)
+    reseller_id = await _resolve_user_reseller(callback.from_user.id, callback.bot.id)
     if not reseller_id:
         return await callback.answer(t(lang, "store_reseller_not_linked"), show_alert=True)
 
@@ -3532,7 +3534,7 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery):
     if not selected:
         return await callback.answer(t(lang, "store_product_not_found"), show_alert=True)
 
-    reseller_id = await get_store_owner_scope_for_bot(callback.bot.id)
+    reseller_id = await _resolve_user_reseller(callback.from_user.id, callback.bot.id)
     if not reseller_id:
         return await callback.answer(t(lang, "store_reseller_not_linked"), show_alert=True)
 
@@ -3788,7 +3790,7 @@ async def g2bulk_collect_server_id(message: types.Message, state: FSMContext):
 async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[str, Any], *, server_id: str) -> None:
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
-    reseller_id = await get_store_owner_scope_for_bot((await message.bot.get_me()).id)
+    reseller_id = await _resolve_user_reseller(message.from_user.id, (await message.bot.get_me()).id)
     if not reseller_id:
         return await message.answer(t(lang, "store_reseller_not_linked"))
 
