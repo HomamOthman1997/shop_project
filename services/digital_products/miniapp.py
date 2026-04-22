@@ -105,6 +105,13 @@ def _verify_init_data(init_data: str) -> dict[str, Any]:
     return {"user_id": user_id, "user": user}
 
 
+def _try_verify_init_data(init_data: str) -> dict[str, Any] | None:
+    try:
+        return _verify_init_data(init_data)
+    except web.HTTPUnauthorized:
+        return None
+
+
 async def _catalog_payload() -> dict[str, Any]:
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
@@ -184,13 +191,13 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
     return {"game_id": str(game_id), "game_name": _find_game_name(snapshot, str(game_id)), "items": items[:120]}
 
 
-async def _create_selection(user_id: int, payload: dict[str, Any]) -> str:
+async def _create_selection(user_id: int | None, payload: dict[str, Any]) -> str:
     token = uuid4().hex
     now = datetime.now(UTC)
     await db.digital_product_miniapp_selections.insert_one(
         {
             "_id": token,
-            "user_id": int(user_id),
+            "user_id": int(user_id) if user_id else None,
             "payload": payload,
             "status": "new",
             "created_at": now,
@@ -205,7 +212,7 @@ async def consume_selection(token: str, user_id: int) -> dict[str, Any] | None:
     doc = await db.digital_product_miniapp_selections.find_one_and_update(
         {
             "_id": str(token or "").strip(),
-            "user_id": int(user_id),
+            "$or": [{"user_id": int(user_id)}, {"user_id": None}],
             "status": "new",
             "expires_at": {"$gt": now},
         },
@@ -239,22 +246,19 @@ async def static_file(request: web.Request) -> web.Response:
 
 
 async def catalog(_request: web.Request) -> web.Response:
-    _verify_init_data(_request.headers.get("X-Telegram-Init-Data", ""))
     return web.json_response(await _catalog_payload())
 
 
 async def gift_products(request: web.Request) -> web.Response:
-    _verify_init_data(request.headers.get("X-Telegram-Init-Data", ""))
     return web.json_response({"items": await _gift_products(request.match_info["category_id"], request.query.get("q", ""))})
 
 
 async def game_items(request: web.Request) -> web.Response:
-    _verify_init_data(request.headers.get("X-Telegram-Init-Data", ""))
     return web.json_response(await _game_items(request.match_info["game_id"], request.query.get("q", "")))
 
 
 async def create_selection(request: web.Request) -> web.Response:
-    auth = _verify_init_data(request.headers.get("X-Telegram-Init-Data", ""))
+    auth = _try_verify_init_data(request.headers.get("X-Telegram-Init-Data", ""))
     body = await request.json()
     kind = str(body.get("kind") or "").strip().lower()
     if kind == "gift":
@@ -272,7 +276,7 @@ async def create_selection(request: web.Request) -> web.Response:
         payload = {"kind": "game", "game_id": game_id, "item_id": item_id, "group_key": group_key}
     else:
         raise web.HTTPBadRequest(text="invalid selection")
-    token = await _create_selection(int(auth["user_id"]), payload)
+    token = await _create_selection(int(auth["user_id"]) if auth else None, payload)
     return web.json_response({"token": token})
 
 

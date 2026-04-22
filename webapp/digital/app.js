@@ -151,7 +151,7 @@ function renderItems() {
 }
 
 async function createSelection(item) {
-  if (!initData()) {
+  if (!tg?.sendData) {
     setStatus("Open this page from Telegram to continue in the bot.", true);
     return;
   }
@@ -176,10 +176,6 @@ async function createSelection(item) {
 
 async function loadCatalog() {
   clear();
-  if (!initData()) {
-    setStatus("Open Digital Store from the Telegram bot button.", true);
-    return;
-  }
   setStatus("Loading store...");
   try {
     state.catalog = await api("/mini/digital/api/catalog");
