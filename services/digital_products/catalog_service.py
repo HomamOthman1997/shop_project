@@ -275,6 +275,32 @@ def _section_service_key(text: str | None) -> str:
     if any(
         token in n
         for token in (
+            "steam",
+            "itunes",
+            "apple",
+            "google play",
+            "google",
+            "playstation",
+            "psn",
+            "xbox",
+            "nintendo",
+            "razer",
+            "roblox",
+            "gift card",
+            "gift cards",
+            "voucher",
+            "vouchers",
+            "cards",
+            "قسيمة",
+            "قسائم",
+            "بطاقات",
+            "متاجر",
+        )
+    ):
+        return "store_cards"
+    if any(
+        token in n
+        for token in (
             "otp",
             "number",
             "numbers",
@@ -366,11 +392,6 @@ def _section_service_key(text: str | None) -> str:
             "8 ball pool",
             "game",
             "games",
-            "playstation",
-            "xbox",
-            "nintendo",
-            "razer",
-            "roblox",
             "jawaker",
             "yalla ludo",
             "\u0627\u0644\u0639\u0627\u0628",
@@ -770,6 +791,8 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         if not game_id:
             continue
         name = str(row.get("name") or row.get("title") or row.get("game_name") or t("en", "catalog_fallback_game").format(game_id=game_id))
+        if _section_service_key(name) != "games":
+            continue
         bias = 0
         n = _norm(name)
         for idx, key in enumerate(_DEFAULT_TOP_GAMES):

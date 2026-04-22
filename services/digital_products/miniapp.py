@@ -222,12 +222,28 @@ def _gift_service_key(name: str) -> str:
     if any(
         k in n
         for k in (
+            "steam",
+            "itunes",
+            "apple",
+            "google play",
+            "google",
             "playstation",
             "psn",
             "xbox",
             "nintendo",
             "razer",
             "roblox",
+            "gift card",
+            "gift cards",
+            "voucher",
+            "vouchers",
+            "cards",
+        )
+    ):
+        return "store_cards"
+    if any(
+        k in n
+        for k in (
             "jawaker",
             "yalla ludo",
             "pubg",
@@ -274,9 +290,11 @@ def _family_rules_for_service(service_key: str) -> list[tuple[str, str, tuple[st
     if service_key == "games":
         return [
             ("pubg", "PUBG", ("pubg", "pubgm", "uc", "new state", "شدات", "شدة")),
+            ("pubg", "PUBG", ("ببجي", "اضافات ببجي")),
             ("mobile_legends", "Mobile Legends", ("mobile legends", "mlbb", "موبايل ليجند")),
             ("free_fire", "Free Fire", ("free fire", "garena free fire", "فري فاير")),
             ("honor_of_kings", "Honor of Kings", ("honor of kings", "hok")),
+            ("league_of_legends", "League of Legends", ("league of legends", "lol", "riot", "riot points", "league")),
             ("yalla_ludo", "Yalla Ludo", ("yalla ludo", "يلا لودو")),
             ("jawaker", "Jawaker", ("jawaker", "جواكر")),
             ("clash_of_clans", "Clash of Clans", ("clash of clans", "coc")),
@@ -285,10 +303,6 @@ def _family_rules_for_service(service_key: str) -> list[tuple[str, str, tuple[st
             ("fortnite", "Fortnite", ("fortnite",)),
             ("valorant", "Valorant", ("valorant",)),
             ("genshin", "Genshin", ("genshin",)),
-            ("roblox", "Roblox", ("roblox", "روبلوكس")),
-            ("playstation", "PlayStation", ("playstation", "psn", "بلاي ستيشن")),
-            ("xbox", "Xbox", ("xbox",)),
-            ("nintendo", "Nintendo", ("nintendo",)),
         ]
     if service_key == "chat_apps":
         return [
@@ -317,6 +331,7 @@ def _family_rules_for_service(service_key: str) -> list[tuple[str, str, tuple[st
             ("nintendo", "Nintendo", ("nintendo",)),
             ("razer", "Razer Gold", ("razer",)),
             ("roblox", "Roblox", ("roblox", "روبلوكس")),
+            ("league_of_legends", "League of Legends", ("league of legends", "lol", "riot", "riot points", "league")),
             ("gift_cards", "Gift Cards", ("gift", "voucher", "card", "بطاقة", "قسيمة")),
         ]
     if service_key == "communications_data":
