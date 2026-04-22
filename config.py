@@ -133,6 +133,10 @@ class Settings(BaseSettings):
     digital_products_recovery_sweep_interval_sec: int = 300
     digital_products_recovery_pending_age_sec: int = 120
     digital_products_validation_interval_sec: int = 21600
+    digital_products_miniapp_enabled: bool = False
+    digital_products_miniapp_public_url: Optional[str] = None
+    digital_products_miniapp_host: str = "0.0.0.0"
+    digital_products_miniapp_port: int = 8080
     cardex_release_sweep_interval_sec: int = 600
     financial_anomaly_sweep_interval_sec: int = 21600
     financial_anomaly_scan_days: int = 7

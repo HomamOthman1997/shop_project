@@ -7,7 +7,7 @@ from utils.translations import t
 sys.path.insert(0, os.getcwd())
 
 from utils import bot_menu_context
-from keyboards.main_menu_kb import main_menu, reseller_user_main_menu
+from keyboards.main_menu_kb import digital_products_main_menu, main_menu, reseller_user_main_menu
 from keyboards.reseller_main_menu import reseller_main_menu
 from services.cards_bot.keyboards import cards_main_menu
 
@@ -73,6 +73,19 @@ def test_main_menus_do_not_show_custom_services_button():
     assert "rsmenu:adjust_user_balance" in inline_callbacks
     assert "rsmenu:core_topup" in inline_callbacks
     assert "rsmenu:stats" in inline_callbacks
+
+
+def test_digital_products_menu_exposes_miniapp_button_when_enabled(monkeypatch):
+    from keyboards import main_menu_kb
+
+    monkeypatch.setattr(main_menu_kb.settings, "digital_products_miniapp_enabled", True)
+    monkeypatch.setattr(main_menu_kb.settings, "digital_products_miniapp_public_url", "https://store.example.com")
+
+    kb = digital_products_main_menu("en")
+    first_button = kb.keyboard[0][0]
+
+    assert first_button.web_app is not None
+    assert first_button.web_app.url == "https://store.example.com/mini/digital"
 
 
 @pytest.mark.asyncio

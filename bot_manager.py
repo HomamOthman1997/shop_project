@@ -67,6 +67,7 @@ from services.numbers.core.session_manager import SessionManager
 from services.proxies.handlers.proxy_flow import router as proxy_flow_router
 from services.proxies.handlers.proxy_inline import router as proxy_inline_router
 from services.digital_products.recovery import run_digital_products_pending_recovery_sweep
+from services.digital_products.miniapp import start_miniapp_server
 from services.proxies.catalog_cache import set_offers_cache
 from services.proxies.manager import get_proxy_catalog
 from services.proxies.validation import run_proxy_catalog_validation
@@ -1028,6 +1029,7 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
     running_main_bots: list[Bot] = []
     running_digital_products_bots: list[Bot] = []
     running_card_ex_bots: list[Bot] = []
+    miniapp_runner = None
     next_proof_cleanup_at = now
     next_recovery_at = now
     next_provider_balance_alert_at = now
@@ -1134,6 +1136,14 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
     )
 
     try:
+        miniapp_started = await start_miniapp_server()
+        if miniapp_started is not None:
+            miniapp_runner = miniapp_started[0]
+            logging.info(
+                "Digital-products mini app server started on %s:%s",
+                getattr(settings, "digital_products_miniapp_host", "0.0.0.0"),
+                getattr(settings, "digital_products_miniapp_port", 8080),
+            )
         while True:
             try:
                 (
@@ -1669,6 +1679,9 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
 
             await asyncio.sleep(poll_seconds)
     finally:
+        if miniapp_runner is not None:
+            with suppress(Exception):
+                await miniapp_runner.cleanup()
         await _stop_polling_group(public_dp, public_polling_task, running_public_bots)
         await _stop_polling_group(main_dp, main_polling_task, running_main_bots)
         await _stop_polling_group(digital_products_dp, digital_products_polling_task, running_digital_products_bots)

@@ -36,6 +36,7 @@ from utils.bot_menu_context import is_digital_products_bot, is_main_bot, menu_fo
 from services.digital_products.g2bulk_client import G2BulkClient
 from services.digital_products.catalog_service import get_catalog_snapshot, get_game_topups
 from services.digital_products.esim_access_client import EsimAccessClient
+from services.digital_products.miniapp import consume_selection
 from services.digital_products.zendit_client import ZenditClient
 from services.digital_products.esim_route_service import (
     available_days as esim_available_days,
@@ -3090,6 +3091,87 @@ async def open_store_hub(message: types.Message):
         f"{t(lang, 'store_hub_title')}\n\n{t(lang, 'store_hub_hint')}",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
+
+
+@router.message(lambda m: bool(getattr(m, "web_app_data", None)))
+async def digital_products_web_app_selection(message: types.Message):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
+    try:
+        payload_raw = str(getattr(message.web_app_data, "data", "") or "")
+        payload = json.loads(payload_raw)
+    except Exception:
+        return await message.answer(t(lang, "invalid_order_info"))
+    token = str((payload or {}).get("digital_selection_token") or "").strip()
+    if not token:
+        return await message.answer(t(lang, "invalid_order_info"))
+    selection = await consume_selection(token, int(message.from_user.id))
+    if not selection:
+        return await message.answer(t(lang, "store_session_expired"))
+
+    kind = str(selection.get("kind") or "").strip().lower()
+    snapshot = await get_catalog_snapshot(force=False)
+    markup_percent = await _resolve_digital_products_markup_percent()
+    if kind == "gift":
+        cat_id = str(selection.get("category_id") or "").strip()
+        product_id = str(selection.get("product_id") or "").strip()
+        selected: dict[str, Any] | None = None
+        for item in ((snapshot.get("products_by_category") or {}).get(cat_id) or []):
+            if str(item.get("id") or "").strip() == product_id:
+                selected = item
+                break
+        if not selected:
+            return await message.answer(t(lang, "store_product_not_found"))
+        price = float(_apply_markup_decimal(selected.get("price"), markup_percent))
+        stock = int(selected.get("stock") or 0)
+        text = (
+            f"{str(selected.get('name') or '-')}\n\n"
+            f"{_store_price_line(lang, price, await _resolve_usd_to_syp_rate((await message.bot.get_me()).id))}\n"
+            f"{t(lang, 'store_stock_label')}: {stock}\n\n"
+            f"{t(lang, 'confirm_purchase_question')}"
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data=f"gst:giftconfirm:{cat_id}:{product_id}")],
+                [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")],
+            ]
+        )
+        return await message.answer(text, reply_markup=kb)
+
+    if kind == "game":
+        game_id = str(selection.get("game_id") or "").strip()
+        item_id = str(selection.get("item_id") or "").strip()
+        group_key = str(selection.get("group_key") or "topup").strip() or "topup"
+        game_name = _find_game_name(game_id, snapshot)
+        items = await get_game_topups(game_id)
+        selected = None
+        for item in items:
+            if str(item.get("id") or "").strip() == item_id:
+                selected = item
+                break
+        if not selected:
+            return await message.answer(t(lang, "store_topup_package_not_found"))
+        price = float(_apply_markup_decimal(selected.get("price"), markup_percent))
+        name = _display_game_item_name(selected, group_key=group_key)
+        server_note = t(lang, "store_server_id_required") if bool(selected.get("requires_server")) else t(lang, "store_server_id_optional")
+        text = (
+            f"{_game_title(lang, game_name)}\n\n"
+            f"{name}\n\n"
+            f"{_store_price_line(lang, price, await _resolve_usd_to_syp_rate((await message.bot.get_me()).id))}\n"
+            f"{server_note}\n\n"
+            f"{t(lang, 'store_press_buy_send_player_id')}"
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data=f"gst:buygame:{game_id}:{group_key}:{item_id}")],
+                [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")],
+            ]
+        )
+        return await message.answer(text, reply_markup=kb)
+
+    return await message.answer(t(lang, "invalid_order_info"))
 
 
 @router.message(lambda m: _is_games_trigger(m.text))
