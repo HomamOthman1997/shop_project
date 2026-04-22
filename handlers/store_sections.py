@@ -1473,6 +1473,24 @@ def _gift_param_prompt_text(lang: str, key: str) -> str:
     return f"Send required field value: {label}"
 
 
+def _gift_prefill_summary_lines(*, lang: str, quantity: int, extra_params: dict[str, Any] | None) -> list[str]:
+    lines: list[str] = []
+    params = {
+        str(key).strip(): str(value).strip()
+        for key, value in dict(extra_params or {}).items()
+        if str(key).strip() and str(value).strip()
+    }
+    if int(quantity or 1) <= 1 and not params:
+        return lines
+    is_ar = str(lang or "").lower().startswith("ar")
+    lines.append("تفاصيل الطلب:" if is_ar else "Order details:")
+    lines.append(f"- {'الكمية' if is_ar else 'Quantity'}: {max(1, int(quantity or 1))}")
+    for key, value in params.items():
+        label = str(key).replace("_", " ").strip().title() or key
+        lines.append(f"- {label}: {value}")
+    return lines
+
+
 async def _execute_gift_purchase(
     *,
     bot: Any,
@@ -3511,10 +3529,17 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
         )
         price = sale_price
         stock = max(int(selected.get("stock") or 0), 1 if any(bool(row.get("available")) for row in offers) else 0)
+        details_lines = _gift_prefill_summary_lines(
+            lang=lang,
+            quantity=quantity,
+            extra_params=dict(extra_params),
+        )
+        details_block = ("\n".join(details_lines) + "\n\n") if details_lines else ""
         text = (
             f"{str(selected.get('name') or '-')}\n\n"
             f"{_store_price_line(lang, price, await _resolve_usd_to_syp_rate((await message.bot.get_me()).id))}\n"
             f"{t(lang, 'store_stock_label')}: {stock}\n\n"
+            f"{details_block}"
             f"{t(lang, 'confirm_purchase_question')}"
         )
         kb = InlineKeyboardMarkup(

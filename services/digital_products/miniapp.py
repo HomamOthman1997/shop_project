@@ -189,7 +189,7 @@ def _gift_service_key(name: str) -> str:
     n = _norm(name)
     if any(k in n for k in ("discord", "imo", "chat", "social", "واتس", "whatsapp", "telegram", "تلجرام")):
         return "chat_apps"
-    if any(k in n for k in ("steam", "playstation", "psn", "xbox", "nintendo", "razer", "roblox", "jawaker", "yalla ludo")):
+    if any(k in n for k in ("playstation", "psn", "xbox", "nintendo", "razer", "roblox", "jawaker", "yalla ludo")):
         return "games"
     if any(k in n for k in ("netflix", "spotify", "shahid", "canva", "chatgpt", "subscription", "premium", "pro", "اشتراك", "اشتراكات")):
         return "paid_subscriptions"
