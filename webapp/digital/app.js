@@ -26,10 +26,20 @@ function setStatus(text, error = false) {
   statusEl.classList.toggle("error", Boolean(error));
 }
 
+function initData() {
+  if (tg?.initData) {
+    return tg.initData;
+  }
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const search = new URLSearchParams(window.location.search);
+  return hash.get("tgWebAppData") || search.get("tgWebAppData") || "";
+}
+
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  if (tg?.initData) {
-    headers.set("X-Telegram-Init-Data", tg.initData);
+  const telegramInitData = initData();
+  if (telegramInitData) {
+    headers.set("X-Telegram-Init-Data", telegramInitData);
   }
   const response = await fetch(path, { ...options, headers });
   if (!response.ok) {
@@ -141,7 +151,7 @@ function renderItems() {
 }
 
 async function createSelection(item) {
-  if (!tg?.initData) {
+  if (!initData()) {
     setStatus("Open this page from Telegram to continue in the bot.", true);
     return;
   }
@@ -166,6 +176,10 @@ async function createSelection(item) {
 
 async function loadCatalog() {
   clear();
+  if (!initData()) {
+    setStatus("Open Digital Store from the Telegram bot button.", true);
+    return;
+  }
   setStatus("Loading store...");
   try {
     state.catalog = await api("/mini/digital/api/catalog");

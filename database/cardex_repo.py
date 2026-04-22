@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
@@ -544,40 +545,39 @@ async def create_withdrawal(*, user_id: str, requested_usd_amount: Decimal, payo
     payout = str(payout_currency).upper().strip()
     if payout not in {"USD", "SYP"}:
         raise ValueError("payout_currency must be USD or SYP")
+    withdrawal_id = str(uuid4())
+    await update_wallet_deltas(str(user_id), available_delta=-amount, locked_delta=amount)
     doc = {
-        "_id": str(uuid4()),
+        "_id": withdrawal_id,
         "user_id": str(user_id),
         "requested_usd_amount": _float6(amount),
         "payout_currency": payout,
-        "status": "lock_pending",
+        "status": "requested",
         "notes": str(notes or "").strip() or None,
         "created_at": _now(),
         "updated_at": _now(),
     }
-    await db.cardex_withdrawals.insert_one(doc)
     try:
-        await _apply_cardex_financial_event(
+        await db.cardex_withdrawals.insert_one(doc)
+        await post_ledger_entry(
             user_id=str(user_id),
             entry_type="withdrawal_request_lock",
             amount_usd=amount,
             available_delta_usd=-amount,
             locked_delta_usd=amount,
             reference_type="withdrawal",
-            reference_id=str(doc["_id"]),
+            reference_id=withdrawal_id,
             description="Withdrawal request lock created",
+            raise_on_duplicate=True,
         )
     except Exception:
-        await db.cardex_withdrawals.update_one(
-            {"_id": str(doc["_id"]), "status": "lock_pending"},
-            {"$set": {"status": "failed", "updated_at": _now()}},
-        )
+        await update_wallet_deltas(str(user_id), available_delta=amount, locked_delta=-amount)
+        with suppress(Exception):
+            await db.cardex_withdrawals.update_one(
+                {"_id": withdrawal_id, "status": "requested"},
+                {"$set": {"status": "failed", "updated_at": _now()}},
+            )
         raise
-    doc["status"] = "requested"
-    doc["updated_at"] = _now()
-    await db.cardex_withdrawals.update_one(
-        {"_id": str(doc["_id"]), "status": "lock_pending"},
-        {"$set": {"status": "requested", "updated_at": doc["updated_at"]}},
-    )
     return doc
 
 

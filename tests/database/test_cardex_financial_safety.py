@@ -205,3 +205,4 @@ async def test_create_withdrawal_locks_available_balance_once(fake_cardex_db):
         )
     assert wallet["available_usd"] == 2.0
     assert wallet["locked_usd"] == 8.0
+    assert len(fake_cardex_db.cardex_withdrawals.rows) == 1
