@@ -173,6 +173,13 @@ def _build_offer(provider: str, ref_id: str, price: float, available: bool, *, s
     return payload
 
 
+async def _with_timeout(coro: Any, *, timeout_sec: float, default: Any) -> Any:
+    try:
+        return await asyncio.wait_for(coro, timeout=float(timeout_sec))
+    except Exception:
+        return default
+
+
 def _choose_best_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
     valid = [row for row in offers if bool(row.get("available")) and float(row.get("price") or 0.0) > 0]
     if not valid:
@@ -588,6 +595,7 @@ def _dedupe_pubg_topups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
     ttl = max(10, int(getattr(settings, "g2bulk_catalog_cache_ttl_sec", 120) or 120))
+    provider_timeout = max(3.0, float(getattr(settings, "digital_products_provider_timeout_sec", 8.0) or 8.0))
     now = time.time()
     if not force and _CACHE.get("data") and (now - float(_CACHE.get("ts") or 0.0)) < ttl:
         return dict(_CACHE["data"])
@@ -600,14 +608,24 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         client = G2BulkClient()
         if client.configured():
             raw_categories, raw_products, raw_games, za3em_rows = await asyncio.gather(
-                client.get_categories(),
-                client.get_products(),
-                client.get_games(),
-                _get_za3em_products(force=force),
+                _with_timeout(client.get_categories(), timeout_sec=provider_timeout, default=[]),
+                _with_timeout(client.get_products(), timeout_sec=provider_timeout, default=[]),
+                _with_timeout(client.get_games(), timeout_sec=provider_timeout, default=[]),
+                _with_timeout(_get_za3em_products(force=force), timeout_sec=provider_timeout, default=[]),
             )
         else:
-            raw_categories, raw_products, raw_games, za3em_rows = [], [], [], await _get_za3em_products(force=force)
+            raw_categories, raw_products, raw_games, za3em_rows = [], [], [], await _with_timeout(
+                _get_za3em_products(force=force), timeout_sec=provider_timeout, default=[]
+            )
 
+    # Never fail closed for catalog: if providers are slow/down and we have stale cache, serve it.
+    if not (raw_categories or raw_products or raw_games or za3em_rows):
+        stale = _CACHE.get("data")
+        if isinstance(stale, dict) and stale:
+            return dict(stale)
+
+    if not za3em_rows:
+        za3em_rows = list(_ZA3EM_CACHE.get("rows") or [])
     za_index = _build_za3em_index(za3em_rows)
     za3em_categories, section_default_category = _build_za3em_categories(za3em_rows)
     cat_name_by_id = {str(_best_id(row, "id", "category_id", "ID")): str(row.get("name") or row.get("title") or "") for row in raw_categories}
@@ -622,12 +640,15 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         if not g2_cat_id:
             continue
         g2_cat_name = str(row.get("category_title") or cat_name_by_id.get(g2_cat_id, "")).strip()
-        cat_id = _pick_za3em_category_for_g2(
-            g2_category_name=g2_cat_name,
-            g2_product_name=str(row.get("name") or row.get("title") or row.get("product_name") or ""),
-            za3em_categories=za3em_categories,
-            section_default=section_default_category,
-        )
+        if za3em_categories:
+            cat_id = _pick_za3em_category_for_g2(
+                g2_category_name=g2_cat_name,
+                g2_product_name=str(row.get("name") or row.get("title") or row.get("product_name") or ""),
+                za3em_categories=za3em_categories,
+                section_default=section_default_category,
+            )
+        else:
+            cat_id = g2_cat_id
         if not cat_id:
             continue
         name = str(row.get("name") or row.get("title") or row.get("product_name") or t("en", "catalog_fallback_product").format(product_id=product_id))
@@ -706,20 +727,40 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         )
 
     gift_categories: list[dict[str, Any]] = []
-    for cat_id, cat in za3em_categories.items():
-        count = len(products_by_category.get(cat_id) or [])
-        if count <= 0:
-            continue
-        gift_categories.append(
-            {
-                "id": str(cat_id),
-                "name": str(cat.get("name") or ""),
-                "clean_name": str(cat.get("clean_name") or _clean_gift_name(cat.get("name"))),
-                "count": int(count),
-                "service_key": str(cat.get("service_key") or _section_service_key(str(cat.get("name") or ""))),
-                "raw": dict(cat.get("raw") or {}),
-            }
-        )
+    if za3em_categories:
+        for cat_id, cat in za3em_categories.items():
+            count = len(products_by_category.get(cat_id) or [])
+            if count <= 0:
+                continue
+            gift_categories.append(
+                {
+                    "id": str(cat_id),
+                    "name": str(cat.get("name") or ""),
+                    "clean_name": str(cat.get("clean_name") or _clean_gift_name(cat.get("name"))),
+                    "count": int(count),
+                    "service_key": str(cat.get("service_key") or _section_service_key(str(cat.get("name") or ""))),
+                    "raw": dict(cat.get("raw") or {}),
+                }
+            )
+    else:
+        for row in raw_categories:
+            cat_id = _best_id(row, "id", "category_id", "ID")
+            if not cat_id:
+                continue
+            count = len(products_by_category.get(cat_id) or [])
+            if count <= 0:
+                continue
+            name = str(row.get("name") or row.get("title") or t("en", "catalog_fallback_category").format(cat_id=cat_id))
+            gift_categories.append(
+                {
+                    "id": cat_id,
+                    "name": name,
+                    "clean_name": _clean_gift_name(name),
+                    "count": int(count),
+                    "service_key": _section_service_key(name),
+                    "raw": row,
+                }
+            )
     gift_categories.sort(key=lambda x: (_norm(x.get("clean_name")), str(x.get("id"))))
 
     games: list[dict[str, Any]] = []
