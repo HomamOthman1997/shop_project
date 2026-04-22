@@ -736,8 +736,24 @@ async function openItems(category) {
       state.items = data.items || [];
       state.itemGroups = data.groups || [];
     } else {
-      const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(category.id)}`);
-      state.items = data.items || [];
+      const sourceGiftIds = Array.isArray(category.gift_category_ids) ? category.gift_category_ids.filter(Boolean) : [];
+      if (sourceGiftIds.length > 0) {
+        const allItems = [];
+        for (const cid of sourceGiftIds) {
+          const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(cid)}`);
+          allItems.push(...(data.items || []));
+        }
+        const seen = new Set();
+        state.items = allItems.filter((item) => {
+          const key = `${String(item.kind || "")}:${String(item.id || "")}:${String(item.category_id || "")}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      } else {
+        const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(category.id)}`);
+        state.items = data.items || [];
+      }
       state.itemGroups = [];
     }
     renderItems();

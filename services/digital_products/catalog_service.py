@@ -272,6 +272,36 @@ def _section_service_key(text: str | None) -> str:
     n = _norm(text)
     if not n:
         return "store_cards"
+    # Chat apps must win before generic gift-card/store-card routing.
+    if any(
+        token in n
+        for token in (
+            "discord",
+            "imo",
+            "chat",
+            "apps",
+            "applications",
+            "قسم التطبيقات",
+            "تطبيقات",
+            "tada",
+            "bigo",
+            "coco",
+            "azal",
+            "live",
+            "telegram",
+            "whatsapp",
+            "messenger",
+            "viber",
+            "line",
+            "wechat",
+            "\u062f\u0631\u062f\u0634\u0629",
+            "\u062a\u0644\u063a\u0631\u0627\u0645",
+            "\u0648\u0627\u062a\u0633\u0627\u0628",
+            "\u062f\u064a\u0633\u0643\u0648\u0631\u062f",
+            "\u0627\u064a\u0645\u0648",
+        )
+    ):
+        return "chat_apps"
     if any(
         token in n
         for token in (
@@ -344,31 +374,6 @@ def _section_service_key(text: str | None) -> str:
         )
     ):
         return "communications_data"
-    if any(
-        token in n
-        for token in (
-            "discord",
-            "imo",
-            "chat",
-            "tada",
-            "bigo",
-            "coco",
-            "azal",
-            "live",
-            "telegram",
-            "whatsapp",
-            "messenger",
-            "viber",
-            "line",
-            "wechat",
-            "\u062f\u0631\u062f\u0634\u0629",
-            "\u062a\u0644\u063a\u0631\u0627\u0645",
-            "\u0648\u0627\u062a\u0633\u0627\u0628",
-            "\u062f\u064a\u0633\u0643\u0648\u0631\u062f",
-            "\u0627\u064a\u0645\u0648",
-        )
-    ):
-        return "chat_apps"
     if any(
         token in n
         for token in (
