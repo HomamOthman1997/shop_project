@@ -4,25 +4,31 @@ if (tg) {
   tg.expand();
 }
 
+const SERVICE_KEYS = [
+  "games",
+  "chat_apps",
+  "communications_data",
+  "numbers_services",
+  "paid_subscriptions",
+  "store_cards",
+];
+
 const copy = {
   en: {
     title: "Digital Store",
     refresh: "R",
     switchLang: "AR",
-    gifts: "Gift Cards",
-    games: "Games",
     search: "Search",
     loading: "Loading store...",
-    loadingProducts: "Loading products...",
     unavailable: "Digital store is not available right now.",
     noResults: "No results.",
     noProducts: "No products found.",
+    sections: "Sections",
+    categories: "Categories",
+    offers: "Offers",
     products: "products",
     packages: "packages",
-    categories: "Categories",
-    sections: "Sections",
-    offers: "Offers",
-    all: "All",
+    unavailableShort: "Unavailable",
     price: "Price",
     stock: "Stock",
     inStock: "In stock",
@@ -35,52 +41,67 @@ const copy = {
     openTelegram: "Open this page from Telegram to continue in the bot.",
     loadFailed: "Store failed to load",
     productLoadFailed: "Could not load products",
+    simKindTitle: "Telecom & Data",
+    simBalance: "Balance Top Up",
+    simData: "Data Packages",
+    esimDirect: "eSIM",
   },
   ar: {
-    title: "\u0627\u0644\u0645\u062a\u062c\u0631 \u0627\u0644\u0631\u0642\u0645\u064a",
+    title: "المتجر الرقمي",
     refresh: "R",
     switchLang: "EN",
-    gifts: "\u0628\u0637\u0627\u0642\u0627\u062a \u0648\u0642\u0633\u0627\u0626\u0645",
-    games: "\u0634\u062d\u0646 \u0623\u0644\u0639\u0627\u0628",
-    search: "\u0628\u062d\u062b",
-    loading: "\u062c\u0627\u0631 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0645\u062a\u062c\u0631...",
-    loadingProducts: "\u062c\u0627\u0631 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0639\u0631\u0648\u0636...",
-    unavailable: "\u0627\u0644\u0645\u062a\u062c\u0631 \u0627\u0644\u0631\u0642\u0645\u064a \u063a\u064a\u0631 \u0645\u062a\u0627\u062d \u062d\u0627\u0644\u064a\u0627.",
-    noResults: "\u0644\u0627 \u062a\u0648\u062c\u062f \u0646\u062a\u0627\u0626\u062c.",
-    noProducts: "\u0644\u0627 \u062a\u0648\u062c\u062f \u0639\u0631\u0648\u0636.",
-    products: "\u0639\u0631\u0648\u0636",
-    packages: "\u0628\u0627\u0642\u0627\u062a",
-    categories: "\u0627\u0644\u0641\u0626\u0627\u062a",
-    sections: "\u0627\u0644\u0623\u0642\u0633\u0627\u0645",
-    offers: "\u0627\u0644\u0639\u0631\u0648\u0636",
-    all: "\u0627\u0644\u0643\u0644",
-    price: "\u0627\u0644\u0633\u0639\u0631",
-    stock: "\u0627\u0644\u0645\u062e\u0632\u0648\u0646",
-    inStock: "\u0645\u062a\u0648\u0641\u0631",
-    out: "\u063a\u064a\u0631 \u0645\u062a\u0648\u0641\u0631",
-    continue: "\u0645\u062a\u0627\u0628\u0639\u0629",
-    back: "\u0631\u062c\u0648\u0639",
-    serverRequired: "\u064a\u062a\u0637\u0644\u0628 Server ID",
-    serverOptional: "Player ID \u0641\u0642\u0637",
-    selectionFailed: "\u0641\u0634\u0644 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0627\u062e\u062a\u064a\u0627\u0631",
-    openTelegram: "\u0627\u0641\u062a\u062d \u0627\u0644\u0635\u0641\u062d\u0629 \u0645\u0646 \u0632\u0631 \u0627\u0644\u0628\u0648\u062a \u062f\u0627\u062e\u0644 \u062a\u064a\u0644\u064a\u063a\u0631\u0627\u0645.",
-    loadFailed: "\u0641\u0634\u0644 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0645\u062a\u062c\u0631",
-    productLoadFailed: "\u0641\u0634\u0644 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0639\u0631\u0648\u0636",
+    search: "بحث",
+    loading: "جار تحميل المتجر...",
+    unavailable: "المتجر الرقمي غير متاح حالياً.",
+    noResults: "لا توجد نتائج.",
+    noProducts: "لا توجد عروض.",
+    sections: "الأقسام",
+    categories: "الفئات",
+    offers: "العروض",
+    products: "عروض",
+    packages: "باقات",
+    unavailableShort: "غير متاح",
+    price: "السعر",
+    stock: "المخزون",
+    inStock: "متوفر",
+    out: "غير متوفر",
+    continue: "متابعة",
+    back: "رجوع",
+    serverRequired: "يتطلب Server ID",
+    serverOptional: "Player ID فقط",
+    selectionFailed: "فشل إرسال الاختيار",
+    openTelegram: "افتح الصفحة من زر البوت داخل تيليغرام.",
+    loadFailed: "فشل تحميل المتجر",
+    productLoadFailed: "فشل تحميل العروض",
+    simKindTitle: "قسم الاتصالات والبيانات",
+    simBalance: "شحن رصيد",
+    simData: "باقات بيانات",
+    esimDirect: "eSIM",
   },
+};
+
+const serviceLabelFallback = {
+  games: { en: "قسم الألعاب", ar: "قسم الألعاب" },
+  chat_apps: { en: "قسم تطبيقات الدردشة", ar: "قسم تطبيقات الدردشة" },
+  communications_data: { en: "قسم الاتصالات والبيانات", ar: "قسم الاتصالات والبيانات" },
+  numbers_services: { en: "قسم خدمات الأرقام", ar: "قسم خدمات الأرقام" },
+  paid_subscriptions: { en: "قسم الاشتراكات المدفوعة", ar: "قسم الاشتراكات المدفوعة" },
+  store_cards: { en: "قسم بطاقات متاجر", ar: "قسم بطاقات متاجر" },
 };
 
 const state = {
   lang: detectLang(),
-  tab: "gifts",
-  department: "all",
-  group: "all",
-  itemGroup: "all",
   catalog: null,
-  view: "departments",
+  view: "services", // services | categories | items | simkind
+  service: "",
+  search: "",
+  categories: [],
   selectedId: "",
   selectedName: "",
-  items: [],
+  selectedCategoryKind: "gift", // gift | game
+  itemGroup: "all",
   itemGroups: [],
+  items: [],
 };
 
 const content = document.getElementById("content");
@@ -104,13 +125,11 @@ function applyLang() {
   document.documentElement.dir = state.lang === "ar" ? "rtl" : "ltr";
   titleEl.textContent = t("title");
   refreshBtn.textContent = t("refresh");
-  refreshBtn.setAttribute("aria-label", state.lang === "ar" ? "\u062a\u062d\u062f\u064a\u062b" : "Refresh");
+  refreshBtn.setAttribute("aria-label", state.lang === "ar" ? "تحديث" : "Refresh");
   if (langBtn) {
     langBtn.textContent = t("switchLang");
-    langBtn.setAttribute("aria-label", state.lang === "ar" ? "\u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u0644\u063a\u0629" : "Switch language");
+    langBtn.setAttribute("aria-label", state.lang === "ar" ? "تغيير اللغة" : "Switch language");
   }
-  document.querySelector('[data-tab="gifts"]').textContent = t("gifts");
-  document.querySelector('[data-tab="games"]').textContent = t("games");
   searchInput.placeholder = t("search");
 }
 
@@ -130,9 +149,7 @@ function setStatus(text, error = false) {
 }
 
 function initData() {
-  if (tg?.initData) {
-    return tg.initData;
-  }
+  if (tg?.initData) return tg.initData;
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   const search = new URLSearchParams(window.location.search);
   return hash.get("tgWebAppData") || search.get("tgWebAppData") || "";
@@ -141,13 +158,9 @@ function initData() {
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   const telegramInitData = initData();
-  if (telegramInitData) {
-    headers.set("X-Telegram-Init-Data", telegramInitData);
-  }
+  if (telegramInitData) headers.set("X-Telegram-Init-Data", telegramInitData);
   const response = await fetch(path, { ...options, headers });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
+  if (!response.ok) throw new Error(await response.text());
   return response.json();
 }
 
@@ -155,85 +168,13 @@ function clear() {
   content.replaceChildren();
 }
 
-function button(className, text, onClick) {
+function button(className, text, onClick, disabled = false) {
   const el = document.createElement("button");
   el.className = className;
   el.type = "button";
   el.textContent = text;
-  el.addEventListener("click", onClick);
-  return el;
-}
-
-function segment(items, active, onChange) {
-  const wrap = document.createElement("section");
-  wrap.className = "segments";
-  items.forEach((item) => {
-    const btn = button(`segment ${item.key === active ? "active" : ""}`, label(item.label), () => onChange(item.key));
-    wrap.append(btn);
-  });
-  return wrap;
-}
-
-function tile(row, onClick) {
-  const el = button("tile", "", onClick);
-  const body = document.createElement("div");
-  body.className = "tile-body";
-  const strong = document.createElement("strong");
-  strong.textContent = row.name;
-  const span = document.createElement("span");
-  span.textContent = state.tab === "gifts" ? `${row.count} ${t("products")}` : t("packages");
-  body.append(strong, span);
-  const chev = document.createElement("b");
-  chev.className = "tile-chevron";
-  chev.textContent = "›";
-  el.append(body, chev);
-  return el;
-}
-
-function deptLabel(key) {
-  const map = state.tab === "gifts"
-    ? {
-        all: { en: "All Services", ar: "\u0643\u0644 \u0627\u0644\u062e\u062f\u0645\u0627\u062a" },
-        games: { en: "Game Cards", ar: "\u0642\u0633\u0645 \u0627\u0644\u0623\u0644\u0639\u0627\u0628" },
-        apps: { en: "Apps & Chat", ar: "\u0642\u0633\u0645 \u0627\u0644\u062a\u0637\u0628\u064a\u0642\u0627\u062a" },
-        cards: { en: "Store Cards", ar: "\u0628\u0637\u0627\u0642\u0627\u062a \u0627\u0644\u0645\u062a\u0627\u062c\u0631" },
-        social: { en: "Social Services", ar: "\u062e\u062f\u0645\u0627\u062a \u0627\u062c\u062a\u0645\u0627\u0639\u064a\u0629" },
-        other: { en: "Other", ar: "\u0623\u062e\u0631\u0649" },
-      }
-    : {
-        all: { en: "All Games", ar: "\u0643\u0644 \u0627\u0644\u0623\u0644\u0639\u0627\u0628" },
-        battle: { en: "Battle Games", ar: "\u0623\u0644\u0639\u0627\u0628 \u0627\u0644\u0642\u062a\u0627\u0644" },
-        moba: { en: "MOBA Games", ar: "\u0623\u0644\u0639\u0627\u0628 MOBA" },
-        global: { en: "Global Games", ar: "\u0623\u0644\u0639\u0627\u0628 \u0639\u0627\u0644\u0645\u064a\u0629" },
-        other: { en: "More Games", ar: "\u0623\u0644\u0639\u0627\u0628 \u0623\u062e\u0631\u0649" },
-      };
-  return map[key] || map.other || { en: key, ar: key };
-}
-
-function giftDeptKey(name) {
-  const n = String(name || "").toLowerCase();
-  if (/(steam|xbox|playstation|psn|nintendo|roblox|razer|jawaker|yalla)/.test(n)) return "games";
-  if (/(discord|imo|google|apple|itunes)/.test(n)) return "apps";
-  if (/(gift|card|wallet|store)/.test(n)) return "cards";
-  if (/(chat|social|live)/.test(n)) return "social";
-  return "other";
-}
-
-function gameDeptKey(name) {
-  const n = String(name || "").toLowerCase();
-  if (/(pubg|free fire|call of duty|new state)/.test(n)) return "battle";
-  if (/(mobile legends|honor of kings|mlbb)/.test(n)) return "moba";
-  if (/(roblox|fortnite|valorant|genshin)/.test(n)) return "global";
-  return "other";
-}
-
-function departmentTile(row, onClick) {
-  const el = button("dept-tile", "", onClick);
-  const title = document.createElement("strong");
-  title.textContent = label(deptLabel(row.key));
-  const meta = document.createElement("span");
-  meta.textContent = `${row.count} ${state.tab === "gifts" ? t("categories") : t("packages")}`;
-  el.append(title, meta);
+  el.disabled = disabled;
+  if (!disabled) el.addEventListener("click", onClick);
   return el;
 }
 
@@ -248,9 +189,43 @@ function stat(labelText, valueText, className = "") {
   return el;
 }
 
+function heading(text) {
+  const h = document.createElement("h2");
+  h.className = "section-title";
+  h.textContent = text;
+  return h;
+}
+
+function card(title, meta, onClick, disabled = false) {
+  const el = button("dept-tile", "", onClick, disabled);
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+  const span = document.createElement("span");
+  span.textContent = meta;
+  el.append(strong, span);
+  return el;
+}
+
+function listTile(name, meta, onClick) {
+  const el = button("tile", "", onClick);
+  const body = document.createElement("div");
+  body.className = "tile-body";
+  const strong = document.createElement("strong");
+  strong.textContent = name;
+  const span = document.createElement("span");
+  span.textContent = meta;
+  body.append(strong, span);
+  const chev = document.createElement("b");
+  chev.className = "tile-chevron";
+  chev.textContent = "›";
+  el.append(body, chev);
+  return el;
+}
+
 function itemRow(item) {
   const row = document.createElement("article");
   row.className = "item";
+
   const top = document.createElement("div");
   top.className = "item-top";
   const title = document.createElement("strong");
@@ -266,115 +241,174 @@ function itemRow(item) {
   details.className = "details";
   details.append(stat(t("price"), money(item.price_usd), "price-stat"));
   if (item.kind === "gift") {
-    const stockText = Number(item.stock || 0) > 0 ? t("inStock") : t("out");
-    details.append(stat(t("stock"), stockText, Number(item.stock || 0) > 0 ? "ok" : "danger"));
+    details.append(stat(t("stock"), Number(item.stock || 0) > 0 ? t("inStock") : t("out"), Number(item.stock || 0) > 0 ? "ok" : "danger"));
   } else {
     details.append(stat("", item.requires_server ? t("serverRequired") : t("serverOptional")));
   }
+
   row.append(top, details);
   return row;
 }
 
-function rootRows() {
-  const rows = state.tab === "gifts" ? state.catalog.gift_categories : state.catalog.games;
-  const q = searchInput.value.trim().toLowerCase();
-  return rows.filter((row) => {
-    const deptKey = state.tab === "gifts" ? giftDeptKey(row.name) : gameDeptKey(row.name);
-    const matchesDept = state.department === "all" || deptKey === state.department;
-    const matchesGroup = state.group === "all" || row.group_key === state.group;
-    const matchesSearch = !q || row.name.toLowerCase().includes(q);
-    return matchesDept && matchesGroup && matchesSearch;
+function serviceRows() {
+  const lookup = new Map((state.catalog?.services || []).map((row) => [String(row.key || ""), row]));
+  return SERVICE_KEYS.map((key) => {
+    const row = lookup.get(key) || {};
+    return {
+      key,
+      enabled: Boolean(row.enabled),
+      count: Number(row.count || 0),
+      label: row.label || serviceLabelFallback[key],
+    };
   });
 }
 
-function sectionRows() {
-  const rows = state.tab === "gifts" ? state.catalog.gift_categories : state.catalog.games;
-  const counts = new Map();
-  counts.set("all", rows.length);
-  rows.forEach((row) => {
-    const key = state.tab === "gifts" ? giftDeptKey(row.name) : gameDeptKey(row.name);
-    counts.set(key, (counts.get(key) || 0) + 1);
-  });
-  const order = state.tab === "gifts" ? ["all", "games", "apps", "cards", "social", "other"] : ["all", "battle", "moba", "global", "other"];
-  return order
-    .filter((key) => (counts.get(key) || 0) > 0)
-    .map((key) => ({ key, count: counts.get(key) || 0 }));
+function filteredCategories() {
+  const q = state.search.trim().toLowerCase();
+  return state.categories.filter((row) => !q || String(row.name || "").toLowerCase().includes(q));
 }
 
-function rootDepartments() {
+function filteredItems() {
+  const q = state.search.trim().toLowerCase();
+  return state.items.filter((row) => {
+    const byGroup = state.itemGroup === "all" || row.group_key === state.itemGroup;
+    const bySearch = !q || String(row.name || "").toLowerCase().includes(q);
+    return byGroup && bySearch;
+  });
+}
+
+function renderServices() {
   clear();
-  state.view = "departments";
+  state.view = "services";
+  state.service = "";
+  state.categories = [];
   state.selectedId = "";
   state.selectedName = "";
-  state.itemGroup = "all";
+  state.selectedCategoryKind = "gift";
   state.itemGroups = [];
-  state.group = "all";
+  state.items = [];
+  state.itemGroup = "all";
+  state.search = "";
   searchInput.value = "";
   setStatus("");
-  const heading = document.createElement("h2");
-  heading.className = "section-title";
-  heading.textContent = t("sections");
-  content.append(heading);
+
+  content.append(heading(t("sections")));
   const grid = document.createElement("section");
   grid.className = "dept-grid";
-  sectionRows().forEach((row) =>
-    grid.append(
-      departmentTile(row, () => {
-        state.department = row.key;
-        rootList();
-      })
-    )
-  );
+  serviceRows().forEach((row) => {
+    const meta = row.enabled
+      ? `${row.count} ${row.key === "games" ? t("packages") : t("categories")}`
+      : t("unavailableShort");
+    grid.append(card(label(row.label), meta, () => enterService(row.key), !row.enabled));
+  });
   content.append(grid);
 }
 
-function rootList() {
-  clear();
-  state.view = "root";
-  state.selectedId = "";
-  state.selectedName = "";
+function buildCategoriesForService(key) {
+  if (!state.catalog) return [];
+  if (key === "games") {
+    const gameRows = (state.catalog.games || []).map((row) => ({
+      id: String(row.id || ""),
+      name: String(row.name || "-"),
+      count: 0,
+      entry_kind: "game",
+      meta_label: t("packages"),
+    }));
+    const giftRows = (state.catalog.gift_categories || [])
+      .filter((row) => String(row.service_key || "") === "games")
+      .map((row) => ({
+        id: String(row.id || ""),
+        name: String(row.name || "-"),
+        count: Number(row.count || 0),
+        entry_kind: "gift",
+        meta_label: `${Number(row.count || 0)} ${t("products")}`,
+      }));
+    return [...gameRows, ...giftRows];
+  }
+  return (state.catalog.gift_categories || [])
+    .filter((row) => String(row.service_key || "") === key)
+    .map((row) => ({
+      id: String(row.id || ""),
+      name: String(row.name || "-"),
+      count: Number(row.count || 0),
+      entry_kind: "gift",
+      meta_label: `${Number(row.count || 0)} ${t("products")}`,
+    }));
+}
+
+function enterService(key) {
+  state.service = key;
+  state.search = "";
+  searchInput.value = "";
   state.itemGroup = "all";
   state.itemGroups = [];
-  content.append(button("back-btn", t("back"), rootDepartments));
-  const sourceGroups = state.tab === "gifts" ? state.catalog.gift_groups : state.catalog.game_groups;
-  const groups = [{ key: "all", label: { en: t("all"), ar: t("all") } }, ...(sourceGroups || [])];
-  content.append(
-    segment(groups, state.group, (key) => {
-      state.group = key;
-      rootList();
-    })
-  );
+  setStatus("");
 
-  const rows = rootRows();
+  if (key === "communications_data") {
+    renderSimKinds();
+    return;
+  }
+  if (key === "numbers_services") {
+    createServiceSelection("numbers_services");
+    return;
+  }
+  state.categories = buildCategoriesForService(key);
+  renderCategories();
+}
+
+function renderCategories() {
+  clear();
+  state.view = "categories";
+  content.append(button("back-btn", t("back"), renderServices));
+  content.append(heading(t("categories")));
+
+  const rows = filteredCategories();
   setStatus(rows.length ? "" : t("noResults"));
-  const heading = document.createElement("h2");
-  heading.className = "section-title";
-  heading.textContent = t("categories");
-  content.append(heading);
+
   const list = document.createElement("section");
   list.className = "category-list";
-  rows.forEach((row) => list.append(tile(row, () => openList(row.id, row.name))));
+  rows.forEach((row) => {
+    list.append(
+      listTile(String(row.name || "-"), row.meta_label || "", () =>
+        openItems({
+          id: String(row.id || ""),
+          name: String(row.name || "-"),
+          entry_kind: String(row.entry_kind || "gift"),
+        })
+      )
+    );
+  });
   content.append(list);
 }
 
-async function openList(id, name) {
-  state.view = "items";
-  state.selectedId = id;
-  state.selectedName = name;
-  state.itemGroup = "all";
-  searchInput.value = "";
+function segment(items, active, onChange) {
+  const wrap = document.createElement("section");
+  wrap.className = "segments";
+  items.forEach((item) => {
+    const btn = button(`segment ${item.key === active ? "active" : ""}`, label(item.label), () => onChange(item.key));
+    wrap.append(btn);
+  });
+  return wrap;
+}
+
+async function openItems(category) {
   clear();
-  setStatus(t("loadingProducts"));
-  content.append(button("back-btn", t("back"), rootList));
+  setStatus(t("loading"));
+  state.view = "items";
+  state.selectedId = category.id;
+  state.selectedName = category.name;
+  state.selectedCategoryKind = category.entry_kind === "game" ? "game" : "gift";
+  state.itemGroup = "all";
+  state.itemGroups = [];
   try {
-    if (state.tab === "gifts") {
-      const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(id)}`);
-      state.items = data.items || [];
-      state.itemGroups = [];
-    } else {
-      const data = await api(`/mini/digital/api/games/${encodeURIComponent(id)}`);
+    if (state.selectedCategoryKind === "game") {
+      const data = await api(`/mini/digital/api/games/${encodeURIComponent(category.id)}`);
       state.items = data.items || [];
       state.itemGroups = data.groups || [];
+    } else {
+      const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(category.id)}`);
+      state.items = data.items || [];
+      state.itemGroups = [];
     }
     renderItems();
   } catch (err) {
@@ -382,18 +416,10 @@ async function openList(id, name) {
   }
 }
 
-function itemRows() {
-  const q = searchInput.value.trim().toLowerCase();
-  return state.items.filter((row) => {
-    const matchesGroup = state.itemGroup === "all" || row.group_key === state.itemGroup;
-    const matchesSearch = !q || row.name.toLowerCase().includes(q);
-    return matchesGroup && matchesSearch;
-  });
-}
-
 function renderItems() {
   clear();
-  content.append(button("back-btn", t("back"), rootList));
+  content.append(button("back-btn", t("back"), renderCategories));
+  content.append(heading(`${t("offers")} • ${state.selectedName}`));
   if (state.itemGroups.length > 1) {
     const groups = [{ key: "all", label: { en: t("all"), ar: t("all") } }, ...state.itemGroups];
     content.append(
@@ -403,35 +429,49 @@ function renderItems() {
       })
     );
   }
-  const rows = itemRows();
+  const rows = filteredItems();
   setStatus(rows.length ? "" : t("noProducts"));
-  const heading = document.createElement("h2");
-  heading.className = "section-title";
-  heading.textContent = `${t("offers")} • ${state.selectedName}`;
-  content.append(heading);
   rows.forEach((row) => content.append(itemRow(row)));
 }
 
-async function createSelection(item) {
+function renderSimKinds() {
+  clear();
+  state.view = "simkind";
+  setStatus("");
+  content.append(button("back-btn", t("back"), renderServices));
+  content.append(heading(t("simKindTitle")));
+  const grid = document.createElement("section");
+  grid.className = "dept-grid";
+  grid.append(card(t("simBalance"), t("continue"), () => createServiceSelection("simtopup", { section: "balance" })));
+  grid.append(card(t("simData"), t("continue"), () => createServiceSelection("simtopup", { section: "data" })));
+  grid.append(card(t("esimDirect"), t("continue"), () => createServiceSelection("esim")));
+  content.append(grid);
+}
+
+async function createServiceSelection(kind, extra = {}) {
   if (!tg?.sendData) {
     setStatus(t("openTelegram"), true);
     return;
   }
-  const payload =
-    item.kind === "gift"
-      ? { kind: "gift", category_id: item.category_id, product_id: item.id }
-      : { kind: "game", game_id: item.game_id, item_id: item.id, group_key: item.group_key };
   try {
     const data = await api("/mini/digital/api/selection", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ kind, ...extra }),
     });
     tg.sendData(JSON.stringify({ digital_selection_token: data.token }));
     tg.close();
   } catch (err) {
     setStatus(`${t("selectionFailed")}: ${err.message}`, true);
   }
+}
+
+async function createSelection(item) {
+  const payload =
+    item.kind === "gift"
+      ? { kind: "gift", category_id: item.category_id, product_id: item.id }
+      : { kind: "game", game_id: item.game_id, item_id: item.id, group_key: item.group_key };
+  await createServiceSelection(payload.kind, payload);
 }
 
 async function loadCatalog() {
@@ -443,29 +483,17 @@ async function loadCatalog() {
       setStatus(t("unavailable"), true);
       return;
     }
-    rootDepartments();
+    renderServices();
   } catch (err) {
     setStatus(`${t("loadFailed")}: ${err.message}`, true);
   }
 }
 
-document.querySelectorAll(".tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    if (!state.catalog) return;
-    document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-    tab.classList.add("active");
-    state.tab = tab.dataset.tab;
-    state.department = "all";
-    state.group = "all";
-    searchInput.value = "";
-    rootDepartments();
-  });
-});
-
 searchInput.addEventListener("input", () => {
+  state.search = String(searchInput.value || "");
   if (!state.catalog) return;
+  if (state.view === "categories") renderCategories();
   if (state.view === "items") renderItems();
-  else if (state.view === "root") rootList();
 });
 
 refreshBtn.addEventListener("click", loadCatalog);
@@ -474,9 +502,10 @@ if (langBtn) {
     state.lang = state.lang === "ar" ? "en" : "ar";
     applyLang();
     if (!state.catalog) return;
-    if (state.view === "items") renderItems();
-    else if (state.view === "root") rootList();
-    else rootDepartments();
+    if (state.view === "services") renderServices();
+    else if (state.view === "categories") renderCategories();
+    else if (state.view === "items") renderItems();
+    else if (state.view === "simkind") renderSimKinds();
   });
 }
 

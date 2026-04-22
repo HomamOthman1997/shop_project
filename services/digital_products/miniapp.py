@@ -185,6 +185,17 @@ def _gift_group_key(name: str) -> str:
     return "other"
 
 
+def _gift_service_key(name: str) -> str:
+    n = _norm(name)
+    if any(k in n for k in ("discord", "imo", "chat", "social", "واتس", "whatsapp", "telegram", "تلجرام")):
+        return "chat_apps"
+    if any(k in n for k in ("steam", "playstation", "psn", "xbox", "nintendo", "razer", "roblox", "jawaker", "yalla ludo")):
+        return "games"
+    if any(k in n for k in ("netflix", "spotify", "shahid", "canva", "chatgpt", "subscription", "premium", "pro", "اشتراك", "اشتراكات")):
+        return "paid_subscriptions"
+    return "store_cards"
+
+
 def _gift_group_label(key: str) -> dict[str, str]:
     labels = {
         "popular": {"en": "Popular", "ar": "الأكثر طلبا"},
@@ -282,6 +293,7 @@ async def _catalog_payload() -> dict[str, Any]:
                 "name": name,
                 "count": int(cat.get("count") or 0),
                 "group_key": _gift_group_key(name),
+                "service_key": _gift_service_key(name),
             }
         )
     gift_group_order = {"popular": 0, "gaming": 1, "apps": 2, "other": 3}
@@ -291,6 +303,7 @@ async def _catalog_payload() -> dict[str, Any]:
             "id": str(game.get("id") or ""),
             "name": str(game.get("name") or "-"),
             "group_key": _game_root_group_key(str(game.get("name") or "-")),
+            "service_key": "games",
         }
         for game in list(snapshot.get("games") or [])
         if str(game.get("id") or "").strip()
@@ -307,9 +320,68 @@ async def _catalog_payload() -> dict[str, Any]:
         for key in ("popular", "global", "all")
         if any(str(row.get("group_key")) == key for row in games)
     ]
+    chat_apps_count = sum(1 for row in categories if str(row.get("service_key")) == "chat_apps")
+    paid_subscriptions_count = sum(1 for row in categories if str(row.get("service_key")) == "paid_subscriptions")
+    store_cards_count = sum(1 for row in categories if str(row.get("service_key")) == "store_cards")
+    games_count = len(games) + sum(1 for row in categories if str(row.get("service_key")) == "games")
+    comm_enabled = bool(getattr(settings, "zendit_api_token", "") or "") or (
+        bool(getattr(settings, "esim_access_code", "") or "")
+        and bool(getattr(settings, "esim_access_secret_key", "") or "")
+    )
+    numbers_enabled = any(
+        bool(getattr(settings, key, "") or "")
+        for key in (
+            "smspool_key",
+            "smsman_key",
+            "nonvoip_key",
+            "herosms_key",
+            "pvadeals_key",
+            "alisms_key",
+            "vaksms_key",
+        )
+    )
+    services = [
+        {
+            "key": "games",
+            "label": {"en": "Games", "ar": "قسم الألعاب"},
+            "count": games_count,
+            "enabled": games_count > 0,
+        },
+        {
+            "key": "chat_apps",
+            "label": {"en": "Chat Apps", "ar": "قسم تطبيقات الدردشة"},
+            "count": chat_apps_count,
+            "enabled": chat_apps_count > 0,
+        },
+        {
+            "key": "communications_data",
+            "label": {"en": "Telecom & Data", "ar": "قسم الاتصالات والبيانات"},
+            "count": 2 if comm_enabled else 0,
+            "enabled": comm_enabled,
+        },
+        {
+            "key": "numbers_services",
+            "label": {"en": "Numbers Services", "ar": "قسم خدمات الأرقام"},
+            "count": 1 if numbers_enabled else 0,
+            "enabled": numbers_enabled,
+        },
+        {
+            "key": "paid_subscriptions",
+            "label": {"en": "Paid Subscriptions", "ar": "قسم الاشتراكات المدفوعة"},
+            "count": paid_subscriptions_count,
+            "enabled": paid_subscriptions_count > 0,
+        },
+        {
+            "key": "store_cards",
+            "label": {"en": "Store Cards", "ar": "قسم بطاقات متاجر"},
+            "count": store_cards_count,
+            "enabled": store_cards_count > 0,
+        },
+    ]
     return {
         "enabled": bool(snapshot.get("enabled")),
         "markup_percent": markup,
+        "services": services,
         "gift_categories": categories,
         "gift_groups": gift_groups,
         "games": games[:80],
@@ -468,6 +540,15 @@ async def create_selection(request: web.Request) -> web.Response:
         if not game_id or not item_id:
             raise web.HTTPBadRequest(text="missing game selection")
         payload = {"kind": "game", "game_id": game_id, "item_id": item_id, "group_key": group_key}
+    elif kind == "simtopup":
+        section = str(body.get("section") or "").strip().lower()
+        if section not in {"balance", "data"}:
+            raise web.HTTPBadRequest(text="invalid sim section")
+        payload = {"kind": "simtopup", "section": section}
+    elif kind == "esim":
+        payload = {"kind": "esim"}
+    elif kind == "numbers_services":
+        payload = {"kind": "numbers_services"}
     else:
         raise web.HTTPBadRequest(text="invalid selection")
     token = await _create_selection(int(auth["user_id"]) if auth else None, payload)

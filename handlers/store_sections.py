@@ -3254,7 +3254,7 @@ async def open_store_hub(message: types.Message):
 
 
 @router.message(lambda m: bool(getattr(m, "web_app_data", None)))
-async def digital_products_web_app_selection(message: types.Message):
+async def digital_products_web_app_selection(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
     if not await guard_core_service_message(message, lang):
@@ -3343,6 +3343,52 @@ async def digital_products_web_app_selection(message: types.Message):
             ]
         )
         return await message.answer(text, reply_markup=kb)
+
+    if kind == "simtopup":
+        section = str(selection.get("section") or "").strip().lower()
+        if section not in {"balance", "data"}:
+            return await message.answer(t(lang, "invalid_order_info"))
+        await state.clear()
+        await state.set_state(SimTopupFlow.waiting_phone)
+        await state.update_data(
+            sim_section_kind=section,
+            sim_phone="",
+            sim_country_code="",
+            sim_brand_key="",
+            sim_brand_name="",
+            sim_offers=[],
+            sim_selected_offer=None,
+        )
+        await _hide_reply_keyboard(message, lang)
+        await _sim_render_phone_prompt(message=message, state=state, lang=lang, section=section)
+        return
+
+    if kind == "esim":
+        await state.clear()
+        await state.set_state(EsimRouteFlow.choosing_mode)
+        await state.update_data(
+            esim_selected_countries=[],
+            esim_selected_mode="",
+            esim_selection_mode="",
+            esim_selected_days=0,
+            esim_candidate_plans=[],
+            esim_usage_key="",
+            esim_filtered_offers=[],
+            esim_recommended_offer=None,
+        )
+        await _hide_reply_keyboard(message, lang)
+        sent = await message.answer(_esim_mode_text(lang), reply_markup=_esim_mode_keyboard(lang))
+        await _esim_store_route_message_id(state, getattr(sent, "message_id", None))
+        return
+
+    if kind == "numbers_services":
+        await state.clear()
+        await _hide_reply_keyboard(message, lang)
+        await message.answer(
+            t(lang, "main_menu"),
+            reply_markup=await menu_for_current_bot(lang, (await message.bot.get_me()).id),
+        )
+        return
 
     return await message.answer(t(lang, "invalid_order_info"))
 
