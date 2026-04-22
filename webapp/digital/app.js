@@ -20,6 +20,7 @@ const copy = {
     products: "products",
     packages: "packages",
     categories: "Categories",
+    sections: "Sections",
     offers: "Offers",
     all: "All",
     price: "Price",
@@ -50,6 +51,7 @@ const copy = {
     products: "\u0639\u0631\u0648\u0636",
     packages: "\u0628\u0627\u0642\u0627\u062a",
     categories: "\u0627\u0644\u0641\u0626\u0627\u062a",
+    sections: "\u0627\u0644\u0623\u0642\u0633\u0627\u0645",
     offers: "\u0627\u0644\u0639\u0631\u0648\u0636",
     all: "\u0627\u0644\u0643\u0644",
     price: "\u0627\u0644\u0633\u0639\u0631",
@@ -70,10 +72,11 @@ const copy = {
 const state = {
   lang: detectLang(),
   tab: "gifts",
+  department: "all",
   group: "all",
   itemGroup: "all",
   catalog: null,
-  view: "root",
+  view: "departments",
   selectedId: "",
   selectedName: "",
   items: [],
@@ -187,6 +190,53 @@ function tile(row, onClick) {
   return el;
 }
 
+function deptLabel(key) {
+  const map = state.tab === "gifts"
+    ? {
+        all: { en: "All Services", ar: "\u0643\u0644 \u0627\u0644\u062e\u062f\u0645\u0627\u062a" },
+        games: { en: "Game Cards", ar: "\u0642\u0633\u0645 \u0627\u0644\u0623\u0644\u0639\u0627\u0628" },
+        apps: { en: "Apps & Chat", ar: "\u0642\u0633\u0645 \u0627\u0644\u062a\u0637\u0628\u064a\u0642\u0627\u062a" },
+        cards: { en: "Store Cards", ar: "\u0628\u0637\u0627\u0642\u0627\u062a \u0627\u0644\u0645\u062a\u0627\u062c\u0631" },
+        social: { en: "Social Services", ar: "\u062e\u062f\u0645\u0627\u062a \u0627\u062c\u062a\u0645\u0627\u0639\u064a\u0629" },
+        other: { en: "Other", ar: "\u0623\u062e\u0631\u0649" },
+      }
+    : {
+        all: { en: "All Games", ar: "\u0643\u0644 \u0627\u0644\u0623\u0644\u0639\u0627\u0628" },
+        battle: { en: "Battle Games", ar: "\u0623\u0644\u0639\u0627\u0628 \u0627\u0644\u0642\u062a\u0627\u0644" },
+        moba: { en: "MOBA Games", ar: "\u0623\u0644\u0639\u0627\u0628 MOBA" },
+        global: { en: "Global Games", ar: "\u0623\u0644\u0639\u0627\u0628 \u0639\u0627\u0644\u0645\u064a\u0629" },
+        other: { en: "More Games", ar: "\u0623\u0644\u0639\u0627\u0628 \u0623\u062e\u0631\u0649" },
+      };
+  return map[key] || map.other || { en: key, ar: key };
+}
+
+function giftDeptKey(name) {
+  const n = String(name || "").toLowerCase();
+  if (/(steam|xbox|playstation|psn|nintendo|roblox|razer|jawaker|yalla)/.test(n)) return "games";
+  if (/(discord|imo|google|apple|itunes)/.test(n)) return "apps";
+  if (/(gift|card|wallet|store)/.test(n)) return "cards";
+  if (/(chat|social|live)/.test(n)) return "social";
+  return "other";
+}
+
+function gameDeptKey(name) {
+  const n = String(name || "").toLowerCase();
+  if (/(pubg|free fire|call of duty|new state)/.test(n)) return "battle";
+  if (/(mobile legends|honor of kings|mlbb)/.test(n)) return "moba";
+  if (/(roblox|fortnite|valorant|genshin)/.test(n)) return "global";
+  return "other";
+}
+
+function departmentTile(row, onClick) {
+  const el = button("dept-tile", "", onClick);
+  const title = document.createElement("strong");
+  title.textContent = label(deptLabel(row.key));
+  const meta = document.createElement("span");
+  meta.textContent = `${row.count} ${state.tab === "gifts" ? t("categories") : t("packages")}`;
+  el.append(title, meta);
+  return el;
+}
+
 function stat(labelText, valueText, className = "") {
   const el = document.createElement("span");
   el.className = `stat ${className}`.trim();
@@ -229,10 +279,53 @@ function rootRows() {
   const rows = state.tab === "gifts" ? state.catalog.gift_categories : state.catalog.games;
   const q = searchInput.value.trim().toLowerCase();
   return rows.filter((row) => {
+    const deptKey = state.tab === "gifts" ? giftDeptKey(row.name) : gameDeptKey(row.name);
+    const matchesDept = state.department === "all" || deptKey === state.department;
     const matchesGroup = state.group === "all" || row.group_key === state.group;
     const matchesSearch = !q || row.name.toLowerCase().includes(q);
-    return matchesGroup && matchesSearch;
+    return matchesDept && matchesGroup && matchesSearch;
   });
+}
+
+function sectionRows() {
+  const rows = state.tab === "gifts" ? state.catalog.gift_categories : state.catalog.games;
+  const counts = new Map();
+  counts.set("all", rows.length);
+  rows.forEach((row) => {
+    const key = state.tab === "gifts" ? giftDeptKey(row.name) : gameDeptKey(row.name);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  const order = state.tab === "gifts" ? ["all", "games", "apps", "cards", "social", "other"] : ["all", "battle", "moba", "global", "other"];
+  return order
+    .filter((key) => (counts.get(key) || 0) > 0)
+    .map((key) => ({ key, count: counts.get(key) || 0 }));
+}
+
+function rootDepartments() {
+  clear();
+  state.view = "departments";
+  state.selectedId = "";
+  state.selectedName = "";
+  state.itemGroup = "all";
+  state.itemGroups = [];
+  state.group = "all";
+  searchInput.value = "";
+  setStatus("");
+  const heading = document.createElement("h2");
+  heading.className = "section-title";
+  heading.textContent = t("sections");
+  content.append(heading);
+  const grid = document.createElement("section");
+  grid.className = "dept-grid";
+  sectionRows().forEach((row) =>
+    grid.append(
+      departmentTile(row, () => {
+        state.department = row.key;
+        rootList();
+      })
+    )
+  );
+  content.append(grid);
 }
 
 function rootList() {
@@ -242,6 +335,7 @@ function rootList() {
   state.selectedName = "";
   state.itemGroup = "all";
   state.itemGroups = [];
+  content.append(button("back-btn", t("back"), rootDepartments));
   const sourceGroups = state.tab === "gifts" ? state.catalog.gift_groups : state.catalog.game_groups;
   const groups = [{ key: "all", label: { en: t("all"), ar: t("all") } }, ...(sourceGroups || [])];
   content.append(
@@ -349,7 +443,7 @@ async function loadCatalog() {
       setStatus(t("unavailable"), true);
       return;
     }
-    rootList();
+    rootDepartments();
   } catch (err) {
     setStatus(`${t("loadFailed")}: ${err.message}`, true);
   }
@@ -361,16 +455,17 @@ document.querySelectorAll(".tab").forEach((tab) => {
     document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
     tab.classList.add("active");
     state.tab = tab.dataset.tab;
+    state.department = "all";
     state.group = "all";
     searchInput.value = "";
-    rootList();
+    rootDepartments();
   });
 });
 
 searchInput.addEventListener("input", () => {
   if (!state.catalog) return;
   if (state.view === "items") renderItems();
-  else rootList();
+  else if (state.view === "root") rootList();
 });
 
 refreshBtn.addEventListener("click", loadCatalog);
@@ -380,7 +475,8 @@ if (langBtn) {
     applyLang();
     if (!state.catalog) return;
     if (state.view === "items") renderItems();
-    else rootList();
+    else if (state.view === "root") rootList();
+    else rootDepartments();
   });
 }
 
