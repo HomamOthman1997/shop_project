@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from difflib import SequenceMatcher
 from typing import Any
 
 from config import settings
@@ -393,6 +394,116 @@ def _za3em_category_id(row: dict[str, Any]) -> str:
     return f"za3emc_{str(row.get('id') or '').strip()}"
 
 
+def _category_tokens(text: str | None) -> set[str]:
+    cleaned = _norm(_clean_gift_name(text))
+    cleaned = re.sub(r"[^a-z0-9\u0600-\u06ff\s]+", " ", cleaned)
+    stop = {
+        "gift",
+        "gifts",
+        "card",
+        "cards",
+        "voucher",
+        "vouchers",
+        "top",
+        "up",
+        "global",
+        "official",
+        "section",
+        "قسم",
+        "بطاقات",
+        "قسائم",
+        "العاب",
+        "الألعاب",
+        "خدمات",
+    }
+    tokens = {tok for tok in cleaned.split() if len(tok) > 1 and tok not in stop}
+    return tokens
+
+
+def _text_similarity(a: str, b: str) -> float:
+    x = _norm(a)
+    y = _norm(b)
+    if not x or not y:
+        return 0.0
+    return float(SequenceMatcher(None, x, y).ratio())
+
+
+def _token_overlap(a: str | None, b: str | None) -> float:
+    ta = _category_tokens(a)
+    tb = _category_tokens(b)
+    if not ta or not tb:
+        return 0.0
+    inter = len(ta.intersection(tb))
+    union = len(ta.union(tb))
+    if union <= 0:
+        return 0.0
+    return float(inter / union)
+
+
+def _build_za3em_categories(rows: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    categories: dict[str, dict[str, Any]] = {}
+    section_best: dict[str, tuple[str, int]] = {}
+    for row in rows:
+        if not _is_za3em_supported_product(row):
+            continue
+        cat_id = _za3em_category_id(row)
+        category_name = str(row.get("category_name") or "").strip()
+        parent_id = str(row.get("parent_id") or "").strip()
+        name = category_name or t("en", "catalog_fallback_category").format(cat_id=parent_id or cat_id)
+        existing = categories.get(cat_id)
+        if not existing:
+            categories[cat_id] = {
+                "id": cat_id,
+                "name": name,
+                "clean_name": _clean_gift_name(name),
+                "service_key": _section_service_key(f"{name} {str(row.get('name') or '')}"),
+                "count": 0,
+                "raw": {"source": "za3em", "parent_id": parent_id, "category_name": category_name},
+            }
+        categories[cat_id]["count"] = int(categories[cat_id].get("count") or 0) + 1
+
+    for cat_id, cat in categories.items():
+        service_key = str(cat.get("service_key") or "store_cards")
+        cnt = int(cat.get("count") or 0)
+        best = section_best.get(service_key)
+        if not best or cnt > int(best[1]):
+            section_best[service_key] = (cat_id, cnt)
+    section_default = {k: v[0] for k, v in section_best.items()}
+    return categories, section_default
+
+
+def _pick_za3em_category_for_g2(
+    *,
+    g2_category_name: str,
+    g2_product_name: str,
+    za3em_categories: dict[str, dict[str, Any]],
+    section_default: dict[str, str],
+) -> str:
+    if not za3em_categories:
+        return ""
+    g2_section = _section_service_key(f"{g2_category_name} {g2_product_name}")
+    candidates = [cat for cat in za3em_categories.values() if str(cat.get("service_key")) == g2_section]
+    if not candidates:
+        candidates = list(za3em_categories.values())
+    best_id = ""
+    best_score = -1.0
+    for cat in candidates:
+        cat_name = str(cat.get("name") or "")
+        score = 0.0
+        score += _text_similarity(g2_category_name, cat_name) * 0.50
+        score += _token_overlap(g2_category_name, cat_name) * 0.30
+        score += _token_overlap(g2_product_name, cat_name) * 0.20
+        if score > best_score:
+            best_score = score
+            best_id = str(cat.get("id") or "")
+    if best_id and best_score >= 0.20:
+        return best_id
+    default_cat = str(section_default.get(g2_section) or "")
+    if default_cat:
+        return default_cat
+    return str(next(iter(za3em_categories.keys()), ""))
+
+
 def _normalize_offers(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     uniq: dict[tuple[str, str], dict[str, Any]] = {}
     for item in offers:
@@ -498,6 +609,7 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
             raw_categories, raw_products, raw_games, za3em_rows = [], [], [], await _get_za3em_products(force=force)
 
     za_index = _build_za3em_index(za3em_rows)
+    za3em_categories, section_default_category = _build_za3em_categories(za3em_rows)
     cat_name_by_id = {str(_best_id(row, "id", "category_id", "ID")): str(row.get("name") or row.get("title") or "") for row in raw_categories}
 
     products_by_category: dict[str, list[dict[str, Any]]] = {}
@@ -506,14 +618,24 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         product_id = _best_id(row, "id", "product_id", "ID")
         if not product_id:
             continue
-        cat_id = _best_id(row, "category_id", "cat_id", "categoryId")
+        g2_cat_id = _best_id(row, "category_id", "cat_id", "categoryId")
+        if not g2_cat_id:
+            continue
+        g2_cat_name = str(row.get("category_title") or cat_name_by_id.get(g2_cat_id, "")).strip()
+        cat_id = _pick_za3em_category_for_g2(
+            g2_category_name=g2_cat_name,
+            g2_product_name=str(row.get("name") or row.get("title") or row.get("product_name") or ""),
+            za3em_categories=za3em_categories,
+            section_default=section_default_category,
+        )
         if not cat_id:
             continue
         name = str(row.get("name") or row.get("title") or row.get("product_name") or t("en", "catalog_fallback_product").format(product_id=product_id))
         clean_name = _clean_gift_name(name)
-        service_key = _service_key(f"{clean_name} {cat_name_by_id.get(cat_id, '')}")
-        amount = _first_number(clean_name) or _first_number(cat_name_by_id.get(cat_id, ""))
-        variant = _variant_key(service_key, f"{clean_name} {cat_name_by_id.get(cat_id, '')}") if service_key else "generic"
+        category_hint = g2_cat_name or str(za3em_categories.get(cat_id, {}).get("name") or "")
+        service_key = _service_key(f"{clean_name} {category_hint}")
+        amount = _first_number(clean_name) or _first_number(category_hint)
+        variant = _variant_key(service_key, f"{clean_name} {category_hint}") if service_key else "generic"
         g2_offer = _build_offer(
             "g2bulk",
             product_id,
@@ -584,44 +706,18 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         )
 
     gift_categories: list[dict[str, Any]] = []
-    for row in raw_categories:
-        cat_id = _best_id(row, "id", "category_id", "ID")
-        if not cat_id:
-            continue
-        name = str(row.get("name") or row.get("title") or t("en", "catalog_fallback_category").format(cat_id=cat_id))
-        if _looks_game(name):
-            continue
+    for cat_id, cat in za3em_categories.items():
         count = len(products_by_category.get(cat_id) or [])
-        gift_categories.append(
-            {
-                "id": cat_id,
-                "name": name,
-                "clean_name": _clean_gift_name(name),
-                "count": count,
-                "service_key": _section_service_key(name),
-                "raw": row,
-            }
-        )
-    # Add Za3em-only synthetic categories built from parent/category names.
-    for row in za3em_rows:
-        if not _is_za3em_supported_product(row):
-            continue
-        cat_id = _za3em_category_id(row)
-        if not (products_by_category.get(cat_id) or []):
-            continue
-        category_name = str(row.get("category_name") or "").strip()
-        parent_id = str(row.get("parent_id") or "").strip()
-        name = category_name or (t("en", "catalog_fallback_category").format(cat_id=parent_id or cat_id))
-        if any(str(cat.get("id") or "") == cat_id for cat in gift_categories):
+        if count <= 0:
             continue
         gift_categories.append(
             {
-                "id": cat_id,
-                "name": name,
-                "clean_name": _clean_gift_name(name),
-                "count": len(products_by_category.get(cat_id) or []),
-                "service_key": _section_service_key(f"{name} {str(row.get('name') or '')}"),
-                "raw": row,
+                "id": str(cat_id),
+                "name": str(cat.get("name") or ""),
+                "clean_name": str(cat.get("clean_name") or _clean_gift_name(cat.get("name"))),
+                "count": int(count),
+                "service_key": str(cat.get("service_key") or _section_service_key(str(cat.get("name") or ""))),
+                "raw": dict(cat.get("raw") or {}),
             }
         )
     gift_categories.sort(key=lambda x: (_norm(x.get("clean_name")), str(x.get("id"))))
