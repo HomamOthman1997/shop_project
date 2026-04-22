@@ -77,7 +77,7 @@ def _natural_key(text: str) -> list[Any]:
     for part in parts:
         if not part:
             continue
-        out.append(int(part) if part.isdigit() else part)
+        out.append((0, int(part)) if part.isdigit() else (1, part))
     return out
 
 
