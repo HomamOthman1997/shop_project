@@ -408,6 +408,22 @@ input:focus {
   margin-top: 6px;
 }
 
+.inline-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.inline-quote {
+  font-size: 13px;
+  color: var(--accent-light);
+}
+
+.inline-actions {
+  display: flex;
+  justify-content: center;
+}
+
 .segments {
   display: flex;
   gap: 8px;

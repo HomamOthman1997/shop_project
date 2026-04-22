@@ -94,6 +94,8 @@ const extraCopy = {
     missingRequiredField: "Missing required field.",
     gamePurchaseData: "Enter game account data",
     giftPurchaseData: "Enter purchase data",
+    priceByQuantity: "By quantity",
+    creditsRange: "Credits range",
   },
   ar: {
     all: "\u0627\u0644\u0643\u0644",
@@ -108,6 +110,8 @@ const extraCopy = {
     missingRequiredField: "\u0647\u0646\u0627\u0643 \u062d\u0642\u0644 \u0645\u0637\u0644\u0648\u0628.",
     gamePurchaseData: "\u0623\u062f\u062e\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0634\u0631\u0627\u0621 \u0644\u0644\u0639\u0628\u0629",
     giftPurchaseData: "\u0623\u062f\u062e\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0634\u0631\u0627\u0621",
+    priceByQuantity: "\u062d\u0633\u0628 \u0627\u0644\u0643\u0645\u064a\u0629",
+    creditsRange: "\u0645\u062f\u0649 \u0627\u0644\u0643\u0631\u064a\u062f\u062a",
   },
 };
 
@@ -279,11 +283,15 @@ function listTile(name, meta, onClick) {
 function itemRow(item) {
   const row = document.createElement("article");
   row.className = "item";
+  const dynamicGiftPrice = item.kind === "gift" && Boolean(item.za3em_requires_input);
+  const priceText = dynamicGiftPrice ? t("priceByQuantity") : money(item.price_usd);
 
   // السعر في الأعلى
   const priceDiv = document.createElement("div");
   priceDiv.className = "item-price-top";
-  priceDiv.append(stat(t("price"), money(item.price_usd), "price-stat"));
+  const priceStat = stat(t("price"), priceText, "price-stat");
+  const priceValue = priceStat.querySelector("b");
+  priceDiv.append(priceStat);
   row.append(priceDiv);
 
   // قيمة UC في الوسط
@@ -292,18 +300,109 @@ function itemRow(item) {
   title.style.textAlign = "center";
   title.style.display = "block";
   row.append(title);
+  if (dynamicGiftPrice) {
+    const minQty = Number(item.za3em_qty_min || 1);
+    const maxQty = Number(item.za3em_qty_max || minQty);
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.style.textAlign = "center";
+    meta.textContent = `${t("creditsRange")}: ${minQty} - ${maxQty}`;
+    row.append(meta);
+    const form = document.createElement("section");
+    form.className = "inline-form";
+    const qtyField = document.createElement("div");
+    qtyField.className = "field";
+    const qtyLabel = document.createElement("label");
+    qtyLabel.textContent = `${t("quantity")} (${t("required")})`;
+    const qtyInput = document.createElement("input");
+    qtyInput.type = "number";
+    qtyInput.min = String(minQty);
+    qtyInput.max = String(maxQty);
+    qtyInput.value = String(Number(item.display_quantity || minQty));
+    qtyField.append(qtyLabel, qtyInput);
+    form.append(qtyField);
 
-  // زر Continue في الأسفل
-  const buy = button("buy", t("continue"), () => createSelection(item));
-  if (item.kind === "gift" && Number(item.stock || 0) <= 0) {
-    buy.disabled = true;
-    buy.textContent = t("out");
+    const paramInputs = [];
+    const params = Array.isArray(item.za3em_params) ? item.za3em_params : [];
+    params.forEach((key) => {
+      const field = document.createElement("div");
+      field.className = "field";
+      const lbl = document.createElement("label");
+      const labelText = String(key || "").replaceAll("_", " ").trim() || String(key || "");
+      lbl.textContent = `${labelText} (${t("required")})`;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = labelText;
+      field.append(lbl, input);
+      form.append(field);
+      paramInputs.push({ key, input });
+    });
+
+    const quoteLine = document.createElement("span");
+    quoteLine.className = "meta inline-quote";
+    quoteLine.style.textAlign = "center";
+    const refreshQuote = () => {
+      const qty = Number(qtyInput.value || minQty);
+      const clamped = Math.max(minQty, Math.min(maxQty, Number.isFinite(qty) ? qty : minQty));
+      const quoted = giftQuotePrice(item, clamped);
+      quoteLine.textContent = `${t("price")}: $${quoted.toFixed(2)}`;
+      if (priceValue) priceValue.textContent = `$${quoted.toFixed(2)}`;
+    };
+    qtyInput.addEventListener("input", refreshQuote);
+    refreshQuote();
+    form.append(quoteLine);
+
+    const actionWrap = document.createElement("div");
+    actionWrap.className = "inline-actions";
+    const submitBtn = button("buy", t("continue"), async () => {
+      const qty = Number(qtyInput.value || 0);
+      if (!Number.isInteger(qty) || qty < minQty || qty > maxQty) {
+        setStatus(t("invalidQuantity"), true);
+        return;
+      }
+      const extraParams = {};
+      for (const entry of paramInputs) {
+        const value = String(entry.input.value || "").trim();
+        if (!value) {
+          setStatus(t("missingRequiredField"), true);
+          return;
+        }
+        extraParams[String(entry.key)] = value;
+      }
+      const quoted = giftQuotePrice(item, qty);
+      await createServiceSelection("gift", {
+        kind: "gift",
+        category_id: item.category_id,
+        product_id: item.id,
+        quantity: qty,
+        extra_params: extraParams,
+        quoted_price_usd: quoted,
+      });
+    });
+    if (Number(item.stock || 0) <= 0) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = t("out");
+      qtyInput.disabled = true;
+      paramInputs.forEach((entry) => {
+        entry.input.disabled = true;
+      });
+    }
+    actionWrap.append(submitBtn);
+    form.append(actionWrap);
+    row.append(form);
+  } else {
+    // زر Continue في الأسفل
+    const buy = button("buy", t("continue"), () => createSelection(item));
+    if (item.kind === "gift" && Number(item.stock || 0) <= 0) {
+      buy.disabled = true;
+      buy.textContent = t("out");
+    }
+    const btnDiv = document.createElement("div");
+    btnDiv.style.display = "flex";
+    btnDiv.style.justifyContent = "center";
+    btnDiv.append(buy);
+    row.append(btnDiv);
   }
-  const btnDiv = document.createElement("div");
-  btnDiv.style.display = "flex";
-  btnDiv.style.justifyContent = "center";
-  btnDiv.append(buy);
-  row.append(btnDiv);
 
   return row;
 }
