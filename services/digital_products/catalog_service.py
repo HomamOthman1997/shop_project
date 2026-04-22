@@ -90,27 +90,26 @@ def _first_number(text: str) -> int | None:
 def _service_key(text: str) -> str | None:
     n = _norm(text)
     rules: list[tuple[str, tuple[str, ...]]] = [
-        ("pubg", ("pubg", "pubgm", "ببجي", "شدات", "شدة", "uc")),
-        ("mlbb", ("mobile legends", "mobile legend", "mlbb", "موبايل ليجند", "diamonds")),
-        ("free_fire", ("free fire", "فري فاير")),
+        ("pubg", ("pubg", "pubgm", "uc", "robot", "\u0628\u0628\u062c\u064a", "\u0634\u062f\u0629", "\u0634\u062f\u0627\u062a", "\u0631\u0648\u0628\u0648\u062a")),
+        ("mlbb", ("mobile legends", "mobile legend", "mlbb", "diamonds", "\u0645\u0648\u0628\u0627\u064a\u0644 \u0644\u064a\u062c\u0646\u062f")),
+        ("free_fire", ("free fire", "\u0641\u0631\u064a \u0641\u0627\u064a\u0631")),
         ("hok", ("honor of kings", "honor of king", "hok")),
-        ("steam", ("steam",)),
-        ("itunes", ("itunes", "apple", "ايتونز")),
-        ("playstation", ("playstation", "psn", "بلاي ستيشن")),
+        ("steam", ("steam", "\u0633\u062a\u064a\u0645")),
+        ("itunes", ("itunes", "apple", "\u0627\u064a\u062a\u0648\u0646\u0632")),
+        ("playstation", ("playstation", "psn", "\u0628\u0644\u0627\u064a \u0633\u062a\u064a\u0634\u0646")),
         ("xbox", ("xbox",)),
         ("nintendo", ("nintendo",)),
-        ("roblox", ("roblox", "روبلوكس")),
-        ("razer", ("razer", "ريزر")),
-        ("discord", ("discord", "ديسكورد")),
+        ("roblox", ("roblox", "\u0631\u0648\u0628\u0644\u0648\u0643\u0633")),
+        ("razer", ("razer", "\u0631\u064a\u0632\u0631")),
+        ("discord", ("discord", "\u062f\u064a\u0633\u0643\u0648\u0631\u062f")),
         ("imo", ("imo",)),
-        ("jawaker", ("jawaker", "جواكر")),
-        ("yalla_ludo", ("yalla ludo", "يلا لودو")),
+        ("jawaker", ("jawaker", "\u062c\u0648\u0627\u0643\u0631")),
+        ("yalla_ludo", ("yalla ludo", "\u064a\u0644\u0627 \u0644\u0648\u062f\u0648")),
     ]
     for key, keys in rules:
         if any(token in n for token in keys):
             return key
     return None
-
 
 def _currency_variant(text: str) -> str:
     n = _norm(text)
@@ -358,6 +357,88 @@ def _za3em_category_id(row: dict[str, Any]) -> str:
     return f"za3emc_{str(row.get('id') or '').strip()}"
 
 
+def _normalize_offers(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    uniq: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in offers:
+        provider = str(item.get("provider") or "").strip().lower()
+        ref_id = str(item.get("ref_id") or "").strip()
+        if not provider or not ref_id:
+            continue
+        key = (provider, ref_id)
+        existing = uniq.get(key)
+        if not existing:
+            uniq[key] = dict(item)
+            continue
+        old_price = _to_float(existing.get("price"))
+        new_price = _to_float(item.get("price"))
+        if new_price > 0 and (old_price <= 0 or new_price < old_price):
+            uniq[key] = dict(item)
+        elif bool(item.get("available")) and not bool(existing.get("available")):
+            uniq[key] = dict(item)
+    rows = list(uniq.values())
+    rows.sort(key=lambda item: (0 if bool(item.get("available")) else 1, _to_float(item.get("price")) if _to_float(item.get("price")) > 0 else 9999999))
+    return rows
+
+
+def _is_pubg_topup_row(name: str) -> bool:
+    n = _norm(name)
+    if not n:
+        return False
+    if _first_number(n) is None:
+        return False
+    # Keep top-up values and skip pass/special package rows.
+    blockers = (
+        "pass",
+        "prime",
+        "weekly",
+        "month",
+        "elite",
+        "mythic",
+        "pack",
+        "bundle",
+        "materials",
+        "first purchase",
+    )
+    return not any(token in n for token in blockers)
+
+
+def _dedupe_pubg_topups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_amount: dict[int, dict[str, Any]] = {}
+    passthrough: list[dict[str, Any]] = []
+    for row in rows:
+        name = str(row.get("name") or "")
+        if not _is_pubg_topup_row(name):
+            passthrough.append(row)
+            continue
+        amount = _first_number(name)
+        if amount is None:
+            passthrough.append(row)
+            continue
+        current = by_amount.get(int(amount))
+        if not current:
+            by_amount[int(amount)] = dict(row)
+            continue
+        merged_offers = _normalize_offers(
+            list(current.get("provider_offers") or []) + list(row.get("provider_offers") or [])
+        )
+        best_offer = _choose_best_offer(merged_offers)
+        keep = dict(current)
+        # Keep the cheaper base label (usually discounted) for cleaner UI.
+        if _to_float(row.get("price")) > 0 and (
+            _to_float(current.get("price")) <= 0 or _to_float(row.get("price")) < _to_float(current.get("price"))
+        ):
+            keep = dict(row)
+        keep["provider_offers"] = merged_offers
+        if best_offer:
+            keep["price"] = float(best_offer.get("price") or keep.get("price") or 0.0)
+            keep["best_provider"] = str(best_offer.get("provider") or keep.get("best_provider") or "")
+            keep["best_provider_ref_id"] = str(best_offer.get("ref_id") or keep.get("best_provider_ref_id") or "")
+        by_amount[int(amount)] = keep
+    merged = list(by_amount.values()) + passthrough
+    merged.sort(key=lambda x: (float(x.get("price") or 0), _norm(x.get("name"))))
+    return merged
+
+
 async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
     ttl = max(10, int(getattr(settings, "g2bulk_catalog_cache_ttl_sec", 120) or 120))
     now = time.time()
@@ -533,15 +614,22 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
 async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
     snapshot = await get_catalog_snapshot(force=False)
     topup_map = dict(snapshot.get("topups_by_game") or {})
-    if str(game_id) in topup_map:
-        return list(topup_map.get(str(game_id)) or [])
-
     game_name = ""
     for game in list(snapshot.get("games") or []):
         if str(game.get("id") or "").strip() == str(game_id).strip():
             game_name = str(game.get("name") or "").strip()
             break
     service_key = _service_key(f"{game_id} {game_name}")
+    if str(game_id) in topup_map:
+        cached_rows = list(topup_map.get(str(game_id)) or [])
+        if service_key == "pubg":
+            deduped = _dedupe_pubg_topups(cached_rows)
+            if len(deduped) != len(cached_rows):
+                topup_map[str(game_id)] = deduped
+                snapshot["topups_by_game"] = topup_map
+                _CACHE["data"] = snapshot
+            return deduped
+        return cached_rows
     za_index = _build_za3em_index(await _get_za3em_products(force=False))
 
     client = G2BulkClient()
@@ -578,6 +666,8 @@ async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
             }
         )
     normalized.sort(key=lambda x: (float(x.get("price") or 0), _norm(x.get("name"))))
+    if service_key == "pubg":
+        normalized = _dedupe_pubg_topups(normalized)
 
     fresh = await get_catalog_snapshot(force=False)
     fresh_topups = dict(fresh.get("topups_by_game") or {})

@@ -1,0 +1,29 @@
+score,g2_id,g2_name,g2_price,za_id,za_name,za_price,cheaper,diff_pct
+91.0,112,Steam Wallet Code HKD 50,6.25,8237,Steam Global 50$,54.590195888000004,g2bulk,88.55
+91.0,114,Steam Wallet Code HKD 100,12.51,8238,Steam Global 100$,109.180195888,g2bulk,88.54
+91.0,153,Steam Wallet Code MYR 5,1.19,8234,Steam Global 5$,5.46019404,g2bulk,78.21
+91.0,161,Steam Wallet Code MYR 50,11.93,8237,Steam Global 50$,54.590195888000004,g2bulk,78.15
+91.0,164,Steam Wallet Code MYR 100,23.87,8238,Steam Global 100$,109.180195888,g2bulk,78.14
+91.0,155,Steam Wallet Code MYR 10,2.39,8235,Steam Global 10$,10.92019404,g2bulk,78.11
+91.0,157,Steam Wallet Code MYR 20,4.77,8236,Steam Global 20$,21.63019404,g2bulk,77.95
+91.0,23,Itunes 100$ US GiftCard,94.5,4887,ITUNES 100 SAR,26.54819274,za3em,71.91
+91.0,168,Steam Global 50 USD,51.5,8237,Steam Global 50$,54.590195888000004,g2bulk,5.66
+91.0,102,Steam Global 5 USD,5.2,8234,Steam Global 5$,5.46019404,g2bulk,4.77
+91.0,103,Steam Global 10 USD,10.4,8235,Steam Global 10$,10.92019404,g2bulk,4.76
+91.0,106,Steam Global 100 USD,104.0,8238,Steam Global 100$,109.180195888,g2bulk,4.74
+91.0,104,Steam Global 20 USD,20.8,8236,Steam Global 20$,21.63019404,g2bulk,3.84
+91.0,105,Steam Global 25 USD,26.0,8239,Steam Global 25$,27.03769047,g2bulk,3.84
+91.0,12,Itunes 2$ US GiftCard,1.89,4874,ITUNES 2$,1.9278,g2bulk,1.96
+91.0,21,Itunes 60$ US GiftCard,56.7,4911,ITUNES 60$,57.834,g2bulk,1.96
+91.0,71,Itunes 4$ US GiftCard,3.78,4875,ITUNES 4$,3.8556,g2bulk,1.96
+91.0,16,Itunes 20$ US GiftCard,18.8,4879,ITUNES 20$,18.972,g2bulk,0.91
+91.0,20,Itunes 50$ US GiftCard,47.0,4881,ITUNES 50$,47.43,g2bulk,0.91
+91.0,13,Itunes 5$ US GiftCard,4.725,4876,ITUNES 5$,4.743,g2bulk,0.38
+91.0,14,Itunes 10$ US GiftCard,9.45,4877,ITUNES 10$,9.486,g2bulk,0.38
+86.68,24,Itunes 150$ US GiftCard,141.75,4877,ITUNES 10$,9.486,za3em,93.31
+86.68,26,Itunes 250$ US GiftCard,236.25,4879,ITUNES 20$,18.972,za3em,91.97
+86.68,29,Itunes 500$ US GiftCard,472.5,4881,ITUNES 50$,47.43,za3em,89.96
+86.68,25,Itunes 200$ US GiftCard,187.0,4879,ITUNES 20$,18.972,za3em,89.85
+86.18,17,Itunes 25$ US GiftCard,23.625,4874,ITUNES 2$,1.9278,za3em,91.84
+86.18,19,Itunes 40$ US GiftCard,37.8,4875,ITUNES 4$,3.8556,za3em,89.8
+86.18,15,Itunes 15$ US GiftCard,14.175,4876,ITUNES 5$,4.743,za3em,66.54

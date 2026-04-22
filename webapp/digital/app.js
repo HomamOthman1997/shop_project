@@ -131,6 +131,11 @@ function applyLang() {
     langBtn.setAttribute("aria-label", state.lang === "ar" ? "تغيير اللغة" : "Switch language");
   }
   searchInput.placeholder = t("search");
+  // تحديث رسالة الترحيب حسب اللغة
+  const welcomeMsg = document.getElementById("welcomeMsg");
+  if (welcomeMsg) {
+    welcomeMsg.textContent = state.lang === "ar" ? "مرحباً بك في المتجر الرقمي!" : "Welcome to the Digital Store!";
+  }
 }
 
 function money(value) {

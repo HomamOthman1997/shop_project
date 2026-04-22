@@ -1,0 +1,80 @@
+service_name,service_key,amount_key,g2_id,g2_name,g2_price_raw,za3em_id,za3em_name,za3em_price_raw,cheaper_provider,price_diff_abs,match_confidence,g2_source,za3em_source,g2_variant,za3em_variant
+Mobile Legends,mlbb,55,2793,55,0.765,8156,Diamonds 55 ML,0.73542,za3em,0.02958,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,55,3270,55,0.796,8156,Diamonds 55 ML,0.73542,za3em,0.06058,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,55,438,55,0.806,8156,Diamonds 55 ML,0.73542,za3em,0.07058,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,55,1549,55,0.959,8156,Diamonds 55 ML,0.73542,za3em,0.22358,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,55,1824,55,1.071,8156,Diamonds 55 ML,0.73542,za3em,0.33558,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,86,432,86,1.112,8157,Diamond 86 ML,1.15566,g2bulk,0.04366,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,86,2794,86,1.214,8157,Diamond 86 ML,1.15566,za3em,0.05834,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,172,439,172,2.224,8158,Diamonds 172 ML,2.29072,g2bulk,0.06672,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,172,2719,172,2.417,8158,Diamonds 172 ML,2.29072,za3em,0.12628,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,172,299,172,2.856,8158,Diamonds 172 ML,2.29072,za3em,0.56528,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,257,445,257,3.315,8159,Diamonds 257 ML,3.29909,za3em,0.01591,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,257,2779,257,3.458,8159,Diamonds 257 ML,3.29909,za3em,0.15891,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,257,300,257,4.223,8159,Diamonds 257 ML,3.29909,za3em,0.92391,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,344,441,344,3.56,8160,Diamonds 344 ML,4.60204,g2bulk,1.04204,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,344,2743,344,4.835,8160,Diamonds 344 ML,4.60204,za3em,0.23296,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,344,304,344,5.62,8160,Diamonds 344 ML,4.60204,za3em,1.01796,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,565,2772,565,7.619,8161,Diamonds 565 ML,7.24914,za3em,0.36986,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,565,3269,565,7.915,8161,Diamonds 565 ML,7.24914,za3em,0.66586,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,565,434,565,8.129,8161,Diamonds 565 ML,7.24914,za3em,0.87986,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,565,1546,565,9.588,8161,Diamonds 565 ML,7.24914,za3em,2.33886,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,565,1818,565,10.812,8161,Diamonds 565 ML,7.24914,za3em,3.56286,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,792,2800,792,10.73,8162,Diamonds 792 ML,10.20112,za3em,0.52888,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,1412,2756,1412,19.013,8163,Diamonds 1412 ML,18.09092,za3em,0.92208,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,2539,2766,2539,33.609,8164,Diamonds 2539 ML,31.98047,za3em,1.62853,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,3417,2757,3417,45.533,8165,Diamonds 3417 ML,43.32695,za3em,2.20605,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,4394,2724,4394,57.518,8166,Diamonds 4394 ML,54.72596,za3em,2.79204,0.3333,game,package,topup,topup
+Mobile Legends,mlbb,6134,2818,6134,80.957,8167,Diamonds 6134 ML,77.02958,za3em,3.92742,0.3333,game,package,topup,topup
+PUBG,pubg,1,269,Prime Plus (1 Month),8.8,4379,برايم بلس (1 شهر),8.89508,g2bulk,0.09508,0.1429,game,package,month|plus|prime,month|plus|prime
+PUBG,pubg,3,238,Prime (3 Months),2.64,7548,برايم (3 شهر),2.658059,g2bulk,0.018059,0.2,game,package,month|prime,month|prime
+PUBG,pubg,3,273,Prime Plus (3 Months),26.4,7543,برايم بلس (3 شهر),26.172465,za3em,0.227535,0.1429,game,package,month|plus|prime,month|plus|prime
+PUBG,pubg,6,246,Prime (6 Months),5.28,7547,برايم (6 شهر),5.263794,za3em,0.016206,0.2,game,package,month|prime,month|prime
+PUBG,pubg,6,257,Prime Plus (6 Months),52.0,7544,برايم بلس (6 شهر),52.221,g2bulk,0.221,0.1429,game,package,month|plus|prime,month|plus|prime
+PUBG,pubg,12,256,Prime Plus (12 Months),105.0,7545,برايم بلس(12 شهر),104.553817,za3em,0.446183,0.0,game,package,month|plus|prime,month|plus|prime
+PUBG,pubg,60,2,60 Uc,0.855,4328,60 شدة روبوت,0.872943,g2bulk,0.017943,0.25,gift,package,topup,topup
+PUBG,pubg,60,264,60,0.89,4328,60 شدة روبوت,0.872943,za3em,0.017057,0.3333,game,package,topup,topup
+PUBG,pubg,325,3,325 Uc,4.315,4329,325 شدة روبوت,4.364715,g2bulk,0.049715,0.25,gift,package,topup,topup
+PUBG,pubg,325,248,325,4.425,4329,325 شدة روبوت,4.364715,za3em,0.060285,0.3333,game,package,topup,topup
+PUBG,pubg,660,4,660 Uc,8.63,4330,660 شدة روبوت,8.72944,g2bulk,0.09944,0.25,gift,package,topup,topup
+PUBG,pubg,660,258,660,8.85,4330,660 شدة روبوت,8.72944,za3em,0.12056,0.3333,game,package,topup,topup
+PUBG,pubg,1800,5,1800 Uc,21.625,4331,1800 شدة روبوت,21.84125,g2bulk,0.21625,0.25,gift,package,topup,topup
+PUBG,pubg,1800,253,1800,22.125,4331,1800 شدة روبوت,21.84125,za3em,0.28375,0.3333,game,package,topup,topup
+PUBG,pubg,3850,6,3850 Uc,43.25,4332,3850 شدة روبوت,43.5175,g2bulk,0.2675,0.25,gift,package,topup,topup
+PUBG,pubg,3850,270,3850,44.25,4332,3850 شدة روبوت,43.5175,za3em,0.7325,0.3333,game,package,topup,topup
+PUBG,pubg,8100,7,8100 Uc,86.5,4333,8100 شدة روبوت,84.975,za3em,1.525,0.25,gift,package,topup,topup
+PUBG,pubg,8100,227,8100,88.0,4333,8100 شدة روبوت,84.975,za3em,3.025,0.3333,game,package,topup,topup
+PlayStation,playstation,10,95,10$ PSN KSA,9.5,5062,بلاي ستيشن امريكي 10$,9.800361,g2bulk,0.300361,0.1667,gift,package,usd,usd
+PlayStation,playstation,10,37,10$ PSN USA,9.6,5062,بلاي ستيشن امريكي 10$,9.800361,g2bulk,0.200361,0.1667,gift,package,usd,usd
+PlayStation,playstation,50,39,50$ PSN USA,45.0,5064,بلاي ستيشن امريكي 50$,45.410036,g2bulk,0.410036,0.1667,gift,package,usd,usd
+PlayStation,playstation,50,97,50$ PSN KSA,47.5,5064,بلاي ستيشن امريكي 50$,45.410036,za3em,2.089964,0.1667,gift,package,usd,usd
+PlayStation,playstation,100,42,100$ PSN USA,90.5,5068,بلاي ستيشن امريكي 100$,90.820081,g2bulk,0.320081,0.1667,gift,package,usd,usd
+PlayStation,playstation,100,98,100$ PSN KSA,95.0,5068,بلاي ستيشن امريكي 100$,90.820081,za3em,4.179919,0.1667,gift,package,usd,usd
+Razer,razer,1,30,Razer Gold 1$ Global,0.93,3797,1$ RAZER عالمي,0.9486,g2bulk,0.0186,0.4,gift,package,usd,usd
+Razer,razer,2,31,Razer Gold 2$ Global,1.86,3798,2$ RAZER عالمي,1.8972,g2bulk,0.0372,0.4,gift,package,usd,usd
+Razer,razer,5,32,Razer Gold 5$ Global,4.65,3799,5$ RAZER عالمي,4.743,g2bulk,0.093,0.4,gift,package,usd,usd
+Razer,razer,10,33,Razer Gold 10$ Global,9.3,3800,10$ RAZER عالمي,9.486,g2bulk,0.186,0.4,gift,package,usd,usd
+Razer,razer,20,34,Razer Gold 20$ Global,18.6,3801,20$ RAZER عالمي,18.972,g2bulk,0.372,0.4,gift,package,usd,usd
+Razer,razer,50,35,Razer Gold 50$ Global,46.5,3802,50$ RAZER عالمي,47.43,g2bulk,0.93,0.4,gift,package,usd,usd
+Razer,razer,100,36,Razer Gold 100$ Global,93.0,3803,100$ RAZER عالمي,94.861579,g2bulk,1.861579,0.4,gift,package,usd,usd
+Roblox,roblox,10,80,Roblox 10$ US,9.15,7620,USA 10$ روبلوكس,9.492491,g2bulk,0.342491,0.2,gift,package,usd,usd
+Roblox,roblox,25,81,Roblox 25$ US,22.875,7623,USA 25$ روبلوكس,23.731233,g2bulk,0.856233,0.2,gift,package,usd,usd
+Roblox,roblox,50,82,Roblox 50$ US,45.75,7624,USA 50$ روبلوكس,47.462467,g2bulk,1.712467,0.2,gift,package,usd,usd
+Steam,steam,5,102,Steam Global 5 USD,5.2,8234,Steam Global 5$,5.460194,g2bulk,0.260194,0.4,gift,package,usd,usd
+Steam,steam,10,103,Steam Global 10 USD,10.4,8235,Steam Global 10$,10.920194,g2bulk,0.520194,0.4,gift,package,usd,usd
+Steam,steam,20,104,Steam Global 20 USD,20.8,8236,Steam Global 20$,21.630194,g2bulk,0.830194,0.4,gift,package,usd,usd
+Steam,steam,25,105,Steam Global 25 USD,26.0,8239,Steam Global 25$,27.03769,g2bulk,1.03769,0.4,gift,package,usd,usd
+Steam,steam,50,168,Steam Global 50 USD,51.5,8237,Steam Global 50$,54.590196,g2bulk,3.090196,0.4,gift,package,usd,usd
+Steam,steam,100,106,Steam Global 100 USD,104.0,8238,Steam Global 100$,109.180196,g2bulk,5.180196,0.4,gift,package,usd,usd
+Yalla Ludo,yalla_ludo,2320,787,2320 Diamonds,4.661,7013,2320 Ludo Diamonds,4.724375,g2bulk,0.063375,0.6667,game,package,generic,generic
+Yalla Ludo,yalla_ludo,5150,3176,5150 Diamonds,9.333,7014,5150 Ludo Diamonds,9.448739,g2bulk,0.115739,0.6667,game,package,generic,generic
+Yalla Ludo,yalla_ludo,13580,3177,13580 Diamonds,23.317,7015,13580 Ludo Diamonds,23.621854,g2bulk,0.304854,0.6667,game,package,generic,generic
+Yalla Ludo,yalla_ludo,55800,3194,55800 Diamonds,93.279,8155,Ludo Diamonds 55800,90.990101,za3em,2.288899,0.6667,game,package,generic,generic
+iTunes,itunes,2,12,Itunes 2$ US,1.89,4874,ITUNES 2$,1.9278,g2bulk,0.0378,0.6667,gift,package,usd,usd
+iTunes,itunes,4,71,Itunes 4$ US,3.78,4875,ITUNES 4$,3.8556,g2bulk,0.0756,0.6667,gift,package,usd,usd
+iTunes,itunes,5,13,Itunes 5$ US,4.725,4876,ITUNES 5$,4.743,g2bulk,0.018,0.6667,gift,package,usd,usd
+iTunes,itunes,10,14,Itunes 10$ US,9.45,4877,ITUNES 10$,9.486,g2bulk,0.036,0.6667,gift,package,usd,usd
+iTunes,itunes,20,16,Itunes 20$ US,18.8,4879,ITUNES 20$,18.972,g2bulk,0.172,0.6667,gift,package,usd,usd
+iTunes,itunes,50,20,Itunes 50$ US,47.0,4881,ITUNES 50$,47.43,g2bulk,0.43,0.6667,gift,package,usd,usd
+iTunes,itunes,60,21,Itunes 60$ US,56.7,4911,ITUNES 60$,57.834,g2bulk,1.134,0.6667,gift,package,usd,usd
+iTunes,itunes,100,23,Itunes 100$ US,94.5,4913,ITUNES 100$,96.39,g2bulk,1.89,0.6667,gift,package,usd,usd
