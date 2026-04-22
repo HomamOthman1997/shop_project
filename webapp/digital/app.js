@@ -372,17 +372,33 @@ function renderCategories() {
 
   const list = document.createElement("section");
   list.className = "category-list";
-  rows.forEach((row) => {
-    list.append(
-      listTile(String(row.name || "-"), row.meta_label || "", () =>
+  for (let i = 0; i < rows.length; i += 2) {
+    const row1 = rows[i];
+    const row2 = rows[i + 1];
+    const wrapper = document.createElement("div");
+    wrapper.style.display = "contents";
+    wrapper.append(
+      listTile(String(row1.name || "-"), row1.meta_label || "", () =>
         openItems({
-          id: String(row.id || ""),
-          name: String(row.name || "-"),
-          entry_kind: String(row.entry_kind || "gift"),
+          id: String(row1.id || ""),
+          name: String(row1.name || "-"),
+          entry_kind: String(row1.entry_kind || "gift"),
         })
       )
     );
-  });
+    if (row2) {
+      wrapper.append(
+        listTile(String(row2.name || "-"), row2.meta_label || "", () =>
+          openItems({
+            id: String(row2.id || ""),
+            name: String(row2.name || "-"),
+            entry_kind: String(row2.entry_kind || "gift"),
+          })
+        )
+      );
+    }
+    list.append(wrapper);
+  }
   content.append(list);
 }
 
@@ -436,7 +452,18 @@ function renderItems() {
   }
   const rows = filteredItems();
   setStatus(rows.length ? "" : t("noProducts"));
-  rows.forEach((row) => content.append(itemRow(row)));
+  const grid = document.createElement("section");
+  grid.className = "items-grid";
+  for (let i = 0; i < rows.length; i += 2) {
+    const row1 = rows[i];
+    const row2 = rows[i + 1];
+    const wrapper = document.createElement("div");
+    wrapper.style.display = "contents";
+    wrapper.append(itemRow(row1));
+    if (row2) wrapper.append(itemRow(row2));
+    grid.append(wrapper);
+  }
+  content.append(grid);
 }
 
 function renderSimKinds() {

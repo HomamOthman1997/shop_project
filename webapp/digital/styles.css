@@ -243,6 +243,7 @@ input:focus {
 
 .category-list {
   display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
 
@@ -309,6 +310,12 @@ input:focus {
   display: grid;
   gap: 12px;
   padding: 14px;
+}
+
+.items-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
 }
 
 .item-top {
