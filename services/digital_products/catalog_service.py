@@ -238,6 +238,126 @@ def _find_matching_za3em_offers(
     return []
 
 
+def _section_service_key(text: str | None) -> str:
+    n = _norm(text)
+    if not n:
+        return "store_cards"
+    if any(
+        token in n
+        for token in (
+            "otp",
+            "number",
+            "numbers",
+            "sms",
+            "virtual number",
+            "\u0627\u0631\u0642\u0627\u0645",
+            "\u0631\u0642\u0645",
+        )
+    ):
+        return "numbers_services"
+    if any(
+        token in n
+        for token in (
+            "netflix",
+            "spotify",
+            "shahid",
+            "youtube",
+            "chatgpt",
+            "subscription",
+            "subscriptions",
+            "premium",
+            "\u0627\u0634\u062a\u0631\u0627\u0643",
+            "\u0627\u0634\u062a\u0631\u0627\u0643\u0627\u062a",
+        )
+    ):
+        return "paid_subscriptions"
+    if any(
+        token in n
+        for token in (
+            "sim",
+            "topup",
+            "top up",
+            "telecom",
+            "data",
+            "mtn",
+            "syriatel",
+            "sawa",
+            "\u0631\u0635\u064a\u062f",
+            "\u0628\u064a\u0627\u0646\u0627\u062a",
+            "\u0627\u062a\u0635\u0627\u0644\u0627\u062a",
+        )
+    ):
+        return "communications_data"
+    if any(
+        token in n
+        for token in (
+            "discord",
+            "imo",
+            "chat",
+            "telegram",
+            "whatsapp",
+            "messenger",
+            "viber",
+            "line",
+            "wechat",
+            "\u062a\u0637\u0628\u064a\u0642\u0627\u062a",
+            "\u062f\u0631\u062f\u0634\u0629",
+            "\u062a\u0644\u063a\u0631\u0627\u0645",
+            "\u0648\u0627\u062a\u0633\u0627\u0628",
+            "\u062f\u064a\u0633\u0643\u0648\u0631\u062f",
+            "\u0627\u064a\u0645\u0648",
+        )
+    ):
+        return "chat_apps"
+    if any(
+        token in n
+        for token in (
+            "pubg",
+            "free fire",
+            "mobile legends",
+            "mlbb",
+            "honor of kings",
+            "game",
+            "games",
+            "steam",
+            "playstation",
+            "xbox",
+            "nintendo",
+            "razer",
+            "roblox",
+            "jawaker",
+            "yalla ludo",
+            "\u0627\u0644\u0639\u0627\u0628",
+            "\u0628\u0628\u062c\u064a",
+            "\u0641\u0631\u064a \u0641\u0627\u064a\u0631",
+            "\u0645\u0648\u0628\u0627\u064a\u0644 \u0644\u064a\u062c\u0646\u062f",
+            "\u062c\u0648\u0627\u0643\u0631",
+            "\u064a\u0644\u0627 \u0644\u0648\u062f\u0648",
+            "\u0628\u0644\u0627\u064a \u0633\u062a\u064a\u0634\u0646",
+            "\u0631\u0648\u0628\u0644\u0648\u0643\u0633",
+        )
+    ):
+        return "games"
+    return "store_cards"
+
+
+def _is_za3em_direct_gift(row: dict[str, Any]) -> bool:
+    product_type = _norm(str(row.get("product_type") or ""))
+    if product_type != "package":
+        return False
+    params = row.get("params")
+    if isinstance(params, list) and params:
+        return False
+    return bool(str(row.get("id") or "").strip())
+
+
+def _za3em_category_id(row: dict[str, Any]) -> str:
+    parent_id = str(row.get("parent_id") or "").strip()
+    if parent_id:
+        return f"za3emc_{parent_id}"
+    return f"za3emc_{str(row.get('id') or '').strip()}"
+
+
 async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
     ttl = max(10, int(getattr(settings, "g2bulk_catalog_cache_ttl_sec", 120) or 120))
     now = time.time()
@@ -250,23 +370,21 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
             return dict(_CACHE["data"])
 
         client = G2BulkClient()
-        if not client.configured():
-            snapshot = {"enabled": False, "gift_categories": [], "games": [], "products_by_category": {}, "topups_by_game": {}}
-            _CACHE["ts"] = now
-            _CACHE["data"] = snapshot
-            return dict(snapshot)
-
-        raw_categories, raw_products, raw_games, za3em_rows = await asyncio.gather(
-            client.get_categories(),
-            client.get_products(),
-            client.get_games(),
-            _get_za3em_products(force=force),
-        )
+        if client.configured():
+            raw_categories, raw_products, raw_games, za3em_rows = await asyncio.gather(
+                client.get_categories(),
+                client.get_products(),
+                client.get_games(),
+                _get_za3em_products(force=force),
+            )
+        else:
+            raw_categories, raw_products, raw_games, za3em_rows = [], [], [], await _get_za3em_products(force=force)
 
     za_index = _build_za3em_index(za3em_rows)
     cat_name_by_id = {str(_best_id(row, "id", "category_id", "ID")): str(row.get("name") or row.get("title") or "") for row in raw_categories}
 
     products_by_category: dict[str, list[dict[str, Any]]] = {}
+    matched_za3em_ref_ids: set[str] = set()
     for row in raw_products:
         product_id = _best_id(row, "id", "product_id", "ID")
         if not product_id:
@@ -288,6 +406,11 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         )
         offers = [g2_offer]
         offers.extend(_find_matching_za3em_offers(za_index, service_key=service_key, amount=amount, variant=variant))
+        for offer in offers:
+            if str(offer.get("provider") or "").strip().lower() == "za3em":
+                ref_id = str(offer.get("ref_id") or "").strip()
+                if ref_id:
+                    matched_za3em_ref_ids.add(ref_id)
         best_offer = _choose_best_offer(offers)
         products_by_category.setdefault(cat_id, []).append(
             {
@@ -303,6 +426,39 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
             }
         )
 
+    # Add standalone Za3em gift products (safe package products with no required params).
+    # These are not matched to G2Bulk by amount/variant and would otherwise stay hidden.
+    for row in za3em_rows:
+        if not _is_za3em_direct_gift(row):
+            continue
+        ref_id = str(row.get("id") or "").strip()
+        if not ref_id or ref_id in matched_za3em_ref_ids:
+            continue
+        cat_id = _za3em_category_id(row)
+        name = str(row.get("name") or t("en", "catalog_fallback_product").format(product_id=ref_id)).strip()
+        clean_name = _clean_gift_name(name)
+        available = bool(row.get("available"))
+        za_offer = _build_offer(
+            "za3em",
+            ref_id,
+            _to_float(row.get("price")),
+            available,
+            source=str(row.get("product_type") or "product"),
+        )
+        products_by_category.setdefault(cat_id, []).append(
+            {
+                "id": f"za3emp_{ref_id}",
+                "name": name,
+                "clean_name": clean_name,
+                "price": float(za_offer.get("price") or 0.0),
+                "stock": 1 if available else 0,
+                "provider_offers": [za_offer],
+                "best_provider": "za3em",
+                "best_provider_ref_id": ref_id,
+                "raw": row,
+            }
+        )
+
     gift_categories: list[dict[str, Any]] = []
     for row in raw_categories:
         cat_id = _best_id(row, "id", "category_id", "ID")
@@ -312,7 +468,38 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         if _looks_game(name):
             continue
         count = len(products_by_category.get(cat_id) or [])
-        gift_categories.append({"id": cat_id, "name": name, "clean_name": _clean_gift_name(name), "count": count, "raw": row})
+        gift_categories.append(
+            {
+                "id": cat_id,
+                "name": name,
+                "clean_name": _clean_gift_name(name),
+                "count": count,
+                "service_key": _section_service_key(name),
+                "raw": row,
+            }
+        )
+    # Add Za3em-only synthetic categories built from parent/category names.
+    for row in za3em_rows:
+        if not _is_za3em_direct_gift(row):
+            continue
+        cat_id = _za3em_category_id(row)
+        if not (products_by_category.get(cat_id) or []):
+            continue
+        category_name = str(row.get("category_name") or "").strip()
+        parent_id = str(row.get("parent_id") or "").strip()
+        name = category_name or (t("en", "catalog_fallback_category").format(cat_id=parent_id or cat_id))
+        if any(str(cat.get("id") or "") == cat_id for cat in gift_categories):
+            continue
+        gift_categories.append(
+            {
+                "id": cat_id,
+                "name": name,
+                "clean_name": _clean_gift_name(name),
+                "count": len(products_by_category.get(cat_id) or []),
+                "service_key": _section_service_key(f"{name} {str(row.get('name') or '')}"),
+                "raw": row,
+            }
+        )
     gift_categories.sort(key=lambda x: (_norm(x.get("clean_name")), str(x.get("id"))))
 
     games: list[dict[str, Any]] = []
@@ -332,7 +519,7 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
     games.sort(key=lambda x: (-int(x.get("bias") or 0), _norm(x.get("name"))))
 
     snapshot = {
-        "enabled": True,
+        "enabled": bool(raw_categories or raw_games or gift_categories),
         "gift_categories": gift_categories,
         "games": games,
         "products_by_category": products_by_category,

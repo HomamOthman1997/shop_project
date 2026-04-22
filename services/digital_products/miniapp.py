@@ -293,7 +293,7 @@ async def _catalog_payload() -> dict[str, Any]:
                 "name": name,
                 "count": int(cat.get("count") or 0),
                 "group_key": _gift_group_key(name),
-                "service_key": _gift_service_key(name),
+                "service_key": str(cat.get("service_key") or _gift_service_key(name)),
             }
         )
     gift_group_order = {"popular": 0, "gaming": 1, "apps": 2, "other": 3}
