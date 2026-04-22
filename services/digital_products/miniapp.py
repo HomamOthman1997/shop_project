@@ -196,6 +196,141 @@ def _gift_service_key(name: str) -> str:
     return "store_cards"
 
 
+def _family_rules_for_service(service_key: str) -> list[tuple[str, str, tuple[str, ...]]]:
+    if service_key == "games":
+        return [
+            ("pubg", "PUBG", ("pubg", "pubgm", "uc", "new state", "شدات", "شدة")),
+            ("mobile_legends", "Mobile Legends", ("mobile legends", "mlbb", "موبايل ليجند")),
+            ("free_fire", "Free Fire", ("free fire", "garena free fire", "فري فاير")),
+            ("honor_of_kings", "Honor of Kings", ("honor of kings", "hok")),
+            ("yalla_ludo", "Yalla Ludo", ("yalla ludo", "يلا لودو")),
+            ("jawaker", "Jawaker", ("jawaker", "جواكر")),
+            ("clash_of_clans", "Clash of Clans", ("clash of clans", "coc")),
+            ("brawl_stars", "Brawl Stars", ("brawl stars", "brawl star")),
+            ("cod", "Call of Duty", ("call of duty", "cod")),
+            ("fortnite", "Fortnite", ("fortnite",)),
+            ("valorant", "Valorant", ("valorant",)),
+            ("genshin", "Genshin", ("genshin",)),
+            ("roblox", "Roblox", ("roblox", "روبلوكس")),
+            ("playstation", "PlayStation", ("playstation", "psn", "بلاي ستيشن")),
+            ("xbox", "Xbox", ("xbox",)),
+            ("nintendo", "Nintendo", ("nintendo",)),
+        ]
+    if service_key == "chat_apps":
+        return [
+            ("discord", "Discord", ("discord", "ديسكورد")),
+            ("imo", "IMO", ("imo", "ايمو")),
+            ("telegram", "Telegram", ("telegram", "تلجرام")),
+            ("whatsapp", "WhatsApp", ("whatsapp", "واتساب")),
+            ("messenger", "Messenger", ("messenger", "facebook")),
+            ("chat_apps", "Chat Apps", ("chat", "دردشة", "social")),
+        ]
+    if service_key == "paid_subscriptions":
+        return [
+            ("netflix", "Netflix", ("netflix",)),
+            ("spotify", "Spotify", ("spotify",)),
+            ("shahid", "Shahid", ("shahid",)),
+            ("chatgpt", "ChatGPT", ("chatgpt",)),
+            ("canva", "Canva", ("canva",)),
+            ("subscriptions", "Subscriptions", ("subscription", "premium", "اشتراك")),
+        ]
+    if service_key == "store_cards":
+        return [
+            ("steam", "Steam", ("steam", "ستيم")),
+            ("google_play", "Google Play", ("google play", "google", "جوجل")),
+            ("apple_itunes", "Apple / iTunes", ("itunes", "apple", "ايتونز", "ابل")),
+            ("playstation", "PlayStation", ("playstation", "psn", "بلاي ستيشن")),
+            ("xbox", "Xbox", ("xbox",)),
+            ("nintendo", "Nintendo", ("nintendo",)),
+            ("razer", "Razer Gold", ("razer",)),
+            ("roblox", "Roblox", ("roblox", "روبلوكس")),
+            ("gift_cards", "Gift Cards", ("gift", "voucher", "card", "بطاقة", "قسيمة")),
+        ]
+    if service_key == "communications_data":
+        return [
+            ("mtn", "MTN", ("mtn",)),
+            ("syriatel", "Syriatel", ("syriatel",)),
+            ("sawa", "SAWA", ("sawa",)),
+            ("telecom", "Telecom & Data", ("data", "topup", "telecom", "اتصالات", "بيانات")),
+        ]
+    if service_key == "numbers_services":
+        return [
+            ("sms_otp", "SMS & OTP", ("sms", "otp", "number", "numbers", "رقم", "ارقام")),
+        ]
+    return []
+
+
+def _guess_family(service_key: str, category_name: str, sample_names: list[str]) -> tuple[str, str]:
+    text = _norm(" ".join([category_name] + list(sample_names or [])))
+    for key, label, tokens in _family_rules_for_service(service_key):
+        if any(token in text for token in tokens):
+            return key, label
+    base = _norm(category_name) or _norm(" ".join(sample_names[:2]))
+    cleaned = re.sub(r"(gift\s*cards?|giftcards?|vouchers?|voucher|cards?)", " ", base, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
+        return "other", "Other"
+    key = re.sub(r"[^a-z0-9]+", "_", cleaned).strip("_") or "other"
+    label = " ".join(part.capitalize() for part in cleaned.split()[:4]) or "Other"
+    return key, label
+
+
+def _grouped_gift_categories(snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    source_map: dict[str, set[str]] = {}
+    products_by_category = dict(snapshot.get("products_by_category") or {})
+    for cat in list(snapshot.get("gift_categories") or []):
+        cat_id = str(cat.get("id") or "").strip()
+        if not cat_id:
+            continue
+        category_name = str(cat.get("clean_name") or cat.get("name") or "-").strip()
+        service_key = str(cat.get("service_key") or _gift_service_key(category_name))
+        sample_rows = list(products_by_category.get(cat_id) or [])[:6]
+        sample_names = [str(row.get("name") or row.get("clean_name") or "") for row in sample_rows]
+        family_key, family_label = _guess_family(service_key, category_name, sample_names)
+        group_id = f"grp:g:{service_key}:{family_key}"
+        if group_id not in grouped:
+            grouped[group_id] = {
+                "id": group_id,
+                "name": family_label,
+                "count": 0,
+                "group_key": _gift_group_key(family_label),
+                "service_key": service_key,
+            }
+            source_map[group_id] = set()
+        grouped[group_id]["count"] = int(grouped[group_id]["count"] or 0) + int(cat.get("count") or 0)
+        source_map[group_id].add(cat_id)
+    gift_group_order = {"popular": 0, "gaming": 1, "apps": 2, "other": 3}
+    categories = list(grouped.values())
+    categories.sort(key=lambda row: (gift_group_order.get(str(row.get("group_key")), 9), _natural_key(str(row.get("name") or ""))))
+    return categories, {gid: sorted(list(ids)) for gid, ids in source_map.items()}
+
+
+def _grouped_games(snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    source_map: dict[str, set[str]] = {}
+    for game in list(snapshot.get("games") or []):
+        game_id = str(game.get("id") or "").strip()
+        if not game_id:
+            continue
+        game_name = str(game.get("name") or "-").strip()
+        family_key, family_label = _guess_family("games", game_name, [])
+        group_id = f"grp:gm:{family_key}"
+        if group_id not in grouped:
+            grouped[group_id] = {
+                "id": group_id,
+                "name": family_label,
+                "group_key": _game_root_group_key(family_label),
+                "service_key": "games",
+            }
+            source_map[group_id] = set()
+        source_map[group_id].add(game_id)
+    game_group_order = {"popular": 0, "global": 1, "all": 2}
+    games = list(grouped.values())
+    games.sort(key=lambda row: (game_group_order.get(str(row.get("group_key")), 9), _natural_key(str(row.get("name") or ""))))
+    return games, {gid: sorted(list(ids)) for gid, ids in source_map.items()}
+
+
 def _gift_group_label(key: str) -> dict[str, str]:
     labels = {
         "popular": {"en": "Popular", "ar": "الأكثر طلبا"},
@@ -276,40 +411,8 @@ def _try_verify_init_data(init_data: str) -> dict[str, Any] | None:
 async def _catalog_payload() -> dict[str, Any]:
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
-    categories = []
-    seen_category_names: set[str] = set()
-    for cat in list(snapshot.get("gift_categories") or []):
-        cat_id = str(cat.get("id") or "").strip()
-        if not cat_id:
-            continue
-        name = str(cat.get("clean_name") or cat.get("name") or "-").strip()
-        norm_name = _norm(name)
-        if not norm_name or any(k in norm_name for k in ("test", "demo", "sample")) or norm_name in seen_category_names:
-            continue
-        seen_category_names.add(norm_name)
-        categories.append(
-            {
-                "id": cat_id,
-                "name": name,
-                "count": int(cat.get("count") or 0),
-                "group_key": _gift_group_key(name),
-                "service_key": str(cat.get("service_key") or _gift_service_key(name)),
-            }
-        )
-    gift_group_order = {"popular": 0, "gaming": 1, "apps": 2, "other": 3}
-    categories.sort(key=lambda row: (gift_group_order.get(str(row.get("group_key")), 9), _natural_key(str(row.get("name") or ""))))
-    games = [
-        {
-            "id": str(game.get("id") or ""),
-            "name": str(game.get("name") or "-"),
-            "group_key": _game_root_group_key(str(game.get("name") or "-")),
-            "service_key": "games",
-        }
-        for game in list(snapshot.get("games") or [])
-        if str(game.get("id") or "").strip()
-    ]
-    game_group_order = {"popular": 0, "global": 1, "all": 2}
-    games.sort(key=lambda row: (game_group_order.get(str(row.get("group_key")), 9), _natural_key(str(row.get("name") or ""))))
+    categories, _gift_source_map = _grouped_gift_categories(snapshot)
+    games, _game_source_map = _grouped_games(snapshot)
     gift_groups = [
         {"key": key, "label": _gift_group_label(key)}
         for key in ("popular", "gaming", "apps", "other")
@@ -384,7 +487,7 @@ async def _catalog_payload() -> dict[str, Any]:
         "services": services,
         "gift_categories": categories,
         "gift_groups": gift_groups,
-        "games": games[:80],
+        "games": games[:120],
         "game_groups": game_groups,
     }
 
@@ -392,10 +495,26 @@ async def _catalog_payload() -> dict[str, Any]:
 async def _gift_products(category_id: str, query: str = "") -> list[dict[str, Any]]:
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
-    rows = list((snapshot.get("products_by_category") or {}).get(str(category_id), []) or [])
+    products_by_category = dict(snapshot.get("products_by_category") or {})
+    _, source_map = _grouped_gift_categories(snapshot)
+    source_ids = list(source_map.get(str(category_id), [])) if str(category_id).startswith("grp:g:") else [str(category_id)]
+    rows: list[tuple[str, dict[str, Any]]] = []
+    for sid in source_ids:
+        for row in list(products_by_category.get(str(sid), []) or []):
+            if isinstance(row, dict):
+                rows.append((str(sid), row))
+    dedup_rows: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {}
+    for sid, row in rows:
+        pid = str(row.get("id") or "").strip()
+        if not pid:
+            continue
+        key = (sid, pid)
+        if key not in dedup_rows:
+            dedup_rows[key] = (sid, row)
+    rows = list(dedup_rows.values())
     q = _norm(query)
     out: list[dict[str, Any]] = []
-    for item in rows:
+    for sid, item in rows:
         name = str(item.get("clean_name") or item.get("name") or "-")
         if q and fuzz.partial_ratio(q, name.lower()) < 45:
             continue
@@ -419,7 +538,7 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
             {
                 "kind": "gift",
                 "id": str(item.get("id") or ""),
-                "category_id": str(category_id),
+                "category_id": str(item.get("raw", {}).get("category_id") or item.get("raw", {}).get("cat_id") or item.get("raw", {}).get("categoryId") or sid),
                 "name": name,
                 "price_usd": display_sale_price,
                 "unit_price_usd": round(float(unit_sale_price), 6),
@@ -441,12 +560,25 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
 async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
-    game_name = _find_game_name(snapshot, str(game_id))
-    rows = await get_game_topups(str(game_id))
+    grouped_games, game_source_map = _grouped_games(snapshot)
+    source_game_ids = list(game_source_map.get(str(game_id), [])) if str(game_id).startswith("grp:gm:") else [str(game_id)]
+    game_name = str(game_id)
+    if str(game_id).startswith("grp:gm:"):
+        for row in grouped_games:
+            if str(row.get("id") or "") == str(game_id):
+                game_name = str(row.get("name") or game_id)
+                break
+    else:
+        game_name = _find_game_name(snapshot, str(game_id))
+    rows_with_game: list[tuple[str, dict[str, Any]]] = []
+    for source_game_id in source_game_ids:
+        source_rows = await get_game_topups(str(source_game_id))
+        for row in source_rows:
+            rows_with_game.append((str(source_game_id), row))
     q = _norm(query)
     items: list[dict[str, Any]] = []
-    for item in rows:
-        group = _classify_game_item(game_id, item)
+    for source_game_id, item in rows_with_game:
+        group = _classify_game_item(source_game_id, item)
         name = _display_game_item_name(item, group)
         if q and fuzz.partial_ratio(q, name.lower()) < 45:
             continue
@@ -454,14 +586,14 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
             {
                 "kind": "game",
                 "id": str(item.get("id") or ""),
-                "game_id": str(game_id),
+                "game_id": str(source_game_id),
                 "group_key": group,
                 "name": name,
                 "price_usd": _resolve_game_sale_price(
                     item.get("price"),
                     markup,
-                    game_id=str(game_id),
-                    game_name=game_name,
+                    game_id=str(source_game_id),
+                    game_name=_find_game_name(snapshot, str(source_game_id)),
                 ),
                 "requires_server": bool(item.get("requires_server")),
                 "best_provider_code": str(item.get("best_provider") or "g2bulk"),

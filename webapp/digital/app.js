@@ -464,23 +464,58 @@ function renderServices() {
 function buildCategoriesForService(key) {
   if (!state.catalog) return [];
   if (key === "games") {
-    const gameRows = (state.catalog.games || []).map((row) => ({
-      id: String(row.id || ""),
-      name: String(row.name || "-"),
-      count: 0,
-      entry_kind: "game",
-      meta_label: t("packages"),
-    }));
-    const giftRows = (state.catalog.gift_categories || [])
+    const merged = new Map();
+    const mergeKey = (name) => String(name || "").toLowerCase().trim();
+    (state.catalog.games || []).forEach((row) => {
+      const name = String(row.name || "-");
+      const keyName = mergeKey(name);
+      if (!merged.has(keyName)) {
+        merged.set(keyName, {
+          id: keyName,
+          name,
+          count: 0,
+          entry_kind: "game",
+          game_ids: [],
+          gift_category_ids: [],
+          meta_label: t("packages"),
+        });
+      }
+      const cur = merged.get(keyName);
+      cur.game_ids.push(String(row.id || ""));
+      cur.count += 1;
+    });
+    (state.catalog.gift_categories || [])
       .filter((row) => String(row.service_key || "") === "games")
-      .map((row) => ({
-        id: String(row.id || ""),
-        name: String(row.name || "-"),
-        count: Number(row.count || 0),
-        entry_kind: "gift",
-        meta_label: `${Number(row.count || 0)} ${t("products")}`,
-      }));
-    return [...gameRows, ...giftRows];
+      .forEach((row) => {
+        const name = String(row.name || "-");
+        const keyName = mergeKey(name);
+        if (!merged.has(keyName)) {
+          merged.set(keyName, {
+            id: keyName,
+            name,
+            count: 0,
+            entry_kind: "gift",
+            game_ids: [],
+            gift_category_ids: [],
+            meta_label: `${Number(row.count || 0)} ${t("products")}`,
+          });
+        }
+        const cur = merged.get(keyName);
+        cur.gift_category_ids.push(String(row.id || ""));
+        cur.count += Number(row.count || 0);
+      });
+    const rows = Array.from(merged.values()).map((row) => {
+      const hasGame = row.game_ids.length > 0;
+      const hasGift = row.gift_category_ids.length > 0;
+      const entry_kind = hasGame && hasGift ? "mixed" : hasGame ? "game" : "gift";
+      return {
+        ...row,
+        entry_kind,
+        meta_label: hasGame && hasGift ? `${t("offers")}` : row.meta_label,
+      };
+    });
+    rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    return rows;
   }
   return (state.catalog.gift_categories || [])
     .filter((row) => String(row.service_key || "") === key)
@@ -535,6 +570,8 @@ function renderCategories() {
           id: String(row1.id || ""),
           name: String(row1.name || "-"),
           entry_kind: String(row1.entry_kind || "gift"),
+          game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
+          gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
         })
       )
     );
@@ -545,6 +582,8 @@ function renderCategories() {
             id: String(row2.id || ""),
             name: String(row2.name || "-"),
             entry_kind: String(row2.entry_kind || "gift"),
+            game_ids: Array.isArray(row2.game_ids) ? row2.game_ids : [],
+            gift_category_ids: Array.isArray(row2.gift_category_ids) ? row2.gift_category_ids : [],
           })
         )
       );
@@ -574,7 +613,29 @@ async function openItems(category) {
   state.itemGroup = "all";
   state.itemGroups = [];
   try {
-    if (state.selectedCategoryKind === "game") {
+    if (category.entry_kind === "mixed") {
+      const allItems = [];
+      const allGroups = [];
+      for (const gid of category.game_ids || []) {
+        const data = await api(`/mini/digital/api/games/${encodeURIComponent(gid)}`);
+        allItems.push(...(data.items || []));
+        allGroups.push(...(data.groups || []));
+      }
+      for (const cid of category.gift_category_ids || []) {
+        const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(cid)}`);
+        const giftRows = (data.items || []).map((item) => ({ ...item, group_key: "vouchers" }));
+        allItems.push(...giftRows);
+      }
+      state.items = allItems;
+      const groupMap = new Map();
+      (allGroups || []).forEach((g) => {
+        if (g && g.key && !groupMap.has(g.key)) groupMap.set(g.key, g);
+      });
+      if (!groupMap.has("vouchers")) {
+        groupMap.set("vouchers", { key: "vouchers", label: { en: "Vouchers", ar: "قسائم" } });
+      }
+      state.itemGroups = Array.from(groupMap.values());
+    } else if (state.selectedCategoryKind === "game") {
       const data = await api(`/mini/digital/api/games/${encodeURIComponent(category.id)}`);
       state.items = data.items || [];
       state.itemGroups = data.groups || [];
