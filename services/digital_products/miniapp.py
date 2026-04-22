@@ -400,6 +400,18 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
         if q and fuzz.partial_ratio(q, name.lower()) < 45:
             continue
         price = _with_markup(item.get("price"), markup)
+        offers = [row for row in list(item.get("provider_offers") or []) if isinstance(row, dict)]
+        za3em_offers = [
+            row
+            for row in offers
+            if str(row.get("provider") or "").strip().lower() == "za3em" and bool(row.get("available"))
+        ]
+        za3em_offers.sort(key=lambda row: _money(row.get("price") or 0.0) if _money(row.get("price") or 0.0) > 0 else 9999999)
+        za_offer = za3em_offers[0] if za3em_offers else {}
+        za_params = [str(v).strip() for v in list(za_offer.get("za3em_params") or []) if str(v).strip()]
+        za_qty_min = max(1, int(za_offer.get("za3em_qty_min") or 1)) if za_offer else 1
+        za_qty_max = max(za_qty_min, int(za_offer.get("za3em_qty_max") or za_qty_min)) if za_offer else 1
+        requires_input = bool(za_offer.get("za3em_requires_input")) if za_offer else False
         out.append(
             {
                 "kind": "gift",
@@ -411,6 +423,10 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
                 "stock_label": "In stock" if int(item.get("stock") or 0) > 0 else "Out of stock",
                 "best_provider_code": str(item.get("best_provider") or "g2bulk"),
                 "providers_count": len(list(item.get("provider_offers") or [])),
+                "za3em_requires_input": requires_input,
+                "za3em_params": za_params,
+                "za3em_qty_min": za_qty_min,
+                "za3em_qty_max": za_qty_max,
             }
         )
     out.sort(key=lambda row: _natural_key(str(row.get("name") or "")))
@@ -532,14 +548,33 @@ async def create_selection(request: web.Request) -> web.Response:
         product_id = str(body.get("product_id") or "").strip()
         if not category_id or not product_id:
             raise web.HTTPBadRequest(text="missing gift selection")
-        payload = {"kind": "gift", "category_id": category_id, "product_id": product_id}
+        quantity_raw = body.get("quantity")
+        try:
+            quantity = max(1, int(quantity_raw)) if quantity_raw is not None else 1
+        except Exception:
+            quantity = 1
+        extra_params = body.get("extra_params") if isinstance(body.get("extra_params"), dict) else {}
+        payload = {
+            "kind": "gift",
+            "category_id": category_id,
+            "product_id": product_id,
+            "quantity": quantity,
+            "extra_params": extra_params,
+        }
     elif kind == "game":
         game_id = str(body.get("game_id") or "").strip()
         item_id = str(body.get("item_id") or "").strip()
         group_key = str(body.get("group_key") or "topup").strip() or "topup"
         if not game_id or not item_id:
             raise web.HTTPBadRequest(text="missing game selection")
-        payload = {"kind": "game", "game_id": game_id, "item_id": item_id, "group_key": group_key}
+        payload = {
+            "kind": "game",
+            "game_id": game_id,
+            "item_id": item_id,
+            "group_key": group_key,
+            "player_id": str(body.get("player_id") or "").strip(),
+            "server_id": str(body.get("server_id") or "").strip(),
+        }
     elif kind == "simtopup":
         section = str(body.get("section") or "").strip().lower()
         if section not in {"balance", "data"}:

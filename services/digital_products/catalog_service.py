@@ -159,14 +159,17 @@ def _variant_key(service_key: str | None, text: str) -> str:
     return _currency_variant(text)
 
 
-def _build_offer(provider: str, ref_id: str, price: float, available: bool, *, source: str = "") -> dict[str, Any]:
-    return {
+def _build_offer(provider: str, ref_id: str, price: float, available: bool, *, source: str = "", **extra: Any) -> dict[str, Any]:
+    payload = {
         "provider": str(provider),
         "ref_id": str(ref_id),
         "price": round(float(price or 0.0), 6),
         "available": bool(available),
         "source": str(source or ""),
     }
+    for key, value in extra.items():
+        payload[str(key)] = value
+    return payload
 
 
 def _choose_best_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -175,6 +178,25 @@ def _choose_best_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
         return None
     valid.sort(key=lambda row: float(row.get("price") or 0.0))
     return dict(valid[0])
+
+
+def _za3em_offer_meta(row: dict[str, Any]) -> dict[str, Any]:
+    params = [str(item).strip() for item in list(row.get("params") or []) if str(item).strip()]
+    qty_values = row.get("qty_values") if isinstance(row.get("qty_values"), dict) else {}
+    qty_min = _to_int((qty_values or {}).get("min") or 0)
+    qty_max = _to_int((qty_values or {}).get("max") or 0)
+    if qty_min <= 0:
+        qty_min = 1
+    if qty_max <= 0:
+        qty_max = max(1, qty_min)
+    product_type = str(row.get("product_type") or "").strip().lower()
+    return {
+        "za3em_params": params,
+        "za3em_product_type": product_type,
+        "za3em_qty_min": int(qty_min),
+        "za3em_qty_max": int(qty_max),
+        "za3em_requires_input": bool(params) or product_type == "amount" or qty_max > 1,
+    }
 
 
 async def _get_za3em_products(force: bool = False) -> list[dict[str, Any]]:
@@ -211,6 +233,7 @@ def _build_za3em_index(rows: list[dict[str, Any]]) -> dict[tuple[str, int, str],
             _to_float(row.get("price")),
             bool(row.get("available")),
             source=str(row.get("product_type") or "product"),
+            **_za3em_offer_meta(row),
         )
         index.setdefault((key, int(amount), variant), []).append(offer)
     for k in list(index.keys()):
@@ -340,12 +363,9 @@ def _section_service_key(text: str | None) -> str:
     return "store_cards"
 
 
-def _is_za3em_direct_gift(row: dict[str, Any]) -> bool:
+def _is_za3em_supported_product(row: dict[str, Any]) -> bool:
     product_type = _norm(str(row.get("product_type") or ""))
-    if product_type != "package":
-        return False
-    params = row.get("params")
-    if isinstance(params, list) and params:
+    if product_type not in {"package", "amount"}:
         return False
     return bool(str(row.get("id") or "").strip())
 
@@ -507,10 +527,10 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
             }
         )
 
-    # Add standalone Za3em gift products (safe package products with no required params).
-    # These are not matched to G2Bulk by amount/variant and would otherwise stay hidden.
+    # Add standalone Za3em products not matched to G2Bulk by amount/variant.
+    # Keep them visible as direct buy options.
     for row in za3em_rows:
-        if not _is_za3em_direct_gift(row):
+        if not _is_za3em_supported_product(row):
             continue
         ref_id = str(row.get("id") or "").strip()
         if not ref_id or ref_id in matched_za3em_ref_ids:
@@ -519,12 +539,14 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         name = str(row.get("name") or t("en", "catalog_fallback_product").format(product_id=ref_id)).strip()
         clean_name = _clean_gift_name(name)
         available = bool(row.get("available"))
+        meta = _za3em_offer_meta(row)
         za_offer = _build_offer(
             "za3em",
             ref_id,
             _to_float(row.get("price")),
             available,
             source=str(row.get("product_type") or "product"),
+            **meta,
         )
         products_by_category.setdefault(cat_id, []).append(
             {
@@ -536,6 +558,11 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
                 "provider_offers": [za_offer],
                 "best_provider": "za3em",
                 "best_provider_ref_id": ref_id,
+                "za3em_product_type": str(meta.get("za3em_product_type") or ""),
+                "za3em_params": list(meta.get("za3em_params") or []),
+                "za3em_qty_min": int(meta.get("za3em_qty_min") or 1),
+                "za3em_qty_max": int(meta.get("za3em_qty_max") or 1),
+                "za3em_requires_input": bool(meta.get("za3em_requires_input")),
                 "raw": row,
             }
         )
@@ -561,7 +588,7 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         )
     # Add Za3em-only synthetic categories built from parent/category names.
     for row in za3em_rows:
-        if not _is_za3em_direct_gift(row):
+        if not _is_za3em_supported_product(row):
             continue
         cat_id = _za3em_category_id(row)
         if not (products_by_category.get(cat_id) or []):

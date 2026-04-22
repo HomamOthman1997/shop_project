@@ -192,6 +192,11 @@ class GameStoreFlow(StatesGroup):
     waiting_topup_server = State()
 
 
+class GiftStoreFlow(StatesGroup):
+    waiting_quantity = State()
+    waiting_param = State()
+
+
 class EsimRouteFlow(StatesGroup):
     choosing_mode = State()
     choosing_countries = State()
@@ -1387,17 +1392,195 @@ async def _create_provider_gift_order(
     *,
     provider: str,
     ref_id: str,
+    quantity: int = 1,
+    extra_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     p = str(provider or "").strip().lower()
     if p == "za3em":
         client = Za3emClient()
         return await client.create_order(
             product_id=ref_id,
-            quantity=1,
+            quantity=max(1, int(quantity or 1)),
             order_uuid=uuid4().hex,
+            extra_params=extra_params or None,
         )
     client = G2BulkClient()
-    return await client.create_voucher_order(product_id=ref_id, quantity=1)
+    return await client.create_voucher_order(product_id=ref_id, quantity=max(1, int(quantity or 1)))
+
+
+def _gift_offer_needs_input(offer: dict[str, Any]) -> bool:
+    provider = str(offer.get("provider") or "").strip().lower()
+    if provider != "za3em":
+        return False
+    return bool(offer.get("za3em_requires_input"))
+
+
+def _gift_offer_params(offer: dict[str, Any]) -> list[str]:
+    raw = offer.get("za3em_params")
+    if isinstance(raw, list):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    return []
+
+
+def _gift_offer_qty_bounds(offer: dict[str, Any]) -> tuple[int, int]:
+    qty_min = max(1, _to_int(offer.get("za3em_qty_min") or 1))
+    qty_max = max(qty_min, _to_int(offer.get("za3em_qty_max") or qty_min))
+    return qty_min, qty_max
+
+
+def _gift_param_cancel_keyboard(lang: str, *, back_to: str = "gst:menu") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:giftparam:cancel")],
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data=back_to)],
+        ]
+    )
+
+
+def _gift_qty_prompt_text(lang: str, qty_min: int, qty_max: int) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        return f"أدخل الكمية المطلوبة ({qty_min}-{qty_max})"
+    return f"Enter quantity ({qty_min}-{qty_max})"
+
+
+def _gift_param_prompt_text(lang: str, key: str) -> str:
+    label = str(key or "").replace("_", " ").strip().title() or "Value"
+    if str(lang or "").lower().startswith("ar"):
+        return f"أرسل قيمة الحقل المطلوب: {label}"
+    return f"Send required field value: {label}"
+
+
+async def _execute_gift_purchase(
+    *,
+    bot: Any,
+    user_id: int,
+    lang: str,
+    reseller_id: int,
+    selected: dict[str, Any],
+    product_id: str,
+    available_offers: list[dict[str, Any]],
+    sale_price: float,
+    cost_price: float,
+    quantity: int = 1,
+    extra_params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    order, err = await _core_charge(
+        user_id=int(user_id),
+        reseller_id=int(reseller_id),
+        service_ref_id=f"{str((available_offers[0] if available_offers else {}).get('provider') or 'g2bulk')}:{'gift'}:{str((available_offers[0] if available_offers else {}).get('ref_id') or product_id)}",
+        sale_price=float(sale_price),
+        cost_price=float(cost_price),
+    )
+    if not order or err:
+        return {"kind": "charge_error", "alert": err or t(lang, "purchase_failed_plain")}
+
+    provider_resp: dict[str, Any] | None = None
+    chosen_offer: dict[str, Any] | None = None
+    failures: list[str] = []
+    for offer in available_offers:
+        offer_price = float(_money_decimal(offer.get("price") or 0.0))
+        if offer_price <= 0:
+            continue
+        # Do not auto-fallback to a higher-cost provider than the charged wholesale amount.
+        if offer_price > (cost_price + 0.000001):
+            continue
+        attempt = await _create_provider_gift_order(
+            provider=str(offer.get("provider") or "g2bulk"),
+            ref_id=str(offer.get("ref_id") or product_id),
+            quantity=max(1, int(quantity or 1)),
+            extra_params=extra_params if str(offer.get("provider") or "").strip().lower() == "za3em" else None,
+        )
+        if _provider_ok(attempt):
+            provider_resp = attempt
+            chosen_offer = dict(offer)
+            break
+        failures.append(_extract_provider_error(attempt.get("data") or attempt))
+
+    if not provider_resp or not chosen_offer:
+        await _core_refund(
+            user_id=int(user_id),
+            reseller_id=int(reseller_id),
+            order=order,
+            sale_price=float(sale_price),
+            cost_price=float(cost_price),
+        )
+        error_text = failures[0] if failures else t(lang, "provider_request_failed")
+        await update_order_details(order["_id"], {"provider_response": provider_resp or {}, "provider_error": error_text, "provider_offers_attempted": available_offers})
+        await _notify_owner_stock_issue(
+            bot=bot,
+            user_id=int(user_id),
+            reseller_id=int(reseller_id),
+            item_name=str(selected.get("name") or f"Product {product_id}"),
+            provider_error=error_text,
+        )
+        return {"kind": "provider_failed", "text": t(lang, "store_out_of_stock_admin_notified")}
+
+    order_id_str = str(order.get("_id"))
+    provider_code = str(chosen_offer.get("provider") or "g2bulk")
+    provider_data = provider_resp.get("data")
+    external_order_id = _extract_external_order_id(provider_data)
+    voucher_lines = _extract_voucher_lines(provider_data)
+
+    await update_order_details(
+        order["_id"],
+        {
+            "provider_code": provider_code,
+            "provider_order_id": external_order_id,
+            "provider_response": provider_resp,
+            "delivery_lines": voucher_lines,
+            "provider_offers_attempted": available_offers,
+            "number_mode": "digital_products",
+        },
+    )
+
+    if not voucher_lines:
+        status_resp = await _poll_provider_order_status(provider=provider_code, external_order_id=external_order_id) if external_order_id else None
+        if status_resp is not None:
+            await update_order_details(
+                order["_id"],
+                {
+                    "provider_status_response": status_resp,
+                    "provider_status": _extract_provider_status(status_resp),
+                },
+            )
+        if status_resp is not None and _provider_status_is_failure(status_resp):
+            await _core_refund(
+                user_id=int(user_id),
+                reseller_id=int(reseller_id),
+                order=order,
+                sale_price=float(sale_price),
+                cost_price=float(cost_price),
+            )
+            error_text = _extract_provider_error(status_resp.get("data") if isinstance(status_resp, dict) else status_resp)
+            await update_order_details(order["_id"], {"provider_error": error_text})
+            return {"kind": "provider_failed_refunded", "text": t(lang, "store_topup_provider_failed_refunded")}
+
+        await update_order_details(
+            order["_id"],
+            {
+                "provider_manual_review_required": True,
+                "provider_error": "voucher_lines_missing_or_pending",
+            },
+        )
+        return {"kind": "pending", "text": t(lang, "store_topup_pending_followup")}
+
+    await update_order_status(order["_id"], "success")
+
+    usd_to_syp_rate = await _resolve_usd_to_syp_rate(bot.id)
+    debit_line = f"{t(lang, 'store_debited_label')}: {_fmt_dual_price(float(sale_price), usd_to_syp_rate)}"
+    balance = await get_user_wallet_balance(user_id, int(reseller_id))
+    balance_line = f"{t(lang, 'store_balance_label')}: {format_usd(float(balance or 0))}"
+    body = [t(lang, "purchase_complete_plain"), debit_line, balance_line, f"{t(lang, 'store_order_label')}: {order_id_str}"]
+    if external_order_id:
+        body.append(f"{t(lang, 'store_provider_ref_label')}: {external_order_id}")
+    if voucher_lines:
+        body.append("")
+        body.append(f"{t(lang, 'delivery_plain')}:")
+        body.extend([f"- {line}" for line in voucher_lines])
+    return {
+        "kind": "success",
+        "text": "\n".join(body),
+    }
 
 
 async def _create_provider_game_order(
@@ -3277,6 +3460,8 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
     if kind == "gift":
         cat_id = str(selection.get("category_id") or "").strip()
         product_id = str(selection.get("product_id") or "").strip()
+        quantity = max(1, _to_int(selection.get("quantity") or 1))
+        extra_params = selection.get("extra_params") if isinstance(selection.get("extra_params"), dict) else {}
         selected: dict[str, Any] | None = None
         for item in ((snapshot.get("products_by_category") or {}).get(cat_id) or []):
             if str(item.get("id") or "").strip() == product_id:
@@ -3304,12 +3489,22 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
                 [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")],
             ]
         )
+        await state.update_data(
+            gift_prefill={
+                "cat_id": cat_id,
+                "product_id": product_id,
+                "quantity": int(quantity),
+                "extra_params": dict(extra_params),
+            }
+        )
         return await message.answer(text, reply_markup=kb)
 
     if kind == "game":
         game_id = str(selection.get("game_id") or "").strip()
         item_id = str(selection.get("item_id") or "").strip()
         group_key = str(selection.get("group_key") or "topup").strip() or "topup"
+        player_id = str(selection.get("player_id") or "").strip()
+        server_id = str(selection.get("server_id") or "").strip()
         game_name = _find_game_name(game_id, snapshot)
         items = await get_game_topups(game_id)
         selected = None
@@ -3341,6 +3536,14 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
                 [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data=f"gst:buygame:{game_id}:{group_key}:{item_id}")],
                 [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")],
             ]
+        )
+        await state.update_data(
+            game_prefill={
+                "game_id": game_id,
+                "item_id": item_id,
+                "player_id": player_id,
+                "server_id": server_id,
+            }
         )
         return await message.answer(text, reply_markup=kb)
 
@@ -3828,7 +4031,7 @@ async def open_g2bulk_game_item(callback: types.CallbackQuery):
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("gst:giftconfirm:"))
-async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery):
+async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
     if not await guard_core_service_callback(callback, lang):
@@ -3866,141 +4069,245 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery):
     markup_percent = await _resolve_digital_products_markup_percent()
     cost_price = float(_money_decimal(primary_offer.get("price") or selected.get("price")))
     sale_price = float(_apply_markup_decimal(cost_price, markup_percent))
-    service_ref_id = f"{str(primary_offer.get('provider') or 'g2bulk')}:{'gift'}:{str(primary_offer.get('ref_id') or product_id)}"
-    order, err = await _core_charge(
-        user_id=int(callback.from_user.id),
-        reseller_id=int(reseller_id),
-        service_ref_id=service_ref_id,
-        sale_price=sale_price,
-        cost_price=cost_price,
+    state_data = await state.get_data()
+    prefill = dict(state_data.get("gift_prefill") or {})
+    prefill_matches = (
+        str(prefill.get("cat_id") or "").strip() == cat_id
+        and str(prefill.get("product_id") or "").strip() == product_id
     )
-    if not order or err:
-        return await callback.answer(err or t(lang, "purchase_failed_plain"), show_alert=True)
+    prefill_quantity = max(1, _to_int(prefill.get("quantity") or 1)) if prefill_matches else 1
+    prefill_extra = dict(prefill.get("extra_params") or {}) if prefill_matches else {}
 
-    await callback.answer(t(lang, "processing_order"), show_alert=False)
-    provider_resp: dict[str, Any] | None = None
-    chosen_offer: dict[str, Any] | None = None
-    failures: list[str] = []
-    for offer in available_offers:
-        offer_price = float(_money_decimal(offer.get("price") or 0.0))
-        if offer_price <= 0:
-            continue
-        # Do not auto-fallback to a higher-cost provider than the charged wholesale amount.
-        if offer_price > (cost_price + 0.000001):
-            continue
-        attempt = await _create_provider_gift_order(
-            provider=str(offer.get("provider") or "g2bulk"),
-            ref_id=str(offer.get("ref_id") or product_id),
-        )
-        if _provider_ok(attempt):
-            provider_resp = attempt
-            chosen_offer = dict(offer)
-            break
-        failures.append(_extract_provider_error(attempt.get("data") or attempt))
-    if not provider_resp or not chosen_offer:
-        await _core_refund(
-            user_id=int(callback.from_user.id),
-            reseller_id=int(reseller_id),
-            order=order,
-            sale_price=sale_price,
-            cost_price=cost_price,
-        )
-        error_text = failures[0] if failures else t(lang, "provider_request_failed")
-        await update_order_details(order["_id"], {"provider_response": provider_resp or {}, "provider_error": error_text, "provider_offers_attempted": available_offers})
-        await _notify_owner_stock_issue(
-            bot=callback.bot,
-            user_id=int(callback.from_user.id),
-            reseller_id=int(reseller_id),
-            item_name=str(selected.get("name") or f"Product {product_id}"),
-            provider_error=error_text,
-        )
-        if callback.message:
-            await callback.message.edit_text(
-                t(lang, "store_out_of_stock_admin_notified")
-            )
-            await callback.message.answer(
-                t(lang, "main_menu"),
-                reply_markup=await menu_for_current_bot(lang, (await callback.bot.get_me()).id),
-            )
-        return
-
-    order_id_str = str(order.get("_id"))
-    provider_code = str(chosen_offer.get("provider") or "g2bulk")
-    provider_data = provider_resp.get("data")
-    external_order_id = _extract_external_order_id(provider_data)
-    voucher_lines = _extract_voucher_lines(provider_data)
-
-    await update_order_details(
-        order["_id"],
-        {
-            "provider_code": provider_code,
-            "provider_order_id": external_order_id,
-            "provider_response": provider_resp,
-            "delivery_lines": voucher_lines,
-            "provider_offers_attempted": available_offers,
-            "number_mode": "digital_products",
-        },
-    )
-
-    if not voucher_lines:
-        status_resp = await _poll_provider_order_status(provider=provider_code, external_order_id=external_order_id) if external_order_id else None
-        if status_resp is not None:
-            await update_order_details(
-                order["_id"],
-                {
-                    "provider_status_response": status_resp,
-                    "provider_status": _extract_provider_status(status_resp),
-                },
-            )
-        if status_resp is not None and _provider_status_is_failure(status_resp):
-            await _core_refund(
+    if _gift_offer_needs_input(primary_offer):
+        qty_min, qty_max = _gift_offer_qty_bounds(primary_offer)
+        params = _gift_offer_params(primary_offer)
+        quantity = min(max(prefill_quantity, qty_min), qty_max)
+        normalized_extra = {
+            str(key).strip(): value
+            for key, value in prefill_extra.items()
+            if str(key).strip() and str(value).strip()
+        }
+        missing = [key for key in params if not str(normalized_extra.get(key, "")).strip()]
+        if prefill_matches and not missing:
+            await state.update_data(gift_prefill={})
+            await callback.answer(t(lang, "processing_order"), show_alert=False)
+            result = await _execute_gift_purchase(
+                bot=callback.bot,
                 user_id=int(callback.from_user.id),
+                lang=lang,
                 reseller_id=int(reseller_id),
-                order=order,
-                sale_price=sale_price,
-                cost_price=cost_price,
+                selected=selected,
+                product_id=product_id,
+                available_offers=available_offers,
+                sale_price=float(sale_price),
+                cost_price=float(cost_price),
+                quantity=int(quantity),
+                extra_params=normalized_extra,
             )
-            error_text = _extract_provider_error(status_resp.get("data") if isinstance(status_resp, dict) else status_resp)
-            await update_order_details(order["_id"], {"provider_error": error_text})
+            kind = str(result.get("kind") or "")
+            if kind == "charge_error":
+                return await callback.answer(str(result.get("alert") or t(lang, "purchase_failed_plain")), show_alert=True)
             if callback.message:
-                await callback.message.edit_text(t(lang, "store_topup_provider_failed_refunded"))
+                await callback.message.edit_text(
+                    str(result.get("text") or t(lang, "purchase_failed_plain")),
+                    reply_markup=InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")]
+                        ]
+                    ) if kind == "success" else None,
+                )
+            return
+        pending = {
+            "cat_id": cat_id,
+            "product_id": product_id,
+            "reseller_id": int(reseller_id),
+            "selected_name": str(selected.get("name") or ""),
+            "offers": available_offers,
+            "cost_price": float(cost_price),
+            "sale_price": float(sale_price),
+            "qty_min": int(qty_min),
+            "qty_max": int(qty_max),
+            "quantity": int(quantity),
+            "params": params,
+            "param_index": int(params.index(missing[0])) if missing else 0,
+            "extra_params": normalized_extra,
+        }
+        await state.update_data(gift_pending=pending)
+        if qty_max > 1 and not prefill_matches:
+            await state.set_state(GiftStoreFlow.waiting_quantity)
+            prompt = _gift_qty_prompt_text(lang, qty_min, qty_max)
+            await callback.message.edit_text(prompt, reply_markup=_gift_param_cancel_keyboard(lang, back_to=f"gst:giftitem:{cat_id}:{product_id}"))
+            await callback.answer()
+            return
+        if missing:
+            await state.set_state(GiftStoreFlow.waiting_param)
+            key = missing[0]
+            prompt = _gift_param_prompt_text(lang, key)
+            await callback.message.edit_text(prompt, reply_markup=_gift_param_cancel_keyboard(lang, back_to=f"gst:giftitem:{cat_id}:{product_id}"))
+            await callback.answer()
             return
 
-        # Keep as paid + manual follow-up when provider accepted but no delivery lines yet.
-        await update_order_details(
-            order["_id"],
-            {
-                "provider_manual_review_required": True,
-                "provider_error": "voucher_lines_missing_or_pending",
-            },
-        )
-        if callback.message:
-            await callback.message.edit_text(
-                t(lang, "store_topup_pending_followup")
-            )
-        return
-
-    await update_order_status(order["_id"], "success")
-
-    usd_to_syp_rate = await _resolve_usd_to_syp_rate(callback.bot.id)
-    debit_line = f"{t(lang, 'store_debited_label')}: {_fmt_dual_price(sale_price, usd_to_syp_rate)}"
-    balance = await get_user_wallet_balance(callback.from_user.id, int(reseller_id))
-    balance_line = f"{t(lang, 'store_balance_label')}: {format_usd(float(balance or 0))}"
-    body = [t(lang, "purchase_complete_plain"), debit_line, balance_line, f"{t(lang, 'store_order_label')}: {order_id_str}"]
-    if external_order_id:
-        body.append(f"{t(lang, 'store_provider_ref_label')}: {external_order_id}")
-    if voucher_lines:
-        body.append("")
-        body.append(f"{t(lang, 'delivery_plain')}:")
-        body.extend([f"- {line}" for line in voucher_lines])
-    await callback.message.edit_text(
-        "\n".join(body),
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")]
-            ]
-        ),
+    await callback.answer(t(lang, "processing_order"), show_alert=False)
+    result = await _execute_gift_purchase(
+        bot=callback.bot,
+        user_id=int(callback.from_user.id),
+        lang=lang,
+        reseller_id=int(reseller_id),
+        selected=selected,
+        product_id=product_id,
+        available_offers=available_offers,
+        sale_price=float(sale_price),
+        cost_price=float(cost_price),
     )
+    kind = str(result.get("kind") or "")
+    if kind == "charge_error":
+        return await callback.answer(str(result.get("alert") or t(lang, "purchase_failed_plain")), show_alert=True)
+    if callback.message:
+        await callback.message.edit_text(
+            str(result.get("text") or t(lang, "purchase_failed_plain")),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")]
+                ]
+            ) if kind == "success" else None,
+        )
+
+
+@router.callback_query(lambda c: c.data == "gst:giftparam:cancel")
+async def cancel_gift_param_flow(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await state.clear()
+    if callback.message:
+        await callback.message.edit_text(
+            t(lang, "purchase_cancelled_plain"),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")]
+                ]
+            ),
+        )
+    await callback.answer()
+
+
+@router.message(GiftStoreFlow.waiting_quantity)
+async def collect_gift_quantity(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
+    data = await state.get_data()
+    pending = dict(data.get("gift_pending") or {})
+    if not pending:
+        await state.clear()
+        await message.answer(t(lang, "store_invalid_product"))
+        return
+    raw = str(message.text or "").strip()
+    try:
+        qty = int(raw)
+    except Exception:
+        qty = 0
+    qty_min = max(1, _to_int(pending.get("qty_min") or 1))
+    qty_max = max(qty_min, _to_int(pending.get("qty_max") or qty_min))
+    if qty < qty_min or qty > qty_max:
+        await message.answer(_gift_qty_prompt_text(lang, qty_min, qty_max), reply_markup=_gift_param_cancel_keyboard(lang))
+        return
+    pending["quantity"] = int(qty)
+    params = [str(item).strip() for item in list(pending.get("params") or []) if str(item).strip()]
+    pending["params"] = params
+    pending["param_index"] = int(pending.get("param_index") or 0)
+    await state.update_data(gift_pending=pending)
+    if params:
+        await state.set_state(GiftStoreFlow.waiting_param)
+        await message.answer(_gift_param_prompt_text(lang, params[0]), reply_markup=_gift_param_cancel_keyboard(lang))
+        return
+    await state.clear()
+    reseller_id = _to_int(pending.get("reseller_id"))
+    if reseller_id <= 0:
+        await message.answer(t(lang, "store_reseller_not_linked"))
+        return
+    await message.answer(t(lang, "processing_order"))
+    result = await _execute_gift_purchase(
+        bot=message.bot,
+        user_id=int(message.from_user.id),
+        lang=lang,
+        reseller_id=int(reseller_id),
+        selected={"name": str(pending.get("selected_name") or "")},
+        product_id=str(pending.get("product_id") or ""),
+        available_offers=list(pending.get("offers") or []),
+        sale_price=float(_to_float(pending.get("sale_price"))),
+        cost_price=float(_to_float(pending.get("cost_price"))),
+        quantity=int(pending.get("quantity") or 1),
+        extra_params=dict(pending.get("extra_params") or {}),
+    )
+    kind = str(result.get("kind") or "")
+    await message.answer(str(result.get("alert") or result.get("text") or t(lang, "purchase_failed_plain")))
+    if kind != "success":
+        await message.answer(
+            t(lang, "main_menu"),
+            reply_markup=await menu_for_current_bot(lang, (await message.bot.get_me()).id),
+        )
+
+
+@router.message(GiftStoreFlow.waiting_param)
+async def collect_gift_required_param(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
+    data = await state.get_data()
+    pending = dict(data.get("gift_pending") or {})
+    if not pending:
+        await state.clear()
+        await message.answer(t(lang, "store_invalid_product"))
+        return
+    params = [str(item).strip() for item in list(pending.get("params") or []) if str(item).strip()]
+    index = _to_int(pending.get("param_index") or 0)
+    if index >= len(params):
+        index = 0
+    value = str(message.text or "").strip()
+    if not value:
+        if params:
+            await message.answer(_gift_param_prompt_text(lang, params[index]), reply_markup=_gift_param_cancel_keyboard(lang))
+        else:
+            await message.answer(t(lang, "store_invalid_product"))
+        return
+    extra_params = dict(pending.get("extra_params") or {})
+    if params:
+        extra_params[params[index]] = value
+    pending["extra_params"] = extra_params
+    index += 1
+    if index < len(params):
+        pending["param_index"] = index
+        await state.update_data(gift_pending=pending)
+        await message.answer(_gift_param_prompt_text(lang, params[index]), reply_markup=_gift_param_cancel_keyboard(lang))
+        return
+    await state.clear()
+    reseller_id = _to_int(pending.get("reseller_id"))
+    if reseller_id <= 0:
+        await message.answer(t(lang, "store_reseller_not_linked"))
+        return
+    await message.answer(t(lang, "processing_order"))
+    result = await _execute_gift_purchase(
+        bot=message.bot,
+        user_id=int(message.from_user.id),
+        lang=lang,
+        reseller_id=int(reseller_id),
+        selected={"name": str(pending.get("selected_name") or "")},
+        product_id=str(pending.get("product_id") or ""),
+        available_offers=list(pending.get("offers") or []),
+        sale_price=float(_to_float(pending.get("sale_price"))),
+        cost_price=float(_to_float(pending.get("cost_price"))),
+        quantity=int(pending.get("quantity") or 1),
+        extra_params=extra_params,
+    )
+    kind = str(result.get("kind") or "")
+    await message.answer(str(result.get("alert") or result.get("text") or t(lang, "purchase_failed_plain")))
+    if kind != "success":
+        await message.answer(
+            t(lang, "main_menu"),
+            reply_markup=await menu_for_current_bot(lang, (await message.bot.get_me()).id),
+        )
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("gst:buygame:"))
@@ -4032,7 +4339,6 @@ async def start_g2bulk_game_checkout(callback: types.CallbackQuery, state: FSMCo
     if not selected:
         return await callback.answer(t(lang, "store_topup_package_not_found"), show_alert=True)
 
-    await state.set_state(GameStoreFlow.waiting_topup_player)
     markup_percent = await _resolve_digital_products_markup_percent()
     provider_price = _money_decimal(selected.get("price"))
     sale_price = _resolve_game_sale_price_decimal(
@@ -4059,6 +4365,27 @@ async def start_g2bulk_game_checkout(callback: types.CallbackQuery, state: FSMCo
             ),
         }
     )
+    state_data = await state.get_data()
+    game_prefill = dict(state_data.get("game_prefill") or {})
+    prefill_matches = (
+        str(game_prefill.get("game_id") or "").strip() == game_id
+        and str(game_prefill.get("item_id") or "").strip() == item_id
+    )
+    player_id_prefill = str(game_prefill.get("player_id") or "").strip() if prefill_matches else ""
+    server_id_prefill = str(game_prefill.get("server_id") or "").strip() if prefill_matches else ""
+    if player_id_prefill:
+        if not callback.message:
+            await state.clear()
+            return await callback.answer(t(lang, "store_session_expired"), show_alert=True)
+        data = await state.get_data()
+        pending = dict(data.get("gst_pending_buy") or {})
+        pending["player_id"] = player_id_prefill
+        await state.clear()
+        await callback.answer(t(lang, "processing_order"), show_alert=False)
+        await _execute_g2bulk_game_purchase(callback.message, pending, server_id=server_id_prefill)
+        return
+
+    await state.set_state(GameStoreFlow.waiting_topup_player)
     if not await _edit_callback_target(
         callback,
         f"{_game_title(lang, game_name)}\n\n{t(lang, 'store_send_player_id')}",

@@ -80,6 +80,37 @@ const copy = {
   },
 };
 
+const extraCopy = {
+  en: {
+    all: "All",
+    playerId: "Player ID",
+    serverId: "Server ID",
+    quantity: "Quantity",
+    required: "Required",
+    optional: "Optional",
+    close: "Close",
+    continueWithData: "Continue",
+    invalidQuantity: "Invalid quantity.",
+    missingRequiredField: "Missing required field.",
+    gamePurchaseData: "Enter game account data",
+    giftPurchaseData: "Enter purchase data",
+  },
+  ar: {
+    all: "\u0627\u0644\u0643\u0644",
+    playerId: "Player ID",
+    serverId: "Server ID",
+    quantity: "\u0627\u0644\u0643\u0645\u064a\u0629",
+    required: "\u0645\u0637\u0644\u0648\u0628",
+    optional: "\u0627\u062e\u062a\u064a\u0627\u0631\u064a",
+    close: "\u0625\u063a\u0644\u0627\u0642",
+    continueWithData: "\u0645\u062a\u0627\u0628\u0639\u0629",
+    invalidQuantity: "\u0627\u0644\u0643\u0645\u064a\u0629 \u063a\u064a\u0631 \u0635\u062d\u064a\u062d\u0629.",
+    missingRequiredField: "\u0647\u0646\u0627\u0643 \u062d\u0642\u0644 \u0645\u0637\u0644\u0648\u0628.",
+    gamePurchaseData: "\u0623\u062f\u062e\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0634\u0631\u0627\u0621 \u0644\u0644\u0639\u0628\u0629",
+    giftPurchaseData: "\u0623\u062f\u062e\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0634\u0631\u0627\u0621",
+  },
+};
+
 const serviceLabelFallback = {
   games: { en: "قسم الألعاب", ar: "قسم الألعاب" },
   chat_apps: { en: "قسم تطبيقات الدردشة", ar: "قسم تطبيقات الدردشة" },
@@ -110,9 +141,20 @@ const searchInput = document.getElementById("searchInput");
 const titleEl = document.getElementById("title");
 const refreshBtn = document.getElementById("refreshBtn");
 const langBtn = document.getElementById("langBtn");
+const inputModalEl = document.getElementById("inputModal");
+const modalTitleEl = document.getElementById("modalTitle");
+const modalSubtitleEl = document.getElementById("modalSubtitle");
+const modalFormEl = document.getElementById("modalForm");
+const modalCloseBtn = document.getElementById("modalCloseBtn");
 
 function t(key) {
-  return copy[state.lang][key] || copy.en[key] || key;
+  return (
+    copy[state.lang]?.[key] ||
+    extraCopy[state.lang]?.[key] ||
+    copy.en?.[key] ||
+    extraCopy.en?.[key] ||
+    key
+  );
 }
 
 function detectLang() {
@@ -129,6 +171,9 @@ function applyLang() {
   if (langBtn) {
     langBtn.textContent = t("switchLang");
     langBtn.setAttribute("aria-label", state.lang === "ar" ? "تغيير اللغة" : "Switch language");
+  }
+  if (modalCloseBtn) {
+    modalCloseBtn.setAttribute("aria-label", t("close"));
   }
   searchInput.placeholder = t("search");
   const subtitle = document.querySelector(".topbar-subtitle");
@@ -243,7 +288,7 @@ function itemRow(item) {
 
   // قيمة UC في الوسط
   const title = document.createElement("strong");
-  title.textContent = `${item.name} UC`;
+  title.textContent = String(item.name || "-");
   title.style.textAlign = "center";
   title.style.display = "block";
   row.append(title);
@@ -506,12 +551,163 @@ async function createServiceSelection(kind, extra = {}) {
   }
 }
 
+function promptText(en, ar) {
+  return state.lang === "ar" ? ar : en;
+}
+
+function closeInputModal() {
+  if (!inputModalEl) return;
+  inputModalEl.classList.add("hidden");
+  inputModalEl.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+  if (modalFormEl) modalFormEl.replaceChildren();
+}
+
+function openInputModal({ title, subtitle, fields, onSubmit }) {
+  if (!inputModalEl || !modalFormEl || !modalTitleEl || !modalSubtitleEl) return;
+  modalTitleEl.textContent = title || t("continue");
+  modalSubtitleEl.textContent = subtitle || "";
+  modalFormEl.replaceChildren();
+
+  fields.forEach((field) => {
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+    const lbl = document.createElement("label");
+    lbl.setAttribute("for", `f_${field.name}`);
+    lbl.textContent = `${field.label}${field.required ? ` (${t("required")})` : ` (${t("optional")})`}`;
+    const input = document.createElement("input");
+    input.id = `f_${field.name}`;
+    input.name = field.name;
+    input.type = field.type || "text";
+    input.required = Boolean(field.required);
+    input.placeholder = field.placeholder || "";
+    if (field.value !== undefined && field.value !== null) input.value = String(field.value);
+    if (field.min !== undefined) input.min = String(field.min);
+    if (field.max !== undefined) input.max = String(field.max);
+    wrap.append(lbl, input);
+    modalFormEl.append(wrap);
+  });
+
+  const actions = document.createElement("div");
+  actions.className = "modal-actions";
+  const cancelBtn = button("back-btn", t("close"), () => closeInputModal());
+  const submitBtn = button("buy", t("continueWithData"), () => {});
+  submitBtn.type = "submit";
+  actions.append(cancelBtn, submitBtn);
+  modalFormEl.append(actions);
+
+  modalFormEl.onsubmit = async (event) => {
+    event.preventDefault();
+    const values = {};
+    for (const field of fields) {
+      const el = modalFormEl.querySelector(`[name="${field.name}"]`);
+      const raw = String(el?.value || "").trim();
+      if (field.required && !raw) {
+        setStatus(t("missingRequiredField"), true);
+        return;
+      }
+      if (field.type === "number" && raw) {
+        const parsed = Number(raw);
+        if (!Number.isFinite(parsed)) {
+          setStatus(t("invalidQuantity"), true);
+          return;
+        }
+        if (field.min !== undefined && parsed < Number(field.min)) {
+          setStatus(t("invalidQuantity"), true);
+          return;
+        }
+        if (field.max !== undefined && parsed > Number(field.max)) {
+          setStatus(t("invalidQuantity"), true);
+          return;
+        }
+        values[field.name] = Math.trunc(parsed);
+      } else {
+        values[field.name] = raw;
+      }
+    }
+    closeInputModal();
+    await onSubmit(values);
+  };
+
+  inputModalEl.classList.remove("hidden");
+  inputModalEl.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
 async function createSelection(item) {
-  const payload =
-    item.kind === "gift"
-      ? { kind: "gift", category_id: item.category_id, product_id: item.id }
-      : { kind: "game", game_id: item.game_id, item_id: item.id, group_key: item.group_key };
-  await createServiceSelection(payload.kind, payload);
+  if (item.kind === "gift") {
+    const fields = [];
+    const qtyMin = Number(item.za3em_qty_min || 1);
+    const qtyMax = Number(item.za3em_qty_max || qtyMin);
+    if (Boolean(item.za3em_requires_input) && qtyMax > 1) {
+      fields.push({
+        name: "quantity",
+        label: t("quantity"),
+        type: "number",
+        required: true,
+        min: qtyMin,
+        max: qtyMax,
+        value: qtyMin,
+      });
+    }
+    const params = Array.isArray(item.za3em_params) ? item.za3em_params : [];
+    params.forEach((key) => {
+      const labelText = String(key || "").replaceAll("_", " ").trim() || String(key || "");
+      fields.push({ name: `p__${key}`, label: labelText, required: true, type: "text" });
+    });
+
+    if (!fields.length) {
+      await createServiceSelection("gift", {
+        kind: "gift",
+        category_id: item.category_id,
+        product_id: item.id,
+      });
+      return;
+    }
+
+    openInputModal({
+      title: t("giftPurchaseData"),
+      subtitle: item.name || "",
+      fields,
+      onSubmit: async (values) => {
+        const extraParams = {};
+        Object.entries(values).forEach(([key, value]) => {
+          if (key.startsWith("p__")) extraParams[key.slice(3)] = value;
+        });
+        await createServiceSelection("gift", {
+          kind: "gift",
+          category_id: item.category_id,
+          product_id: item.id,
+          quantity: Number(values.quantity || 1),
+          extra_params: extraParams,
+        });
+      },
+    });
+    return;
+  }
+
+  const gameFields = [{ name: "player_id", label: t("playerId"), type: "text", required: true }];
+  gameFields.push({
+    name: "server_id",
+    label: t("serverId"),
+    type: "text",
+    required: Boolean(item.requires_server),
+  });
+  openInputModal({
+    title: t("gamePurchaseData"),
+    subtitle: item.name || "",
+    fields: gameFields,
+    onSubmit: async (values) => {
+      await createServiceSelection("game", {
+        kind: "game",
+        game_id: item.game_id,
+        item_id: item.id,
+        group_key: item.group_key,
+        player_id: String(values.player_id || "").trim(),
+        server_id: String(values.server_id || "").trim(),
+      });
+    },
+  });
 }
 
 async function loadCatalog() {
@@ -546,6 +742,17 @@ if (langBtn) {
     else if (state.view === "categories") renderCategories();
     else if (state.view === "items") renderItems();
     else if (state.view === "simkind") renderSimKinds();
+  });
+}
+if (modalCloseBtn) {
+  modalCloseBtn.addEventListener("click", closeInputModal);
+}
+if (inputModalEl) {
+  inputModalEl.addEventListener("click", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.dataset.closeModal === "1") {
+      closeInputModal();
+    }
   });
 }
 
