@@ -1428,6 +1428,29 @@ def _gift_offer_qty_bounds(offer: dict[str, Any]) -> tuple[int, int]:
     return qty_min, qty_max
 
 
+def _gift_unit_cost_decimal(*, offer: dict[str, Any] | None, fallback_price: Any) -> Decimal:
+    base = _to_decimal((offer or {}).get("price") if isinstance(offer, dict) else 0)
+    if base <= 0:
+        base = _to_decimal(fallback_price)
+    if base < 0:
+        base = Decimal("0")
+    return base
+
+
+def _gift_compute_prices(
+    *,
+    offer: dict[str, Any] | None,
+    fallback_price: Any,
+    quantity: int,
+    markup_percent: Any,
+) -> tuple[float, float, float]:
+    qty = max(1, int(quantity or 1))
+    unit_cost = _gift_unit_cost_decimal(offer=offer, fallback_price=fallback_price)
+    cost_dec = (unit_cost * Decimal(str(qty))).quantize(TWOPLACES, rounding=ROUND_HALF_UP)
+    sale_dec = _apply_markup_decimal(cost_dec, markup_percent)
+    return float(unit_cost), float(cost_dec), float(sale_dec)
+
+
 def _gift_param_cancel_keyboard(lang: str, *, back_to: str = "gst:menu") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -1529,6 +1552,8 @@ async def _execute_gift_purchase(
             "provider_response": provider_resp,
             "delivery_lines": voucher_lines,
             "provider_offers_attempted": available_offers,
+            "provider_request_quantity": max(1, int(quantity or 1)),
+            "provider_request_extra_params": dict(extra_params or {}),
             "number_mode": "digital_products",
         },
     )
@@ -3462,6 +3487,7 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
         product_id = str(selection.get("product_id") or "").strip()
         quantity = max(1, _to_int(selection.get("quantity") or 1))
         extra_params = selection.get("extra_params") if isinstance(selection.get("extra_params"), dict) else {}
+        quoted_price_usd = float(_money_decimal(selection.get("quoted_price_usd") or 0.0))
         selected: dict[str, Any] | None = None
         for item in ((snapshot.get("products_by_category") or {}).get(cat_id) or []):
             if str(item.get("id") or "").strip() == product_id:
@@ -3469,13 +3495,21 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
                 break
         if not selected:
             return await message.answer(t(lang, "store_product_not_found"))
-        price = float(_apply_markup_decimal(selected.get("price"), markup_percent))
         offers = _provider_offers_for_row(
             selected,
             fallback_provider="g2bulk",
             fallback_ref_id=product_id,
             fallback_price=float(_money_decimal(selected.get("price"))),
         )
+        available_offers = [row for row in offers if bool(row.get("available"))]
+        primary_offer = dict(available_offers[0]) if available_offers else dict(offers[0] if offers else {})
+        unit_cost_price, _cost_price, sale_price = _gift_compute_prices(
+            offer=primary_offer,
+            fallback_price=selected.get("price"),
+            quantity=quantity,
+            markup_percent=markup_percent,
+        )
+        price = sale_price
         stock = max(int(selected.get("stock") or 0), 1 if any(bool(row.get("available")) for row in offers) else 0)
         text = (
             f"{str(selected.get('name') or '-')}\n\n"
@@ -3495,6 +3529,9 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
                 "product_id": product_id,
                 "quantity": int(quantity),
                 "extra_params": dict(extra_params),
+                "quoted_price_usd": float(quoted_price_usd),
+                "unit_cost_price": float(unit_cost_price),
+                "markup_percent": float(_to_float(markup_percent)),
             }
         )
         return await message.answer(text, reply_markup=kb)
@@ -4067,8 +4104,6 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery, state: FSM
     primary_offer = dict(available_offers[0])
 
     markup_percent = await _resolve_digital_products_markup_percent()
-    cost_price = float(_money_decimal(primary_offer.get("price") or selected.get("price")))
-    sale_price = float(_apply_markup_decimal(cost_price, markup_percent))
     state_data = await state.get_data()
     prefill = dict(state_data.get("gift_prefill") or {})
     prefill_matches = (
@@ -4077,11 +4112,23 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery, state: FSM
     )
     prefill_quantity = max(1, _to_int(prefill.get("quantity") or 1)) if prefill_matches else 1
     prefill_extra = dict(prefill.get("extra_params") or {}) if prefill_matches else {}
+    unit_cost_price, cost_price, sale_price = _gift_compute_prices(
+        offer=primary_offer,
+        fallback_price=selected.get("price"),
+        quantity=prefill_quantity if prefill_matches else 1,
+        markup_percent=markup_percent,
+    )
 
     if _gift_offer_needs_input(primary_offer):
         qty_min, qty_max = _gift_offer_qty_bounds(primary_offer)
         params = _gift_offer_params(primary_offer)
         quantity = min(max(prefill_quantity, qty_min), qty_max)
+        _unit_cost_price_q, cost_price_q, sale_price_q = _gift_compute_prices(
+            offer=primary_offer,
+            fallback_price=selected.get("price"),
+            quantity=quantity,
+            markup_percent=markup_percent,
+        )
         normalized_extra = {
             str(key).strip(): value
             for key, value in prefill_extra.items()
@@ -4099,8 +4146,8 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery, state: FSM
                 selected=selected,
                 product_id=product_id,
                 available_offers=available_offers,
-                sale_price=float(sale_price),
-                cost_price=float(cost_price),
+                sale_price=float(sale_price_q),
+                cost_price=float(cost_price_q),
                 quantity=int(quantity),
                 extra_params=normalized_extra,
             )
@@ -4123,8 +4170,10 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery, state: FSM
             "reseller_id": int(reseller_id),
             "selected_name": str(selected.get("name") or ""),
             "offers": available_offers,
-            "cost_price": float(cost_price),
-            "sale_price": float(sale_price),
+            "cost_price": float(cost_price_q),
+            "sale_price": float(sale_price_q),
+            "unit_cost_price": float(unit_cost_price),
+            "markup_percent": float(_to_float(markup_percent)),
             "qty_min": int(qty_min),
             "qty_max": int(qty_max),
             "quantity": int(quantity),
@@ -4213,6 +4262,16 @@ async def collect_gift_quantity(message: types.Message, state: FSMContext):
         await message.answer(_gift_qty_prompt_text(lang, qty_min, qty_max), reply_markup=_gift_param_cancel_keyboard(lang))
         return
     pending["quantity"] = int(qty)
+    markup_percent = _to_decimal(pending.get("markup_percent") or 0.0)
+    if markup_percent <= 0:
+        markup_percent = _to_decimal(await _resolve_digital_products_markup_percent())
+    unit_cost_raw = _to_decimal(pending.get("unit_cost_price") or 0.0)
+    if unit_cost_raw <= 0:
+        unit_cost_raw = _to_decimal(pending.get("cost_price") or 0.0)
+    cost_price_dec = (unit_cost_raw * Decimal(str(int(qty)))).quantize(TWOPLACES, rounding=ROUND_HALF_UP)
+    sale_price_dec = _apply_markup_decimal(cost_price_dec, markup_percent)
+    pending["cost_price"] = float(cost_price_dec)
+    pending["sale_price"] = float(sale_price_dec)
     params = [str(item).strip() for item in list(pending.get("params") or []) if str(item).strip()]
     pending["params"] = params
     pending["param_index"] = int(pending.get("param_index") or 0)

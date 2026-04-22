@@ -399,7 +399,7 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
         name = str(item.get("clean_name") or item.get("name") or "-")
         if q and fuzz.partial_ratio(q, name.lower()) < 45:
             continue
-        price = _with_markup(item.get("price"), markup)
+        unit_price = float(item.get("price") or 0.0)
         offers = [row for row in list(item.get("provider_offers") or []) if isinstance(row, dict)]
         za3em_offers = [
             row
@@ -412,13 +412,17 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
         za_qty_min = max(1, int(za_offer.get("za3em_qty_min") or 1)) if za_offer else 1
         za_qty_max = max(za_qty_min, int(za_offer.get("za3em_qty_max") or za_qty_min)) if za_offer else 1
         requires_input = bool(za_offer.get("za3em_requires_input")) if za_offer else False
+        unit_sale_price = unit_price * (1 + (float(markup or 0.0) / 100.0))
+        display_quantity = za_qty_min if requires_input else 1
+        display_sale_price = _money(unit_sale_price * display_quantity)
         out.append(
             {
                 "kind": "gift",
                 "id": str(item.get("id") or ""),
                 "category_id": str(category_id),
                 "name": name,
-                "price_usd": price,
+                "price_usd": display_sale_price,
+                "unit_price_usd": round(float(unit_sale_price), 6),
                 "stock": int(item.get("stock") or 0),
                 "stock_label": "In stock" if int(item.get("stock") or 0) > 0 else "Out of stock",
                 "best_provider_code": str(item.get("best_provider") or "g2bulk"),
@@ -427,6 +431,7 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
                 "za3em_params": za_params,
                 "za3em_qty_min": za_qty_min,
                 "za3em_qty_max": za_qty_max,
+                "display_quantity": int(display_quantity),
             }
         )
     out.sort(key=lambda row: _natural_key(str(row.get("name") or "")))
@@ -554,12 +559,14 @@ async def create_selection(request: web.Request) -> web.Response:
         except Exception:
             quantity = 1
         extra_params = body.get("extra_params") if isinstance(body.get("extra_params"), dict) else {}
+        quoted_price_usd = _money(body.get("quoted_price_usd") or 0.0)
         payload = {
             "kind": "gift",
             "category_id": category_id,
             "product_id": product_id,
             "quantity": quantity,
             "extra_params": extra_params,
+            "quoted_price_usd": quoted_price_usd,
         }
     elif kind == "game":
         game_id = str(body.get("game_id") or "").strip()
@@ -574,6 +581,7 @@ async def create_selection(request: web.Request) -> web.Response:
             "group_key": group_key,
             "player_id": str(body.get("player_id") or "").strip(),
             "server_id": str(body.get("server_id") or "").strip(),
+            "quoted_price_usd": _money(body.get("quoted_price_usd") or 0.0),
         }
     elif kind == "simtopup":
         section = str(body.get("section") or "").strip().lower()

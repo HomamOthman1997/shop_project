@@ -555,6 +555,12 @@ function promptText(en, ar) {
   return state.lang === "ar" ? ar : en;
 }
 
+function giftQuotePrice(item, quantity) {
+  const qty = Math.max(1, Number(quantity || 1));
+  const unit = Number(item?.unit_price_usd || item?.price_usd || 0);
+  return Number((unit * qty).toFixed(2));
+}
+
 function closeInputModal() {
   if (!inputModalEl) return;
   inputModalEl.classList.add("hidden");
@@ -563,7 +569,7 @@ function closeInputModal() {
   if (modalFormEl) modalFormEl.replaceChildren();
 }
 
-function openInputModal({ title, subtitle, fields, onSubmit }) {
+function openInputModal({ title, subtitle, fields, onSubmit, onChange }) {
   if (!inputModalEl || !modalFormEl || !modalTitleEl || !modalSubtitleEl) return;
   modalTitleEl.textContent = title || t("continue");
   modalSubtitleEl.textContent = subtitle || "";
@@ -587,6 +593,18 @@ function openInputModal({ title, subtitle, fields, onSubmit }) {
     wrap.append(lbl, input);
     modalFormEl.append(wrap);
   });
+  if (typeof onChange === "function") {
+    const refreshValues = () => {
+      const values = {};
+      for (const field of fields) {
+        const el = modalFormEl.querySelector(`[name="${field.name}"]`);
+        values[field.name] = String(el?.value || "").trim();
+      }
+      onChange(values);
+    };
+    modalFormEl.querySelectorAll("input").forEach((el) => el.addEventListener("input", refreshValues));
+    refreshValues();
+  }
 
   const actions = document.createElement("div");
   actions.className = "modal-actions";
@@ -657,29 +675,42 @@ async function createSelection(item) {
     });
 
     if (!fields.length) {
+      const quoted = giftQuotePrice(item, 1);
       await createServiceSelection("gift", {
         kind: "gift",
         category_id: item.category_id,
         product_id: item.id,
+        quoted_price_usd: quoted,
       });
       return;
     }
 
+    const baseSubtitle = item.name || "";
     openInputModal({
       title: t("giftPurchaseData"),
-      subtitle: item.name || "",
+      subtitle: baseSubtitle,
       fields,
+      onChange: (values) => {
+        const qty = Number(values.quantity || item.display_quantity || 1);
+        const quoted = giftQuotePrice(item, qty);
+        if (modalSubtitleEl) {
+          modalSubtitleEl.textContent = `${baseSubtitle} • ${t("price")}: $${quoted.toFixed(2)}`;
+        }
+      },
       onSubmit: async (values) => {
         const extraParams = {};
         Object.entries(values).forEach(([key, value]) => {
           if (key.startsWith("p__")) extraParams[key.slice(3)] = value;
         });
+        const qty = Number(values.quantity || item.display_quantity || 1);
+        const quoted = giftQuotePrice(item, qty);
         await createServiceSelection("gift", {
           kind: "gift",
           category_id: item.category_id,
           product_id: item.id,
-          quantity: Number(values.quantity || 1),
+          quantity: qty,
           extra_params: extraParams,
+          quoted_price_usd: quoted,
         });
       },
     });
@@ -705,6 +736,7 @@ async function createSelection(item) {
         group_key: item.group_key,
         player_id: String(values.player_id || "").trim(),
         server_id: String(values.server_id || "").trim(),
+        quoted_price_usd: Number(Number(item.price_usd || 0).toFixed(2)),
       });
     },
   });
