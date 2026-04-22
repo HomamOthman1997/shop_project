@@ -98,8 +98,10 @@ function applyLang() {
   titleEl.textContent = t("title");
   refreshBtn.textContent = t("refresh");
   refreshBtn.setAttribute("aria-label", state.lang === "ar" ? "\u062a\u062d\u062f\u064a\u062b" : "Refresh");
-  langBtn.textContent = t("switchLang");
-  langBtn.setAttribute("aria-label", state.lang === "ar" ? "\u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u0644\u063a\u0629" : "Switch language");
+  if (langBtn) {
+    langBtn.textContent = t("switchLang");
+    langBtn.setAttribute("aria-label", state.lang === "ar" ? "\u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u0644\u063a\u0629" : "Switch language");
+  }
   document.querySelector('[data-tab="gifts"]').textContent = t("gifts");
   document.querySelector('[data-tab="games"]').textContent = t("games");
   searchInput.placeholder = t("search");
@@ -354,13 +356,15 @@ searchInput.addEventListener("input", () => {
 });
 
 refreshBtn.addEventListener("click", loadCatalog);
-langBtn.addEventListener("click", () => {
-  state.lang = state.lang === "ar" ? "en" : "ar";
-  applyLang();
-  if (!state.catalog) return;
-  if (state.view === "items") renderItems();
-  else rootList();
-});
+if (langBtn) {
+  langBtn.addEventListener("click", () => {
+    state.lang = state.lang === "ar" ? "en" : "ar";
+    applyLang();
+    if (!state.catalog) return;
+    if (state.view === "items") renderItems();
+    else rootList();
+  });
+}
 
 applyLang();
 loadCatalog();
