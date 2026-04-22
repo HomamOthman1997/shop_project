@@ -434,6 +434,29 @@ function filteredItems() {
   });
 }
 
+function inferServiceForGameName(name) {
+  const n = String(name || "").toLowerCase();
+  const chatHints = [
+    "discord",
+    "imo",
+    "telegram",
+    "whatsapp",
+    "messenger",
+    "viber",
+    "line",
+    "wechat",
+    "tada",
+    "bigo",
+    "coco",
+    "azal",
+    "chat",
+    "social",
+    "live",
+  ];
+  if (chatHints.some((k) => n.includes(k))) return "chat_apps";
+  return "games";
+}
+
 function renderServices() {
   clear();
   state.view = "services";
@@ -468,6 +491,7 @@ function buildCategoriesForService(key) {
     const mergeKey = (name) => String(name || "").toLowerCase().trim();
     (state.catalog.games || []).forEach((row) => {
       const name = String(row.name || "-");
+      if (inferServiceForGameName(name) !== "games") return;
       const keyName = mergeKey(name);
       if (!merged.has(keyName)) {
         merged.set(keyName, {
@@ -504,6 +528,61 @@ function buildCategoriesForService(key) {
         cur.gift_category_ids.push(String(row.id || ""));
         cur.count += Number(row.count || 0);
       });
+    const rows = Array.from(merged.values()).map((row) => {
+      const hasGame = row.game_ids.length > 0;
+      const hasGift = row.gift_category_ids.length > 0;
+      const entry_kind = hasGame && hasGift ? "mixed" : hasGame ? "game" : "gift";
+      return {
+        ...row,
+        entry_kind,
+        meta_label: hasGame && hasGift ? `${t("offers")}` : row.meta_label,
+      };
+    });
+    rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    return rows;
+  }
+  if (key === "chat_apps") {
+    const merged = new Map();
+    const mergeKey = (name) => String(name || "").toLowerCase().trim();
+    (state.catalog.gift_categories || [])
+      .filter((row) => String(row.service_key || "") === "chat_apps")
+      .forEach((row) => {
+        const name = String(row.name || "-");
+        const keyName = mergeKey(name);
+        if (!merged.has(keyName)) {
+          merged.set(keyName, {
+            id: keyName,
+            name,
+            count: 0,
+            entry_kind: "gift",
+            game_ids: [],
+            gift_category_ids: [],
+            meta_label: `${Number(row.count || 0)} ${t("products")}`,
+          });
+        }
+        const cur = merged.get(keyName);
+        cur.gift_category_ids.push(String(row.id || ""));
+        cur.count += Number(row.count || 0);
+      });
+    (state.catalog.games || []).forEach((row) => {
+      const name = String(row.name || "-");
+      if (inferServiceForGameName(name) !== "chat_apps") return;
+      const keyName = mergeKey(name);
+      if (!merged.has(keyName)) {
+        merged.set(keyName, {
+          id: keyName,
+          name,
+          count: 0,
+          entry_kind: "game",
+          game_ids: [],
+          gift_category_ids: [],
+          meta_label: t("packages"),
+        });
+      }
+      const cur = merged.get(keyName);
+      cur.game_ids.push(String(row.id || ""));
+      cur.count += 1;
+    });
     const rows = Array.from(merged.values()).map((row) => {
       const hasGame = row.game_ids.length > 0;
       const hasGift = row.gift_category_ids.length > 0;

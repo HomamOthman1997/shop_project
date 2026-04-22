@@ -497,10 +497,13 @@ async def _catalog_payload() -> dict[str, Any]:
         for key in ("popular", "global", "all")
         if any(str(row.get("group_key")) == key for row in games)
     ]
-    chat_apps_count = sum(1 for row in categories if str(row.get("service_key")) == "chat_apps")
+    game_rows = list(snapshot.get("games") or [])
+    chat_games_count = sum(1 for row in game_rows if _gift_service_key(str(row.get("name") or "")) == "chat_apps")
+    real_games_count = sum(1 for row in game_rows if _gift_service_key(str(row.get("name") or "")) == "games")
+    chat_apps_count = sum(1 for row in categories if str(row.get("service_key")) == "chat_apps") + chat_games_count
     paid_subscriptions_count = sum(1 for row in categories if str(row.get("service_key")) == "paid_subscriptions")
     store_cards_count = sum(1 for row in categories if str(row.get("service_key")) == "store_cards")
-    games_count = len(games) + sum(1 for row in categories if str(row.get("service_key")) == "games")
+    games_count = real_games_count + sum(1 for row in categories if str(row.get("service_key")) == "games")
     comm_enabled = bool(getattr(settings, "zendit_api_token", "") or "") or (
         bool(getattr(settings, "esim_access_code", "") or "")
         and bool(getattr(settings, "esim_access_secret_key", "") or "")
