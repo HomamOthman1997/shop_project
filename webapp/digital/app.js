@@ -457,6 +457,23 @@ function inferServiceForGameName(name) {
   return "games";
 }
 
+function normalizeChatCategoryName(name) {
+  const n = String(name || "").toLowerCase();
+  if (n.includes("bigo")) return "Bigo Live";
+  if (n.includes("coco")) return "Coco Live";
+  if (n.includes("azal")) return "Azal Live";
+  if (n.includes("tada")) return "Tada Chat";
+  if (n.includes("discord")) return "Discord";
+  if (n.includes("imo")) return "IMO";
+  if (n.includes("telegram")) return "Telegram";
+  if (n.includes("whatsapp")) return "WhatsApp";
+  if (n.includes("messenger") || n.includes("facebook")) return "Messenger";
+  if (n.includes("viber")) return "Viber";
+  if (n.includes("wechat")) return "WeChat";
+  if (n.includes("line")) return "LINE";
+  return String(name || "-");
+}
+
 function renderServices() {
   clear();
   state.view = "services";
@@ -547,7 +564,7 @@ function buildCategoriesForService(key) {
     (state.catalog.gift_categories || [])
       .filter((row) => String(row.service_key || "") === "chat_apps")
       .forEach((row) => {
-        const name = String(row.name || "-");
+        const name = normalizeChatCategoryName(String(row.name || "-"));
         const keyName = mergeKey(name);
         if (!merged.has(keyName)) {
           merged.set(keyName, {
@@ -565,7 +582,7 @@ function buildCategoriesForService(key) {
         cur.count += Number(row.count || 0);
       });
     (state.catalog.games || []).forEach((row) => {
-      const name = String(row.name || "-");
+      const name = normalizeChatCategoryName(String(row.name || "-"));
       if (inferServiceForGameName(name) !== "chat_apps") return;
       const keyName = mergeKey(name);
       if (!merged.has(keyName)) {

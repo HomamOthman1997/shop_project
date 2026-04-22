@@ -297,7 +297,6 @@ def _family_rules_for_service(service_key: str) -> list[tuple[str, str, tuple[st
             ("telegram", "Telegram", ("telegram", "تلجرام")),
             ("whatsapp", "WhatsApp", ("whatsapp", "واتساب")),
             ("messenger", "Messenger", ("messenger", "facebook")),
-            ("chat_apps", "Chat Apps", ("chat", "دردشة", "social")),
         ]
     if service_key == "paid_subscriptions":
         return [
@@ -334,6 +333,50 @@ def _family_rules_for_service(service_key: str) -> list[tuple[str, str, tuple[st
     return []
 
 
+def _chat_family_from_product_name(name: str) -> tuple[str, str]:
+    n = _norm(name)
+    rules: list[tuple[str, str, tuple[str, ...]]] = [
+        ("discord", "Discord", ("discord",)),
+        ("imo", "IMO", ("imo",)),
+        ("telegram", "Telegram", ("telegram",)),
+        ("whatsapp", "WhatsApp", ("whatsapp",)),
+        ("messenger", "Messenger", ("messenger", "facebook")),
+        ("viber", "Viber", ("viber",)),
+        ("line", "LINE", ("line",)),
+        ("wechat", "WeChat", ("wechat",)),
+        ("bigo_live", "Bigo Live", ("bigo",)),
+        ("coco_live", "Coco Live", ("coco",)),
+        ("azal_live", "Azal Live", ("azal",)),
+        ("tada_chat", "Tada Chat", ("tada",)),
+        ("fancy_life", "Fancy Life", ("fancy life",)),
+    ]
+    for key, label, tokens in rules:
+        if any(tok in n for tok in tokens):
+            return key, label
+    cleaned = re.sub(r"\s+", " ", str(name or "").strip())
+    if cleaned:
+        key = re.sub(r"[^a-z0-9]+", "_", _norm(cleaned)).strip("_") or "chat_misc"
+        return key, cleaned
+    return "chat_misc", "More Chat Apps"
+
+
+def _is_generic_chat_category(name: str) -> bool:
+    n = _norm(name)
+    if not n:
+        return True
+    generic_tokens = (
+        "chat apps",
+        "chat app",
+        "social",
+        "applications",
+        "apps section",
+        "قسم التطبيقات",
+        "تطبيقات",
+        "تطبيقات الدردشة",
+    )
+    return any(tok in n for tok in generic_tokens)
+
+
 def _guess_family(service_key: str, category_name: str, sample_names: list[str]) -> tuple[str, str]:
     text = _norm(" ".join([category_name] + list(sample_names or [])))
     for key, label, tokens in _family_rules_for_service(service_key):
@@ -359,8 +402,28 @@ def _grouped_gift_categories(snapshot: dict[str, Any]) -> tuple[list[dict[str, A
             continue
         category_name = str(cat.get("clean_name") or cat.get("name") or "-").strip()
         service_key = str(cat.get("service_key") or _gift_service_key(category_name))
-        sample_rows = list(products_by_category.get(cat_id) or [])[:6]
+        product_rows = list(products_by_category.get(cat_id) or [])
+        sample_rows = product_rows[:6]
         sample_names = [str(row.get("name") or row.get("clean_name") or "") for row in sample_rows]
+
+        if service_key == "chat_apps" and _is_generic_chat_category(category_name):
+            for row in product_rows:
+                row_name = str(row.get("clean_name") or row.get("name") or "").strip()
+                family_key, family_label = _chat_family_from_product_name(row_name)
+                group_id = f"grp:g:{service_key}:{family_key}"
+                if group_id not in grouped:
+                    grouped[group_id] = {
+                        "id": group_id,
+                        "name": family_label,
+                        "count": 0,
+                        "group_key": _gift_group_key(family_label),
+                        "service_key": service_key,
+                    }
+                    source_map[group_id] = set()
+                grouped[group_id]["count"] = int(grouped[group_id]["count"] or 0) + 1
+                source_map[group_id].add(cat_id)
+            continue
+
         family_key, family_label = _guess_family(service_key, category_name, sample_names)
         group_id = f"grp:g:{service_key}:{family_key}"
         if group_id not in grouped:
