@@ -138,6 +138,13 @@ input:focus {
   gap: 10px;
 }
 
+.section-title {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .segments {
   display: flex;
   gap: 8px;
@@ -169,6 +176,11 @@ input:focus {
   gap: 10px;
 }
 
+.category-list {
+  display: grid;
+  gap: 10px;
+}
+
 @media (min-width: 640px) {
   .grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -184,10 +196,25 @@ input:focus {
 }
 
 .tile {
-  min-height: 92px;
+  min-height: 84px;
   padding: 14px;
   text-align: start;
   color: var(--text);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.tile-body {
+  min-width: 0;
+}
+
+.tile-chevron {
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 600;
 }
 
 .tile strong,
@@ -210,7 +237,7 @@ input:focus {
 .item {
   display: grid;
   gap: 12px;
-  padding: 13px;
+  padding: 14px;
 }
 
 .item-top {
@@ -265,6 +292,7 @@ input:focus {
 
 .price-stat b {
   color: var(--accent);
+  font-size: 16px;
 }
 
 .stat.ok b {

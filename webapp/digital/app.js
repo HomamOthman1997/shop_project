@@ -19,6 +19,8 @@ const copy = {
     noProducts: "No products found.",
     products: "products",
     packages: "packages",
+    categories: "Categories",
+    offers: "Offers",
     all: "All",
     price: "Price",
     stock: "Stock",
@@ -47,6 +49,8 @@ const copy = {
     noProducts: "\u0644\u0627 \u062a\u0648\u062c\u062f \u0639\u0631\u0648\u0636.",
     products: "\u0639\u0631\u0648\u0636",
     packages: "\u0628\u0627\u0642\u0627\u062a",
+    categories: "\u0627\u0644\u0641\u0626\u0627\u062a",
+    offers: "\u0627\u0644\u0639\u0631\u0648\u0636",
     all: "\u0627\u0644\u0643\u0644",
     price: "\u0627\u0644\u0633\u0639\u0631",
     stock: "\u0627\u0644\u0645\u062e\u0632\u0648\u0646",
@@ -169,11 +173,17 @@ function segment(items, active, onChange) {
 
 function tile(row, onClick) {
   const el = button("tile", "", onClick);
+  const body = document.createElement("div");
+  body.className = "tile-body";
   const strong = document.createElement("strong");
   strong.textContent = row.name;
   const span = document.createElement("span");
   span.textContent = state.tab === "gifts" ? `${row.count} ${t("products")}` : t("packages");
-  el.append(strong, span);
+  body.append(strong, span);
+  const chev = document.createElement("b");
+  chev.className = "tile-chevron";
+  chev.textContent = "›";
+  el.append(body, chev);
   return el;
 }
 
@@ -206,7 +216,7 @@ function itemRow(item) {
   details.className = "details";
   details.append(stat(t("price"), money(item.price_usd), "price-stat"));
   if (item.kind === "gift") {
-    const stockText = Number(item.stock || 0) > 0 ? `${item.stock} - ${t("inStock")}` : t("out");
+    const stockText = Number(item.stock || 0) > 0 ? t("inStock") : t("out");
     details.append(stat(t("stock"), stockText, Number(item.stock || 0) > 0 ? "ok" : "danger"));
   } else {
     details.append(stat("", item.requires_server ? t("serverRequired") : t("serverOptional")));
@@ -243,10 +253,14 @@ function rootList() {
 
   const rows = rootRows();
   setStatus(rows.length ? "" : t("noResults"));
-  const grid = document.createElement("section");
-  grid.className = "grid";
-  rows.forEach((row) => grid.append(tile(row, () => openList(row.id, row.name))));
-  content.append(grid);
+  const heading = document.createElement("h2");
+  heading.className = "section-title";
+  heading.textContent = t("categories");
+  content.append(heading);
+  const list = document.createElement("section");
+  list.className = "category-list";
+  rows.forEach((row) => list.append(tile(row, () => openList(row.id, row.name))));
+  content.append(list);
 }
 
 async function openList(id, name) {
@@ -296,7 +310,11 @@ function renderItems() {
     );
   }
   const rows = itemRows();
-  setStatus(rows.length ? state.selectedName : t("noProducts"));
+  setStatus(rows.length ? "" : t("noProducts"));
+  const heading = document.createElement("h2");
+  heading.className = "section-title";
+  heading.textContent = `${t("offers")} • ${state.selectedName}`;
+  content.append(heading);
   rows.forEach((row) => content.append(itemRow(row)));
 }
 
