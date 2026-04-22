@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,30 @@ from services.digital_products.catalog_service import get_catalog_snapshot, get_
 
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "webapp" / "digital"
+_PRIORITY_GIFTCARD_BRANDS = (
+    "discord",
+    "imo",
+    "itunes",
+    "jawaker",
+    "nintendo",
+    "playstation",
+    "razer",
+    "roblox",
+    "steam",
+    "xbox",
+    "yalla ludo",
+)
+_GAME_TOPUP_HINTS = ("diamond", "diamonds", "gold", "gems", "gem", "coins", "coin", "cash", "crystals", "crystal", "jade", "uc", "opals", "voucher", "vouchers", "token", "tokens", "credits", "origeometry")
+_GAME_PASS_HINTS = ("prime", "pass", "monthly", "weekly", "card", "subscription", "membership", "elite", "royale", "battle pass")
+_GAME_SPECIAL_HINTS = ("pack", "bundle", "box", "chest", "deal", "lucky", "material", "emblem", "skin", "value", "first purchase", "rebate")
+_GAME_GROUP_OVERRIDES: dict[str, dict[str, tuple[str, ...]]] = {
+    "pubgm": {"passes": ("prime", "prime plus", "elite pass"), "specials": ("weekly", "mythic", "materials", "first purchase")},
+    "mlbb": {"passes": ("weekly elite", "monthly elite", "weekly", "twilight")},
+    "mlbb_br": {"passes": ("weekly elite", "monthly elite", "weekly")},
+    "mlbb_exclusive": {"passes": ("weekly", "twilight")},
+    "hok": {"passes": ("weekly card", "weekly card plus"), "specials": ("lucky bag", "value pack", "rebate")},
+    "afkjourney": {"passes": ("monthly", "gazette"), "specials": ("growth bundle",)},
+}
 
 
 def _money(value: Any) -> float:
@@ -47,8 +72,6 @@ def _norm(value: str | None) -> str:
 
 
 def _natural_key(text: str) -> list[Any]:
-    import re
-
     parts = re.split(r"(\d+)", _norm(text))
     out: list[Any] = []
     for part in parts:
@@ -66,19 +89,109 @@ def _find_game_name(snapshot: dict[str, Any], game_id: str) -> str:
 
 
 def _classify_game_item(game_id: str, item: dict[str, Any]) -> str:
-    name = _norm(str(item.get("name") or item.get("catalogue_name") or ""))
-    gid = _norm(game_id)
-    if any(key in name for key in ("pass", "membership", "monthly", "weekly")):
+    raw_name = str(item.get("clean_name") or item.get("name") or item.get("catalogue_name") or "")
+    name = _norm(raw_name)
+    override = _GAME_GROUP_OVERRIDES.get(str(game_id)) or {}
+    for group_key, keywords in override.items():
+        if keywords and any(keyword in name for keyword in keywords):
+            return group_key
+    if any(key in name for key in _GAME_PASS_HINTS):
         return "passes"
-    if any(key in name for key in ("bundle", "pack", "special", "deal", "skin")):
+    if any(key in name for key in _GAME_SPECIAL_HINTS):
         return "specials"
-    if "mobile legends" in gid and any(key in name for key in ("twilight", "weekly", "pass")):
-        return "passes"
-    return "topup"
+    if _is_numeric_topup_name(raw_name) or any(key in name for key in _GAME_TOPUP_HINTS):
+        return "topup"
+    if str(game_id) in {"pubgm", "mlbb", "mla", "mlbb_br", "mlbb_exclusive", "hok"}:
+        return "topup"
+    return "specials"
 
 
-def _display_game_item_name(item: dict[str, Any]) -> str:
-    return " ".join(str(item.get("clean_name") or item.get("name") or "-").strip().split())
+def _is_numeric_topup_name(raw_name: str) -> bool:
+    compact = str(raw_name or "").replace(",", "").replace("+", " ").strip()
+    if not compact:
+        return False
+    return bool(re.fullmatch(r"[\d\s]+", compact) or re.match(r"^\d+(\s+[A-Za-z]+.*)?$", compact))
+
+
+def _normalize_game_item_name(name: str) -> str:
+    text = " ".join(str(name or "").strip().split())
+    replacements = {
+        "Activation Pass Bundle": "Bundle",
+        "Activation Pass": "Pass",
+        "Monthly Advanced Battle Pass": "Advanced Battle Pass",
+        "Monthly Premium Battle Pass": "Premium Battle Pass",
+        "Premium Spiritual Jade": "Jade",
+        "Prime Plus": "Prime+",
+        "First Purchase Pack": "First Purchase",
+        "Weekly Deal Pack": "Weekly Deal",
+        "Value Pack": "Value",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def _display_game_item_name(item: dict[str, Any], group_key: str = "topup") -> str:
+    name = _normalize_game_item_name(str(item.get("clean_name") or item.get("name") or "-").strip())
+    if group_key == "topup":
+        compact = name.replace(",", "").strip()
+        if re.fullmatch(r"\d+", compact):
+            return compact
+        match = re.match(r"^(\d+)\s*([A-Za-z].*)$", name)
+        if match:
+            unit = match.group(2).strip()
+            if len(unit) > 10:
+                unit = unit.split()[0]
+            return f"{match.group(1)} {unit}".strip()
+    return name
+
+
+def _gift_group_key(name: str) -> str:
+    n = _norm(name)
+    if any(brand in n for brand in _PRIORITY_GIFTCARD_BRANDS):
+        return "popular"
+    if any(k in n for k in ("playstation", "psn", "steam", "xbox", "nintendo", "razer", "roblox", "yalla ludo", "jawaker")):
+        return "gaming"
+    if any(k in n for k in ("itunes", "apple", "google", "discord", "imo")):
+        return "apps"
+    return "other"
+
+
+def _gift_group_label(key: str) -> dict[str, str]:
+    labels = {
+        "popular": {"en": "Popular", "ar": "الأكثر طلبا"},
+        "gaming": {"en": "Gaming", "ar": "الألعاب"},
+        "apps": {"en": "Apps", "ar": "التطبيقات"},
+        "other": {"en": "Other", "ar": "أخرى"},
+    }
+    return labels.get(key, labels["other"])
+
+
+def _game_group_label(key: str) -> dict[str, str]:
+    labels = {
+        "topup": {"en": "Top Up", "ar": "شحن"},
+        "passes": {"en": "Passes", "ar": "باسات"},
+        "specials": {"en": "Specials", "ar": "عروض"},
+    }
+    return labels.get(key, labels["specials"])
+
+
+def _game_root_group_key(name: str) -> str:
+    n = _norm(name)
+    if any(k in n for k in ("pubg", "mobile legends", "free fire", "honor of kings", "new state")):
+        return "popular"
+    if any(k in n for k in ("roblox", "fortnite", "valorant", "call of duty", "cod", "genshin")):
+        return "global"
+    return "all"
+
+
+def _game_root_group_label(key: str) -> dict[str, str]:
+    labels = {
+        "popular": {"en": "Popular", "ar": "الأكثر طلبا"},
+        "global": {"en": "Global Games", "ar": "ألعاب عالمية"},
+        "all": {"en": "More Games", "ar": "ألعاب إضافية"},
+    }
+    return labels.get(key, labels["all"])
 
 
 def _verify_init_data(init_data: str) -> dict[str, Any]:
@@ -116,27 +229,54 @@ async def _catalog_payload() -> dict[str, Any]:
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
     categories = []
+    seen_category_names: set[str] = set()
     for cat in list(snapshot.get("gift_categories") or []):
         cat_id = str(cat.get("id") or "").strip()
         if not cat_id:
             continue
+        name = str(cat.get("clean_name") or cat.get("name") or "-").strip()
+        norm_name = _norm(name)
+        if not norm_name or any(k in norm_name for k in ("test", "demo", "sample")) or norm_name in seen_category_names:
+            continue
+        seen_category_names.add(norm_name)
         categories.append(
             {
                 "id": cat_id,
-                "name": str(cat.get("clean_name") or cat.get("name") or "-"),
+                "name": name,
                 "count": int(cat.get("count") or 0),
+                "group_key": _gift_group_key(name),
             }
         )
+    gift_group_order = {"popular": 0, "gaming": 1, "apps": 2, "other": 3}
+    categories.sort(key=lambda row: (gift_group_order.get(str(row.get("group_key")), 9), _natural_key(str(row.get("name") or ""))))
     games = [
-        {"id": str(game.get("id") or ""), "name": str(game.get("name") or "-")}
+        {
+            "id": str(game.get("id") or ""),
+            "name": str(game.get("name") or "-"),
+            "group_key": _game_root_group_key(str(game.get("name") or "-")),
+        }
         for game in list(snapshot.get("games") or [])
         if str(game.get("id") or "").strip()
+    ]
+    game_group_order = {"popular": 0, "global": 1, "all": 2}
+    games.sort(key=lambda row: (game_group_order.get(str(row.get("group_key")), 9), _natural_key(str(row.get("name") or ""))))
+    gift_groups = [
+        {"key": key, "label": _gift_group_label(key)}
+        for key in ("popular", "gaming", "apps", "other")
+        if any(str(row.get("group_key")) == key for row in categories)
+    ]
+    game_groups = [
+        {"key": key, "label": _game_root_group_label(key)}
+        for key in ("popular", "global", "all")
+        if any(str(row.get("group_key")) == key for row in games)
     ]
     return {
         "enabled": bool(snapshot.get("enabled")),
         "markup_percent": markup,
         "gift_categories": categories,
+        "gift_groups": gift_groups,
         "games": games[:80],
+        "game_groups": game_groups,
     }
 
 
@@ -159,6 +299,7 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
                 "name": name,
                 "price_usd": price,
                 "stock": int(item.get("stock") or 0),
+                "stock_label": "In stock" if int(item.get("stock") or 0) > 0 else "Out of stock",
             }
         )
     out.sort(key=lambda row: _natural_key(str(row.get("name") or "")))
@@ -172,10 +313,10 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
     q = _norm(query)
     items: list[dict[str, Any]] = []
     for item in rows:
-        name = _display_game_item_name(item)
+        group = _classify_game_item(game_id, item)
+        name = _display_game_item_name(item, group)
         if q and fuzz.partial_ratio(q, name.lower()) < 45:
             continue
-        group = _classify_game_item(game_id, item)
         items.append(
             {
                 "kind": "game",
@@ -187,8 +328,14 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
                 "requires_server": bool(item.get("requires_server")),
             }
         )
-    items.sort(key=lambda row: (str(row.get("group_key") or ""), _money(row.get("price_usd")), _natural_key(str(row.get("name") or ""))))
-    return {"game_id": str(game_id), "game_name": _find_game_name(snapshot, str(game_id)), "items": items[:120]}
+    group_order = {"topup": 0, "passes": 1, "specials": 2}
+    items.sort(key=lambda row: (group_order.get(str(row.get("group_key") or ""), 9), _money(row.get("price_usd")), _natural_key(str(row.get("name") or ""))))
+    groups = [
+        {"key": key, "label": _game_group_label(key)}
+        for key in ("topup", "passes", "specials")
+        if any(str(row.get("group_key")) == key for row in items)
+    ]
+    return {"game_id": str(game_id), "game_name": _find_game_name(snapshot, str(game_id)), "groups": groups, "items": items[:120]}
 
 
 async def _create_selection(user_id: int | None, payload: dict[str, Any]) -> str:
