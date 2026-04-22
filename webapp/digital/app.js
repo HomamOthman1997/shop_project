@@ -231,24 +231,31 @@ function itemRow(item) {
   const row = document.createElement("article");
   row.className = "item";
 
-  const top = document.createElement("div");
-  top.className = "item-top";
-  // إظهار الرقم مع UC
+  // السعر في الأعلى
+  const priceDiv = document.createElement("div");
+  priceDiv.className = "item-price-top";
+  priceDiv.append(stat(t("price"), money(item.price_usd), "price-stat"));
+  row.append(priceDiv);
+
+  // قيمة UC في الوسط
   const title = document.createElement("strong");
   title.textContent = `${item.name} UC`;
+  title.style.textAlign = "center";
+  title.style.display = "block";
+  row.append(title);
+
+  // زر Continue في الأسفل
   const buy = button("buy", t("continue"), () => createSelection(item));
   if (item.kind === "gift" && Number(item.stock || 0) <= 0) {
     buy.disabled = true;
     buy.textContent = t("out");
   }
-  top.append(title, buy);
+  const btnDiv = document.createElement("div");
+  btnDiv.style.display = "flex";
+  btnDiv.style.justifyContent = "center";
+  btnDiv.append(buy);
+  row.append(btnDiv);
 
-  const details = document.createElement("div");
-  details.className = "details";
-  details.append(stat(t("price"), money(item.price_usd), "price-stat"));
-  // إزالة عبارة Player ID only وعدم إظهار أي نص إضافي
-
-  row.append(top, details);
   return row;
 }
 
