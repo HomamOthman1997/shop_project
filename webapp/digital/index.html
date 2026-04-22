@@ -2,19 +2,32 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#0f172a" />
     <title>Digital Store</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/mini/digital/static/styles.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
     <main class="shell">
       <div class="welcome-banner">
-        <span id="welcomeMsg">مرحباً بك في المتجر الرقمي!</span>
+        <div class="welcome-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <path d="M16 10a4 4 0 0 1-8 0" />
+          </svg>
+        </div>
+        <span id="welcomeMsg">Welcome to the Digital Store!</span>
       </div>
+
       <header class="topbar">
-        <div>
+        <div class="topbar-title">
           <h1 id="title">Digital Store</h1>
+          <span class="topbar-subtitle">Your Digital Marketplace</span>
         </div>
         <div class="topbar-actions">
           <button id="langBtn" class="icon-btn" aria-label="Switch language">AR</button>
@@ -23,7 +36,13 @@
       </header>
 
       <section class="searchbar">
-        <input id="searchInput" type="search" placeholder="Search" autocomplete="off" />
+        <div class="search-wrapper">
+          <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input id="searchInput" type="search" placeholder="Search" autocomplete="off" />
+        </div>
       </section>
 
       <section id="status" class="status">Loading store...</section>

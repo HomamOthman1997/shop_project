@@ -131,6 +131,10 @@ function applyLang() {
     langBtn.setAttribute("aria-label", state.lang === "ar" ? "تغيير اللغة" : "Switch language");
   }
   searchInput.placeholder = t("search");
+  const subtitle = document.querySelector(".topbar-subtitle");
+  if (subtitle) {
+    subtitle.textContent = state.lang === "ar" ? "متجرك الرقمي" : "Your Digital Marketplace";
+  }
   // تحديث رسالة الترحيب حسب اللغة
   const welcomeMsg = document.getElementById("welcomeMsg");
   if (welcomeMsg) {
