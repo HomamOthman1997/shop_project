@@ -5,6 +5,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from uuid import uuid4
 from bson import ObjectId
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from database.mongo import db
 
@@ -41,6 +43,11 @@ async def bootstrap_cardex_indexes() -> None:
     await db.cardex_withdrawals.create_index([("user_id", 1), ("created_at", -1)])
     await db.cardex_withdrawals.create_index([("status", 1), ("created_at", -1)])
     await db.cardex_ledger.create_index([("user_id", 1), ("created_at", -1)])
+    await db.cardex_ledger.create_index(
+        "idempotency_key",
+        unique=True,
+        partialFilterExpression={"idempotency_key": {"$exists": True}},
+    )
 
 
 async def get_or_create_cardex_user(
@@ -81,19 +88,26 @@ async def get_or_create_cardex_user(
 
 
 async def ensure_cardex_wallet(user_id: str) -> dict[str, Any]:
-    wallet = await db.cardex_wallets.find_one({"user_id": str(user_id)})
+    user_id_s = str(user_id)
+    wallet = await db.cardex_wallets.find_one({"user_id": user_id_s})
     if wallet:
         return wallet
-    doc = {
-        "user_id": str(user_id),
-        "pending_usd": 0.0,
-        "available_usd": 0.0,
-        "locked_usd": 0.0,
-        "created_at": _now(),
-        "updated_at": _now(),
-    }
-    await db.cardex_wallets.insert_one(doc)
-    return doc
+    now = _now()
+    return await db.cardex_wallets.find_one_and_update(
+        {"user_id": user_id_s},
+        {
+            "$setOnInsert": {
+                "user_id": user_id_s,
+                "pending_usd": 0.0,
+                "available_usd": 0.0,
+                "locked_usd": 0.0,
+                "created_at": now,
+            },
+            "$set": {"updated_at": now},
+        },
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
 
 
 async def get_cardex_wallet(user_id: str) -> dict[str, Any]:
@@ -302,7 +316,11 @@ async def post_ledger_entry(
     reference_type: str = "",
     reference_id: str | None = None,
     description: str | None = None,
+    raise_on_duplicate: bool = False,
 ) -> dict[str, Any]:
+    idempotency_key = None
+    if reference_id and reference_type and entry_type:
+        idempotency_key = f"{reference_type}:{reference_id}:{entry_type}"
     doc = {
         "_id": str(uuid4()),
         "user_id": str(user_id),
@@ -316,51 +334,155 @@ async def post_ledger_entry(
         "description": str(description or "").strip() or None,
         "created_at": _now(),
     }
-    await db.cardex_ledger.insert_one(doc)
+    if idempotency_key:
+        doc["idempotency_key"] = idempotency_key
+    try:
+        await db.cardex_ledger.insert_one(doc)
+    except DuplicateKeyError:
+        if raise_on_duplicate:
+            raise
+        existing = await db.cardex_ledger.find_one({"idempotency_key": idempotency_key})
+        if existing:
+            return existing
+        raise
     return doc
 
 
 async def update_wallet_deltas(user_id: str, *, pending_delta: Decimal = Decimal("0"), available_delta: Decimal = Decimal("0"), locked_delta: Decimal = Decimal("0")) -> dict[str, Any]:
-    wallet = await ensure_cardex_wallet(user_id)
-    new_pending = _money6(wallet.get("pending_usd")) + _money6(pending_delta)
-    new_available = _money6(wallet.get("available_usd")) + _money6(available_delta)
-    new_locked = _money6(wallet.get("locked_usd")) + _money6(locked_delta)
-    if new_pending < 0 or new_available < 0 or new_locked < 0:
+    pending = _money6(pending_delta)
+    available = _money6(available_delta)
+    locked = _money6(locked_delta)
+    if pending == 0 and available == 0 and locked == 0:
+        return await ensure_cardex_wallet(user_id)
+
+    await ensure_cardex_wallet(user_id)
+    query: dict[str, Any] = {"user_id": str(user_id)}
+    if pending < 0:
+        query["pending_usd"] = {"$gte": _float6(abs(pending))}
+    if available < 0:
+        query["available_usd"] = {"$gte": _float6(abs(available))}
+    if locked < 0:
+        query["locked_usd"] = {"$gte": _float6(abs(locked))}
+
+    inc: dict[str, float] = {}
+    if pending != 0:
+        inc["pending_usd"] = _float6(pending)
+    if available != 0:
+        inc["available_usd"] = _float6(available)
+    if locked != 0:
+        inc["locked_usd"] = _float6(locked)
+
+    updated = await db.cardex_wallets.find_one_and_update(
+        query,
+        {"$inc": inc, "$set": {"updated_at": _now()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not updated:
         raise ValueError("Wallet invariant violation")
-    updates = {
-        "pending_usd": _float6(new_pending),
-        "available_usd": _float6(new_available),
-        "locked_usd": _float6(new_locked),
-        "updated_at": _now(),
-    }
-    await db.cardex_wallets.update_one({"user_id": str(user_id)}, {"$set": updates}, upsert=True)
-    wallet.update(updates)
-    return wallet
+    return updated
 
 
-async def accept_card(card_id: str, *, actor_user_id: str, hold_hours: int = DEFAULT_HOLD_HOURS, notes: str | None = None) -> dict[str, Any]:
+async def _reverse_cardex_wallet_delta_for_ledger(entry: dict[str, Any]) -> None:
+    await update_wallet_deltas(
+        str(entry.get("user_id")),
+        pending_delta=-_money6(entry.get("pending_delta_usd")),
+        available_delta=-_money6(entry.get("available_delta_usd")),
+        locked_delta=-_money6(entry.get("locked_delta_usd")),
+    )
+
+
+async def _apply_cardex_financial_event(
+    *,
+    user_id: str,
+    entry_type: str,
+    amount_usd: Decimal,
+    pending_delta_usd: Decimal = Decimal("0"),
+    available_delta_usd: Decimal = Decimal("0"),
+    locked_delta_usd: Decimal = Decimal("0"),
+    reference_type: str,
+    reference_id: str,
+    description: str,
+) -> dict[str, Any]:
+    existing = await db.cardex_ledger.find_one(
+        {"idempotency_key": f"{reference_type}:{reference_id}:{entry_type}"}
+    )
+    if existing:
+        return existing
+
+    await update_wallet_deltas(
+        user_id,
+        pending_delta=pending_delta_usd,
+        available_delta=available_delta_usd,
+        locked_delta=locked_delta_usd,
+    )
+    try:
+        return await post_ledger_entry(
+            user_id=user_id,
+            entry_type=entry_type,
+            amount_usd=amount_usd,
+            pending_delta_usd=pending_delta_usd,
+            available_delta_usd=available_delta_usd,
+            locked_delta_usd=locked_delta_usd,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            description=description,
+            raise_on_duplicate=True,
+        )
+    except DuplicateKeyError:
+        existing = await db.cardex_ledger.find_one(
+            {"idempotency_key": f"{reference_type}:{reference_id}:{entry_type}"}
+        )
+        if existing:
+            await _reverse_cardex_wallet_delta_for_ledger(existing)
+            return existing
+        raise
+
+
+async def _claim_card_status(card_id: str, allowed_statuses: set[str], updates: dict[str, Any]) -> dict[str, Any]:
+    updated = await db.cardex_cards.find_one_and_update(
+        {"_id": str(card_id), "status": {"$in": sorted(allowed_statuses)}},
+        {"$set": updates},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated:
+        return updated
     card = await get_card(card_id)
     if not card:
         raise ValueError("Card not found")
-    if str(card.get("status")) not in {"submitted", "under_review"}:
-        raise ValueError("Card cannot be accepted from current status")
+    raise ValueError("Card cannot be updated from current status")
+
+
+async def _claim_withdrawal_status(withdrawal_id: str, allowed_statuses: set[str], updates: dict[str, Any]) -> dict[str, Any]:
+    updated = await db.cardex_withdrawals.find_one_and_update(
+        {"_id": str(withdrawal_id), "status": {"$in": sorted(allowed_statuses)}},
+        {"$set": updates},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated:
+        return updated
+    row = await db.cardex_withdrawals.find_one({"_id": str(withdrawal_id)})
+    if not row:
+        raise ValueError("Withdrawal not found")
+    raise ValueError("Withdrawal cannot be updated from current status")
+
+
+async def accept_card(card_id: str, *, actor_user_id: str, hold_hours: int = DEFAULT_HOLD_HOURS, notes: str | None = None) -> dict[str, Any]:
+    now = _now()
     available_on = _now() + timedelta(hours=max(1, int(hold_hours)))
-    await db.cardex_cards.update_one(
-        {"_id": str(card_id)},
+    card = await _claim_card_status(
+        card_id,
+        {"submitted", "under_review"},
         {
-            "$set": {
-                "status": "customer_pending_credit",
-                "reviewed_by_user_id": str(actor_user_id),
-                "reviewed_at": _now(),
-                "available_on": available_on,
-                "review_notes": str(notes or "").strip() or None,
-                "updated_at": _now(),
-            }
+            "status": "customer_pending_credit",
+            "reviewed_by_user_id": str(actor_user_id),
+            "reviewed_at": now,
+            "available_on": available_on,
+            "review_notes": str(notes or "").strip() or None,
+            "updated_at": now,
         },
     )
     amount = _money6(card.get("customer_value_usd"))
-    await update_wallet_deltas(str(card.get("seller_user_id")), pending_delta=amount)
-    await post_ledger_entry(
+    await _apply_cardex_financial_event(
         user_id=str(card.get("seller_user_id")),
         entry_type="card_credit_pending",
         amount_usd=amount,
@@ -369,30 +491,21 @@ async def accept_card(card_id: str, *, actor_user_id: str, hold_hours: int = DEF
         reference_id=str(card_id),
         description="Card accepted and pending release",
     )
-    card.update({"status": "customer_pending_credit", "available_on": available_on})
     return card
 
 
 async def reject_card(card_id: str, *, actor_user_id: str, notes: str | None = None) -> dict[str, Any]:
-    card = await get_card(card_id)
-    if not card:
-        raise ValueError("Card not found")
-    if str(card.get("status")) not in {"submitted", "under_review"}:
-        raise ValueError("Card cannot be rejected from current status")
-    await db.cardex_cards.update_one(
-        {"_id": str(card_id)},
+    return await _claim_card_status(
+        card_id,
+        {"submitted", "under_review"},
         {
-            "$set": {
-                "status": "rejected",
-                "reviewed_by_user_id": str(actor_user_id),
-                "reviewed_at": _now(),
-                "review_notes": str(notes or "").strip() or None,
-                "updated_at": _now(),
-            }
+            "status": "rejected",
+            "reviewed_by_user_id": str(actor_user_id),
+            "reviewed_at": _now(),
+            "review_notes": str(notes or "").strip() or None,
+            "updated_at": _now(),
         },
     )
-    card.update({"status": "rejected"})
-    return card
 
 
 async def release_due_cards(limit: int = 200) -> dict[str, int]:
@@ -402,19 +515,22 @@ async def release_due_cards(limit: int = 200) -> dict[str, int]:
     ).limit(max(1, int(limit)))
     async for card in cursor:
         amount = _money6(card.get("customer_value_usd"))
-        await db.cardex_cards.update_one(
-            {"_id": str(card.get("_id"))},
-            {"$set": {"status": "customer_available_credit", "updated_at": _now()}},
-        )
-        await update_wallet_deltas(str(card.get("seller_user_id")), pending_delta=-amount, available_delta=amount)
-        await post_ledger_entry(
+        try:
+            claimed = await _claim_card_status(
+                str(card.get("_id")),
+                {"customer_pending_credit"},
+                {"status": "customer_available_credit", "updated_at": _now()},
+            )
+        except ValueError:
+            continue
+        await _apply_cardex_financial_event(
             user_id=str(card.get("seller_user_id")),
             entry_type="pending_release",
             amount_usd=amount,
             pending_delta_usd=-amount,
             available_delta_usd=amount,
             reference_type="card",
-            reference_id=str(card.get("_id")),
+            reference_id=str(claimed.get("_id")),
             description="Pending card credit released",
         )
         count += 1
@@ -428,30 +544,39 @@ async def create_withdrawal(*, user_id: str, requested_usd_amount: Decimal, payo
     payout = str(payout_currency).upper().strip()
     if payout not in {"USD", "SYP"}:
         raise ValueError("payout_currency must be USD or SYP")
-    wallet = await ensure_cardex_wallet(user_id)
-    if _money6(wallet.get("available_usd")) < amount:
-        raise ValueError("Insufficient available USD")
     doc = {
         "_id": str(uuid4()),
         "user_id": str(user_id),
         "requested_usd_amount": _float6(amount),
         "payout_currency": payout,
-        "status": "requested",
+        "status": "lock_pending",
         "notes": str(notes or "").strip() or None,
         "created_at": _now(),
         "updated_at": _now(),
     }
     await db.cardex_withdrawals.insert_one(doc)
-    await update_wallet_deltas(str(user_id), available_delta=-amount, locked_delta=amount)
-    await post_ledger_entry(
-        user_id=str(user_id),
-        entry_type="withdrawal_request_lock",
-        amount_usd=amount,
-        available_delta_usd=-amount,
-        locked_delta_usd=amount,
-        reference_type="withdrawal",
-        reference_id=str(doc["_id"]),
-        description="Withdrawal request lock created",
+    try:
+        await _apply_cardex_financial_event(
+            user_id=str(user_id),
+            entry_type="withdrawal_request_lock",
+            amount_usd=amount,
+            available_delta_usd=-amount,
+            locked_delta_usd=amount,
+            reference_type="withdrawal",
+            reference_id=str(doc["_id"]),
+            description="Withdrawal request lock created",
+        )
+    except Exception:
+        await db.cardex_withdrawals.update_one(
+            {"_id": str(doc["_id"]), "status": "lock_pending"},
+            {"$set": {"status": "failed", "updated_at": _now()}},
+        )
+        raise
+    doc["status"] = "requested"
+    doc["updated_at"] = _now()
+    await db.cardex_withdrawals.update_one(
+        {"_id": str(doc["_id"]), "status": "lock_pending"},
+        {"$set": {"status": "requested", "updated_at": doc["updated_at"]}},
     )
     return doc
 
@@ -471,13 +596,31 @@ async def update_withdrawal_status(withdrawal_id: str, *, status: str, actor_use
     current = str(row.get("status") or "")
     amount = _money6(row.get("requested_usd_amount"))
     if status == "approved":
-        if current not in {"requested", "under_review"}:
-            raise ValueError("Withdrawal cannot be approved from current status")
+        row = await _claim_withdrawal_status(
+            withdrawal_id,
+            {"requested", "under_review"},
+            {
+                "status": status,
+                "updated_at": _now(),
+                "reviewed_by_user_id": str(actor_user_id),
+                "notes": reason if reason else row.get("notes"),
+                "approved_at": _now(),
+            },
+        )
+        return row
     elif status == "rejected":
-        if current not in {"requested", "under_review", "approved"}:
-            raise ValueError("Withdrawal cannot be rejected from current status")
-        await update_wallet_deltas(str(row.get("user_id")), available_delta=amount, locked_delta=-amount)
-        await post_ledger_entry(
+        row = await _claim_withdrawal_status(
+            withdrawal_id,
+            {"requested", "under_review", "approved"},
+            {
+                "status": status,
+                "updated_at": _now(),
+                "reviewed_by_user_id": str(actor_user_id),
+                "notes": reason if reason else row.get("notes"),
+                "rejected_at": _now(),
+            },
+        )
+        await _apply_cardex_financial_event(
             user_id=str(row.get("user_id")),
             entry_type="withdrawal_rejected_release",
             amount_usd=amount,
@@ -487,11 +630,20 @@ async def update_withdrawal_status(withdrawal_id: str, *, status: str, actor_use
             reference_id=str(withdrawal_id),
             description="Withdrawal rejected and lock released",
         )
+        return row
     elif status == "paid":
-        if current != "approved":
-            raise ValueError("Withdrawal must be approved before marking paid")
-        await update_wallet_deltas(str(row.get("user_id")), locked_delta=-amount)
-        await post_ledger_entry(
+        row = await _claim_withdrawal_status(
+            withdrawal_id,
+            {"approved"},
+            {
+                "status": status,
+                "updated_at": _now(),
+                "reviewed_by_user_id": str(actor_user_id),
+                "notes": reason if reason else row.get("notes"),
+                "paid_at": _now(),
+            },
+        )
+        await _apply_cardex_financial_event(
             user_id=str(row.get("user_id")),
             entry_type="withdrawal_paid",
             amount_usd=amount,
@@ -500,24 +652,9 @@ async def update_withdrawal_status(withdrawal_id: str, *, status: str, actor_use
             reference_id=str(withdrawal_id),
             description="Withdrawal marked paid",
         )
+        return row
     else:
         raise ValueError("Unsupported withdrawal status")
-    updates = {
-        "status": status,
-        "updated_at": _now(),
-        "reviewed_by_user_id": str(actor_user_id),
-    }
-    if reason:
-        updates["notes"] = reason
-    if status == "approved":
-        updates["approved_at"] = _now()
-    elif status == "rejected":
-        updates["rejected_at"] = _now()
-    elif status == "paid":
-        updates["paid_at"] = _now()
-    await db.cardex_withdrawals.update_one({"_id": str(withdrawal_id)}, {"$set": updates})
-    row.update(updates)
-    return row
 
 
 async def list_missing_pricing(limit: int = 20) -> list[dict[str, Any]]:
