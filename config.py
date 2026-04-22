@@ -128,6 +128,9 @@ class Settings(BaseSettings):
     cyberyozh_proxy_key: Optional[str] = None
     g2bulk_base_url: str = "https://api.g2bulk.com"
     g2bulk_api_key: Optional[str] = None
+    za3em_base_url: str = "https://api.za3em-card.com"
+    za3em_api_token: Optional[str] = None
+    za3em_catalog_cache_ttl_sec: int = 120
     esim_access_api_base: str = "https://api.esimaccess.com/api/v1/open"
     esim_access_code: Optional[str] = None
     esim_access_secret_key: Optional[str] = None
@@ -137,6 +140,7 @@ class Settings(BaseSettings):
     reloadly_client_id: Optional[str] = None
     reloadly_client_secret: Optional[str] = None
     g2bulk_catalog_cache_ttl_sec: int = 120
+    digital_products_pubg_undercut_percent: float = 1.0
     digital_products_recovery_sweep_interval_sec: int = 300
     digital_products_recovery_pending_age_sec: int = 120
     digital_products_validation_interval_sec: int = 21600

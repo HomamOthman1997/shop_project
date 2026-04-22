@@ -8,6 +8,7 @@ const copy = {
   en: {
     title: "Digital Store",
     refresh: "R",
+    switchLang: "AR",
     gifts: "Gift Cards",
     games: "Games",
     search: "Search",
@@ -33,31 +34,32 @@ const copy = {
     productLoadFailed: "Could not load products",
   },
   ar: {
-    title: "المتجر الرقمي",
+    title: "\u0627\u0644\u0645\u062a\u062c\u0631 \u0627\u0644\u0631\u0642\u0645\u064a",
     refresh: "R",
-    gifts: "بطاقات وقسائم",
-    games: "شحن ألعاب",
-    search: "بحث",
-    loading: "جار تحميل المتجر...",
-    loadingProducts: "جار تحميل العروض...",
-    unavailable: "المتجر الرقمي غير متاح حاليا.",
-    noResults: "لا توجد نتائج.",
-    noProducts: "لا توجد عروض.",
-    products: "عروض",
-    packages: "باقات",
-    all: "الكل",
-    price: "السعر",
-    stock: "المخزون",
-    inStock: "متوفر",
-    out: "غير متوفر",
-    continue: "متابعة",
-    back: "رجوع",
-    serverRequired: "يتطلب Server ID",
-    serverOptional: "Player ID فقط",
-    selectionFailed: "فشل إرسال الاختيار",
-    openTelegram: "افتح الصفحة من زر البوت داخل تيليغرام.",
-    loadFailed: "فشل تحميل المتجر",
-    productLoadFailed: "فشل تحميل العروض",
+    switchLang: "EN",
+    gifts: "\u0628\u0637\u0627\u0642\u0627\u062a \u0648\u0642\u0633\u0627\u0626\u0645",
+    games: "\u0634\u062d\u0646 \u0623\u0644\u0639\u0627\u0628",
+    search: "\u0628\u062d\u062b",
+    loading: "\u062c\u0627\u0631 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0645\u062a\u062c\u0631...",
+    loadingProducts: "\u062c\u0627\u0631 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0639\u0631\u0648\u0636...",
+    unavailable: "\u0627\u0644\u0645\u062a\u062c\u0631 \u0627\u0644\u0631\u0642\u0645\u064a \u063a\u064a\u0631 \u0645\u062a\u0627\u062d \u062d\u0627\u0644\u064a\u0627.",
+    noResults: "\u0644\u0627 \u062a\u0648\u062c\u062f \u0646\u062a\u0627\u0626\u062c.",
+    noProducts: "\u0644\u0627 \u062a\u0648\u062c\u062f \u0639\u0631\u0648\u0636.",
+    products: "\u0639\u0631\u0648\u0636",
+    packages: "\u0628\u0627\u0642\u0627\u062a",
+    all: "\u0627\u0644\u0643\u0644",
+    price: "\u0627\u0644\u0633\u0639\u0631",
+    stock: "\u0627\u0644\u0645\u062e\u0632\u0648\u0646",
+    inStock: "\u0645\u062a\u0648\u0641\u0631",
+    out: "\u063a\u064a\u0631 \u0645\u062a\u0648\u0641\u0631",
+    continue: "\u0645\u062a\u0627\u0628\u0639\u0629",
+    back: "\u0631\u062c\u0648\u0639",
+    serverRequired: "\u064a\u062a\u0637\u0644\u0628 Server ID",
+    serverOptional: "Player ID \u0641\u0642\u0637",
+    selectionFailed: "\u0641\u0634\u0644 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0627\u062e\u062a\u064a\u0627\u0631",
+    openTelegram: "\u0627\u0641\u062a\u062d \u0627\u0644\u0635\u0641\u062d\u0629 \u0645\u0646 \u0632\u0631 \u0627\u0644\u0628\u0648\u062a \u062f\u0627\u062e\u0644 \u062a\u064a\u0644\u064a\u063a\u0631\u0627\u0645.",
+    loadFailed: "\u0641\u0634\u0644 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0645\u062a\u062c\u0631",
+    productLoadFailed: "\u0641\u0634\u0644 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0639\u0631\u0648\u0636",
   },
 };
 
@@ -79,6 +81,7 @@ const statusEl = document.getElementById("status");
 const searchInput = document.getElementById("searchInput");
 const titleEl = document.getElementById("title");
 const refreshBtn = document.getElementById("refreshBtn");
+const langBtn = document.getElementById("langBtn");
 
 function t(key) {
   return copy[state.lang][key] || copy.en[key] || key;
@@ -94,7 +97,9 @@ function applyLang() {
   document.documentElement.dir = state.lang === "ar" ? "rtl" : "ltr";
   titleEl.textContent = t("title");
   refreshBtn.textContent = t("refresh");
-  refreshBtn.setAttribute("aria-label", state.lang === "ar" ? "تحديث" : "Refresh");
+  refreshBtn.setAttribute("aria-label", state.lang === "ar" ? "\u062a\u062d\u062f\u064a\u062b" : "Refresh");
+  langBtn.textContent = t("switchLang");
+  langBtn.setAttribute("aria-label", state.lang === "ar" ? "\u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u0644\u063a\u0629" : "Switch language");
   document.querySelector('[data-tab="gifts"]').textContent = t("gifts");
   document.querySelector('[data-tab="games"]').textContent = t("games");
   searchInput.placeholder = t("search");
@@ -227,10 +232,12 @@ function rootList() {
   state.itemGroups = [];
   const sourceGroups = state.tab === "gifts" ? state.catalog.gift_groups : state.catalog.game_groups;
   const groups = [{ key: "all", label: { en: t("all"), ar: t("all") } }, ...(sourceGroups || [])];
-  content.append(segment(groups, state.group, (key) => {
-    state.group = key;
-    rootList();
-  }));
+  content.append(
+    segment(groups, state.group, (key) => {
+      state.group = key;
+      rootList();
+    })
+  );
 
   const rows = rootRows();
   setStatus(rows.length ? "" : t("noResults"));
@@ -279,10 +286,12 @@ function renderItems() {
   content.append(button("back-btn", t("back"), rootList));
   if (state.itemGroups.length > 1) {
     const groups = [{ key: "all", label: { en: t("all"), ar: t("all") } }, ...state.itemGroups];
-    content.append(segment(groups, state.itemGroup, (key) => {
-      state.itemGroup = key;
-      renderItems();
-    }));
+    content.append(
+      segment(groups, state.itemGroup, (key) => {
+        state.itemGroup = key;
+        renderItems();
+      })
+    );
   }
   const rows = itemRows();
   setStatus(rows.length ? state.selectedName : t("noProducts"));
@@ -294,9 +303,10 @@ async function createSelection(item) {
     setStatus(t("openTelegram"), true);
     return;
   }
-  const payload = item.kind === "gift"
-    ? { kind: "gift", category_id: item.category_id, product_id: item.id }
-    : { kind: "game", game_id: item.game_id, item_id: item.id, group_key: item.group_key };
+  const payload =
+    item.kind === "gift"
+      ? { kind: "gift", category_id: item.category_id, product_id: item.id }
+      : { kind: "game", game_id: item.game_id, item_id: item.id, group_key: item.group_key };
   try {
     const data = await api("/mini/digital/api/selection", {
       method: "POST",
@@ -344,5 +354,13 @@ searchInput.addEventListener("input", () => {
 });
 
 refreshBtn.addEventListener("click", loadCatalog);
+langBtn.addEventListener("click", () => {
+  state.lang = state.lang === "ar" ? "en" : "ar";
+  applyLang();
+  if (!state.catalog) return;
+  if (state.view === "items") renderItems();
+  else rootList();
+});
+
 applyLang();
 loadCatalog();

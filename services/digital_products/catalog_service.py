@@ -9,9 +9,12 @@ from config import settings
 from utils.translations import t
 
 from .g2bulk_client import G2BulkClient
+from .za3em_client import Za3emClient
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+_ZA3EM_CACHE: dict[str, Any] = {"ts": 0.0, "rows": []}
 _CACHE_LOCK = asyncio.Lock()
+_ZA3EM_LOCK = asyncio.Lock()
 _DEFAULT_TOP_GAMES = ("pubg", "mobile legends", "free fire", "honor of kings", "new state")
 
 
@@ -74,6 +77,167 @@ def _best_id(row: dict[str, Any], *keys: str) -> str:
     return ""
 
 
+def _first_number(text: str) -> int | None:
+    match = re.search(r"(\d+)", str(text or ""))
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except Exception:
+        return None
+
+
+def _service_key(text: str) -> str | None:
+    n = _norm(text)
+    rules: list[tuple[str, tuple[str, ...]]] = [
+        ("pubg", ("pubg", "pubgm", "ببجي", "شدات", "شدة", "uc")),
+        ("mlbb", ("mobile legends", "mobile legend", "mlbb", "موبايل ليجند", "diamonds")),
+        ("free_fire", ("free fire", "فري فاير")),
+        ("hok", ("honor of kings", "honor of king", "hok")),
+        ("steam", ("steam",)),
+        ("itunes", ("itunes", "apple", "ايتونز")),
+        ("playstation", ("playstation", "psn", "بلاي ستيشن")),
+        ("xbox", ("xbox",)),
+        ("nintendo", ("nintendo",)),
+        ("roblox", ("roblox", "روبلوكس")),
+        ("razer", ("razer", "ريزر")),
+        ("discord", ("discord", "ديسكورد")),
+        ("imo", ("imo",)),
+        ("jawaker", ("jawaker", "جواكر")),
+        ("yalla_ludo", ("yalla ludo", "يلا لودو")),
+    ]
+    for key, keys in rules:
+        if any(token in n for token in keys):
+            return key
+    return None
+
+
+def _currency_variant(text: str) -> str:
+    n = _norm(text)
+    rules: list[tuple[str, tuple[str, ...]]] = [
+        ("usd", (" usd", "us$", "$", "دولار", "usa", "american", "امريكي")),
+        ("sar", ("sar", "ksa", "سعود", "ريال")),
+        ("eur", ("eur", "€", "euro", "الماني", "germany", "german")),
+        ("myr", ("myr",)),
+        ("hkd", ("hkd",)),
+        ("try", ("try", "تركي", "turkish", "turkey")),
+        ("global", ("global", "عالمي")),
+    ]
+    for key, tokens in rules:
+        if any(token in n for token in tokens):
+            return key
+    return "generic"
+
+
+def _game_variant(text: str) -> str:
+    n = _norm(text)
+    compact = re.sub(r"[\s,]+", "", n)
+    tags: list[str] = []
+    if any(k in n for k in ("month", "months", "شهر", "شهور")):
+        tags.append("month")
+    if any(k in n for k in ("weekly", "week", "اسبوع")):
+        tags.append("weekly")
+    if any(k in n for k in ("prime", "برايم")):
+        tags.append("prime")
+    if any(k in n for k in ("plus", "بلس", "+")):
+        tags.append("plus")
+    if any(k in n for k in ("normal", "ordinary", "عادي")):
+        tags.append("normal")
+    if any(k in n for k in ("pass", "elite", "باس")):
+        tags.append("pass")
+    if any(k in n for k in ("pack", "bundle", "حزمة")):
+        tags.append("pack")
+    if any(k in n for k in ("discount", "خصم")):
+        tags.append("discount")
+    if any(k in n for k in ("uc", "شدة", "شدات", "diamond", "diamonds", "جواهر")) or compact.isdigit():
+        tags.append("topup")
+    return "|".join(sorted(set(tags))) if tags else "generic"
+
+
+def _variant_key(service_key: str | None, text: str) -> str:
+    if service_key in {"pubg", "mlbb", "free_fire", "hok"}:
+        return _game_variant(text)
+    return _currency_variant(text)
+
+
+def _build_offer(provider: str, ref_id: str, price: float, available: bool, *, source: str = "") -> dict[str, Any]:
+    return {
+        "provider": str(provider),
+        "ref_id": str(ref_id),
+        "price": round(float(price or 0.0), 6),
+        "available": bool(available),
+        "source": str(source or ""),
+    }
+
+
+def _choose_best_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    valid = [row for row in offers if bool(row.get("available")) and float(row.get("price") or 0.0) > 0]
+    if not valid:
+        return None
+    valid.sort(key=lambda row: float(row.get("price") or 0.0))
+    return dict(valid[0])
+
+
+async def _get_za3em_products(force: bool = False) -> list[dict[str, Any]]:
+    ttl = max(15, int(getattr(settings, "za3em_catalog_cache_ttl_sec", 120) or 120))
+    now = time.time()
+    if not force and (now - float(_ZA3EM_CACHE.get("ts") or 0.0)) < ttl:
+        return list(_ZA3EM_CACHE.get("rows") or [])
+    async with _ZA3EM_LOCK:
+        now = time.time()
+        if not force and (now - float(_ZA3EM_CACHE.get("ts") or 0.0)) < ttl:
+            return list(_ZA3EM_CACHE.get("rows") or [])
+        client = Za3emClient()
+        rows = await client.get_products() if client.configured() else []
+        _ZA3EM_CACHE["ts"] = now
+        _ZA3EM_CACHE["rows"] = list(rows or [])
+        return list(rows or [])
+
+
+def _build_za3em_index(rows: list[dict[str, Any]]) -> dict[tuple[str, int, str], list[dict[str, Any]]]:
+    index: dict[tuple[str, int, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        name = str(row.get("name") or "").strip()
+        category_name = str(row.get("category_name") or "").strip()
+        key = _service_key(f"{name} {category_name}")
+        if not key:
+            continue
+        amount = _first_number(name) or _first_number(category_name)
+        if not amount:
+            continue
+        variant = _variant_key(key, f"{name} {category_name}")
+        offer = _build_offer(
+            "za3em",
+            str(row.get("id") or ""),
+            _to_float(row.get("price")),
+            bool(row.get("available")),
+            source=str(row.get("product_type") or "product"),
+        )
+        index.setdefault((key, int(amount), variant), []).append(offer)
+    for k in list(index.keys()):
+        index[k].sort(key=lambda item: float(item.get("price") or 0.0))
+    return index
+
+
+def _find_matching_za3em_offers(
+    za_index: dict[tuple[str, int, str], list[dict[str, Any]]],
+    *,
+    service_key: str | None,
+    amount: int | None,
+    variant: str,
+) -> list[dict[str, Any]]:
+    if not service_key or not amount:
+        return []
+    exact = list(za_index.get((service_key, int(amount), variant)) or [])
+    if exact:
+        return exact
+    if variant != "generic":
+        fallback = list(za_index.get((service_key, int(amount), "generic")) or [])
+        if fallback:
+            return fallback
+    return []
+
+
 async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
     ttl = max(10, int(getattr(settings, "g2bulk_catalog_cache_ttl_sec", 120) or 120))
     now = time.time()
@@ -92,11 +256,15 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
             _CACHE["data"] = snapshot
             return dict(snapshot)
 
-        raw_categories, raw_products, raw_games = await asyncio.gather(
+        raw_categories, raw_products, raw_games, za3em_rows = await asyncio.gather(
             client.get_categories(),
             client.get_products(),
             client.get_games(),
+            _get_za3em_products(force=force),
         )
+
+    za_index = _build_za3em_index(za3em_rows)
+    cat_name_by_id = {str(_best_id(row, "id", "category_id", "ID")): str(row.get("name") or row.get("title") or "") for row in raw_categories}
 
     products_by_category: dict[str, list[dict[str, Any]]] = {}
     for row in raw_products:
@@ -107,15 +275,30 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         if not cat_id:
             continue
         name = str(row.get("name") or row.get("title") or row.get("product_name") or t("en", "catalog_fallback_product").format(product_id=product_id))
-        price = _to_float(row.get("price") or row.get("unit_price") or row.get("buyer_price") or row.get("sell_price"))
-        stock = _to_int(row.get("stock") or row.get("quantity") or row.get("available"))
+        clean_name = _clean_gift_name(name)
+        service_key = _service_key(f"{clean_name} {cat_name_by_id.get(cat_id, '')}")
+        amount = _first_number(clean_name) or _first_number(cat_name_by_id.get(cat_id, ""))
+        variant = _variant_key(service_key, f"{clean_name} {cat_name_by_id.get(cat_id, '')}") if service_key else "generic"
+        g2_offer = _build_offer(
+            "g2bulk",
+            product_id,
+            _to_float(row.get("price") or row.get("unit_price") or row.get("buyer_price") or row.get("sell_price")),
+            _to_int(row.get("stock") or row.get("quantity") or row.get("available")) > 0,
+            source="gift",
+        )
+        offers = [g2_offer]
+        offers.extend(_find_matching_za3em_offers(za_index, service_key=service_key, amount=amount, variant=variant))
+        best_offer = _choose_best_offer(offers)
         products_by_category.setdefault(cat_id, []).append(
             {
                 "id": product_id,
                 "name": name,
-                "clean_name": _clean_gift_name(name),
-                "price": price,
-                "stock": stock,
+                "clean_name": clean_name,
+                "price": float((best_offer or g2_offer).get("price") or 0.0),
+                "stock": _to_int(row.get("stock") or row.get("quantity") or row.get("available")),
+                "provider_offers": offers,
+                "best_provider": str((best_offer or g2_offer).get("provider") or "g2bulk"),
+                "best_provider_ref_id": str((best_offer or g2_offer).get("ref_id") or product_id),
                 "raw": row,
             }
         )
@@ -166,6 +349,14 @@ async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
     if str(game_id) in topup_map:
         return list(topup_map.get(str(game_id)) or [])
 
+    game_name = ""
+    for game in list(snapshot.get("games") or []):
+        if str(game.get("id") or "").strip() == str(game_id).strip():
+            game_name = str(game.get("name") or "").strip()
+            break
+    service_key = _service_key(f"{game_id} {game_name}")
+    za_index = _build_za3em_index(await _get_za3em_products(force=False))
+
     client = G2BulkClient()
     rows = await client.get_game_catalogue(game_id)
     normalized: list[dict[str, Any]] = []
@@ -174,14 +365,28 @@ async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
         name = str(row.get("name") or row.get("title") or row.get("product_name") or t("en", "catalog_fallback_pack").format(item_id=product_id or game_id))
         if not product_id:
             product_id = f"{game_id}_{idx+1}"
-        price = _to_float(row.get("price") or row.get("amount") or row.get("unit_price") or row.get("buyer_price") or row.get("sell_price"))
+        amount = _first_number(name)
+        variant = _variant_key(service_key, name) if service_key else "generic"
+        g2_offer = _build_offer(
+            "g2bulk",
+            product_id,
+            _to_float(row.get("price") or row.get("amount") or row.get("unit_price") or row.get("buyer_price") or row.get("sell_price")),
+            True,
+            source="game",
+        )
+        offers = [g2_offer]
+        offers.extend(_find_matching_za3em_offers(za_index, service_key=service_key, amount=amount, variant=variant))
+        best_offer = _choose_best_offer(offers)
         normalized.append(
             {
                 "id": product_id,
                 "name": name,
                 "catalogue_name": str(row.get("name") or row.get("title") or "").strip() or name,
-                "price": price,
+                "price": float((best_offer or g2_offer).get("price") or 0.0),
                 "requires_server": bool(row.get("requires_server") or row.get("need_server")),
+                "provider_offers": offers,
+                "best_provider": str((best_offer or g2_offer).get("provider") or "g2bulk"),
+                "best_provider_ref_id": str((best_offer or g2_offer).get("ref_id") or product_id),
                 "raw": row,
             }
         )
@@ -193,3 +398,37 @@ async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
     fresh["topups_by_game"] = fresh_topups
     _CACHE["data"] = fresh
     return list(normalized)
+
+
+def extract_provider_offers(row: dict[str, Any], *, fallback_provider: str, fallback_ref_id: str, fallback_price: float) -> list[dict[str, Any]]:
+    offers = [item for item in list(row.get("provider_offers") or []) if isinstance(item, dict)]
+    if not offers:
+        offers = [
+            _build_offer(
+                fallback_provider,
+                fallback_ref_id,
+                fallback_price,
+                True,
+                source="fallback",
+            )
+        ]
+    uniq: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in offers:
+        provider = str(item.get("provider") or "").strip().lower()
+        ref_id = str(item.get("ref_id") or "").strip()
+        if not provider or not ref_id:
+            continue
+        key = (provider, ref_id)
+        existing = uniq.get(key)
+        if not existing:
+            uniq[key] = dict(item)
+            continue
+        old_price = _to_float(existing.get("price"))
+        new_price = _to_float(item.get("price"))
+        if new_price > 0 and (old_price <= 0 or new_price < old_price):
+            uniq[key] = dict(item)
+        elif bool(item.get("available")) and not bool(existing.get("available")):
+            uniq[key] = dict(item)
+    rows = list(uniq.values())
+    rows.sort(key=lambda item: (0 if bool(item.get("available")) else 1, _to_float(item.get("price")) if _to_float(item.get("price")) > 0 else 9999999))
+    return rows

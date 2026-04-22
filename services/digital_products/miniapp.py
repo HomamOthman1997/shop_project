@@ -71,6 +71,34 @@ def _norm(value: str | None) -> str:
     return " ".join(str(value or "").strip().lower().split())
 
 
+def _is_pubg_game(game_id: str | None, game_name: str | None = None) -> bool:
+    text = f"{_norm(game_id)} {_norm(game_name)}".strip()
+    if not text:
+        return False
+    return any(key in text for key in ("pubg", "pubgm", "new state", "newstate"))
+
+
+def _pubg_undercut_percent() -> float:
+    try:
+        value = float(getattr(settings, "digital_products_pubg_undercut_percent", 1.0))
+    except Exception:
+        value = 1.0
+    return value if value > 0 else 1.0
+
+
+def _resolve_game_sale_price(price: Any, markup_percent: float, *, game_id: str | None, game_name: str | None = None) -> float:
+    base = _money(price)
+    marked = _with_markup(base, markup_percent)
+    if not _is_pubg_game(game_id, game_name):
+        return marked
+    cap = _money(base * (1.0 - (_pubg_undercut_percent() / 100.0)))
+    if cap >= base and base > 0.01:
+        cap = _money(base - 0.01)
+    if cap <= 0:
+        cap = base
+    return min(marked, cap)
+
+
 def _natural_key(text: str) -> list[Any]:
     parts = re.split(r"(\d+)", _norm(text))
     out: list[Any] = []
@@ -165,6 +193,15 @@ def _gift_group_label(key: str) -> dict[str, str]:
         "other": {"en": "Other", "ar": "أخرى"},
     }
     return labels.get(key, labels["other"])
+
+
+def _provider_label(provider_code: str, *, lang: str) -> str:
+    code = _norm(provider_code)
+    if code == "za3em":
+        return "الزعيم" if lang == "ar" else "Za3em"
+    if code == "g2bulk":
+        return "جي تو بالك" if lang == "ar" else "G2Bulk"
+    return provider_code or ("غير محدد" if lang == "ar" else "Unknown")
 
 
 def _game_group_label(key: str) -> dict[str, str]:
@@ -300,6 +337,8 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
                 "price_usd": price,
                 "stock": int(item.get("stock") or 0),
                 "stock_label": "In stock" if int(item.get("stock") or 0) > 0 else "Out of stock",
+                "best_provider_code": str(item.get("best_provider") or "g2bulk"),
+                "providers_count": len(list(item.get("provider_offers") or [])),
             }
         )
     out.sort(key=lambda row: _natural_key(str(row.get("name") or "")))
@@ -309,6 +348,7 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
 async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
+    game_name = _find_game_name(snapshot, str(game_id))
     rows = await get_game_topups(str(game_id))
     q = _norm(query)
     items: list[dict[str, Any]] = []
@@ -324,8 +364,15 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
                 "game_id": str(game_id),
                 "group_key": group,
                 "name": name,
-                "price_usd": _with_markup(item.get("price"), markup),
+                "price_usd": _resolve_game_sale_price(
+                    item.get("price"),
+                    markup,
+                    game_id=str(game_id),
+                    game_name=game_name,
+                ),
                 "requires_server": bool(item.get("requires_server")),
+                "best_provider_code": str(item.get("best_provider") or "g2bulk"),
+                "providers_count": len(list(item.get("provider_offers") or [])),
             }
         )
     group_order = {"topup": 0, "passes": 1, "specials": 2}
@@ -335,7 +382,7 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
         for key in ("topup", "passes", "specials")
         if any(str(row.get("group_key")) == key for row in items)
     ]
-    return {"game_id": str(game_id), "game_name": _find_game_name(snapshot, str(game_id)), "groups": groups, "items": items[:120]}
+    return {"game_id": str(game_id), "game_name": game_name, "groups": groups, "items": items[:120]}
 
 
 async def _create_selection(user_id: int | None, payload: dict[str, Any]) -> str:
