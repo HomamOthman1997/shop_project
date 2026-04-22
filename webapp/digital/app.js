@@ -233,8 +233,9 @@ function itemRow(item) {
 
   const top = document.createElement("div");
   top.className = "item-top";
+  // إظهار الرقم مع UC
   const title = document.createElement("strong");
-  title.textContent = item.name;
+  title.textContent = `${item.name} UC`;
   const buy = button("buy", t("continue"), () => createSelection(item));
   if (item.kind === "gift" && Number(item.stock || 0) <= 0) {
     buy.disabled = true;
@@ -245,11 +246,7 @@ function itemRow(item) {
   const details = document.createElement("div");
   details.className = "details";
   details.append(stat(t("price"), money(item.price_usd), "price-stat"));
-  if (item.kind === "gift") {
-    details.append(stat(t("stock"), Number(item.stock || 0) > 0 ? t("inStock") : t("out"), Number(item.stock || 0) > 0 ? "ok" : "danger"));
-  } else {
-    details.append(stat("", item.requires_server ? t("serverRequired") : t("serverOptional")));
-  }
+  // إزالة عبارة Player ID only وعدم إظهار أي نص إضافي
 
   row.append(top, details);
   return row;
