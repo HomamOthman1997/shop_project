@@ -473,7 +473,7 @@ function normalizeGameCategoryName(name) {
     .replace(/^eafc\s*mobile$/i, "EAFC Mobile")
     .replace(/^free\s*fire.*$/i, "Free Fire")
     .replace(/^freefire.*$/i, "Free Fire")
-    .replace(/^garena\s*deltaforce$/i, "Delta Force")
+    .replace(/^garena\s*delta\s*force$/i, "Delta Force")
     .replace(/^delta\s*force.*$/i, "Delta Force");
   const regionTokens = [
     "global",
@@ -922,6 +922,40 @@ function renderVariantCategories(parent) {
   content.append(list);
 }
 
+async function resolveGroupVariants(category) {
+  const variants = Array.isArray(category?.variants) ? category.variants : [];
+  const resolved = [];
+  for (const variant of variants) {
+    try {
+      let count = 0;
+      if (String(variant.entry_kind || "") === "game") {
+        const data = await api(`/mini/digital/api/games/${encodeURIComponent(String(variant.id || ""))}`);
+        count = Array.isArray(data?.items) ? data.items.length : 0;
+      } else {
+        const sourceGiftIds = Array.isArray(variant.gift_category_ids) ? variant.gift_category_ids.filter(Boolean) : [];
+        if (sourceGiftIds.length > 0) {
+          for (const cid of sourceGiftIds) {
+            const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(String(cid))}`);
+            count += Array.isArray(data?.items) ? data.items.length : 0;
+          }
+        } else if (variant.id) {
+          const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(String(variant.id))}`);
+          count = Array.isArray(data?.items) ? data.items.length : 0;
+        }
+      }
+      if (count > 0) {
+        resolved.push({
+          ...variant,
+          meta_label: `${count} ${t("offers")}`,
+        });
+      }
+    } catch (_err) {
+      // Ignore broken variant to avoid dead-end entries in UI.
+    }
+  }
+  return resolved;
+}
+
 function segment(items, active, onChange) {
   const wrap = document.createElement("section");
   wrap.className = "segments";
@@ -936,8 +970,10 @@ async function openItems(category) {
   clear();
   setStatus(t("loading"));
   if (category.entry_kind === "group" && Array.isArray(category.variants) && category.variants.length > 1) {
-    setStatus("");
-    renderVariantCategories(category);
+    const validVariants = await resolveGroupVariants(category);
+    const prepared = { ...category, variants: validVariants };
+    setStatus(validVariants.length ? "" : t("noProducts"), !validVariants.length);
+    renderVariantCategories(prepared);
     return;
   }
   state.view = "items";
