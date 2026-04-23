@@ -472,8 +472,14 @@ function normalizeGameCategoryName(name) {
     "us",
     "uk",
     "europe",
+    "americas",
+    "america",
     "eu",
+    "sea",
+    "asia",
     "mena",
+    "na",
+    "sa",
     "ksa",
     "saudi arabia",
     "uae",
@@ -496,6 +502,15 @@ function normalizeGameCategoryName(name) {
     "taiwan",
   ];
   const escaped = regionTokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const parenPattern = new RegExp(`^(.*?)\\s*\\(([^)]+)\\)\\s*$`, "i");
+  const parenMatch = normalized.match(parenPattern);
+  if (parenMatch) {
+    const base = String(parenMatch[1] || "").trim();
+    const region = String(parenMatch[2] || "").trim().toLowerCase();
+    if (escaped.some((token) => new RegExp(`^${token}$`, "i").test(region))) {
+      return base || normalized;
+    }
+  }
   const suffixPattern = new RegExp(`^(.*?)(?:\\s*[-/|]\\s*|\\s+)(${escaped.join("|")})$`, "i");
   const match = normalized.match(suffixPattern);
   if (!match) return normalized;
