@@ -17,6 +17,11 @@ from config import settings
 from database.digital_products_config_repo import get_digital_products_markup_percent
 from database.mongo import db
 from services.digital_products.catalog_service import get_catalog_snapshot, get_game_topups
+from services.digital_products.static_taxonomy import (
+    detect_service_key,
+    guess_family as taxonomy_guess_family,
+    provider_label as taxonomy_provider_label,
+)
 
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "webapp" / "digital"
@@ -197,6 +202,7 @@ def _gift_service_key_legacy(name: str) -> str:
 
 
 def _gift_service_key(name: str) -> str:
+    return detect_service_key(name)
     n = _norm(name)
     if ("telegram" in n or "تلغرام" in n) and any(
         k in n
@@ -501,6 +507,7 @@ def _is_generic_subscription_category(name: str) -> bool:
 
 
 def _guess_family(service_key: str, category_name: str, sample_names: list[str]) -> tuple[str, str]:
+    return taxonomy_guess_family(service_key, category_name, list(sample_names or []))
     text = _norm(" ".join([category_name] + list(sample_names or [])))
     for key, label, tokens in _family_rules_for_service(service_key):
         if any(token in text for token in tokens):
@@ -620,6 +627,7 @@ def _gift_group_label(key: str) -> dict[str, str]:
 
 
 def _provider_label(provider_code: str, *, lang: str) -> str:
+    return taxonomy_provider_label(provider_code, lang=lang)
     code = _norm(provider_code)
     if code == "za3em":
         return "الزعيم" if lang == "ar" else "Za3em"
@@ -782,8 +790,7 @@ async def _catalog_payload() -> dict[str, Any]:
         "services": services,
         "gift_categories": categories,
         "gift_groups": gift_groups,
-        # Send raw games so frontend can build a second level (game -> region -> offers).
-        "games": game_rows[:300],
+        "games": grouped_games[:300],
         "game_groups": game_groups,
     }
 

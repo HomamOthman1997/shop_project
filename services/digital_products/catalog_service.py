@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 import re
 import time
-from difflib import SequenceMatcher
 from typing import Any
 
 from config import settings
 from utils.translations import t
 
 from .g2bulk_client import G2BulkClient
+from .static_taxonomy import detect_service_key, guess_family, pick_cheapest_offer, service_sort_key
 from .za3em_client import Za3emClient
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
@@ -181,11 +181,7 @@ async def _with_timeout(coro: Any, *, timeout_sec: float, default: Any) -> Any:
 
 
 def _choose_best_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
-    valid = [row for row in offers if bool(row.get("available")) and float(row.get("price") or 0.0) > 0]
-    if not valid:
-        return None
-    valid.sort(key=lambda row: float(row.get("price") or 0.0))
-    return dict(valid[0])
+    return pick_cheapest_offer(offers)
 
 
 def _za3em_offer_meta(row: dict[str, Any]) -> dict[str, Any]:
@@ -269,203 +265,7 @@ def _find_matching_za3em_offers(
 
 
 def _section_service_key(text: str | None) -> str:
-    n = _norm(text)
-    if not n:
-        return "games"
-    if any(
-        token in n
-        for token in (
-            "android amt",
-            "dft pro",
-            "eft pro",
-            "unlock tool",
-            "unlock",
-            "انلوك",
-            "amt",
-        )
-    ):
-        return "paid_apps"
-    if any(
-        token in n
-        for token in (
-            "internet",
-            "internet provider",
-            "wifi",
-            "wi-fi",
-            "fiber",
-            "broadband",
-            "مزود",
-            "مزودات",
-            "انترنت",
-            "هوت سبوت",
-            "hifi net",
-            "lazer net",
-            "pro net",
-            "sama net",
-            "view net",
-            "dft pro",
-            "eft pro",
-            "mts",
-            "party star",
-        )
-    ):
-        return "internet_providers"
-    if ("telegram" in n or "تلغرام" in n) and any(
-        token in n
-        for token in (
-            "premium",
-            "subscription",
-            "subscriptions",
-            "star",
-            "stars",
-            "اشتراك",
-            "اشتراكات",
-            "بريميوم",
-        )
-    ):
-        return "paid_subscriptions"
-    # Chat apps must win before generic gift-card/store-card routing.
-    if any(
-        token in n
-        for token in (
-            "discord",
-            "imo",
-            "chat",
-            "apps",
-            "applications",
-            "قسم التطبيقات",
-            "تطبيقات",
-            "tada",
-            "bigo",
-            "coco",
-            "azal",
-            "live",
-            "telegram",
-            "whatsapp",
-            "messenger",
-            "viber",
-            "line",
-            "wechat",
-            "\u062f\u0631\u062f\u0634\u0629",
-            "\u062a\u0644\u063a\u0631\u0627\u0645",
-            "\u0648\u0627\u062a\u0633\u0627\u0628",
-            "\u062f\u064a\u0633\u0643\u0648\u0631\u062f",
-            "\u0627\u064a\u0645\u0648",
-        )
-    ):
-        return "chat_apps"
-    if any(
-        token in n
-        for token in (
-            "steam",
-            "itunes",
-            "apple",
-            "google play",
-            "google",
-            "playstation",
-            "psn",
-            "xbox",
-            "nintendo",
-            "razer",
-            "roblox",
-            "gift card",
-            "gift cards",
-            "voucher",
-            "vouchers",
-            "cards",
-            "visa",
-            "mastercard",
-            "amazon",
-            "قسيمة",
-            "قسائم",
-            "بطاقات",
-            "متاجر",
-        )
-    ):
-        return "store_cards"
-    if any(
-        token in n
-        for token in (
-            "otp",
-            "number",
-            "numbers",
-            "sms",
-            "virtual number",
-            "\u0627\u0631\u0642\u0627\u0645",
-            "\u0631\u0642\u0645",
-        )
-    ):
-        return "numbers_services"
-    if any(
-        token in n
-        for token in (
-            "netflix",
-            "spotify",
-            "shahid",
-            "youtube",
-            "chatgpt",
-            "subscription",
-            "subscriptions",
-            "premium",
-            "\u0627\u0634\u062a\u0631\u0627\u0643",
-            "\u0627\u0634\u062a\u0631\u0627\u0643\u0627\u062a",
-        )
-    ):
-        return "paid_subscriptions"
-    if any(
-        token in n
-        for token in (
-            "sim",
-            "topup",
-            "top up",
-            "telecom",
-            "data",
-            "mtn",
-            "syriatel",
-            "sawa",
-            "\u0631\u0635\u064a\u062f",
-            "\u0628\u064a\u0627\u0646\u0627\u062a",
-            "\u0627\u062a\u0635\u0627\u0644\u0627\u062a",
-        )
-    ):
-        return "communications_data"
-    if any(
-        token in n
-        for token in (
-            "pubg",
-            "free fire",
-            "mobile legends",
-            "mlbb",
-            "honor of kings",
-            "clash of clans",
-            "coc",
-            "brawl stars",
-            "brawl star",
-            "blood strike",
-            "delta force",
-            "call of duty",
-            "cod",
-            "valorant",
-            "fortnite",
-            "genshin",
-            "war robots",
-            "8 ball pool",
-            "game",
-            "games",
-            "jawaker",
-            "yalla ludo",
-            "\u0627\u0644\u0639\u0627\u0628",
-            "\u0628\u0628\u062c\u064a",
-            "\u0641\u0631\u064a \u0641\u0627\u064a\u0631",
-            "\u0645\u0648\u0628\u0627\u064a\u0644 \u0644\u064a\u062c\u0646\u062f",
-            "\u062c\u0648\u0627\u0643\u0631",
-            "\u064a\u0644\u0627 \u0644\u0648\u062f\u0648",
-            "\u0628\u0644\u0627\u064a \u0633\u062a\u064a\u0634\u0646",
-            "\u0631\u0648\u0628\u0644\u0648\u0643\u0633",
-        )
-    ):
-        return "games"
-    return "games"
+    return detect_service_key(text)
 
 
 def _is_za3em_supported_product(row: dict[str, Any]) -> bool:
@@ -531,32 +331,51 @@ def _token_overlap(a: str | None, b: str | None) -> float:
 def _build_za3em_categories(rows: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
     categories: dict[str, dict[str, Any]] = {}
     section_best: dict[str, tuple[str, int]] = {}
+    family_best: dict[tuple[str, str], tuple[str, int]] = {}
     for row in rows:
         if not _is_za3em_supported_product(row):
             continue
         cat_id = _za3em_category_id(row)
         category_name = str(row.get("category_name") or "").strip()
         parent_id = str(row.get("parent_id") or "").strip()
+        row_product_name = str(row.get("name") or "").strip()
         name = category_name or t("en", "catalog_fallback_category").format(cat_id=parent_id or cat_id)
         existing = categories.get(cat_id)
         if not existing:
+            service_key = _section_service_key(f"{name} {row_product_name}")
+            family_key, family_label = guess_family(service_key, name, [row_product_name] if row_product_name else [])
             categories[cat_id] = {
                 "id": cat_id,
                 "name": name,
                 "clean_name": _clean_gift_name(name),
-                "service_key": _section_service_key(f"{name} {str(row.get('name') or '')}"),
+                "service_key": service_key,
+                "family_key": family_key,
+                "family_label": family_label,
                 "count": 0,
+                "sample_names": [],
                 "raw": {"source": "za3em", "parent_id": parent_id, "category_name": category_name},
             }
         categories[cat_id]["count"] = int(categories[cat_id].get("count") or 0) + 1
+        sample_names = list(categories[cat_id].get("sample_names") or [])
+        if row_product_name and len(sample_names) < 8:
+            sample_names.append(row_product_name)
+        categories[cat_id]["sample_names"] = sample_names
 
     for cat_id, cat in categories.items():
         service_key = str(cat.get("service_key") or "store_cards")
+        family_key = str(cat.get("family_key") or "")
         cnt = int(cat.get("count") or 0)
         best = section_best.get(service_key)
         if not best or cnt > int(best[1]):
             section_best[service_key] = (cat_id, cnt)
+        if family_key:
+            fam_key = (service_key, family_key)
+            fam_best = family_best.get(fam_key)
+            if not fam_best or cnt > int(fam_best[1]):
+                family_best[fam_key] = (cat_id, cnt)
     section_default = {k: v[0] for k, v in section_best.items()}
+    for (service_key, family_key), val in family_best.items():
+        section_default[f"family:{service_key}:{family_key}"] = val[0]
     return categories, section_default
 
 
@@ -569,24 +388,12 @@ def _pick_za3em_category_for_g2(
 ) -> str:
     if not za3em_categories:
         return ""
-    g2_section = _section_service_key(f"{g2_category_name} {g2_product_name}")
-    candidates = [cat for cat in za3em_categories.values() if str(cat.get("service_key")) == g2_section]
-    if not candidates:
-        candidates = list(za3em_categories.values())
-    best_id = ""
-    best_score = -1.0
-    for cat in candidates:
-        cat_name = str(cat.get("name") or "")
-        score = 0.0
-        score += _text_similarity(g2_category_name, cat_name) * 0.50
-        score += _token_overlap(g2_category_name, cat_name) * 0.30
-        score += _token_overlap(g2_product_name, cat_name) * 0.20
-        if score > best_score:
-            best_score = score
-            best_id = str(cat.get("id") or "")
-    if best_id and best_score >= 0.20:
-        return best_id
-    default_cat = str(section_default.get(g2_section) or "")
+    g2_service = _section_service_key(f"{g2_category_name} {g2_product_name}")
+    g2_family_key, _ = guess_family(g2_service, g2_category_name, [g2_product_name] if g2_product_name else [])
+    family_default = str(section_default.get(f"family:{g2_service}:{g2_family_key}") or "")
+    if family_default:
+        return family_default
+    default_cat = str(section_default.get(g2_service) or "")
     if default_cat:
         return default_cat
     return str(next(iter(za3em_categories.keys()), ""))
@@ -842,7 +649,13 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
                     "raw": row,
                 }
             )
-    gift_categories.sort(key=lambda x: (_norm(x.get("clean_name")), str(x.get("id"))))
+    gift_categories.sort(
+        key=lambda x: (
+            service_sort_key(str(x.get("service_key") or "")),
+            _norm(str(x.get("clean_name") or x.get("name") or "")),
+            str(x.get("id") or ""),
+        )
+    )
 
     games: list[dict[str, Any]] = []
     for row in raw_games:
