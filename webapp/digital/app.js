@@ -543,9 +543,8 @@ function filteredGameCategories() {
 function filteredItems() {
   const q = state.search.trim().toLowerCase();
   return state.items.filter((row) => {
-    const byGroup = state.itemGroup === "all" || row.group_key === state.itemGroup;
     const bySearch = !q || String(row.name || "").toLowerCase().includes(q);
-    return byGroup && bySearch;
+    return bySearch;
   });
 }
 
@@ -1177,15 +1176,6 @@ function renderItems() {
     })
   );
   content.append(heading(`${t("offers")} • ${state.selectedName}`));
-  if (state.itemGroups.length > 1) {
-    const groups = [{ key: "all", label: { en: t("all"), ar: t("all") } }, ...state.itemGroups];
-    content.append(
-      segment(groups, state.itemGroup, (key) => {
-        state.itemGroup = key;
-        renderItems();
-      })
-    );
-  }
   const rows = filteredItems();
   setStatus(rows.length ? "" : t("noProducts"));
   content.append(contextCard(t("offers"), state.selectedName, `${rows.length} ${rows.length === 1 ? t("offerWord") : t("offersWord")}`));
