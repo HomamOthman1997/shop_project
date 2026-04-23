@@ -461,6 +461,47 @@ function inferServiceForGameName(name) {
   return "games";
 }
 
+function normalizeGameCategoryName(name) {
+  const raw = String(name || "-").trim();
+  if (!raw) return "-";
+  const normalized = raw.replace(/\s+/g, " ").trim();
+  const regionTokens = [
+    "global",
+    "usa",
+    "us",
+    "uk",
+    "europe",
+    "eu",
+    "mena",
+    "ksa",
+    "saudi arabia",
+    "uae",
+    "turkey",
+    "india",
+    "indonesia",
+    "malaysia",
+    "singapore",
+    "cambodia",
+    "philippines",
+    "thailand",
+    "vietnam",
+    "pakistan",
+    "bangladesh",
+    "brazil",
+    "mexico",
+    "japan",
+    "korea",
+    "hong kong",
+    "taiwan",
+  ];
+  const escaped = regionTokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const suffixPattern = new RegExp(`^(.*?)(?:\\s*[-/|]\\s*|\\s+)(${escaped.join("|")})$`, "i");
+  const match = normalized.match(suffixPattern);
+  if (!match) return normalized;
+  const base = String(match[1] || "").trim();
+  return base || normalized;
+}
+
 function normalizeChatCategoryName(name) {
   const n = String(name || "").toLowerCase();
   if (n.includes("bigo")) return "Bigo Live";
@@ -511,7 +552,7 @@ function buildCategoriesForService(key) {
     const merged = new Map();
     const mergeKey = (name) => String(name || "").toLowerCase().trim();
     (state.catalog.games || []).forEach((row) => {
-      const name = String(row.name || "-");
+      const name = normalizeGameCategoryName(String(row.name || "-"));
       if (inferServiceForGameName(name) !== "games") return;
       const keyName = mergeKey(name);
       if (!merged.has(keyName)) {
@@ -532,7 +573,7 @@ function buildCategoriesForService(key) {
     (state.catalog.gift_categories || [])
       .filter((row) => String(row.service_key || "") === "games")
       .forEach((row) => {
-        const name = String(row.name || "-");
+        const name = normalizeGameCategoryName(String(row.name || "-"));
         const keyName = mergeKey(name);
         if (!merged.has(keyName)) {
           merged.set(keyName, {
@@ -552,9 +593,21 @@ function buildCategoriesForService(key) {
     const rows = Array.from(merged.values()).map((row) => {
       const hasGame = row.game_ids.length > 0;
       const hasGift = row.gift_category_ids.length > 0;
-      const entry_kind = hasGame && hasGift ? "mixed" : hasGame ? "game" : "gift";
+      let id = row.id;
+      let entry_kind = "gift";
+      if (hasGame && hasGift) {
+        entry_kind = "mixed";
+      } else if (hasGame) {
+        if (row.game_ids.length > 1) {
+          entry_kind = "mixed";
+        } else {
+          entry_kind = "game";
+          id = String(row.game_ids[0] || row.id);
+        }
+      }
       return {
         ...row,
+        id,
         entry_kind,
         meta_label: hasGame && hasGift ? `${t("offers")}` : row.meta_label,
       };
