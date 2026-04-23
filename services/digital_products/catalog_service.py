@@ -271,7 +271,59 @@ def _find_matching_za3em_offers(
 def _section_service_key(text: str | None) -> str:
     n = _norm(text)
     if not n:
-        return "store_cards"
+        return "games"
+    if any(
+        token in n
+        for token in (
+            "android amt",
+            "dft pro",
+            "eft pro",
+            "unlock tool",
+            "unlock",
+            "انلوك",
+            "amt",
+        )
+    ):
+        return "paid_apps"
+    if any(
+        token in n
+        for token in (
+            "internet",
+            "internet provider",
+            "wifi",
+            "wi-fi",
+            "fiber",
+            "broadband",
+            "مزود",
+            "مزودات",
+            "انترنت",
+            "هوت سبوت",
+            "hifi net",
+            "lazer net",
+            "pro net",
+            "sama net",
+            "view net",
+            "dft pro",
+            "eft pro",
+            "mts",
+            "party star",
+        )
+    ):
+        return "internet_providers"
+    if ("telegram" in n or "تلغرام" in n) and any(
+        token in n
+        for token in (
+            "premium",
+            "subscription",
+            "subscriptions",
+            "star",
+            "stars",
+            "اشتراك",
+            "اشتراكات",
+            "بريميوم",
+        )
+    ):
+        return "paid_subscriptions"
     # Chat apps must win before generic gift-card/store-card routing.
     if any(
         token in n
@@ -321,6 +373,9 @@ def _section_service_key(text: str | None) -> str:
             "voucher",
             "vouchers",
             "cards",
+            "visa",
+            "mastercard",
+            "amazon",
             "قسيمة",
             "قسائم",
             "بطاقات",
@@ -410,7 +465,7 @@ def _section_service_key(text: str | None) -> str:
         )
     ):
         return "games"
-    return "store_cards"
+    return "games"
 
 
 def _is_za3em_supported_product(row: dict[str, Any]) -> bool:

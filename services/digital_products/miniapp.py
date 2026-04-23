@@ -198,6 +198,20 @@ def _gift_service_key_legacy(name: str) -> str:
 
 def _gift_service_key(name: str) -> str:
     n = _norm(name)
+    if ("telegram" in n or "تلغرام" in n) and any(
+        k in n
+        for k in (
+            "premium",
+            "subscription",
+            "subscriptions",
+            "star",
+            "stars",
+            "اشتراك",
+            "اشتراكات",
+            "بريميوم",
+        )
+    ):
+        return "paid_subscriptions"
     if any(
         k in n
         for k in (
@@ -223,6 +237,41 @@ def _gift_service_key(name: str) -> str:
         )
     ):
         return "chat_apps"
+    if any(
+        k in n
+        for k in (
+            "android amt",
+            "dft pro",
+            "eft pro",
+            "unlock tool",
+            "unlock",
+            "انلوك",
+            "amt",
+        )
+    ):
+        return "paid_apps"
+    if any(
+        k in n
+        for k in (
+            "internet",
+            "internet provider",
+            "wifi",
+            "wi-fi",
+            "fiber",
+            "broadband",
+            "مزود",
+            "مزودات",
+            "انترنت",
+            "hifi net",
+            "lazer net",
+            "pro net",
+            "sama net",
+            "view net",
+            "party star",
+            "mts",
+        )
+    ):
+        return "internet_providers"
     if any(
         k in n
         for k in (
@@ -325,6 +374,24 @@ def _family_rules_for_service(service_key: str) -> list[tuple[str, str, tuple[st
             ("canva", "Canva", ("canva",)),
             ("subscriptions", "Subscriptions", ("subscription", "premium", "اشتراك")),
         ]
+    if service_key == "paid_apps":
+        return [
+            ("android_amt", "Android AMT", ("android amt", "amt")),
+            ("dft_pro", "DFT Pro", ("dft pro",)),
+            ("eft_pro", "EFT Pro", ("eft pro",)),
+            ("unlock_tool", "Unlock Tool", ("unlock tool", "unlock", "انلوك")),
+            ("paid_apps", "Paid Apps", ("pro", "tool", "app", "apps")),
+        ]
+    if service_key == "internet_providers":
+        return [
+            ("hifi_net", "Hifi Net", ("hifi net",)),
+            ("lazer_net", "Lazer Net", ("lazer net",)),
+            ("pro_net", "Pro Net", ("pro net",)),
+            ("sama_net", "Sama Net", ("sama net",)),
+            ("view_net", "View Net", ("view net",)),
+            ("mts", "MTS", ("mts",)),
+            ("internet_providers", "Internet Providers", ("internet", "wifi", "fiber", "مزود", "انترنت")),
+        ]
     if service_key == "store_cards":
         return [
             ("steam", "Steam", ("steam", "ستيم")),
@@ -396,6 +463,43 @@ def _is_generic_chat_category(name: str) -> bool:
     return any(tok in n for tok in generic_tokens)
 
 
+def _subscription_family_from_product_name(name: str) -> tuple[str, str]:
+    n = _norm(name)
+    rules: list[tuple[str, str, tuple[str, ...]]] = [
+        ("netflix", "Netflix", ("netflix", "نت فلكس")),
+        ("shahid", "Shahid", ("shahid", "شاهد")),
+        ("canva", "Canva", ("canva", "كانفا")),
+        ("chatgpt", "ChatGPT", ("chatgpt",)),
+        ("spotify", "Spotify", ("spotify",)),
+        ("snapchat_plus", "Snapchat+", ("snapchat", "سناب")),
+        ("shamna", "Shamna", ("شامنا", "shamna")),
+        ("unlock_tool", "Unlock Tool", ("unlock tool", "انلوك")),
+        ("youtube", "YouTube", ("youtube", "يوتيوب")),
+    ]
+    for key, label, tokens in rules:
+        if any(tok in n for tok in tokens):
+            return key, label
+    cleaned = re.sub(r"\s+", " ", str(name or "").strip())
+    if cleaned:
+        key = re.sub(r"[^a-z0-9]+", "_", _norm(cleaned)).strip("_") or "subscriptions_misc"
+        return key, cleaned
+    return "subscriptions_misc", "More Subscriptions"
+
+
+def _is_generic_subscription_category(name: str) -> bool:
+    n = _norm(name)
+    if not n:
+        return True
+    generic_tokens = (
+        "subscriptions",
+        "subscription",
+        "premium",
+        "اشتراك",
+        "اشتراكات",
+    )
+    return any(tok in n for tok in generic_tokens)
+
+
 def _guess_family(service_key: str, category_name: str, sample_names: list[str]) -> tuple[str, str]:
     text = _norm(" ".join([category_name] + list(sample_names or [])))
     for key, label, tokens in _family_rules_for_service(service_key):
@@ -429,6 +533,24 @@ def _grouped_gift_categories(snapshot: dict[str, Any]) -> tuple[list[dict[str, A
             for row in product_rows:
                 row_name = str(row.get("clean_name") or row.get("name") or "").strip()
                 family_key, family_label = _chat_family_from_product_name(row_name)
+                group_id = f"grp:g:{service_key}:{family_key}"
+                if group_id not in grouped:
+                    grouped[group_id] = {
+                        "id": group_id,
+                        "name": family_label,
+                        "count": 0,
+                        "group_key": _gift_group_key(family_label),
+                        "service_key": service_key,
+                    }
+                    source_map[group_id] = set()
+                grouped[group_id]["count"] = int(grouped[group_id]["count"] or 0) + 1
+                source_map[group_id].add(cat_id)
+            continue
+
+        if service_key == "paid_subscriptions" and _is_generic_subscription_category(category_name):
+            for row in product_rows:
+                row_name = str(row.get("clean_name") or row.get("name") or "").strip()
+                family_key, family_label = _subscription_family_from_product_name(row_name)
                 group_id = f"grp:g:{service_key}:{family_key}"
                 if group_id not in grouped:
                     grouped[group_id] = {
@@ -583,6 +705,8 @@ async def _catalog_payload() -> dict[str, Any]:
     chat_games_count = sum(1 for row in game_rows if _gift_service_key(str(row.get("name") or "")) == "chat_apps")
     real_games_count = sum(1 for row in game_rows if _gift_service_key(str(row.get("name") or "")) == "games")
     chat_apps_count = sum(1 for row in categories if str(row.get("service_key")) == "chat_apps") + chat_games_count
+    paid_apps_count = sum(1 for row in categories if str(row.get("service_key")) == "paid_apps")
+    internet_providers_count = sum(1 for row in categories if str(row.get("service_key")) == "internet_providers")
     paid_subscriptions_count = sum(1 for row in categories if str(row.get("service_key")) == "paid_subscriptions")
     store_cards_count = sum(1 for row in categories if str(row.get("service_key")) == "store_cards")
     games_count = real_games_count + sum(1 for row in categories if str(row.get("service_key")) == "games")
@@ -620,6 +744,18 @@ async def _catalog_payload() -> dict[str, Any]:
             "label": {"en": "Telecom & Data", "ar": "قسم الاتصالات والبيانات"},
             "count": 2 if comm_enabled else 0,
             "enabled": comm_enabled,
+        },
+        {
+            "key": "internet_providers",
+            "label": {"en": "Internet Providers", "ar": "Internet Providers"},
+            "count": internet_providers_count,
+            "enabled": internet_providers_count > 0,
+        },
+        {
+            "key": "paid_apps",
+            "label": {"en": "Paid Apps", "ar": "Paid Apps"},
+            "count": paid_apps_count,
+            "enabled": paid_apps_count > 0,
         },
         {
             "key": "numbers_services",
