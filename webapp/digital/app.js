@@ -131,10 +131,11 @@ const serviceLabelFallback = {
 const state = {
   lang: detectLang(),
   catalog: null,
-  view: "services", // services | categories | items | simkind
+  view: "services", // services | categories | subcategories | items | simkind
   service: "",
   search: "",
   categories: [],
+  variantParent: null,
   selectedId: "",
   selectedName: "",
   selectedCategoryKind: "gift", // gift | game
@@ -524,6 +525,7 @@ function renderServices() {
   state.view = "services";
   state.service = "";
   state.categories = [];
+  state.variantParent = null;
   state.selectedId = "";
   state.selectedName = "";
   state.selectedCategoryKind = "gift";
@@ -563,12 +565,21 @@ function buildCategoriesForService(key) {
           entry_kind: "game",
           game_ids: [],
           gift_category_ids: [],
+          variants: [],
           meta_label: t("packages"),
         });
       }
       const cur = merged.get(keyName);
       cur.game_ids.push(String(row.id || ""));
       cur.count += 1;
+      cur.variants.push({
+        id: String(row.id || ""),
+        name: String(row.name || "-"),
+        entry_kind: "game",
+        game_ids: [String(row.id || "")],
+        gift_category_ids: [],
+        meta_label: t("packages"),
+      });
     });
     (state.catalog.gift_categories || [])
       .filter((row) => String(row.service_key || "") === "games")
@@ -583,18 +594,37 @@ function buildCategoriesForService(key) {
             entry_kind: "gift",
             game_ids: [],
             gift_category_ids: [],
+            variants: [],
             meta_label: `${Number(row.count || 0)} ${t("products")}`,
           });
         }
         const cur = merged.get(keyName);
         cur.gift_category_ids.push(String(row.id || ""));
         cur.count += Number(row.count || 0);
+        cur.variants.push({
+          id: String(row.id || ""),
+          name: String(row.name || "-"),
+          entry_kind: "gift",
+          game_ids: [],
+          gift_category_ids: [String(row.id || "")],
+          meta_label: `${Number(row.count || 0)} ${t("products")}`,
+        });
       });
     const rows = Array.from(merged.values()).map((row) => {
       const hasGame = row.game_ids.length > 0;
       const hasGift = row.gift_category_ids.length > 0;
       let id = row.id;
       let entry_kind = "gift";
+      const variantRows = Array.isArray(row.variants) ? row.variants : [];
+      const dedupVariants = [];
+      const seenVariant = new Set();
+      variantRows.forEach((v) => {
+        const key = `${String(v.entry_kind || "")}:${String(v.id || "")}`;
+        if (seenVariant.has(key)) return;
+        seenVariant.add(key);
+        dedupVariants.push(v);
+      });
+      dedupVariants.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
       if (hasGame && hasGift) {
         entry_kind = "mixed";
       } else if (hasGame) {
@@ -605,11 +635,18 @@ function buildCategoriesForService(key) {
           id = String(row.game_ids[0] || row.id);
         }
       }
+      if (dedupVariants.length > 1) {
+        entry_kind = "group";
+      } else if (dedupVariants.length === 1) {
+        id = String(dedupVariants[0].id || id);
+        entry_kind = String(dedupVariants[0].entry_kind || entry_kind);
+      }
       return {
         ...row,
         id,
         entry_kind,
-        meta_label: hasGame && hasGift ? `${t("offers")}` : row.meta_label,
+        variants: dedupVariants,
+        meta_label: entry_kind === "group" ? `${dedupVariants.length} ${t("categories")}` : hasGame && hasGift ? `${t("offers")}` : row.meta_label,
       };
     });
     rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
@@ -704,12 +741,66 @@ function enterService(key) {
 function renderCategories() {
   clear();
   state.view = "categories";
+  state.variantParent = null;
   content.append(button("back-btn", t("back"), renderServices));
   content.append(heading(t("categories")));
 
   const rows = filteredCategories();
   setStatus(rows.length ? "" : t("noResults"));
 
+  const list = document.createElement("section");
+  list.className = "category-list";
+  for (let i = 0; i < rows.length; i += 2) {
+    const row1 = rows[i];
+    const row2 = rows[i + 1];
+    const wrapper = document.createElement("div");
+    wrapper.style.display = "contents";
+    wrapper.append(
+      listTile(String(row1.name || "-"), row1.meta_label || "", () =>
+        openItems({
+          id: String(row1.id || ""),
+          name: String(row1.name || "-"),
+          entry_kind: String(row1.entry_kind || "gift"),
+          game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
+          gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
+        })
+      )
+    );
+    if (row2) {
+      wrapper.append(
+        listTile(String(row2.name || "-"), row2.meta_label || "", () =>
+          openItems({
+            id: String(row2.id || ""),
+            name: String(row2.name || "-"),
+            entry_kind: String(row2.entry_kind || "gift"),
+            game_ids: Array.isArray(row2.game_ids) ? row2.game_ids : [],
+            gift_category_ids: Array.isArray(row2.gift_category_ids) ? row2.gift_category_ids : [],
+          })
+        )
+      );
+    }
+    list.append(wrapper);
+  }
+  content.append(list);
+}
+
+function renderVariantCategories(parent) {
+  clear();
+  state.view = "subcategories";
+  state.variantParent = parent;
+  content.append(
+    button("back-btn", t("back"), () => {
+      state.variantParent = null;
+      renderCategories();
+    })
+  );
+  content.append(heading(`${t("categories")} • ${String(parent?.name || "-")}`));
+  const q = state.search.trim().toLowerCase();
+  const rows = (Array.isArray(parent?.variants) ? parent.variants : []).filter((row) => {
+    const n = String(row?.name || "").toLowerCase();
+    return !q || n.includes(q);
+  });
+  setStatus(rows.length ? "" : t("noResults"));
   const list = document.createElement("section");
   list.className = "category-list";
   for (let i = 0; i < rows.length; i += 2) {
@@ -759,6 +850,11 @@ function segment(items, active, onChange) {
 async function openItems(category) {
   clear();
   setStatus(t("loading"));
+  if (category.entry_kind === "group" && Array.isArray(category.variants) && category.variants.length > 1) {
+    setStatus("");
+    renderVariantCategories(category);
+    return;
+  }
   state.view = "items";
   state.selectedId = category.id;
   state.selectedName = category.name;
@@ -1090,6 +1186,7 @@ searchInput.addEventListener("input", () => {
   state.search = String(searchInput.value || "");
   if (!state.catalog) return;
   if (state.view === "categories") renderCategories();
+  if (state.view === "subcategories") renderVariantCategories(state.variantParent);
   if (state.view === "items") renderItems();
 });
 
@@ -1101,6 +1198,7 @@ if (langBtn) {
     if (!state.catalog) return;
     if (state.view === "services") renderServices();
     else if (state.view === "categories") renderCategories();
+    else if (state.view === "subcategories") renderVariantCategories(state.variantParent);
     else if (state.view === "items") renderItems();
     else if (state.view === "simkind") renderSimKinds();
   });
