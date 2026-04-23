@@ -466,10 +466,15 @@ function normalizeGameCategoryName(name) {
   const raw = String(name || "-").trim();
   if (!raw) return "-";
   const normalized = raw.replace(/\s+/g, " ").trim();
-  const canonical = normalized
+  let canonical = normalized
     .replace(/^honou?r of kings?$/i, "Honor of Kings")
-    .replace(/^eafc\s*mobile$/i, "EAFC Mobile");
-  if (canonical !== normalized) return canonical;
+    .replace(/^honou?r of king$/i, "Honor of Kings")
+    .replace(/^eafc\s*24$/i, "EAFC Mobile")
+    .replace(/^eafc\s*mobile$/i, "EAFC Mobile")
+    .replace(/^free\s*fire.*$/i, "Free Fire")
+    .replace(/^freefire.*$/i, "Free Fire")
+    .replace(/^garena\s*deltaforce$/i, "Delta Force")
+    .replace(/^delta\s*force.*$/i, "Delta Force");
   const regionTokens = [
     "global",
     "usa",
@@ -504,22 +509,69 @@ function normalizeGameCategoryName(name) {
     "korea",
     "hong kong",
     "taiwan",
+    "latam",
+    "sg",
+    "my",
+    "sgmy",
+    "ph",
+    "kh",
+    "vn",
+    "naeu",
+    "middle east",
+    "germany",
+    "german",
   ];
   const escaped = regionTokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const parenPattern = new RegExp(`^(.*?)\\s*\\(([^)]+)\\)\\s*$`, "i");
-  const parenMatch = normalized.match(parenPattern);
+  const parenMatch = canonical.match(parenPattern);
   if (parenMatch) {
     const base = String(parenMatch[1] || "").trim();
     const region = String(parenMatch[2] || "").trim().toLowerCase();
     if (escaped.some((token) => new RegExp(`^${token}$`, "i").test(region))) {
-      return base || normalized;
+      canonical = base || canonical;
     }
   }
   const suffixPattern = new RegExp(`^(.*?)(?:\\s*[-/|]\\s*|\\s+)(${escaped.join("|")})$`, "i");
-  const match = normalized.match(suffixPattern);
-  if (!match) return normalized;
+  const match = canonical.match(suffixPattern);
+  if (!match) return canonical;
   const base = String(match[1] || "").trim();
-  return base || normalized;
+  return base || canonical;
+}
+
+function isStoreCardLikeName(name) {
+  const n = String(name || "").toLowerCase();
+  return [
+    "playstation",
+    "psn",
+    "xbox",
+    "nintendo",
+    "steam",
+    "itunes",
+    "apple",
+    "google play",
+    "razer",
+    "visa",
+    "gift card",
+    "gift cards",
+    "giftcards",
+  ].some((k) => n.includes(k));
+}
+
+function isLikelyGameName(name) {
+  const n = String(name || "").toLowerCase().trim();
+  if (!n) return false;
+  if (isStoreCardLikeName(n)) return false;
+  const nonGameHints = [
+    "net",
+    "internet",
+    "provider",
+    "amt",
+    "unlock tool",
+    "dft pro",
+    "eft pro",
+  ];
+  if (nonGameHints.some((k) => n.includes(k))) return false;
+  return true;
 }
 
 function normalizeChatCategoryName(name) {
@@ -575,6 +627,7 @@ function buildCategoriesForService(key) {
     (state.catalog.games || []).forEach((row) => {
       const name = normalizeGameCategoryName(String(row.name || "-"));
       if (inferServiceForGameName(name) !== "games") return;
+      if (!isLikelyGameName(name)) return;
       const keyName = mergeKey(name);
       if (!merged.has(keyName)) {
         merged.set(keyName, {
@@ -604,6 +657,7 @@ function buildCategoriesForService(key) {
       .filter((row) => String(row.service_key || "") === "games")
       .forEach((row) => {
         const name = normalizeGameCategoryName(String(row.name || "-"));
+        if (!isLikelyGameName(name)) return;
         const keyName = mergeKey(name);
         if (!merged.has(keyName)) {
           merged.set(keyName, {
