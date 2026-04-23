@@ -59,6 +59,14 @@ const copy = {
     optionWord: "option",
     offerWord: "offer",
     offersWord: "offers",
+    searchGames: "Search games",
+    searchSections: "Search sections",
+    searchCategories: "Search categories",
+    searchOptions: "Search options",
+    searchOffers: "Search offers",
+    browseHint: "Browse the available results below.",
+    refineSearch: "Try another search term.",
+    availableNow: "Available now",
   },
   ar: {
     title: "المتجر الرقمي",
@@ -102,6 +110,14 @@ const copy = {
     optionWord: "خيار",
     offerWord: "عرض",
     offersWord: "عروض",
+    searchGames: "ابحث عن لعبة",
+    searchSections: "ابحث في الأقسام",
+    searchCategories: "ابحث في الفئات",
+    searchOptions: "ابحث في الخيارات",
+    searchOffers: "ابحث في العروض",
+    browseHint: "تصفح النتائج المتاحة بالأسفل.",
+    refineSearch: "جرّب كلمة بحث مختلفة.",
+    availableNow: "المتاح الآن",
   },
 };
 
@@ -222,7 +238,7 @@ function applyLang() {
   if (modalCloseBtn) {
     modalCloseBtn.setAttribute("aria-label", t("close"));
   }
-  searchInput.placeholder = t("search");
+  setSearchPlaceholder();
   const subtitle = document.querySelector(".topbar-subtitle");
   if (subtitle) {
     subtitle.textContent = state.lang === "ar" ? "متجرك الرقمي" : "Your Digital Marketplace";
@@ -247,6 +263,15 @@ function label(obj) {
 function setStatus(text, error = false) {
   statusEl.textContent = text || "";
   statusEl.classList.toggle("error", Boolean(error));
+}
+
+function setSearchPlaceholder() {
+  let key = "searchSections";
+  if (state.view === "gamefinder") key = "searchGames";
+  else if (state.view === "categories") key = "searchCategories";
+  else if (state.view === "subcategories") key = "searchOptions";
+  else if (state.view === "items") key = "searchOffers";
+  searchInput.placeholder = t(key);
 }
 
 function initData() {
@@ -295,6 +320,39 @@ function heading(text) {
   h.className = "section-title";
   h.textContent = text;
   return h;
+}
+
+function contextCard(eyebrow, title, meta = "") {
+  const box = document.createElement("section");
+  box.className = "context-card";
+  const top = document.createElement("small");
+  top.className = "context-eyebrow";
+  top.textContent = eyebrow;
+  const strong = document.createElement("strong");
+  strong.className = "context-title";
+  strong.textContent = title;
+  box.append(top, strong);
+  if (meta) {
+    const span = document.createElement("span");
+    span.className = "context-meta";
+    span.textContent = meta;
+    box.append(span);
+  }
+  return box;
+}
+
+function emptyState(title, body = "") {
+  const box = document.createElement("section");
+  box.className = "empty-state";
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+  box.append(strong);
+  if (body) {
+    const text = document.createElement("p");
+    text.textContent = body;
+    box.append(text);
+  }
+  return box;
 }
 
 function card(title, meta, onClick, disabled = false, opts = {}) {
@@ -669,6 +727,7 @@ function renderServices() {
   state.itemGroup = "all";
   state.search = "";
   searchInput.value = "";
+  setSearchPlaceholder();
   setStatus("");
 
   content.append(heading(t("sections")));
@@ -754,6 +813,7 @@ function enterService(key) {
   state.service = key;
   state.search = "";
   searchInput.value = "";
+  setSearchPlaceholder();
   state.itemGroup = "all";
   state.itemGroups = [];
   setStatus("");
@@ -778,8 +838,10 @@ function renderGameFinder() {
   clear();
   state.view = "gamefinder";
   state.variantParent = null;
+  setSearchPlaceholder();
   content.append(button("back-btn", t("back"), renderServices));
   content.append(heading(t("gameFinderTitle")));
+  content.append(contextCard(t("availableNow"), label(serviceRows().find((row) => row.key === "games")?.label || serviceLabelFallback.games), t("browseHint")));
 
   const center = document.createElement("section");
   center.className = "items-grid";
@@ -795,9 +857,14 @@ function renderGameFinder() {
   const rows = filteredGameCategories();
   if (!state.search.trim()) {
     setStatus(t("gameFinderHint"));
+    content.append(emptyState(t("gameFinderCta"), t("browseHint")));
     return;
   }
   setStatus(rows.length ? "" : t("pickGame"));
+  if (!rows.length) {
+    content.append(emptyState(t("noResults"), t("refineSearch")));
+    return;
+  }
 
   const list = document.createElement("section");
   list.className = "category-list";
@@ -843,11 +910,17 @@ function renderCategories() {
   clear();
   state.view = "categories";
   state.variantParent = null;
+  setSearchPlaceholder();
   content.append(button("back-btn", t("back"), renderServices));
   content.append(heading(t("categories")));
 
   const rows = filteredCategories();
   setStatus(rows.length ? "" : t("noResults"));
+  content.append(contextCard(t("availableNow"), label(serviceRows().find((row) => row.key === state.service)?.label || serviceLabelFallback[state.service]), `${rows.length} ${rows.length === 1 ? t("offerWord") : t("offersWord")}`));
+  if (!rows.length) {
+    content.append(emptyState(t("noResults"), t("refineSearch")));
+    return;
+  }
 
   const list = document.createElement("section");
   list.className = "category-list";
@@ -891,6 +964,7 @@ function renderVariantCategories(parent) {
   clear();
   state.view = "subcategories";
   state.variantParent = parent;
+  setSearchPlaceholder();
   content.append(
     button("back-btn", t("back"), () => {
       state.variantParent = null;
@@ -910,6 +984,17 @@ function renderVariantCategories(parent) {
     return !q || n.includes(q);
   });
   setStatus(rows.length ? "" : t("noResults"));
+  content.append(
+    contextCard(
+      headingLabel,
+      String(parent?.name || "-"),
+      `${rows.length} ${selectionKind === "option" ? (rows.length === 1 ? t("optionWord") : t("optionsWord")) : (rows.length === 1 ? t("offerWord") : t("offersWord"))}`
+    )
+  );
+  if (!rows.length) {
+    content.append(emptyState(t("noResults"), t("refineSearch")));
+    return;
+  }
   const list = document.createElement("section");
   list.className = "category-list";
   for (let i = 0; i < rows.length; i += 2) {
@@ -1004,12 +1089,18 @@ async function openItems(category) {
       });
       return;
     }
+    state.search = "";
+    searchInput.value = "";
+    setSearchPlaceholder();
     const prepared = { ...category, variants: validVariants };
     setStatus(validVariants.length ? "" : t("noProducts"), !validVariants.length);
     renderVariantCategories(prepared);
     return;
   }
   state.view = "items";
+  state.search = "";
+  searchInput.value = "";
+  setSearchPlaceholder();
   state.selectedId = category.id;
   state.selectedName = category.name;
   state.selectedCategoryKind = category.entry_kind === "game" ? "game" : "gift";
@@ -1071,6 +1162,7 @@ async function openItems(category) {
 
 function renderItems() {
   clear();
+  setSearchPlaceholder();
   content.append(
     button("back-btn", t("back"), () => {
       if (state.variantParent) {
@@ -1096,6 +1188,11 @@ function renderItems() {
   }
   const rows = filteredItems();
   setStatus(rows.length ? "" : t("noProducts"));
+  content.append(contextCard(t("offers"), state.selectedName, `${rows.length} ${rows.length === 1 ? t("offerWord") : t("offersWord")}`));
+  if (!rows.length) {
+    content.append(emptyState(t("noProducts"), t("refineSearch")));
+    return;
+  }
   const grid = document.createElement("section");
   grid.className = "items-grid";
   for (let i = 0; i < rows.length; i += 2) {
@@ -1113,6 +1210,7 @@ function renderItems() {
 function renderSimKinds() {
   clear();
   state.view = "simkind";
+  setSearchPlaceholder();
   setStatus("");
   content.append(button("back-btn", t("back"), renderServices));
   content.append(heading(t("simKindTitle")));

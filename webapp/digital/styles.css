@@ -144,6 +144,11 @@ h1 {
 
 .searchbar {
   margin-bottom: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: linear-gradient(180deg, rgba(10, 14, 26, 0.98) 0%, rgba(10, 14, 26, 0.92) 82%, rgba(10, 14, 26, 0) 100%);
+  padding-bottom: 10px;
 }
 
 .search-wrapper {
@@ -183,6 +188,7 @@ input {
 
 input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(99, 91, 255, 0.12);
 }
 
 .status {
@@ -203,6 +209,55 @@ input:focus {
 .content {
   display: grid;
   gap: 12px;
+}
+
+.context-card,
+.empty-state {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(21, 28, 44, 0.96) 0%, rgba(17, 24, 39, 0.98) 100%);
+  box-shadow: var(--shadow);
+}
+
+.context-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.context-eyebrow {
+  color: var(--accent-light);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+}
+
+.context-title {
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.context-meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.empty-state {
+  display: grid;
+  gap: 6px;
+  padding: 18px 16px;
+  text-align: center;
+}
+
+.empty-state strong {
+  font-size: 15px;
+}
+
+.empty-state p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .section-title {
@@ -306,6 +361,7 @@ input:focus {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  align-items: start;
 }
 
 .tile,
@@ -348,7 +404,7 @@ input:focus {
 .tile strong,
 .item strong {
   display: block;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
@@ -358,7 +414,7 @@ input:focus {
   display: block;
   margin-top: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .modal {
@@ -489,7 +545,7 @@ input:focus {
 .item {
   display: grid;
   gap: 12px;
-  padding: 14px;
+  padding: 16px;
 }
 
 .item-top {
