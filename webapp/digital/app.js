@@ -728,6 +728,16 @@ function buildCategoriesForService(key) {
   }
   return (state.catalog.gift_categories || [])
     .filter((row) => String(row.service_key || "") === key)
+    .filter((row) => {
+      if (key !== "store_cards") return true;
+      const n = String(row.name || "").toLowerCase().trim();
+      return !(
+        n === "gift cards" ||
+        n === "gift card" ||
+        n === "بطاقات هدايا" ||
+        n === "بطاقات"
+      );
+    })
     .map((row) => ({
       id: String(row.id || ""),
       name: String(row.name || "-"),
