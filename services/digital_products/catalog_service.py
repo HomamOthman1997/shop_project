@@ -6,10 +6,18 @@ import time
 from typing import Any
 
 from config import settings
+from database.mongo import db
 from utils.translations import t
 
 from .g2bulk_client import G2BulkClient
-from .static_taxonomy import detect_service_key, guess_family, pick_cheapest_offer, service_sort_key
+from .static_taxonomy import (
+    clean_family_text,
+    detect_service_key,
+    detect_service_key_strict,
+    guess_family,
+    pick_cheapest_offer,
+    service_sort_key,
+)
 from .za3em_client import Za3emClient
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
@@ -18,6 +26,12 @@ _CACHE_LOCK = asyncio.Lock()
 _ZA3EM_LOCK = asyncio.Lock()
 _DEFAULT_TOP_GAMES = ("pubg", "mobile legends", "free fire", "honor of kings", "new state")
 _INVALID_PRODUCT_NAMES = {"", "-", "null", "none", "n/a", "na", "undefined"}
+_GAME_VARIANT_SERVICE_MAP: dict[str, str] = {
+    "game:pubg": "pubg",
+    "game:mobile_legends": "mlbb",
+    "game:free_fire": "free_fire",
+    "game:honor_of_kings": "hok",
+}
 
 
 def _norm(text: str | None) -> str:
@@ -36,6 +50,60 @@ def _to_float(value: Any) -> float:
         return float(value)
     except Exception:
         return 0.0
+
+
+def _slug(value: str | None) -> str:
+    text = _norm(value)
+    text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+    return text or "other"
+
+
+def _canonical_game_service_key(game_name: str, item_name: str = "") -> str:
+    family_key, _ = guess_family("games", game_name or item_name, [item_name] if item_name else [])
+    if not family_key or family_key == "other":
+        family_key = _slug(clean_family_text(game_name or item_name) or game_name or item_name)
+    return f"game:{_slug(family_key)}"
+
+
+def _canonical_store_service_key(category_name: str, item_name: str = "") -> str:
+    family_key, _ = guess_family("store_cards", category_name or item_name, [item_name] if item_name else [])
+    if not family_key or family_key == "other":
+        family_key = _slug(clean_family_text(category_name or item_name) or category_name or item_name)
+    return f"store:{_slug(family_key)}"
+
+
+def _canonical_offer_service_key(*, name: str, category_name: str) -> str | None:
+    section = detect_service_key_strict(f"{name} {category_name}")
+    if section == "games":
+        return _canonical_game_service_key(category_name or name, name)
+    if section == "store_cards":
+        return _canonical_store_service_key(category_name or name, name)
+    if section == "chat_apps":
+        return "chat_apps"
+    if section == "paid_subscriptions":
+        return "paid_subscriptions"
+    if section == "communications_data":
+        return "communications_data"
+    if section == "internet_providers":
+        return "internet_providers"
+    if section == "paid_apps":
+        return "paid_apps"
+    if section == "numbers_services":
+        return "numbers_services"
+    return _service_key(f"{name} {category_name}")
+
+
+def _variant_service_key(canonical_service_key: str | None, text: str) -> str | None:
+    key = str(canonical_service_key or "").strip().lower()
+    if key in _GAME_VARIANT_SERVICE_MAP:
+        return _GAME_VARIANT_SERVICE_MAP[key]
+    if key.startswith("game:"):
+        return "game"
+    if key.startswith("store:"):
+        return _service_key(text)
+    if key in {"pubg", "mlbb", "free_fire", "hok"}:
+        return key
+    return None
 
 
 def _looks_game(name: str | None) -> bool:
@@ -161,7 +229,7 @@ def _game_variant(text: str) -> str:
 
 
 def _variant_key(service_key: str | None, text: str) -> str:
-    if service_key in {"pubg", "mlbb", "free_fire", "hok"}:
+    if service_key in {"pubg", "mlbb", "free_fire", "hok", "game"}:
         return _game_variant(text)
     return _currency_variant(text)
 
@@ -230,13 +298,13 @@ def _build_za3em_index(rows: list[dict[str, Any]]) -> dict[tuple[str, int, str],
     for row in rows:
         name = str(row.get("name") or "").strip()
         category_name = str(row.get("category_name") or "").strip()
-        key = _service_key(f"{name} {category_name}")
+        key = _canonical_offer_service_key(name=name, category_name=category_name)
         if not key:
             continue
         amount = _first_number(name) or _first_number(category_name)
         if not amount:
             continue
-        variant = _variant_key(key, f"{name} {category_name}")
+        variant = _variant_key(_variant_service_key(key, f"{name} {category_name}"), f"{name} {category_name}")
         offer = _build_offer(
             "za3em",
             str(row.get("id") or ""),
@@ -271,7 +339,7 @@ def _find_matching_za3em_offers(
 
 
 def _section_service_key(text: str | None) -> str:
-    return detect_service_key(text)
+    return detect_service_key_strict(text) or "unmapped"
 
 
 def _is_za3em_supported_product(row: dict[str, Any]) -> bool:
@@ -349,6 +417,8 @@ def _build_za3em_categories(rows: list[dict[str, Any]]) -> tuple[dict[str, dict[
         existing = categories.get(cat_id)
         if not existing:
             service_key = _section_service_key(f"{name} {row_product_name}")
+            if service_key == "unmapped":
+                continue
             family_key, family_label = guess_family(service_key, name, [row_product_name] if row_product_name else [])
             categories[cat_id] = {
                 "id": cat_id,
@@ -426,6 +496,39 @@ def _normalize_offers(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = list(uniq.values())
     rows.sort(key=lambda item: (0 if bool(item.get("available")) else 1, _to_float(item.get("price")) if _to_float(item.get("price")) > 0 else 9999999))
     return rows
+
+
+async def _queue_unmapped_aliases(rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    try:
+        now = int(time.time())
+        for row in rows:
+            provider = str(row.get("provider") or "").strip().lower()
+            name = str(row.get("name") or "").strip()
+            category_name = str(row.get("category_name") or "").strip()
+            source = str(row.get("source") or "").strip()
+            if not (provider and (name or category_name)):
+                continue
+            key = f"{provider}:{_slug(category_name)}:{_slug(name)}"
+            await db.digital_products_unmapped_aliases.update_one(
+                {"_id": key},
+                {
+                    "$set": {
+                        "provider": provider,
+                        "name": name,
+                        "category_name": category_name,
+                        "source": source,
+                        "last_seen_at": now,
+                    },
+                    "$inc": {"seen_count": 1},
+                    "$setOnInsert": {"created_at": now, "status": "pending"},
+                },
+                upsert=True,
+            )
+    except Exception:
+        # Alias review queue must not break catalog availability.
+        return
 
 
 def _is_pubg_topup_row(name: str) -> bool:
@@ -526,6 +629,7 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
 
     products_by_category: dict[str, list[dict[str, Any]]] = {}
     matched_za3em_ref_ids: set[str] = set()
+    unmapped_aliases: list[dict[str, Any]] = []
     for row in raw_products:
         product_id = _best_id(row, "id", "product_id", "ID")
         if not product_id:
@@ -550,9 +654,19 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         if _is_invalid_product_name(clean_name):
             continue
         category_hint = g2_cat_name or str(za3em_categories.get(cat_id, {}).get("name") or "")
-        service_key = _service_key(f"{clean_name} {category_hint}")
+        service_key = _canonical_offer_service_key(name=clean_name, category_name=category_hint)
+        if not service_key:
+            unmapped_aliases.append(
+                {
+                    "provider": "g2bulk",
+                    "source": "products",
+                    "name": clean_name,
+                    "category_name": category_hint,
+                }
+            )
+            continue
         amount = _first_number(clean_name) or _first_number(category_hint)
-        variant = _variant_key(service_key, f"{clean_name} {category_hint}") if service_key else "generic"
+        variant = _variant_key(_variant_service_key(service_key, f"{clean_name} {category_hint}"), f"{clean_name} {category_hint}") if service_key else "generic"
         g2_offer = _build_offer(
             "g2bulk",
             product_id,
@@ -598,6 +712,17 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         clean_name = _clean_gift_name(name)
         if _is_invalid_product_name(clean_name):
             continue
+        section = detect_service_key_strict(f"{clean_name} {str(row.get('category_name') or '').strip()}")
+        if not section:
+            unmapped_aliases.append(
+                {
+                    "provider": "za3em",
+                    "source": "products",
+                    "name": clean_name,
+                    "category_name": str(row.get("category_name") or "").strip(),
+                }
+            )
+            continue
         available = bool(row.get("available"))
         meta = _za3em_offer_meta(row)
         za_offer = _build_offer(
@@ -628,6 +753,8 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
                 "raw": row,
             }
         )
+
+    await _queue_unmapped_aliases(unmapped_aliases)
 
     gift_categories: list[dict[str, Any]] = []
     if za3em_categories:
@@ -710,10 +837,10 @@ async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
         if str(game.get("id") or "").strip() == str(game_id).strip():
             game_name = str(game.get("name") or "").strip()
             break
-    service_key = _service_key(f"{game_id} {game_name}")
+    service_key = _canonical_game_service_key(game_name or str(game_id), str(game_id))
     if str(game_id) in topup_map:
         cached_rows = list(topup_map.get(str(game_id)) or [])
-        if service_key == "pubg":
+        if service_key == "game:pubg":
             deduped = _dedupe_pubg_topups(cached_rows)
             if len(deduped) != len(cached_rows):
                 topup_map[str(game_id)] = deduped
@@ -732,7 +859,7 @@ async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
         if not product_id:
             product_id = f"{game_id}_{idx+1}"
         amount = _first_number(name)
-        variant = _variant_key(service_key, name) if service_key else "generic"
+        variant = _variant_key(_variant_service_key(service_key, name), name) if service_key else "generic"
         g2_offer = _build_offer(
             "g2bulk",
             product_id,
@@ -757,7 +884,7 @@ async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
             }
         )
     normalized.sort(key=lambda x: (float(x.get("price") or 0), _norm(x.get("name"))))
-    if service_key == "pubg":
+    if service_key == "game:pubg":
         normalized = _dedupe_pubg_topups(normalized)
 
     fresh = await get_catalog_snapshot(force=False)

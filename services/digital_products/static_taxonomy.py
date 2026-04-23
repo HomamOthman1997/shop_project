@@ -14,6 +14,93 @@ SERVICE_ORDER: tuple[str, ...] = (
     "store_cards",
 )
 
+CHAT_FAMILY_ALIASES: dict[str, tuple[str, str]] = {
+    "4fun chat": ("4fun_chat", "4fun Chat"),
+    "ahlan chat": ("ahlan_chat", "Ahlan Chat"),
+    "amar chat": ("amar_chat", "Amar Chat"),
+    "ayumi chat": ("ayumi_chat", "Ayumi Chat"),
+    "azal live": ("azal_live", "Azal Live"),
+    "bella chat": ("bella_chat", "Bella Chat"),
+    "bigo live": ("bigo_live", "Bigo Live"),
+    "bigo live diamonds": ("bigo_live", "Bigo Live"),
+    "binmo chat": ("binmo_chat", "Binmo Chat"),
+    "bobo chat": ("bobo_chat", "Bobo Chat"),
+    "boli": ("boli", "Boli"),
+    "chamet": ("chamet", "Chamet"),
+    "coco live": ("coco_live", "Coco Live"),
+    "discord": ("discord", "Discord"),
+    "ditto live": ("ditto_live", "Ditto Live"),
+    "fancy life": ("fancy_life", "Fancy Life"),
+    "fofo chat": ("fofo_chat", "Fofo Chat"),
+    "funup": ("funup", "FunUp"),
+    "gimme live": ("gimme_live", "Gimme Live"),
+    "hago": ("hago", "Hago"),
+    "haki chat": ("haki_chat", "Haki Chat"),
+    "hamiparty": ("hamiparty", "HamiParty"),
+    "hapi arabic": ("hapi_arabic", "Hapi Arabic"),
+    "hati": ("hati", "Hati"),
+    "hawa chat": ("hawa_chat", "Hawa Chat"),
+    "haya chat": ("haya_chat", "Haya Chat"),
+    "hayuki": ("hayuki", "Hayuki"),
+    "higo": ("higo", "Higo"),
+    "hiyoo chat": ("hiyoo_chat", "Hiyoo Chat"),
+    "imo": ("imo", "IMO"),
+    "imu chat": ("imu_chat", "Imu Chat"),
+    "janko chat": ("janko_chat", "Janko Chat"),
+    "kessmet": ("kessmet", "Kessmet"),
+    "kiti": ("kiti", "Kiti"),
+    "kiyo live": ("kiyo_live", "Kiyo Live"),
+    "kwai": ("kwai", "Kwai"),
+    "laki": ("laki", "Laki"),
+    "lama chat": ("lama_chat", "Lama Chat"),
+    "layam": ("layam", "Layam"),
+    "layla chat": ("layla_chat", "Layla Chat"),
+    "light chat": ("light_chat", "Light Chat"),
+    "ligo live": ("ligo_live", "Ligo Live"),
+    "likee": ("likee", "Likee"),
+    "line": ("line", "LINE"),
+    "lions chat": ("lions_chat", "Lions Chat"),
+    "maza chat": ("maza_chat", "Maza Chat"),
+    "mico live": ("mico_live", "Mico Live"),
+    "migo live": ("migo_live", "Migo Live"),
+    "mr7ba chat": ("mr7ba_chat", "Mr7ba Chat"),
+    "nabd": ("nabd", "Nabd"),
+    "ohla chat": ("ohla_chat", "Ohla Chat"),
+    "olmet chat": ("olmet_chat", "Olmet Chat"),
+    "oloo live": ("oloo_live", "Oloo Live"),
+    "opa live": ("opa_live", "Opa Live"),
+    "pawa live": ("pawa_live", "Pawa Live"),
+    "poppo live": ("poppo_live", "Poppo Live"),
+    "pota live": ("pota_live", "Pota Live"),
+    "roka live": ("roka_live", "Roka Live"),
+    "sahra": ("sahra", "Sahra"),
+    "salam": ("salam", "Salam"),
+    "saya likee": ("saya_likee", "Saya Likee"),
+    "sodfa": ("sodfa", "Sodfa"),
+    "soyo chat": ("soyo_chat", "Soyo Chat"),
+    "sugo chat": ("sugo_chat", "Sugo Chat"),
+    "super live": ("super_live", "Super Live"),
+    "tada chat": ("tada_chat", "Tada Chat"),
+    "taka life": ("taka_life", "Taka Life"),
+    "talk talk": ("talk_talk", "Talk Talk"),
+    "tami chat": ("tami_chat", "Tami Chat"),
+    "tango live": ("tango_live", "Tango Live"),
+    "toptop": ("toptop", "TopTop"),
+    "vova": ("vova", "VOVA"),
+    "waaw": ("waaw", "Waaw"),
+    "waho chat": ("waho_chat", "Waho Chat"),
+    "weak chat": ("weak_chat", "Weak Chat"),
+    "xena live": ("xena_live", "Xena Live"),
+    "yaahlan chat": ("yaahlan_chat", "Yaahlan Chat"),
+    "yami star": ("yami_star", "Yami Star"),
+    "yoparti": ("yoparti", "YoParti"),
+    "yoyo chat": ("yoyo_chat", "Yoyo Chat"),
+    "yudo": ("yudo", "Yudo"),
+    "دانا شات": ("dana_chat", "دانا شات"),
+}
+
+_CHAT_ALIAS_TERMS: tuple[str, ...] = tuple(CHAT_FAMILY_ALIASES.keys())
+
 SERVICE_RULES: list[tuple[str, tuple[str, ...]]] = [
     (
         "paid_apps",
@@ -51,6 +138,14 @@ SERVICE_RULES: list[tuple[str, tuple[str, ...]]] = [
     (
         "paid_subscriptions",
         (
+            "netflix",
+            "shahid",
+            "tv shahid",
+            "snapchat",
+            "chatgpt",
+            "canva",
+            "youtube",
+            "spotify",
             "telegram premium",
             "telegram star",
             "telegram stars",
@@ -67,6 +162,16 @@ SERVICE_RULES: list[tuple[str, tuple[str, ...]]] = [
         (
             "discord",
             "imo",
+            "hago",
+            "chamet",
+            "yoyo",
+            "yami",
+            "layla",
+            "tango",
+            "waaw",
+            "waho",
+            "toptop",
+            "sugo",
             "chat",
             "social",
             "apps",
@@ -91,8 +196,10 @@ SERVICE_RULES: list[tuple[str, tuple[str, ...]]] = [
             "steam",
             "itunes",
             "apple",
+            "google",
             "google play",
             "playstation",
+            "play station",
             "psn",
             "xbox",
             "nintendo",
@@ -305,19 +412,29 @@ def clean_family_text(value: str | None) -> str:
     return raw
 
 
-def detect_service_key(text: str | None) -> str:
+def detect_service_key_strict(text: str | None) -> str | None:
     n = norm_text(text)
     if not n:
-        return "games"
+        return None
+    if any(token in n for token in _CHAT_ALIAS_TERMS):
+        return "chat_apps"
     for key, tokens in SERVICE_RULES:
         if any(token in n for token in tokens):
             return key
-    return "games"
+    return None
+
+
+def detect_service_key(text: str | None) -> str:
+    return detect_service_key_strict(text) or "games"
 
 
 def guess_family(service_key: str, category_name: str, sample_names: list[str] | None = None) -> tuple[str, str]:
     sample_names = list(sample_names or [])
     text = norm_text(" ".join([category_name] + sample_names))
+    if service_key == "chat_apps":
+        for token, mapped in CHAT_FAMILY_ALIASES.items():
+            if token in text:
+                return mapped
     rules = list(FAMILY_RULES.get(service_key, []))
     for family_key, label, tokens in rules:
         if any(token in text for token in tokens):

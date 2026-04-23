@@ -440,6 +440,9 @@ def _family_rules_for_service(service_key: str) -> list[tuple[str, str, tuple[st
 
 
 def _chat_family_from_product_name(name: str) -> tuple[str, str]:
+    mapped_key, mapped_label = taxonomy_guess_family("chat_apps", str(name or ""), [])
+    if mapped_key and mapped_key != "other":
+        return mapped_key, mapped_label
     n = _norm(name)
     rules: list[tuple[str, str, tuple[str, ...]]] = [
         ("discord", "Discord", ("discord",)),
@@ -545,62 +548,30 @@ def _grouped_gift_categories(snapshot: dict[str, Any]) -> tuple[list[dict[str, A
         if not cat_id:
             continue
         category_name = str(cat.get("clean_name") or cat.get("name") or "-").strip()
-        service_key = str(cat.get("service_key") or _gift_service_key(category_name))
         product_rows = [row for row in list(products_by_category.get(cat_id) or []) if isinstance(row, dict) and _is_valid_gift_row(row)]
         if not product_rows:
             continue
-        sample_rows = product_rows[:6]
-        sample_names = [str(row.get("name") or row.get("clean_name") or "") for row in sample_rows]
-
-        if service_key == "chat_apps" and _is_generic_chat_category(category_name):
-            for row in product_rows:
-                row_name = str(row.get("clean_name") or row.get("name") or "").strip()
+        for row in product_rows:
+            row_name = str(row.get("clean_name") or row.get("name") or "").strip()
+            row_service = _gift_service_key(f"{row_name} {category_name}")
+            if row_service == "chat_apps":
                 family_key, family_label = _chat_family_from_product_name(row_name)
-                group_id = f"grp:g:{service_key}:{family_key}"
-                if group_id not in grouped:
-                    grouped[group_id] = {
-                        "id": group_id,
-                        "name": family_label,
-                        "count": 0,
-                        "group_key": _gift_group_key(family_label),
-                        "service_key": service_key,
-                    }
-                    source_map[group_id] = set()
-                grouped[group_id]["count"] = int(grouped[group_id]["count"] or 0) + 1
-                source_map[group_id].add(cat_id)
-            continue
-
-        if service_key == "paid_subscriptions" and _is_generic_subscription_category(category_name):
-            for row in product_rows:
-                row_name = str(row.get("clean_name") or row.get("name") or "").strip()
+            elif row_service == "paid_subscriptions":
                 family_key, family_label = _subscription_family_from_product_name(row_name)
-                group_id = f"grp:g:{service_key}:{family_key}"
-                if group_id not in grouped:
-                    grouped[group_id] = {
-                        "id": group_id,
-                        "name": family_label,
-                        "count": 0,
-                        "group_key": _gift_group_key(family_label),
-                        "service_key": service_key,
-                    }
-                    source_map[group_id] = set()
-                grouped[group_id]["count"] = int(grouped[group_id]["count"] or 0) + 1
-                source_map[group_id].add(cat_id)
-            continue
-
-        family_key, family_label = _guess_family(service_key, category_name, sample_names)
-        group_id = f"grp:g:{service_key}:{family_key}"
-        if group_id not in grouped:
-            grouped[group_id] = {
-                "id": group_id,
-                "name": family_label,
-                "count": 0,
-                "group_key": _gift_group_key(family_label),
-                "service_key": service_key,
-            }
-            source_map[group_id] = set()
-        grouped[group_id]["count"] = int(grouped[group_id]["count"] or 0) + len(product_rows)
-        source_map[group_id].add(cat_id)
+            else:
+                family_key, family_label = _guess_family(row_service, category_name, [row_name])
+            group_id = f"grp:g:{row_service}:{family_key}"
+            if group_id not in grouped:
+                grouped[group_id] = {
+                    "id": group_id,
+                    "name": family_label,
+                    "count": 0,
+                    "group_key": _gift_group_key(family_label),
+                    "service_key": row_service,
+                }
+                source_map[group_id] = set()
+            grouped[group_id]["count"] = int(grouped[group_id]["count"] or 0) + 1
+            source_map[group_id].add(cat_id)
     gift_group_order = {"popular": 0, "gaming": 1, "apps": 2, "other": 3}
     categories = list(grouped.values())
     categories.sort(key=lambda row: (gift_group_order.get(str(row.get("group_key")), 9), _natural_key(str(row.get("name") or ""))))
@@ -841,12 +812,36 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
     products_by_category = dict(snapshot.get("products_by_category") or {})
+    categories_by_id = {
+        str(row.get("id") or "").strip(): str(row.get("clean_name") or row.get("name") or "").strip()
+        for row in list(snapshot.get("gift_categories") or [])
+        if isinstance(row, dict)
+    }
     _, source_map = _grouped_gift_categories(snapshot)
     source_ids = list(source_map.get(str(category_id), [])) if str(category_id).startswith("grp:g:") else [str(category_id)]
+    expected_service = ""
+    expected_family = ""
+    if str(category_id).startswith("grp:g:"):
+        parts = str(category_id).split(":", 4)
+        if len(parts) >= 5:
+            expected_service = str(parts[3] or "").strip()
+            expected_family = str(parts[4] or "").strip()
     rows: list[tuple[str, dict[str, Any]]] = []
     for sid in source_ids:
+        category_name = str(categories_by_id.get(str(sid), ""))
         for row in list(products_by_category.get(str(sid), []) or []):
             if isinstance(row, dict):
+                if expected_service and expected_family:
+                    row_name = str(row.get("clean_name") or row.get("name") or "").strip()
+                    row_service = _gift_service_key(f"{row_name} {category_name}")
+                    if row_service == "chat_apps":
+                        row_family, _ = _chat_family_from_product_name(row_name)
+                    elif row_service == "paid_subscriptions":
+                        row_family, _ = _subscription_family_from_product_name(row_name)
+                    else:
+                        row_family, _ = _guess_family(row_service, category_name, [row_name])
+                    if row_service != expected_service or row_family != expected_family:
+                        continue
                 rows.append((str(sid), row))
     dedup_rows: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {}
     for sid, row in rows:

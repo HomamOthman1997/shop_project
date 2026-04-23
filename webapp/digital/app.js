@@ -47,6 +47,11 @@ const copy = {
     simBalance: "Balance Top Up",
     simData: "Data Packages",
     esimDirect: "eSIM",
+    gameFinderTitle: "Game Search",
+    gameFinderHint: "Type game name to see available titles.",
+    gameFinderCta: "Search Games",
+    pickGame: "Select a game first.",
+    pickCountry: "Select country/region",
   },
   ar: {
     title: "المتجر الرقمي",
@@ -79,6 +84,11 @@ const copy = {
     simBalance: "شحن رصيد",
     simData: "باقات بيانات",
     esimDirect: "eSIM",
+    gameFinderTitle: "بحث الألعاب",
+    gameFinderHint: "اكتب اسم اللعبة لتظهر النتائج المتاحة.",
+    gameFinderCta: "بحث الألعاب",
+    pickGame: "اختر لعبة أولاً.",
+    pickCountry: "اختر الدولة/المنطقة",
   },
 };
 
@@ -142,7 +152,7 @@ const serviceVisuals = {
 const state = {
   lang: detectLang(),
   catalog: null,
-  view: "services", // services | categories | subcategories | items | simkind
+  view: "services", // services | gamefinder | categories | subcategories | items | simkind
   service: "",
   search: "",
   categories: [],
@@ -449,6 +459,12 @@ function filteredCategories() {
   return state.categories.filter((row) => !q || String(row.name || "").toLowerCase().includes(q));
 }
 
+function filteredGameCategories() {
+  const q = state.search.trim().toLowerCase();
+  if (!q) return [];
+  return state.categories.filter((row) => String(row.name || "").toLowerCase().includes(q));
+}
+
 function filteredItems() {
   const q = state.search.trim().toLowerCase();
   return state.items.filter((row) => {
@@ -655,17 +671,17 @@ function buildCategoriesForService(key) {
               meta_label: t("packages"),
             }))
           : [];
-        const isGrouped = variants.length > 1;
-        const itemId = isGrouped ? String(row.id || "") : String(variants[0]?.id || row.id || "");
+        const isGrouped = variants.length > 0;
+        const itemId = String(row.id || variants[0]?.id || "");
         return {
           id: itemId,
           name: String(row.name || "-"),
           count: Number(row.count || variants.length || 0),
           entry_kind: isGrouped ? "group" : "game",
-          game_ids: isGrouped ? variants.map((v) => String(v.id || "")).filter(Boolean) : [itemId],
+          game_ids: isGrouped ? variants.map((v) => String(v.id || "")).filter(Boolean) : [itemId].filter(Boolean),
           gift_category_ids: [],
           variants,
-          meta_label: isGrouped ? `${variants.length} ${t("categories")}` : t("packages"),
+          meta_label: isGrouped ? `${variants.length} ${t("pickCountry")}` : t("packages"),
         };
       });
     rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
@@ -712,7 +728,74 @@ function enterService(key) {
     return;
   }
   state.categories = buildCategoriesForService(key);
+  if (key === "games") {
+    renderGameFinder();
+    return;
+  }
   renderCategories();
+}
+
+function renderGameFinder() {
+  clear();
+  state.view = "gamefinder";
+  state.variantParent = null;
+  content.append(button("back-btn", t("back"), renderServices));
+  content.append(heading(t("gameFinderTitle")));
+
+  const center = document.createElement("section");
+  center.className = "items-grid";
+  const cta = button("buy", t("gameFinderCta"), () => searchInput.focus());
+  const holder = document.createElement("div");
+  holder.style.gridColumn = "1 / -1";
+  holder.style.display = "flex";
+  holder.style.justifyContent = "center";
+  holder.append(cta);
+  center.append(holder);
+  content.append(center);
+
+  const rows = filteredGameCategories();
+  if (!state.search.trim()) {
+    setStatus(t("gameFinderHint"));
+    return;
+  }
+  setStatus(rows.length ? "" : t("pickGame"));
+
+  const list = document.createElement("section");
+  list.className = "category-list";
+  for (let i = 0; i < rows.length; i += 2) {
+    const row1 = rows[i];
+    const row2 = rows[i + 1];
+    const wrapper = document.createElement("div");
+    wrapper.style.display = "contents";
+    wrapper.append(
+      listTile(String(row1.name || "-"), row1.meta_label || "", () =>
+        openItems({
+          id: String(row1.id || ""),
+          name: String(row1.name || "-"),
+          entry_kind: String(row1.entry_kind || "gift"),
+          game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
+          gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
+          variants: Array.isArray(row1.variants) ? row1.variants : [],
+        })
+      )
+    );
+    if (row2) {
+      wrapper.append(
+        listTile(String(row2.name || "-"), row2.meta_label || "", () =>
+          openItems({
+            id: String(row2.id || ""),
+            name: String(row2.name || "-"),
+            entry_kind: String(row2.entry_kind || "gift"),
+            game_ids: Array.isArray(row2.game_ids) ? row2.game_ids : [],
+            gift_category_ids: Array.isArray(row2.gift_category_ids) ? row2.gift_category_ids : [],
+            variants: Array.isArray(row2.variants) ? row2.variants : [],
+          })
+        )
+      );
+    }
+    list.append(wrapper);
+  }
+  content.append(list);
 }
 
 function renderCategories() {
@@ -770,6 +853,10 @@ function renderVariantCategories(parent) {
   content.append(
     button("back-btn", t("back"), () => {
       state.variantParent = null;
+      if (state.service === "games") {
+        renderGameFinder();
+        return;
+      }
       renderCategories();
     })
   );
@@ -863,7 +950,7 @@ function segment(items, active, onChange) {
 async function openItems(category) {
   clear();
   setStatus(t("loading"));
-  if (category.entry_kind === "group" && Array.isArray(category.variants) && category.variants.length > 1) {
+  if (category.entry_kind === "group" && Array.isArray(category.variants) && category.variants.length > 0) {
     const validVariants = await resolveGroupVariants(category);
     const prepared = { ...category, variants: validVariants };
     setStatus(validVariants.length ? "" : t("noProducts"), !validVariants.length);
@@ -932,7 +1019,19 @@ async function openItems(category) {
 
 function renderItems() {
   clear();
-  content.append(button("back-btn", t("back"), renderCategories));
+  content.append(
+    button("back-btn", t("back"), () => {
+      if (state.variantParent) {
+        renderVariantCategories(state.variantParent);
+        return;
+      }
+      if (state.service === "games") {
+        renderGameFinder();
+        return;
+      }
+      renderCategories();
+    })
+  );
   content.append(heading(`${t("offers")} • ${state.selectedName}`));
   if (state.itemGroups.length > 1) {
     const groups = [{ key: "all", label: { en: t("all"), ar: t("all") } }, ...state.itemGroups];
@@ -1200,6 +1299,7 @@ async function loadCatalog() {
 searchInput.addEventListener("input", () => {
   state.search = String(searchInput.value || "");
   if (!state.catalog) return;
+  if (state.view === "gamefinder") renderGameFinder();
   if (state.view === "categories") renderCategories();
   if (state.view === "subcategories") renderVariantCategories(state.variantParent);
   if (state.view === "items") renderItems();
@@ -1212,6 +1312,7 @@ if (langBtn) {
     applyLang();
     if (!state.catalog) return;
     if (state.view === "services") renderServices();
+    else if (state.view === "gamefinder") renderGameFinder();
     else if (state.view === "categories") renderCategories();
     else if (state.view === "subcategories") renderVariantCategories(state.variantParent);
     else if (state.view === "items") renderItems();
