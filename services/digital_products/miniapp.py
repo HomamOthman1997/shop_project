@@ -51,6 +51,7 @@ _GAME_GROUP_OVERRIDES: dict[str, dict[str, tuple[str, ...]]] = {
 }
 _INVALID_DISPLAY_NAMES = {"", "-", "null", "none", "n/a", "na", "undefined"}
 _HIDDEN_GAME_VARIANT_IDS = {"valorant", "league_of_legends_instant", "onepunchworld"}
+_CATALOG_PAYLOAD_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
 
 
 def _money(value: Any) -> float:
@@ -823,7 +824,7 @@ async def _catalog_payload() -> dict[str, Any]:
             "enabled": store_cards_count > 0,
         },
     ]
-    return {
+    payload = {
         "enabled": bool(snapshot.get("enabled")),
         "markup_percent": markup,
         "services": services,
@@ -832,6 +833,8 @@ async def _catalog_payload() -> dict[str, Any]:
         "games": grouped_games[:300],
         "game_groups": game_groups,
     }
+    _CATALOG_PAYLOAD_CACHE["data"] = dict(payload)
+    return payload
 
 
 async def _gift_products(category_id: str, query: str = "") -> list[dict[str, Any]]:
@@ -937,7 +940,10 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
         game_name = _find_game_name(snapshot, str(game_id))
     rows_with_game: list[tuple[str, dict[str, Any]]] = []
     for source_game_id in source_game_ids:
-        source_rows = await get_game_topups(str(source_game_id))
+        try:
+            source_rows = await get_game_topups(str(source_game_id))
+        except Exception:
+            source_rows = []
         for row in source_rows:
             rows_with_game.append((str(source_game_id), row))
     q = _norm(query)
@@ -1030,7 +1036,24 @@ async def static_file(request: web.Request) -> web.Response:
 
 
 async def catalog(_request: web.Request) -> web.Response:
-    return web.json_response(await _catalog_payload())
+    try:
+        payload = await _catalog_payload()
+    except Exception:
+        cached = _CATALOG_PAYLOAD_CACHE.get("data")
+        if isinstance(cached, dict) and cached:
+            payload = dict(cached)
+        else:
+            payload = {
+                "enabled": False,
+                "markup_percent": 0.0,
+                "services": [],
+                "gift_categories": [],
+                "gift_groups": [],
+                "games": [],
+                "game_groups": [],
+                "error": "store_temporarily_unavailable",
+            }
+    return web.json_response(payload)
 
 
 async def gift_products(request: web.Request) -> web.Response:
