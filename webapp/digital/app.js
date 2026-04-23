@@ -506,10 +506,22 @@ function normalizeGameCategoryName(name) {
     .replace(/^honou?r of king$/i, "Honor of Kings")
     .replace(/^eafc\s*24$/i, "EAFC Mobile")
     .replace(/^eafc\s*mobile$/i, "EAFC Mobile")
+    .replace(/^clash of clans.*$/i, "Clash of Clans")
+    .replace(/^league of legends.*$/i, "League of Legends")
+    .replace(/^legends of runeterra.*$/i, "Legends of Runeterra")
+    .replace(/^teamfight tactics.*$/i, "League of Legends")
+    .replace(/^pubg.*$/i, "PUBG")
+    .replace(/^new state.*$/i, "PUBG")
     .replace(/^free\s*fire.*$/i, "Free Fire")
     .replace(/^freefire.*$/i, "Free Fire")
+    .replace(/^blood strike.*$/i, "Blood Strike")
+    .replace(/^brawel star.*$/i, "Brawl Stars")
+    .replace(/^brawl stars?.*$/i, "Brawl Stars")
     .replace(/^garena\s*delta\s*force$/i, "Delta Force")
-    .replace(/^delta\s*force.*$/i, "Delta Force");
+    .replace(/^delta\s*force.*$/i, "Delta Force")
+    .replace(/^war robots.*$/i, "War Robots")
+    .replace(/^whiteout survival.*$/i, "Whiteout Survival")
+    .replace(/^yalla ludo.*$/i, "Yalla Ludo");
   const regionTokens = [
     "global",
     "usa",
@@ -658,32 +670,84 @@ function renderServices() {
 function buildCategoriesForService(key) {
   if (!state.catalog) return [];
   if (key === "games") {
-    const rows = (state.catalog.games || [])
-      .filter((row) => String(row.service_key || "games") === "games")
-      .map((row) => {
-        const variants = Array.isArray(row.variants)
-          ? row.variants.map((variant) => ({
-              id: String(variant.id || ""),
-              name: String(variant.name || "-"),
-              entry_kind: String(variant.entry_kind || "game"),
-              game_ids: Array.isArray(variant.game_ids) ? variant.game_ids : [String(variant.id || "")],
-              gift_category_ids: Array.isArray(variant.gift_category_ids) ? variant.gift_category_ids : [],
-              meta_label: t("packages"),
-            }))
-          : [];
-        const isGrouped = variants.length > 0;
-        const itemId = String(row.id || variants[0]?.id || "");
-        return {
-          id: itemId,
-          name: String(row.name || "-"),
-          count: Number(row.count || variants.length || 0),
-          entry_kind: isGrouped ? "group" : "game",
-          game_ids: isGrouped ? variants.map((v) => String(v.id || "")).filter(Boolean) : [itemId].filter(Boolean),
+    const merged = new Map();
+    const upsert = (title, variant) => {
+      const normalizedTitle = normalizeGameCategoryName(title || "-");
+      const mapKey = String(normalizedTitle || title || "-").toLowerCase();
+      const existing =
+        merged.get(mapKey) ||
+        {
+          id: `grp:ui:${mapKey || "game"}`,
+          name: normalizedTitle || String(title || "-"),
+          count: 0,
+          entry_kind: "group",
+          game_ids: [],
           gift_category_ids: [],
-          variants,
-          meta_label: isGrouped ? `${variants.length} ${t("pickCountry")}` : t("packages"),
+          variants: [],
+          meta_label: "",
         };
+      existing.variants.push(variant);
+      existing.count = Number(existing.count || 0) + 1;
+      existing.game_ids = Array.from(
+        new Set([...(existing.game_ids || []), ...(Array.isArray(variant.game_ids) ? variant.game_ids : [])].filter(Boolean))
+      );
+      existing.gift_category_ids = Array.from(
+        new Set(
+          [...(existing.gift_category_ids || []), ...(Array.isArray(variant.gift_category_ids) ? variant.gift_category_ids : [])].filter(Boolean)
+        )
+      );
+      merged.set(mapKey, existing);
+    };
+
+    (state.catalog.games || [])
+      .filter((row) => String(row.service_key || "games") === "games")
+      .forEach((row) => {
+        const title = String(row.name || "-");
+        const variants = Array.isArray(row.variants) ? row.variants : [];
+        if (!variants.length) return;
+        variants.forEach((variant) => {
+          upsert(title, {
+            id: String(variant.id || ""),
+            name: String(variant.name || "-"),
+            entry_kind: String(variant.entry_kind || "game"),
+            game_ids: Array.isArray(variant.game_ids) ? variant.game_ids : [String(variant.id || "")],
+            gift_category_ids: Array.isArray(variant.gift_category_ids) ? variant.gift_category_ids : [],
+            meta_label: t("packages"),
+          });
+        });
       });
+
+    (state.catalog.gift_categories || [])
+      .filter((row) => String(row.service_key || "") === "games")
+      .forEach((row) => {
+        const rawName = String(row.name || "-");
+        if (!isLikelyGameName(rawName)) return;
+        upsert(rawName, {
+          id: String(row.id || ""),
+          name: rawName,
+          entry_kind: "gift",
+          game_ids: [],
+          gift_category_ids: [String(row.id || "")],
+          meta_label: `${Number(row.count || 0)} ${t("products")}`,
+        });
+      });
+
+    const rows = Array.from(merged.values()).map((row) => {
+      const uniq = new Map();
+      (row.variants || []).forEach((variant) => {
+        const key = `${String(variant.entry_kind || "")}:${String(variant.id || "")}`;
+        if (!uniq.has(key)) uniq.set(key, variant);
+      });
+      const variants = Array.from(uniq.values()).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+      return {
+        ...row,
+        id: String(row.id || `grp:ui:${String(row.name || "").toLowerCase()}`),
+        variants,
+        count: variants.length,
+        meta_label: `${variants.length} ${t("pickCountry")}`,
+      };
+    });
+
     rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     return rows;
   }

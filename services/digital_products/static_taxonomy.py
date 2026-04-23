@@ -3,16 +3,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-SERVICE_ORDER: tuple[str, ...] = (
-    "games",
-    "chat_apps",
-    "communications_data",
-    "internet_providers",
-    "paid_apps",
-    "numbers_services",
-    "paid_subscriptions",
-    "store_cards",
-)
+from services.digital_products.custom_catalog import FAMILY_TABLE as CUSTOM_FAMILY_TABLE, SECTION_TABLE
+
+SERVICE_ORDER: tuple[str, ...] = tuple(str(row.get("key") or "").strip() for row in SECTION_TABLE if str(row.get("key") or "").strip())
 
 CHAT_FAMILY_ALIASES: dict[str, tuple[str, str]] = {
     "4fun chat": ("4fun_chat", "4fun Chat"),
@@ -151,7 +144,6 @@ SERVICE_RULES: list[tuple[str, tuple[str, ...]]] = [
             "telegram stars",
             "subscriptions",
             "subscription",
-            "premium",
             "اشتراك",
             "اشتراكات",
             "بريميوم",
@@ -172,20 +164,16 @@ SERVICE_RULES: list[tuple[str, tuple[str, ...]]] = [
             "waho",
             "toptop",
             "sugo",
-            "chat",
-            "social",
-            "apps",
-            "applications",
             "tada",
             "bigo",
             "coco",
             "azal",
-            "live",
             "whatsapp",
             "messenger",
             "viber",
             "line",
             "wechat",
+            "قسم التطبيقات",
             "دردشة",
             "تطبيقات الدردشة",
         ),
@@ -209,7 +197,6 @@ SERVICE_RULES: list[tuple[str, tuple[str, ...]]] = [
             "gift cards",
             "voucher",
             "vouchers",
-            "cards",
             "visa",
             "mastercard",
             "amazon",
@@ -339,6 +326,31 @@ FAMILY_RULES: dict[str, list[tuple[str, str, tuple[str, ...]]]] = {
     ],
 }
 
+for _service_key, _rows in CUSTOM_FAMILY_TABLE.items():
+    existing = list(FAMILY_RULES.get(_service_key, []))
+    existing_keys = {row[0] for row in existing}
+    merged_rows = [
+        (str(row.get("key") or "").strip(), str(row.get("label") or "").strip(), tuple(str(alias or "").strip().lower() for alias in tuple(row.get("aliases") or ()) if str(alias or "").strip()))
+        for row in _rows
+        if str(row.get("key") or "").strip() and str(row.get("label") or "").strip()
+    ]
+    for merged in reversed(merged_rows):
+        if merged[0] in existing_keys:
+            existing = [merged if row[0] == merged[0] else row for row in existing]
+        else:
+            existing.insert(0, merged)
+    FAMILY_RULES[_service_key] = existing
+
+CUSTOM_SERVICE_RULES: list[tuple[str, tuple[str, ...]]] = []
+for _section in SECTION_TABLE:
+    _section_key = str(_section.get("key") or "").strip()
+    if not _section_key:
+        continue
+    _aliases: list[str] = [str(alias or "").strip().lower() for alias in tuple(_section.get("aliases") or ()) if str(alias or "").strip()]
+    for _row in CUSTOM_FAMILY_TABLE.get(_section_key, ()):
+        _aliases.extend(str(alias or "").strip().lower() for alias in tuple(_row.get("aliases") or ()) if str(alias or "").strip())
+    CUSTOM_SERVICE_RULES.append((_section_key, tuple(dict.fromkeys(_aliases))))
+
 REGION_TOKENS: tuple[str, ...] = (
     "global",
     "usa",
@@ -418,6 +430,9 @@ def detect_service_key_strict(text: str | None) -> str | None:
         return None
     if any(token in n for token in _CHAT_ALIAS_TERMS):
         return "chat_apps"
+    for key, tokens in CUSTOM_SERVICE_RULES:
+        if any(token in n for token in tokens):
+            return key
     for key, tokens in SERVICE_RULES:
         if any(token in n for token in tokens):
             return key

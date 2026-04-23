@@ -17,6 +17,7 @@ from config import settings
 from database.digital_products_config_repo import get_digital_products_markup_percent
 from database.mongo import db
 from services.digital_products.catalog_service import get_catalog_snapshot, get_game_topups
+from services.digital_products.custom_catalog import SECTION_TABLE
 from services.digital_products.static_taxonomy import (
     detect_service_key,
     guess_family as taxonomy_guess_family,
@@ -745,55 +746,25 @@ async def _catalog_payload() -> dict[str, Any]:
             "vaksms_key",
         )
     )
+    service_counts = {
+        "games": games_count,
+        "chat_apps": chat_apps_count,
+        "communications_data": 2 if comm_enabled else 0,
+        "internet_providers": internet_providers_count,
+        "paid_apps": paid_apps_count,
+        "numbers_services": 1 if numbers_enabled else 0,
+        "paid_subscriptions": paid_subscriptions_count,
+        "store_cards": store_cards_count,
+    }
     services = [
         {
-            "key": "games",
-            "label": {"en": "Games", "ar": "قسم الألعاب"},
-            "count": games_count,
-            "enabled": games_count > 0,
-        },
-        {
-            "key": "chat_apps",
-            "label": {"en": "Chat Apps", "ar": "قسم تطبيقات الدردشة"},
-            "count": chat_apps_count,
-            "enabled": chat_apps_count > 0,
-        },
-        {
-            "key": "communications_data",
-            "label": {"en": "Telecom & Data", "ar": "قسم الاتصالات والبيانات"},
-            "count": 2 if comm_enabled else 0,
-            "enabled": comm_enabled,
-        },
-        {
-            "key": "internet_providers",
-            "label": {"en": "Internet Providers", "ar": "Internet Providers"},
-            "count": internet_providers_count,
-            "enabled": internet_providers_count > 0,
-        },
-        {
-            "key": "paid_apps",
-            "label": {"en": "Paid Apps", "ar": "Paid Apps"},
-            "count": paid_apps_count,
-            "enabled": paid_apps_count > 0,
-        },
-        {
-            "key": "numbers_services",
-            "label": {"en": "Numbers Services", "ar": "قسم خدمات الأرقام"},
-            "count": 1 if numbers_enabled else 0,
-            "enabled": numbers_enabled,
-        },
-        {
-            "key": "paid_subscriptions",
-            "label": {"en": "Paid Subscriptions", "ar": "قسم الاشتراكات المدفوعة"},
-            "count": paid_subscriptions_count,
-            "enabled": paid_subscriptions_count > 0,
-        },
-        {
-            "key": "store_cards",
-            "label": {"en": "Store Cards", "ar": "قسم بطاقات متاجر"},
-            "count": store_cards_count,
-            "enabled": store_cards_count > 0,
-        },
+            "key": str(row.get("key") or "").strip(),
+            "label": dict(row.get("label") or {}),
+            "count": int(service_counts.get(str(row.get("key") or "").strip(), 0) or 0),
+            "enabled": int(service_counts.get(str(row.get("key") or "").strip(), 0) or 0) > 0,
+        }
+        for row in SECTION_TABLE
+        if str(row.get("key") or "").strip()
     ]
     payload = {
         "enabled": bool(snapshot.get("enabled")),
