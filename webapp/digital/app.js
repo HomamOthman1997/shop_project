@@ -466,6 +466,10 @@ function normalizeGameCategoryName(name) {
   const raw = String(name || "-").trim();
   if (!raw) return "-";
   const normalized = raw.replace(/\s+/g, " ").trim();
+  const canonical = normalized
+    .replace(/^honou?r of kings?$/i, "Honor of Kings")
+    .replace(/^eafc\s*mobile$/i, "EAFC Mobile");
+  if (canonical !== normalized) return canonical;
   const regionTokens = [
     "global",
     "usa",
@@ -778,6 +782,7 @@ function renderCategories() {
           entry_kind: String(row1.entry_kind || "gift"),
           game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
           gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
+          variants: Array.isArray(row1.variants) ? row1.variants : [],
         })
       )
     );
@@ -790,6 +795,7 @@ function renderCategories() {
             entry_kind: String(row2.entry_kind || "gift"),
             game_ids: Array.isArray(row2.game_ids) ? row2.game_ids : [],
             gift_category_ids: Array.isArray(row2.gift_category_ids) ? row2.gift_category_ids : [],
+            variants: Array.isArray(row2.variants) ? row2.variants : [],
           })
         )
       );
