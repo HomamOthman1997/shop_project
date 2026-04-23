@@ -58,17 +58,7 @@ body.modal-open {
 }
 
 .welcome-banner {
-  background: var(--accent-gradient);
-  color: #fff;
-  border-radius: var(--radius-lg);
-  padding: 18px 20px;
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 15px;
-  font-weight: 600;
-  box-shadow: var(--shadow-accent);
+  display: none;
 }
 
 .welcome-icon {
@@ -231,15 +221,15 @@ input:focus {
 }
 
 .dept-tile {
-  min-height: 110px;
+  min-height: 124px;
   border-radius: var(--radius-lg);
-  border: 1px solid var(--line);
-  background: var(--panel);
+  border: 1px solid rgba(124, 58, 237, 0.45);
+  background: linear-gradient(145deg, #1a1140 0%, #2a1461 65%, #3a1c85 100%);
   color: var(--text);
   text-align: start;
   padding: 14px;
   display: grid;
-  align-content: end;
+  align-content: space-between;
   gap: 6px;
   box-shadow: var(--shadow);
   transition: 0.2s ease;
@@ -264,8 +254,52 @@ input:focus {
 }
 
 .dept-tile span {
-  color: var(--muted);
+  color: rgba(226, 232, 240, 0.9);
   font-size: 13px;
+}
+
+.dept-icon {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 17px;
+}
+
+.dept-tile.tone-games {
+  background: linear-gradient(145deg, #2e1065 0%, #4338ca 65%, #5b21b6 100%);
+}
+
+.dept-tile.tone-chat {
+  background: linear-gradient(145deg, #312e81 0%, #7c3aed 70%, #6d28d9 100%);
+}
+
+.dept-tile.tone-comms {
+  background: linear-gradient(145deg, #164e63 0%, #0f766e 65%, #155e75 100%);
+}
+
+.dept-tile.tone-net {
+  background: linear-gradient(145deg, #0f172a 0%, #1e293b 60%, #334155 100%);
+}
+
+.dept-tile.tone-tools {
+  background: linear-gradient(145deg, #3f1d2e 0%, #6b21a8 65%, #4c1d95 100%);
+}
+
+.dept-tile.tone-numbers {
+  background: linear-gradient(145deg, #3f1d2e 0%, #9d174d 65%, #831843 100%);
+}
+
+.dept-tile.tone-subs {
+  background: linear-gradient(145deg, #422006 0%, #78350f 65%, #92400e 100%);
+}
+
+.dept-tile.tone-store {
+  background: linear-gradient(145deg, #1e1b4b 0%, #312e81 65%, #3730a3 100%);
 }
 
 .category-list {

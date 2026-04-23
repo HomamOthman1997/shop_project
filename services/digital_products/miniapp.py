@@ -607,11 +607,33 @@ def _grouped_games(snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], dict
                 "name": family_label,
                 "group_key": _game_root_group_key(family_label),
                 "service_key": "games",
+                "count": 0,
+                "variants": [],
             }
             source_map[group_id] = set()
         source_map[group_id].add(game_id)
+        grouped[group_id]["count"] = int(grouped[group_id].get("count") or 0) + 1
+        grouped[group_id]["variants"].append(
+            {
+                "id": game_id,
+                "name": game_name,
+                "entry_kind": "game",
+                "game_ids": [game_id],
+                "gift_category_ids": [],
+            }
+        )
     game_group_order = {"popular": 0, "global": 1, "all": 2}
     games = list(grouped.values())
+    for row in games:
+        variants = [item for item in list(row.get("variants") or []) if isinstance(item, dict)]
+        uniq: dict[str, dict[str, Any]] = {}
+        for item in variants:
+            key = str(item.get("id") or "").strip()
+            if key and key not in uniq:
+                uniq[key] = item
+        ordered = list(uniq.values())
+        ordered.sort(key=lambda item: _natural_key(str(item.get("name") or "")))
+        row["variants"] = ordered
     games.sort(key=lambda row: (game_group_order.get(str(row.get("group_key")), 9), _natural_key(str(row.get("name") or ""))))
     return games, {gid: sorted(list(ids)) for gid, ids in source_map.items()}
 

@@ -128,6 +128,17 @@ const serviceLabelFallback = {
   store_cards: { en: "قسم بطاقات متاجر", ar: "قسم بطاقات متاجر" },
 };
 
+const serviceVisuals = {
+  games: { icon: "🎮", tone: "tone-games" },
+  chat_apps: { icon: "💬", tone: "tone-chat" },
+  communications_data: { icon: "📶", tone: "tone-comms" },
+  internet_providers: { icon: "🌐", tone: "tone-net" },
+  paid_apps: { icon: "🧰", tone: "tone-tools" },
+  numbers_services: { icon: "🔢", tone: "tone-numbers" },
+  paid_subscriptions: { icon: "⭐", tone: "tone-subs" },
+  store_cards: { icon: "🛍️", tone: "tone-store" },
+};
+
 const state = {
   lang: detectLang(),
   catalog: null,
@@ -259,8 +270,16 @@ function heading(text) {
   return h;
 }
 
-function card(title, meta, onClick, disabled = false) {
-  const el = button("dept-tile", "", onClick, disabled);
+function card(title, meta, onClick, disabled = false, opts = {}) {
+  const tone = String(opts.tone || "").trim();
+  const icon = String(opts.icon || "").trim();
+  const el = button(`dept-tile ${tone}`.trim(), "", onClick, disabled);
+  if (icon) {
+    const ico = document.createElement("span");
+    ico.className = "dept-icon";
+    ico.textContent = icon;
+    el.append(ico);
+  }
   const strong = document.createElement("strong");
   strong.textContent = title;
   const span = document.createElement("span");
@@ -611,10 +630,11 @@ function renderServices() {
   const grid = document.createElement("section");
   grid.className = "dept-grid";
   serviceRows().forEach((row) => {
+    const visual = serviceVisuals[String(row.key || "")] || {};
     const meta = row.enabled
       ? `${row.count} ${row.key === "games" ? t("packages") : t("categories")}`
       : t("unavailableShort");
-    grid.append(card(label(row.label), meta, () => enterService(row.key), !row.enabled));
+    grid.append(card(label(row.label), meta, () => enterService(row.key), !row.enabled, visual));
   });
   content.append(grid);
 }
@@ -622,161 +642,32 @@ function renderServices() {
 function buildCategoriesForService(key) {
   if (!state.catalog) return [];
   if (key === "games") {
-    const merged = new Map();
-    const mergeKey = (name) => String(name || "").toLowerCase().trim();
-    (state.catalog.games || []).forEach((row) => {
-      const name = normalizeGameCategoryName(String(row.name || "-"));
-      if (inferServiceForGameName(name) !== "games") return;
-      if (!isLikelyGameName(name)) return;
-      const keyName = mergeKey(name);
-      if (!merged.has(keyName)) {
-        merged.set(keyName, {
-          id: keyName,
-          name,
-          count: 0,
-          entry_kind: "game",
-          game_ids: [],
-          gift_category_ids: [],
-          variants: [],
-          meta_label: t("packages"),
-        });
-      }
-      const cur = merged.get(keyName);
-      cur.game_ids.push(String(row.id || ""));
-      cur.count += 1;
-      cur.variants.push({
-        id: String(row.id || ""),
-        name: String(row.name || "-"),
-        entry_kind: "game",
-        game_ids: [String(row.id || "")],
-        gift_category_ids: [],
-        meta_label: t("packages"),
-      });
-    });
-    (state.catalog.gift_categories || [])
-      .filter((row) => String(row.service_key || "") === "games")
-      .forEach((row) => {
-        const name = normalizeGameCategoryName(String(row.name || "-"));
-        if (!isLikelyGameName(name)) return;
-        const keyName = mergeKey(name);
-        if (!merged.has(keyName)) {
-          merged.set(keyName, {
-            id: keyName,
-            name,
-            count: 0,
-            entry_kind: "gift",
-            game_ids: [],
-            gift_category_ids: [],
-            variants: [],
-            meta_label: `${Number(row.count || 0)} ${t("products")}`,
-          });
-        }
-        const cur = merged.get(keyName);
-        cur.gift_category_ids.push(String(row.id || ""));
-        cur.count += Number(row.count || 0);
-        cur.variants.push({
-          id: String(row.id || ""),
+    const rows = (state.catalog.games || [])
+      .filter((row) => String(row.service_key || "games") === "games")
+      .map((row) => {
+        const variants = Array.isArray(row.variants)
+          ? row.variants.map((variant) => ({
+              id: String(variant.id || ""),
+              name: String(variant.name || "-"),
+              entry_kind: String(variant.entry_kind || "game"),
+              game_ids: Array.isArray(variant.game_ids) ? variant.game_ids : [String(variant.id || "")],
+              gift_category_ids: Array.isArray(variant.gift_category_ids) ? variant.gift_category_ids : [],
+              meta_label: t("packages"),
+            }))
+          : [];
+        const isGrouped = variants.length > 1;
+        const itemId = isGrouped ? String(row.id || "") : String(variants[0]?.id || row.id || "");
+        return {
+          id: itemId,
           name: String(row.name || "-"),
-          entry_kind: "gift",
-          game_ids: [],
-          gift_category_ids: [String(row.id || "")],
-          meta_label: `${Number(row.count || 0)} ${t("products")}`,
-        });
-      });
-    const rows = Array.from(merged.values()).map((row) => {
-      const hasGame = row.game_ids.length > 0;
-      const hasGift = row.gift_category_ids.length > 0;
-      let id = row.id;
-      let entry_kind = "gift";
-      const variantRows = Array.isArray(row.variants) ? row.variants : [];
-      const dedupVariants = [];
-      const seenVariant = new Set();
-      variantRows.forEach((v) => {
-        const key = `${String(v.entry_kind || "")}:${String(v.id || "")}`;
-        if (seenVariant.has(key)) return;
-        seenVariant.add(key);
-        dedupVariants.push(v);
-      });
-      dedupVariants.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-      if (hasGame && hasGift) {
-        entry_kind = "mixed";
-      } else if (hasGame) {
-        if (row.game_ids.length > 1) {
-          entry_kind = "mixed";
-        } else {
-          entry_kind = "game";
-          id = String(row.game_ids[0] || row.id);
-        }
-      }
-      if (dedupVariants.length > 1) {
-        entry_kind = "group";
-      } else if (dedupVariants.length === 1) {
-        id = String(dedupVariants[0].id || id);
-        entry_kind = String(dedupVariants[0].entry_kind || entry_kind);
-      }
-      return {
-        ...row,
-        id,
-        entry_kind,
-        variants: dedupVariants,
-        meta_label: entry_kind === "group" ? `${dedupVariants.length} ${t("categories")}` : hasGame && hasGift ? `${t("offers")}` : row.meta_label,
-      };
-    });
-    rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-    return rows;
-  }
-  if (key === "chat_apps") {
-    const merged = new Map();
-    const mergeKey = (name) => String(name || "").toLowerCase().trim();
-    (state.catalog.gift_categories || [])
-      .filter((row) => String(row.service_key || "") === "chat_apps")
-      .forEach((row) => {
-        const name = normalizeChatCategoryName(String(row.name || "-"));
-        const keyName = mergeKey(name);
-        if (!merged.has(keyName)) {
-          merged.set(keyName, {
-            id: keyName,
-            name,
-            count: 0,
-            entry_kind: "gift",
-            game_ids: [],
-            gift_category_ids: [],
-            meta_label: `${Number(row.count || 0)} ${t("products")}`,
-          });
-        }
-        const cur = merged.get(keyName);
-        cur.gift_category_ids.push(String(row.id || ""));
-        cur.count += Number(row.count || 0);
-      });
-    (state.catalog.games || []).forEach((row) => {
-      const name = normalizeChatCategoryName(String(row.name || "-"));
-      if (inferServiceForGameName(name) !== "chat_apps") return;
-      const keyName = mergeKey(name);
-      if (!merged.has(keyName)) {
-        merged.set(keyName, {
-          id: keyName,
-          name,
-          count: 0,
-          entry_kind: "game",
-          game_ids: [],
+          count: Number(row.count || variants.length || 0),
+          entry_kind: isGrouped ? "group" : "game",
+          game_ids: isGrouped ? variants.map((v) => String(v.id || "")).filter(Boolean) : [itemId],
           gift_category_ids: [],
-          meta_label: t("packages"),
-        });
-      }
-      const cur = merged.get(keyName);
-      cur.game_ids.push(String(row.id || ""));
-      cur.count += 1;
-    });
-    const rows = Array.from(merged.values()).map((row) => {
-      const hasGame = row.game_ids.length > 0;
-      const hasGift = row.gift_category_ids.length > 0;
-      const entry_kind = hasGame && hasGift ? "mixed" : hasGame ? "game" : "gift";
-      return {
-        ...row,
-        entry_kind,
-        meta_label: hasGame && hasGift ? `${t("offers")}` : row.meta_label,
-      };
-    });
+          variants,
+          meta_label: isGrouped ? `${variants.length} ${t("categories")}` : t("packages"),
+        };
+      });
     rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     return rows;
   }
@@ -797,6 +688,9 @@ function buildCategoriesForService(key) {
       name: String(row.name || "-"),
       count: Number(row.count || 0),
       entry_kind: "gift",
+      game_ids: [],
+      gift_category_ids: [String(row.id || "")],
+      variants: [],
       meta_label: `${Number(row.count || 0)} ${t("products")}`,
     }));
 }
