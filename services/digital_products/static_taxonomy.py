@@ -12,8 +12,10 @@ CHAT_FAMILY_ALIASES: dict[str, tuple[str, str]] = {
     "ahlan chat": ("ahlan_chat", "Ahlan Chat"),
     "amar chat": ("amar_chat", "Amar Chat"),
     "ayumi chat": ("ayumi_chat", "Ayumi Chat"),
+    "ayome chat": ("ayumi_chat", "Ayumi Chat"),
     "azal live": ("azal_live", "Azal Live"),
     "bella chat": ("bella_chat", "Bella Chat"),
+    "billa chat": ("bella_chat", "Bella Chat"),
     "bigo live": ("bigo_live", "Bigo Live"),
     "bigo live diamonds": ("bigo_live", "Bigo Live"),
     "binmo chat": ("binmo_chat", "Binmo Chat"),
@@ -21,9 +23,11 @@ CHAT_FAMILY_ALIASES: dict[str, tuple[str, str]] = {
     "boli": ("boli", "Boli"),
     "chamet": ("chamet", "Chamet"),
     "coco live": ("coco_live", "Coco Live"),
+    "cocco live": ("coco_live", "Coco Live"),
     "discord": ("discord", "Discord"),
     "ditto live": ("ditto_live", "Ditto Live"),
     "fancy life": ("fancy_life", "Fancy Life"),
+    "fancy live": ("fancy_life", "Fancy Life"),
     "fofo chat": ("fofo_chat", "Fofo Chat"),
     "funup": ("funup", "FunUp"),
     "gimme live": ("gimme_live", "Gimme Live"),
@@ -34,6 +38,7 @@ CHAT_FAMILY_ALIASES: dict[str, tuple[str, str]] = {
     "hati": ("hati", "Hati"),
     "hawa chat": ("hawa_chat", "Hawa Chat"),
     "haya chat": ("haya_chat", "Haya Chat"),
+    "hiya chat": ("haya_chat", "Haya Chat"),
     "hayuki": ("hayuki", "Hayuki"),
     "higo": ("higo", "Higo"),
     "hiyoo chat": ("hiyoo_chat", "Hiyoo Chat"),
@@ -59,6 +64,7 @@ CHAT_FAMILY_ALIASES: dict[str, tuple[str, str]] = {
     "mr7ba chat": ("mr7ba_chat", "Mr7ba Chat"),
     "nabd": ("nabd", "Nabd"),
     "ohla chat": ("ohla_chat", "Ohla Chat"),
+    "اوهلا شات": ("ohla_chat", "Ohla Chat"),
     "olmet chat": ("olmet_chat", "Olmet Chat"),
     "oloo live": ("oloo_live", "Oloo Live"),
     "opa live": ("opa_live", "Opa Live"),
@@ -75,6 +81,7 @@ CHAT_FAMILY_ALIASES: dict[str, tuple[str, str]] = {
     "super live": ("super_live", "Super Live"),
     "tada chat": ("tada_chat", "Tada Chat"),
     "taka life": ("taka_life", "Taka Life"),
+    "taka live": ("taka_life", "Taka Life"),
     "talk talk": ("talk_talk", "Talk Talk"),
     "tami chat": ("tami_chat", "Tami Chat"),
     "tango live": ("tango_live", "Tango Live"),
@@ -89,12 +96,31 @@ CHAT_FAMILY_ALIASES: dict[str, tuple[str, str]] = {
     "yoparti": ("yoparti", "YoParti"),
     "yoyo chat": ("yoyo_chat", "Yoyo Chat"),
     "yudo": ("yudo", "Yudo"),
-    "دانا شات": ("dana_chat", "دانا شات"),
+    "دانا شات": ("dana_chat", "Dana Chat"),
 }
 
 _CHAT_ALIAS_TERMS: tuple[str, ...] = tuple(CHAT_FAMILY_ALIASES.keys())
 
 SERVICE_RULES: list[tuple[str, tuple[str, ...]]] = [
+    (
+        "social_services",
+        (
+            "followers",
+            "follow",
+            "متابعين",
+            "مشاهدات",
+            "لايكات",
+            "تفاعل",
+            "خدمات تيك توك",
+            "خدمات الفيسبوك",
+            "خدمات انستغرام",
+            "خدمات تلجرام",
+            "خدمات تلغرام",
+            "خدمات كيك",
+            "خدمات وتس اب",
+            "خدمات يوتيوب",
+        ),
+    ),
     (
         "paid_apps",
         (
@@ -428,6 +454,15 @@ def detect_service_key_strict(text: str | None) -> str | None:
     n = norm_text(text)
     if not n:
         return None
+    if any(token in n for token in ("ارقام", "رقم", "numbers", "number", "otp", "sms", "virtual number")):
+        return "numbers_services"
+    for service_key, rows in CUSTOM_FAMILY_TABLE.items():
+        for row in rows:
+            aliases = [str(alias or "").strip().lower() for alias in tuple(row.get("aliases") or ()) if str(alias or "").strip()]
+            if any(n == alias for alias in aliases):
+                return service_key
+            if any(re.search(rf"(^|[^a-z0-9\u0600-\u06ff]){re.escape(alias)}([^a-z0-9\u0600-\u06ff]|$)", n) for alias in aliases):
+                return service_key
     if any(token in n for token in _CHAT_ALIAS_TERMS):
         return "chat_apps"
     for key, tokens in CUSTOM_SERVICE_RULES:
@@ -451,6 +486,13 @@ def guess_family(service_key: str, category_name: str, sample_names: list[str] |
             if token in text:
                 return mapped
     rules = list(FAMILY_RULES.get(service_key, []))
+    exact_candidates = [clean_family_text(category_name), *[clean_family_text(name) for name in sample_names[:3]]]
+    for candidate in exact_candidates:
+        if not candidate:
+            continue
+        for family_key, label, tokens in rules:
+            if any(candidate == clean_family_text(token) for token in tokens):
+                return family_key, label
     for family_key, label, tokens in rules:
         if any(token in text for token in tokens):
             return family_key, label

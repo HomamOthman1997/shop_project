@@ -17,10 +17,14 @@ from config import settings
 from database.digital_products_config_repo import get_digital_products_markup_percent
 from database.mongo import db
 from services.digital_products.catalog_service import get_catalog_snapshot, get_game_topups
-from services.digital_products.custom_catalog import SECTION_TABLE
+from services.digital_products.custom_catalog import FAMILY_TABLE as CUSTOM_FAMILY_TABLE, SECTION_TABLE
+from services.numbers.core.session_manager import SessionManager
 from services.digital_products.static_taxonomy import (
+    REGION_TOKENS,
+    clean_family_text,
     detect_service_key,
     guess_family as taxonomy_guess_family,
+    norm_text as taxonomy_norm_text,
     provider_label as taxonomy_provider_label,
 )
 
@@ -53,6 +57,114 @@ _GAME_GROUP_OVERRIDES: dict[str, dict[str, tuple[str, ...]]] = {
 _INVALID_DISPLAY_NAMES = {"", "-", "null", "none", "n/a", "na", "undefined"}
 _HIDDEN_GAME_VARIANT_IDS = {"valorant", "league_of_legends_instant", "onepunchworld"}
 _CATALOG_PAYLOAD_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+_REGION_LABEL_MAP: dict[str, str] = {
+    "my": "Malaysia",
+    "sg": "Singapore",
+    "sgmy": "SGMY",
+    "ph": "Philippines",
+    "kh": "Cambodia",
+    "vn": "Vietnam",
+    "ksa": "KSA",
+    "uae": "UAE",
+    "usa": "USA",
+    "us": "USA",
+    "eu": "Europe",
+    "na": "North America",
+    "naeu": "NAEU",
+    "latam": "LATAM",
+    "mena": "MENA",
+    "sea": "SEA",
+    "global": "Global",
+    "middle east": "Middle East",
+    "hong kong": "Hong Kong",
+    "german": "Germany",
+    "الماني": "Germany",
+    "اماراتي": "UAE",
+    "امريكي": "USA",
+    "اوربي": "Europe",
+    "سعودي": "KSA",
+    "كندي": "Canada",
+    "تركية": "Turkey",
+    "تركي": "Turkey",
+    "بطاقات عالمي": "Global",
+    "عالمي": "Global",
+    "mobile": "Global",
+    "اضافات": "Add-ons",
+    "memberships": "Memberships",
+    "special": "Special",
+    "limited promo": "Limited Promo",
+    "exclusive": "Exclusive",
+    "adventure": "Adventure",
+    "infinite": "Infinite",
+    "garena": "Garena",
+}
+_GAME_ID_REGION_SUFFIXES: dict[str, str] = {
+    "bd": "Bangladesh",
+    "br": "Brazil",
+    "eu": "Europe",
+    "global": "Global",
+    "id": "Indonesia",
+    "latam": "LATAM",
+    "me": "Middle East",
+    "sg": "Singapore",
+    "sgmy": "SGMY",
+    "tw": "Taiwan",
+    "th": "Thailand",
+    "vn": "Vietnam",
+    "kh": "Cambodia",
+    "ca": "Canada",
+    "hk": "Hong Kong",
+    "my": "Malaysia",
+    "mx": "Mexico",
+    "ph": "Philippines",
+    "us": "USA",
+    "tr": "Turkey",
+    "ru": "Russia",
+    "europa": "Europe",
+}
+_KNOWN_REGION_LABELS: set[str] = {
+    "general",
+    "global",
+    "usa",
+    "uk",
+    "ksa",
+    "uae",
+    "europe",
+    "north america",
+    "naeu",
+    "latam",
+    "mena",
+    "sea",
+    "middle east",
+    "hong kong",
+    "germany",
+    "turkey",
+    "canada",
+    "brazil",
+    "bangladesh",
+    "indonesia",
+    "taiwan",
+    "thailand",
+    "vietnam",
+    "singapore",
+    "malaysia",
+    "philippines",
+    "cambodia",
+    "mexico",
+    "japan",
+    "korea",
+    "russia",
+}
+_KNOWN_OPTION_LABELS: set[str] = {
+    "add-ons",
+    "memberships",
+    "special",
+    "limited promo",
+    "exclusive",
+    "adventure",
+    "infinite",
+    "garena",
+}
 
 
 def _money(value: Any) -> float:
@@ -88,7 +200,10 @@ def _is_valid_gift_row(row: dict[str, Any]) -> bool:
     name = str(row.get("clean_name") or row.get("name") or "").strip()
     if _is_invalid_display_name(name):
         return False
-    return _money(row.get("price") or 0.0) > 0
+    try:
+        return float(row.get("price") or 0.0) > 0
+    except Exception:
+        return False
 
 
 def _is_pubg_game(game_id: str | None, game_name: str | None = None) -> bool:
@@ -709,8 +824,9 @@ def _try_verify_init_data(init_data: str) -> dict[str, Any] | None:
 async def _catalog_payload() -> dict[str, Any]:
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
-    categories, _gift_source_map = _grouped_gift_categories(snapshot)
-    grouped_games, _game_source_map = _grouped_games(snapshot)
+    categories, gift_source_map = _grouped_gift_categories(snapshot)
+    grouped_games, game_source_map = _grouped_games(snapshot)
+    service_tree = _build_service_tree(snapshot, grouped_games, game_source_map, categories, gift_source_map)
     gift_groups = [
         {"key": key, "label": _gift_group_label(key)}
         for key in ("popular", "gaming", "apps", "other")
@@ -726,6 +842,7 @@ async def _catalog_payload() -> dict[str, Any]:
     real_games_count = sum(1 for row in game_rows if _gift_service_key(str(row.get("name") or "")) == "games")
     chat_apps_count = sum(1 for row in categories if str(row.get("service_key")) == "chat_apps") + chat_games_count
     paid_apps_count = sum(1 for row in categories if str(row.get("service_key")) == "paid_apps")
+    social_services_count = sum(1 for row in categories if str(row.get("service_key")) == "social_services")
     internet_providers_count = sum(1 for row in categories if str(row.get("service_key")) == "internet_providers")
     paid_subscriptions_count = sum(1 for row in categories if str(row.get("service_key")) == "paid_subscriptions")
     store_cards_count = sum(1 for row in categories if str(row.get("service_key")) == "store_cards")
@@ -749,6 +866,7 @@ async def _catalog_payload() -> dict[str, Any]:
     service_counts = {
         "games": games_count,
         "chat_apps": chat_apps_count,
+        "social_services": social_services_count,
         "communications_data": 2 if comm_enabled else 0,
         "internet_providers": internet_providers_count,
         "paid_apps": paid_apps_count,
@@ -774,6 +892,7 @@ async def _catalog_payload() -> dict[str, Any]:
         "gift_groups": gift_groups,
         "games": grouped_games[:300],
         "game_groups": game_groups,
+        "service_tree": service_tree,
     }
     _CATALOG_PAYLOAD_CACHE["data"] = dict(payload)
     return payload
@@ -838,11 +957,12 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
         if unit_price <= 0:
             continue
         offers = [row for row in list(item.get("provider_offers") or []) if isinstance(row, dict)]
-        za3em_offers = [
-            row
-            for row in offers
-            if str(row.get("provider") or "").strip().lower() == "za3em" and bool(row.get("available"))
-        ]
+        za3em_offers = []
+        for row in offers:
+            if str(row.get("provider") or "").strip().lower() != "za3em":
+                continue
+            if bool(row.get("available")) or str(row.get("source") or "").strip().lower() == "amount":
+                za3em_offers.append(row)
         za3em_offers.sort(key=lambda row: _money(row.get("price") or 0.0) if _money(row.get("price") or 0.0) > 0 else 9999999)
         za_offer = za3em_offers[0] if za3em_offers else {}
         za_params = [str(v).strip() for v in list(za_offer.get("za3em_params") or []) if str(v).strip()]
@@ -1084,8 +1204,13 @@ async def create_selection(request: web.Request) -> web.Response:
     return web.json_response({"token": token})
 
 
+async def _cleanup_app(_app: web.Application) -> None:
+    await SessionManager.close()
+
+
 def create_app() -> web.Application:
     app = web.Application()
+    app.on_cleanup.append(_cleanup_app)
     app.router.add_get("/mini/digital", index)
     app.router.add_get("/mini/digital/static/{name}", static_file)
     app.router.add_get("/mini/digital/api/catalog", catalog)
@@ -1109,3 +1234,304 @@ async def start_miniapp_server() -> tuple[web.AppRunner, web.TCPSite] | None:
     )
     await site.start()
     return runner, site
+def _title_case_region(value: str) -> str:
+    text = " ".join(str(value or "").strip().split()).strip("()[]{}")
+    if not text:
+        return ""
+    mapped = _REGION_LABEL_MAP.get(text.lower())
+    if mapped:
+        return mapped
+    upper_map = {"usa", "us", "uk", "eu", "mena", "na", "sa", "latam", "ksa", "uae", "sg", "my", "sgmy", "ph", "kh", "vn", "naeu"}
+    words = []
+    for part in text.split():
+        p = part.strip()
+        mapped_part = _REGION_LABEL_MAP.get(p.lower())
+        if mapped_part:
+            words.append(mapped_part)
+        else:
+            words.append(p.upper() if p.lower() in upper_map else p.capitalize())
+    return " ".join(words)
+
+
+def _extract_region_label(value: str, family_label: str = "") -> str:
+    raw = " ".join(str(value or "").strip().split())
+    if not raw:
+        return "General"
+    normalized = taxonomy_norm_text(raw)
+    family_base = clean_family_text(family_label)
+    text_base = clean_family_text(raw)
+    if family_base and text_base == family_base:
+        paren = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", raw.strip(), flags=re.IGNORECASE)
+        if paren:
+            region = paren.group(2).strip()
+            return _title_case_region(region) or "General"
+        escaped = [re.escape(token) for token in REGION_TOKENS]
+        suffix = re.match(rf"^(.*?)(?:\s*[-/|]\s*|\s+)({'|'.join(escaped)})$", normalized, flags=re.IGNORECASE)
+        if suffix:
+            return _title_case_region(str(suffix.group(2) or "").strip()) or "General"
+        return "General"
+    paren = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", raw.strip(), flags=re.IGNORECASE)
+    if paren and clean_family_text(paren.group(1)) == family_base:
+        return _title_case_region(paren.group(2)) or "General"
+    escaped = [re.escape(token) for token in REGION_TOKENS]
+    suffix = re.match(rf"^(.*?)(?:\s*[-/|]\s*|\s+)({'|'.join(escaped)})$", normalized, flags=re.IGNORECASE)
+    if suffix and clean_family_text(suffix.group(1)) == family_base:
+        return _title_case_region(str(suffix.group(2) or "").strip()) or "General"
+    if family_base and normalized != family_base:
+        tail = raw.strip()
+        prefix_patterns = [
+            rf"^{re.escape(family_label)}\s*[-/|]?\s*",
+            rf"^{re.escape(clean_family_text(family_label))}\s*[-/|]?\s*",
+        ]
+        for pattern in prefix_patterns:
+            tail = re.sub(pattern, "", tail, flags=re.IGNORECASE).strip()
+        return _title_case_region(tail) or "General"
+    return "General"
+
+
+def _family_aliases(service_key: str, family_key: str, family_label: str) -> list[str]:
+    aliases: list[str] = []
+    for row in CUSTOM_FAMILY_TABLE.get(service_key, ()):
+        if str(row.get("key") or "").strip() == family_key:
+            aliases.extend(str(alias or "").strip() for alias in tuple(row.get("aliases") or ()) if str(alias or "").strip())
+            break
+    aliases.append(family_label)
+    aliases.append(clean_family_text(family_label))
+    uniq: list[str] = []
+    seen: set[str] = set()
+    for alias in aliases:
+        key = taxonomy_norm_text(alias)
+        if key and key not in seen:
+            seen.add(key)
+            uniq.append(alias)
+    return uniq
+
+
+def _resolve_region_label(service_key: str, family_key: str, family_label: str, source_text: str, sample_names: list[str] | None = None) -> str:
+    if service_key in {"chat_apps", "social_services", "communications_data", "numbers_services", "paid_apps", "paid_subscriptions"}:
+        return "General"
+    sample_names = list(sample_names or [])
+    guessed_key, _ = _guess_family(service_key, source_text, sample_names)
+    raw = " ".join(str(source_text or "").strip().split())
+    if guessed_key != family_key:
+        return _extract_region_label(raw, family_label)
+    aliases = _family_aliases(service_key, family_key, family_label)
+    remainder = raw
+    for alias in aliases:
+        remainder = re.sub(rf"^{re.escape(alias)}\s*[-/|]?\s*", "", remainder, flags=re.IGNORECASE).strip()
+        remainder = re.sub(rf"\b{re.escape(alias)}\b", " ", remainder, flags=re.IGNORECASE).strip()
+    remainder = re.sub(r"\b(gift\s*cards?|giftcards?|vouchers?|voucher|cards?)\b", " ", remainder, flags=re.IGNORECASE).strip()
+    remainder = re.sub(r"\s+", " ", remainder).strip(" -|/")
+    if not remainder:
+        return "General"
+    if taxonomy_norm_text(remainder) in {taxonomy_norm_text(alias) for alias in aliases if alias}:
+        return "General"
+    remainder_norm = taxonomy_norm_text(remainder)
+    if remainder_norm in {"garena sgmy", "global garena sgmy", "mobile garena sgmy"}:
+        return "SGMY"
+    return _title_case_region(remainder)
+
+
+def _region_from_game_id(game_id: str, family_label: str, fallback_label: str) -> str:
+    gid = taxonomy_norm_text(game_id).strip()
+    if not gid:
+        return fallback_label
+    parts = [part for part in re.split(r"[^a-z0-9]+", gid) if part]
+    for token in reversed(parts):
+        mapped = _GAME_ID_REGION_SUFFIXES.get(token)
+        if mapped:
+            return mapped
+    if fallback_label == "General":
+        return "Global"
+    return fallback_label
+
+
+def _variant_kind(service_key: str, label: str) -> str:
+    if service_key in {"chat_apps", "social_services", "communications_data", "numbers_services", "paid_apps", "paid_subscriptions"}:
+        return "general"
+    n = taxonomy_norm_text(label)
+    if n in _KNOWN_OPTION_LABELS:
+        return "option"
+    if n in _KNOWN_REGION_LABELS:
+        return "region"
+    if n in {taxonomy_norm_text(v) for v in _REGION_LABEL_MAP.values()}:
+        return "option" if n in _KNOWN_OPTION_LABELS else "region"
+    return "option"
+
+
+def _merge_named_variant(variants: list[dict[str, Any]], source_name: str, target_name: str) -> list[dict[str, Any]]:
+    source = next((row for row in variants if str(row.get("name") or "") == source_name), None)
+    target = next((row for row in variants if str(row.get("name") or "") == target_name), None)
+    if not source or not target or source is target:
+        return variants
+    target["game_ids"] = sorted(set(list(target.get("game_ids") or []) + list(source.get("game_ids") or [])))
+    target["gift_category_ids"] = sorted(set(list(target.get("gift_category_ids") or []) + list(source.get("gift_category_ids") or [])))
+    if str(target.get("entry_kind") or "") != str(source.get("entry_kind") or ""):
+        target["entry_kind"] = "mixed"
+    if str(target.get("variant_kind") or "") != str(source.get("variant_kind") or ""):
+        target["variant_kind"] = "option"
+    return [row for row in variants if row is not source]
+
+
+def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, Any]], game_source_map: dict[str, list[str]], grouped_gifts: list[dict[str, Any]], gift_source_map: dict[str, list[str]]) -> list[dict[str, Any]]:
+    products_by_category = dict(snapshot.get("products_by_category") or {})
+    gift_categories_by_id = {
+        str(row.get("id") or "").strip(): row
+        for row in list(snapshot.get("gift_categories") or [])
+        if isinstance(row, dict) and str(row.get("id") or "").strip()
+    }
+    tree_by_service: dict[str, dict[str, Any]] = {}
+
+    def ensure_service(service_key: str) -> dict[str, Any]:
+        existing = tree_by_service.get(service_key)
+        if existing:
+            return existing
+        label = next((dict(row.get("label") or {}) for row in SECTION_TABLE if str(row.get("key") or "").strip() == service_key), {"en": service_key, "ar": service_key})
+        existing = {"key": service_key, "label": label, "families": []}
+        tree_by_service[service_key] = existing
+        return existing
+
+    def ensure_family(service_key: str, family_key: str, family_label: str) -> dict[str, Any]:
+        service_node = ensure_service(service_key)
+        for row in service_node["families"]:
+            if str(row.get("family_key") or "") == family_key:
+                return row
+        row = {
+            "id": f"tree:{service_key}:{family_key}",
+            "family_key": family_key,
+            "name": family_label,
+            "entry_kind": "group",
+            "variants": [],
+            "count": 0,
+            "meta_label": "",
+        }
+        service_node["families"].append(row)
+        return row
+
+    def upsert_region(parent: dict[str, Any], region_label: str, payload: dict[str, Any]) -> None:
+        label = region_label or "General"
+        existing = None
+        for row in parent["variants"]:
+            if str(row.get("name") or "") == label:
+                existing = row
+                break
+        if not existing:
+            existing = {
+                "id": str(payload.get("id") or ""),
+                "name": label,
+                "entry_kind": str(payload.get("entry_kind") or "gift"),
+                "game_ids": list(payload.get("game_ids") or []),
+                "gift_category_ids": list(payload.get("gift_category_ids") or []),
+                "meta_label": "",
+                "variant_kind": str(payload.get("variant_kind") or "general"),
+            }
+            parent["variants"].append(existing)
+        else:
+            existing_kind = str(existing.get("entry_kind") or "gift")
+            incoming_kind = str(payload.get("entry_kind") or "gift")
+            if existing_kind != incoming_kind:
+                existing["entry_kind"] = "mixed"
+            if str(existing.get("variant_kind") or "") != str(payload.get("variant_kind") or ""):
+                existing["variant_kind"] = "option"
+            existing["game_ids"] = sorted(set(list(existing.get("game_ids") or []) + list(payload.get("game_ids") or [])))
+            existing["gift_category_ids"] = sorted(set(list(existing.get("gift_category_ids") or []) + list(payload.get("gift_category_ids") or [])))
+            if not existing.get("id"):
+                existing["id"] = str(payload.get("id") or "")
+
+    for group in grouped_games:
+        family_key = str(group.get("id") or "").split(":")[-1]
+        family_label = str(group.get("name") or "-")
+        parent = ensure_family("games", family_key, family_label)
+        for variant in list(group.get("variants") or []):
+            game_name = str(variant.get("name") or "").strip()
+            region_label = _resolve_region_label("games", family_key, family_label, game_name, [game_name])
+            region_label = _region_from_game_id(str(variant.get("id") or ""), family_label, region_label)
+            upsert_region(
+                parent,
+                region_label,
+                {
+                    "id": str(variant.get("id") or ""),
+                    "entry_kind": "game",
+                    "game_ids": list(variant.get("game_ids") or [str(variant.get("id") or "")]),
+                    "gift_category_ids": [],
+                    "variant_kind": _variant_kind("games", region_label),
+                },
+            )
+
+    for group in grouped_gifts:
+        service_key = str(group.get("service_key") or "").strip()
+        if not service_key:
+            continue
+        family_key = str(group.get("id") or "").split(":")[-1]
+        family_label = str(group.get("name") or "-")
+        parent = ensure_family(service_key, family_key, family_label)
+        for source_id in list(gift_source_map.get(str(group.get("id") or ""), []) or []):
+            category_row = gift_categories_by_id.get(str(source_id)) or {}
+            category_name = str(category_row.get("clean_name") or category_row.get("name") or family_label).strip()
+            product_rows = [row for row in list(products_by_category.get(str(source_id)) or []) if isinstance(row, dict) and _is_valid_gift_row(row)]
+            names = [str(row.get("clean_name") or row.get("name") or "").strip() for row in product_rows if str(row.get("clean_name") or row.get("name") or "").strip()]
+            region_label = _resolve_region_label(service_key, family_key, family_label, category_name, names)
+            upsert_region(
+                parent,
+                region_label,
+                {
+                    "id": str(source_id),
+                    "entry_kind": "gift",
+                    "game_ids": [],
+                    "gift_category_ids": [str(source_id)],
+                    "variant_kind": _variant_kind(service_key, region_label),
+                },
+            )
+
+    service_rows = []
+    for section in SECTION_TABLE:
+        service_key = str(section.get("key") or "").strip()
+        if not service_key:
+            continue
+        node = tree_by_service.get(service_key)
+        if not node:
+            service_rows.append({"key": service_key, "label": dict(section.get("label") or {}), "families": []})
+            continue
+        families = list(node.get("families") or [])
+        for family in families:
+            variants = list(family.get("variants") or [])
+            if any(str(row.get("name") or "") == "General" for row in variants) and any(str(row.get("name") or "") == "Global" for row in variants):
+                variants = _merge_named_variant(variants, "General", "Global")
+            has_option = any(str(row.get("variant_kind") or "") == "option" for row in variants)
+            if not has_option:
+                has_global = any(str(row.get("name") or "") == "Global" for row in variants)
+                for row in variants:
+                    if str(row.get("name") or "") == "General":
+                        row["name"] = "Global" if not has_global else "General"
+                        has_global = True
+                if has_global:
+                    dedup: dict[str, dict[str, Any]] = {}
+                    for row in variants:
+                        if str(row.get("name") or "") == "General":
+                            continue
+                        key = str(row.get("name") or "")
+                        existing = dedup.get(key)
+                        if not existing:
+                            dedup[key] = row
+                            continue
+                        existing["game_ids"] = sorted(set(list(existing.get("game_ids") or []) + list(row.get("game_ids") or [])))
+                        existing["gift_category_ids"] = sorted(set(list(existing.get("gift_category_ids") or []) + list(row.get("gift_category_ids") or [])))
+                        if str(existing.get("entry_kind") or "") != str(row.get("entry_kind") or ""):
+                            existing["entry_kind"] = "mixed"
+                    variants = list(dedup.values())
+            variants.sort(key=lambda row: (0 if str(row.get("name") or "") == "General" else 1, _natural_key(str(row.get("name") or ""))))
+            family["variants"] = variants
+            family["count"] = len(variants)
+            if len(variants) == 1:
+                family["selection_kind"] = "general"
+            else:
+                family["selection_kind"] = "option" if has_option else "region"
+            if len(variants) == 1:
+                family["meta_label"] = "1 offer"
+            elif has_option:
+                family["meta_label"] = f"{len(variants)} options" if len(variants) != 1 else "1 option"
+            else:
+                family["meta_label"] = f"{len(variants)} regions" if len(variants) != 1 else "1 region"
+        families.sort(key=lambda row: _natural_key(str(row.get("name") or "")))
+        service_rows.append({"key": service_key, "label": dict(section.get("label") or {}), "families": families})
+    return service_rows

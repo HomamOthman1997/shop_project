@@ -7,6 +7,7 @@ if (tg) {
 const SERVICE_KEYS = [
   "games",
   "chat_apps",
+  "social_services",
   "communications_data",
   "internet_providers",
   "paid_apps",
@@ -52,6 +53,12 @@ const copy = {
     gameFinderCta: "Search Games",
     pickGame: "Select a game first.",
     pickCountry: "Select country/region",
+    regions: "regions",
+    region: "region",
+    optionsWord: "options",
+    optionWord: "option",
+    offerWord: "offer",
+    offersWord: "offers",
   },
   ar: {
     title: "المتجر الرقمي",
@@ -89,6 +96,12 @@ const copy = {
     gameFinderCta: "بحث الألعاب",
     pickGame: "اختر لعبة أولاً.",
     pickCountry: "اختر الدولة/المنطقة",
+    regions: "مناطق",
+    region: "منطقة",
+    optionsWord: "خيارات",
+    optionWord: "خيار",
+    offerWord: "عرض",
+    offersWord: "عروض",
   },
 };
 
@@ -108,6 +121,7 @@ const extraCopy = {
     giftPurchaseData: "Enter purchase data",
     priceByQuantity: "By quantity",
     creditsRange: "Credits range",
+    pickOption: "Select option",
   },
   ar: {
     all: "\u0627\u0644\u0643\u0644",
@@ -124,12 +138,14 @@ const extraCopy = {
     giftPurchaseData: "\u0623\u062f\u062e\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0634\u0631\u0627\u0621",
     priceByQuantity: "\u062d\u0633\u0628 \u0627\u0644\u0643\u0645\u064a\u0629",
     creditsRange: "\u0645\u062f\u0649 \u0627\u0644\u0643\u0631\u064a\u062f\u062a",
+    pickOption: "\u0627\u062e\u062a\u0631 \u0627\u0644\u0646\u0648\u0639",
   },
 };
 
 const serviceLabelFallback = {
   games: { en: "قسم الألعاب", ar: "قسم الألعاب" },
   chat_apps: { en: "قسم تطبيقات الدردشة", ar: "قسم تطبيقات الدردشة" },
+  social_services: { en: "قسم خدمات المتابعين", ar: "قسم خدمات المتابعين" },
   communications_data: { en: "قسم الاتصالات والبيانات", ar: "قسم الاتصالات والبيانات" },
   internet_providers: { en: "مزودات الإنترنت", ar: "مزودات الإنترنت" },
   paid_apps: { en: "تطبيقات مدفوعة", ar: "تطبيقات مدفوعة" },
@@ -141,6 +157,7 @@ const serviceLabelFallback = {
 const serviceVisuals = {
   games: { icon: "🎮", tone: "tone-games" },
   chat_apps: { icon: "💬", tone: "tone-chat" },
+  social_services: { icon: "📈", tone: "tone-chat" },
   communications_data: { icon: "📶", tone: "tone-comms" },
   internet_providers: { icon: "🌐", tone: "tone-net" },
   paid_apps: { icon: "🧰", tone: "tone-tools" },
@@ -669,85 +686,43 @@ function renderServices() {
 
 function buildCategoriesForService(key) {
   if (!state.catalog) return [];
-  if (key === "games") {
-    const merged = new Map();
-    const upsert = (title, variant) => {
-      const normalizedTitle = normalizeGameCategoryName(title || "-");
-      const mapKey = String(normalizedTitle || title || "-").toLowerCase();
-      const existing =
-        merged.get(mapKey) ||
-        {
-          id: `grp:ui:${mapKey || "game"}`,
-          name: normalizedTitle || String(title || "-"),
-          count: 0,
-          entry_kind: "group",
-          game_ids: [],
-          gift_category_ids: [],
-          variants: [],
-          meta_label: "",
-        };
-      existing.variants.push(variant);
-      existing.count = Number(existing.count || 0) + 1;
-      existing.game_ids = Array.from(
-        new Set([...(existing.game_ids || []), ...(Array.isArray(variant.game_ids) ? variant.game_ids : [])].filter(Boolean))
-      );
-      existing.gift_category_ids = Array.from(
-        new Set(
-          [...(existing.gift_category_ids || []), ...(Array.isArray(variant.gift_category_ids) ? variant.gift_category_ids : [])].filter(Boolean)
-        )
-      );
-      merged.set(mapKey, existing);
-    };
-
-    (state.catalog.games || [])
-      .filter((row) => String(row.service_key || "games") === "games")
-      .forEach((row) => {
-        const title = String(row.name || "-");
-        const variants = Array.isArray(row.variants) ? row.variants : [];
-        if (!variants.length) return;
-        variants.forEach((variant) => {
-          upsert(title, {
+  const localizedMetaLabel = (selectionKind, count) => {
+    const total = Math.max(0, Number(count || 0));
+    if (selectionKind === "general") {
+      return `${total} ${total === 1 ? t("offerWord") : t("offersWord")}`;
+    }
+    if (selectionKind === "option") {
+      return `${total} ${total === 1 ? t("optionWord") : t("optionsWord")}`;
+    }
+    return `${total} ${total === 1 ? t("region") : t("regions")}`;
+  };
+  const serviceTree = Array.isArray(state.catalog.service_tree) ? state.catalog.service_tree : [];
+  const treeNode = serviceTree.find((row) => String(row.key || "") === key);
+  if (treeNode && Array.isArray(treeNode.families)) {
+    const rows = treeNode.families.map((row) => ({
+      id: String(row.id || ""),
+      name: String(row.name || "-"),
+      count: Number(row.count || (Array.isArray(row.variants) ? row.variants.length : 0) || 0),
+      entry_kind: String(row.entry_kind || "group"),
+      selection_kind: String(row.selection_kind || "region"),
+      game_ids: Array.isArray(row.game_ids) ? row.game_ids : [],
+      gift_category_ids: Array.isArray(row.gift_category_ids) ? row.gift_category_ids : [],
+      variants: Array.isArray(row.variants)
+        ? row.variants.map((variant) => ({
             id: String(variant.id || ""),
             name: String(variant.name || "-"),
-            entry_kind: String(variant.entry_kind || "game"),
-            game_ids: Array.isArray(variant.game_ids) ? variant.game_ids : [String(variant.id || "")],
+            entry_kind: String(variant.entry_kind || "gift"),
+            variant_kind: String(variant.variant_kind || "general"),
+            game_ids: Array.isArray(variant.game_ids) ? variant.game_ids : [],
             gift_category_ids: Array.isArray(variant.gift_category_ids) ? variant.gift_category_ids : [],
-            meta_label: t("packages"),
-          });
-        });
-      });
-
-    (state.catalog.gift_categories || [])
-      .filter((row) => String(row.service_key || "") === "games")
-      .forEach((row) => {
-        const rawName = String(row.name || "-");
-        if (!isLikelyGameName(rawName)) return;
-        upsert(rawName, {
-          id: String(row.id || ""),
-          name: rawName,
-          entry_kind: "gift",
-          game_ids: [],
-          gift_category_ids: [String(row.id || "")],
-          meta_label: `${Number(row.count || 0)} ${t("products")}`,
-        });
-      });
-
-    const rows = Array.from(merged.values()).map((row) => {
-      const uniq = new Map();
-      (row.variants || []).forEach((variant) => {
-        const key = `${String(variant.entry_kind || "")}:${String(variant.id || "")}`;
-        if (!uniq.has(key)) uniq.set(key, variant);
-      });
-      const variants = Array.from(uniq.values()).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-      return {
-        ...row,
-        id: String(row.id || `grp:ui:${String(row.name || "").toLowerCase()}`),
-        variants,
-        count: variants.length,
-        meta_label: `${variants.length} ${t("pickCountry")}`,
-      };
-    });
-
+            meta_label:
+              String(variant.name || "") === "General"
+                ? t("offers")
+                : `${String(variant.variant_kind || row.selection_kind || "region") === "option" ? t("pickOption") : t("pickCountry")}: ${String(variant.name || "-")}`,
+          }))
+        : [],
+      meta_label: localizedMetaLabel(String(row.selection_kind || "region"), Number(row.count || (Array.isArray(row.variants) ? row.variants.length : 0) || 0)),
+    }));
     rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     return rows;
   }
@@ -840,6 +815,7 @@ function renderGameFinder() {
           game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
           gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
           variants: Array.isArray(row1.variants) ? row1.variants : [],
+          selection_kind: String(row1.selection_kind || "region"),
         })
       )
     );
@@ -853,6 +829,7 @@ function renderGameFinder() {
             game_ids: Array.isArray(row2.game_ids) ? row2.game_ids : [],
             gift_category_ids: Array.isArray(row2.gift_category_ids) ? row2.gift_category_ids : [],
             variants: Array.isArray(row2.variants) ? row2.variants : [],
+            selection_kind: String(row2.selection_kind || "region"),
           })
         )
       );
@@ -924,7 +901,9 @@ function renderVariantCategories(parent) {
       renderCategories();
     })
   );
-  content.append(heading(`${t("categories")} • ${String(parent?.name || "-")}`));
+  const selectionKind = String(parent?.selection_kind || "region");
+  const headingLabel = selectionKind === "option" ? t("pickOption") : selectionKind === "general" ? t("offers") : t("pickCountry");
+  content.append(heading(`${headingLabel} • ${String(parent?.name || "-")}`));
   const q = state.search.trim().toLowerCase();
   const rows = (Array.isArray(parent?.variants) ? parent.variants : []).filter((row) => {
     const n = String(row?.name || "").toLowerCase();
@@ -946,6 +925,7 @@ function renderVariantCategories(parent) {
           entry_kind: String(row1.entry_kind || "gift"),
           game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
           gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
+          selection_kind: String(parent?.selection_kind || "region"),
         })
       )
     );
@@ -958,6 +938,7 @@ function renderVariantCategories(parent) {
             entry_kind: String(row2.entry_kind || "gift"),
             game_ids: Array.isArray(row2.game_ids) ? row2.game_ids : [],
             gift_category_ids: Array.isArray(row2.gift_category_ids) ? row2.gift_category_ids : [],
+            selection_kind: String(parent?.selection_kind || "region"),
           })
         )
       );
@@ -1016,6 +997,13 @@ async function openItems(category) {
   setStatus(t("loading"));
   if (category.entry_kind === "group" && Array.isArray(category.variants) && category.variants.length > 0) {
     const validVariants = await resolveGroupVariants(category);
+    if (validVariants.length === 1) {
+      await openItems({
+        ...validVariants[0],
+        name: category.name,
+      });
+      return;
+    }
     const prepared = { ...category, variants: validVariants };
     setStatus(validVariants.length ? "" : t("noProducts"), !validVariants.length);
     renderVariantCategories(prepared);
