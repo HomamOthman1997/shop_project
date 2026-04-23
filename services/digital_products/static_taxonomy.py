@@ -174,6 +174,7 @@ FAMILY_RULES: dict[str, list[tuple[str, str, tuple[str, ...]]]] = {
         ("free_fire", "Free Fire", ("free fire", "freefire", "فري فاير")),
         ("honor_of_kings", "Honor of Kings", ("honor of kings", "honor of king", "hok")),
         ("league_of_legends", "League of Legends", ("league of legends", "riot points", "lol")),
+        ("genshin_impact", "Genshin Impact", ("genshin impact", "genshin")),
         ("eafc_mobile", "EAFC Mobile", ("eafc", "fc mobile")),
         ("delta_force", "Delta Force", ("delta force", "garena deltaforce")),
         ("clash_of_clans", "Clash of Clans", ("clash of clans", "coc")),
@@ -259,6 +260,7 @@ REGION_TOKENS: tuple[str, ...] = (
     "vietnam",
     "pakistan",
     "bangladesh",
+    "canada",
     "brazil",
     "mexico",
     "japan",
@@ -274,6 +276,7 @@ REGION_TOKENS: tuple[str, ...] = (
     "ph",
     "kh",
     "vn",
+    "philippines",
 )
 
 

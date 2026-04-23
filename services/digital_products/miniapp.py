@@ -49,6 +49,8 @@ _GAME_GROUP_OVERRIDES: dict[str, dict[str, tuple[str, ...]]] = {
     "hok": {"passes": ("weekly card", "weekly card plus"), "specials": ("lucky bag", "value pack", "rebate")},
     "afkjourney": {"passes": ("monthly", "gazette"), "specials": ("growth bundle",)},
 }
+_INVALID_DISPLAY_NAMES = {"", "-", "null", "none", "n/a", "na", "undefined"}
+_HIDDEN_GAME_VARIANT_IDS = {"valorant", "league_of_legends_instant", "onepunchworld"}
 
 
 def _money(value: Any) -> float:
@@ -74,6 +76,17 @@ def _with_markup(price: Any, markup_percent: float) -> float:
 
 def _norm(value: str | None) -> str:
     return " ".join(str(value or "").strip().lower().split())
+
+
+def _is_invalid_display_name(name: str | None) -> bool:
+    return _norm(name) in _INVALID_DISPLAY_NAMES
+
+
+def _is_valid_gift_row(row: dict[str, Any]) -> bool:
+    name = str(row.get("clean_name") or row.get("name") or "").strip()
+    if _is_invalid_display_name(name):
+        return False
+    return _money(row.get("price") or 0.0) > 0
 
 
 def _is_pubg_game(game_id: str | None, game_name: str | None = None) -> bool:
@@ -532,7 +545,9 @@ def _grouped_gift_categories(snapshot: dict[str, Any]) -> tuple[list[dict[str, A
             continue
         category_name = str(cat.get("clean_name") or cat.get("name") or "-").strip()
         service_key = str(cat.get("service_key") or _gift_service_key(category_name))
-        product_rows = list(products_by_category.get(cat_id) or [])
+        product_rows = [row for row in list(products_by_category.get(cat_id) or []) if isinstance(row, dict) and _is_valid_gift_row(row)]
+        if not product_rows:
+            continue
         sample_rows = product_rows[:6]
         sample_names = [str(row.get("name") or row.get("clean_name") or "") for row in sample_rows]
 
@@ -583,7 +598,7 @@ def _grouped_gift_categories(snapshot: dict[str, Any]) -> tuple[list[dict[str, A
                 "service_key": service_key,
             }
             source_map[group_id] = set()
-        grouped[group_id]["count"] = int(grouped[group_id]["count"] or 0) + int(cat.get("count") or 0)
+        grouped[group_id]["count"] = int(grouped[group_id]["count"] or 0) + len(product_rows)
         source_map[group_id].add(cat_id)
     gift_group_order = {"popular": 0, "gaming": 1, "apps": 2, "other": 3}
     categories = list(grouped.values())
@@ -597,6 +612,8 @@ def _grouped_games(snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], dict
     for game in list(snapshot.get("games") or []):
         game_id = str(game.get("id") or "").strip()
         if not game_id:
+            continue
+        if _norm(game_id) in _HIDDEN_GAME_VARIANT_IDS:
             continue
         game_name = str(game.get("name") or "-").strip()
         family_key, family_label = _guess_family("games", game_name, [])
@@ -840,10 +857,17 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
     q = _norm(query)
     out: list[dict[str, Any]] = []
     for sid, item in rows:
+        item_id = str(item.get("id") or "").strip()
+        if not item_id:
+            continue
         name = str(item.get("clean_name") or item.get("name") or "-")
+        if _is_invalid_display_name(name):
+            continue
         if q and fuzz.partial_ratio(q, name.lower()) < 45:
             continue
         unit_price = float(item.get("price") or 0.0)
+        if unit_price <= 0:
+            continue
         offers = [row for row in list(item.get("provider_offers") or []) if isinstance(row, dict)]
         za3em_offers = [
             row
@@ -859,10 +883,12 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
         unit_sale_price = unit_price * (1 + (float(markup or 0.0) / 100.0))
         display_quantity = za_qty_min if requires_input else 1
         display_sale_price = _money(unit_sale_price * display_quantity)
+        if display_sale_price <= 0:
+            continue
         out.append(
             {
                 "kind": "gift",
-                "id": str(item.get("id") or ""),
+                "id": item_id,
                 "category_id": str(item.get("raw", {}).get("category_id") or item.get("raw", {}).get("cat_id") or item.get("raw", {}).get("categoryId") or sid),
                 "name": name,
                 "price_usd": display_sale_price,
@@ -878,6 +904,20 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
                 "display_quantity": int(display_quantity),
             }
         )
+    dedup: dict[tuple[str, float, bool, tuple[str, ...], int, int], dict[str, Any]] = {}
+    for row in out:
+        key = (
+            _norm(str(row.get("name") or "")),
+            float(row.get("unit_price_usd") or 0.0),
+            bool(row.get("za3em_requires_input")),
+            tuple(sorted(str(v) for v in list(row.get("za3em_params") or []))),
+            int(row.get("za3em_qty_min") or 1),
+            int(row.get("za3em_qty_max") or 1),
+        )
+        existing = dedup.get(key)
+        if not existing or int(row.get("stock") or 0) > int(existing.get("stock") or 0):
+            dedup[key] = row
+    out = list(dedup.values())
     out.sort(key=lambda row: _natural_key(str(row.get("name") or "")))
     return out[:100]
 

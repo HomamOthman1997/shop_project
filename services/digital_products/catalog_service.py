@@ -17,6 +17,7 @@ _ZA3EM_CACHE: dict[str, Any] = {"ts": 0.0, "rows": []}
 _CACHE_LOCK = asyncio.Lock()
 _ZA3EM_LOCK = asyncio.Lock()
 _DEFAULT_TOP_GAMES = ("pubg", "mobile legends", "free fire", "honor of kings", "new state")
+_INVALID_PRODUCT_NAMES = {"", "-", "null", "none", "n/a", "na", "undefined"}
 
 
 def _norm(text: str | None) -> str:
@@ -65,6 +66,11 @@ def _clean_gift_name(name: str | None) -> str:
     label = re.sub(r"\b(gift\s*cards?|giftcards?|vouchers?|voucher|accounts?)\b", " ", label, flags=re.IGNORECASE)
     label = re.sub(r"\s+", " ", label).strip(" -|/")
     return label or str(name or "").strip()
+
+
+def _is_invalid_product_name(name: str | None) -> bool:
+    n = _norm(name)
+    return n in _INVALID_PRODUCT_NAMES
 
 
 def _best_id(row: dict[str, Any], *keys: str) -> str:
@@ -541,6 +547,8 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
             continue
         name = str(row.get("name") or row.get("title") or row.get("product_name") or t("en", "catalog_fallback_product").format(product_id=product_id))
         clean_name = _clean_gift_name(name)
+        if _is_invalid_product_name(clean_name):
+            continue
         category_hint = g2_cat_name or str(za3em_categories.get(cat_id, {}).get("name") or "")
         service_key = _service_key(f"{clean_name} {category_hint}")
         amount = _first_number(clean_name) or _first_number(category_hint)
@@ -560,12 +568,15 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
                 if ref_id:
                     matched_za3em_ref_ids.add(ref_id)
         best_offer = _choose_best_offer(offers)
+        best_price = float((best_offer or g2_offer).get("price") or 0.0)
+        if best_price <= 0:
+            continue
         products_by_category.setdefault(cat_id, []).append(
             {
                 "id": product_id,
                 "name": name,
                 "clean_name": clean_name,
-                "price": float((best_offer or g2_offer).get("price") or 0.0),
+                "price": best_price,
                 "stock": _to_int(row.get("stock") or row.get("quantity") or row.get("available")),
                 "provider_offers": offers,
                 "best_provider": str((best_offer or g2_offer).get("provider") or "g2bulk"),
@@ -585,6 +596,8 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         cat_id = _za3em_category_id(row)
         name = str(row.get("name") or t("en", "catalog_fallback_product").format(product_id=ref_id)).strip()
         clean_name = _clean_gift_name(name)
+        if _is_invalid_product_name(clean_name):
+            continue
         available = bool(row.get("available"))
         meta = _za3em_offer_meta(row)
         za_offer = _build_offer(
@@ -595,6 +608,8 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
             source=str(row.get("product_type") or "product"),
             **meta,
         )
+        if float(za_offer.get("price") or 0.0) <= 0:
+            continue
         products_by_category.setdefault(cat_id, []).append(
             {
                 "id": f"za3emp_{ref_id}",
