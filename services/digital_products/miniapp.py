@@ -690,7 +690,7 @@ async def _catalog_payload() -> dict[str, Any]:
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
     categories, _gift_source_map = _grouped_gift_categories(snapshot)
-    games, _game_source_map = _grouped_games(snapshot)
+    grouped_games, _game_source_map = _grouped_games(snapshot)
     gift_groups = [
         {"key": key, "label": _gift_group_label(key)}
         for key in ("popular", "gaming", "apps", "other")
@@ -699,7 +699,7 @@ async def _catalog_payload() -> dict[str, Any]:
     game_groups = [
         {"key": key, "label": _game_root_group_label(key)}
         for key in ("popular", "global", "all")
-        if any(str(row.get("group_key")) == key for row in games)
+        if any(str(row.get("group_key")) == key for row in grouped_games)
     ]
     game_rows = list(snapshot.get("games") or [])
     chat_games_count = sum(1 for row in game_rows if _gift_service_key(str(row.get("name") or "")) == "chat_apps")
@@ -782,7 +782,8 @@ async def _catalog_payload() -> dict[str, Any]:
         "services": services,
         "gift_categories": categories,
         "gift_groups": gift_groups,
-        "games": games[:120],
+        # Send raw games so frontend can build a second level (game -> region -> offers).
+        "games": game_rows[:300],
         "game_groups": game_groups,
     }
 
