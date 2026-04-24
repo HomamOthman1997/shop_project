@@ -983,13 +983,6 @@ function renderVariantCategories(parent) {
     return !q || n.includes(q);
   });
   setStatus(rows.length ? "" : t("noResults"));
-  content.append(
-    contextCard(
-      headingLabel,
-      String(parent?.name || "-"),
-      `${rows.length} ${selectionKind === "option" ? (rows.length === 1 ? t("optionWord") : t("optionsWord")) : (rows.length === 1 ? t("offerWord") : t("offersWord"))}`
-    )
-  );
   if (!rows.length) {
     content.append(emptyState(t("noResults"), t("refineSearch")));
     return;
