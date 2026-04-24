@@ -185,7 +185,7 @@ const serviceVisuals = {
 const state = {
   lang: detectLang(),
   catalog: null,
-  view: "services", // services | gamefinder | categories | subcategories | items | simkind
+  view: "services", // services | categories | subcategories | items | simkind
   service: "",
   search: "",
   categories: [],
@@ -267,8 +267,7 @@ function setStatus(text, error = false) {
 
 function setSearchPlaceholder() {
   let key = "searchSections";
-  if (state.view === "gamefinder") key = "searchGames";
-  else if (state.view === "categories") key = "searchCategories";
+  if (state.view === "categories") key = state.service === "games" ? "searchGames" : "searchCategories";
   else if (state.view === "subcategories") key = "searchOptions";
   else if (state.view === "items") key = "searchOffers";
   searchInput.placeholder = t(key);
@@ -359,17 +358,21 @@ function card(title, meta, onClick, disabled = false, opts = {}) {
   const tone = String(opts.tone || "").trim();
   const icon = String(opts.icon || "").trim();
   const el = button(`dept-tile ${tone}`.trim(), "", onClick, disabled);
+  const head = document.createElement("div");
+  head.className = "dept-head";
   if (icon) {
     const ico = document.createElement("span");
     ico.className = "dept-icon";
     ico.textContent = icon;
-    el.append(ico);
+    head.append(ico);
   }
   const strong = document.createElement("strong");
   strong.textContent = title;
-  const span = document.createElement("span");
-  span.textContent = meta;
-  el.append(strong, span);
+  head.append(strong);
+  const metaPill = document.createElement("span");
+  metaPill.className = "meta-pill";
+  metaPill.textContent = meta;
+  el.append(head, metaPill);
   return el;
 }
 
@@ -380,6 +383,7 @@ function listTile(name, meta, onClick) {
   const strong = document.createElement("strong");
   strong.textContent = name;
   const span = document.createElement("span");
+  span.className = "meta-pill";
   span.textContent = meta;
   body.append(strong, span);
   const chev = document.createElement("b");
@@ -532,12 +536,6 @@ function serviceRows() {
 function filteredCategories() {
   const q = state.search.trim().toLowerCase();
   return state.categories.filter((row) => !q || String(row.name || "").toLowerCase().includes(q));
-}
-
-function filteredGameCategories() {
-  const q = state.search.trim().toLowerCase();
-  if (!q) return [];
-  return state.categories.filter((row) => String(row.name || "").toLowerCase().includes(q));
 }
 
 function filteredItems() {
@@ -735,7 +733,7 @@ function renderServices() {
   serviceRows().forEach((row) => {
     const visual = serviceVisuals[String(row.key || "")] || {};
     const meta = row.enabled
-      ? `${row.count} ${row.key === "games" ? t("packages") : t("categories")}`
+      ? `${row.count} ${row.count === 1 ? t("offerWord") : t("offersWord")}`
       : t("unavailableShort");
     grid.append(card(label(row.label), meta, () => enterService(row.key), !row.enabled, visual));
   });
@@ -821,88 +819,8 @@ function enterService(key) {
     renderSimKinds();
     return;
   }
-  if (key === "numbers_services") {
-    createServiceSelection("numbers_services");
-    return;
-  }
   state.categories = buildCategoriesForService(key);
-  if (key === "games") {
-    renderGameFinder();
-    return;
-  }
   renderCategories();
-}
-
-function renderGameFinder() {
-  clear();
-  state.view = "gamefinder";
-  state.variantParent = null;
-  setSearchPlaceholder();
-  content.append(button("back-btn", t("back"), renderServices));
-  content.append(heading(t("gameFinderTitle")));
-  content.append(contextCard(t("availableNow"), label(serviceRows().find((row) => row.key === "games")?.label || serviceLabelFallback.games), t("browseHint")));
-
-  const center = document.createElement("section");
-  center.className = "items-grid";
-  const cta = button("buy", t("gameFinderCta"), () => searchInput.focus());
-  const holder = document.createElement("div");
-  holder.style.gridColumn = "1 / -1";
-  holder.style.display = "flex";
-  holder.style.justifyContent = "center";
-  holder.append(cta);
-  center.append(holder);
-  content.append(center);
-
-  const rows = filteredGameCategories();
-  if (!state.search.trim()) {
-    setStatus(t("gameFinderHint"));
-    content.append(emptyState(t("gameFinderCta"), t("browseHint")));
-    return;
-  }
-  setStatus(rows.length ? "" : t("pickGame"));
-  if (!rows.length) {
-    content.append(emptyState(t("noResults"), t("refineSearch")));
-    return;
-  }
-
-  const list = document.createElement("section");
-  list.className = "category-list";
-  for (let i = 0; i < rows.length; i += 2) {
-    const row1 = rows[i];
-    const row2 = rows[i + 1];
-    const wrapper = document.createElement("div");
-    wrapper.style.display = "contents";
-    wrapper.append(
-      listTile(String(row1.name || "-"), row1.meta_label || "", () =>
-        openItems({
-          id: String(row1.id || ""),
-          name: String(row1.name || "-"),
-          entry_kind: String(row1.entry_kind || "gift"),
-          game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
-          gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
-          variants: Array.isArray(row1.variants) ? row1.variants : [],
-          selection_kind: String(row1.selection_kind || "region"),
-        })
-      )
-    );
-    if (row2) {
-      wrapper.append(
-        listTile(String(row2.name || "-"), row2.meta_label || "", () =>
-          openItems({
-            id: String(row2.id || ""),
-            name: String(row2.name || "-"),
-            entry_kind: String(row2.entry_kind || "gift"),
-            game_ids: Array.isArray(row2.game_ids) ? row2.game_ids : [],
-            gift_category_ids: Array.isArray(row2.gift_category_ids) ? row2.gift_category_ids : [],
-            variants: Array.isArray(row2.variants) ? row2.variants : [],
-            selection_kind: String(row2.selection_kind || "region"),
-          })
-        )
-      );
-    }
-    list.append(wrapper);
-  }
-  content.append(list);
 }
 
 function renderCategories() {
@@ -911,11 +829,12 @@ function renderCategories() {
   state.variantParent = null;
   setSearchPlaceholder();
   content.append(button("back-btn", t("back"), renderServices));
-  content.append(heading(t("categories")));
+  const serviceLabel = label(serviceRows().find((row) => row.key === state.service)?.label || serviceLabelFallback[state.service]);
+  content.append(heading(serviceLabel));
 
   const rows = filteredCategories();
   setStatus(rows.length ? "" : t("noResults"));
-  content.append(contextCard(t("availableNow"), label(serviceRows().find((row) => row.key === state.service)?.label || serviceLabelFallback[state.service]), `${rows.length} ${rows.length === 1 ? t("offerWord") : t("offersWord")}`));
+  content.append(contextCard(t("availableNow"), serviceLabel, `${rows.length} ${rows.length === 1 ? t("offerWord") : t("offersWord")}`));
   if (!rows.length) {
     content.append(emptyState(t("noResults"), t("refineSearch")));
     return;
@@ -967,10 +886,6 @@ function renderVariantCategories(parent) {
   content.append(
     button("back-btn", t("back"), () => {
       state.variantParent = null;
-      if (state.service === "games") {
-        renderGameFinder();
-        return;
-      }
       renderCategories();
     })
   );
@@ -1159,10 +1074,6 @@ function renderItems() {
     button("back-btn", t("back"), () => {
       if (state.variantParent) {
         renderVariantCategories(state.variantParent);
-        return;
-      }
-      if (state.service === "games") {
-        renderGameFinder();
         return;
       }
       renderCategories();
@@ -1432,7 +1343,6 @@ async function loadCatalog() {
 searchInput.addEventListener("input", () => {
   state.search = String(searchInput.value || "");
   if (!state.catalog) return;
-  if (state.view === "gamefinder") renderGameFinder();
   if (state.view === "categories") renderCategories();
   if (state.view === "subcategories") renderVariantCategories(state.variantParent);
   if (state.view === "items") renderItems();
@@ -1445,7 +1355,6 @@ if (langBtn) {
     applyLang();
     if (!state.catalog) return;
     if (state.view === "services") renderServices();
-    else if (state.view === "gamefinder") renderGameFinder();
     else if (state.view === "categories") renderCategories();
     else if (state.view === "subcategories") renderVariantCategories(state.variantParent);
     else if (state.view === "items") renderItems();

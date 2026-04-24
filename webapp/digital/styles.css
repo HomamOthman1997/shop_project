@@ -290,6 +290,11 @@ input:focus {
   transition: 0.2s ease;
 }
 
+.dept-head {
+  display: grid;
+  gap: 8px;
+}
+
 .dept-tile:hover,
 .dept-tile:focus-visible {
   border-color: var(--accent);
@@ -306,11 +311,6 @@ input:focus {
   font-size: 15px;
   line-height: 1.25;
   overflow-wrap: anywhere;
-}
-
-.dept-tile span {
-  color: rgba(226, 232, 240, 0.9);
-  font-size: 13px;
 }
 
 .dept-icon {
@@ -392,6 +392,8 @@ input:focus {
 
 .tile-body {
   min-width: 0;
+  display: grid;
+  gap: 8px;
 }
 
 .tile-chevron {
@@ -412,9 +414,23 @@ input:focus {
 .tile span,
 .meta {
   display: block;
-  margin-top: 6px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(122, 115, 255, 0.28);
+  background: rgba(99, 91, 255, 0.14);
+  color: #c8c5ff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .modal {
