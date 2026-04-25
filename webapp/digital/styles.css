@@ -453,6 +453,24 @@ input:focus {
   overflow-wrap: anywhere;
 }
 
+.item {
+  padding: 14px;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.item-content {
+  display: grid;
+  gap: 12px;
+  text-align: center;
+}
+
+.item .buy {
+  justify-self: center;
+  min-width: 128px;
+}
+
 .tile span,
 .meta {
   display: block;

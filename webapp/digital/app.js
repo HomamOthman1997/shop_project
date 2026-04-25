@@ -423,123 +423,34 @@ function itemRow(item) {
   const dynamicGiftPrice = item.kind === "gift" && Boolean(item.za3em_requires_input);
   const priceText = dynamicGiftPrice ? t("priceByQuantity") : money(item.price_usd);
 
-  // السعر في الأعلى
   const priceDiv = document.createElement("div");
   priceDiv.className = "item-price-top";
   const priceStat = stat(t("price"), priceText, "price-stat");
-  const priceValue = priceStat.querySelector("b");
   priceDiv.append(priceStat);
   row.append(priceDiv);
 
-  // قيمة UC في الوسط
+  const content = document.createElement("div");
+  content.className = "item-content";
   const title = document.createElement("strong");
   title.textContent = String(item.name || "-");
-  title.style.textAlign = "center";
-  title.style.display = "block";
-  row.append(title);
+  content.append(title);
+
   if (dynamicGiftPrice) {
     const minQty = Number(item.za3em_qty_min || 1);
     const maxQty = Number(item.za3em_qty_max || minQty);
     const meta = document.createElement("span");
     meta.className = "meta";
-    meta.style.textAlign = "center";
     meta.textContent = `${t("creditsRange")}: ${minQty} - ${maxQty}`;
-    row.append(meta);
-    const form = document.createElement("section");
-    form.className = "inline-form";
-    const qtyField = document.createElement("div");
-    qtyField.className = "field";
-    const qtyLabel = document.createElement("label");
-    qtyLabel.textContent = `${t("quantity")} (${t("required")})`;
-    const qtyInput = document.createElement("input");
-    qtyInput.type = "number";
-    qtyInput.min = String(minQty);
-    qtyInput.max = String(maxQty);
-    qtyInput.value = String(Number(item.display_quantity || minQty));
-    qtyField.append(qtyLabel, qtyInput);
-    form.append(qtyField);
-
-    const paramInputs = [];
-    const params = Array.isArray(item.za3em_params) ? item.za3em_params : [];
-    params.forEach((key) => {
-      const field = document.createElement("div");
-      field.className = "field";
-      const lbl = document.createElement("label");
-      const labelText = String(key || "").replaceAll("_", " ").trim() || String(key || "");
-      lbl.textContent = `${labelText} (${t("required")})`;
-      const input = document.createElement("input");
-      input.type = "text";
-      input.placeholder = labelText;
-      field.append(lbl, input);
-      form.append(field);
-      paramInputs.push({ key, input });
-    });
-
-    const quoteLine = document.createElement("span");
-    quoteLine.className = "meta inline-quote";
-    quoteLine.style.textAlign = "center";
-    const refreshQuote = () => {
-      const qty = Number(qtyInput.value || minQty);
-      const clamped = Math.max(minQty, Math.min(maxQty, Number.isFinite(qty) ? qty : minQty));
-      const quoted = giftQuotePrice(item, clamped);
-      quoteLine.textContent = `${t("price")}: $${quoted.toFixed(2)}`;
-      if (priceValue) priceValue.textContent = `$${quoted.toFixed(2)}`;
-    };
-    qtyInput.addEventListener("input", refreshQuote);
-    refreshQuote();
-    form.append(quoteLine);
-
-    const actionWrap = document.createElement("div");
-    actionWrap.className = "inline-actions";
-    const submitBtn = button("buy", t("continue"), async () => {
-      const qty = Number(qtyInput.value || 0);
-      if (!Number.isInteger(qty) || qty < minQty || qty > maxQty) {
-        setStatus(t("invalidQuantity"), true);
-        return;
-      }
-      const extraParams = {};
-      for (const entry of paramInputs) {
-        const value = String(entry.input.value || "").trim();
-        if (!value) {
-          setStatus(t("missingRequiredField"), true);
-          return;
-        }
-        extraParams[String(entry.key)] = value;
-      }
-      const quoted = giftQuotePrice(item, qty);
-      await createServiceSelection("gift", {
-        kind: "gift",
-        category_id: item.category_id,
-        product_id: item.id,
-        quantity: qty,
-        extra_params: extraParams,
-        quoted_price_usd: quoted,
-      });
-    });
-    if (Number(item.stock || 0) <= 0) {
-      submitBtn.disabled = true;
-      submitBtn.textContent = t("out");
-      qtyInput.disabled = true;
-      paramInputs.forEach((entry) => {
-        entry.input.disabled = true;
-      });
-    }
-    actionWrap.append(submitBtn);
-    form.append(actionWrap);
-    row.append(form);
-  } else {
-    // زر Continue في الأسفل
-    const buy = button("buy", t("continue"), () => createSelection(item));
-    if (item.kind === "gift" && Number(item.stock || 0) <= 0) {
-      buy.disabled = true;
-      buy.textContent = t("out");
-    }
-    const btnDiv = document.createElement("div");
-    btnDiv.style.display = "flex";
-    btnDiv.style.justifyContent = "center";
-    btnDiv.append(buy);
-    row.append(btnDiv);
   }
+  content.append(meta);
+
+  const buy = button("buy", t("continue"), () => createSelection(item));
+  if (item.kind === "gift" && Number(item.stock || 0) <= 0) {
+    buy.disabled = true;
+    buy.textContent = t("out");
+  }
+  content.append(buy);
+  row.append(content);
 
   return row;
 }
@@ -1386,7 +1297,7 @@ async function createSelection(item) {
     const baseSubtitle = item.name || "";
     openInputModal({
       title: t("giftPurchaseData"),
-      subtitle: baseSubtitle,
+      subtitle: `${baseSubtitle} • ${t("price")}: ${money(item.price_usd)}`,
       fields,
       onChange: (values) => {
         const qty = Number(values.quantity || item.display_quantity || 1);
@@ -1415,17 +1326,10 @@ async function createSelection(item) {
     return;
   }
 
-  const gameFields = [{ name: "player_id", label: t("playerId"), type: "text", required: true }];
-  gameFields.push({
-    name: "server_id",
-    label: t("serverId"),
-    type: "text",
-    required: Boolean(item.requires_server),
-  });
   openInputModal({
     title: t("gamePurchaseData"),
-    subtitle: item.name || "",
-    fields: gameFields,
+    subtitle: `${item.name || ""} • ${t("price")}: ${money(item.price_usd)}`,
+    fields: [{ name: "player_id", label: t("playerId"), type: "text", required: true }],
     onSubmit: async (values) => {
       await createServiceSelection("game", {
         kind: "game",
@@ -1433,7 +1337,7 @@ async function createSelection(item) {
         item_id: item.id,
         group_key: item.group_key,
         player_id: String(values.player_id || "").trim(),
-        server_id: String(values.server_id || "").trim(),
+        server_id: "",
         quoted_price_usd: Number(Number(item.price_usd || 0).toFixed(2)),
       });
     },
