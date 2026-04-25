@@ -195,9 +195,9 @@ def _money(value: Any) -> float:
 
 async def _markup_percent() -> float:
     try:
-        return float(await get_digital_products_markup_percent(3.0))
+        return float(await get_digital_products_markup_percent(0.0))
     except Exception:
-        return 3.0
+        return 0.0
 
 
 def _with_markup(price: Any, markup_percent: float) -> float:

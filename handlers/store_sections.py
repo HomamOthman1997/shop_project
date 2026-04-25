@@ -1190,17 +1190,17 @@ async def _resolve_usd_to_syp_rate(bot_id: int) -> float:
 
 async def _resolve_digital_products_markup_percent() -> float:
     try:
-        return float(await get_digital_products_markup_percent(3.0))
+        return float(await get_digital_products_markup_percent(0.0))
     except Exception:
-        return 3.0
+        return 0.0
 
 
 def _resolve_esim_markup_percent() -> float:
-    return 25.0
+    return 0.0
 
 
 def _resolve_physical_sim_markup_percent(section: str) -> float:
-    return 25.0 if str(section or "").strip().lower() == "data" else 10.0
+    return 0.0
 
 
 def _apply_markup_to_esim_offer(offer: dict[str, Any], *, markup_percent: float) -> dict[str, Any]:
