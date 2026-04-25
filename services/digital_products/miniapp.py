@@ -31,6 +31,11 @@ from services.digital_products.static_taxonomy import (
 
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "webapp" / "digital"
+_NO_STORE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 _PRIORITY_GIFTCARD_BRANDS = (
     "discord",
     "imo",
@@ -1279,7 +1284,7 @@ async def bootstrap_miniapp_indexes() -> None:
 
 async def index(_request: web.Request) -> web.Response:
     html = (_STATIC / "index.html").read_text(encoding="utf-8")
-    return web.Response(text=html, content_type="text/html")
+    return web.Response(text=html, content_type="text/html", headers=dict(_NO_STORE_HEADERS))
 
 
 async def static_file(request: web.Request) -> web.Response:
@@ -1290,7 +1295,7 @@ async def static_file(request: web.Request) -> web.Response:
     if not path.exists() or not path.is_file():
         raise web.HTTPNotFound()
     content_type = "text/css" if path.suffix == ".css" else "application/javascript"
-    return web.Response(body=path.read_bytes(), content_type=content_type)
+    return web.Response(body=path.read_bytes(), content_type=content_type, headers=dict(_NO_STORE_HEADERS))
 
 
 async def catalog(_request: web.Request) -> web.Response:
@@ -1311,7 +1316,7 @@ async def catalog(_request: web.Request) -> web.Response:
                 "game_groups": [],
                 "error": "store_temporarily_unavailable",
             }
-    return web.json_response(payload)
+    return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
 
 
 async def gift_products(request: web.Request) -> web.Response:
@@ -1322,12 +1327,16 @@ async def gift_products(request: web.Request) -> web.Response:
                 request.query.get("q", ""),
                 request.query.get("mode", ""),
             )
-        }
+        },
+        headers=dict(_NO_STORE_HEADERS),
     )
 
 
 async def game_items(request: web.Request) -> web.Response:
-    return web.json_response(await _game_items(request.match_info["game_id"], request.query.get("q", "")))
+    return web.json_response(
+        await _game_items(request.match_info["game_id"], request.query.get("q", "")),
+        headers=dict(_NO_STORE_HEADERS),
+    )
 
 
 async def create_selection(request: web.Request) -> web.Response:
@@ -1381,7 +1390,7 @@ async def create_selection(request: web.Request) -> web.Response:
     else:
         raise web.HTTPBadRequest(text="invalid selection")
     token = await _create_selection(int(auth["user_id"]) if auth else None, payload)
-    return web.json_response({"token": token})
+    return web.json_response({"token": token}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def _cleanup_app(_app: web.Application) -> None:

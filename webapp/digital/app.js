@@ -290,7 +290,7 @@ async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   const telegramInitData = initData();
   if (telegramInitData) headers.set("X-Telegram-Init-Data", telegramInitData);
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(path, { ...options, headers, cache: "no-store" });
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }
