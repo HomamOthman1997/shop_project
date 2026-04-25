@@ -376,20 +376,44 @@ function card(title, meta, onClick, disabled = false, opts = {}) {
   return el;
 }
 
-function listTile(name, meta, onClick) {
-  const el = button("tile", "", onClick);
+function listTile(name, meta, onClick, opts = {}) {
+  const imageUrl = String(opts.imageUrl || "").trim();
+  const showMeta = opts.showMeta !== false && Boolean(meta);
+  const showChevron = opts.showChevron !== false;
+  const el = button(`tile ${imageUrl ? "tile-media" : ""}`.trim(), "", onClick);
+  if (imageUrl) {
+    const media = document.createElement("div");
+    media.className = "tile-media-frame";
+    const img = document.createElement("img");
+    img.className = "tile-media-image";
+    img.src = imageUrl;
+    img.alt = name;
+    img.loading = "lazy";
+    img.addEventListener("error", () => {
+      media.classList.add("tile-media-fallback");
+      img.remove();
+    });
+    media.append(img);
+    el.append(media);
+  }
   const body = document.createElement("div");
   body.className = "tile-body";
   const strong = document.createElement("strong");
   strong.textContent = name;
-  const span = document.createElement("span");
-  span.className = "meta-pill";
-  span.textContent = meta;
-  body.append(strong, span);
-  const chev = document.createElement("b");
-  chev.className = "tile-chevron";
-  chev.textContent = "›";
-  el.append(body, chev);
+  body.append(strong);
+  if (showMeta) {
+    const span = document.createElement("span");
+    span.className = "meta-pill";
+    span.textContent = meta;
+    body.append(span);
+  }
+  el.append(body);
+  if (showChevron) {
+    const chev = document.createElement("b");
+    chev.className = "tile-chevron";
+    chev.textContent = "›";
+    el.append(chev);
+  }
   return el;
 }
 
@@ -833,6 +857,7 @@ function buildCategoriesForService(key) {
       count: Number(row.count || (Array.isArray(row.variants) ? row.variants.length : 0) || 0),
       entry_kind: String(row.entry_kind || "group"),
       selection_kind: String(row.selection_kind || "region"),
+      image_url: String(row.image_url || ""),
       game_ids: Array.isArray(row.game_ids) ? row.game_ids : [],
       gift_category_ids: Array.isArray(row.gift_category_ids) ? row.gift_category_ids : [],
       variants: Array.isArray(row.variants)
@@ -841,6 +866,7 @@ function buildCategoriesForService(key) {
             name: String(variant.name || "-"),
             entry_kind: String(variant.entry_kind || "gift"),
             variant_kind: String(variant.variant_kind || "general"),
+            image_url: String(variant.image_url || ""),
             game_ids: Array.isArray(variant.game_ids) ? variant.game_ids : [],
             gift_category_ids: Array.isArray(variant.gift_category_ids) ? variant.gift_category_ids : [],
             meta_label:
@@ -914,6 +940,7 @@ async function renderCategories() {
 
   const list = document.createElement("section");
   list.className = "category-list";
+  const isGameService = state.service === "games";
   for (let i = 0; i < rows.length; i += 2) {
     const row1 = rows[i];
     const row2 = rows[i + 1];
@@ -925,10 +952,12 @@ async function renderCategories() {
           id: String(row1.id || ""),
           name: String(row1.name || "-"),
           entry_kind: String(row1.entry_kind || "gift"),
+          image_url: String(row1.image_url || ""),
           game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
           gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
           variants: Array.isArray(row1.variants) ? row1.variants : [],
-        })
+        }),
+        { imageUrl: isGameService ? String(row1.image_url || "") : "", showMeta: !isGameService }
       )
     );
     if (row2) {
@@ -938,10 +967,12 @@ async function renderCategories() {
             id: String(row2.id || ""),
             name: String(row2.name || "-"),
             entry_kind: String(row2.entry_kind || "gift"),
+            image_url: String(row2.image_url || ""),
             game_ids: Array.isArray(row2.game_ids) ? row2.game_ids : [],
             gift_category_ids: Array.isArray(row2.gift_category_ids) ? row2.gift_category_ids : [],
             variants: Array.isArray(row2.variants) ? row2.variants : [],
-          })
+          }),
+          { imageUrl: isGameService ? String(row2.image_url || "") : "", showMeta: !isGameService }
         )
       );
     }

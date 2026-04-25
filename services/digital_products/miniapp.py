@@ -714,9 +714,13 @@ def _grouped_games(snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], dict
                 "service_key": "games",
                 "count": 0,
                 "variants": [],
+                "image_url": "",
             }
             source_map[group_id] = set()
         source_map[group_id].add(game_id)
+        image_url = str(game.get("image_url") or "").strip()
+        if image_url and not str(grouped[group_id].get("image_url") or "").strip():
+            grouped[group_id]["image_url"] = image_url
         grouped[group_id]["count"] = int(grouped[group_id].get("count") or 0) + 1
         grouped[group_id]["variants"].append(
             {
@@ -725,6 +729,7 @@ def _grouped_games(snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], dict
                 "entry_kind": "game",
                 "game_ids": [game_id],
                 "gift_category_ids": [],
+                "image_url": image_url,
             }
         )
     game_group_order = {"popular": 0, "global": 1, "all": 2}
@@ -1411,6 +1416,7 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
             "variants": [],
             "count": 0,
             "meta_label": "",
+            "image_url": "",
         }
         service_node["families"].append(row)
         return row
@@ -1431,6 +1437,7 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
                 "gift_category_ids": list(payload.get("gift_category_ids") or []),
                 "meta_label": "",
                 "variant_kind": str(payload.get("variant_kind") or "general"),
+                "image_url": str(payload.get("image_url") or ""),
             }
             parent["variants"].append(existing)
         else:
@@ -1444,6 +1451,8 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
             existing["gift_category_ids"] = sorted(set(list(existing.get("gift_category_ids") or []) + list(payload.get("gift_category_ids") or [])))
             if not existing.get("id"):
                 existing["id"] = str(payload.get("id") or "")
+            if not str(existing.get("image_url") or "").strip():
+                existing["image_url"] = str(payload.get("image_url") or "")
 
     for group in grouped_games:
         family_key = str(group.get("id") or "").split(":")[-1]
@@ -1453,6 +1462,9 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
             game_name = str(variant.get("name") or "").strip()
             region_label = _resolve_region_label("games", family_key, family_label, game_name, [game_name])
             region_label = _region_from_game_id(str(variant.get("id") or ""), family_label, region_label)
+            image_url = str(variant.get("image_url") or group.get("image_url") or "").strip()
+            if image_url and not str(parent.get("image_url") or "").strip():
+                parent["image_url"] = image_url
             upsert_region(
                 parent,
                 region_label,
@@ -1462,6 +1474,7 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
                     "game_ids": list(variant.get("game_ids") or [str(variant.get("id") or "")]),
                     "gift_category_ids": [],
                     "variant_kind": _variant_kind("games", region_label),
+                    "image_url": image_url,
                 },
             )
 

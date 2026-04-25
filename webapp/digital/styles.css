@@ -384,6 +384,38 @@ input:focus {
   transition: 0.2s ease;
 }
 
+.tile-media {
+  min-height: 196px;
+  align-content: start;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 112px auto;
+  gap: 12px;
+  padding: 12px;
+}
+
+.tile-media-frame {
+  grid-column: 1 / -1;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f1524;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.tile-media-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.tile-media-fallback {
+  background:
+    radial-gradient(circle at top left, rgba(122, 115, 255, 0.22), transparent 45%),
+    linear-gradient(180deg, #131a2a 0%, #0f1524 100%);
+}
+
 .tile:hover,
 .tile:focus-visible {
   border-color: var(--accent);
@@ -396,11 +428,21 @@ input:focus {
   gap: 8px;
 }
 
+.tile-media .tile-body {
+  align-self: start;
+  gap: 0;
+}
+
 .tile-chevron {
   color: var(--muted);
   font-size: 20px;
   line-height: 1;
   font-weight: 700;
+}
+
+.tile-media .tile-chevron {
+  align-self: start;
+  margin-top: 2px;
 }
 
 .tile strong,
