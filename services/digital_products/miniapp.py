@@ -122,6 +122,11 @@ _GAME_ID_REGION_SUFFIXES: dict[str, str] = {
     "ru": "Russia",
     "europa": "Europe",
 }
+_GAME_DEFAULT_TOPUP_UNIT: dict[str, str] = {
+    "pubgm": "UC",
+    "newstate": "NC",
+    "new_state": "NC",
+}
 _KNOWN_REGION_LABELS: set[str] = {
     "general",
     "global",
@@ -165,6 +170,20 @@ _KNOWN_OPTION_LABELS: set[str] = {
     "infinite",
     "garena",
 }
+_GAME_REGION_ALLOWLIST: set[str] = {
+    "global",
+    "europe",
+    "mena",
+    "middle east",
+    "usa",
+    "north america",
+    "naeu",
+    "germany",
+    "turkey",
+    "general",
+    "top up",
+    "add-ons",
+}
 
 
 def _money(value: Any) -> float:
@@ -204,6 +223,132 @@ def _is_valid_gift_row(row: dict[str, Any]) -> bool:
         return float(row.get("price") or 0.0) > 0 and int(row.get("stock") or 0) > 0
     except Exception:
         return False
+
+
+def _provider_offers(row: dict[str, Any]) -> list[dict[str, Any]]:
+    return [item for item in list(row.get("provider_offers") or []) if isinstance(item, dict)]
+
+
+def _offer_requires_identity(offer: dict[str, Any]) -> bool:
+    if bool(offer.get("za3em_requires_input")):
+        return True
+    params = [taxonomy_norm_text(str(value or "")) for value in list(offer.get("za3em_params") or []) if str(value or "").strip()]
+    if not params:
+        return False
+    identity_tokens = (
+        "id",
+        "uid",
+        "player",
+        "account",
+        "email",
+        "mail",
+        "character",
+        "nickname",
+        "user",
+        "login",
+        "الايدي",
+        "ايدي",
+        "ايميل",
+        "الاميل",
+        "البريد",
+        "اسم الشخصية",
+        "اسم الحساب",
+        "اسم اللاعب",
+        "معرف",
+    )
+    return any(any(token in param for token in identity_tokens) for param in params)
+
+
+def _row_requires_identity(row: dict[str, Any]) -> bool:
+    offers = _provider_offers(row)
+    return any(_offer_requires_identity(offer) for offer in offers)
+
+
+def _looks_topup_product_name(name: str | None) -> bool:
+    n = taxonomy_norm_text(name)
+    compact = re.sub(r"[\s,]+", "", n)
+    if not n:
+        return False
+    if re.fullmatch(r"\d+(?:\s*(?:uc|nc|cp|vp|rp|diamonds?|gems?|coins?|cash|crystals?))?", compact):
+        return True
+    if re.search(r"\bv\s*\d+\b", n) or re.search(r"بطاقة\s*v?\s*\d+", str(name or ""), flags=re.IGNORECASE):
+        return True
+    topup_tokens = (
+        "uc",
+        "nc",
+        "cp",
+        "vp",
+        "rp",
+        "vbucks",
+        "v-bucks",
+        "diamond",
+        "diamonds",
+        "gem",
+        "gems",
+        "coin",
+        "coins",
+        "cash",
+        "crystal",
+        "crystals",
+        "jade",
+        "token",
+        "tokens",
+        "credit",
+        "credits",
+        "voucher",
+        "vouchers",
+        "جوهرة",
+        "جواهر",
+        "شدة",
+        "شدات",
+        "عملة",
+        "عملات",
+        "كاش",
+        "كوين",
+        "كوينز",
+        "كريستال",
+        "كريستالات",
+    )
+    return any(token in n for token in topup_tokens)
+
+
+def _split_game_gift_rows(rows: list[dict[str, Any]], *, family_has_auto_topup: bool) -> dict[str, list[dict[str, Any]]]:
+    split = {"topup": [], "addons": []}
+    for row in rows:
+        name = str(row.get("clean_name") or row.get("name") or "").strip()
+        if not name:
+            continue
+        requires_identity = _row_requires_identity(row)
+        is_topup = _looks_topup_product_name(name)
+        if requires_identity:
+            split["topup" if is_topup else "addons"].append(row)
+            continue
+        if is_topup:
+            # Future-like currency cards/codes never belong in top-up.
+            if family_has_auto_topup:
+                continue
+            continue
+        # Keep non-currency extras without identity only as add-ons.
+        split["addons"].append(row)
+    return split
+
+
+def _gift_image_url(category_row: dict[str, Any], product_rows: list[dict[str, Any]]) -> str:
+    raw = category_row.get("raw")
+    if isinstance(raw, dict):
+        direct = str(raw.get("category_img") or raw.get("image_url") or raw.get("image") or "").strip()
+        if direct:
+            return direct
+    for row in product_rows:
+        if not isinstance(row, dict):
+            continue
+        row_raw = row.get("raw")
+        if not isinstance(row_raw, dict):
+            continue
+        direct = str(row_raw.get("category_img") or row_raw.get("image_url") or row_raw.get("image") or "").strip()
+        if direct:
+            return direct
+    return ""
 
 
 def _is_pubg_game(game_id: str | None, game_name: str | None = None) -> bool:
@@ -294,12 +439,13 @@ def _normalize_game_item_name(name: str) -> str:
     return text
 
 
-def _display_game_item_name(item: dict[str, Any], group_key: str = "topup") -> str:
+def _display_game_item_name(item: dict[str, Any], group_key: str = "topup", game_id: str = "") -> str:
     name = _normalize_game_item_name(str(item.get("clean_name") or item.get("name") or "-").strip())
     if group_key == "topup":
         compact = name.replace(",", "").strip()
         if re.fullmatch(r"\d+", compact):
-            return compact
+            unit = _GAME_DEFAULT_TOPUP_UNIT.get(str(game_id or "").strip().lower())
+            return f"{compact} {unit}".strip() if unit else compact
         match = re.match(r"^(\d+)\s*([A-Za-z].*)$", name)
         if match:
             unit = match.group(2).strip()
@@ -908,7 +1054,7 @@ async def _catalog_payload() -> dict[str, Any]:
     return payload
 
 
-async def _gift_products(category_id: str, query: str = "") -> list[dict[str, Any]]:
+async def _gift_products(category_id: str, query: str = "", offer_mode: str = "") -> list[dict[str, Any]]:
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
     products_by_category = dict(snapshot.get("products_by_category") or {})
@@ -953,6 +1099,7 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
             dedup_rows[key] = (sid, row)
     rows = list(dedup_rows.values())
     q = _norm(query)
+    offer_mode = _norm(offer_mode)
     out: list[dict[str, Any]] = []
     for sid, item in rows:
         item_id = str(item.get("id") or "").strip()
@@ -961,6 +1108,14 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
         name = str(item.get("clean_name") or item.get("name") or "-")
         if _is_invalid_display_name(name):
             continue
+        category_name = str(categories_by_id.get(str(sid), ""))
+        row_service = _gift_service_key(f"{name} {category_name}")
+        if row_service == "games" and offer_mode in {"topup", "addons"}:
+            split_kind = _split_game_gift_rows([item], family_has_auto_topup=True)
+            if offer_mode == "topup" and not split_kind["topup"]:
+                continue
+            if offer_mode == "addons" and not split_kind["addons"]:
+                continue
         if q and fuzz.partial_ratio(q, name.lower()) < 45:
             continue
         unit_price = float(item.get("price") or 0.0)
@@ -1048,7 +1203,7 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     for source_game_id, item in rows_with_game:
         group = _classify_game_item(source_game_id, item)
-        name = _display_game_item_name(item, group)
+        name = _display_game_item_name(item, group, str(source_game_id))
         if q and fuzz.partial_ratio(q, name.lower()) < 45:
             continue
         items.append(
@@ -1155,7 +1310,15 @@ async def catalog(_request: web.Request) -> web.Response:
 
 
 async def gift_products(request: web.Request) -> web.Response:
-    return web.json_response({"items": await _gift_products(request.match_info["category_id"], request.query.get("q", ""))})
+    return web.json_response(
+        {
+            "items": await _gift_products(
+                request.match_info["category_id"],
+                request.query.get("q", ""),
+                request.query.get("mode", ""),
+            )
+        }
+    )
 
 
 async def game_items(request: web.Request) -> web.Response:
@@ -1371,6 +1534,16 @@ def _variant_kind(service_key: str, label: str) -> str:
     return "option"
 
 
+def _is_allowed_game_variant(row: dict[str, Any]) -> bool:
+    label = taxonomy_norm_text(str(row.get("name") or ""))
+    kind = str(row.get("variant_kind") or "")
+    if kind == "option":
+        return label in _GAME_REGION_ALLOWLIST
+    if kind == "region":
+        return label in _GAME_REGION_ALLOWLIST
+    return label in _GAME_REGION_ALLOWLIST
+
+
 def _merge_named_variant(variants: list[dict[str, Any]], source_name: str, target_name: str) -> list[dict[str, Any]]:
     source = next((row for row in variants if str(row.get("name") or "") == source_name), None)
     target = next((row for row in variants if str(row.get("name") or "") == target_name), None)
@@ -1393,6 +1566,11 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
         if isinstance(row, dict) and str(row.get("id") or "").strip()
     }
     tree_by_service: dict[str, dict[str, Any]] = {}
+    game_family_keys = {
+        str(group.get("id") or "").split(":")[-1]
+        for group in grouped_games
+        if isinstance(group, dict) and str(group.get("id") or "").strip()
+    }
 
     def ensure_service(service_key: str) -> dict[str, Any]:
         existing = tree_by_service.get(service_key)
@@ -1438,6 +1616,7 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
                 "meta_label": "",
                 "variant_kind": str(payload.get("variant_kind") or "general"),
                 "image_url": str(payload.get("image_url") or ""),
+                "offer_mode": str(payload.get("offer_mode") or "all"),
             }
             parent["variants"].append(existing)
         else:
@@ -1453,6 +1632,10 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
                 existing["id"] = str(payload.get("id") or "")
             if not str(existing.get("image_url") or "").strip():
                 existing["image_url"] = str(payload.get("image_url") or "")
+            existing_offer_mode = str(existing.get("offer_mode") or "all")
+            incoming_offer_mode = str(payload.get("offer_mode") or "all")
+            if existing_offer_mode != incoming_offer_mode:
+                existing["offer_mode"] = "all"
 
     for group in grouped_games:
         family_key = str(group.get("id") or "").split(":")[-1]
@@ -1475,6 +1658,7 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
                     "gift_category_ids": [],
                     "variant_kind": _variant_kind("games", region_label),
                     "image_url": image_url,
+                    "offer_mode": "topup",
                 },
             )
 
@@ -1491,7 +1675,54 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
             product_rows = [row for row in list(products_by_category.get(str(source_id)) or []) if isinstance(row, dict) and _is_valid_gift_row(row)]
             if not product_rows:
                 continue
+            image_url = _gift_image_url(category_row, product_rows)
+            if image_url and not str(parent.get("image_url") or "").strip():
+                parent["image_url"] = image_url
             names = [str(row.get("clean_name") or row.get("name") or "").strip() for row in product_rows if str(row.get("clean_name") or row.get("name") or "").strip()]
+            if service_key == "games":
+                family_has_auto_topup = family_key in game_family_keys
+                split_rows = _split_game_gift_rows(product_rows, family_has_auto_topup=family_has_auto_topup)
+                has_id_topup = bool(split_rows["topup"])
+                if has_id_topup:
+                    family_has_auto_topup = True
+                if split_rows["topup"]:
+                    region_label = _resolve_region_label(service_key, family_key, family_label, category_name, names)
+                    if family_key in game_family_keys and (
+                        region_label in {"General", "Global", "Top Up"} or _variant_kind(service_key, region_label) == "option"
+                    ):
+                        region_label = "Global"
+                    elif split_rows["addons"] and region_label in {"General", "Global"}:
+                        region_label = "Top Up"
+                    elif _variant_kind(service_key, region_label) == "option":
+                        region_label = "Top Up"
+                    upsert_region(
+                        parent,
+                        region_label,
+                        {
+                            "id": f"{source_id}:topup",
+                            "entry_kind": "gift",
+                            "game_ids": [],
+                            "gift_category_ids": [str(source_id)],
+                            "variant_kind": _variant_kind(service_key, region_label),
+                            "offer_mode": "topup",
+                            "image_url": image_url,
+                        },
+                    )
+                if split_rows["addons"]:
+                    upsert_region(
+                        parent,
+                        "Add-ons",
+                        {
+                            "id": f"{source_id}:addons",
+                            "entry_kind": "gift",
+                            "game_ids": [],
+                            "gift_category_ids": [str(source_id)],
+                            "variant_kind": "option",
+                            "offer_mode": "addons",
+                            "image_url": image_url,
+                        },
+                    )
+                continue
             region_label = _resolve_region_label(service_key, family_key, family_label, category_name, names)
             upsert_region(
                 parent,
@@ -1502,6 +1733,8 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
                     "game_ids": [],
                     "gift_category_ids": [str(source_id)],
                     "variant_kind": _variant_kind(service_key, region_label),
+                    "offer_mode": "all",
+                    "image_url": image_url,
                 },
             )
 
@@ -1543,9 +1776,20 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
                         if str(existing.get("entry_kind") or "") != str(row.get("entry_kind") or ""):
                             existing["entry_kind"] = "mixed"
                     variants = list(dedup.values())
-            variants.sort(key=lambda row: (0 if str(row.get("name") or "") == "General" else 1, _natural_key(str(row.get("name") or ""))))
+            if service_key == "games":
+                variants = [row for row in variants if _is_allowed_game_variant(row)]
+                if not variants:
+                    family["variants"] = []
+                    family["count"] = 0
+                    continue
+            has_option = any(str(row.get("variant_kind") or "") == "option" for row in variants)
+            variants.sort(key=lambda row: (0 if str(row.get("name") or "") in {"General", "Global"} else 1, _natural_key(str(row.get("name") or ""))))
             family["variants"] = variants
             family["count"] = len(variants)
+            if service_key == "games" and len(variants) == 1 and str(variants[0].get("name") or "") == "Add-ons":
+                family["variants"] = []
+                family["count"] = 0
+                continue
             if len(variants) == 1:
                 family["selection_kind"] = "general"
             else:

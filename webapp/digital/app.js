@@ -303,6 +303,16 @@ function button(className, text, onClick, disabled = false) {
   return el;
 }
 
+function initialsFromName(name) {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (!parts.length) return "?";
+  return parts.map((part) => part[0]).join("").toUpperCase();
+}
+
 function stat(labelText, valueText, className = "") {
   const el = document.createElement("span");
   el.className = `stat ${className}`.trim();
@@ -381,6 +391,15 @@ function listTile(name, meta, onClick, opts = {}) {
   const showMeta = opts.showMeta !== false && Boolean(meta);
   const showChevron = opts.showChevron !== false;
   const el = button(`tile ${imageUrl ? "tile-media tile-media-cover" : ""}`.trim(), "", onClick);
+  const buildMediaFallback = () => {
+    const fallback = document.createElement("div");
+    fallback.className = "tile-media-fallback";
+    const badge = document.createElement("div");
+    badge.className = "tile-media-badge";
+    badge.textContent = initialsFromName(name);
+    fallback.append(badge);
+    return fallback;
+  };
   if (imageUrl) {
     const media = document.createElement("div");
     media.className = "tile-media-frame";
@@ -390,8 +409,7 @@ function listTile(name, meta, onClick, opts = {}) {
     img.alt = name;
     img.loading = "lazy";
     img.addEventListener("error", () => {
-      media.classList.add("tile-media-fallback");
-      img.remove();
+      media.replaceChildren(buildMediaFallback());
     });
     media.append(img);
     el.append(media);
@@ -522,6 +540,36 @@ function isPubgTopupName(name) {
   return /^(\d+)\s*(uc|nc)?$/.test(n) || /\b(uc|nc)\b/.test(n);
 }
 
+function isTopupLikeOfferName(name) {
+  const n = normalizeOfferName(name);
+  return (
+    /^(\d+)\s*(uc|nc|cp|vp|rp|diamonds?|gems?|coins?|cash|crystals?)?$/.test(n) ||
+    /\b(uc|nc|cp|vp|rp|diamond|diamonds|gem|gems|coin|coins|cash|crystal|crystals|jade|token|tokens|voucher|vouchers|credits)\b/.test(n) ||
+    /(جوهرة|جواهر|شدة|شدات|عملة|عملات|كاش|كوين|كوينز|كريستال|كريستالات|روبوت)/.test(String(name || ""))
+  );
+}
+
+function filterItemsByOfferMode(items, offerMode) {
+  const mode = String(offerMode || "all");
+  if (mode === "topup") {
+    return (items || []).filter((item) => {
+      if (String(item?.kind || "") === "game") {
+        return String(item?.group_key || "") === "topup";
+      }
+      return isTopupLikeOfferName(item?.name);
+    });
+  }
+  if (mode === "addons") {
+    return (items || []).filter((item) => {
+      if (String(item?.kind || "") === "game") {
+        return String(item?.group_key || "") !== "topup";
+      }
+      return !isTopupLikeOfferName(item?.name);
+    });
+  }
+  return items || [];
+}
+
 function mergeCheapestOffers(items) {
   const dedup = new Map();
   for (const item of items || []) {
@@ -552,7 +600,7 @@ async function loadPubgAddonItems(parent) {
     const sourceGiftIds = Array.isArray(variant?.gift_category_ids) ? variant.gift_category_ids.filter(Boolean) : [];
     for (const cid of sourceGiftIds) {
       const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(String(cid))}`);
-      allItems.push(...filterSellableItems((data.items || []).filter((item) => !isPubgTopupName(item?.name))));
+      allItems.push(...filterSellableItems((data.items || []).filter((item) => !isTopupLikeOfferName(item?.name))));
     }
   }
   return mergeCheapestOffers(allItems);
@@ -787,6 +835,7 @@ function buildCategoriesForService(key) {
             image_url: String(variant.image_url || ""),
             game_ids: Array.isArray(variant.game_ids) ? variant.game_ids : [],
             gift_category_ids: Array.isArray(variant.gift_category_ids) ? variant.gift_category_ids : [],
+            offer_mode: String(variant.offer_mode || "all"),
             meta_label:
               String(variant.name || "") === "General"
                 ? t("offers")
@@ -874,6 +923,7 @@ async function renderCategories() {
           game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
           gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
           variants: Array.isArray(row1.variants) ? row1.variants : [],
+          offer_mode: String(row1.offer_mode || "all"),
         }),
         { imageUrl: isGameService ? String(row1.image_url || "") : "", showMeta: !isGameService }
       )
@@ -889,6 +939,7 @@ async function renderCategories() {
             game_ids: Array.isArray(row2.game_ids) ? row2.game_ids : [],
             gift_category_ids: Array.isArray(row2.gift_category_ids) ? row2.gift_category_ids : [],
             variants: Array.isArray(row2.variants) ? row2.variants : [],
+            offer_mode: String(row2.offer_mode || "all"),
           }),
           { imageUrl: isGameService ? String(row2.image_url || "") : "", showMeta: !isGameService }
         )
@@ -939,6 +990,7 @@ function renderVariantCategories(parent) {
           game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
           gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
           selection_kind: String(parent?.selection_kind || "region"),
+          offer_mode: String(row1.offer_mode || "all"),
         })
       )
     );
@@ -952,6 +1004,7 @@ function renderVariantCategories(parent) {
             game_ids: Array.isArray(row2.game_ids) ? row2.game_ids : [],
             gift_category_ids: Array.isArray(row2.gift_category_ids) ? row2.gift_category_ids : [],
             selection_kind: String(parent?.selection_kind || "region"),
+            offer_mode: String(row2.offer_mode || "all"),
           })
         )
       );
@@ -969,16 +1022,16 @@ async function resolveGroupVariants(category) {
       let count = 0;
       if (String(variant.entry_kind || "") === "game") {
         const data = await api(`/mini/digital/api/games/${encodeURIComponent(String(variant.id || ""))}`);
-        count = mergeCheapestOffers(filterSellableItems(data?.items || [])).length;
+        count = mergeCheapestOffers(filterSellableItems(filterItemsByOfferMode(data?.items || [], variant.offer_mode))).length;
       } else {
         const sourceGiftIds = Array.isArray(variant.gift_category_ids) ? variant.gift_category_ids.filter(Boolean) : [];
         if (sourceGiftIds.length > 0) {
           for (const cid of sourceGiftIds) {
-            const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(String(cid))}`);
+            const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(String(cid))}?mode=${encodeURIComponent(String(variant.offer_mode || "all"))}`);
             count += mergeCheapestOffers(filterSellableItems(data?.items || [])).length;
           }
         } else if (variant.id) {
-          const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(String(variant.id))}`);
+          const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(String(variant.id))}?mode=${encodeURIComponent(String(variant.offer_mode || "all"))}`);
           count = mergeCheapestOffers(filterSellableItems(data?.items || [])).length;
         }
       }
@@ -1035,18 +1088,16 @@ async function openItems(category) {
   state.itemGroup = "all";
   state.itemGroups = [];
   try {
-    const isPubgFamily = String(state.variantParent?.name || "").toUpperCase() === "PUBG";
-    const categoryName = String(category?.name || "");
     if (category.entry_kind === "mixed") {
       const allItems = [];
       const allGroups = [];
       for (const gid of category.game_ids || []) {
         const data = await api(`/mini/digital/api/games/${encodeURIComponent(gid)}`);
-        allItems.push(...filterSellableItems(data.items || []));
+        allItems.push(...filterSellableItems(filterItemsByOfferMode(data.items || [], category.offer_mode)));
         allGroups.push(...(data.groups || []));
       }
       for (const cid of category.gift_category_ids || []) {
-        const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(cid)}`);
+        const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(cid)}?mode=${encodeURIComponent(String(category.offer_mode || "all"))}`);
         const giftRows = filterSellableItems(data.items || []).map((item) => ({ ...item, group_key: "vouchers" }));
         allItems.push(...giftRows);
       }
@@ -1061,18 +1112,20 @@ async function openItems(category) {
       state.itemGroups = Array.from(groupMap.values());
     } else if (state.selectedCategoryKind === "game") {
       const data = await api(`/mini/digital/api/games/${encodeURIComponent(category.id)}`);
-      let rows = filterSellableItems(data.items || []);
-      if (isPubgFamily && categoryName === "Global") {
-        rows = rows.filter((item) => String(item.group_key || "") === "topup");
-      }
+      let rows = filterSellableItems(filterItemsByOfferMode(data.items || [], category.offer_mode));
       state.items = mergeCheapestOffers(filterSellableItems(rows));
-      state.itemGroups = data.groups || [];
+      state.itemGroups =
+        String(category.offer_mode || "all") === "topup"
+          ? (data.groups || []).filter((group) => String(group?.key || "") === "topup")
+          : String(category.offer_mode || "all") === "addons"
+            ? (data.groups || []).filter((group) => String(group?.key || "") !== "topup")
+            : (data.groups || []);
     } else {
       const sourceGiftIds = Array.isArray(category.gift_category_ids) ? category.gift_category_ids.filter(Boolean) : [];
       if (sourceGiftIds.length > 0) {
         const allItems = [];
         for (const cid of sourceGiftIds) {
-          const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(cid)}`);
+          const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(cid)}?mode=${encodeURIComponent(String(category.offer_mode || "all"))}`);
           allItems.push(...filterSellableItems(data.items || []));
         }
         const seen = new Set();
@@ -1082,14 +1135,12 @@ async function openItems(category) {
             seen.add(key);
             return true;
           });
-        } else {
-          const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(category.id)}`);
+      } else {
+          const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(category.id)}?mode=${encodeURIComponent(String(category.offer_mode || "all"))}`);
           state.items = filterSellableItems(data.items || []);
         }
-        if (isPubgFamily && categoryName === "Add-ons") {
+        if (String(state.variantParent?.name || "").toUpperCase() === "PUBG" && String(category?.name || "") === "Add-ons") {
           state.items = await loadPubgAddonItems(state.variantParent);
-        } else if (isPubgFamily) {
-          state.items = (state.items || []).filter((item) => !isPubgTopupName(item?.name));
         }
         state.items = mergeCheapestOffers(filterSellableItems(state.items || []));
       state.itemGroups = [];

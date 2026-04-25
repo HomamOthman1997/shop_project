@@ -77,12 +77,7 @@ FAMILY_TABLE: dict[str, tuple[dict[str, object], ...]] = {
         {"key": "fortnite", "label": "Fortnite", "aliases": ("fortnite", "فورت نايت")},
         {"key": "we_play", "label": "We Play", "aliases": ("we play",)},
         {"key": "revenge_of_the_sultans", "label": "Revenge Of The Sultans", "aliases": ("revenge of the sultans",)},
-        {"key": "aya", "label": "Aya", "aliases": ("aya",)},
         {"key": "waki_star", "label": "Waki Star", "aliases": ("waki star",)},
-        {"key": "soul_star", "label": "Soul Star", "aliases": ("soul star",)},
-        {"key": "soul_shell", "label": "Soul Shell", "aliases": ("soul shell",)},
-        {"key": "party_star", "label": "Party Star", "aliases": ("party star",)},
-        {"key": "honey_jar", "label": "Honey Jar", "aliases": ("honey jar",)},
         {"key": "legend_of_neverland", "label": "Legend of Neverland", "aliases": ("legend of neverland",)},
         {"key": "legend_of_the_phoenix", "label": "Legend of the Phoenix", "aliases": ("legend of the phoenix",)},
         {"key": "solo_leveling_arise", "label": "Solo Leveling: Arise", "aliases": ("solo leveling: arise", "solo leveling arise")},
@@ -188,6 +183,12 @@ FAMILY_TABLE: dict[str, tuple[dict[str, object], ...]] = {
         {"key": "tiles_survive", "label": "Tiles Survive", "aliases": ("tiles survive",)},
         {"key": "sea_of_conquest", "label": "Sea of Conquest", "aliases": ("sea of conquest",)},
     ),
+    "chat_apps": (
+        {"key": "honey_jar", "label": "Honey Jar", "aliases": ("honey jar",)},
+        {"key": "party_star", "label": "Party Star", "aliases": ("party star",)},
+        {"key": "soul_shell", "label": "Soul Shell", "aliases": ("soul shell",)},
+        {"key": "soul_star", "label": "Soul Star", "aliases": ("soul star",)},
+    ),
     "social_services": (
         {"key": "tiktok_services", "label": "TikTok Services", "aliases": ("خدمات تيك توك", "tiktok services", "tiktok")},
         {"key": "whatsapp_services", "label": "WhatsApp Services", "aliases": ("خدمات وتس اب", "whatsapp services", "whatsapp")},
@@ -220,6 +221,7 @@ FAMILY_TABLE: dict[str, tuple[dict[str, object], ...]] = {
         {"key": "chatgpt", "label": "ChatGPT", "aliases": ("chatgpt", "شات جي بيتي")},
     ),
     "communications_data": (
+        {"key": "aya", "label": "Aya", "aliases": ("aya",)},
         {"key": "mtn", "label": "MTN", "aliases": ("mtn", "mtn رصيد")},
         {"key": "syriatel", "label": "Syriatel", "aliases": ("syriatel", "سيريتل", "رصيد سيريتل")},
         {"key": "sawa", "label": "SAWA", "aliases": ("sawa",)},
