@@ -236,13 +236,23 @@ def _money_decimal(value: Any) -> Decimal:
     return _to_decimal(value).quantize(TWOPLACES, rounding=ROUND_HALF_UP)
 
 
+def _round_sale_price_decimal(value: Any) -> Decimal:
+    amount = _to_decimal(value)
+    if amount <= 0:
+        return Decimal("0.00")
+    return ((amount * Decimal("2")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) / Decimal("2")).quantize(
+        TWOPLACES,
+        rounding=ROUND_HALF_UP,
+    )
+
+
 def _apply_markup_decimal(price: Any, markup_percent: Any) -> Decimal:
     base = _money_decimal(price)
     pct = _to_decimal(markup_percent)
     if pct <= 0:
-        return base
+        return _round_sale_price_decimal(base)
     multiplier = Decimal("1") + (pct / Decimal("100"))
-    return (base * multiplier).quantize(TWOPLACES, rounding=ROUND_HALF_UP)
+    return _round_sale_price_decimal(base * multiplier)
 
 
 def _is_pubg_game(game_id: str | None, game_name: str | None = None) -> bool:
@@ -3505,7 +3515,7 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
         product_id = str(selection.get("product_id") or "").strip()
         quantity = max(1, _to_int(selection.get("quantity") or 1))
         extra_params = selection.get("extra_params") if isinstance(selection.get("extra_params"), dict) else {}
-        quoted_price_usd = float(_money_decimal(selection.get("quoted_price_usd") or 0.0))
+        quoted_price_usd = float(_round_sale_price_decimal(selection.get("quoted_price_usd") or 0.0))
         selected: dict[str, Any] | None = None
         for item in ((snapshot.get("products_by_category") or {}).get(cat_id) or []):
             if str(item.get("id") or "").strip() == product_id:

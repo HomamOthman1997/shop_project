@@ -193,6 +193,13 @@ def _money(value: Any) -> float:
         return 0.0
 
 
+def _round_sale_price(value: Any) -> float:
+    amount = _money(value)
+    if amount <= 0:
+        return 0.0
+    return _money(round(amount * 2) / 2)
+
+
 async def _markup_percent() -> float:
     try:
         return float(await get_digital_products_markup_percent(0.0))
@@ -203,8 +210,8 @@ async def _markup_percent() -> float:
 def _with_markup(price: Any, markup_percent: float) -> float:
     base = _money(price)
     if markup_percent <= 0:
-        return base
-    return _money(base * (1 + (markup_percent / 100.0)))
+        return _round_sale_price(base)
+    return _round_sale_price(base * (1 + (markup_percent / 100.0)))
 
 
 def _norm(value: str | None) -> str:
@@ -230,8 +237,6 @@ def _provider_offers(row: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _offer_requires_identity(offer: dict[str, Any]) -> bool:
-    if bool(offer.get("za3em_requires_input")):
-        return True
     params = [taxonomy_norm_text(str(value or "")) for value in list(offer.get("za3em_params") or []) if str(value or "").strip()]
     if not params:
         return False
@@ -262,6 +267,13 @@ def _offer_requires_identity(offer: dict[str, Any]) -> bool:
 def _row_requires_identity(row: dict[str, Any]) -> bool:
     offers = _provider_offers(row)
     return any(_offer_requires_identity(offer) for offer in offers)
+
+
+def _offer_requires_quantity_input(offer: dict[str, Any]) -> bool:
+    qty_min = max(1, int(offer.get("za3em_qty_min") or 1))
+    qty_max = max(qty_min, int(offer.get("za3em_qty_max") or qty_min))
+    source = str(offer.get("source") or "").strip().lower()
+    return source == "amount" and qty_max > 1
 
 
 def _looks_topup_product_name(name: str | None) -> bool:
@@ -1135,10 +1147,11 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
         za_params = [str(v).strip() for v in list(za_offer.get("za3em_params") or []) if str(v).strip()]
         za_qty_min = max(1, int(za_offer.get("za3em_qty_min") or 1)) if za_offer else 1
         za_qty_max = max(za_qty_min, int(za_offer.get("za3em_qty_max") or za_qty_min)) if za_offer else 1
-        requires_input = bool(za_offer.get("za3em_requires_input")) if za_offer else False
-        unit_sale_price = unit_price * (1 + (float(markup or 0.0) / 100.0))
-        display_quantity = za_qty_min if requires_input else 1
-        display_sale_price = _money(unit_sale_price * display_quantity)
+        requires_identity = _offer_requires_identity(za_offer) if za_offer else False
+        requires_quantity_input = _offer_requires_quantity_input(za_offer) if za_offer else False
+        unit_sale_price = _round_sale_price(unit_price * (1 + (float(markup or 0.0) / 100.0)))
+        display_quantity = za_qty_min if requires_quantity_input else 1
+        display_sale_price = _round_sale_price(unit_sale_price * display_quantity)
         if display_sale_price <= 0:
             continue
         out.append(
@@ -1153,7 +1166,9 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
                 "stock_label": "In stock" if int(item.get("stock") or 0) > 0 else "Out of stock",
                 "best_provider_code": str(item.get("best_provider") or "g2bulk"),
                 "providers_count": len(list(item.get("provider_offers") or [])),
-                "za3em_requires_input": requires_input,
+                "za3em_requires_input": bool(za_offer.get("za3em_requires_input")) if za_offer else False,
+                "requires_identity": requires_identity,
+                "requires_quantity_input": requires_quantity_input,
                 "za3em_params": za_params,
                 "za3em_qty_min": za_qty_min,
                 "za3em_qty_max": za_qty_max,
@@ -1165,7 +1180,8 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
         key = (
             _norm(str(row.get("name") or "")),
             float(row.get("unit_price_usd") or 0.0),
-            bool(row.get("za3em_requires_input")),
+            bool(row.get("requires_identity")),
+            bool(row.get("requires_quantity_input")),
             tuple(sorted(str(v) for v in list(row.get("za3em_params") or []))),
             int(row.get("za3em_qty_min") or 1),
             int(row.get("za3em_qty_max") or 1),
@@ -1340,7 +1356,7 @@ async def create_selection(request: web.Request) -> web.Response:
         except Exception:
             quantity = 1
         extra_params = body.get("extra_params") if isinstance(body.get("extra_params"), dict) else {}
-        quoted_price_usd = _money(body.get("quoted_price_usd") or 0.0)
+        quoted_price_usd = _round_sale_price(body.get("quoted_price_usd") or 0.0)
         payload = {
             "kind": "gift",
             "category_id": category_id,
@@ -1362,7 +1378,7 @@ async def create_selection(request: web.Request) -> web.Response:
             "group_key": group_key,
             "player_id": str(body.get("player_id") or "").strip(),
             "server_id": str(body.get("server_id") or "").strip(),
-            "quoted_price_usd": _money(body.get("quoted_price_usd") or 0.0),
+            "quoted_price_usd": _round_sale_price(body.get("quoted_price_usd") or 0.0),
         }
     elif kind == "simtopup":
         section = str(body.get("section") or "").strip().lower()

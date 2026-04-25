@@ -251,7 +251,13 @@ function applyLang() {
 }
 
 function money(value) {
-  return `$${Number(value || 0).toFixed(2)}`;
+  return `$${roundSalePrice(value).toFixed(2)}`;
+}
+
+function roundSalePrice(value) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return Math.round(amount * 2) / 2;
 }
 
 function label(obj) {
@@ -445,7 +451,7 @@ function listTile(name, meta, onClick, opts = {}) {
 function itemRow(item) {
   const row = document.createElement("article");
   row.className = "item";
-  const dynamicGiftPrice = item.kind === "gift" && Boolean(item.za3em_requires_input);
+  const dynamicGiftPrice = item.kind === "gift" && Boolean(item.requires_quantity_input);
   const priceText = dynamicGiftPrice ? t("priceByQuantity") : money(item.price_usd);
 
   const priceDiv = document.createElement("div");
@@ -1225,7 +1231,7 @@ function promptText(en, ar) {
 function giftQuotePrice(item, quantity) {
   const qty = Math.max(1, Number(quantity || 1));
   const unit = Number(item?.unit_price_usd || item?.price_usd || 0);
-  return Number((unit * qty).toFixed(2));
+  return roundSalePrice(unit * qty);
 }
 
 function closeInputModal() {
@@ -1324,7 +1330,7 @@ async function createSelection(item) {
     const fields = [];
     const qtyMin = Number(item.za3em_qty_min || 1);
     const qtyMax = Number(item.za3em_qty_max || qtyMin);
-    if (Boolean(item.za3em_requires_input) && qtyMax > 1) {
+    if (Boolean(item.requires_quantity_input) && qtyMax > 1) {
       fields.push({
         name: "quantity",
         label: t("quantity"),
@@ -1361,7 +1367,7 @@ async function createSelection(item) {
         const qty = Number(values.quantity || item.display_quantity || 1);
         const quoted = giftQuotePrice(item, qty);
         if (modalSubtitleEl) {
-          modalSubtitleEl.textContent = `${baseSubtitle} • ${t("price")}: $${quoted.toFixed(2)}`;
+          modalSubtitleEl.textContent = `${baseSubtitle} • ${t("price")}: ${money(quoted)}`;
         }
       },
       onSubmit: async (values) => {
@@ -1396,7 +1402,7 @@ async function createSelection(item) {
         group_key: item.group_key,
         player_id: String(values.player_id || "").trim(),
         server_id: "",
-        quoted_price_usd: Number(Number(item.price_usd || 0).toFixed(2)),
+        quoted_price_usd: roundSalePrice(item.price_usd || 0),
       });
     },
   });
