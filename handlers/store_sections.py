@@ -262,13 +262,6 @@ def _is_pubg_game(game_id: str | None, game_name: str | None = None) -> bool:
     return any(key in text for key in ("pubg", "pubgm", "new state", "newstate"))
 
 
-def _pubg_undercut_percent() -> Decimal:
-    raw = _to_decimal(getattr(settings, "digital_products_pubg_undercut_percent", 1.0))
-    if raw <= 0:
-        return Decimal("1.0")
-    return raw
-
-
 def _resolve_game_sale_price_decimal(
     *,
     game_id: str | None,
@@ -278,14 +271,7 @@ def _resolve_game_sale_price_decimal(
 ) -> Decimal:
     base = _money_decimal(provider_price)
     marked = _apply_markup_decimal(base, markup_percent)
-    if not _is_pubg_game(game_id, game_name):
-        return marked
-    cap = (base * (Decimal("1") - (_pubg_undercut_percent() / Decimal("100")))).quantize(TWOPLACES, rounding=ROUND_HALF_UP)
-    if cap >= base and base > Decimal("0.01"):
-        cap = (base - Decimal("0.01")).quantize(TWOPLACES, rounding=ROUND_HALF_UP)
-    if cap <= 0:
-        cap = base
-    return min(marked, cap)
+    return marked
 
 
 def _to_int(value: Any) -> int:
@@ -3578,7 +3564,7 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
         player_id = str(selection.get("player_id") or "").strip()
         server_id = str(selection.get("server_id") or "").strip()
         game_name = _find_game_name(game_id, snapshot)
-        items = await get_game_topups(game_id)
+        items = await get_game_topups(game_id, force=True)
         selected = None
         for item in items:
             if str(item.get("id") or "").strip() == item_id:
@@ -3942,7 +3928,7 @@ async def open_g2bulk_game(callback: types.CallbackQuery):
     snapshot = await get_catalog_snapshot(force=False)
     game_id = str(callback.data.split(":", 2)[2]).strip()
     game_name = _find_game_name(game_id, snapshot)
-    items = await get_game_topups(game_id)
+    items = await get_game_topups(game_id, force=True)
     if not items:
         return await callback.answer(t(lang, "store_no_game_categories"), show_alert=True)
     grouped = _group_game_items(game_id, items, lang)
@@ -3980,7 +3966,7 @@ async def open_g2bulk_game_group(callback: types.CallbackQuery):
     group_key = str(parts[3]).strip()
     snapshot = await get_catalog_snapshot(force=False)
     game_name = _find_game_name(game_id, snapshot)
-    items = await get_game_topups(game_id)
+    items = await get_game_topups(game_id, force=True)
     if not items:
         return await callback.answer(t(lang, "store_no_game_categories"), show_alert=True)
     grouped = {key: grouped_items for key, _label, grouped_items in _group_game_items(game_id, items, lang)}
@@ -4061,7 +4047,7 @@ async def open_g2bulk_game_item(callback: types.CallbackQuery):
         item_id = str(parts[4]).strip()
     else:
         item_id = str(parts[3]).strip()
-    items = await get_game_topups(game_id)
+    items = await get_game_topups(game_id, force=True)
     grouped_count = len(_group_game_items(game_id, items, lang))
     found: dict[str, Any] | None = None
     for item in items:
@@ -4421,7 +4407,7 @@ async def start_g2bulk_game_checkout(callback: types.CallbackQuery, state: FSMCo
         item_id = str(parts[4]).strip()
     else:
         item_id = str(parts[3]).strip()
-    items = await get_game_topups(game_id)
+    items = await get_game_topups(game_id, force=True)
     snapshot = await get_catalog_snapshot(force=False)
     game_name = _find_game_name(game_id, snapshot)
     grouped_count = len(_group_game_items(game_id, items, lang))

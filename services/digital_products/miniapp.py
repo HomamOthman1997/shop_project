@@ -5,6 +5,7 @@ import hmac
 import json
 import re
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl
@@ -197,7 +198,10 @@ def _round_sale_price(value: Any) -> float:
     amount = _money(value)
     if amount <= 0:
         return 0.0
-    return _money(round(amount * 2) / 2)
+    rounded = (
+        (Decimal(str(amount)) * Decimal("2")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) / Decimal("2")
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return float(rounded)
 
 
 async def _markup_percent() -> float:
@@ -370,25 +374,10 @@ def _is_pubg_game(game_id: str | None, game_name: str | None = None) -> bool:
     return any(key in text for key in ("pubg", "pubgm", "new state", "newstate"))
 
 
-def _pubg_undercut_percent() -> float:
-    try:
-        value = float(getattr(settings, "digital_products_pubg_undercut_percent", 1.0))
-    except Exception:
-        value = 1.0
-    return value if value > 0 else 1.0
-
-
 def _resolve_game_sale_price(price: Any, markup_percent: float, *, game_id: str | None, game_name: str | None = None) -> float:
     base = _money(price)
     marked = _with_markup(base, markup_percent)
-    if not _is_pubg_game(game_id, game_name):
-        return marked
-    cap = _money(base * (1.0 - (_pubg_undercut_percent() / 100.0)))
-    if cap >= base and base > 0.01:
-        cap = _money(base - 0.01)
-    if cap <= 0:
-        cap = base
-    return min(marked, cap)
+    return marked
 
 
 def _natural_key(text: str) -> list[Any]:
@@ -1210,7 +1199,7 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
     rows_with_game: list[tuple[str, dict[str, Any]]] = []
     for source_game_id in source_game_ids:
         try:
-            source_rows = await get_game_topups(str(source_game_id))
+            source_rows = await get_game_topups(str(source_game_id), force=True)
         except Exception:
             source_rows = []
         for row in source_rows:

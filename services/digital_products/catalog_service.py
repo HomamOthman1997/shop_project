@@ -838,8 +838,8 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
     return dict(snapshot)
 
 
-async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
-    snapshot = await get_catalog_snapshot(force=False)
+async def get_game_topups(game_id: str, *, force: bool = False) -> list[dict[str, Any]]:
+    snapshot = await get_catalog_snapshot(force=force)
     topup_map = dict(snapshot.get("topups_by_game") or {})
     game_name = ""
     for game in list(snapshot.get("games") or []):
@@ -847,7 +847,7 @@ async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
             game_name = str(game.get("name") or "").strip()
             break
     service_key = _canonical_game_service_key(game_name or str(game_id), str(game_id))
-    if str(game_id) in topup_map:
+    if not force and str(game_id) in topup_map:
         cached_rows = list(topup_map.get(str(game_id)) or [])
         if service_key == "game:pubg":
             deduped = _dedupe_pubg_topups(cached_rows)
@@ -857,7 +857,7 @@ async def get_game_topups(game_id: str) -> list[dict[str, Any]]:
                 _CACHE["data"] = snapshot
             return deduped
         return cached_rows
-    za_index = _build_za3em_index(await _get_za3em_products(force=False))
+    za_index = _build_za3em_index(await _get_za3em_products(force=force))
 
     client = G2BulkClient()
     rows = await client.get_game_catalogue(game_id)
