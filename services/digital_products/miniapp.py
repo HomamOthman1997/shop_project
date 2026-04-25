@@ -201,7 +201,7 @@ def _is_valid_gift_row(row: dict[str, Any]) -> bool:
     if _is_invalid_display_name(name):
         return False
     try:
-        return float(row.get("price") or 0.0) > 0
+        return float(row.get("price") or 0.0) > 0 and int(row.get("stock") or 0) > 0
     except Exception:
         return False
 
@@ -827,6 +827,11 @@ async def _catalog_payload() -> dict[str, Any]:
     categories, gift_source_map = _grouped_gift_categories(snapshot)
     grouped_games, game_source_map = _grouped_games(snapshot)
     service_tree = _build_service_tree(snapshot, grouped_games, game_source_map, categories, gift_source_map)
+    tree_counts = {
+        str(row.get("key") or "").strip(): len(list(row.get("families") or []))
+        for row in list(service_tree or [])
+        if isinstance(row, dict)
+    }
     gift_groups = [
         {"key": key, "label": _gift_group_label(key)}
         for key in ("popular", "gaming", "apps", "other")
@@ -864,15 +869,15 @@ async def _catalog_payload() -> dict[str, Any]:
         )
     )
     service_counts = {
-        "games": games_count,
-        "chat_apps": chat_apps_count,
-        "social_services": social_services_count,
+        "games": int(tree_counts.get("games", games_count) or 0),
+        "chat_apps": int(tree_counts.get("chat_apps", chat_apps_count) or 0),
+        "social_services": int(tree_counts.get("social_services", social_services_count) or 0),
         "communications_data": 2 if comm_enabled else 0,
-        "internet_providers": internet_providers_count,
-        "paid_apps": paid_apps_count,
+        "internet_providers": int(tree_counts.get("internet_providers", internet_providers_count) or 0),
+        "paid_apps": int(tree_counts.get("paid_apps", paid_apps_count) or 0),
         "numbers_services": 1 if numbers_enabled else 0,
-        "paid_subscriptions": paid_subscriptions_count,
-        "store_cards": store_cards_count,
+        "paid_subscriptions": int(tree_counts.get("paid_subscriptions", paid_subscriptions_count) or 0),
+        "store_cards": int(tree_counts.get("store_cards", store_cards_count) or 0),
     }
     services = [
         {
@@ -955,6 +960,8 @@ async def _gift_products(category_id: str, query: str = "") -> list[dict[str, An
             continue
         unit_price = float(item.get("price") or 0.0)
         if unit_price <= 0:
+            continue
+        if int(item.get("stock") or 0) <= 0:
             continue
         offers = [row for row in list(item.get("provider_offers") or []) if isinstance(row, dict)]
         za3em_offers = []
@@ -1469,6 +1476,8 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
             category_row = gift_categories_by_id.get(str(source_id)) or {}
             category_name = str(category_row.get("clean_name") or category_row.get("name") or family_label).strip()
             product_rows = [row for row in list(products_by_category.get(str(source_id)) or []) if isinstance(row, dict) and _is_valid_gift_row(row)]
+            if not product_rows:
+                continue
             names = [str(row.get("clean_name") or row.get("name") or "").strip() for row in product_rows if str(row.get("clean_name") or row.get("name") or "").strip()]
             region_label = _resolve_region_label(service_key, family_key, family_label, category_name, names)
             upsert_region(
@@ -1495,6 +1504,8 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
         families = list(node.get("families") or [])
         for family in families:
             variants = list(family.get("variants") or [])
+            if not variants:
+                continue
             if any(str(row.get("name") or "") == "General" for row in variants) and any(str(row.get("name") or "") == "Global" for row in variants):
                 variants = _merge_named_variant(variants, "General", "Global")
             has_option = any(str(row.get("variant_kind") or "") == "option" for row in variants)
@@ -1532,6 +1543,7 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
                 family["meta_label"] = f"{len(variants)} options" if len(variants) != 1 else "1 option"
             else:
                 family["meta_label"] = f"{len(variants)} regions" if len(variants) != 1 else "1 region"
+        families = [row for row in families if list(row.get("variants") or [])]
         families.sort(key=lambda row: _natural_key(str(row.get("name") or "")))
         service_rows.append({"key": service_key, "label": dict(section.get("label") or {}), "families": families})
     return service_rows

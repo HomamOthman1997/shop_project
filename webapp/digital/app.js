@@ -533,6 +533,14 @@ function serviceRows() {
   });
 }
 
+async function resolveVisibleServiceRows(rows) {
+  return (rows || []).filter((row) => {
+    if (!row?.enabled) return false;
+    if (String(row.key || "") === "communications_data") return true;
+    return Number(row.count || 0) > 0;
+  });
+}
+
 function filteredCategories() {
   const q = state.search.trim().toLowerCase();
   return state.categories.filter((row) => !q || String(row.name || "").toLowerCase().includes(q));
@@ -541,9 +549,71 @@ function filteredCategories() {
 function filteredItems() {
   const q = state.search.trim().toLowerCase();
   return state.items.filter((row) => {
+    if (!isSellableItem(row)) return false;
     const bySearch = !q || String(row.name || "").toLowerCase().includes(q);
     return bySearch;
   });
+}
+
+function isSellableItem(item) {
+  if (!item) return false;
+  if (String(item.kind || "") === "gift") {
+    return Number(item.stock || 0) > 0;
+  }
+  return true;
+}
+
+function filterSellableItems(items) {
+  return (items || []).filter(isSellableItem);
+}
+
+function normalizeOfferName(name) {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[()]/g, "")
+    .trim();
+}
+
+function isPubgTopupName(name) {
+  const n = normalizeOfferName(name);
+  return /^(\d+)\s*(uc|nc)?$/.test(n) || /\b(uc|nc)\b/.test(n);
+}
+
+function mergeCheapestOffers(items) {
+  const dedup = new Map();
+  for (const item of items || []) {
+    const key = normalizeOfferName(item?.name);
+    if (!key) continue;
+    const existing = dedup.get(key);
+    const price = Number(item?.price_usd || 0);
+    const existingPrice = Number(existing?.price_usd || 0);
+    if (!existing || price < existingPrice) {
+      dedup.set(key, item);
+    }
+  }
+  return Array.from(dedup.values());
+}
+
+async function loadPubgAddonItems(parent) {
+  const allItems = [];
+  const variants = Array.isArray(parent?.variants) ? parent.variants : [];
+  for (const variant of variants) {
+    if (String(variant?.name || "") === "Turkey") {
+      continue;
+    }
+    if (String(variant?.entry_kind || "") === "game") {
+      const data = await api(`/mini/digital/api/games/${encodeURIComponent(String(variant.id || ""))}`);
+      allItems.push(...filterSellableItems((data.items || []).filter((item) => String(item.group_key || "") !== "topup")));
+      continue;
+    }
+    const sourceGiftIds = Array.isArray(variant?.gift_category_ids) ? variant.gift_category_ids.filter(Boolean) : [];
+    for (const cid of sourceGiftIds) {
+      const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(String(cid))}`);
+      allItems.push(...filterSellableItems((data.items || []).filter((item) => !isPubgTopupName(item?.name))));
+    }
+  }
+  return mergeCheapestOffers(allItems);
 }
 
 function inferServiceForGameName(name) {
@@ -710,7 +780,7 @@ function normalizeChatCategoryName(name) {
   return String(name || "-");
 }
 
-function renderServices() {
+async function renderServices() {
   clear();
   state.view = "services";
   state.service = "";
@@ -730,13 +800,15 @@ function renderServices() {
   content.append(heading(t("sections")));
   const grid = document.createElement("section");
   grid.className = "dept-grid";
-  serviceRows().forEach((row) => {
+  const rows = await resolveVisibleServiceRows(serviceRows());
+  rows.forEach((row) => {
     const visual = serviceVisuals[String(row.key || "")] || {};
     const meta = row.enabled
       ? `${row.count} ${row.count === 1 ? t("offerWord") : t("offersWord")}`
       : t("unavailableShort");
     grid.append(card(label(row.label), meta, () => enterService(row.key), !row.enabled, visual));
   });
+  setStatus(rows.length ? "" : t("noResults"));
   content.append(grid);
 }
 
@@ -823,7 +895,7 @@ function enterService(key) {
   renderCategories();
 }
 
-function renderCategories() {
+async function renderCategories() {
   clear();
   state.view = "categories";
   state.variantParent = null;
@@ -948,17 +1020,17 @@ async function resolveGroupVariants(category) {
       let count = 0;
       if (String(variant.entry_kind || "") === "game") {
         const data = await api(`/mini/digital/api/games/${encodeURIComponent(String(variant.id || ""))}`);
-        count = Array.isArray(data?.items) ? data.items.length : 0;
+        count = mergeCheapestOffers(filterSellableItems(data?.items || [])).length;
       } else {
         const sourceGiftIds = Array.isArray(variant.gift_category_ids) ? variant.gift_category_ids.filter(Boolean) : [];
         if (sourceGiftIds.length > 0) {
           for (const cid of sourceGiftIds) {
             const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(String(cid))}`);
-            count += Array.isArray(data?.items) ? data.items.length : 0;
+            count += mergeCheapestOffers(filterSellableItems(data?.items || [])).length;
           }
         } else if (variant.id) {
           const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(String(variant.id))}`);
-          count = Array.isArray(data?.items) ? data.items.length : 0;
+          count = mergeCheapestOffers(filterSellableItems(data?.items || [])).length;
         }
       }
       if (count > 0) {
@@ -988,7 +1060,7 @@ async function openItems(category) {
   clear();
   setStatus(t("loading"));
   if (category.entry_kind === "group" && Array.isArray(category.variants) && category.variants.length > 0) {
-    const validVariants = await resolveGroupVariants(category);
+    const validVariants = Array.isArray(category.variants) ? category.variants : [];
     if (validVariants.length === 1) {
       await openItems({
         ...validVariants[0],
@@ -1014,20 +1086,22 @@ async function openItems(category) {
   state.itemGroup = "all";
   state.itemGroups = [];
   try {
+    const isPubgFamily = String(state.variantParent?.name || "").toUpperCase() === "PUBG";
+    const categoryName = String(category?.name || "");
     if (category.entry_kind === "mixed") {
       const allItems = [];
       const allGroups = [];
       for (const gid of category.game_ids || []) {
         const data = await api(`/mini/digital/api/games/${encodeURIComponent(gid)}`);
-        allItems.push(...(data.items || []));
+        allItems.push(...filterSellableItems(data.items || []));
         allGroups.push(...(data.groups || []));
       }
       for (const cid of category.gift_category_ids || []) {
         const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(cid)}`);
-        const giftRows = (data.items || []).map((item) => ({ ...item, group_key: "vouchers" }));
+        const giftRows = filterSellableItems(data.items || []).map((item) => ({ ...item, group_key: "vouchers" }));
         allItems.push(...giftRows);
       }
-      state.items = allItems;
+      state.items = mergeCheapestOffers(allItems);
       const groupMap = new Map();
       (allGroups || []).forEach((g) => {
         if (g && g.key && !groupMap.has(g.key)) groupMap.set(g.key, g);
@@ -1038,7 +1112,11 @@ async function openItems(category) {
       state.itemGroups = Array.from(groupMap.values());
     } else if (state.selectedCategoryKind === "game") {
       const data = await api(`/mini/digital/api/games/${encodeURIComponent(category.id)}`);
-      state.items = data.items || [];
+      let rows = filterSellableItems(data.items || []);
+      if (isPubgFamily && categoryName === "Global") {
+        rows = rows.filter((item) => String(item.group_key || "") === "topup");
+      }
+      state.items = mergeCheapestOffers(filterSellableItems(rows));
       state.itemGroups = data.groups || [];
     } else {
       const sourceGiftIds = Array.isArray(category.gift_category_ids) ? category.gift_category_ids.filter(Boolean) : [];
@@ -1046,19 +1124,25 @@ async function openItems(category) {
         const allItems = [];
         for (const cid of sourceGiftIds) {
           const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(cid)}`);
-          allItems.push(...(data.items || []));
+          allItems.push(...filterSellableItems(data.items || []));
         }
         const seen = new Set();
         state.items = allItems.filter((item) => {
           const key = `${String(item.kind || "")}:${String(item.id || "")}:${String(item.category_id || "")}`;
           if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-      } else {
-        const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(category.id)}`);
-        state.items = data.items || [];
-      }
+            seen.add(key);
+            return true;
+          });
+        } else {
+          const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(category.id)}`);
+          state.items = filterSellableItems(data.items || []);
+        }
+        if (isPubgFamily && categoryName === "Add-ons") {
+          state.items = await loadPubgAddonItems(state.variantParent);
+        } else if (isPubgFamily) {
+          state.items = (state.items || []).filter((item) => !isPubgTopupName(item?.name));
+        }
+        state.items = mergeCheapestOffers(filterSellableItems(state.items || []));
       state.itemGroups = [];
     }
     renderItems();
