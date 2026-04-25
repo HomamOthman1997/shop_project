@@ -385,22 +385,25 @@ input:focus {
 }
 
 .tile-media {
-  min-height: 196px;
-  align-content: start;
+  min-height: 224px;
+  position: relative;
+  overflow: hidden;
+  align-content: end;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: 112px auto;
-  gap: 12px;
-  padding: 12px;
+  grid-template-rows: 1fr;
+  gap: 0;
+  padding: 0;
 }
 
 .tile-media-frame {
-  grid-column: 1 / -1;
+  position: absolute;
+  inset: 0;
   width: 100%;
-  aspect-ratio: 16 / 9;
-  border-radius: 12px;
+  height: 100%;
+  border-radius: inherit;
   overflow: hidden;
   background: #0f1524;
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  border: 0;
 }
 
 .tile-media-image {
@@ -414,6 +417,15 @@ input:focus {
   background:
     radial-gradient(circle at top left, rgba(122, 115, 255, 0.22), transparent 45%),
     linear-gradient(180deg, #131a2a 0%, #0f1524 100%);
+}
+
+.tile-media-overlay {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  align-self: end;
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(8, 12, 22, 0) 0%, rgba(8, 12, 22, 0.72) 46%, rgba(8, 12, 22, 0.96) 100%);
 }
 
 .tile:hover,
@@ -441,8 +453,12 @@ input:focus {
 }
 
 .tile-media .tile-chevron {
+  position: relative;
+  z-index: 1;
   align-self: start;
-  margin-top: 2px;
+  margin: 12px 12px 0 0;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
 .tile strong,

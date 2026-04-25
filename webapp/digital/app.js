@@ -380,7 +380,7 @@ function listTile(name, meta, onClick, opts = {}) {
   const imageUrl = String(opts.imageUrl || "").trim();
   const showMeta = opts.showMeta !== false && Boolean(meta);
   const showChevron = opts.showChevron !== false;
-  const el = button(`tile ${imageUrl ? "tile-media" : ""}`.trim(), "", onClick);
+  const el = button(`tile ${imageUrl ? "tile-media tile-media-cover" : ""}`.trim(), "", onClick);
   if (imageUrl) {
     const media = document.createElement("div");
     media.className = "tile-media-frame";
@@ -407,7 +407,14 @@ function listTile(name, meta, onClick, opts = {}) {
     span.textContent = meta;
     body.append(span);
   }
-  el.append(body);
+  if (imageUrl) {
+    const overlay = document.createElement("div");
+    overlay.className = "tile-media-overlay";
+    overlay.append(body);
+    el.append(overlay);
+  } else {
+    el.append(body);
+  }
   if (showChevron) {
     const chev = document.createElement("b");
     chev.className = "tile-chevron";
@@ -441,8 +448,8 @@ function itemRow(item) {
     const meta = document.createElement("span");
     meta.className = "meta";
     meta.textContent = `${t("creditsRange")}: ${minQty} - ${maxQty}`;
+    content.append(meta);
   }
-  content.append(meta);
 
   const buy = button("buy", t("continue"), () => createSelection(item));
   if (item.kind === "gift" && Number(item.stock || 0) <= 0) {
