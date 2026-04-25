@@ -814,7 +814,16 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
             if key in n:
                 bias = len(_DEFAULT_TOP_GAMES) - idx
                 break
-        games.append({"id": game_id, "code": game_code or game_id, "name": name, "bias": bias, "raw": row})
+        games.append(
+            {
+                "id": game_id,
+                "code": game_code or game_id,
+                "name": name,
+                "image_url": str(row.get("image_url") or row.get("image") or row.get("icon") or "").strip(),
+                "bias": bias,
+                "raw": row,
+            }
+        )
     games.sort(key=lambda x: (-int(x.get("bias") or 0), _norm(x.get("name"))))
 
     snapshot = {
