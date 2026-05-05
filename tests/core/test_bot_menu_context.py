@@ -83,9 +83,13 @@ def test_digital_products_menu_exposes_miniapp_button_when_enabled(monkeypatch):
 
     kb = digital_products_main_menu("en")
     first_button = kb.keyboard[0][0]
+    labels = [btn.text for row in kb.keyboard for btn in row]
 
     assert first_button.web_app is not None
     assert first_button.web_app.url == "https://store.example.com/mini/digital"
+    assert t("en", "btn_giftcards") not in labels
+    assert t("en", "btn_games_topups") not in labels
+    assert t("en", "btn_sim_topup") not in labels
 
 
 @pytest.mark.asyncio

@@ -34,7 +34,12 @@ from database.reseller_settings_repo import get_exchange_rate
 from database.user_repo import get_user, get_user_reseller_for_bot, set_user_reseller_for_bot
 from utils.bot_menu_context import is_digital_products_bot, is_main_bot, menu_for_current_bot
 from services.digital_products.g2bulk_client import G2BulkClient
-from services.digital_products.catalog_service import extract_provider_offers, get_catalog_snapshot, get_game_topups
+from services.digital_products.catalog_service import (
+    digital_provider_enabled,
+    extract_provider_offers,
+    get_catalog_snapshot,
+    get_game_topups,
+)
 from services.digital_products.esim_access_client import EsimAccessClient
 from services.digital_products.miniapp import consume_selection
 from services.digital_products.za3em_client import Za3emClient
@@ -1362,6 +1367,8 @@ async def _poll_provider_order_status(
     p = str(provider or "").strip().lower()
     if not str(external_order_id or "").strip():
         return None
+    if not digital_provider_enabled(p):
+        return None
     if p == "za3em":
         client = Za3emClient()
         return await _poll_za3em_order_status(client, external_order_id, by_uuid=False)
@@ -1392,6 +1399,8 @@ async def _create_provider_gift_order(
     extra_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     p = str(provider or "").strip().lower()
+    if not digital_provider_enabled(p):
+        return {"status": 0, "data": {"status": "ERROR", "msg": "PROVIDER_DISABLED"}}
     if p == "za3em":
         client = Za3emClient()
         return await client.create_order(
@@ -1501,6 +1510,13 @@ async def _execute_gift_purchase(
     quantity: int = 1,
     extra_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    available_offers = [
+        dict(row)
+        for row in list(available_offers or [])
+        if isinstance(row, dict) and bool(row.get("available")) and digital_provider_enabled(str(row.get("provider") or ""))
+    ]
+    if not available_offers:
+        return {"kind": "provider_failed", "text": t(lang, "store_out_of_stock")}
     order, err = await _core_charge(
         user_id=int(user_id),
         reseller_id=int(reseller_id),
@@ -1632,6 +1648,8 @@ async def _create_provider_game_order(
     catalogue_name: str,
 ) -> dict[str, Any]:
     p = str(provider or "").strip().lower()
+    if not digital_provider_enabled(p):
+        return {"status": 0, "data": {"status": "ERROR", "msg": "PROVIDER_DISABLED"}}
     if p == "za3em":
         client = Za3emClient()
         return await client.create_order(
@@ -4560,6 +4578,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
     offers = [row for row in list(pending.get("provider_offers") or []) if isinstance(row, dict)]
     if not offers:
         offers = [{"provider": "g2bulk", "ref_id": item_id, "price": float(_money_decimal(pending.get("provider_price", pending.get("sale_price", 0)))), "available": True}]
+    offers = [row for row in offers if digital_provider_enabled(str(row.get("provider") or ""))]
     offers.sort(key=lambda row: (0 if bool(row.get("available")) else 1, float(_money_decimal(row.get("price") or 0.0)) if float(_money_decimal(row.get("price") or 0.0)) > 0 else 9999999))
     available_offers = [row for row in offers if bool(row.get("available"))]
     if not available_offers:

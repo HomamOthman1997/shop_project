@@ -20,7 +20,7 @@ from .static_taxonomy import (
 )
 from .za3em_client import Za3emClient
 
-_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+_CACHE: dict[str, Any] = {"ts": 0.0, "data": None, "provider_state": {}}
 _ZA3EM_CACHE: dict[str, Any] = {"ts": 0.0, "rows": []}
 _CACHE_LOCK = asyncio.Lock()
 _ZA3EM_LOCK = asyncio.Lock()
@@ -32,6 +32,21 @@ _GAME_VARIANT_SERVICE_MAP: dict[str, str] = {
     "game:free_fire": "free_fire",
     "game:honor_of_kings": "hok",
 }
+
+
+def za3em_provider_enabled() -> bool:
+    return bool(getattr(settings, "za3em_enabled", False))
+
+
+def digital_provider_enabled(provider: str) -> bool:
+    p = str(provider or "").strip().lower()
+    if p == "za3em":
+        return za3em_provider_enabled()
+    return True
+
+
+def _catalog_provider_state() -> dict[str, bool]:
+    return {"za3em_enabled": za3em_provider_enabled()}
 
 
 def _norm(text: str | None) -> str:
@@ -255,7 +270,7 @@ async def _with_timeout(coro: Any, *, timeout_sec: float, default: Any) -> Any:
 
 
 def _choose_best_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
-    return pick_cheapest_offer(offers)
+    return pick_cheapest_offer([row for row in offers if digital_provider_enabled(str(row.get("provider") or ""))])
 
 
 def _za3em_offer_meta(row: dict[str, Any]) -> dict[str, Any]:
@@ -278,6 +293,10 @@ def _za3em_offer_meta(row: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _get_za3em_products(force: bool = False) -> list[dict[str, Any]]:
+    if not za3em_provider_enabled():
+        _ZA3EM_CACHE["ts"] = time.time()
+        _ZA3EM_CACHE["rows"] = []
+        return []
     ttl = max(15, int(getattr(settings, "za3em_catalog_cache_ttl_sec", 120) or 120))
     now = time.time()
     if not force and (now - float(_ZA3EM_CACHE.get("ts") or 0.0)) < ttl:
@@ -593,13 +612,24 @@ def _dedupe_pubg_topups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
     ttl = max(10, int(getattr(settings, "g2bulk_catalog_cache_ttl_sec", 120) or 120))
     provider_timeout = max(3.0, float(getattr(settings, "digital_products_provider_timeout_sec", 8.0) or 8.0))
+    provider_state = _catalog_provider_state()
     now = time.time()
-    if not force and _CACHE.get("data") and (now - float(_CACHE.get("ts") or 0.0)) < ttl:
+    if (
+        not force
+        and _CACHE.get("data")
+        and _CACHE.get("provider_state") == provider_state
+        and (now - float(_CACHE.get("ts") or 0.0)) < ttl
+    ):
         return dict(_CACHE["data"])
 
     async with _CACHE_LOCK:
         now = time.time()
-        if not force and _CACHE.get("data") and (now - float(_CACHE.get("ts") or 0.0)) < ttl:
+        if (
+            not force
+            and _CACHE.get("data")
+            and _CACHE.get("provider_state") == provider_state
+            and (now - float(_CACHE.get("ts") or 0.0)) < ttl
+        ):
             return dict(_CACHE["data"])
 
         client = G2BulkClient()
@@ -618,11 +648,13 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
     # Never fail closed for catalog: if providers are slow/down and we have stale cache, serve it.
     if not (raw_categories or raw_products or raw_games or za3em_rows):
         stale = _CACHE.get("data")
-        if isinstance(stale, dict) and stale:
+        if isinstance(stale, dict) and stale and _CACHE.get("provider_state") == provider_state:
             return dict(stale)
 
     if not za3em_rows:
         za3em_rows = list(_ZA3EM_CACHE.get("rows") or [])
+    if not za3em_provider_enabled():
+        za3em_rows = []
     za_index = _build_za3em_index(za3em_rows)
     za3em_categories, section_default_category = _build_za3em_categories(za3em_rows)
     cat_name_by_id = {str(_best_id(row, "id", "category_id", "ID")): str(row.get("name") or row.get("title") or "") for row in raw_categories}
@@ -832,9 +864,14 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         "games": games,
         "products_by_category": products_by_category,
         "topups_by_game": {},
+        "providers": {
+            "g2bulk": {"enabled": True, "configured": bool(client.configured())},
+            "za3em": {"enabled": za3em_provider_enabled(), "configured": bool(Za3emClient().configured())},
+        },
     }
     _CACHE["ts"] = now
     _CACHE["data"] = snapshot
+    _CACHE["provider_state"] = provider_state
     return dict(snapshot)
 
 
@@ -905,22 +942,32 @@ async def get_game_topups(game_id: str, *, force: bool = False) -> list[dict[str
 
 
 def extract_provider_offers(row: dict[str, Any], *, fallback_provider: str, fallback_ref_id: str, fallback_price: float) -> list[dict[str, Any]]:
-    offers = [item for item in list(row.get("provider_offers") or []) if isinstance(item, dict)]
+    raw_offers = [item for item in list(row.get("provider_offers") or []) if isinstance(item, dict)]
+    offers = [
+        item
+        for item in raw_offers
+        if digital_provider_enabled(str(item.get("provider") or ""))
+    ]
     if not offers:
-        offers = [
-            _build_offer(
-                fallback_provider,
-                fallback_ref_id,
-                fallback_price,
-                True,
-                source="fallback",
-            )
-        ]
+        if raw_offers:
+            offers = []
+        elif digital_provider_enabled(fallback_provider):
+            offers = [
+                _build_offer(
+                    fallback_provider,
+                    fallback_ref_id,
+                    fallback_price,
+                    True,
+                    source="fallback",
+                )
+            ]
+        else:
+            offers = []
     uniq: dict[tuple[str, str], dict[str, Any]] = {}
     for item in offers:
         provider = str(item.get("provider") or "").strip().lower()
         ref_id = str(item.get("ref_id") or "").strip()
-        if not provider or not ref_id:
+        if not provider or not ref_id or not digital_provider_enabled(provider):
             continue
         key = (provider, ref_id)
         existing = uniq.get(key)

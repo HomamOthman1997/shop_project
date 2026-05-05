@@ -50,24 +50,29 @@ def reseller_user_main_menu(lang: str) -> ReplyKeyboardMarkup:
 
 def digital_products_main_menu(lang: str) -> ReplyKeyboardMarkup:
     miniapp_url = _digital_store_webapp_url()
-    keyboard = [
-        (
-            [KeyboardButton(text="Open Digital Store", web_app=WebAppInfo(url=miniapp_url))]
-            if bool(getattr(settings, "digital_products_miniapp_enabled", False)) and miniapp_url
-            else []
-        ),
-        [
-            KeyboardButton(text=t(lang, "btn_games_topups")),
-            KeyboardButton(text=t(lang, "btn_giftcards")),
-        ],
-        [KeyboardButton(text=t(lang, "btn_sim_topup"))],
-        [
-            KeyboardButton(text=t(lang, "btn_balance")),
-            KeyboardButton(text=t(lang, "btn_settings")),
-        ],
-        [KeyboardButton(text=t(lang, "btn_support"))],
-    ]
-    keyboard = [row for row in keyboard if row]
+    miniapp_ready = bool(getattr(settings, "digital_products_miniapp_enabled", False)) and bool(miniapp_url)
+    if miniapp_ready:
+        keyboard = [
+            [KeyboardButton(text="Open Digital Store", web_app=WebAppInfo(url=miniapp_url))],
+            [
+                KeyboardButton(text=t(lang, "btn_balance")),
+                KeyboardButton(text=t(lang, "btn_settings")),
+            ],
+            [KeyboardButton(text=t(lang, "btn_support"))],
+        ]
+    else:
+        keyboard = [
+            [
+                KeyboardButton(text=t(lang, "btn_games_topups")),
+                KeyboardButton(text=t(lang, "btn_giftcards")),
+            ],
+            [KeyboardButton(text=t(lang, "btn_sim_topup"))],
+            [
+                KeyboardButton(text=t(lang, "btn_balance")),
+                KeyboardButton(text=t(lang, "btn_settings")),
+            ],
+            [KeyboardButton(text=t(lang, "btn_support"))],
+        ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
         resize_keyboard=True,
