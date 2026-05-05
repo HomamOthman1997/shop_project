@@ -47,8 +47,12 @@ async def test_notify_active_temp_order_message_does_not_reference_missing_butto
     async def _fake_has_rental(_user_id):
         return False
 
+    async def _fake_show_notice(_message):
+        return True
+
     monkeypatch.setattr(start, "_has_active_temp_order", _fake_has_temp)
     monkeypatch.setattr(start, "_has_active_rental_order", _fake_has_rental)
+    monkeypatch.setattr(start, "_should_show_active_numbers_notice", _fake_show_notice)
 
     message = _DummyMessage()
     await start._notify_active_temp_order_if_any(message, "en")
@@ -58,3 +62,48 @@ async def test_notify_active_temp_order_message_does_not_reference_missing_butto
     assert "Use the buttons below" not in text
     assert "Tap Numbers below" in text
     assert reply_markup.inline_keyboard[0][0].callback_data == "flow:type:temp"
+
+
+@pytest.mark.asyncio
+async def test_notify_active_temp_order_skips_non_numbers_bots(monkeypatch):
+    from handlers import start
+
+    class _DummyMessage:
+        def __init__(self):
+            self.from_user = type("U", (), {"id": 55})()
+            self.answers = []
+
+        async def answer(self, text, reply_markup=None):
+            self.answers.append((text, reply_markup))
+
+    async def _fake_show_notice(_message):
+        return False
+
+    async def _fake_get_flags(_user_id):
+        raise AssertionError("active number orders must not be queried for non-number bots")
+
+    monkeypatch.setattr(start, "_should_show_active_numbers_notice", _fake_show_notice)
+    monkeypatch.setattr(start, "_get_active_order_flags", _fake_get_flags)
+
+    message = _DummyMessage()
+    await start._notify_active_temp_order_if_any(message, "en")
+
+    assert message.answers == []
+
+
+@pytest.mark.asyncio
+async def test_numbers_start_guards_skip_digital_and_card_bots(monkeypatch):
+    from handlers import start
+
+    async def _fake_is_digital(bot_id):
+        return int(bot_id) == 10
+
+    async def _fake_is_card(bot_id):
+        return int(bot_id) == 20
+
+    monkeypatch.setattr(start, "is_digital_products_bot", _fake_is_digital)
+    monkeypatch.setattr(start, "is_card_ex_bot", _fake_is_card)
+
+    assert await start._should_run_numbers_start_guards(10) is False
+    assert await start._should_run_numbers_start_guards(20) is False
+    assert await start._should_run_numbers_start_guards(30) is True

@@ -103,7 +103,27 @@ async def _get_active_order_flags(user_id: int) -> tuple[bool, bool]:
     return has_temp, has_rental
 
 
+async def _should_run_numbers_start_guards(bot_id: int | None) -> bool:
+    if not bot_id:
+        return False
+    if await is_digital_products_bot(bot_id):
+        return False
+    if await is_card_ex_bot(bot_id):
+        return False
+    return True
+
+
+async def _should_show_active_numbers_notice(message: types.Message) -> bool:
+    bot = getattr(message, "bot", None)
+    if bot is None:
+        return False
+    bot_id = await _resolve_runtime_bot_id(bot)
+    return await _should_run_numbers_start_guards(bot_id)
+
+
 async def _notify_active_temp_order_if_any(message: types.Message, lang: str) -> None:
+    if not await _should_show_active_numbers_notice(message):
+        return
     has_temp, has_rental = await _get_active_order_flags(message.from_user.id)
     if not has_temp and not has_rental:
         return
@@ -264,7 +284,11 @@ async def start_cmd(
     user = cached_user or await get_user(message.from_user.id)
     stage_ms["user_initial"] = (monotonic() - stage_started) * 1000.0
     lang = str(lang or (user or {}).get("language", "en") or "en")
-    if user and await _handle_rental_exit_message_guard(message, state, target="start", lang=lang):
+    if (
+        user
+        and await _should_run_numbers_start_guards(current_bot_id)
+        and await _handle_rental_exit_message_guard(message, state, target="start", lang=lang)
+    ):
         return
     await state.clear()
     user_id = message.from_user.id
@@ -398,12 +422,16 @@ async def start_cmd(
 
 
 async def _forced_start_flow(message: types.Message, state: FSMContext):
+    bot_id = await _resolve_runtime_bot_id(message.bot)
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
-    if user and await _handle_rental_exit_message_guard(message, state, target="start", lang=lang):
+    if (
+        user
+        and await _should_run_numbers_start_guards(bot_id)
+        and await _handle_rental_exit_message_guard(message, state, target="start", lang=lang)
+    ):
         return
     await state.clear()
-    bot_id = await _resolve_runtime_bot_id(message.bot)
     is_digital_products_runtime_bot = await is_digital_products_bot(bot_id)
     bot_context = await _get_bot_context(bot_id)
     if not user:
