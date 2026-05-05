@@ -17,7 +17,12 @@ from rapidfuzz import fuzz
 from config import settings
 from database.digital_products_config_repo import get_digital_products_markup_percent
 from database.mongo import db
-from services.digital_products.catalog_service import get_catalog_snapshot, get_game_topups
+from services.digital_products.catalog_service import (
+    digital_provider_enabled,
+    get_catalog_snapshot,
+    get_game_topups,
+    za3em_provider_enabled,
+)
 from services.digital_products.custom_catalog import FAMILY_TABLE as CUSTOM_FAMILY_TABLE, SECTION_TABLE
 from services.numbers.core.session_manager import SessionManager
 from services.digital_products.static_taxonomy import (
@@ -62,7 +67,7 @@ _GAME_GROUP_OVERRIDES: dict[str, dict[str, tuple[str, ...]]] = {
 }
 _INVALID_DISPLAY_NAMES = {"", "-", "null", "none", "n/a", "na", "undefined"}
 _HIDDEN_GAME_VARIANT_IDS = {"valorant", "league_of_legends_instant", "onepunchworld"}
-_CATALOG_PAYLOAD_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+_CATALOG_PAYLOAD_CACHE: dict[str, Any] = {"ts": 0.0, "data": None, "provider_state": {}}
 _REGION_LABEL_MAP: dict[str, str] = {
     "my": "Malaysia",
     "sg": "Singapore",
@@ -242,7 +247,21 @@ def _is_valid_gift_row(row: dict[str, Any]) -> bool:
 
 
 def _provider_offers(row: dict[str, Any]) -> list[dict[str, Any]]:
-    return [item for item in list(row.get("provider_offers") or []) if isinstance(item, dict)]
+    return [
+        item
+        for item in list(row.get("provider_offers") or [])
+        if isinstance(item, dict) and digital_provider_enabled(str(item.get("provider") or ""))
+    ]
+
+
+def _best_enabled_offer(row: dict[str, Any]) -> dict[str, Any]:
+    offers = [
+        item
+        for item in _provider_offers(row)
+        if bool(item.get("available")) and _money(item.get("price") or 0.0) > 0
+    ]
+    offers.sort(key=lambda item: _money(item.get("price") or 0.0))
+    return dict(offers[0]) if offers else {}
 
 
 def _offer_requires_identity(offer: dict[str, Any]) -> bool:
@@ -912,12 +931,10 @@ def _gift_group_label(key: str) -> dict[str, str]:
 
 def _provider_label(provider_code: str, *, lang: str) -> str:
     return taxonomy_provider_label(provider_code, lang=lang)
-    code = _norm(provider_code)
-    if code == "za3em":
-        return "الزعيم" if lang == "ar" else "Za3em"
-    if code == "g2bulk":
-        return "جي تو بالك" if lang == "ar" else "G2Bulk"
-    return provider_code or ("غير محدد" if lang == "ar" else "Unknown")
+
+
+def _miniapp_provider_state() -> dict[str, bool]:
+    return {"za3em_enabled": za3em_provider_enabled()}
 
 
 def _game_group_label(key: str) -> dict[str, str]:
@@ -979,6 +996,7 @@ def _try_verify_init_data(init_data: str) -> dict[str, Any] | None:
 
 
 async def _catalog_payload() -> dict[str, Any]:
+    provider_state = _miniapp_provider_state()
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
     categories, gift_source_map = _grouped_gift_categories(snapshot)
@@ -1049,6 +1067,7 @@ async def _catalog_payload() -> dict[str, Any]:
     payload = {
         "enabled": bool(snapshot.get("enabled")),
         "markup_percent": markup,
+        "providers": dict(snapshot.get("providers") or {}),
         "services": services,
         "gift_categories": categories,
         "gift_groups": gift_groups,
@@ -1057,6 +1076,7 @@ async def _catalog_payload() -> dict[str, Any]:
         "service_tree": service_tree,
     }
     _CATALOG_PAYLOAD_CACHE["data"] = dict(payload)
+    _CATALOG_PAYLOAD_CACHE["provider_state"] = provider_state
     return payload
 
 
@@ -1124,12 +1144,18 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
                 continue
         if q and fuzz.partial_ratio(q, name.lower()) < 45:
             continue
-        unit_price = float(item.get("price") or 0.0)
+        raw_offers = [row for row in list(item.get("provider_offers") or []) if isinstance(row, dict)]
+        offers = _provider_offers(item)
+        if raw_offers and not offers:
+            continue
+        best_offer = _best_enabled_offer(item)
+        if offers and not best_offer:
+            continue
+        unit_price = float((best_offer or {}).get("price") or item.get("price") or 0.0)
         if unit_price <= 0:
             continue
         if int(item.get("stock") or 0) <= 0:
             continue
-        offers = [row for row in list(item.get("provider_offers") or []) if isinstance(row, dict)]
         za3em_offers = []
         for row in offers:
             if str(row.get("provider") or "").strip().lower() != "za3em":
@@ -1158,8 +1184,8 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
                 "unit_price_usd": round(float(unit_sale_price), 6),
                 "stock": int(item.get("stock") or 0),
                 "stock_label": "In stock" if int(item.get("stock") or 0) > 0 else "Out of stock",
-                "best_provider_code": str(item.get("best_provider") or "g2bulk"),
-                "providers_count": len(list(item.get("provider_offers") or [])),
+                "best_provider_code": str((best_offer or {}).get("provider") or item.get("best_provider") or "g2bulk"),
+                "providers_count": len(offers),
                 "za3em_requires_input": bool(za_offer.get("za3em_requires_input")) if za_offer else False,
                 "requires_identity": requires_identity,
                 "requires_quantity_input": requires_quantity_input,
@@ -1216,6 +1242,16 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
         name = _display_game_item_name(item, group, str(source_game_id))
         if q and fuzz.partial_ratio(q, name.lower()) < 45:
             continue
+        raw_offers = [row for row in list(item.get("provider_offers") or []) if isinstance(row, dict)]
+        offers = _provider_offers(item)
+        if raw_offers and not offers:
+            continue
+        best_offer = _best_enabled_offer(item)
+        if offers and not best_offer:
+            continue
+        provider_price = (best_offer or {}).get("price") or item.get("price")
+        if _money(provider_price) <= 0:
+            continue
         items.append(
             {
                 "kind": "game",
@@ -1224,14 +1260,14 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
                 "group_key": group,
                 "name": name,
                 "price_usd": _resolve_game_sale_price(
-                    item.get("price"),
+                    provider_price,
                     markup,
                     game_id=str(source_game_id),
                     game_name=_find_game_name(snapshot, str(source_game_id)),
                 ),
                 "requires_server": bool(item.get("requires_server")),
-                "best_provider_code": str(item.get("best_provider") or "g2bulk"),
-                "providers_count": len(list(item.get("provider_offers") or [])),
+                "best_provider_code": str((best_offer or {}).get("provider") or item.get("best_provider") or "g2bulk"),
+                "providers_count": len(offers),
             }
         )
     group_order = {"topup": 0, "passes": 1, "specials": 2}
@@ -1302,8 +1338,9 @@ async def catalog(_request: web.Request) -> web.Response:
     try:
         payload = await _catalog_payload()
     except Exception:
+        provider_state = _miniapp_provider_state()
         cached = _CATALOG_PAYLOAD_CACHE.get("data")
-        if isinstance(cached, dict) and cached:
+        if isinstance(cached, dict) and cached and _CATALOG_PAYLOAD_CACHE.get("provider_state") == provider_state:
             payload = dict(cached)
         else:
             payload = {
