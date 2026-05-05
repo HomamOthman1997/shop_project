@@ -1323,41 +1323,6 @@ def _provider_status_is_failure(payload: Any) -> bool:
     }
 
 
-def _extract_player_account_name(payload: Any) -> str:
-    keys = {
-        "player_name",
-        "playername",
-        "nickname",
-        "nick_name",
-        "username",
-        "user_name",
-        "account_name",
-        "accountname",
-        "character_name",
-        "ign",
-    }
-
-    def walk(value: Any) -> str:
-        if isinstance(value, dict):
-            for key, raw in value.items():
-                if str(key or "").strip().lower() in keys:
-                    text = str(raw or "").strip()
-                    if text:
-                        return text
-            for raw in value.values():
-                found = walk(raw)
-                if found:
-                    return found
-        elif isinstance(value, list):
-            for raw in value:
-                found = walk(raw)
-                if found:
-                    return found
-        return ""
-
-    return walk(payload)
-
-
 async def _poll_g2bulk_order_status(
     client: G2BulkClient,
     external_order_id: str,
@@ -2085,7 +2050,6 @@ def _digital_game_order_summary_text(
     player_id: str,
     price: float,
     status: str,
-    player_name: str = "",
 ) -> str:
     status_text = str(status or "PENDING").strip().upper()
     order_ref = str(order_id or "-").strip()
@@ -2100,8 +2064,6 @@ def _digital_game_order_summary_text(
             f"📦 الباقة: {package_name or '-'}",
             f"👤 Player ID: {player_id or '-'}",
         ]
-        if player_name:
-            lines.append(f"🏷️ اسم الحساب: {player_name}")
         lines.extend(
             [
                 f"💰 السعر: {format_usd(float(price or 0.0))}",
@@ -2121,8 +2083,6 @@ def _digital_game_order_summary_text(
         f"📦 Package: {package_name or '-'}",
         f"👤 Player ID: {player_id or '-'}",
     ]
-    if player_name:
-        lines.append(f"🏷️ Account: {player_name}")
     lines.extend(
         [
             f"💰 Price: {format_usd(float(price or 0.0))}",
@@ -5131,7 +5091,6 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
     provider_code = str(chosen_offer.get("provider") or "g2bulk")
     provider_data = provider_resp.get("data")
     external_order_id = _extract_external_order_id(provider_data)
-    player_name = _extract_player_account_name(provider_resp)
     snapshot = await get_catalog_snapshot(force=False)
     display_game_name = _find_game_name(game_id, snapshot)
     details_payload = {
@@ -5140,7 +5099,6 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
         "provider_response": provider_resp,
         "game_id": game_id,
         "player_id": player_id,
-        "player_account_name": player_name,
         "server_id": server_id,
         "provider_offers_attempted": available_offers,
         "number_mode": "digital_products",
@@ -5172,7 +5130,6 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
                 game_name=display_game_name,
                 package_name=name,
                 player_id=player_id,
-                player_name=player_name,
                 price=sale_price,
                 status="PENDING",
             )
@@ -5180,16 +5137,12 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
         return
 
     status_resp = await _poll_provider_order_status(provider=provider_code, external_order_id=external_order_id)
-    status_player_name = _extract_player_account_name(status_resp) if status_resp is not None else ""
-    if status_player_name and status_player_name != player_name:
-        player_name = status_player_name
     if status_resp is not None:
         await update_order_details(
             order["_id"],
             {
                 "provider_status_response": status_resp,
                 "provider_status": _extract_provider_status(status_resp),
-                "player_account_name": player_name,
             },
         )
 
@@ -5224,7 +5177,6 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
                 game_name=display_game_name,
                 package_name=name,
                 player_id=player_id,
-                player_name=player_name,
                 price=sale_price,
                 status="PENDING",
             )
@@ -5240,7 +5192,6 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
             game_name=display_game_name,
             package_name=name,
             player_id=player_id,
-            player_name=player_name,
             price=sale_price,
             status="SUCCESS",
         )

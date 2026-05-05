@@ -13,7 +13,6 @@ def test_digital_game_order_summary_contains_customer_details():
         game_name="PUBG Mobile",
         package_name="8100 UC",
         player_id="123456",
-        player_name="PlayerOne",
         price=81.5,
         status="pending",
     )
@@ -23,22 +22,4 @@ def test_digital_game_order_summary_contains_customer_details():
     assert "Game: PUBG Mobile" in text
     assert "Package: 8100 UC" in text
     assert "Player ID: 123456" in text
-    assert "Account: PlayerOne" in text
     assert "Status: PENDING" in text
-
-
-def test_extract_player_account_name_from_nested_provider_payload():
-    from handlers.store_sections import _extract_player_account_name
-
-    payload = {
-        "status": 200,
-        "data": {
-            "order": {
-                "profile": {
-                    "nickname": "SayBye",
-                }
-            }
-        },
-    }
-
-    assert _extract_player_account_name(payload) == "SayBye"
