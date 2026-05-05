@@ -1019,13 +1019,6 @@ def _verify_init_data(init_data: str) -> dict[str, Any]:
     return {"user_id": user_id, "user": user}
 
 
-def _try_verify_init_data(init_data: str) -> dict[str, Any] | None:
-    try:
-        return _verify_init_data(init_data)
-    except web.HTTPUnauthorized:
-        return None
-
-
 async def _catalog_payload() -> dict[str, Any]:
     provider_state = _miniapp_provider_state()
     snapshot = await get_catalog_snapshot(force=False)
@@ -1373,6 +1366,32 @@ async def consume_selection(token: str, user_id: int) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+async def _server_quote_gift_selection(category_id: str, product_id: str, quantity: int) -> float:
+    rows = await _gift_products(category_id)
+    for row in rows:
+        if str(row.get("id") or "").strip() != str(product_id or "").strip():
+            continue
+        unit_price = float(row.get("unit_price_usd") or row.get("price_usd") or 0.0)
+        if unit_price <= 0:
+            break
+        return _round_sale_price(unit_price * max(1, int(quantity or 1)))
+    raise web.HTTPBadRequest(text="gift selection unavailable")
+
+
+async def _server_quote_game_selection(game_id: str, item_id: str, group_key: str) -> float:
+    data = await _game_items(game_id)
+    expected_group = str(group_key or "").strip()
+    for row in list(data.get("items") or []):
+        if str(row.get("id") or "").strip() != str(item_id or "").strip():
+            continue
+        if expected_group and str(row.get("group_key") or "").strip() != expected_group:
+            continue
+        price = float(row.get("price_usd") or 0.0)
+        if price > 0:
+            return _round_sale_price(price)
+    raise web.HTTPBadRequest(text="game selection unavailable")
+
+
 async def bootstrap_miniapp_indexes() -> None:
     await db.digital_product_miniapp_selections.create_index("expires_at", expireAfterSeconds=0, background=True)
     await db.digital_product_miniapp_selections.create_index([("user_id", 1), ("status", 1), ("created_at", -1)], background=True)
@@ -1437,7 +1456,7 @@ async def game_items(request: web.Request) -> web.Response:
 
 
 async def create_selection(request: web.Request) -> web.Response:
-    auth = _try_verify_init_data(request.headers.get("X-Telegram-Init-Data", ""))
+    auth = _verify_init_data(request.headers.get("X-Telegram-Init-Data", ""))
     body = await request.json()
     kind = str(body.get("kind") or "").strip().lower()
     if kind == "gift":
@@ -1451,7 +1470,7 @@ async def create_selection(request: web.Request) -> web.Response:
         except Exception:
             quantity = 1
         extra_params = body.get("extra_params") if isinstance(body.get("extra_params"), dict) else {}
-        quoted_price_usd = _round_sale_price(body.get("quoted_price_usd") or 0.0)
+        quoted_price_usd = await _server_quote_gift_selection(category_id, product_id, quantity)
         payload = {
             "kind": "gift",
             "category_id": category_id,
@@ -1466,6 +1485,7 @@ async def create_selection(request: web.Request) -> web.Response:
         group_key = str(body.get("group_key") or "topup").strip() or "topup"
         if not game_id or not item_id:
             raise web.HTTPBadRequest(text="missing game selection")
+        quoted_price_usd = await _server_quote_game_selection(game_id, item_id, group_key)
         payload = {
             "kind": "game",
             "game_id": game_id,
@@ -1473,7 +1493,7 @@ async def create_selection(request: web.Request) -> web.Response:
             "group_key": group_key,
             "player_id": str(body.get("player_id") or "").strip(),
             "server_id": str(body.get("server_id") or "").strip(),
-            "quoted_price_usd": _round_sale_price(body.get("quoted_price_usd") or 0.0),
+            "quoted_price_usd": quoted_price_usd,
         }
     elif kind == "simtopup":
         section = str(body.get("section") or "").strip().lower()
@@ -1486,7 +1506,7 @@ async def create_selection(request: web.Request) -> web.Response:
         payload = {"kind": "numbers_services"}
     else:
         raise web.HTTPBadRequest(text="invalid selection")
-    token = await _create_selection(int(auth["user_id"]) if auth else None, payload)
+    token = await _create_selection(int(auth["user_id"]), payload)
     return web.json_response({"token": token}, headers=dict(_NO_STORE_HEADERS))
 
 
