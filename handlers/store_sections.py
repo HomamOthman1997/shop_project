@@ -1323,6 +1323,41 @@ def _provider_status_is_failure(payload: Any) -> bool:
     }
 
 
+def _extract_player_account_name(payload: Any) -> str:
+    keys = {
+        "player_name",
+        "playername",
+        "nickname",
+        "nick_name",
+        "username",
+        "user_name",
+        "account_name",
+        "accountname",
+        "character_name",
+        "ign",
+    }
+
+    def walk(value: Any) -> str:
+        if isinstance(value, dict):
+            for key, raw in value.items():
+                if str(key or "").strip().lower() in keys:
+                    text = str(raw or "").strip()
+                    if text:
+                        return text
+            for raw in value.values():
+                found = walk(raw)
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for raw in value:
+                found = walk(raw)
+                if found:
+                    return found
+        return ""
+
+    return walk(payload)
+
+
 async def _poll_g2bulk_order_status(
     client: G2BulkClient,
     external_order_id: str,
@@ -1642,7 +1677,27 @@ async def _execute_manual_gift_topup_purchase(
         player_data=player_data,
         delivery_lines=voucher_lines,
     )
-    return {"kind": "pending", "text": _manual_pending_text(lang)}
+    player_id_value = next(
+        (
+            value
+            for key, value in player_data.items()
+            if str(key or "").strip().lower() in {"player_id", "playerid", "id", "uid"}
+        ),
+        next(iter(player_data.values()), ""),
+    )
+    family_label = str(chosen_offer.get("manual_family_key") or "").replace("_", " ").strip().title() or item_name
+    return {
+        "kind": "pending",
+        "text": _digital_game_order_summary_text(
+            lang,
+            order_id=str(order.get("_id") or ""),
+            game_name=family_label,
+            package_name=item_name,
+            player_id=str(player_id_value or ""),
+            price=float(sale_price),
+            status="PENDING",
+        ),
+    }
 
 
 async def _execute_gift_purchase(
@@ -2019,6 +2074,65 @@ def _manual_done_text(lang: str, *, item_name: str, order_id: str) -> str:
     if str(lang or "").lower().startswith("ar"):
         return f"تم تنفيذ طلبك بنجاح.\nالخدمة: {item_name}\nرقم الطلب: {order_id}"
     return f"Your order has been completed.\nItem: {item_name}\nOrder: {order_id}"
+
+
+def _digital_game_order_summary_text(
+    lang: str,
+    *,
+    order_id: str,
+    game_name: str,
+    package_name: str,
+    player_id: str,
+    price: float,
+    status: str,
+    player_name: str = "",
+) -> str:
+    status_text = str(status or "PENDING").strip().upper()
+    order_ref = str(order_id or "-").strip()
+    if order_ref and not order_ref.startswith("#"):
+        order_ref = f"#{order_ref}"
+    if str(lang or "").lower().startswith("ar"):
+        lines = [
+            "✅ تم إنشاء الطلب بنجاح!",
+            "",
+            f"🆔 رقم الطلب: {order_ref}",
+            f"🎮 اللعبة: {game_name or '-'}",
+            f"📦 الباقة: {package_name or '-'}",
+            f"👤 Player ID: {player_id or '-'}",
+        ]
+        if player_name:
+            lines.append(f"🏷️ اسم الحساب: {player_name}")
+        lines.extend(
+            [
+                f"💰 السعر: {format_usd(float(price or 0.0))}",
+                f"📊 الحالة: {status_text}",
+                "",
+                "⏳ طلبك قيد المعالجة." if status_text == "PENDING" else "✅ تم تنفيذ طلبك.",
+                "🙏 شكراً لك!",
+            ]
+        )
+        return "\n".join(lines)
+
+    lines = [
+        "✅ Order Created Successfully!",
+        "",
+        f"🆔 Order ID: {order_ref}",
+        f"🎮 Game: {game_name or '-'}",
+        f"📦 Package: {package_name or '-'}",
+        f"👤 Player ID: {player_id or '-'}",
+    ]
+    if player_name:
+        lines.append(f"🏷️ Account: {player_name}")
+    lines.extend(
+        [
+            f"💰 Price: {format_usd(float(price or 0.0))}",
+            f"📊 Status: {status_text}",
+            "",
+            "⏳ Your order is being processed." if status_text == "PENDING" else "✅ Your order has been completed.",
+            "🙏 Thank you!",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _manual_refund_text(lang: str, *, item_name: str, order_id: str) -> str:
@@ -5017,12 +5131,16 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
     provider_code = str(chosen_offer.get("provider") or "g2bulk")
     provider_data = provider_resp.get("data")
     external_order_id = _extract_external_order_id(provider_data)
+    player_name = _extract_player_account_name(provider_resp)
+    snapshot = await get_catalog_snapshot(force=False)
+    display_game_name = _find_game_name(game_id, snapshot)
     details_payload = {
         "provider_code": provider_code,
         "provider_order_id": external_order_id,
         "provider_response": provider_resp,
         "game_id": game_id,
         "player_id": player_id,
+        "player_account_name": player_name,
         "server_id": server_id,
         "provider_offers_attempted": available_offers,
         "number_mode": "digital_products",
@@ -5048,17 +5166,30 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
             provider_error="G2Bulk accepted the request but did not return a verifiable order id.",
         )
         await message.answer(
-            t(lang, "store_topup_pending_manual_review")
+            _digital_game_order_summary_text(
+                lang,
+                order_id=str(order.get("_id") or ""),
+                game_name=display_game_name,
+                package_name=name,
+                player_id=player_id,
+                player_name=player_name,
+                price=sale_price,
+                status="PENDING",
+            )
         )
         return
 
     status_resp = await _poll_provider_order_status(provider=provider_code, external_order_id=external_order_id)
+    status_player_name = _extract_player_account_name(status_resp) if status_resp is not None else ""
+    if status_player_name and status_player_name != player_name:
+        player_name = status_player_name
     if status_resp is not None:
         await update_order_details(
             order["_id"],
             {
                 "provider_status_response": status_resp,
                 "provider_status": _extract_provider_status(status_resp),
+                "player_account_name": player_name,
             },
         )
 
@@ -5087,23 +5218,31 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
             provider_error="Provider confirmation stayed pending after automatic polling.",
         )
         await message.answer(
-            t(lang, "store_topup_pending_followup")
+            _digital_game_order_summary_text(
+                lang,
+                order_id=str(order.get("_id") or ""),
+                game_name=display_game_name,
+                package_name=name,
+                player_id=player_id,
+                player_name=player_name,
+                price=sale_price,
+                status="PENDING",
+            )
         )
         return
 
     await update_order_status(order["_id"], "success")
 
-    usd_to_syp_rate = await _resolve_usd_to_syp_rate((await message.bot.get_me()).id)
-    balance = await get_user_wallet_balance(message.from_user.id, int(reseller_id))
-    lines = [
-        t(lang, "purchase_complete_plain"),
-        f"{t(lang, 'store_item_label')}: {name}",
-        _store_price_line(lang, sale_price, usd_to_syp_rate),
-        f"{t(lang, 'store_order_label')}: {order.get('_id')}",
-        f"{t(lang, 'store_balance_label')}: {format_usd(float(balance or 0))}",
-    ]
-    if external_order_id:
-        lines.append(f"{t(lang, 'store_provider_ref_label')}: {external_order_id}")
-    lines.append(t(lang, "store_topup_submitted_successfully"))
-    await message.answer("\n".join(lines))
+    await message.answer(
+        _digital_game_order_summary_text(
+            lang,
+            order_id=str(order.get("_id") or ""),
+            game_name=display_game_name,
+            package_name=name,
+            player_id=player_id,
+            player_name=player_name,
+            price=sale_price,
+            status="SUCCESS",
+        )
+    )
 
