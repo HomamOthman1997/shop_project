@@ -562,6 +562,9 @@ function filterItemsByOfferMode(items, offerMode) {
       if (String(item?.kind || "") === "game") {
         return String(item?.group_key || "") === "topup";
       }
+      if (String(item?.fulfillment_mode || "") === "manual_topup") {
+        return String(item?.group_key || "topup") === "topup";
+      }
       return isTopupLikeOfferName(item?.name);
     });
   }
@@ -569,6 +572,9 @@ function filterItemsByOfferMode(items, offerMode) {
     return (items || []).filter((item) => {
       if (String(item?.kind || "") === "game") {
         return String(item?.group_key || "") !== "topup";
+      }
+      if (String(item?.fulfillment_mode || "") === "manual_topup") {
+        return String(item?.group_key || "topup") !== "topup";
       }
       return !isTopupLikeOfferName(item?.name);
     });
@@ -579,7 +585,7 @@ function filterItemsByOfferMode(items, offerMode) {
 function mergeCheapestOffers(items) {
   const dedup = new Map();
   for (const item of items || []) {
-    const key = normalizeOfferName(item?.name);
+    const key = String(item?.compare_key || "").trim() || normalizeOfferName(item?.name);
     if (!key) continue;
     const existing = dedup.get(key);
     const price = Number(item?.price_usd || 0);
@@ -1100,11 +1106,18 @@ async function openItems(category) {
       for (const gid of category.game_ids || []) {
         const data = await api(`/mini/digital/api/games/${encodeURIComponent(gid)}`);
         allItems.push(...filterSellableItems(filterItemsByOfferMode(data.items || [], category.offer_mode)));
-        allGroups.push(...(data.groups || []));
+        const mode = String(category.offer_mode || "all");
+        const sourceGroups =
+          mode === "topup"
+            ? (data.groups || []).filter((group) => String(group?.key || "") === "topup")
+            : mode === "addons"
+              ? (data.groups || []).filter((group) => String(group?.key || "") !== "topup")
+              : (data.groups || []);
+        allGroups.push(...sourceGroups);
       }
       for (const cid of category.gift_category_ids || []) {
         const data = await api(`/mini/digital/api/gifts/${encodeURIComponent(cid)}?mode=${encodeURIComponent(String(category.offer_mode || "all"))}`);
-        const giftRows = filterSellableItems(data.items || []).map((item) => ({ ...item, group_key: "vouchers" }));
+        const giftRows = filterSellableItems(data.items || []).map((item) => ({ ...item, group_key: String(item.group_key || "vouchers") }));
         allItems.push(...giftRows);
       }
       state.items = mergeCheapestOffers(allItems);
@@ -1112,7 +1125,8 @@ async function openItems(category) {
       (allGroups || []).forEach((g) => {
         if (g && g.key && !groupMap.has(g.key)) groupMap.set(g.key, g);
       });
-      if (!groupMap.has("vouchers")) {
+      const hasVoucherRows = allItems.some((item) => String(item?.group_key || "") === "vouchers");
+      if (hasVoucherRows && !groupMap.has("vouchers")) {
         groupMap.set("vouchers", { key: "vouchers", label: { en: "Vouchers", ar: "قسائم" } });
       }
       state.itemGroups = Array.from(groupMap.values());

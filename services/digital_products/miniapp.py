@@ -24,6 +24,17 @@ from services.digital_products.catalog_service import (
     za3em_provider_enabled,
 )
 from services.digital_products.custom_catalog import FAMILY_TABLE as CUSTOM_FAMILY_TABLE, SECTION_TABLE
+from services.digital_products.fulfillment_rules import (
+    AUTO_TOPUP_MODE,
+    MANUAL_TOPUP_MODE,
+    VOUCHER_DELIVERY_MODE,
+    game_default_unit,
+    game_family_key,
+    is_manual_feature,
+    manual_feature_compare_key,
+    manual_feature_info,
+    offer_compare_key,
+)
 from services.numbers.core.session_manager import SessionManager
 from services.digital_products.static_taxonomy import (
     REGION_TOKENS,
@@ -352,11 +363,14 @@ def _looks_topup_product_name(name: str | None) -> bool:
     return any(token in n for token in topup_tokens)
 
 
-def _split_game_gift_rows(rows: list[dict[str, Any]], *, family_has_auto_topup: bool) -> dict[str, list[dict[str, Any]]]:
+def _split_game_gift_rows(rows: list[dict[str, Any]], *, family_has_auto_topup: bool, category_name: str = "") -> dict[str, list[dict[str, Any]]]:
     split = {"topup": [], "addons": []}
     for row in rows:
         name = str(row.get("clean_name") or row.get("name") or "").strip()
         if not name:
+            continue
+        if is_manual_feature(category_name, name):
+            split["topup"].append(row)
             continue
         requires_identity = _row_requires_identity(row)
         is_topup = _looks_topup_product_name(name)
@@ -462,6 +476,18 @@ def _normalize_game_item_name(name: str) -> str:
     for old, new in replacements.items():
         text = text.replace(old, new)
     return text
+
+
+def _display_manual_feature_name(name: str) -> str:
+    text = " ".join(str(name or "").strip().split())
+    if " - " in text:
+        tail = text.rsplit(" - ", 1)[-1].strip()
+        if tail:
+            text = tail
+    text = re.sub(r"\b(gift\s*cards?|giftcards?|vouchers?|voucher|cards?)\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip(" -")
+    text = re.sub(r"\bUc\b", "UC", text)
+    return text or str(name or "-").strip()
 
 
 def _display_game_item_name(item: dict[str, Any], group_key: str = "topup", game_id: str = "") -> str:
@@ -841,7 +867,12 @@ def _grouped_gift_categories(snapshot: dict[str, Any]) -> tuple[list[dict[str, A
         for row in product_rows:
             row_name = str(row.get("clean_name") or row.get("name") or "").strip()
             row_service = _gift_service_key(f"{row_name} {category_name}")
-            if row_service == "chat_apps":
+            manual_info = manual_feature_info(category_name, row_name)
+            if manual_info:
+                row_service = "games"
+                family_key = str(manual_info.get("family_key") or "")
+                family_label = str(manual_info.get("family_label") or family_key or "Games")
+            elif row_service == "chat_apps":
                 family_key, family_label = _chat_family_from_product_name(row_name)
             elif row_service == "paid_subscriptions":
                 family_key, family_label = _subscription_family_from_product_name(row_name)
@@ -1106,7 +1137,11 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
                 if expected_service and expected_family:
                     row_name = str(row.get("clean_name") or row.get("name") or "").strip()
                     row_service = _gift_service_key(f"{row_name} {category_name}")
-                    if row_service == "chat_apps":
+                    manual_info = manual_feature_info(category_name, row_name)
+                    if manual_info:
+                        row_service = "games"
+                        row_family = str(manual_info.get("family_key") or "")
+                    elif row_service == "chat_apps":
                         row_family, _ = _chat_family_from_product_name(row_name)
                     elif row_service == "paid_subscriptions":
                         row_family, _ = _subscription_family_from_product_name(row_name)
@@ -1136,8 +1171,11 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
             continue
         category_name = str(categories_by_id.get(str(sid), ""))
         row_service = _gift_service_key(f"{name} {category_name}")
+        manual_info = manual_feature_info(category_name, name)
+        if manual_info:
+            row_service = "games"
         if row_service == "games" and offer_mode in {"topup", "addons"}:
-            split_kind = _split_game_gift_rows([item], family_has_auto_topup=True)
+            split_kind = _split_game_gift_rows([item], family_has_auto_topup=True, category_name=category_name)
             if offer_mode == "topup" and not split_kind["topup"]:
                 continue
             if offer_mode == "addons" and not split_kind["addons"]:
@@ -1167,8 +1205,14 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
         za_params = [str(v).strip() for v in list(za_offer.get("za3em_params") or []) if str(v).strip()]
         za_qty_min = max(1, int(za_offer.get("za3em_qty_min") or 1)) if za_offer else 1
         za_qty_max = max(za_qty_min, int(za_offer.get("za3em_qty_max") or za_qty_min)) if za_offer else 1
-        requires_identity = _offer_requires_identity(za_offer) if za_offer else False
-        requires_quantity_input = _offer_requires_quantity_input(za_offer) if za_offer else False
+        requires_identity = True if manual_info else (_offer_requires_identity(za_offer) if za_offer else False)
+        requires_quantity_input = False if manual_info else (_offer_requires_quantity_input(za_offer) if za_offer else False)
+        if manual_info:
+            za_params = ["player_id"]
+            za_qty_min = 1
+            za_qty_max = 1
+        compare_key = manual_feature_compare_key(category_name, name) if manual_info else ""
+        display_name = _display_manual_feature_name(name) if manual_info else name
         unit_sale_price = _round_sale_price(unit_price * (1 + (float(markup or 0.0) / 100.0)))
         display_quantity = za_qty_min if requires_quantity_input else 1
         display_sale_price = _round_sale_price(unit_sale_price * display_quantity)
@@ -1179,13 +1223,16 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
                 "kind": "gift",
                 "id": item_id,
                 "category_id": str(item.get("raw", {}).get("category_id") or item.get("raw", {}).get("cat_id") or item.get("raw", {}).get("categoryId") or sid),
-                "name": name,
+                "name": display_name,
                 "price_usd": display_sale_price,
                 "unit_price_usd": round(float(unit_sale_price), 6),
                 "stock": int(item.get("stock") or 0),
                 "stock_label": "In stock" if int(item.get("stock") or 0) > 0 else "Out of stock",
                 "best_provider_code": str((best_offer or {}).get("provider") or item.get("best_provider") or "g2bulk"),
                 "providers_count": len(offers),
+                "fulfillment_mode": MANUAL_TOPUP_MODE if manual_info else VOUCHER_DELIVERY_MODE,
+                "compare_key": compare_key,
+                "group_key": "topup" if manual_info else ("topup" if _looks_topup_product_name(name) else "addons"),
                 "za3em_requires_input": bool(za_offer.get("za3em_requires_input")) if za_offer else False,
                 "requires_identity": requires_identity,
                 "requires_quantity_input": requires_quantity_input,
@@ -1252,6 +1299,17 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
         provider_price = (best_offer or {}).get("price") or item.get("price")
         if _money(provider_price) <= 0:
             continue
+        resolved_game_name = _find_game_name(snapshot, str(source_game_id))
+        family_key = game_family_key(str(source_game_id), resolved_game_name)
+        if not family_key:
+            family_key, _family_label = _guess_family("games", resolved_game_name, [name])
+        region_label = _region_from_game_id(str(source_game_id), resolved_game_name, "Global")
+        compare_key = offer_compare_key(
+            family_key=family_key,
+            region=region_label,
+            offer_name=name,
+            default_unit=game_default_unit(str(source_game_id), resolved_game_name),
+        )
         items.append(
             {
                 "kind": "game",
@@ -1263,11 +1321,13 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
                     provider_price,
                     markup,
                     game_id=str(source_game_id),
-                    game_name=_find_game_name(snapshot, str(source_game_id)),
+                    game_name=resolved_game_name,
                 ),
                 "requires_server": bool(item.get("requires_server")),
                 "best_provider_code": str((best_offer or {}).get("provider") or item.get("best_provider") or "g2bulk"),
                 "providers_count": len(offers),
+                "fulfillment_mode": AUTO_TOPUP_MODE,
+                "compare_key": compare_key,
             }
         )
     group_order = {"topup": 0, "passes": 1, "specials": 2}
@@ -1732,7 +1792,7 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
             names = [str(row.get("clean_name") or row.get("name") or "").strip() for row in product_rows if str(row.get("clean_name") or row.get("name") or "").strip()]
             if service_key == "games":
                 family_has_auto_topup = family_key in game_family_keys
-                split_rows = _split_game_gift_rows(product_rows, family_has_auto_topup=family_has_auto_topup)
+                split_rows = _split_game_gift_rows(product_rows, family_has_auto_topup=family_has_auto_topup, category_name=category_name)
                 has_id_topup = bool(split_rows["topup"])
                 if has_id_topup:
                     family_has_auto_topup = True

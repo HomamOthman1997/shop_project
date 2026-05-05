@@ -4,10 +4,13 @@ import asyncio
 import json
 import os
 import re
+from datetime import UTC, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+from bson import ObjectId
 
 try:
     import pytz as _pytz
@@ -28,7 +31,7 @@ from database.custom_services_repo import ensure_root_node, list_children
 from database.financial_ledger import create_order_v3, get_user_wallet_balance
 from database.digital_products_config_repo import get_digital_products_markup_percent
 from database.mongo import db
-from database.orders_repo import update_order_details, update_order_status
+from database.orders_repo import extract_order_amounts, update_order_details, update_order_status
 from database.usage_stats_repo import increment_service_usage
 from database.reseller_settings_repo import get_exchange_rate
 from database.user_repo import get_user, get_user_reseller_for_bot, set_user_reseller_for_bot
@@ -40,6 +43,7 @@ from services.digital_products.catalog_service import (
     get_catalog_snapshot,
     get_game_topups,
 )
+from services.digital_products.fulfillment_rules import MANUAL_TOPUP_MODE, manual_feature_info
 from services.digital_products.esim_access_client import EsimAccessClient
 from services.digital_products.miniapp import consume_selection
 from services.digital_products.za3em_client import Za3emClient
@@ -1391,6 +1395,32 @@ def _provider_offers_for_row(
     )
 
 
+def _gift_category_name_from_snapshot(snapshot: dict[str, Any], cat_id: str) -> str:
+    for row in list(snapshot.get("gift_categories") or []):
+        if str(row.get("id") or "").strip() == str(cat_id or "").strip():
+            return str(row.get("clean_name") or row.get("name") or "").strip()
+    return ""
+
+
+def _prepare_gift_offers_for_fulfillment(
+    offers: list[dict[str, Any]],
+    *,
+    category_name: str,
+    product_name: str,
+) -> list[dict[str, Any]]:
+    manual_info = manual_feature_info(category_name, product_name)
+    prepared = [dict(row) for row in list(offers or []) if isinstance(row, dict)]
+    if not manual_info:
+        return prepared
+    for row in prepared:
+        row["fulfillment_mode"] = MANUAL_TOPUP_MODE
+        row["manual_requires_input"] = True
+        row["manual_params"] = ["player_id"]
+        row["manual_family_key"] = str(manual_info.get("family_key") or "")
+        row["manual_region"] = str(manual_info.get("region") or "Global")
+    return prepared
+
+
 async def _create_provider_gift_order(
     *,
     provider: str,
@@ -1414,6 +1444,8 @@ async def _create_provider_gift_order(
 
 
 def _gift_offer_needs_input(offer: dict[str, Any]) -> bool:
+    if str(offer.get("fulfillment_mode") or "") == MANUAL_TOPUP_MODE:
+        return bool(offer.get("manual_requires_input", True))
     provider = str(offer.get("provider") or "").strip().lower()
     if provider != "za3em":
         return False
@@ -1421,6 +1453,9 @@ def _gift_offer_needs_input(offer: dict[str, Any]) -> bool:
 
 
 def _gift_offer_params(offer: dict[str, Any]) -> list[str]:
+    manual_params = offer.get("manual_params")
+    if isinstance(manual_params, list):
+        return [str(item).strip() for item in manual_params if str(item).strip()]
     raw = offer.get("za3em_params")
     if isinstance(raw, list):
         return [str(item).strip() for item in raw if str(item).strip()]
@@ -1496,6 +1531,120 @@ def _gift_prefill_summary_lines(*, lang: str, quantity: int, extra_params: dict[
     return lines
 
 
+async def _execute_manual_gift_topup_purchase(
+    *,
+    bot: Any,
+    user_id: int,
+    lang: str,
+    reseller_id: int,
+    selected: dict[str, Any],
+    product_id: str,
+    available_offers: list[dict[str, Any]],
+    sale_price: float,
+    cost_price: float,
+    quantity: int = 1,
+    extra_params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    available_offers = [
+        dict(row)
+        for row in list(available_offers or [])
+        if isinstance(row, dict) and bool(row.get("available")) and digital_provider_enabled(str(row.get("provider") or ""))
+    ]
+    if not available_offers:
+        return {"kind": "provider_failed", "text": t(lang, "store_out_of_stock")}
+
+    first_offer = available_offers[0]
+    provider_code = str(first_offer.get("provider") or "g2bulk").strip().lower() or "g2bulk"
+    service_ref_id = f"{provider_code}:manual_topup:{str(first_offer.get('ref_id') or product_id)}"
+    order, err = await _core_charge(
+        user_id=int(user_id),
+        reseller_id=int(reseller_id),
+        service_ref_id=service_ref_id,
+        sale_price=float(sale_price),
+        cost_price=float(cost_price),
+    )
+    if not order or err:
+        return {"kind": "charge_error", "alert": err or t(lang, "purchase_failed_plain")}
+
+    provider_resp: dict[str, Any] | None = None
+    chosen_offer: dict[str, Any] | None = None
+    failures: list[str] = []
+    for offer in available_offers:
+        offer_price = float(_money_decimal(offer.get("price") or 0.0))
+        if offer_price <= 0:
+            continue
+        if offer_price > (float(cost_price) + 0.000001):
+            continue
+        attempt = await _create_provider_gift_order(
+            provider=str(offer.get("provider") or "g2bulk"),
+            ref_id=str(offer.get("ref_id") or product_id),
+            quantity=max(1, int(quantity or 1)),
+            extra_params=None,
+        )
+        if _provider_ok(attempt):
+            provider_resp = attempt
+            chosen_offer = dict(offer)
+            break
+        failures.append(_extract_provider_error(attempt.get("data") or attempt))
+
+    if not provider_resp or not chosen_offer:
+        await _core_refund(
+            user_id=int(user_id),
+            reseller_id=int(reseller_id),
+            order=order,
+            sale_price=float(sale_price),
+            cost_price=float(cost_price),
+        )
+        error_text = failures[0] if failures else t(lang, "provider_request_failed")
+        await update_order_details(order["_id"], {"provider_response": provider_resp or {}, "provider_error": error_text, "provider_offers_attempted": available_offers})
+        await _notify_owner_stock_issue(
+            bot=bot,
+            user_id=int(user_id),
+            reseller_id=int(reseller_id),
+            item_name=str(selected.get("name") or f"Product {product_id}"),
+            provider_error=error_text,
+        )
+        return {"kind": "provider_failed", "text": t(lang, "store_out_of_stock_admin_notified")}
+
+    provider_code = str(chosen_offer.get("provider") or "g2bulk")
+    provider_data = provider_resp.get("data")
+    external_order_id = _extract_external_order_id(provider_data)
+    voucher_lines = _extract_voucher_lines(provider_data)
+    player_data = {
+        str(key).strip(): str(value).strip()
+        for key, value in dict(extra_params or {}).items()
+        if str(key).strip() and str(value).strip()
+    }
+    item_name = str(selected.get("name") or f"Product {product_id}")
+    await update_order_details(
+        order["_id"],
+        {
+            "provider_code": provider_code,
+            "provider_order_id": external_order_id,
+            "provider_response": provider_resp,
+            "delivery_lines_private": voucher_lines,
+            "provider_offers_attempted": available_offers,
+            "provider_request_quantity": max(1, int(quantity or 1)),
+            "provider_request_extra_params": player_data,
+            "fulfillment_mode": MANUAL_TOPUP_MODE,
+            "manual_fulfillment_required": True,
+            "manual_fulfillment_status": "pending",
+            "manual_item_name": item_name,
+            "number_mode": "digital_products",
+        },
+    )
+    await _notify_owner_manual_topup(
+        bot=bot,
+        order=order,
+        item_name=item_name,
+        provider_code=provider_code,
+        external_order_id=external_order_id,
+        player_data=player_data,
+        delivery_lines=voucher_lines,
+    )
+    return {"kind": "pending", "text": _manual_pending_text(lang)}
+
+
 async def _execute_gift_purchase(
     *,
     bot: Any,
@@ -1517,6 +1666,20 @@ async def _execute_gift_purchase(
     ]
     if not available_offers:
         return {"kind": "provider_failed", "text": t(lang, "store_out_of_stock")}
+    if any(str(row.get("fulfillment_mode") or "") == MANUAL_TOPUP_MODE for row in available_offers):
+        return await _execute_manual_gift_topup_purchase(
+            bot=bot,
+            user_id=int(user_id),
+            lang=lang,
+            reseller_id=int(reseller_id),
+            selected=selected,
+            product_id=product_id,
+            available_offers=available_offers,
+            sale_price=float(sale_price),
+            cost_price=float(cost_price),
+            quantity=int(quantity or 1),
+            extra_params=dict(extra_params or {}),
+        )
     order, err = await _core_charge(
         user_id=int(user_id),
         reseller_id=int(reseller_id),
@@ -1798,14 +1961,7 @@ async def _core_refund(
     await update_order_status(order_id, "refunded" if ok else "failed")
 
 
-async def _notify_owner_stock_issue(
-    *,
-    bot: types.Bot,
-    user_id: int,
-    reseller_id: int,
-    item_name: str,
-    provider_error: str,
-) -> None:
+async def _owner_notification_target() -> tuple[int | None, int | None]:
     target_chat_id = None
     target_thread_id = None
     try:
@@ -1824,6 +1980,18 @@ async def _notify_owner_stock_issue(
             owner_id = 0
         if owner_id > 0:
             target_chat_id = owner_id
+    return target_chat_id, target_thread_id
+
+
+async def _notify_owner_stock_issue(
+    *,
+    bot: types.Bot,
+    user_id: int,
+    reseller_id: int,
+    item_name: str,
+    provider_error: str,
+) -> None:
+    target_chat_id, target_thread_id = await _owner_notification_target()
     if target_chat_id is None:
         return
     try:
@@ -1839,6 +2007,192 @@ async def _notify_owner_stock_issue(
         )
     except Exception:
         pass
+
+
+def _manual_pending_text(lang: str) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        return "تم استلام طلبك وهو قيد التنفيذ اليدوي.\nسنرسل لك إشعاراً عند اكتمال الشحن."
+    return "Your order was received and is pending manual fulfillment.\nYou will be notified when it is completed."
+
+
+def _manual_done_text(lang: str, *, item_name: str, order_id: str) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        return f"تم تنفيذ طلبك بنجاح.\nالخدمة: {item_name}\nرقم الطلب: {order_id}"
+    return f"Your order has been completed.\nItem: {item_name}\nOrder: {order_id}"
+
+
+def _manual_refund_text(lang: str, *, item_name: str, order_id: str) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        return f"تعذر تنفيذ طلبك وتمت إعادة المبلغ إلى رصيدك.\nالخدمة: {item_name}\nرقم الطلب: {order_id}"
+    return f"Your order could not be fulfilled and was refunded.\nItem: {item_name}\nOrder: {order_id}"
+
+
+async def _notify_owner_manual_topup(
+    *,
+    bot: types.Bot,
+    order: dict[str, Any],
+    item_name: str,
+    provider_code: str,
+    external_order_id: str,
+    player_data: dict[str, Any],
+    delivery_lines: list[str],
+) -> None:
+    target_chat_id, target_thread_id = await _owner_notification_target()
+    if target_chat_id is None:
+        return
+    order_id = str(order.get("_id") or "")
+    user_id = int(order.get("user_id") or 0)
+    reseller_id = int(order.get("reseller_id") or 0)
+    params = [f"- {str(key).replace('_', ' ').title()}: {value}" for key, value in dict(player_data or {}).items() if str(value).strip()]
+    vouchers = [f"- {line}" for line in list(delivery_lines or []) if str(line).strip()]
+    lines = [
+        "Manual digital top-up pending",
+        f"Order: {order_id}",
+        f"User: {user_id}",
+        f"Reseller: {reseller_id}",
+        f"Item: {item_name}",
+        f"Provider: {provider_code or '-'}",
+    ]
+    if external_order_id:
+        lines.append(f"Provider order: {external_order_id}")
+    if params:
+        lines.append("")
+        lines.append("Customer data:")
+        lines.extend(params)
+    if vouchers:
+        lines.append("")
+        lines.append("Private voucher/code:")
+        lines.extend(vouchers[:10])
+    try:
+        await bot.send_message(
+            chat_id=int(target_chat_id),
+            message_thread_id=int(target_thread_id) if target_thread_id is not None else None,
+            text="\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="تم الشحن", callback_data=f"dpm:done:{order_id}"),
+                        InlineKeyboardButton(text="استرجاع", callback_data=f"dpm:refund:{order_id}"),
+                    ]
+                ]
+            ),
+        )
+    except Exception:
+        pass
+
+
+def _order_query_id(value: str) -> Any:
+    raw = str(value or "").strip()
+    if ObjectId.is_valid(raw):
+        return ObjectId(raw)
+    return raw
+
+
+async def _find_order_for_owner_action(value: str) -> dict[str, Any] | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    primary_id = _order_query_id(raw)
+    order = await db.orders.find_one({"_id": primary_id})
+    if order:
+        return order
+    if primary_id != raw:
+        return await db.orders.find_one({"_id": raw})
+    return None
+
+
+def _owner_action_allowed(user_id: int) -> bool:
+    try:
+        return int(user_id) == int(getattr(settings, "owner_id", 0) or 0)
+    except Exception:
+        return False
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("dpm:done:"))
+async def complete_manual_digital_topup(callback: types.CallbackQuery):
+    if not _owner_action_allowed(int(callback.from_user.id)):
+        return await callback.answer("Unauthorized", show_alert=True)
+    order_id = str(callback.data or "").split(":", 2)[-1].strip()
+    order = await _find_order_for_owner_action(order_id)
+    if not order or str(order.get("fulfillment_mode") or "") != MANUAL_TOPUP_MODE:
+        return await callback.answer("Order not found", show_alert=True)
+    if str(order.get("status") or "") in {"success", "done"}:
+        return await callback.answer("Already completed", show_alert=True)
+    if str(order.get("status") or "") == "refunded":
+        return await callback.answer("Already refunded", show_alert=True)
+
+    await update_order_details(
+        order["_id"],
+        {
+            "manual_fulfillment_status": "completed",
+            "manual_fulfilled_by": int(callback.from_user.id),
+            "manual_fulfilled_at": datetime.now(UTC),
+        },
+    )
+    await update_order_status(order["_id"], "success")
+    user = await get_user(int(order.get("user_id") or 0))
+    lang = (user or {}).get("language", "en")
+    item_name = str(order.get("manual_item_name") or order.get("service_ref_id") or "-")
+    try:
+        await callback.bot.send_message(
+            chat_id=int(order.get("user_id")),
+            text=_manual_done_text(lang, item_name=item_name, order_id=str(order.get("_id"))),
+        )
+    except Exception:
+        pass
+    if callback.message:
+        try:
+            await callback.message.edit_text(f"{callback.message.text or ''}\n\nStatus: completed")
+        except Exception:
+            pass
+    await callback.answer("Completed")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("dpm:refund:"))
+async def refund_manual_digital_topup(callback: types.CallbackQuery):
+    if not _owner_action_allowed(int(callback.from_user.id)):
+        return await callback.answer("Unauthorized", show_alert=True)
+    order_id = str(callback.data or "").split(":", 2)[-1].strip()
+    order = await _find_order_for_owner_action(order_id)
+    if not order or str(order.get("fulfillment_mode") or "") != MANUAL_TOPUP_MODE:
+        return await callback.answer("Order not found", show_alert=True)
+    if str(order.get("status") or "") == "refunded":
+        return await callback.answer("Already refunded", show_alert=True)
+    if str(order.get("status") or "") in {"success", "done"}:
+        return await callback.answer("Already completed", show_alert=True)
+
+    sale_price, cost_price = extract_order_amounts(order)
+    await _core_refund(
+        user_id=int(order.get("user_id") or 0),
+        reseller_id=int(order.get("reseller_id") or 0),
+        order=order,
+        sale_price=float(sale_price),
+        cost_price=float(cost_price),
+    )
+    await update_order_details(
+        order["_id"],
+        {
+            "manual_fulfillment_status": "refunded",
+            "manual_refunded_by": int(callback.from_user.id),
+            "manual_refunded_at": datetime.now(UTC),
+        },
+    )
+    user = await get_user(int(order.get("user_id") or 0))
+    lang = (user or {}).get("language", "en")
+    item_name = str(order.get("manual_item_name") or order.get("service_ref_id") or "-")
+    try:
+        await callback.bot.send_message(
+            chat_id=int(order.get("user_id")),
+            text=_manual_refund_text(lang, item_name=item_name, order_id=str(order.get("_id"))),
+        )
+    except Exception:
+        pass
+    if callback.message:
+        try:
+            await callback.message.edit_text(f"{callback.message.text or ''}\n\nStatus: refunded")
+        except Exception:
+            pass
+    await callback.answer("Refunded")
 
 
 def _load_usage() -> dict[str, int]:
@@ -3533,6 +3887,12 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
             fallback_ref_id=product_id,
             fallback_price=float(_money_decimal(selected.get("price"))),
         )
+        category_name = _gift_category_name_from_snapshot(snapshot, cat_id)
+        offers = _prepare_gift_offers_for_fulfillment(
+            offers,
+            category_name=category_name,
+            product_name=str(selected.get("name") or ""),
+        )
         available_offers = [row for row in offers if bool(row.get("available"))]
         primary_offer = dict(available_offers[0]) if available_offers else dict(offers[0] if offers else {})
         unit_cost_price, _cost_price, sale_price = _gift_compute_prices(
@@ -4136,6 +4496,12 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery, state: FSM
         fallback_provider="g2bulk",
         fallback_ref_id=product_id,
         fallback_price=float(_money_decimal(selected.get("price"))),
+    )
+    category_name = _gift_category_name_from_snapshot(snapshot, cat_id)
+    offers = _prepare_gift_offers_for_fulfillment(
+        offers,
+        category_name=category_name,
+        product_name=str(selected.get("name") or ""),
     )
     available_offers = [row for row in offers if bool(row.get("available"))]
     if not available_offers:
