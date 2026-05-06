@@ -762,6 +762,11 @@ async def handle_inline_country_selection(message: types.Message, state: FSMCont
         next_state = NumberFlow.state
     else:
         await state.update_data(state="none")
+        preselected_service = str(data.get("service") or "").strip()
+        if preselected_service and bool(data.get("numbers_preselected_service")):
+            await state.update_data(numbers_preselected_service=False)
+            await _load_service_prices(message.chat.id, message.bot, state, preselected_service)
+            return
         text = _compose_numbers_screen(
             _service_prompt_bold(lang),
             _numbers_context_lines(lang, country_code=country_code),
@@ -845,6 +850,11 @@ async def handle_inline_state_selection(message: types.Message, state: FSMContex
 
     await state.update_data(state=state_code if num_type == "temp" else "none")
     country_code = data.get("country")
+    preselected_service = str(data.get("service") or "").strip()
+    if preselected_service and bool(data.get("numbers_preselected_service")):
+        await state.update_data(numbers_preselected_service=False)
+        await _load_service_prices(message.chat.id, message.bot, state, preselected_service)
+        return
     text = _compose_numbers_screen(
         _service_prompt_bold(lang),
         _numbers_context_lines(lang, country_code=country_code, state_code=state_code),
@@ -878,6 +888,11 @@ async def choose_any_state(callback: types.CallbackQuery, state: FSMContext):
     country_code = data.get("country")
 
     await state.update_data(state="none" if num_type == "temp" else "none")
+    preselected_service = str(data.get("service") or "").strip()
+    if preselected_service and bool(data.get("numbers_preselected_service")):
+        await state.update_data(numbers_preselected_service=False)
+        await _load_service_prices(callback.message.chat.id, callback.message.bot, state, preselected_service)
+        return await _safe_callback_answer()
     text = _compose_numbers_screen(
         _service_prompt_bold(lang),
         _numbers_context_lines(lang, country_code=country_code, state_code="none"),

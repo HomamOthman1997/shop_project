@@ -225,6 +225,13 @@ input:focus {
   padding: 14px 16px;
 }
 
+.helper-text {
+  margin: -2px 0 2px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 .context-eyebrow {
   color: var(--accent-light);
   font-size: 11px;

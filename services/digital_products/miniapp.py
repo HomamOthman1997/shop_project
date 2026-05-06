@@ -1504,6 +1504,12 @@ async def create_selection(request: web.Request) -> web.Response:
         payload = {"kind": "esim"}
     elif kind == "numbers_services":
         payload = {"kind": "numbers_services"}
+        service_key = str(body.get("service_key") or "").strip()
+        service_label = str(body.get("service_label") or "").strip()
+        if service_key:
+            payload["service_key"] = service_key
+        if service_label:
+            payload["service_label"] = service_label
     else:
         raise web.HTTPBadRequest(text="invalid selection")
     token = await _create_selection(int(auth["user_id"]), payload)

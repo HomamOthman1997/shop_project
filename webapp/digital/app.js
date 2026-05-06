@@ -48,6 +48,10 @@ const copy = {
     simBalance: "Balance Top Up",
     simData: "Data Packages",
     esimDirect: "eSIM",
+    numbersKindTitle: "Numbers Services",
+    numbersKindHint: "Pick a popular service, then continue in the bot to choose country and live provider price.",
+    numbersMore: "More numbers services",
+    numbersMoreHint: "Open the full numbers flow in the bot.",
     gameFinderTitle: "Game Search",
     gameFinderHint: "Type game name to see available titles.",
     gameFinderCta: "Search Games",
@@ -101,6 +105,10 @@ const copy = {
     simBalance: "شحن رصيد",
     simData: "باقات بيانات",
     esimDirect: "eSIM",
+    numbersKindTitle: "خدمات الأرقام",
+    numbersKindHint: "اختر خدمة مطلوبة، ثم أكمل في البوت لاختيار الدولة والسعر الحي من المزود.",
+    numbersMore: "المزيد من خدمات الأرقام",
+    numbersMoreHint: "فتح فلو الأرقام الكامل داخل البوت.",
     gameFinderTitle: "بحث الألعاب",
     gameFinderHint: "اكتب اسم اللعبة لتظهر النتائج المتاحة.",
     gameFinderCta: "بحث الألعاب",
@@ -189,6 +197,19 @@ const serviceVisuals = {
   paid_subscriptions: { icon: "⭐", tone: "tone-subs" },
   store_cards: { icon: "🛍️", tone: "tone-store" },
 };
+
+const popularNumberServices = [
+  { key: "whatsapp", label: "WhatsApp", hint: "OTP" },
+  { key: "telegram", label: "Telegram", hint: "OTP" },
+  { key: "gmail", label: "Gmail / Google", hint: "OTP" },
+  { key: "anthropic", label: "Claude / Anthropic", hint: "OTP" },
+  { key: "openai", label: "OpenAI / ChatGPT", hint: "OTP" },
+  { key: "discord", label: "Discord", hint: "OTP" },
+  { key: "facebook", label: "Facebook", hint: "OTP" },
+  { key: "instagram", label: "Instagram", hint: "OTP" },
+  { key: "tiktok", label: "TikTok", hint: "OTP" },
+  { key: "amazon", label: "Amazon", hint: "OTP" },
+];
 
 const state = {
   lang: detectLang(),
@@ -573,7 +594,7 @@ function serviceRows() {
 async function resolveVisibleServiceRows(rows) {
   return (rows || []).filter((row) => {
     if (!row?.enabled) return false;
-    if (String(row.key || "") === "communications_data") return true;
+    if (["communications_data", "numbers_services"].includes(String(row.key || ""))) return true;
     return Number(row.count || 0) > 0;
   });
 }
@@ -964,6 +985,10 @@ function enterService(key) {
     renderSimKinds();
     return;
   }
+  if (key === "numbers_services") {
+    renderNumbersServices();
+    return;
+  }
   state.categories = buildCategoriesForService(key);
   renderCategories();
 }
@@ -1288,6 +1313,35 @@ function renderSimKinds() {
   content.append(grid);
 }
 
+function renderNumbersServices() {
+  clear();
+  state.view = "numbers";
+  setSearchPlaceholder();
+  setStatus("");
+  content.append(button("back-btn", t("back"), renderServices));
+  content.append(heading(t("numbersKindTitle")));
+
+  const intro = document.createElement("p");
+  intro.className = "helper-text";
+  intro.textContent = t("numbersKindHint");
+  content.append(intro);
+
+  const grid = document.createElement("section");
+  grid.className = "dept-grid";
+  for (const service of popularNumberServices) {
+    grid.append(
+      card(service.label, service.hint, () =>
+        createServiceSelection("numbers_services", {
+          service_key: service.key,
+          service_label: service.label,
+        })
+      )
+    );
+  }
+  grid.append(card(t("numbersMore"), t("numbersMoreHint"), () => createServiceSelection("numbers_services")));
+  content.append(grid);
+}
+
 async function createServiceSelection(kind, extra = {}) {
   if (!tg?.sendData) {
     setStatus(t("openTelegram"), true);
@@ -1552,6 +1606,7 @@ if (langBtn) {
     else if (state.view === "subcategories") renderVariantCategories(state.variantParent);
     else if (state.view === "items") renderItems();
     else if (state.view === "simkind") renderSimKinds();
+    else if (state.view === "numbers") renderNumbersServices();
   });
 }
 if (modalCloseBtn) {
