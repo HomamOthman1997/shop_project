@@ -65,7 +65,6 @@ _CHEAP_COUNTRY_CACHE_TTL_SEC = 300
 _CHEAP_COUNTRY_CACHE: dict[str, tuple[float, list[dict[str, object]]]] = {}
 _CHEAP_COUNTRY_ISOS = (
     "US",
-    "US_V",
     "GB",
     "DE",
     "CA",
@@ -78,7 +77,6 @@ _CHEAP_COUNTRY_ISOS = (
     "NO",
     "SE",
     "DK",
-    "GB",
 )
 
 
@@ -280,6 +278,8 @@ def _country_code_by_iso() -> dict[str, str]:
     for item in COUNTRIES_LIST:
         code = str(item.get("code") or "").strip()
         iso = str(item.get("iso") or "").strip().upper()
+        if "_V" in iso:
+            continue
         if code and iso and code in _VALID_COUNTRY_CODES:
             out.setdefault(iso, code)
     return out
@@ -310,8 +310,6 @@ def _best_available_country_price(prices: dict) -> float | None:
     for info in (prices or {}).values():
         if not isinstance(info, dict):
             continue
-        if not bool(info.get("available_for_buy", True)):
-            continue
         try:
             price = float(info.get("price") or 0.0)
         except Exception:
@@ -335,7 +333,10 @@ async def _cheap_country_options_for_service(service_key: str, limit: int = 10) 
     async def _fetch_country(country_code: str) -> dict[str, object] | None:
         async with sem:
             try:
-                prices = await asyncio.wait_for(get_all_prices(service_key, country_code, "none"), timeout=5.0)
+                prices = await asyncio.wait_for(
+                    get_all_prices(service_key, country_code, "none", ignore_balance=True),
+                    timeout=5.0,
+                )
             except Exception:
                 return None
             price = _best_available_country_price(prices)
@@ -394,6 +395,8 @@ def _country_search_matches(query: str, limit: int = 12) -> list[dict[str, str]]
             continue
         name = str(item.get("name") or "").strip()
         iso = str(item.get("iso") or "").strip().upper()
+        if "_V" in iso:
+            continue
         aliases = [str(value or "") for value in item.get("aliases") or []]
         haystack = [name, iso, *aliases]
         matched = False

@@ -502,7 +502,7 @@ async def get_provider_service_name_dynamic(service_key: str, provider_code: str
     return str(resolved)
 
 
-async def get_all_prices(service_key: str, country: str | None, state: str | None):
+async def get_all_prices(service_key: str, country: str | None, state: str | None, *, ignore_balance: bool = False):
     """Fetch temporary-number prices from all configured providers."""
     results = {}
     markup_pct = await _effective_numbers_markup_percent()
@@ -587,11 +587,11 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
                     lane["available_for_buy"] = True
                     if provider_balance is not None:
                         lane["provider_balance"] = float(provider_balance)
-                        if provider_balance + 1e-9 < base_price:
+                        if provider_balance + 1e-9 < base_price and not ignore_balance:
                             lane["available_for_buy"] = False
                             lane["testing_visible"] = True
                             lane["provider_reason"] = "provider_balance_low"
-                    elif not show_all_for_testing:
+                    elif not show_all_for_testing and not ignore_balance:
                         # Production safety: hide when balance cannot be verified.
                         continue
                     else:
@@ -687,11 +687,12 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
                     price_data["provider_reason"] = "provider_balance_unknown"
                 if provider_balance is not None and provider_balance + 1e-9 < base_price:
                     # Hide provider when its account cannot currently buy this service.
-                    if not show_all_for_testing:
+                    if not show_all_for_testing and not ignore_balance:
                         return (code, None)
-                    price_data["available_for_buy"] = False
-                    price_data["testing_visible"] = True
-                    price_data["provider_reason"] = "provider_balance_low"
+                    if not ignore_balance:
+                        price_data["available_for_buy"] = False
+                        price_data["testing_visible"] = True
+                        price_data["provider_reason"] = "provider_balance_low"
 
                 sale_price = base_price
                 if base_price > 0 and markup_pct > 0:
@@ -724,7 +725,7 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
                 )
                 if provider_balance is not None:
                     price_data["provider_balance"] = float(provider_balance)
-                    if provider_balance + 1e-9 < base_price:
+                    if provider_balance + 1e-9 < base_price and not ignore_balance:
                         price_data["available_for_buy"] = False
                         price_data["testing_visible"] = True
                         price_data["provider_reason"] = "provider_balance_low"
