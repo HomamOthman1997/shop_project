@@ -132,7 +132,8 @@ async def test_create_selection_uses_server_game_quote(monkeypatch):
             "group_key": "topup",
             "player_id": "12345",
             "quoted_price_usd": 1,
-        }
+        },
+        headers={"X-Telegram-Init-Data": "signed"},
     )
 
     response = await miniapp.create_selection(request)
@@ -216,10 +217,31 @@ async def test_create_selection_supports_direct_digital_flows(monkeypatch, kind,
     if kind == "numbers_services":
         body["service_key"] = "whatsapp"
         body["service_label"] = "WhatsApp"
-    request = _DummyRequest(body)
+    request = _DummyRequest(body, headers={"X-Telegram-Init-Data": "signed"})
 
     response = await miniapp.create_selection(request)
 
     assert response.status == 200
     assert stored["user_id"] == 7
     assert stored["payload"] == expected_payload
+
+
+@pytest.mark.asyncio
+async def test_create_selection_allows_missing_init_data_for_webapp_send_data(monkeypatch):
+    from services.digital_products import miniapp
+
+    stored = {}
+
+    async def _fake_create_selection(user_id, payload):
+        stored["user_id"] = user_id
+        stored["payload"] = dict(payload)
+        return "tok-no-init"
+
+    monkeypatch.setattr(miniapp, "_create_selection", _fake_create_selection)
+
+    request = _DummyRequest({"kind": "numbers_services", "service_key": "telegram"})
+    response = await miniapp.create_selection(request)
+
+    assert response.status == 200
+    assert stored["user_id"] is None
+    assert stored["payload"] == {"kind": "numbers_services", "service_key": "telegram"}

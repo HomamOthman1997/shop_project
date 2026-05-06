@@ -1456,7 +1456,8 @@ async def game_items(request: web.Request) -> web.Response:
 
 
 async def create_selection(request: web.Request) -> web.Response:
-    auth = _verify_init_data(request.headers.get("X-Telegram-Init-Data", ""))
+    init_data = request.headers.get("X-Telegram-Init-Data", "")
+    auth = _verify_init_data(init_data) if str(init_data or "").strip() else {"user_id": None}
     body = await request.json()
     kind = str(body.get("kind") or "").strip().lower()
     if kind == "gift":
@@ -1512,7 +1513,8 @@ async def create_selection(request: web.Request) -> web.Response:
             payload["service_label"] = service_label
     else:
         raise web.HTTPBadRequest(text="invalid selection")
-    token = await _create_selection(int(auth["user_id"]), payload)
+    auth_user_id = auth.get("user_id")
+    token = await _create_selection(int(auth_user_id) if auth_user_id else None, payload)
     return web.json_response({"token": token}, headers=dict(_NO_STORE_HEADERS))
 
 
