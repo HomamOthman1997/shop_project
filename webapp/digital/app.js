@@ -135,6 +135,8 @@ const extraCopy = {
     missingRequiredField: "Missing required field.",
     gamePurchaseData: "Enter game account data",
     giftPurchaseData: "Enter purchase data",
+    playerIdWarning:
+      "Make sure the Player ID is correct. If it is wrong, the top-up will be sent to the entered account and cannot be recovered.",
     priceByQuantity: "By quantity",
     creditsRange: "Credits range",
     pickOption: "Select option",
@@ -152,6 +154,8 @@ const extraCopy = {
     missingRequiredField: "\u0647\u0646\u0627\u0643 \u062d\u0642\u0644 \u0645\u0637\u0644\u0648\u0628.",
     gamePurchaseData: "\u0623\u062f\u062e\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0634\u0631\u0627\u0621 \u0644\u0644\u0639\u0628\u0629",
     giftPurchaseData: "\u0623\u062f\u062e\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0634\u0631\u0627\u0621",
+    playerIdWarning:
+      "\u062a\u0623\u0643\u062f \u0645\u0646 \u0623\u0646 Player ID \u0635\u062d\u064a\u062d. \u0625\u0630\u0627 \u0643\u0627\u0646 \u062e\u0627\u0637\u0626\u0627\u064b \u0633\u064a\u062a\u0645 \u0627\u0644\u0634\u062d\u0646 \u0639\u0644\u0649 \u0627\u0644\u062d\u0633\u0627\u0628 \u0627\u0644\u0645\u062f\u062e\u0644 \u0648\u0644\u0627 \u064a\u0645\u0643\u0646 \u0627\u0633\u062a\u0631\u062c\u0627\u0639 \u0627\u0644\u0639\u0645\u0644\u064a\u0629.",
     priceByQuantity: "\u062d\u0633\u0628 \u0627\u0644\u0643\u0645\u064a\u0629",
     creditsRange: "\u0645\u062f\u0649 \u0627\u0644\u0643\u0631\u064a\u062f\u062a",
     pickOption: "\u0627\u062e\u062a\u0631 \u0627\u0644\u0646\u0648\u0639",
@@ -1256,11 +1260,37 @@ function closeInputModal() {
   if (modalFormEl) modalFormEl.replaceChildren();
 }
 
-function openInputModal({ title, subtitle, fields, onSubmit, onChange }) {
+function fieldLooksLikePlayerId(field) {
+  const name = String(field?.name || "").toLowerCase();
+  const label = String(field?.label || "").toLowerCase();
+  return (
+    name.includes("player_id") ||
+    name.includes("playerid") ||
+    name.includes("user_id") ||
+    name.includes("userid") ||
+    name.includes("uid") ||
+    label.includes("player id") ||
+    label.includes("playerid") ||
+    label.includes("user id") ||
+    label.includes("\u0627\u064a\u062f\u064a") ||
+    label.includes("\u0627\u0644\u0627\u064a\u062f\u064a") ||
+    label.includes("\u0623\u064a\u062f\u064a") ||
+    label.includes("\u0627\u0644\u0623\u064a\u062f\u064a")
+  );
+}
+
+function openInputModal({ title, subtitle, fields, notice, onSubmit, onChange }) {
   if (!inputModalEl || !modalFormEl || !modalTitleEl || !modalSubtitleEl) return;
   modalTitleEl.textContent = title || t("continue");
   modalSubtitleEl.textContent = subtitle || "";
   modalFormEl.replaceChildren();
+
+  if (notice) {
+    const note = document.createElement("div");
+    note.className = "input-warning";
+    note.textContent = notice;
+    modalFormEl.append(note);
+  }
 
   fields.forEach((field) => {
     const wrap = document.createElement("div");
@@ -1377,6 +1407,7 @@ async function createSelection(item) {
       title: t("giftPurchaseData"),
       subtitle: `${baseSubtitle} • ${t("price")}: ${money(item.price_usd)}`,
       fields,
+      notice: fields.some(fieldLooksLikePlayerId) ? t("playerIdWarning") : "",
       onChange: (values) => {
         const qty = Number(values.quantity || item.display_quantity || 1);
         const quoted = giftQuotePrice(item, qty);
@@ -1408,6 +1439,7 @@ async function createSelection(item) {
     title: t("gamePurchaseData"),
     subtitle: `${item.name || ""} • ${t("price")}: ${money(item.price_usd)}`,
     fields: [{ name: "player_id", label: t("playerId"), type: "text", required: true }],
+    notice: t("playerIdWarning"),
     onSubmit: async (values) => {
       await createServiceSelection("game", {
         kind: "game",
