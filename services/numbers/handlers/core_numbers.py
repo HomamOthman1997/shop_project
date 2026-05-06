@@ -59,42 +59,39 @@ _COUNTRY_ISO = {
 _VALID_COUNTRY_CODES = set(_COUNTRY_ISO.keys())
 _INLINE_SERVICE_QUERY_PREFIX = "query:"
 _QUICK_COUNTRY_PREFIX = "flow:quickcountry:"
+_QUICK_COUNTRY_SEARCH_CALLBACK = "flow:quickcountry:search"
 _CHEAP_COUNTRY_CACHE_TTL_SEC = 300
 _CHEAP_COUNTRY_CACHE: dict[str, tuple[float, list[dict[str, object]]]] = {}
 _CHEAP_COUNTRY_ISOS = (
-    "ID",
-    "IN",
-    "PH",
-    "VN",
-    "KZ",
-    "KG",
-    "MY",
-    "NG",
-    "KE",
-    "RO",
-    "PL",
-    "BR",
-    "CO",
-    "MX",
-    "TR",
-    "EG",
-    "MA",
-    "DZ",
-    "PK",
-    "BD",
-    "TH",
-    "KH",
-    "LA",
-    "MM",
-    "LK",
-    "NP",
-    "ZA",
-    "AR",
-    "CL",
-    "PE",
-    "UA",
-    "GB",
+    "US",
     "CA",
+    "GB",
+    "NL",
+    "LV",
+    "SE",
+    "PT",
+    "EE",
+    "RO",
+    "DK",
+    "PL",
+    "FR",
+    "DE",
+    "UA",
+    "IE",
+    "LT",
+    "HR",
+    "AT",
+    "ES",
+    "SI",
+    "BE",
+    "BG",
+    "HU",
+    "IT",
+    "GR",
+    "SK",
+    "FI",
+    "NO",
+    "CZ",
 )
 
 
@@ -339,12 +336,12 @@ async def _cheap_country_options_for_service(service_key: str, limit: int = 10) 
     if cached and (now_ts - cached[0]) <= _CHEAP_COUNTRY_CACHE_TTL_SEC:
         return list(cached[1])[:limit]
 
-    sem = asyncio.Semaphore(8)
+    sem = asyncio.Semaphore(6)
 
     async def _fetch_country(country_code: str) -> dict[str, object] | None:
         async with sem:
             try:
-                prices = await asyncio.wait_for(get_all_prices(service_key, country_code, "none"), timeout=9.0)
+                prices = await asyncio.wait_for(get_all_prices(service_key, country_code, "none"), timeout=5.0)
             except Exception:
                 return None
             price = _best_available_country_price(prices)
@@ -377,7 +374,7 @@ def _quick_country_keyboard(lang: str, options: list[dict[str, object]]) -> Inli
             button_row.append(InlineKeyboardButton(text=label, callback_data=f"{_QUICK_COUNTRY_PREFIX}{code}"))
         if button_row:
             rows.append(button_row)
-    rows.append([InlineKeyboardButton(text=t(lang, "search_country"), switch_inline_query_current_chat="country ", style="primary")])
+    rows.append([InlineKeyboardButton(text=t(lang, "search_country"), callback_data=_QUICK_COUNTRY_SEARCH_CALLBACK, style="primary")])
     rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:entry_back")])
     rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -395,11 +392,11 @@ async def render_preselected_temp_service_countries(
     loading = _compose_numbers_screen(
         t(lang, "choose_country_or_search"),
         [f"{t(lang, 'service_label')}: {label}", f"{t(lang, 'temp_mode_label')}: {t(lang, 'temp_numbers')}"] if label else [],
-        trailing_lines=[_numbers_text(lang, "Fetching cheapest available countries...", "جار جلب أرخص الدول المتاحة...")],
+        trailing_lines=[_numbers_text(lang, "Loading available countries...", "جار جلب الدول المتاحة...")],
     )
     sent = await message.answer(loading)
     await state.update_data(last_msg_id=getattr(sent, "message_id", None))
-    options = await _cheap_country_options_for_service(service_key, limit=10)
+    options = await _cheap_country_options_for_service(service_key, limit=6)
     if not options:
         await _safe_edit_text(
             sent,
@@ -413,9 +410,8 @@ async def render_preselected_temp_service_countries(
         await state.set_state(NumberFlow.country)
         return
     text = _compose_numbers_screen(
-        _numbers_text(lang, "Choose one of the cheapest available countries or search for a specific country.", "اختر واحدة من أرخص الدول المتاحة أو ابحث عن دولة محددة."),
+        _numbers_text(lang, "Choose a country or search.", "اختر دولة أو ابحث."),
         [f"{t(lang, 'service_label')}: {label}", f"{t(lang, 'temp_mode_label')}: {t(lang, 'temp_numbers')}"] if label else [],
-        trailing_lines=[_numbers_text(lang, "Prices are live and may change before purchase.", "الأسعار مباشرة وقد تتغير قبل الشراء.")],
     )
     await _safe_edit_text(sent, text, reply_markup=_quick_country_keyboard(lang, options))
     await state.set_state(NumberFlow.country)
@@ -899,6 +895,23 @@ async def back_to_rental_providers(callback: types.CallbackQuery, state: FSMCont
         reply_markup=rental_providers_kb(provider_rows, lang=lang, provider_options=provider_options, usd_to_syp=usd_to_syp_rate),
     )
     await state.set_state(NumberFlow.rental_providers)
+
+
+@router.callback_query(lambda c: c.data == _QUICK_COUNTRY_SEARCH_CALLBACK)
+async def quick_country_search(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "en")
+    label = str(data.get("numbers_preselected_service_label") or data.get("service") or "").strip()
+    text = _country_entry_text(lang, "temp")
+    if label:
+        text = _compose_numbers_screen(
+            t(lang, "choose_country_or_search"),
+            [f"{t(lang, 'service_label')}: {label}", f"{t(lang, 'temp_mode_label')}: {t(lang, 'temp_numbers')}"],
+            trailing_lines=[t(lang, "numbers_country_search_hint")],
+        )
+    await _safe_edit_text(callback.message, text, reply_markup=country_kb(lang))
+    await state.set_state(NumberFlow.country)
+    await _safe_callback_answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith(_QUICK_COUNTRY_PREFIX))

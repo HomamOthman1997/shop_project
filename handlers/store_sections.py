@@ -4105,6 +4105,7 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
             lang=lang,
             num_type="temp",
             service=service_key,
+            numbers_preselected_service_label=service_label,
             numbers_preselected_service=bool(service_key),
         )
         await _hide_reply_keyboard(message, lang)
