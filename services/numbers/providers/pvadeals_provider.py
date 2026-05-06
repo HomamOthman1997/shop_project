@@ -413,6 +413,16 @@ class PVADealsProvider(BaseProvider):
                         value = row.get(key)
                         if isinstance(value, str) and value.strip():
                             messages.append(value.strip())
+        codes = data.get("codes")
+        if isinstance(codes, list):
+            for row in codes:
+                if isinstance(row, str) and row.strip():
+                    messages.append(row.strip())
+                elif isinstance(row, dict):
+                    for key in ("pin", "code", "parsedCode", "message", "smsContent", "content", "body"):
+                        value = row.get(key)
+                        if isinstance(value, str) and value.strip():
+                            messages.append(value.strip())
         # Preserve order while deduplicating.
         out: list[str] = []
         for item in messages:

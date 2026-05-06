@@ -333,6 +333,39 @@ async def test_pvadeals_get_sms_reads_request_details(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_pvadeals_get_sms_reads_codes_pin_payload(monkeypatch):
+    request_payload = {
+        "success": True,
+        "data": {
+            "_id": "req_1",
+            "status": "COMPLETED",
+            "codes": [
+                {
+                    "message": "Your Claude verification code is: 413873",
+                    "pin": "413873",
+                }
+            ],
+        },
+    }
+    session = DummySession(
+        {
+            ("GET", "https://prod-v3.pvadeals.com/v3/api/request/req_1"): DummyResponse(status=200, json_data=request_payload),
+        }
+    )
+
+    async def fake_get_session():
+        return session
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+    provider = PVADealsProvider()
+
+    result = await provider.get_sms("req_1")
+    assert result["success"] is True
+    assert "413873" in result["messages"]
+    assert "Your Claude verification code is: 413873" in result["messages"]
+
+
+@pytest.mark.asyncio
 async def test_pvadeals_cancel_resend_and_renew(monkeypatch):
     session = DummySession(
         {
