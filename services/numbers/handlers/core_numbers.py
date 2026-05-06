@@ -335,7 +335,7 @@ async def _cheap_country_options_for_service(service_key: str, limit: int = 10) 
             try:
                 prices = await asyncio.wait_for(
                     get_all_prices(service_key, country_code, "none", ignore_balance=True),
-                    timeout=5.0,
+                    timeout=8.0,
                 )
             except Exception:
                 return None
@@ -445,14 +445,15 @@ async def render_preselected_temp_service_countries(
         _numbers_text(lang, "Choose country.", "اختر الدولة."),
         [f"{t(lang, 'service_label')}: {label}"] if label else [],
     )
-    sent = await message.answer(text, reply_markup=_quick_country_keyboard(lang, _preferred_country_options()))
+    loading_text = _compose_numbers_screen(
+        _numbers_text(lang, "Loading prices...", "جاري جلب الأسعار..."),
+        [f"{t(lang, 'service_label')}: {label}"] if label else [],
+    )
+    sent = await message.answer(loading_text)
     await state.update_data(last_msg_id=getattr(sent, "message_id", None))
-    priced = {str(row.get("code") or ""): dict(row) for row in _preferred_country_options()}
-    for row in await _cheap_country_options_for_service(service_key, limit=len(priced)):
-        code = str(row.get("code") or "").strip()
-        if code and code in priced:
-            priced[code].update(row)
-    await _safe_edit_text(sent, text, reply_markup=_quick_country_keyboard(lang, list(priced.values())))
+    priced = await _cheap_country_options_for_service(service_key, limit=len(_preferred_country_options()))
+    options = priced or _preferred_country_options()
+    await _safe_edit_text(sent, text, reply_markup=_quick_country_keyboard(lang, options))
     await state.set_state(NumberFlow.country)
 
 
@@ -1223,6 +1224,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
     lang = data.get("lang", "en")
     num_type = data.get("num_type", "temp")
     lookup_not_listed = bool(data.get("service_lookup_not_listed"))
+    ignore_provider_balance = bool(data.get("numbers_ignore_provider_balance"))
     await state.update_data(service=service_name)
     country = data.get("country")
     state_code = data.get("state")
@@ -1397,11 +1399,22 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
         except Exception:
             pass
     try:
-        prices = await get_all_prices(service_name, country, state_code)
+        if ignore_provider_balance:
+            prices = await get_all_prices(service_name, country, state_code, ignore_balance=True)
+        else:
+            prices = await get_all_prices(service_name, country, state_code)
     finally:
         await _stop_loading_text_animator(loading_stop, loading_task)
     if not prices and lookup_not_listed:
-        prices = await get_all_prices(TEMP_NOT_LISTED_SERVICE_KEY, country, state_code)
+        if ignore_provider_balance:
+            prices = await get_all_prices(
+                TEMP_NOT_LISTED_SERVICE_KEY,
+                country,
+                state_code,
+                ignore_balance=True,
+            )
+        else:
+            prices = await get_all_prices(TEMP_NOT_LISTED_SERVICE_KEY, country, state_code)
     if not prices:
         if last_msg_id:
             await bot.edit_message_text(

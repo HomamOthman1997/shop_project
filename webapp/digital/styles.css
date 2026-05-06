@@ -374,7 +374,7 @@ input:focus {
 .items-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
   align-items: start;
 }
 
@@ -504,21 +504,21 @@ input:focus {
 }
 
 .item {
-  padding: 12px;
+  padding: 10px;
   display: grid;
-  gap: 10px;
+  gap: 9px;
   align-content: start;
   min-height: 100%;
 }
 
 .item-price-top .stat {
   min-height: 0;
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 
 .item-content {
   display: grid;
-  gap: 12px;
+  gap: 9px;
   text-align: center;
   align-content: start;
 }
@@ -534,7 +534,7 @@ input:focus {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 2.6em;
+  min-height: 2.45em;
 }
 
 .tile span,
@@ -751,14 +751,14 @@ input:focus {
 
 .stat b {
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.15;
   overflow-wrap: anywhere;
 }
 
 .price-stat b {
   color: var(--accent-light);
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .stat.ok b {
