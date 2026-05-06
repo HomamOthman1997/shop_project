@@ -298,6 +298,13 @@ def _cheap_country_candidate_codes() -> list[str]:
     return out
 
 
+def _preferred_country_options() -> list[dict[str, object]]:
+    return [
+        {"code": code, "name": _country_display_name(code)}
+        for code in _cheap_country_candidate_codes()
+    ]
+
+
 def _best_available_country_price(prices: dict) -> float | None:
     best: float | None = None
     for info in (prices or {}).values():
@@ -358,11 +365,17 @@ def _quick_country_keyboard(lang: str, options: list[dict[str, object]]) -> Inli
             code = str(option.get("code") or "").strip()
             if not code:
                 continue
-            label = f"{option.get('name') or code} | {format_usd(float(option.get('price') or 0.0))}"
+            price = option.get("price")
+            label = str(option.get("name") or code)
+            try:
+                price_val = float(price) if price is not None else 0.0
+            except Exception:
+                price_val = 0.0
+            if price_val > 0:
+                label = f"{label} | {format_usd(price_val)}"
             button_row.append(InlineKeyboardButton(text=label, callback_data=f"{_QUICK_COUNTRY_PREFIX}{code}"))
         if button_row:
             rows.append(button_row)
-    rows.append([InlineKeyboardButton(text=t(lang, "search_country"), callback_data=_QUICK_COUNTRY_SEARCH_CALLBACK, style="primary")])
     rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:entry_back")])
     rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -425,31 +438,18 @@ async def render_preselected_temp_service_countries(
     service_label: str | None = None,
 ) -> None:
     label = str(service_label or service_key or "").strip()
-    loading = _compose_numbers_screen(
-        t(lang, "choose_country_or_search"),
-        [f"{t(lang, 'service_label')}: {label}", f"{t(lang, 'temp_mode_label')}: {t(lang, 'temp_numbers')}"] if label else [],
-        trailing_lines=[_numbers_text(lang, "Loading available countries...", "جار جلب الدول المتاحة...")],
-    )
-    sent = await message.answer(loading)
-    await state.update_data(last_msg_id=getattr(sent, "message_id", None))
-    options = await _cheap_country_options_for_service(service_key, limit=6)
-    if not options:
-        await _safe_edit_text(
-            sent,
-            _country_entry_text(lang, "temp") if not label else _compose_numbers_screen(
-                t(lang, "choose_country_or_search"),
-                [f"{t(lang, 'service_label')}: {label}", f"{t(lang, 'temp_mode_label')}: {t(lang, 'temp_numbers')}"],
-                trailing_lines=[t(lang, "numbers_country_search_hint")],
-            ),
-            reply_markup=country_kb(lang),
-        )
-        await state.set_state(NumberFlow.country)
-        return
     text = _compose_numbers_screen(
-        _numbers_text(lang, "Choose a country or search.", "اختر دولة أو ابحث."),
-        [f"{t(lang, 'service_label')}: {label}", f"{t(lang, 'temp_mode_label')}: {t(lang, 'temp_numbers')}"] if label else [],
+        _numbers_text(lang, "Choose country.", "اختر الدولة."),
+        [f"{t(lang, 'service_label')}: {label}"] if label else [],
     )
-    await _safe_edit_text(sent, text, reply_markup=_quick_country_keyboard(lang, options))
+    sent = await message.answer(text, reply_markup=_quick_country_keyboard(lang, _preferred_country_options()))
+    await state.update_data(last_msg_id=getattr(sent, "message_id", None))
+    priced = {str(row.get("code") or ""): dict(row) for row in _preferred_country_options()}
+    for row in await _cheap_country_options_for_service(service_key, limit=len(priced)):
+        code = str(row.get("code") or "").strip()
+        if code and code in priced:
+            priced[code].update(row)
+    await _safe_edit_text(sent, text, reply_markup=_quick_country_keyboard(lang, list(priced.values())))
     await state.set_state(NumberFlow.country)
 
 
