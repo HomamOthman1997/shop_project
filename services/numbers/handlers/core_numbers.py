@@ -5,6 +5,7 @@ import time
 from urllib.parse import unquote
 from aiogram import BaseMiddleware, F, Router, types
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -64,34 +65,20 @@ _CHEAP_COUNTRY_CACHE_TTL_SEC = 300
 _CHEAP_COUNTRY_CACHE: dict[str, tuple[float, list[dict[str, object]]]] = {}
 _CHEAP_COUNTRY_ISOS = (
     "US",
-    "CA",
+    "US_V",
     "GB",
-    "NL",
-    "LV",
-    "SE",
-    "PT",
-    "EE",
-    "RO",
-    "DK",
-    "PL",
-    "FR",
     "DE",
-    "UA",
-    "IE",
-    "LT",
-    "HR",
-    "AT",
-    "ES",
-    "SI",
-    "BE",
-    "BG",
-    "HU",
-    "IT",
-    "GR",
-    "SK",
+    "CA",
+    "FR",
+    "NL",
+    "PL",
+    "RO",
+    "CZ",
     "FI",
     "NO",
-    "CZ",
+    "SE",
+    "DK",
+    "GB",
 )
 
 
@@ -355,7 +342,8 @@ async def _cheap_country_options_for_service(service_key: str, limit: int = 10) 
 
     tasks = [_fetch_country(code) for code in _cheap_country_candidate_codes()]
     rows = [row for row in await asyncio.gather(*tasks) if row]
-    rows.sort(key=lambda row: (float(row.get("price") or 0.0), str(row.get("name") or "")))
+    priority = {code: index for index, code in enumerate(_cheap_country_candidate_codes())}
+    rows.sort(key=lambda row: (priority.get(str(row.get("code") or ""), 999), float(row.get("price") or 0.0)))
     selected = rows[:limit]
     _CHEAP_COUNTRY_CACHE[cache_key] = (now_ts, selected)
     return list(selected)
@@ -376,6 +364,54 @@ def _quick_country_keyboard(lang: str, options: list[dict[str, object]]) -> Inli
             rows.append(button_row)
     rows.append([InlineKeyboardButton(text=t(lang, "search_country"), callback_data=_QUICK_COUNTRY_SEARCH_CALLBACK, style="primary")])
     rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:entry_back")])
+    rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _country_search_matches(query: str, limit: int = 12) -> list[dict[str, str]]:
+    needle = str(query or "").strip().lower()
+    if not needle:
+        return []
+    normalized = needle.replace(" ", "")
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in COUNTRIES_LIST:
+        code = str(item.get("code") or "").strip()
+        if not code or code in seen:
+            continue
+        name = str(item.get("name") or "").strip()
+        iso = str(item.get("iso") or "").strip().upper()
+        aliases = [str(value or "") for value in item.get("aliases") or []]
+        haystack = [name, iso, *aliases]
+        matched = False
+        for value in haystack:
+            value_lc = str(value or "").strip().lower()
+            if not value_lc:
+                continue
+            if needle in value_lc or normalized in value_lc.replace(" ", ""):
+                matched = True
+                break
+        if not matched:
+            continue
+        seen.add(code)
+        rows.append({"code": code, "name": name or iso or code})
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _country_search_keyboard(lang: str, matches: list[dict[str, str]]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for idx in range(0, len(matches), 2):
+        chunk = matches[idx : idx + 2]
+        row: list[InlineKeyboardButton] = []
+        for item in chunk:
+            code = str(item.get("code") or "").strip()
+            if code:
+                row.append(InlineKeyboardButton(text=str(item.get("name") or code), callback_data=f"{_QUICK_COUNTRY_PREFIX}{code}"))
+        if row:
+            rows.append(row)
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:back")])
     rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -902,14 +938,22 @@ async def quick_country_search(callback: types.CallbackQuery, state: FSMContext)
     data = await state.get_data()
     lang = data.get("lang", "en")
     label = str(data.get("numbers_preselected_service_label") or data.get("service") or "").strip()
-    text = _country_entry_text(lang, "temp")
+    text = _numbers_text(lang, "Send country name.", "اكتب اسم الدولة.")
     if label:
         text = _compose_numbers_screen(
-            t(lang, "choose_country_or_search"),
+            _numbers_text(lang, "Send country name.", "اكتب اسم الدولة."),
             [f"{t(lang, 'service_label')}: {label}", f"{t(lang, 'temp_mode_label')}: {t(lang, 'temp_numbers')}"],
-            trailing_lines=[t(lang, "numbers_country_search_hint")],
         )
-    await _safe_edit_text(callback.message, text, reply_markup=country_kb(lang))
+    await _safe_edit_text(
+        callback.message,
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:back")],
+                [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger")],
+            ]
+        ),
+    )
     await state.set_state(NumberFlow.country)
     await _safe_callback_answer()
 
@@ -934,6 +978,25 @@ async def choose_quick_country(callback: types.CallbackQuery, state: FSMContext)
     await _safe_edit_text(callback.message, text, reply_markup=service_kb(lang, country_code=country_code), parse_mode="HTML")
     await state.set_state(NumberFlow.service)
     await _safe_callback_answer()
+
+
+@router.message(
+    StateFilter(NumberFlow.country),
+    F.text,
+    lambda msg: not str(msg.text or "").startswith(("/select_country_", "/select_state_", "/select_service_")),
+)
+async def handle_country_text_search(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "en")
+    query = str(message.text or "").strip()
+    matches = _country_search_matches(query)
+    if not matches:
+        await message.answer(_numbers_text(lang, "No countries found. Try another name.", "لم يتم العثور على دول. جرّب اسمًا آخر."))
+        return
+    await message.answer(
+        _numbers_text(lang, "Choose country:", "اختر الدولة:"),
+        reply_markup=_country_search_keyboard(lang, matches),
+    )
 
 
 @router.message(F.text.startswith("/select_country_"))
