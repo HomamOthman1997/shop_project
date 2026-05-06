@@ -68,8 +68,8 @@ from services.digital_products.esim_route_service import (
     single_country_plans_live,
     usage_label as esim_usage_label,
 )
-from services.numbers.handlers.core_numbers import _compose_numbers_screen, _country_entry_text
-from services.numbers.keyboards.core_numbers_kb import country_kb, number_type_kb
+from services.numbers.handlers.core_numbers import _compose_numbers_screen, render_preselected_temp_service_countries
+from services.numbers.keyboards.core_numbers_kb import number_type_kb
 from services.numbers.states.core_numbers_states import NumberFlow
 from utils.core_service_guard import finance_error_public_text, guard_core_service_callback, guard_core_service_message
 from utils.financial_manager import FinancialManager
@@ -4109,16 +4109,13 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
         )
         await _hide_reply_keyboard(message, lang)
         if service_key:
-            text = _country_entry_text(lang, "temp")
-            if service_label:
-                text = _compose_numbers_screen(
-                    t(lang, "choose_country_or_search"),
-                    [f"{t(lang, 'service_label')}: {service_label}", f"{t(lang, 'temp_mode_label')}: {t(lang, 'temp_numbers')}"],
-                    trailing_lines=[t(lang, "numbers_country_search_hint")],
-                )
-            sent = await message.answer(text, reply_markup=country_kb(lang))
-            await state.update_data(last_msg_id=getattr(sent, "message_id", None))
-            await state.set_state(NumberFlow.country)
+            await render_preselected_temp_service_countries(
+                message,
+                state,
+                lang=lang,
+                service_key=service_key,
+                service_label=service_label,
+            )
             return
         await message.answer(
             _compose_numbers_screen(t(lang, "choose_number_type"), trailing_lines=[t(lang, "temp_numbers_type_note")]),

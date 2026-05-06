@@ -1,6 +1,7 @@
 ﻿from contextvars import ContextVar
 
 import asyncio
+import time
 from urllib.parse import unquote
 from aiogram import BaseMiddleware, F, Router, types
 from aiogram.exceptions import TelegramBadRequest
@@ -57,6 +58,44 @@ _COUNTRY_ISO = {
 }
 _VALID_COUNTRY_CODES = set(_COUNTRY_ISO.keys())
 _INLINE_SERVICE_QUERY_PREFIX = "query:"
+_QUICK_COUNTRY_PREFIX = "flow:quickcountry:"
+_CHEAP_COUNTRY_CACHE_TTL_SEC = 300
+_CHEAP_COUNTRY_CACHE: dict[str, tuple[float, list[dict[str, object]]]] = {}
+_CHEAP_COUNTRY_ISOS = (
+    "ID",
+    "IN",
+    "PH",
+    "VN",
+    "KZ",
+    "KG",
+    "MY",
+    "NG",
+    "KE",
+    "RO",
+    "PL",
+    "BR",
+    "CO",
+    "MX",
+    "TR",
+    "EG",
+    "MA",
+    "DZ",
+    "PK",
+    "BD",
+    "TH",
+    "KH",
+    "LA",
+    "MM",
+    "LK",
+    "NP",
+    "ZA",
+    "AR",
+    "CL",
+    "PE",
+    "UA",
+    "GB",
+    "CA",
+)
 
 
 async def _hide_reply_keyboard(message: types.Message, lang: str) -> None:
@@ -252,6 +291,136 @@ def _country_display_name(country_code: str | None) -> str:
     return raw
 
 
+def _country_code_by_iso() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for item in COUNTRIES_LIST:
+        code = str(item.get("code") or "").strip()
+        iso = str(item.get("iso") or "").strip().upper()
+        if code and iso and code in _VALID_COUNTRY_CODES:
+            out.setdefault(iso, code)
+    return out
+
+
+def _cheap_country_candidate_codes() -> list[str]:
+    by_iso = _country_code_by_iso()
+    out: list[str] = []
+    seen: set[str] = set()
+    for iso in _CHEAP_COUNTRY_ISOS:
+        code = by_iso.get(str(iso or "").upper())
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        out.append(code)
+    return out
+
+
+def _best_available_country_price(prices: dict) -> float | None:
+    best: float | None = None
+    for info in (prices or {}).values():
+        if not isinstance(info, dict):
+            continue
+        if not bool(info.get("available_for_buy", True)):
+            continue
+        try:
+            price = float(info.get("price") or 0.0)
+        except Exception:
+            price = 0.0
+        if price <= 0:
+            continue
+        if best is None or price < best:
+            best = price
+    return best
+
+
+async def _cheap_country_options_for_service(service_key: str, limit: int = 10) -> list[dict[str, object]]:
+    cache_key = _normalize_service(service_key)
+    now_ts = time.time()
+    cached = _CHEAP_COUNTRY_CACHE.get(cache_key)
+    if cached and (now_ts - cached[0]) <= _CHEAP_COUNTRY_CACHE_TTL_SEC:
+        return list(cached[1])[:limit]
+
+    sem = asyncio.Semaphore(8)
+
+    async def _fetch_country(country_code: str) -> dict[str, object] | None:
+        async with sem:
+            try:
+                prices = await asyncio.wait_for(get_all_prices(service_key, country_code, "none"), timeout=9.0)
+            except Exception:
+                return None
+            price = _best_available_country_price(prices)
+            if price is None:
+                return None
+            return {
+                "code": country_code,
+                "name": _country_display_name(country_code),
+                "price": float(price),
+            }
+
+    tasks = [_fetch_country(code) for code in _cheap_country_candidate_codes()]
+    rows = [row for row in await asyncio.gather(*tasks) if row]
+    rows.sort(key=lambda row: (float(row.get("price") or 0.0), str(row.get("name") or "")))
+    selected = rows[:limit]
+    _CHEAP_COUNTRY_CACHE[cache_key] = (now_ts, selected)
+    return list(selected)
+
+
+def _quick_country_keyboard(lang: str, options: list[dict[str, object]]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for idx in range(0, len(options), 2):
+        chunk = options[idx : idx + 2]
+        button_row: list[InlineKeyboardButton] = []
+        for option in chunk:
+            code = str(option.get("code") or "").strip()
+            if not code:
+                continue
+            label = f"{option.get('name') or code} | {format_usd(float(option.get('price') or 0.0))}"
+            button_row.append(InlineKeyboardButton(text=label, callback_data=f"{_QUICK_COUNTRY_PREFIX}{code}"))
+        if button_row:
+            rows.append(button_row)
+    rows.append([InlineKeyboardButton(text=t(lang, "search_country"), switch_inline_query_current_chat="country ", style="primary")])
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:entry_back")])
+    rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def render_preselected_temp_service_countries(
+    message: types.Message,
+    state: FSMContext,
+    *,
+    lang: str,
+    service_key: str,
+    service_label: str | None = None,
+) -> None:
+    label = str(service_label or service_key or "").strip()
+    loading = _compose_numbers_screen(
+        t(lang, "choose_country_or_search"),
+        [f"{t(lang, 'service_label')}: {label}", f"{t(lang, 'temp_mode_label')}: {t(lang, 'temp_numbers')}"] if label else [],
+        trailing_lines=[_numbers_text(lang, "Fetching cheapest available countries...", "جار جلب أرخص الدول المتاحة...")],
+    )
+    sent = await message.answer(loading)
+    await state.update_data(last_msg_id=getattr(sent, "message_id", None))
+    options = await _cheap_country_options_for_service(service_key, limit=10)
+    if not options:
+        await _safe_edit_text(
+            sent,
+            _country_entry_text(lang, "temp") if not label else _compose_numbers_screen(
+                t(lang, "choose_country_or_search"),
+                [f"{t(lang, 'service_label')}: {label}", f"{t(lang, 'temp_mode_label')}: {t(lang, 'temp_numbers')}"],
+                trailing_lines=[t(lang, "numbers_country_search_hint")],
+            ),
+            reply_markup=country_kb(lang),
+        )
+        await state.set_state(NumberFlow.country)
+        return
+    text = _compose_numbers_screen(
+        _numbers_text(lang, "Choose one of the cheapest available countries or search for a specific country.", "اختر واحدة من أرخص الدول المتاحة أو ابحث عن دولة محددة."),
+        [f"{t(lang, 'service_label')}: {label}", f"{t(lang, 'temp_mode_label')}: {t(lang, 'temp_numbers')}"] if label else [],
+        trailing_lines=[_numbers_text(lang, "Prices are live and may change before purchase.", "الأسعار مباشرة وقد تتغير قبل الشراء.")],
+    )
+    await _safe_edit_text(sent, text, reply_markup=_quick_country_keyboard(lang, options))
+    await state.set_state(NumberFlow.country)
+
+
 def _has_valid_country_selection(country_code: str | None) -> bool:
     code = str(country_code or "").strip()
     if not code or code.lower() == "none":
@@ -303,6 +472,10 @@ def _provider_screen_padding(prices: dict[str, dict] | None = None) -> list[str]
 
 def _numbers_mode_name(lang: str, num_type: str | None) -> str:
     return t(lang, "rental_numbers") if str(num_type or "").strip().lower() == "rental" else t(lang, "temp_numbers")
+
+
+def _numbers_text(lang: str, en: str, ar: str) -> str:
+    return ar if str(lang or "").lower().startswith("ar") else en
 
 
 def _country_entry_text(lang: str, num_type: str) -> str:
@@ -726,6 +899,28 @@ async def back_to_rental_providers(callback: types.CallbackQuery, state: FSMCont
         reply_markup=rental_providers_kb(provider_rows, lang=lang, provider_options=provider_options, usd_to_syp=usd_to_syp_rate),
     )
     await state.set_state(NumberFlow.rental_providers)
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith(_QUICK_COUNTRY_PREFIX))
+async def choose_quick_country(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "en")
+    country_code = str(callback.data or "").replace(_QUICK_COUNTRY_PREFIX, "", 1).strip()
+    if country_code not in _VALID_COUNTRY_CODES:
+        return await _safe_callback_answer(_numbers_text(lang, "Invalid country.", "الدولة غير صالحة."), show_alert=True)
+    await state.update_data(country=country_code, state="none")
+    preselected_service = str(data.get("service") or "").strip()
+    if preselected_service and bool(data.get("numbers_preselected_service")):
+        await state.update_data(numbers_preselected_service=False)
+        await _load_service_prices(callback.message.chat.id, callback.message.bot, state, preselected_service)
+        return await _safe_callback_answer()
+    text = _compose_numbers_screen(
+        _service_prompt_bold(lang),
+        _numbers_context_lines(lang, country_code=country_code),
+    )
+    await _safe_edit_text(callback.message, text, reply_markup=service_kb(lang, country_code=country_code), parse_mode="HTML")
+    await state.set_state(NumberFlow.service)
+    await _safe_callback_answer()
 
 
 @router.message(F.text.startswith("/select_country_"))
