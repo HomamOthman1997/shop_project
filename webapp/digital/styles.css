@@ -16,9 +16,9 @@
   --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-accent: 0 4px 16px rgba(99, 91, 255, 0.25);
-  --radius-sm: 10px;
-  --radius: 14px;
-  --radius-lg: 18px;
+  --radius-sm: 8px;
+  --radius: 8px;
+  --radius-lg: 8px;
   --radius-full: 9999px;
 }
 
@@ -451,7 +451,7 @@ input:focus {
   z-index: 1;
   display: grid;
   align-self: end;
-  padding: 14px;
+  padding: 14px 12px 12px;
   background: linear-gradient(180deg, rgba(8, 12, 22, 0) 0%, rgba(8, 12, 22, 0.72) 46%, rgba(8, 12, 22, 0.96) 100%);
 }
 
@@ -511,7 +511,7 @@ input:focus {
 
 .item-content {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   text-align: center;
   align-content: start;
 }
@@ -614,7 +614,7 @@ input:focus {
 .input-warning {
   padding: 10px 12px;
   border: 1px solid rgba(255, 205, 86, 0.35);
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(255, 205, 86, 0.1);
   color: #ffd77a;
   font-size: 13px;
@@ -690,7 +690,7 @@ input:focus {
 .item {
   display: grid;
   gap: 12px;
-  padding: 16px;
+  padding: 12px;
 }
 
 .item-top {

@@ -67,6 +67,8 @@ const copy = {
     browseHint: "Browse the available results below.",
     refineSearch: "Try another search term.",
     availableNow: "Available now",
+    temporaryProblem: "This service is not available right now. Please try again shortly.",
+    selectionUnavailable: "This offer is no longer available. Refresh the store and try again.",
   },
   ar: {
     title: "المتجر الرقمي",
@@ -118,6 +120,8 @@ const copy = {
     browseHint: "تصفح النتائج المتاحة بالأسفل.",
     refineSearch: "جرّب كلمة بحث مختلفة.",
     availableNow: "المتاح الآن",
+    temporaryProblem: "الخدمة غير متاحة حالياً. جرّب بعد قليل.",
+    selectionUnavailable: "هذا العرض لم يعد متاحاً. حدّث المتجر وجرّب مرة أخرى.",
   },
 };
 
@@ -275,6 +279,64 @@ function setStatus(text, error = false) {
   statusEl.classList.toggle("error", Boolean(error));
 }
 
+function normalizeSearchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u064b-\u065f\u0670]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function searchNeedle() {
+  const q = normalizeSearchText(state.search);
+  const aliases = {
+    pubg: "pubg ببجي بوبجي playerunknown battlegrounds",
+    ببجي: "pubg ببجي بوبجي playerunknown battlegrounds",
+    coc: "clash clans كلاش اوف كلانس",
+    كلاش: "clash clans كلاش اوف كلانس",
+    lol: "league legends ليغ اوف ليجيند",
+    ليغ: "league legends ليغ اوف ليجيند",
+    cod: "call duty كول اوف ديوتي",
+    فري: "free fire فري فاير",
+    فريفاير: "free fire فري فاير",
+  };
+  return aliases[q] ? normalizeSearchText(`${q} ${aliases[q]}`) : q;
+}
+
+function matchesSearch(row, ...extraParts) {
+  const q = searchNeedle();
+  if (!q) return true;
+  const haystack = normalizeSearchText([
+    row?.name,
+    row?.label,
+    row?.meta_label,
+    row?.group_key,
+    ...(Array.isArray(row?.variants) ? row.variants.map((variant) => variant?.name) : []),
+    ...extraParts,
+  ].join(" "));
+  return q.split(" ").every((part) => !part || haystack.includes(part));
+}
+
+function friendlyApiError(error) {
+  const raw = String(error?.message || error || "").trim();
+  const lower = raw.toLowerCase();
+  if (lower.includes("selection unavailable") || lower.includes("bad request") || lower.includes("400")) {
+    return t("selectionUnavailable");
+  }
+  if (
+    lower.includes("500") ||
+    lower.includes("502") ||
+    lower.includes("application failed") ||
+    lower.includes("internal server") ||
+    raw.startsWith("{")
+  ) {
+    return t("temporaryProblem");
+  }
+  return raw || t("temporaryProblem");
+}
+
 function setSearchPlaceholder() {
   let key = "searchSections";
   if (state.view === "categories") key = state.service === "games" ? "searchGames" : "searchCategories";
@@ -398,9 +460,10 @@ function card(title, meta, onClick, disabled = false, opts = {}) {
 
 function listTile(name, meta, onClick, opts = {}) {
   const imageUrl = String(opts.imageUrl || "").trim();
+  const hasMedia = Boolean(imageUrl) || Boolean(opts.forceMedia);
   const showMeta = opts.showMeta !== false && Boolean(meta);
   const showChevron = opts.showChevron !== false;
-  const el = button(`tile ${imageUrl ? "tile-media tile-media-cover" : ""}`.trim(), "", onClick);
+  const el = button(`tile ${hasMedia ? "tile-media tile-media-cover" : ""}`.trim(), "", onClick);
   const buildMediaFallback = () => {
     const fallback = document.createElement("div");
     fallback.className = "tile-media-fallback";
@@ -410,18 +473,22 @@ function listTile(name, meta, onClick, opts = {}) {
     fallback.append(badge);
     return fallback;
   };
-  if (imageUrl) {
+  if (hasMedia) {
     const media = document.createElement("div");
     media.className = "tile-media-frame";
-    const img = document.createElement("img");
-    img.className = "tile-media-image";
-    img.src = imageUrl;
-    img.alt = name;
-    img.loading = "lazy";
-    img.addEventListener("error", () => {
-      media.replaceChildren(buildMediaFallback());
-    });
-    media.append(img);
+    if (imageUrl) {
+      const img = document.createElement("img");
+      img.className = "tile-media-image";
+      img.src = imageUrl;
+      img.alt = name;
+      img.loading = "lazy";
+      img.addEventListener("error", () => {
+        media.replaceChildren(buildMediaFallback());
+      });
+      media.append(img);
+    } else {
+      media.append(buildMediaFallback());
+    }
     el.append(media);
   }
   const body = document.createElement("div");
@@ -435,7 +502,7 @@ function listTile(name, meta, onClick, opts = {}) {
     span.textContent = meta;
     body.append(span);
   }
-  if (imageUrl) {
+  if (hasMedia) {
     const overlay = document.createElement("div");
     overlay.className = "tile-media-overlay";
     overlay.append(body);
@@ -512,16 +579,13 @@ async function resolveVisibleServiceRows(rows) {
 }
 
 function filteredCategories() {
-  const q = state.search.trim().toLowerCase();
-  return state.categories.filter((row) => !q || String(row.name || "").toLowerCase().includes(q));
+  return state.categories.filter((row) => matchesSearch(row));
 }
 
 function filteredItems() {
-  const q = state.search.trim().toLowerCase();
   return state.items.filter((row) => {
     if (!isSellableItem(row)) return false;
-    const bySearch = !q || String(row.name || "").toLowerCase().includes(q);
-    return bySearch;
+    return matchesSearch(row);
   });
 }
 
@@ -941,7 +1005,7 @@ async function renderCategories() {
           variants: Array.isArray(row1.variants) ? row1.variants : [],
           offer_mode: String(row1.offer_mode || "all"),
         }),
-        { imageUrl: isGameService ? String(row1.image_url || "") : "", showMeta: !isGameService }
+        { imageUrl: isGameService ? String(row1.image_url || "") : "", forceMedia: isGameService, showMeta: !isGameService }
       )
     );
     if (row2) {
@@ -957,7 +1021,7 @@ async function renderCategories() {
             variants: Array.isArray(row2.variants) ? row2.variants : [],
             offer_mode: String(row2.offer_mode || "all"),
           }),
-          { imageUrl: isGameService ? String(row2.image_url || "") : "", showMeta: !isGameService }
+          { imageUrl: isGameService ? String(row2.image_url || "") : "", forceMedia: isGameService, showMeta: !isGameService }
         )
       );
     }
@@ -1171,7 +1235,7 @@ async function openItems(category) {
     }
     renderItems();
   } catch (err) {
-    setStatus(`${t("productLoadFailed")}: ${err.message}`, true);
+    setStatus(`${t("productLoadFailed")}: ${friendlyApiError(err)}`, true);
   }
 }
 
@@ -1238,7 +1302,7 @@ async function createServiceSelection(kind, extra = {}) {
     tg.sendData(JSON.stringify({ digital_selection_token: data.token }));
     tg.close();
   } catch (err) {
-    setStatus(`${t("selectionFailed")}: ${err.message}`, true);
+    setStatus(`${t("selectionFailed")}: ${friendlyApiError(err)}`, true);
   }
 }
 
@@ -1465,7 +1529,7 @@ async function loadCatalog() {
     }
     renderServices();
   } catch (err) {
-    setStatus(`${t("loadFailed")}: ${err.message}`, true);
+    setStatus(`${t("loadFailed")}: ${friendlyApiError(err)}`, true);
   }
 }
 
