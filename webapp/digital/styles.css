@@ -283,7 +283,7 @@ input:focus {
 }
 
 .dept-tile {
-  min-height: 124px;
+  min-height: 112px;
   border-radius: var(--radius-lg);
   border: 1px solid rgba(124, 58, 237, 0.45);
   background: linear-gradient(145deg, #1a1140 0%, #2a1461 65%, #3a1c85 100%);
@@ -295,6 +295,11 @@ input:focus {
   gap: 6px;
   box-shadow: var(--shadow);
   transition: 0.2s ease;
+}
+
+.dept-tile.full-span {
+  grid-column: 1 / -1;
+  min-height: 88px;
 }
 
 .dept-head {
@@ -315,7 +320,7 @@ input:focus {
 }
 
 .dept-tile strong {
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }

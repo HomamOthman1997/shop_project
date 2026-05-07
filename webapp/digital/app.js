@@ -253,6 +253,14 @@ Object.assign(copy.ar, {
   selectionUnavailable: "هذا العرض لم يعد متاحاً. حدّث المتجر وجرّب مرة أخرى.",
 });
 
+Object.assign(copy.en, {
+  title: "PHanToOoM Digital Store",
+});
+
+Object.assign(copy.ar, {
+  title: "متجر فانتوم الرقمي",
+});
+
 Object.assign(serviceLabelFallback, {
   games: { en: "Games", ar: "الألعاب" },
   chat_apps: { en: "Chat Apps", ar: "تطبيقات الدردشة" },
@@ -539,7 +547,8 @@ function emptyState(title, body = "") {
 function card(title, meta, onClick, disabled = false, opts = {}) {
   const tone = String(opts.tone || "").trim();
   const icon = String(opts.icon || "").trim();
-  const el = button(`dept-tile ${tone}`.trim(), "", onClick, disabled);
+  const fullSpan = Boolean(opts.fullSpan);
+  const el = button(`dept-tile ${tone} ${fullSpan ? "full-span" : ""}`.trim(), "", onClick, disabled);
   const head = document.createElement("div");
   head.className = "dept-head";
   if (icon) {
@@ -551,10 +560,13 @@ function card(title, meta, onClick, disabled = false, opts = {}) {
   const strong = document.createElement("strong");
   strong.textContent = title;
   head.append(strong);
-  const metaPill = document.createElement("span");
-  metaPill.className = "meta-pill";
-  metaPill.textContent = meta;
-  el.append(head, metaPill);
+  el.append(head);
+  if (opts.showMeta === true && meta) {
+    const metaPill = document.createElement("span");
+    metaPill.className = "meta-pill";
+    metaPill.textContent = meta;
+    el.append(metaPill);
+  }
   return el;
 }
 
@@ -973,10 +985,7 @@ async function renderServices() {
   const rows = await resolveVisibleServiceRows(serviceRows());
   rows.forEach((row) => {
     const visual = serviceVisuals[String(row.key || "")] || {};
-    const meta = row.enabled
-      ? `${row.count} ${row.count === 1 ? t("offerWord") : t("offersWord")}`
-      : t("unavailableShort");
-    grid.append(card(label(row.label), meta, () => enterService(row.key), !row.enabled, visual));
+    grid.append(card(label(row.label), "", () => enterService(row.key), !row.enabled, visual));
   });
   setStatus(rows.length ? "" : t("noResults"));
   content.append(grid);
@@ -1108,7 +1117,7 @@ async function renderCategories() {
           variants: Array.isArray(row1.variants) ? row1.variants : [],
           offer_mode: String(row1.offer_mode || "all"),
         }),
-        { imageUrl: isGameService ? String(row1.image_url || "") : "", forceMedia: isGameService, showMeta: !isGameService }
+        { imageUrl: isGameService ? String(row1.image_url || "") : "", forceMedia: isGameService, showMeta: false }
       )
     );
     if (row2) {
@@ -1124,7 +1133,7 @@ async function renderCategories() {
             variants: Array.isArray(row2.variants) ? row2.variants : [],
             offer_mode: String(row2.offer_mode || "all"),
           }),
-          { imageUrl: isGameService ? String(row2.image_url || "") : "", forceMedia: isGameService, showMeta: !isGameService }
+          { imageUrl: isGameService ? String(row2.image_url || "") : "", forceMedia: isGameService, showMeta: false }
         )
       );
     }
@@ -1144,9 +1153,7 @@ function renderVariantCategories(parent) {
       renderCategories();
     })
   );
-  const selectionKind = String(parent?.selection_kind || "region");
-  const headingLabel = selectionKind === "option" ? t("pickOption") : selectionKind === "general" ? t("offers") : t("pickCountry");
-  content.append(heading(`${headingLabel} • ${String(parent?.name || "-")}`));
+  content.append(heading(String(parent?.name || "-")));
   const q = state.search.trim().toLowerCase();
   const rows = (Array.isArray(parent?.variants) ? parent.variants : []).filter((row) => {
     const n = String(row?.name || "").toLowerCase();
@@ -1165,21 +1172,25 @@ function renderVariantCategories(parent) {
     const wrapper = document.createElement("div");
     wrapper.style.display = "contents";
     wrapper.append(
-      listTile(String(row1.name || "-"), row1.meta_label || "", () =>
-        openItems({
-          id: String(row1.id || ""),
-          name: String(row1.name || "-"),
-          entry_kind: String(row1.entry_kind || "gift"),
-          game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
-          gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
-          selection_kind: String(parent?.selection_kind || "region"),
-          offer_mode: String(row1.offer_mode || "all"),
-        })
+      listTile(
+        String(row1.name || "-"),
+        "",
+        () =>
+          openItems({
+            id: String(row1.id || ""),
+            name: String(row1.name || "-"),
+            entry_kind: String(row1.entry_kind || "gift"),
+            game_ids: Array.isArray(row1.game_ids) ? row1.game_ids : [],
+            gift_category_ids: Array.isArray(row1.gift_category_ids) ? row1.gift_category_ids : [],
+            selection_kind: String(parent?.selection_kind || "region"),
+            offer_mode: String(row1.offer_mode || "all"),
+          }),
+        { showMeta: false }
       )
     );
     if (row2) {
       wrapper.append(
-        listTile(String(row2.name || "-"), row2.meta_label || "", () =>
+        listTile(String(row2.name || "-"), "", () =>
           openItems({
             id: String(row2.id || ""),
             name: String(row2.name || "-"),
@@ -1188,7 +1199,8 @@ function renderVariantCategories(parent) {
             gift_category_ids: Array.isArray(row2.gift_category_ids) ? row2.gift_category_ids : [],
             selection_kind: String(parent?.selection_kind || "region"),
             offer_mode: String(row2.offer_mode || "all"),
-          })
+          }),
+          { showMeta: false }
         )
       );
     }
@@ -1415,7 +1427,7 @@ function renderNumbersServices() {
       )
     );
   }
-  grid.append(card(t("numbersMore"), t("numbersMoreHint"), () => createServiceSelection("numbers_services")));
+  grid.append(card(t("numbersMore"), t("numbersMoreHint"), () => createServiceSelection("numbers_services"), false, { tone: "tone-numbers", fullSpan: true }));
   content.append(grid);
 }
 

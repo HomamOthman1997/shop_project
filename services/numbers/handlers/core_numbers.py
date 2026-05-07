@@ -323,20 +323,20 @@ def _best_available_country_price(prices: dict) -> float | None:
 
 
 async def _cheap_country_options_for_service(service_key: str, limit: int = 10) -> list[dict[str, object]]:
-    cache_key = _normalize_service(service_key)
+    cache_key = f"v2:{_normalize_service(service_key)}"
     now_ts = time.time()
     cached = _CHEAP_COUNTRY_CACHE.get(cache_key)
     if cached and (now_ts - cached[0]) <= _CHEAP_COUNTRY_CACHE_TTL_SEC:
         return list(cached[1])[:limit]
 
-    sem = asyncio.Semaphore(6)
+    sem = asyncio.Semaphore(len(_cheap_country_candidate_codes()) or 1)
 
     async def _fetch_country(country_code: str) -> dict[str, object] | None:
         async with sem:
             try:
                 prices = await asyncio.wait_for(
                     get_all_prices(service_key, country_code, "none", ignore_balance=True),
-                    timeout=8.0,
+                    timeout=4.5,
                 )
             except Exception:
                 return None
@@ -363,6 +363,7 @@ def _quick_country_keyboard(
     options: list[dict[str, object]],
     *,
     callback_prefix: str = _QUICK_COUNTRY_PREFIX,
+    digital_mode: bool = False,
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for idx in range(0, len(options), 2):
@@ -383,6 +384,16 @@ def _quick_country_keyboard(
             button_row.append(InlineKeyboardButton(text=label, callback_data=f"{callback_prefix}{code}"))
         if button_row:
             rows.append(button_row)
+    if digital_mode:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=_numbers_text(lang, "More numbers services", "كل خدمات الأرقام"),
+                    callback_data="flow:country:entry_back",
+                )
+            ]
+        )
+        return InlineKeyboardMarkup(inline_keyboard=rows)
     rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:entry_back")])
     rows.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -459,7 +470,11 @@ async def render_preselected_temp_service_countries(
     await state.update_data(last_msg_id=getattr(sent, "message_id", None))
     priced = await _cheap_country_options_for_service(service_key, limit=len(_preferred_country_options()))
     options = priced or _preferred_country_options()
-    await _safe_edit_text(sent, text, reply_markup=_quick_country_keyboard(lang, options, callback_prefix=_DIGITAL_COUNTRY_PREFIX))
+    await _safe_edit_text(
+        sent,
+        text,
+        reply_markup=_quick_country_keyboard(lang, options, callback_prefix=_DIGITAL_COUNTRY_PREFIX, digital_mode=True),
+    )
     await state.set_state(NumberFlow.country)
 
 
