@@ -48,6 +48,18 @@ const copy = {
     simBalance: "Balance Top Up",
     simData: "Data Packages",
     esimDirect: "eSIM",
+    simChooseCountry: "Choose country",
+    simChooseOffer: "Choose package",
+    simEnterPhone: "Phone number",
+    simPhonePlaceholder: "e.g. +12025550123",
+    invalidPhone: "Enter a valid phone number.",
+    esimChooseCountry: "Choose eSIM country",
+    esimChooseDays: "Choose duration",
+    esimChooseUsage: "Choose usage level",
+    esimChooseOffer: "Choose eSIM package",
+    usageLow: "Less than 5 GB",
+    usageMid: "5 to 10 GB",
+    usageHigh: "More than 10 GB",
     numbersKindTitle: "Numbers Services",
     numbersKindHint: "Pick a popular service, then continue in the bot to choose country and live provider price.",
     numbersMore: "More numbers services",
@@ -105,6 +117,18 @@ const copy = {
     simBalance: "شحن رصيد",
     simData: "باقات بيانات",
     esimDirect: "eSIM",
+    simChooseCountry: "اختر الدولة",
+    simChooseOffer: "اختر الباقة",
+    simEnterPhone: "رقم الهاتف",
+    simPhonePlaceholder: "مثال: +12025550123",
+    invalidPhone: "الرجاء إدخال رقم هاتف صحيح.",
+    esimChooseCountry: "اختر دولة eSIM",
+    esimChooseDays: "اختر المدة",
+    esimChooseUsage: "اختر حجم الاستخدام",
+    esimChooseOffer: "اختر باقة eSIM",
+    usageLow: "أقل من 5 جيجا",
+    usageMid: "من 5 إلى 10 جيجا",
+    usageHigh: "أكثر من 10 جيجا",
     numbersKindTitle: "خدمات الأرقام",
     numbersKindHint: "اختر خدمة مطلوبة، ثم أكمل في البوت لاختيار الدولة والسعر الحي من المزود.",
     numbersMore: "المزيد من خدمات الأرقام",
@@ -315,6 +339,16 @@ const state = {
   itemGroup: "all",
   itemGroups: [],
   items: [],
+  telecom: {
+    section: "",
+    countryCode: "",
+    countryName: "",
+    simOffers: [],
+    esimCountry: "",
+    esimDays: 0,
+    esimUsage: "low",
+    esimOffers: [],
+  },
 };
 
 const content = document.getElementById("content");
@@ -328,6 +362,7 @@ const modalTitleEl = document.getElementById("modalTitle");
 const modalSubtitleEl = document.getElementById("modalSubtitle");
 const modalFormEl = document.getElementById("modalForm");
 const modalCloseBtn = document.getElementById("modalCloseBtn");
+let modalCloseTimer = 0;
 
 function t(key) {
   return (
@@ -505,6 +540,8 @@ function setSearchPlaceholder() {
   if (state.view === "categories") key = state.service === "games" ? "searchGames" : "searchCategories";
   else if (state.view === "subcategories") key = "searchOptions";
   else if (state.view === "items") key = "searchOffers";
+  else if (state.view === "simcountries" || state.view === "esimcountries") key = "searchCategories";
+  else if (state.view === "simoffers" || state.view === "esimoffers") key = "searchOffers";
   searchInput.placeholder = t(key);
 }
 
@@ -526,6 +563,19 @@ async function api(path, options = {}) {
 
 function clear() {
   content.replaceChildren();
+}
+
+function resetTelecomState() {
+  state.telecom = {
+    section: "",
+    countryCode: "",
+    countryName: "",
+    simOffers: [],
+    esimCountry: "",
+    esimDays: 0,
+    esimUsage: "low",
+    esimOffers: [],
+  };
 }
 
 function button(className, text, onClick, disabled = false) {
@@ -695,6 +745,7 @@ function itemRow(item) {
   const content = document.createElement("div");
   content.className = "item-content";
   const title = document.createElement("strong");
+  title.className = "item-name";
   title.textContent = String(item.name || "-");
   content.append(title);
 
@@ -703,21 +754,20 @@ function itemRow(item) {
   price.textContent = priceText;
   content.append(price);
 
-  if (dynamicGiftPrice) {
-    const minQty = Number(item.za3em_qty_min || 1);
-    const maxQty = Number(item.za3em_qty_max || minQty);
-    const meta = document.createElement("span");
-    meta.className = "meta";
-    meta.textContent = `${t("creditsRange")}: ${minQty} - ${maxQty}`;
-    content.append(meta);
-  }
-
   const buy = button("buy", t("continue"), () => createSelection(item));
   if (item.kind === "gift" && Number(item.stock || 0) <= 0) {
     buy.disabled = true;
     buy.textContent = t("out");
   }
   content.append(buy);
+  if (dynamicGiftPrice) {
+    const minQty = Number(item.za3em_qty_min || 1);
+    const maxQty = Number(item.za3em_qty_max || minQty);
+    const meta = document.createElement("span");
+    meta.className = "meta item-hint";
+    meta.textContent = `${t("creditsRange")}: ${minQty} - ${maxQty}`;
+    content.append(meta);
+  }
   row.append(content);
 
   return row;
@@ -1018,6 +1068,7 @@ function normalizeChatCategoryName(name) {
 
 async function renderServices() {
   clear();
+  resetTelecomState();
   state.view = "services";
   state.service = "";
   state.categories = [];
@@ -1153,13 +1204,10 @@ async function renderCategories() {
 
   const list = document.createElement("section");
   list.className = "category-list";
-  const isGameService = state.service === "games";
   for (let i = 0; i < rows.length; i += 2) {
     const row1 = rows[i];
     const row2 = rows[i + 1];
-    const wrapper = document.createElement("div");
-    wrapper.style.display = "contents";
-    wrapper.append(
+    list.append(
       listTile(String(row1.name || "-"), row1.meta_label || "", () =>
         openItems({
           id: String(row1.id || ""),
@@ -1179,7 +1227,7 @@ async function renderCategories() {
       )
     );
     if (row2) {
-      wrapper.append(
+      list.append(
         listTile(String(row2.name || "-"), row2.meta_label || "", () =>
           openItems({
             id: String(row2.id || ""),
@@ -1199,7 +1247,6 @@ async function renderCategories() {
         )
       );
     }
-    list.append(wrapper);
   }
   content.append(list);
 }
@@ -1231,9 +1278,7 @@ function renderVariantCategories(parent) {
   for (let i = 0; i < rows.length; i += 2) {
     const row1 = rows[i];
     const row2 = rows[i + 1];
-    const wrapper = document.createElement("div");
-    wrapper.style.display = "contents";
-    wrapper.append(
+    list.append(
       listTile(
         String(row1.name || "-"),
         "",
@@ -1251,7 +1296,7 @@ function renderVariantCategories(parent) {
       )
     );
     if (row2) {
-      wrapper.append(
+      list.append(
         listTile(String(row2.name || "-"), "", () =>
           openItems({
             id: String(row2.id || ""),
@@ -1266,7 +1311,6 @@ function renderVariantCategories(parent) {
         )
       );
     }
-    list.append(wrapper);
   }
   content.append(list);
 }
@@ -1441,11 +1485,8 @@ function renderItems() {
   for (let i = 0; i < rows.length; i += 2) {
     const row1 = rows[i];
     const row2 = rows[i + 1];
-    const wrapper = document.createElement("div");
-    wrapper.style.display = "contents";
-    wrapper.append(itemRow(row1));
-    if (row2) wrapper.append(itemRow(row2));
-    grid.append(wrapper);
+    grid.append(itemRow(row1));
+    if (row2) grid.append(itemRow(row2));
   }
   content.append(grid);
 }
@@ -1453,16 +1494,327 @@ function renderItems() {
 function renderSimKinds() {
   clear();
   state.view = "simkind";
+  resetTelecomState();
+  state.search = "";
+  searchInput.value = "";
   setSearchPlaceholder();
   setStatus("");
   content.append(button("back-btn bottom-back", t("back"), renderServices));
   content.append(heading(t("simKindTitle")));
   const grid = document.createElement("section");
   grid.className = "dept-grid";
-  grid.append(card(t("simBalance"), t("continue"), () => createServiceSelection("simtopup", { section: "balance" })));
-  grid.append(card(t("simData"), t("continue"), () => createServiceSelection("simtopup", { section: "data" })));
-  grid.append(card(t("esimDirect"), t("continue"), () => createServiceSelection("esim")));
+  grid.append(
+    card(t("simBalance"), t("continue"), () => {
+      state.search = "";
+      searchInput.value = "";
+      renderSimCountries("balance");
+    })
+  );
+  grid.append(
+    card(t("simData"), t("continue"), () => {
+      state.search = "";
+      searchInput.value = "";
+      renderSimCountries("data");
+    })
+  );
+  grid.append(
+    card(t("esimDirect"), t("continue"), () => {
+      state.search = "";
+      searchInput.value = "";
+      renderEsimCountries();
+    })
+  );
   content.append(grid);
+}
+
+function telecomOfferCard({ title, subtitle = "", price = "", onContinue }) {
+  const row = document.createElement("article");
+  row.className = "item";
+  const contentBox = document.createElement("div");
+  contentBox.className = "item-content";
+
+  const nameEl = document.createElement("strong");
+  nameEl.className = "item-name";
+  nameEl.textContent = String(title || "-");
+  contentBox.append(nameEl);
+
+  if (subtitle) {
+    const subEl = document.createElement("span");
+    subEl.className = "meta item-hint";
+    subEl.textContent = subtitle;
+    contentBox.append(subEl);
+  }
+
+  const priceEl = document.createElement("span");
+  priceEl.className = "item-price-line";
+  priceEl.textContent = String(price || "");
+  contentBox.append(priceEl);
+
+  contentBox.append(button("buy", t("continue"), onContinue));
+  row.append(contentBox);
+  return row;
+}
+
+async function renderSimCountries(section) {
+  clear();
+  state.view = "simcountries";
+  state.telecom.section = String(section || "").trim().toLowerCase();
+  state.telecom.countryCode = "";
+  state.telecom.countryName = "";
+  state.telecom.simOffers = [];
+  setSearchPlaceholder();
+  setStatus(t("loading"));
+  content.append(button("back-btn bottom-back", t("back"), renderSimKinds));
+  content.append(heading(`${t("simChooseCountry")} • ${state.telecom.section === "data" ? t("simData") : t("simBalance")}`));
+  try {
+    const data = await api(`/mini/digital/api/simtopup/countries?section=${encodeURIComponent(state.telecom.section)}&q=${encodeURIComponent(String(state.search || ""))}`);
+    const rows = Array.isArray(data?.countries) ? data.countries : [];
+    if (!rows.length) {
+      setStatus(t("noResults"));
+      content.append(emptyState(t("noResults"), t("refineSearch")));
+      return;
+    }
+    setStatus("");
+    const list = document.createElement("section");
+    list.className = "category-list";
+    rows.forEach((row) => {
+      const countryName = String(row.country_name || row.country_code || "-");
+      const countryCode = String(row.country_code || "").toUpperCase();
+      const minPrice = Number(row.min_price_usd || 0);
+      list.append(
+        listTile(
+          countryName,
+          `${money(minPrice)}`,
+          () => renderSimOffers(state.telecom.section, countryCode, countryName),
+          { showMeta: true }
+        )
+      );
+    });
+    content.append(list);
+  } catch (err) {
+    setStatus(`${t("loadFailed")}: ${friendlyApiError(err)}`, true);
+  }
+}
+
+async function renderSimOffers(section, countryCode, countryName) {
+  clear();
+  state.view = "simoffers";
+  state.telecom.section = String(section || "").trim().toLowerCase();
+  state.telecom.countryCode = String(countryCode || "").toUpperCase();
+  state.telecom.countryName = String(countryName || state.telecom.countryCode || "-");
+  setSearchPlaceholder();
+  setStatus(t("loading"));
+  content.append(button("back-btn bottom-back", t("back"), () => renderSimCountries(state.telecom.section)));
+  content.append(heading(`${t("simChooseOffer")} • ${state.telecom.countryName}`));
+  try {
+    const data = await api(
+      `/mini/digital/api/simtopup/offers?section=${encodeURIComponent(state.telecom.section)}&country=${encodeURIComponent(state.telecom.countryCode)}`
+    );
+    const allRows = Array.isArray(data?.offers) ? data.offers : [];
+    state.telecom.simOffers = allRows;
+    const rows = allRows.filter((row) =>
+      matchesSearch(
+        { name: String(row?.brand_name || ""), meta: String(row?.value_label || "") },
+        String(row?.country_name || ""),
+        String(row?.price_usd || "")
+      )
+    );
+    if (!rows.length) {
+      setStatus(t("noResults"));
+      content.append(emptyState(t("noResults"), t("refineSearch")));
+      return;
+    }
+    setStatus("");
+    const grid = document.createElement("section");
+    grid.className = "items-grid";
+    rows.forEach((row) => {
+      grid.append(
+        telecomOfferCard({
+          title: String(row?.brand_name || state.telecom.countryName || "-"),
+          subtitle: String(row?.value_label || ""),
+          price: money(row?.price_usd || 0),
+          onContinue: () => openSimPhoneModal(row),
+        })
+      );
+    });
+    content.append(grid);
+  } catch (err) {
+    setStatus(`${t("productLoadFailed")}: ${friendlyApiError(err)}`, true);
+  }
+}
+
+function openSimPhoneModal(offerRow) {
+  const selected = offerRow && typeof offerRow === "object" ? offerRow : {};
+  openInputModal({
+    title: t("simEnterPhone"),
+    subtitle: `${state.telecom.countryName} • ${String(selected.value_label || "")} • ${money(selected.price_usd || 0)}`,
+    fields: [
+      {
+        name: "phone",
+        label: t("simEnterPhone"),
+        required: true,
+        type: "text",
+        placeholder: t("simPhonePlaceholder"),
+      },
+    ],
+    onSubmit: async (values) => {
+      const phone = String(values.phone || "").trim();
+      const digits = phone.replace(/[^\d]/g, "");
+      if (!digits || digits.length < 7) {
+        setStatus(t("invalidPhone"), true);
+        return;
+      }
+      await createServiceSelection("simtopup", {
+        section: state.telecom.section,
+        country_code: state.telecom.countryCode,
+        phone,
+        offer: dictClone(selected.offer || {}),
+      });
+    },
+  });
+}
+
+async function renderEsimCountries() {
+  clear();
+  state.view = "esimcountries";
+  state.telecom.esimCountry = "";
+  state.telecom.esimDays = 0;
+  state.telecom.esimUsage = "low";
+  state.telecom.esimOffers = [];
+  setSearchPlaceholder();
+  setStatus(t("loading"));
+  content.append(button("back-btn bottom-back", t("back"), renderSimKinds));
+  content.append(heading(t("esimChooseCountry")));
+  try {
+    const data = await api(`/mini/digital/api/esim/countries?q=${encodeURIComponent(String(state.search || ""))}`);
+    const rows = Array.isArray(data?.countries) ? data.countries : [];
+    if (!rows.length) {
+      setStatus(t("noResults"));
+      content.append(emptyState(t("noResults"), t("refineSearch")));
+      return;
+    }
+    setStatus("");
+    const list = document.createElement("section");
+    list.className = "category-list";
+    rows.forEach((row) => {
+      const country = String(row.country || "").trim();
+      if (!country) return;
+      list.append(listTile(country, "", () => renderEsimDays(country), { showMeta: false }));
+    });
+    content.append(list);
+  } catch (err) {
+    setStatus(`${t("loadFailed")}: ${friendlyApiError(err)}`, true);
+  }
+}
+
+async function renderEsimDays(country) {
+  const selectedCountry = String(country || "").trim();
+  if (!selectedCountry) return;
+  clear();
+  state.view = "esimdays";
+  state.telecom.esimCountry = selectedCountry;
+  state.telecom.esimDays = 0;
+  state.telecom.esimOffers = [];
+  setSearchPlaceholder();
+  setStatus(t("loading"));
+  content.append(button("back-btn bottom-back", t("back"), renderEsimCountries));
+  content.append(heading(`${t("esimChooseDays")} • ${selectedCountry}`));
+  try {
+    const data = await api(`/mini/digital/api/esim/days?country=${encodeURIComponent(selectedCountry)}`);
+    const days = (Array.isArray(data?.days) ? data.days : []).map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0);
+    if (!days.length) {
+      setStatus(t("noResults"));
+      content.append(emptyState(t("noResults"), t("temporaryProblem")));
+      return;
+    }
+    setStatus("");
+    const grid = document.createElement("section");
+    grid.className = "dept-grid";
+    days.forEach((day) => {
+      grid.append(card(`${day} days`, "", () => renderEsimUsage(selectedCountry, day)));
+    });
+    content.append(grid);
+  } catch (err) {
+    setStatus(`${t("loadFailed")}: ${friendlyApiError(err)}`, true);
+  }
+}
+
+function renderEsimUsage(country, days) {
+  const selectedCountry = String(country || "").trim();
+  const selectedDays = Number(days || 0);
+  if (!selectedCountry || !Number.isFinite(selectedDays) || selectedDays <= 0) return;
+  clear();
+  state.view = "esimusage";
+  state.telecom.esimCountry = selectedCountry;
+  state.telecom.esimDays = selectedDays;
+  state.telecom.esimUsage = "low";
+  setSearchPlaceholder();
+  setStatus("");
+  content.append(button("back-btn bottom-back", t("back"), () => renderEsimDays(selectedCountry)));
+  content.append(heading(`${t("esimChooseUsage")} • ${selectedCountry}`));
+  const grid = document.createElement("section");
+  grid.className = "dept-grid";
+  grid.append(card(t("usageLow"), "", () => renderEsimOffers(selectedCountry, selectedDays, "low")));
+  grid.append(card(t("usageMid"), "", () => renderEsimOffers(selectedCountry, selectedDays, "mid")));
+  grid.append(card(t("usageHigh"), "", () => renderEsimOffers(selectedCountry, selectedDays, "high")));
+  content.append(grid);
+}
+
+async function renderEsimOffers(country, days, usageKey) {
+  const selectedCountry = String(country || "").trim();
+  const selectedDays = Number(days || 0);
+  const selectedUsage = String(usageKey || "low").trim().toLowerCase();
+  if (!selectedCountry || !Number.isFinite(selectedDays) || selectedDays <= 0) return;
+  clear();
+  state.view = "esimoffers";
+  state.telecom.esimCountry = selectedCountry;
+  state.telecom.esimDays = selectedDays;
+  state.telecom.esimUsage = selectedUsage;
+  setSearchPlaceholder();
+  setStatus(t("loading"));
+  content.append(button("back-btn bottom-back", t("back"), () => renderEsimUsage(selectedCountry, selectedDays)));
+  content.append(heading(`${t("esimChooseOffer")} • ${selectedCountry}`));
+  try {
+    const data = await api(
+      `/mini/digital/api/esim/offers?country=${encodeURIComponent(selectedCountry)}&days=${encodeURIComponent(String(selectedDays))}&usage=${encodeURIComponent(selectedUsage)}`
+    );
+    const allRows = Array.isArray(data?.offers) ? data.offers : [];
+    state.telecom.esimOffers = allRows;
+    const rows = allRows.filter((row) =>
+      matchesSearch(
+        { name: String(row?.summary || ""), meta: String(row?.country || "") },
+        String(row?.price_usd || "")
+      )
+    );
+    if (!rows.length) {
+      setStatus(t("noResults"));
+      content.append(emptyState(t("noResults"), t("refineSearch")));
+      return;
+    }
+    setStatus("");
+    const grid = document.createElement("section");
+    grid.className = "items-grid";
+    rows.forEach((row) => {
+      const summary = String(row?.summary || "").replace(/\s+/g, " ").trim();
+      grid.append(
+        telecomOfferCard({
+          title: summary || `${selectedCountry} eSIM`,
+          subtitle: `${selectedDays} days`,
+          price: money(row?.price_usd || 0),
+          onContinue: () =>
+            createServiceSelection("esim", {
+              country: selectedCountry,
+              days: selectedDays,
+              usage_key: selectedUsage,
+              offer_index: Number(row?.id || 0),
+            }),
+        })
+      );
+    });
+    content.append(grid);
+  } catch (err) {
+    setStatus(`${t("productLoadFailed")}: ${friendlyApiError(err)}`, true);
+  }
 }
 
 function renderNumbersServices() {
@@ -1520,6 +1872,15 @@ function promptText(en, ar) {
   return state.lang === "ar" ? ar : en;
 }
 
+function dictClone(value) {
+  if (!value || typeof value !== "object") return {};
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_err) {
+    return {};
+  }
+}
+
 function giftQuotePrice(item, quantity) {
   const qty = Math.max(1, Number(quantity || 1));
   const unit = Number(item?.unit_price_usd || item?.price_usd || 0);
@@ -1528,10 +1889,20 @@ function giftQuotePrice(item, quantity) {
 
 function closeInputModal() {
   if (!inputModalEl) return;
-  inputModalEl.classList.add("hidden");
-  inputModalEl.setAttribute("aria-hidden", "true");
-  document.body.classList.remove("modal-open");
-  if (modalFormEl) modalFormEl.replaceChildren();
+  if (modalCloseTimer) {
+    window.clearTimeout(modalCloseTimer);
+    modalCloseTimer = 0;
+  }
+  inputModalEl.classList.remove("is-open");
+  inputModalEl.classList.add("is-closing");
+  modalCloseTimer = window.setTimeout(() => {
+    inputModalEl.classList.remove("is-closing");
+    inputModalEl.classList.add("hidden");
+    inputModalEl.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("modal-open");
+    if (modalFormEl) modalFormEl.replaceChildren();
+    modalCloseTimer = 0;
+  }, 170);
 }
 
 function fieldLooksLikePlayerId(field) {
@@ -1639,6 +2010,14 @@ function openInputModal({ title, subtitle, fields, notice, onSubmit, onChange })
   };
 
   inputModalEl.classList.remove("hidden");
+  if (modalCloseTimer) {
+    window.clearTimeout(modalCloseTimer);
+    modalCloseTimer = 0;
+  }
+  requestAnimationFrame(() => {
+    inputModalEl.classList.remove("is-closing");
+    inputModalEl.classList.add("is-open");
+  });
   inputModalEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
 }
@@ -1759,6 +2138,10 @@ searchInput.addEventListener("input", () => {
   if (state.view === "categories") renderCategories();
   if (state.view === "subcategories") renderVariantCategories(state.variantParent);
   if (state.view === "items") renderItems();
+  if (state.view === "simcountries") renderSimCountries(state.telecom.section || "balance");
+  if (state.view === "simoffers") renderSimOffers(state.telecom.section, state.telecom.countryCode, state.telecom.countryName);
+  if (state.view === "esimcountries") renderEsimCountries();
+  if (state.view === "esimoffers") renderEsimOffers(state.telecom.esimCountry, state.telecom.esimDays, state.telecom.esimUsage);
 });
 
 refreshBtn.addEventListener("click", loadCatalog);
@@ -1773,6 +2156,12 @@ if (langBtn) {
     else if (state.view === "items") renderItems();
     else if (state.view === "simkind") renderSimKinds();
     else if (state.view === "numbers") renderNumbersServices();
+    else if (state.view === "simcountries") renderSimCountries(state.telecom.section || "balance");
+    else if (state.view === "simoffers") renderSimOffers(state.telecom.section, state.telecom.countryCode, state.telecom.countryName);
+    else if (state.view === "esimcountries") renderEsimCountries();
+    else if (state.view === "esimdays") renderEsimDays(state.telecom.esimCountry);
+    else if (state.view === "esimusage") renderEsimUsage(state.telecom.esimCountry, state.telecom.esimDays);
+    else if (state.view === "esimoffers") renderEsimOffers(state.telecom.esimCountry, state.telecom.esimDays, state.telecom.esimUsage);
   });
 }
 if (modalCloseBtn) {

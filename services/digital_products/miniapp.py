@@ -35,6 +35,13 @@ from services.digital_products.fulfillment_rules import (
     manual_feature_info,
     offer_compare_key,
 )
+from services.digital_products.zendit_client import ZenditClient
+from services.digital_products.esim_route_service import (
+    build_single_country_offers_live,
+    choose_recommended_offer,
+    route_available_days_live,
+    search_countries_live,
+)
 from services.numbers.core.session_manager import SessionManager
 from services.digital_products.static_taxonomy import (
     REGION_TOKENS,
@@ -208,6 +215,54 @@ _GAME_REGION_ALLOWLIST: set[str] = {
     "top up",
     "add-ons",
 }
+_SIM_TOPUP_SECTION_TYPES: dict[str, str] = {
+    "balance": "mobile top up",
+    "data": "mobile bundle",
+}
+_SIM_TOPUP_CACHE_TTL_SECONDS = 300
+_SIM_TOPUP_CACHE: dict[str, dict[str, Any]] = {
+    "countries:balance": {"expires_at": 0.0, "rows": []},
+    "countries:data": {"expires_at": 0.0, "rows": []},
+}
+_SIM_COUNTRY_NAMES_FALLBACK: dict[str, str] = {
+    "AE": "United Arab Emirates",
+    "BH": "Bahrain",
+    "CA": "Canada",
+    "CY": "Cyprus",
+    "DE": "Germany",
+    "DZ": "Algeria",
+    "EG": "Egypt",
+    "FR": "France",
+    "GB": "United Kingdom",
+    "GR": "Greece",
+    "ID": "Indonesia",
+    "IN": "India",
+    "IT": "Italy",
+    "IQ": "Iraq",
+    "JP": "Japan",
+    "JO": "Jordan",
+    "KR": "South Korea",
+    "KW": "Kuwait",
+    "LB": "Lebanon",
+    "MA": "Morocco",
+    "MY": "Malaysia",
+    "OM": "Oman",
+    "PL": "Poland",
+    "PS": "Palestine",
+    "QA": "Qatar",
+    "RO": "Romania",
+    "SA": "Saudi Arabia",
+    "SE": "Sweden",
+    "SG": "Singapore",
+    "SY": "Syria",
+    "TH": "Thailand",
+    "TN": "Tunisia",
+    "TR": "Turkey",
+    "UA": "Ukraine",
+    "US": "United States",
+    "VN": "Vietnam",
+    "YE": "Yemen",
+}
 
 
 def _money(value: Any) -> float:
@@ -241,6 +296,208 @@ def _with_markup(price: Any, markup_percent: float) -> float:
 
 def _norm(value: str | None) -> str:
     return " ".join(str(value or "").strip().lower().split())
+
+
+def _utc_ts() -> float:
+    return datetime.now(UTC).timestamp()
+
+
+def _sim_country_name(code: str) -> str:
+    value = str(code or "").strip().upper()
+    if len(value) != 2:
+        return value
+    return _SIM_COUNTRY_NAMES_FALLBACK.get(value, value)
+
+
+def _sim_offer_price_usd(row: dict[str, Any]) -> float:
+    price = dict(row.get("price") or {})
+    try:
+        fixed = Decimal(str(price.get("fixed") or 0))
+        divisor = Decimal(str(price.get("currencyDivisor") or 1))
+        if divisor <= 0:
+            divisor = Decimal("1")
+        value = fixed / divisor
+        return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    except Exception:
+        return 0.0
+
+
+def _sim_row_matches_section(row: dict[str, Any], section: str) -> bool:
+    subtype = _SIM_TOPUP_SECTION_TYPES.get(str(section or "").strip().lower(), "")
+    if not subtype:
+        return False
+    raw = [str(item or "").strip().lower() for item in list(row.get("subTypes") or [])]
+    return subtype in raw
+
+
+def _sim_offer_value_label(row: dict[str, Any]) -> str:
+    send = dict(row.get("send") or {})
+    try:
+        fixed = Decimal(str(send.get("fixed") or 0))
+        divisor = Decimal(str(send.get("currencyDivisor") or 1))
+        if divisor <= 0:
+            divisor = Decimal("1")
+        value = (fixed / divisor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception:
+        value = Decimal("0")
+    currency = str(send.get("currency") or "").strip().upper()
+    if value > 0 and currency:
+        return f"{value} {currency}"
+    data_gb = float(row.get("dataGB") or 0)
+    if data_gb > 0:
+        return f"{data_gb:g} GB"
+    days = int(row.get("durationDays") or 0)
+    if days > 0:
+        return f"{days} days"
+    return "Offer"
+
+
+def _sim_cache_get(key: str) -> list[dict[str, Any]] | None:
+    bucket = dict(_SIM_TOPUP_CACHE.get(key) or {})
+    if float(bucket.get("expires_at") or 0.0) > _utc_ts():
+        return list(bucket.get("rows") or [])
+    return None
+
+
+def _sim_cache_put(key: str, rows: list[dict[str, Any]]) -> None:
+    _SIM_TOPUP_CACHE[key] = {
+        "expires_at": _utc_ts() + float(_SIM_TOPUP_CACHE_TTL_SECONDS),
+        "rows": list(rows),
+    }
+
+
+async def _sim_countries_with_prices(section: str) -> list[dict[str, Any]]:
+    section_key = str(section or "").strip().lower()
+    if section_key not in _SIM_TOPUP_SECTION_TYPES:
+        return []
+    cache_key = f"countries:{section_key}"
+    cached = _sim_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    client = ZenditClient()
+    if not client.configured():
+        return []
+
+    rows_map: dict[str, dict[str, Any]] = {}
+    limit = 512
+    offset = 0
+    total = None
+    while total is None or offset < int(total or 0):
+        status, payload = await client.list_topup_offers(
+            limit=limit,
+            offset=offset,
+            sub_type="Mobile Bundle" if section_key == "data" else "Mobile Top Up",
+        )
+        if status != 200 or not isinstance(payload, dict):
+            break
+        page_rows = [row for row in list(payload.get("list") or []) if isinstance(row, dict)]
+        total = int(payload.get("total") or 0)
+        if not page_rows:
+            if total <= 0:
+                break
+            offset += limit
+            continue
+        for row in page_rows:
+            if not _sim_row_matches_section(row, section_key):
+                continue
+            if str(row.get("priceType") or "FIXED").strip().upper() != "FIXED":
+                continue
+            country_code = str(row.get("country") or "").strip().upper()
+            if len(country_code) != 2:
+                continue
+            price = _sim_offer_price_usd(row)
+            if price <= 0:
+                continue
+            current = rows_map.get(country_code)
+            if not current:
+                rows_map[country_code] = {
+                    "country_code": country_code,
+                    "country_name": _sim_country_name(country_code),
+                    "min_price_usd": _round_sale_price(price),
+                    "offers_count": 1,
+                }
+            else:
+                current["offers_count"] = int(current.get("offers_count") or 0) + 1
+                if price < float(current.get("min_price_usd") or 0):
+                    current["min_price_usd"] = _round_sale_price(price)
+        offset += limit
+        if total <= 0 and len(page_rows) < limit:
+            break
+
+    rows = sorted(
+        rows_map.values(),
+        key=lambda row: (
+            float(row.get("min_price_usd") or 0.0) if float(row.get("min_price_usd") or 0.0) > 0 else 9999999.0,
+            _norm(str(row.get("country_name") or "")),
+        ),
+    )
+    _sim_cache_put(cache_key, rows)
+    return rows
+
+
+async def _sim_offers_for_country(section: str, country_code: str) -> list[dict[str, Any]]:
+    section_key = str(section or "").strip().lower()
+    code = str(country_code or "").strip().upper()
+    if section_key not in _SIM_TOPUP_SECTION_TYPES or len(code) != 2:
+        return []
+    cache_key = f"offers:{section_key}:{code}"
+    cached = _sim_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    client = ZenditClient()
+    if not client.configured():
+        return []
+    status, payload = await client.list_topup_offers(
+        limit=300,
+        offset=0,
+        country=code,
+        sub_type="Mobile Bundle" if section_key == "data" else "Mobile Top Up",
+    )
+    if status != 200 or not isinstance(payload, dict):
+        return []
+    raw_rows = [row for row in list(payload.get("list") or []) if isinstance(row, dict)]
+    rows: list[dict[str, Any]] = []
+    for row in raw_rows:
+        if not _sim_row_matches_section(row, section_key):
+            continue
+        if str(row.get("priceType") or "FIXED").strip().upper() != "FIXED":
+            continue
+        offer_id = str(row.get("offerId") or row.get("id") or "").strip()
+        if not offer_id:
+            continue
+        price = _sim_offer_price_usd(row)
+        if price <= 0:
+            continue
+        offer_payload = {
+            "offerId": offer_id,
+            "id": offer_id,
+            "country": code,
+            "brand": str(row.get("brand") or "").strip(),
+            "brandName": str(row.get("brandName") or row.get("brand") or "").strip(),
+            "send": dict(row.get("send") or {}),
+            "price": dict(row.get("price") or {}),
+            "priceType": str(row.get("priceType") or "FIXED").strip(),
+            "subTypes": list(row.get("subTypes") or []),
+            "_section_kind": section_key,
+            "_cost_price_usd": _round_sale_price(price),
+            "_sale_price_usd": _round_sale_price(price),
+        }
+        rows.append(
+            {
+                "offer_id": offer_id,
+                "country_code": code,
+                "country_name": _sim_country_name(code),
+                "brand_name": str(offer_payload.get("brandName") or offer_payload.get("brand") or "").strip(),
+                "value_label": _sim_offer_value_label(offer_payload),
+                "price_usd": _round_sale_price(price),
+                "offer": offer_payload,
+            }
+        )
+    rows.sort(key=lambda row: (float(row.get("price_usd") or 0.0), _norm(str(row.get("brand_name") or ""))))
+    _sim_cache_put(cache_key, rows)
+    return rows
 
 
 def _is_invalid_display_name(name: str | None) -> bool:
@@ -1494,6 +1751,112 @@ async def game_items(request: web.Request) -> web.Response:
     )
 
 
+async def simtopup_countries(request: web.Request) -> web.Response:
+    section = str(request.query.get("section") or "balance").strip().lower()
+    if section not in _SIM_TOPUP_SECTION_TYPES:
+        raise web.HTTPBadRequest(text="invalid sim section")
+    query = _norm(str(request.query.get("q") or ""))
+    rows = await _sim_countries_with_prices(section)
+    if query:
+        rows = [
+            row
+            for row in rows
+            if query in _norm(str(row.get("country_name") or ""))
+            or query in _norm(str(row.get("country_code") or ""))
+        ]
+    return web.json_response({"section": section, "countries": rows[:100]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def simtopup_offers(request: web.Request) -> web.Response:
+    section = str(request.query.get("section") or "balance").strip().lower()
+    country_code = str(request.query.get("country") or "").strip().upper()
+    if section not in _SIM_TOPUP_SECTION_TYPES:
+        raise web.HTTPBadRequest(text="invalid sim section")
+    if len(country_code) != 2:
+        raise web.HTTPBadRequest(text="invalid country code")
+    rows = await _sim_offers_for_country(section, country_code)
+    return web.json_response(
+        {
+            "section": section,
+            "country_code": country_code,
+            "country_name": _sim_country_name(country_code),
+            "offers": rows[:120],
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def esim_countries(request: web.Request) -> web.Response:
+    query = str(request.query.get("q") or "").strip()
+    rows = await search_countries_live(query, limit=100)
+    payload = [{"country": str(row).strip()} for row in rows if str(row or "").strip()]
+    return web.json_response({"countries": payload}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def esim_days(request: web.Request) -> web.Response:
+    country = str(request.query.get("country") or "").strip()
+    if not country:
+        raise web.HTTPBadRequest(text="missing country")
+    days = await route_available_days_live([country])
+    if not days:
+        offers = await build_single_country_offers_live(country, days=7, usage_key="low")
+        if offers:
+            days = sorted({int(part.get("days") or 0) for offer in offers for part in list(offer.get("parts") or []) if int(part.get("days") or 0) > 0})
+    return web.json_response({"country": country, "days": [int(day) for day in days if int(day) > 0]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def esim_offers(request: web.Request) -> web.Response:
+    country = str(request.query.get("country") or "").strip()
+    usage_key = str(request.query.get("usage") or "low").strip().lower()
+    try:
+        days = int(request.query.get("days") or 0)
+    except Exception:
+        days = 0
+    if not country:
+        raise web.HTTPBadRequest(text="missing country")
+    if days <= 0:
+        raise web.HTTPBadRequest(text="invalid days")
+    if usage_key not in {"low", "mid", "high"}:
+        raise web.HTTPBadRequest(text="invalid usage")
+    offers = await build_single_country_offers_live(country, days=days, usage_key=usage_key)
+    normalized: list[dict[str, Any]] = []
+    for index, offer in enumerate(offers):
+        row = dict(offer)
+        price = _round_sale_price(row.get("price_usd") or 0.0)
+        if price <= 0:
+            continue
+        row["_cost_price_usd"] = _round_sale_price(row.get("_cost_price_usd") or price)
+        row["price_usd"] = price
+        normalized.append(
+            {
+                "id": int(index),
+                "country": country,
+                "days": int(days),
+                "usage_key": usage_key,
+                "price_usd": price,
+                "summary": str(row.get("summary") or ""),
+                "offer": row,
+            }
+        )
+    recommended = choose_recommended_offer([dict(item.get("offer") or {}) for item in normalized], usage_key=usage_key, days=days)
+    recommended_idx = -1
+    if recommended:
+        for idx, item in enumerate(normalized):
+            if dict(item.get("offer") or {}) == dict(recommended):
+                recommended_idx = idx
+                break
+    return web.json_response(
+        {
+            "country": country,
+            "days": days,
+            "usage_key": usage_key,
+            "offers": normalized,
+            "recommended_index": recommended_idx,
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
 async def create_selection(request: web.Request) -> web.Response:
     init_data = request.headers.get("X-Telegram-Init-Data", "")
     auth = _verify_init_data(init_data) if str(init_data or "").strip() else {"user_id": None}
@@ -1539,9 +1902,61 @@ async def create_selection(request: web.Request) -> web.Response:
         section = str(body.get("section") or "").strip().lower()
         if section not in {"balance", "data"}:
             raise web.HTTPBadRequest(text="invalid sim section")
-        payload = {"kind": "simtopup", "section": section}
+        country_code = str(body.get("country_code") or "").strip().upper()
+        phone = str(body.get("phone") or "").strip()
+        requested_offer = body.get("offer") if isinstance(body.get("offer"), dict) else {}
+        offer_id = str(requested_offer.get("offerId") or requested_offer.get("id") or body.get("offer_id") or "").strip()
+        if country_code and phone and offer_id:
+            offers = await _sim_offers_for_country(section, country_code)
+            matched = next((row for row in offers if str(row.get("offer_id") or "").strip() == offer_id), None)
+            if not matched:
+                raise web.HTTPBadRequest(text="sim selection unavailable")
+            selected_offer = dict(matched.get("offer") or {})
+            payload = {
+                "kind": "simtopup",
+                "section": section,
+                "phone": phone,
+                "country_code": country_code,
+                "brand_key": str(selected_offer.get("brand") or "").strip(),
+                "brand_name": str(selected_offer.get("brandName") or selected_offer.get("brand") or "").strip(),
+                "offer": selected_offer,
+            }
+        else:
+            payload = {"kind": "simtopup", "section": section}
     elif kind == "esim":
-        payload = {"kind": "esim"}
+        country = str(body.get("country") or "").strip()
+        usage_key = str(body.get("usage_key") or "low").strip().lower()
+        try:
+            days = int(body.get("days") or 0)
+        except Exception:
+            days = 0
+        try:
+            offer_index = int(body.get("offer_index") or -1)
+        except Exception:
+            offer_index = -1
+        if country and usage_key in {"low", "mid", "high"} and days > 0 and offer_index >= 0:
+            offers = await build_single_country_offers_live(country, days=days, usage_key=usage_key)
+            normalized: list[dict[str, Any]] = []
+            for row in offers:
+                clone = dict(row)
+                price = _round_sale_price(clone.get("price_usd") or 0.0)
+                if price <= 0:
+                    continue
+                clone["_cost_price_usd"] = _round_sale_price(clone.get("_cost_price_usd") or price)
+                clone["price_usd"] = price
+                normalized.append(clone)
+            if offer_index >= len(normalized):
+                raise web.HTTPBadRequest(text="esim selection unavailable")
+            payload = {
+                "kind": "esim",
+                "selected_mode": "single",
+                "selected_countries": [country],
+                "selected_days": days,
+                "usage_key": usage_key,
+                "offer": dict(normalized[offer_index]),
+            }
+        else:
+            payload = {"kind": "esim"}
     elif kind == "numbers_services":
         payload = {"kind": "numbers_services"}
         service_key = str(body.get("service_key") or "").strip()
@@ -1579,6 +1994,11 @@ def create_app() -> web.Application:
     app.router.add_get("/mini/digital/api/catalog", catalog)
     app.router.add_get("/mini/digital/api/gifts/{category_id}", gift_products)
     app.router.add_get("/mini/digital/api/games/{game_id}", game_items)
+    app.router.add_get("/mini/digital/api/simtopup/countries", simtopup_countries)
+    app.router.add_get("/mini/digital/api/simtopup/offers", simtopup_offers)
+    app.router.add_get("/mini/digital/api/esim/countries", esim_countries)
+    app.router.add_get("/mini/digital/api/esim/days", esim_days)
+    app.router.add_get("/mini/digital/api/esim/offers", esim_offers)
     app.router.add_post("/mini/digital/api/usage", record_usage)
     app.router.add_post("/mini/digital/api/selection", create_selection)
     return app

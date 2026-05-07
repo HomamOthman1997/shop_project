@@ -12,6 +12,7 @@ from tempfile import gettempdir
 from typing import Any
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import MenuButtonWebApp, WebAppInfo
 
 from config import settings, validate_runtime_security, enforce_openrouter_only_mode
 from database.bots_repo import get_verified_bots
@@ -42,6 +43,7 @@ from handlers.custom_services import router as custom_services_router
 from handlers.admin_services import router as admin_services_router
 from handlers.owner_requests import router as owner_requests_router
 from handlers.store_sections import router as store_sections_router
+from keyboards.main_menu_kb import _digital_store_webapp_url
 from services.cards_bot.handlers import router as card_ex_bot_router
 from handlers.language import router as language_base
 from handlers.main_menu import router as main_menu_base
@@ -962,6 +964,21 @@ _resolve_game_bot_id = _resolve_digital_products_bot_id
 _resolve_cards_bot_id = _resolve_card_ex_bot_id
 
 
+async def _ensure_digital_store_menu_button(bot: Bot) -> None:
+    if not bool(getattr(settings, "digital_products_miniapp_enabled", False)):
+        return
+    miniapp_url = _digital_store_webapp_url()
+    if not miniapp_url:
+        return
+    with suppress(Exception):
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="STORE",
+                web_app=WebAppInfo(url=miniapp_url),
+            )
+        )
+
+
 async def _start_polling_group(name: str, dp: Dispatcher, token_map: dict[int, str]) -> tuple[asyncio.Task[None] | None, list[Bot]]:
     if not token_map:
         return None, []
@@ -970,6 +987,9 @@ async def _start_polling_group(name: str, dp: Dispatcher, token_map: dict[int, s
     for bot in bots:
         with suppress(Exception):
             await bot.delete_webhook(drop_pending_updates=False)
+    if name == "digital-products":
+        for bot in bots:
+            await _ensure_digital_store_menu_button(bot)
 
     async def _runner() -> None:
         await dp.start_polling(*bots)

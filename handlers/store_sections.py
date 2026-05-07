@@ -2095,6 +2095,43 @@ def _digital_game_order_summary_text(
     return "\n".join(lines)
 
 
+def _digital_game_prefill_confirm_text(
+    lang: str,
+    *,
+    game_name: str,
+    package_name: str,
+    player_id: str,
+    server_id: str,
+    requires_server: bool,
+    price: float,
+    usd_to_syp_rate: float,
+) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        lines = [
+            f"🎮 {game_name or '-'}",
+            f"📦 {package_name or '-'}",
+            f"💰 {_store_price_line(lang, price, usd_to_syp_rate)}",
+        ]
+        if player_id:
+            lines.append(f"👤 Player ID: {player_id}")
+        if requires_server and server_id:
+            lines.append(f"🖥️ Server ID: {server_id}")
+        lines.extend(["", "هل تريد تأكيد الشراء؟"])
+        return "\n".join(lines)
+
+    lines = [
+        f"🎮 {game_name or '-'}",
+        f"📦 {package_name or '-'}",
+        f"💰 {_store_price_line(lang, price, usd_to_syp_rate)}",
+    ]
+    if player_id:
+        lines.append(f"👤 Player ID: {player_id}")
+    if requires_server and server_id:
+        lines.append(f"🖥️ Server ID: {server_id}")
+    lines.extend(["", "Confirm this purchase?"])
+    return "\n".join(lines)
+
+
 def _manual_refund_text(lang: str, *, item_name: str, order_id: str) -> str:
     if str(lang or "").lower().startswith("ar"):
         return f"تعذر تنفيذ طلبك وتمت إعادة المبلغ إلى رصيدك.\nالخدمة: {item_name}\nرقم الطلب: {order_id}"
@@ -4033,13 +4070,16 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
             )
         )
         name = _display_game_item_name(selected, group_key=group_key)
-        server_note = t(lang, "store_server_id_required") if bool(selected.get("requires_server")) else t(lang, "store_server_id_optional")
-        text = (
-            f"{_game_title(lang, game_name)}\n\n"
-            f"{name}\n\n"
-            f"{_store_price_line(lang, price, await _resolve_usd_to_syp_rate((await message.bot.get_me()).id))}\n"
-            f"{server_note}\n\n"
-            f"{t(lang, 'store_press_buy_send_player_id')}"
+        usd_to_syp_rate = await _resolve_usd_to_syp_rate((await message.bot.get_me()).id)
+        text = _digital_game_prefill_confirm_text(
+            lang,
+            game_name=game_name,
+            package_name=name,
+            player_id=player_id,
+            server_id=server_id,
+            requires_server=bool(selected.get("requires_server")),
+            price=price,
+            usd_to_syp_rate=usd_to_syp_rate,
         )
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -4061,6 +4101,34 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
         section = str(selection.get("section") or "").strip().lower()
         if section not in {"balance", "data"}:
             return await message.answer(t(lang, "invalid_order_info"))
+        phone = str(selection.get("phone") or "").strip()
+        country_code = str(selection.get("country_code") or "").strip().upper()
+        brand_key = str(selection.get("brand_key") or "").strip()
+        brand_name = str(selection.get("brand_name") or brand_key or "").strip()
+        offer = dict(selection.get("offer") or {})
+        offer_id = str(offer.get("offerId") or offer.get("id") or "").strip()
+        if phone and len(country_code) == 2 and offer_id:
+            offer["_section_kind"] = section
+            offer["country"] = str(offer.get("country") or country_code).strip().upper()
+            offer["brand"] = str(offer.get("brand") or brand_key or "").strip()
+            offer["brandName"] = str(offer.get("brandName") or brand_name or offer.get("brand") or "").strip()
+            if float(_money_decimal(offer.get("_cost_price_usd") or 0)) <= 0:
+                offer["_cost_price_usd"] = float(_money_decimal(_sim_offer_price_usd(offer)))
+            if float(_money_decimal(offer.get("_sale_price_usd") or 0)) <= 0:
+                offer["_sale_price_usd"] = float(_money_decimal(offer.get("_cost_price_usd") or 0))
+            await state.clear()
+            await state.set_state(SimTopupFlow.confirming_purchase)
+            await state.update_data(
+                sim_section_kind=section,
+                sim_phone=phone,
+                sim_country_code=country_code,
+                sim_brand_key=offer.get("brand") or brand_key,
+                sim_brand_name=offer.get("brandName") or brand_name or offer.get("brand") or "",
+                sim_offers=[offer],
+                sim_selected_offer=offer,
+            )
+            await _hide_reply_keyboard(message, lang)
+            return await message.answer(_sim_offer_summary_text(offer, lang=lang), reply_markup=_sim_summary_keyboard(lang))
         await state.clear()
         await state.set_state(SimTopupFlow.waiting_phone)
         await state.update_data(
@@ -4077,6 +4145,38 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
         return
 
     if kind == "esim":
+        selected_countries = [str(row).strip() for row in list(selection.get("selected_countries") or []) if str(row).strip()]
+        selected_days = _to_int(selection.get("selected_days") or 0)
+        usage_key = str(selection.get("usage_key") or "").strip().lower()
+        offer = dict(selection.get("offer") or {})
+        if selected_countries and selected_days > 0 and usage_key in {"low", "mid", "high"} and offer:
+            if float(_money_decimal(offer.get("_cost_price_usd") or 0)) <= 0:
+                offer["_cost_price_usd"] = float(_money_decimal(offer.get("price_usd") or 0.0))
+            if float(_money_decimal(offer.get("price_usd") or 0)) <= 0:
+                offer["price_usd"] = float(_money_decimal(offer.get("_cost_price_usd") or 0.0))
+            await state.clear()
+            await state.set_state(EsimRouteFlow.confirming_purchase)
+            await state.update_data(
+                esim_selected_countries=selected_countries,
+                esim_selected_mode=str(selection.get("selected_mode") or "single"),
+                esim_selection_mode=str(selection.get("selected_mode") or "single"),
+                esim_selected_days=selected_days,
+                esim_candidate_plans=[],
+                esim_usage_key=usage_key,
+                esim_filtered_offers=[offer],
+                esim_recommended_offer=offer,
+            )
+            summary_lines = [
+                _esim_text(lang, "Recommended eSIM", "أفضل باقة مقترحة"),
+                "",
+                _esim_countries_text(lang, selected_countries),
+                _esim_text(lang, f"Duration: {selected_days} days", f"المدة: {selected_days} يوم"),
+                _esim_text(lang, f"Usage: {esim_usage_label(usage_key, lang=lang)}", f"حجم الاستخدام: {esim_usage_label(usage_key, lang=lang)}"),
+                "",
+                esim_offer_summary(offer, lang=lang),
+            ]
+            await _hide_reply_keyboard(message, lang)
+            return await message.answer("\n".join(summary_lines), reply_markup=_esim_summary_keyboard(lang))
         await state.clear()
         await state.set_state(EsimRouteFlow.choosing_mode)
         await state.update_data(
@@ -4539,14 +4639,15 @@ async def open_g2bulk_game_item(callback: types.CallbackQuery):
             markup_percent=markup_percent,
         )
     )
-    requires_server = bool(found.get("requires_server"))
-    server_note = t(lang, "store_server_id_required") if requires_server else t(lang, "store_server_id_optional")
-    text = (
-        f"{_game_title(lang, game_name)}\n\n"
-        f"{name}\n\n"
-        f"{_store_price_line(lang, price, usd_to_syp_rate)}\n"
-        f"{server_note}\n\n"
-        f"{t(lang, 'store_press_buy_send_player_id')}"
+    text = _digital_game_prefill_confirm_text(
+        lang,
+        game_name=game_name,
+        package_name=name,
+        player_id="",
+        server_id="",
+        requires_server=bool(found.get("requires_server")),
+        price=price,
+        usd_to_syp_rate=usd_to_syp_rate,
     )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
