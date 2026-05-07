@@ -79,6 +79,8 @@ _GAME_GROUP_OVERRIDES: dict[str, dict[str, tuple[str, ...]]] = {
 _INVALID_DISPLAY_NAMES = {"", "-", "null", "none", "n/a", "na", "undefined"}
 _HIDDEN_GAME_VARIANT_IDS = {"valorant", "league_of_legends_instant", "onepunchworld"}
 _CATALOG_PAYLOAD_CACHE: dict[str, Any] = {"ts": 0.0, "data": None, "provider_state": {}}
+_GAME_USAGE_FILE = Path(__file__).resolve().parents[2] / "data" / "game_search_usage.json"
+_GAME_DEFAULT_ORDER = ("pubg", "mobile legends", "free fire", "honor of kings", "new state")
 _REGION_LABEL_MAP: dict[str, str] = {
     "my": "Malaysia",
     "sg": "Singapore",
@@ -219,9 +221,7 @@ def _round_sale_price(value: Any) -> float:
     amount = _money(value)
     if amount <= 0:
         return 0.0
-    rounded = (
-        (Decimal(str(amount)) * Decimal("2")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) / Decimal("2")
-    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    rounded = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return float(rounded)
 
 
@@ -426,6 +426,45 @@ def _natural_key(text: str) -> list[Any]:
             continue
         out.append((0, int(part)) if part.isdigit() else (1, part))
     return out
+
+
+def _load_game_usage() -> dict[str, int]:
+    try:
+        data = json.loads(_GAME_USAGE_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return {str(k): int(v) for k, v in data.items()}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_game_usage(data: dict[str, int]) -> None:
+    try:
+        _GAME_USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _GAME_USAGE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _game_usage_score(name: str | None) -> tuple[int, int, list[Any]]:
+    norm_name = _norm(name)
+    usage = _load_game_usage()
+    count = int(usage.get(norm_name, 0) or 0)
+    bias = 0
+    for idx, key in enumerate(_GAME_DEFAULT_ORDER):
+        if key in norm_name:
+            bias = len(_GAME_DEFAULT_ORDER) - idx
+            break
+    return (-count, -bias, _natural_key(norm_name))
+
+
+def _increment_game_usage(name: str | None) -> None:
+    key = _norm(name)
+    if not key:
+        return
+    usage = _load_game_usage()
+    usage[key] = int(usage.get(key, 0) or 0) + 1
+    _save_game_usage(usage)
 
 
 def _find_game_name(snapshot: dict[str, Any], game_id: str) -> str:
@@ -946,7 +985,7 @@ def _grouped_games(snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], dict
         ordered = list(uniq.values())
         ordered.sort(key=lambda item: _natural_key(str(item.get("name") or "")))
         row["variants"] = ordered
-    games.sort(key=lambda row: (game_group_order.get(str(row.get("group_key")), 9), _natural_key(str(row.get("name") or ""))))
+    games.sort(key=lambda row: (game_group_order.get(str(row.get("group_key")), 9), *_game_usage_score(str(row.get("name") or ""))))
     return games, {gid: sorted(list(ids)) for gid, ids in source_map.items()}
 
 
@@ -1518,6 +1557,16 @@ async def create_selection(request: web.Request) -> web.Response:
     return web.json_response({"token": token}, headers=dict(_NO_STORE_HEADERS))
 
 
+async def record_usage(request: web.Request) -> web.Response:
+    init_data = request.headers.get("X-Telegram-Init-Data", "")
+    if str(init_data or "").strip():
+        _verify_init_data(init_data)
+    body = await request.json()
+    if str(body.get("service") or "").strip() == "games":
+        _increment_game_usage(str(body.get("name") or ""))
+    return web.json_response({"ok": True}, headers=dict(_NO_STORE_HEADERS))
+
+
 async def _cleanup_app(_app: web.Application) -> None:
     await SessionManager.close()
 
@@ -1530,6 +1579,7 @@ def create_app() -> web.Application:
     app.router.add_get("/mini/digital/api/catalog", catalog)
     app.router.add_get("/mini/digital/api/gifts/{category_id}", gift_products)
     app.router.add_get("/mini/digital/api/games/{game_id}", game_items)
+    app.router.add_post("/mini/digital/api/usage", record_usage)
     app.router.add_post("/mini/digital/api/selection", create_selection)
     return app
 

@@ -252,10 +252,7 @@ def _round_sale_price_decimal(value: Any) -> Decimal:
     amount = _to_decimal(value)
     if amount <= 0:
         return Decimal("0.00")
-    return ((amount * Decimal("2")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) / Decimal("2")).quantize(
-        TWOPLACES,
-        rounding=ROUND_HALF_UP,
-    )
+    return amount.quantize(TWOPLACES, rounding=ROUND_HALF_UP)
 
 
 def _apply_markup_decimal(price: Any, markup_percent: Any) -> Decimal:

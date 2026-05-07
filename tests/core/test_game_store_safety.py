@@ -14,10 +14,10 @@ from handlers.store_sections import (
 )
 
 
-def test_apply_markup_decimal_rounds_to_public_half_dollar_step():
-    assert _apply_markup_decimal("10", "2") == Decimal("10.00")
-    assert _apply_markup_decimal("0.87", "2") == Decimal("1.00")
-    assert _apply_markup_decimal("15.37", "0") == Decimal("15.50")
+def test_apply_markup_decimal_preserves_live_cent_price():
+    assert _apply_markup_decimal("10", "2") == Decimal("10.20")
+    assert _apply_markup_decimal("0.87", "2") == Decimal("0.89")
+    assert _apply_markup_decimal("15.37", "0") == Decimal("15.37")
 
 
 def test_provider_status_helpers_are_conservative():

@@ -286,19 +286,19 @@ Object.assign(serviceVisuals, {
 });
 
 const popularNumberServices = [
-  { key: "whatsapp", label: "WhatsApp", hint: "OTP" },
-  { key: "telegram", label: "Telegram", hint: "OTP" },
-  { key: "gmail", label: "Gmail / Google", hint: "OTP" },
-  { key: "anthropic", label: "Claude / Anthropic", hint: "OTP" },
-  { key: "openai", label: "OpenAI / ChatGPT", hint: "OTP" },
-  { key: "discord", label: "Discord", hint: "OTP" },
-  { key: "facebook", label: "Facebook", hint: "OTP" },
-  { key: "instagram", label: "Instagram", hint: "OTP" },
-  { key: "tiktok", label: "TikTok", hint: "OTP" },
-  { key: "amazon", label: "Amazon", hint: "OTP" },
+  { key: "whatsapp", label: "WhatsApp", image_url: "https://cdn.simpleicons.org/whatsapp/25D366" },
+  { key: "telegram", label: "Telegram", image_url: "https://cdn.simpleicons.org/telegram/26A5E4" },
+  { key: "gmail", label: "Gmail / Google", image_url: "https://cdn.simpleicons.org/gmail/EA4335" },
+  { key: "anthropic", label: "Claude / Anthropic", image_url: "https://cdn.simpleicons.org/anthropic/FFFFFF" },
+  { key: "openai", label: "OpenAI / ChatGPT", image_url: "https://cdn.simpleicons.org/openai/FFFFFF" },
+  { key: "discord", label: "Discord", image_url: "https://cdn.simpleicons.org/discord/5865F2" },
+  { key: "facebook", label: "Facebook", image_url: "https://cdn.simpleicons.org/facebook/0866FF" },
+  { key: "instagram", label: "Instagram", image_url: "https://cdn.simpleicons.org/instagram/E4405F" },
+  { key: "tiktok", label: "TikTok", image_url: "https://cdn.simpleicons.org/tiktok/FFFFFF" },
+  { key: "amazon", label: "Amazon", image_url: "https://cdn.simpleicons.org/amazon/FF9900" },
 ];
 
-const CATALOG_CACHE_KEY = "phantom_digital_catalog_v3";
+const CATALOG_CACHE_KEY = "phantom_digital_catalog_v4";
 const CATALOG_CACHE_TTL_MS = 2 * 60 * 1000;
 
 const state = {
@@ -370,13 +370,15 @@ function applyLang() {
 }
 
 function money(value) {
-  return `$${roundSalePrice(value).toFixed(2)}`;
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return "$0.00";
+  return `$${amount.toFixed(2)}`;
 }
 
 function roundSalePrice(value) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount) || amount <= 0) return 0;
-  return Math.round(amount * 2) / 2;
+  return Math.round(amount * 100) / 100;
 }
 
 function label(obj) {
@@ -486,6 +488,16 @@ function friendlyApiError(error) {
     return t("temporaryProblem");
   }
   return raw || t("temporaryProblem");
+}
+
+function recordUsage(category) {
+  const name = String(category?.name || "").trim();
+  if (!name || !tg?.initData) return;
+  api("/mini/digital/api/usage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, service: state.service || "" }),
+  }).catch(() => {});
 }
 
 function setSearchPlaceholder() {
@@ -680,17 +692,16 @@ function itemRow(item) {
   const dynamicGiftPrice = item.kind === "gift" && Boolean(item.requires_quantity_input);
   const priceText = dynamicGiftPrice ? t("priceByQuantity") : money(item.price_usd);
 
-  const priceDiv = document.createElement("div");
-  priceDiv.className = "item-price-top";
-  const priceStat = stat(t("price"), priceText, "price-stat");
-  priceDiv.append(priceStat);
-  row.append(priceDiv);
-
   const content = document.createElement("div");
   content.className = "item-content";
   const title = document.createElement("strong");
   title.textContent = String(item.name || "-");
   content.append(title);
+
+  const price = document.createElement("span");
+  price.className = "item-price-line";
+  price.textContent = priceText;
+  content.append(price);
 
   if (dynamicGiftPrice) {
     const minQty = Number(item.za3em_qty_min || 1);
@@ -1160,7 +1171,11 @@ async function renderCategories() {
           variants: Array.isArray(row1.variants) ? row1.variants : [],
           offer_mode: String(row1.offer_mode || "all"),
         }),
-        { imageUrl: isGameService ? String(row1.image_url || "") : "", forceMedia: isGameService, showMeta: false }
+        {
+          imageUrl: ["games", "store_cards"].includes(state.service) ? String(row1.image_url || "") : "",
+          forceMedia: ["games", "store_cards"].includes(state.service),
+          showMeta: false,
+        }
       )
     );
     if (row2) {
@@ -1176,7 +1191,11 @@ async function renderCategories() {
             variants: Array.isArray(row2.variants) ? row2.variants : [],
             offer_mode: String(row2.offer_mode || "all"),
           }),
-          { imageUrl: isGameService ? String(row2.image_url || "") : "", forceMedia: isGameService, showMeta: false }
+          {
+            imageUrl: ["games", "store_cards"].includes(state.service) ? String(row2.image_url || "") : "",
+            forceMedia: ["games", "store_cards"].includes(state.service),
+            showMeta: false,
+          }
         )
       );
     }
@@ -1297,6 +1316,7 @@ function segment(items, active, onChange) {
 }
 
 async function openItems(category) {
+  recordUsage(category);
   clear();
   setStatus(t("loading"));
   if (category.entry_kind === "group" && Array.isArray(category.variants) && category.variants.length > 0) {
@@ -1459,14 +1479,18 @@ function renderNumbersServices() {
   content.append(intro);
 
   const grid = document.createElement("section");
-  grid.className = "dept-grid";
+  grid.className = "category-list";
   for (const service of popularNumberServices) {
     grid.append(
-      card(service.label, service.hint, () =>
-        createServiceSelection("numbers_services", {
-          service_key: service.key,
-          service_label: service.label,
-        })
+      listTile(
+        service.label,
+        "",
+        () =>
+          createServiceSelection("numbers_services", {
+            service_key: service.key,
+            service_label: service.label,
+          }),
+        { imageUrl: service.image_url || "", forceMedia: true, showMeta: false }
       )
     );
   }
