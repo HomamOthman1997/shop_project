@@ -298,6 +298,9 @@ const popularNumberServices = [
   { key: "amazon", label: "Amazon", hint: "OTP" },
 ];
 
+const CATALOG_CACHE_KEY = "phantom_digital_catalog_v3";
+const CATALOG_CACHE_TTL_MS = 2 * 60 * 1000;
+
 const state = {
   lang: detectLang(),
   catalog: null,
@@ -385,6 +388,46 @@ function label(obj) {
 function setStatus(text, error = false) {
   statusEl.textContent = text || "";
   statusEl.classList.toggle("error", Boolean(error));
+}
+
+function readCachedCatalog() {
+  try {
+    const raw = sessionStorage.getItem(CATALOG_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const ts = Number(parsed?.ts || 0);
+    if (!ts || Date.now() - ts > CATALOG_CACHE_TTL_MS) return null;
+    if (!parsed?.catalog || typeof parsed.catalog !== "object") return null;
+    return parsed.catalog;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function writeCachedCatalog(catalog) {
+  try {
+    sessionStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify({ ts: Date.now(), catalog }));
+  } catch (_err) {
+    // Telegram WebView storage can be restricted; the store still works without cache.
+  }
+}
+
+function renderLoadingSkeleton() {
+  clear();
+  setStatus(t("loading"));
+  const grid = document.createElement("section");
+  grid.className = "dept-grid skeleton-grid";
+  for (let i = 0; i < 4; i += 1) {
+    const tile = document.createElement("div");
+    tile.className = "dept-tile skeleton-tile";
+    const icon = document.createElement("span");
+    icon.className = "skeleton-block skeleton-icon";
+    const line = document.createElement("span");
+    line.className = "skeleton-block skeleton-line";
+    tile.append(icon, line);
+    grid.append(tile);
+  }
+  content.append(grid);
 }
 
 function normalizeSearchText(value) {
@@ -1662,11 +1705,21 @@ async function createSelection(item) {
 }
 
 async function loadCatalog() {
-  clear();
-  setStatus(t("loading"));
+  const cached = readCachedCatalog();
+  if (!state.catalog && cached?.enabled) {
+    state.catalog = cached;
+    renderServices();
+  } else if (!state.catalog) {
+    renderLoadingSkeleton();
+  } else {
+    setStatus(t("loading"));
+  }
   try {
-    state.catalog = await api("/mini/digital/api/catalog");
+    const catalog = await api("/mini/digital/api/catalog");
+    state.catalog = catalog;
+    writeCachedCatalog(catalog);
     if (!state.catalog.enabled) {
+      clear();
       setStatus(t("unavailable"), true);
       return;
     }
