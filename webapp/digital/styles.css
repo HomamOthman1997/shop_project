@@ -54,7 +54,7 @@ body.modal-open {
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0 auto;
-  padding: 20px 16px 24px;
+  padding: 20px 16px 84px;
 }
 
 .welcome-banner {
@@ -367,7 +367,7 @@ input:focus {
 .category-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
   align-items: start;
 }
 
@@ -399,7 +399,7 @@ input:focus {
 }
 
 .tile-media {
-  min-height: 224px;
+  min-height: 154px;
   position: relative;
   overflow: hidden;
   align-content: end;
@@ -454,11 +454,14 @@ input:focus {
 }
 
 .tile-media-overlay {
-  position: relative;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 1;
   display: grid;
   align-self: end;
-  padding: 14px 12px 12px;
+  padding: 30px 12px 10px;
   background: linear-gradient(180deg, rgba(8, 12, 22, 0) 0%, rgba(8, 12, 22, 0.72) 46%, rgba(8, 12, 22, 0.96) 100%);
 }
 
@@ -487,10 +490,11 @@ input:focus {
 }
 
 .tile-media .tile-chevron {
-  position: relative;
+  position: absolute;
   z-index: 1;
-  align-self: start;
-  margin: 12px 12px 0 0;
+  top: 10px;
+  right: 12px;
+  margin: 0;
   color: rgba(255, 255, 255, 0.92);
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
@@ -779,6 +783,21 @@ input:focus {
   justify-self: start;
 }
 
+.bottom-back {
+  position: fixed;
+  left: max(12px, calc((100vw - 460px) / 2 + 16px));
+  right: max(12px, calc((100vw - 460px) / 2 + 16px));
+  bottom: 10px;
+  z-index: 20;
+  justify-self: stretch;
+  width: auto;
+  min-height: 48px;
+  background: rgba(21, 28, 44, 0.96);
+  border-color: rgba(122, 115, 255, 0.32);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(10px);
+}
+
 [dir="rtl"] .welcome-banner,
 [dir="rtl"] .topbar,
 [dir="rtl"] .content,
@@ -792,14 +811,31 @@ input:focus {
 }
 
 @media (max-width: 380px) {
-  .dept-grid,
-  .category-list,
-  .items-grid {
+  .dept-grid {
     grid-template-columns: 1fr;
   }
 
+  .category-list,
+  .items-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
   .shell {
-    padding: 14px 10px 20px;
+    padding: 14px 10px 82px;
+  }
+
+  .tile {
+    padding: 10px;
+  }
+
+  .tile-media {
+    min-height: 136px;
+  }
+
+  .tile strong,
+  .item strong {
+    font-size: 14px;
   }
 
   .details {

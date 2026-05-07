@@ -1077,13 +1077,12 @@ async function renderCategories() {
   state.view = "categories";
   state.variantParent = null;
   setSearchPlaceholder();
-  content.append(button("back-btn", t("back"), renderServices));
+  content.append(button("back-btn bottom-back", t("back"), renderServices));
   const serviceLabel = label(serviceRows().find((row) => row.key === state.service)?.label || serviceLabelFallback[state.service]);
   content.append(heading(serviceLabel));
 
   const rows = filteredCategories();
   setStatus(rows.length ? "" : t("noResults"));
-  content.append(contextCard(t("availableNow"), serviceLabel, `${rows.length} ${rows.length === 1 ? t("offerWord") : t("offersWord")}`));
   if (!rows.length) {
     content.append(emptyState(t("noResults"), t("refineSearch")));
     return;
@@ -1140,7 +1139,7 @@ function renderVariantCategories(parent) {
   state.variantParent = parent;
   setSearchPlaceholder();
   content.append(
-    button("back-btn", t("back"), () => {
+    button("back-btn bottom-back", t("back"), () => {
       state.variantParent = null;
       renderCategories();
     })
@@ -1347,7 +1346,7 @@ function renderItems() {
   clear();
   setSearchPlaceholder();
   content.append(
-    button("back-btn", t("back"), () => {
+    button("back-btn bottom-back", t("back"), () => {
       if (state.variantParent) {
         renderVariantCategories(state.variantParent);
         return;
@@ -1358,7 +1357,6 @@ function renderItems() {
   content.append(heading(`${t("offers")} • ${state.selectedName}`));
   const rows = filteredItems();
   setStatus(rows.length ? "" : t("noProducts"));
-  content.append(contextCard(t("offers"), state.selectedName, `${rows.length} ${rows.length === 1 ? t("offerWord") : t("offersWord")}`));
   if (!rows.length) {
     content.append(emptyState(t("noProducts"), t("refineSearch")));
     return;
@@ -1382,7 +1380,7 @@ function renderSimKinds() {
   state.view = "simkind";
   setSearchPlaceholder();
   setStatus("");
-  content.append(button("back-btn", t("back"), renderServices));
+  content.append(button("back-btn bottom-back", t("back"), renderServices));
   content.append(heading(t("simKindTitle")));
   const grid = document.createElement("section");
   grid.className = "dept-grid";
@@ -1397,7 +1395,7 @@ function renderNumbersServices() {
   state.view = "numbers";
   setSearchPlaceholder();
   setStatus("");
-  content.append(button("back-btn", t("back"), renderServices));
+  content.append(button("back-btn bottom-back", t("back"), renderServices));
   content.append(heading(t("numbersKindTitle")));
 
   const intro = document.createElement("p");
