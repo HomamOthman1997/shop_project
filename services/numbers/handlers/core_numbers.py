@@ -60,6 +60,7 @@ _COUNTRY_ISO = {
 _VALID_COUNTRY_CODES = set(_COUNTRY_ISO.keys())
 _INLINE_SERVICE_QUERY_PREFIX = "query:"
 _QUICK_COUNTRY_PREFIX = "flow:quickcountry:"
+_DIGITAL_COUNTRY_PREFIX = "flow:digitalcountry:"
 _QUICK_COUNTRY_SEARCH_CALLBACK = "flow:quickcountry:search"
 _CHEAP_COUNTRY_CACHE_TTL_SEC = 300
 _CHEAP_COUNTRY_CACHE: dict[str, tuple[float, list[dict[str, object]]]] = {}
@@ -357,7 +358,12 @@ async def _cheap_country_options_for_service(service_key: str, limit: int = 10) 
     return list(selected)
 
 
-def _quick_country_keyboard(lang: str, options: list[dict[str, object]]) -> InlineKeyboardMarkup:
+def _quick_country_keyboard(
+    lang: str,
+    options: list[dict[str, object]],
+    *,
+    callback_prefix: str = _QUICK_COUNTRY_PREFIX,
+) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for idx in range(0, len(options), 2):
         chunk = options[idx : idx + 2]
@@ -374,7 +380,7 @@ def _quick_country_keyboard(lang: str, options: list[dict[str, object]]) -> Inli
                 price_val = 0.0
             if price_val > 0:
                 label = f"{label} | {format_usd(price_val)}"
-            button_row.append(InlineKeyboardButton(text=label, callback_data=f"{_QUICK_COUNTRY_PREFIX}{code}"))
+            button_row.append(InlineKeyboardButton(text=label, callback_data=f"{callback_prefix}{code}"))
         if button_row:
             rows.append(button_row)
     rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:entry_back")])
@@ -453,7 +459,7 @@ async def render_preselected_temp_service_countries(
     await state.update_data(last_msg_id=getattr(sent, "message_id", None))
     priced = await _cheap_country_options_for_service(service_key, limit=len(_preferred_country_options()))
     options = priced or _preferred_country_options()
-    await _safe_edit_text(sent, text, reply_markup=_quick_country_keyboard(lang, options))
+    await _safe_edit_text(sent, text, reply_markup=_quick_country_keyboard(lang, options, callback_prefix=_DIGITAL_COUNTRY_PREFIX))
     await state.set_state(NumberFlow.country)
 
 
@@ -982,6 +988,21 @@ async def choose_quick_country(callback: types.CallbackQuery, state: FSMContext)
     await _safe_edit_text(callback.message, text, reply_markup=service_kb(lang, country_code=country_code), parse_mode="HTML")
     await state.set_state(NumberFlow.service)
     await _safe_callback_answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith(_DIGITAL_COUNTRY_PREFIX))
+async def choose_digital_country(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "en")
+    country_code = str(callback.data or "").replace(_DIGITAL_COUNTRY_PREFIX, "", 1).strip()
+    if country_code not in _VALID_COUNTRY_CODES:
+        return await _safe_callback_answer(_numbers_text(lang, "Invalid country.", "الدولة غير صالحة."), show_alert=True)
+    preselected_service = str(data.get("service") or "").strip()
+    if not preselected_service:
+        return await _safe_callback_answer(_numbers_text(lang, "Invalid service.", "الخدمة غير صالحة."), show_alert=True)
+    await _safe_callback_answer()
+    await state.update_data(country=country_code, state="none", numbers_preselected_service=False)
+    await _load_service_prices(callback.message.chat.id, callback.message.bot, state, preselected_service)
 
 
 @router.message(
