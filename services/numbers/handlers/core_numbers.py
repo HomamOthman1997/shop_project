@@ -372,7 +372,15 @@ def _quick_country_keyboard(
     callback_prefix: str = _QUICK_COUNTRY_PREFIX,
     digital_mode: bool = False,
 ) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text=t(lang, "inline_any_country"),
+                callback_data=f"{callback_prefix}none",
+                style="success",
+            )
+        ]
+    ]
     for idx in range(0, len(options), 2):
         chunk = options[idx : idx + 2]
         button_row: list[InlineKeyboardButton] = []
@@ -450,6 +458,16 @@ def _country_search_keyboard(lang: str, matches: list[dict[str, str]]) -> Inline
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _us_state_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "no_state"), callback_data="flow:state:any", style="success")],
+            [InlineKeyboardButton(text=t(lang, "search_state_prompt"), switch_inline_query_current_chat="state ", style="primary")],
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:back")],
+        ]
+    )
+
+
 async def render_preselected_temp_service_countries(
     message: types.Message,
     state: FSMContext,
@@ -463,14 +481,9 @@ async def render_preselected_temp_service_countries(
         _numbers_text(lang, "Choose country.", "اختر الدولة."),
         [f"{t(lang, 'service_label')}: {label}"] if label else [],
     )
-    loading_text = _compose_numbers_screen(
-        _numbers_text(lang, "Loading countries...", "جاري تجهيز قائمة الدول..."),
-        [f"{t(lang, 'service_label')}: {label}"] if label else [],
-    )
-    sent = await message.answer(loading_text)
+    sent = await message.answer(text)
     await state.update_data(last_msg_id=getattr(sent, "message_id", None))
-    priced = await _cheap_country_options_for_service(service_key, limit=10)
-    options = priced or _preferred_country_options()[:10]
+    options = _preferred_country_options()[:10]
     await _safe_edit_text(
         sent,
         text,
@@ -588,25 +601,7 @@ async def _show_country_entry_for_selected_service(
     last_msg_id: int | None,
 ) -> None:
     await state.update_data(service=service_key, country=None, state=None)
-    if str(num_type or "").strip().lower() == "rental":
-        options = _preferred_country_options()
-    else:
-        if last_msg_id:
-            try:
-                await bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=last_msg_id,
-                    text=_compose_numbers_screen(
-                        _numbers_text(lang, "Loading countries...", "جاري تجهيز قائمة الدول..."),
-                        _numbers_context_lines(lang, service=service_key),
-                    ),
-                    reply_markup=None,
-                )
-            except Exception:
-                pass
-        options = await _cheap_country_options_for_service(service_key, limit=10)
-        if not options:
-            options = _preferred_country_options()[:10]
+    options = _preferred_country_options()[:10]
     text = _compose_numbers_screen(
         t(lang, "choose_country_or_search"),
         _numbers_context_lines(lang, service=service_key),
@@ -1063,10 +1058,20 @@ async def choose_quick_country(callback: types.CallbackQuery, state: FSMContext)
     data = await state.get_data()
     lang = data.get("lang", "en")
     country_code = str(callback.data or "").replace(_QUICK_COUNTRY_PREFIX, "", 1).strip()
-    if country_code not in _VALID_COUNTRY_CODES:
+    if country_code.lower() in {"any", "all", "*", "0"}:
+        country_code = "none"
+    if country_code != "none" and country_code not in _VALID_COUNTRY_CODES:
         return await _safe_callback_answer(_numbers_text(lang, "Invalid country.", "الدولة غير صالحة."), show_alert=True)
     await state.update_data(country=country_code, state="none")
     preselected_service = str(data.get("service") or "").strip()
+    if country_code == "1" and str(data.get("num_type", "temp")).strip().lower() != "rental":
+        text = _compose_numbers_screen(
+            _us_state_prompt(lang),
+            _numbers_context_lines(lang, country_code=country_code),
+        )
+        await _safe_edit_text(callback.message, text, reply_markup=_us_state_keyboard(lang), parse_mode="HTML")
+        await state.set_state(NumberFlow.state)
+        return await _safe_callback_answer()
     if preselected_service and bool(data.get("numbers_preselected_service")):
         await state.update_data(numbers_preselected_service=False)
         await _load_service_prices(callback.message.chat.id, callback.message.bot, state, preselected_service)
@@ -1088,13 +1093,23 @@ async def choose_digital_country(callback: types.CallbackQuery, state: FSMContex
     data = await state.get_data()
     lang = data.get("lang", "en")
     country_code = str(callback.data or "").replace(_DIGITAL_COUNTRY_PREFIX, "", 1).strip()
-    if country_code not in _VALID_COUNTRY_CODES:
+    if country_code.lower() in {"any", "all", "*", "0"}:
+        country_code = "none"
+    if country_code != "none" and country_code not in _VALID_COUNTRY_CODES:
         return await _safe_callback_answer(_numbers_text(lang, "Invalid country.", "الدولة غير صالحة."), show_alert=True)
     preselected_service = str(data.get("service") or "").strip()
     if not preselected_service:
         return await _safe_callback_answer(_numbers_text(lang, "Invalid service.", "الخدمة غير صالحة."), show_alert=True)
     await _safe_callback_answer()
     await state.update_data(country=country_code, state="none", numbers_preselected_service=False)
+    if country_code == "1":
+        text = _compose_numbers_screen(
+            _us_state_prompt(lang),
+            _numbers_context_lines(lang, country_code=country_code),
+        )
+        await _safe_edit_text(callback.message, text, reply_markup=_us_state_keyboard(lang), parse_mode="HTML")
+        await state.set_state(NumberFlow.state)
+        return
     await _load_service_prices(callback.message.chat.id, callback.message.bot, state, preselected_service)
 
 
@@ -1146,12 +1161,7 @@ async def handle_inline_country_selection(message: types.Message, state: FSMCont
             _us_state_prompt(lang),
             _numbers_context_lines(lang, country_code=country_code),
         )
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text=t(lang, "search_state_prompt"), switch_inline_query_current_chat="state ", style="primary")],
-                [InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:back")],
-            ]
-        )
+        kb = _us_state_keyboard(lang)
         next_state = NumberFlow.state
     else:
         await state.update_data(state="none")

@@ -971,6 +971,15 @@ def test_service_keyboard_search_stays_above_back_to_countries(monkeypatch):
     assert rows[-2][0].callback_data == "flow:country:back"
 
 
+def test_quick_country_keyboard_starts_with_any_country():
+    from services.numbers.handlers.core_numbers import _quick_country_keyboard
+
+    kb = _quick_country_keyboard("en", [{"code": "1", "name": "United States"}])
+
+    assert kb.inline_keyboard[0][0].callback_data == "flow:quickcountry:none"
+    assert "Country" in kb.inline_keyboard[0][0].text
+
+
 def test_rental_options_keyboard_per_provider_list():
     from services.numbers.keyboards.core_numbers_kb import rental_options_kb
 
