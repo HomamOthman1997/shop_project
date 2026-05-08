@@ -322,6 +322,127 @@ const popularNumberServices = [
   { key: "amazon", label: "Amazon", image_url: "https://cdn.simpleicons.org/amazon/FF9900" },
 ];
 
+Object.assign(copy.ar, {
+  title: "\u0645\u062a\u062c\u0631 \u0641\u0627\u0646\u062a\u0648\u0645 \u0627\u0644\u0631\u0642\u0645\u064a",
+  refresh: "\u062a\u062d\u062f\u064a\u062b",
+  switchLang: "EN",
+  search: "\u0628\u062d\u062b",
+  loading: "\u062c\u0627\u0631\u064a \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0645\u062a\u062c\u0631...",
+  unavailable: "\u0627\u0644\u0645\u062a\u062c\u0631 \u0627\u0644\u0631\u0642\u0645\u064a \u063a\u064a\u0631 \u0645\u062a\u0627\u062d \u062d\u0627\u0644\u064a\u0627.",
+  noResults: "\u0644\u0627 \u062a\u0648\u062c\u062f \u0646\u062a\u0627\u0626\u062c.",
+  noProducts: "\u0644\u0627 \u062a\u0648\u062c\u062f \u0639\u0631\u0648\u0636.",
+  sections: "\u0627\u0644\u0623\u0642\u0633\u0627\u0645",
+  categories: "\u0627\u0644\u0641\u0626\u0627\u062a",
+  offers: "\u0627\u0644\u0639\u0631\u0648\u0636",
+  products: "\u0639\u0631\u0648\u0636",
+  packages: "\u0628\u0627\u0642\u0627\u062a",
+  unavailableShort: "\u063a\u064a\u0631 \u0645\u062a\u0627\u062d",
+  price: "\u0627\u0644\u0633\u0639\u0631",
+  stock: "\u0627\u0644\u0645\u062e\u0632\u0648\u0646",
+  inStock: "\u0645\u062a\u0648\u0641\u0631",
+  out: "\u063a\u064a\u0631 \u0645\u062a\u0648\u0641\u0631",
+  continue: "\u0645\u062a\u0627\u0628\u0639\u0629",
+  back: "\u0631\u062c\u0648\u0639",
+  serverRequired: "\u064a\u062a\u0637\u0644\u0628 Server ID",
+  serverOptional: "Player ID \u0641\u0642\u0637",
+  selectionFailed: "\u0641\u0634\u0644 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0627\u062e\u062a\u064a\u0627\u0631",
+  openTelegram: "\u0627\u0641\u062a\u062d \u0627\u0644\u0635\u0641\u062d\u0629 \u0645\u0646 \u0632\u0631 \u0627\u0644\u0628\u0648\u062a \u062f\u0627\u062e\u0644 \u062a\u064a\u0644\u064a\u063a\u0631\u0627\u0645.",
+  loadFailed: "\u0641\u0634\u0644 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0645\u062a\u062c\u0631",
+  productLoadFailed: "\u0641\u0634\u0644 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0639\u0631\u0648\u0636",
+  simKindTitle: "\u0627\u0644\u0627\u062a\u0635\u0627\u0644\u0627\u062a \u0648\u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a",
+  simBalance: "\u0634\u062d\u0646 \u0631\u0635\u064a\u062f",
+  simData: "\u0628\u0627\u0642\u0627\u062a \u0628\u064a\u0627\u0646\u0627\u062a",
+  esimDirect: "eSIM",
+  simChooseCountry: "\u0627\u062e\u062a\u0631 \u0627\u0644\u062f\u0648\u0644\u0629",
+  simChooseOffer: "\u0627\u062e\u062a\u0631 \u0627\u0644\u0628\u0627\u0642\u0629",
+  simEnterPhone: "\u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062a\u0641",
+  invalidPhone: "\u0623\u062f\u062e\u0644 \u0631\u0642\u0645 \u0647\u0627\u062a\u0641 \u0635\u062d\u064a\u062d.",
+  esimChooseCountry: "\u0627\u062e\u062a\u0631 \u062f\u0648\u0644\u0629 eSIM",
+  esimChooseDays: "\u0627\u062e\u062a\u0631 \u0627\u0644\u0645\u062f\u0629",
+  esimChooseUsage: "\u0627\u062e\u062a\u0631 \u062d\u062c\u0645 \u0627\u0644\u0627\u0633\u062a\u062e\u062f\u0627\u0645",
+  esimChooseOffer: "\u0627\u062e\u062a\u0631 \u0628\u0627\u0642\u0629 eSIM",
+  usageLow: "\u0623\u0642\u0644 \u0645\u0646 5 GB",
+  usageMid: "\u0645\u0646 5 \u0625\u0644\u0649 10 GB",
+  usageHigh: "\u0623\u0643\u062b\u0631 \u0645\u0646 10 GB",
+  numbersKindTitle: "\u062e\u062f\u0645\u0627\u062a \u0627\u0644\u0623\u0631\u0642\u0627\u0645",
+  numbersKindHint: "\u0627\u062e\u062a\u0631 \u062e\u062f\u0645\u0629 \u0645\u0637\u0644\u0648\u0628\u0629\u060c \u062b\u0645 \u0623\u0643\u0645\u0644 \u062f\u0627\u062e\u0644 \u0627\u0644\u0628\u0648\u062a \u0644\u0627\u062e\u062a\u064a\u0627\u0631 \u0627\u0644\u062f\u0648\u0644\u0629 \u0648\u0627\u0644\u0633\u0639\u0631.",
+  numbersMore: "\u0643\u0644 \u062e\u062f\u0645\u0627\u062a \u0627\u0644\u0623\u0631\u0642\u0627\u0645",
+  numbersMoreHint: "\u0641\u062a\u062d \u0627\u0644\u0645\u0633\u0627\u0631 \u0627\u0644\u0643\u0627\u0645\u0644 \u062f\u0627\u062e\u0644 \u0627\u0644\u0628\u0648\u062a.",
+  pickCountry: "\u0627\u062e\u062a\u0631 \u0627\u0644\u062f\u0648\u0644\u0629/\u0627\u0644\u0645\u0646\u0637\u0642\u0629",
+  regions: "\u0645\u0646\u0627\u0637\u0642",
+  region: "\u0645\u0646\u0637\u0642\u0629",
+  optionsWord: "\u062e\u064a\u0627\u0631\u0627\u062a",
+  optionWord: "\u062e\u064a\u0627\u0631",
+  offerWord: "\u0639\u0631\u0636",
+  offersWord: "\u0639\u0631\u0648\u0636",
+  searchGames: "\u0627\u0628\u062d\u062b \u0639\u0646 \u0644\u0639\u0628\u0629",
+  searchSections: "\u0627\u0628\u062d\u062b \u0641\u064a \u0627\u0644\u0623\u0642\u0633\u0627\u0645",
+  searchCategories: "\u0627\u0628\u062d\u062b \u0641\u064a \u0627\u0644\u0641\u0626\u0627\u062a",
+  searchOptions: "\u0627\u0628\u062d\u062b \u0641\u064a \u0627\u0644\u062e\u064a\u0627\u0631\u0627\u062a",
+  searchOffers: "\u0627\u0628\u062d\u062b \u0641\u064a \u0627\u0644\u0639\u0631\u0648\u0636",
+  browseHint: "\u062a\u0635\u0641\u062d \u0627\u0644\u0646\u062a\u0627\u0626\u062c \u0627\u0644\u0645\u062a\u0627\u062d\u0629 \u0628\u0627\u0644\u0623\u0633\u0641\u0644.",
+  refineSearch: "\u062c\u0631\u0628 \u0643\u0644\u0645\u0629 \u0628\u062d\u062b \u0645\u062e\u062a\u0644\u0641\u0629.",
+  availableNow: "\u0645\u062a\u0627\u062d \u0627\u0644\u0622\u0646",
+  temporaryProblem: "\u0627\u0644\u062e\u062f\u0645\u0629 \u063a\u064a\u0631 \u0645\u062a\u0627\u062d\u0629 \u062d\u0627\u0644\u064a\u0627. \u062c\u0631\u0628 \u0628\u0639\u062f \u0642\u0644\u064a\u0644.",
+  selectionUnavailable: "\u0647\u0630\u0627 \u0627\u0644\u0639\u0631\u0636 \u0644\u0645 \u064a\u0639\u062f \u0645\u062a\u0627\u062d\u0627. \u062d\u062f\u062b \u0627\u0644\u0645\u062a\u062c\u0631 \u0648\u062c\u0631\u0628 \u0645\u0631\u0629 \u0623\u062e\u0631\u0649.",
+});
+
+Object.assign(extraCopy.ar, {
+  all: "\u0627\u0644\u0643\u0644",
+  quantity: "\u0627\u0644\u0643\u0645\u064a\u0629",
+  required: "\u0645\u0637\u0644\u0648\u0628",
+  optional: "\u0627\u062e\u062a\u064a\u0627\u0631\u064a",
+  close: "\u0625\u063a\u0644\u0627\u0642",
+  continueWithData: "\u0645\u062a\u0627\u0628\u0639\u0629",
+  invalidQuantity: "\u0627\u0644\u0643\u0645\u064a\u0629 \u063a\u064a\u0631 \u0635\u062d\u064a\u062d\u0629.",
+  missingRequiredField: "\u0647\u0646\u0627\u0643 \u062d\u0642\u0644 \u0645\u0637\u0644\u0648\u0628.",
+  gamePurchaseData: "\u0623\u062f\u062e\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0634\u0631\u0627\u0621 \u0644\u0644\u0639\u0628\u0629",
+  giftPurchaseData: "\u0623\u062f\u062e\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0634\u0631\u0627\u0621",
+  priceByQuantity: "\u062d\u0633\u0628 \u0627\u0644\u0643\u0645\u064a\u0629",
+  creditsRange: "\u0645\u062f\u0649 \u0627\u0644\u0643\u0631\u064a\u062f\u062a",
+  pickOption: "\u0627\u062e\u062a\u0631 \u0627\u0644\u0646\u0648\u0639",
+});
+
+Object.assign(serviceLabelFallback, {
+  games: { en: "Games", ar: "\u0627\u0644\u0623\u0644\u0639\u0627\u0628" },
+  chat_apps: { en: "Chat Apps", ar: "\u062a\u0637\u0628\u064a\u0642\u0627\u062a \u0627\u0644\u062f\u0631\u062f\u0634\u0629" },
+  social_services: { en: "Social Growth", ar: "\u062e\u062f\u0645\u0627\u062a \u0627\u0644\u062a\u0648\u0627\u0635\u0644" },
+  communications_data: { en: "Telecom & Data", ar: "\u0627\u062a\u0635\u0627\u0644\u0627\u062a \u0648\u0628\u064a\u0627\u0646\u0627\u062a" },
+  internet_providers: { en: "Internet", ar: "\u0627\u0644\u0625\u0646\u062a\u0631\u0646\u062a" },
+  paid_apps: { en: "Paid Apps", ar: "\u062a\u0637\u0628\u064a\u0642\u0627\u062a \u0645\u062f\u0641\u0648\u0639\u0629" },
+  numbers_services: { en: "Numbers", ar: "\u062e\u062f\u0645\u0627\u062a \u0627\u0644\u0623\u0631\u0642\u0627\u0645" },
+  paid_subscriptions: { en: "Subscriptions", ar: "\u0627\u0634\u062a\u0631\u0627\u0643\u0627\u062a" },
+  store_cards: { en: "Store Cards", ar: "\u0628\u0637\u0627\u0642\u0627\u062a \u0627\u0644\u0645\u062a\u0627\u062c\u0631" },
+});
+
+Object.assign(serviceVisuals, {
+  games: { icon: "GAME", tone: "tone-games" },
+  chat_apps: { icon: "CHAT", tone: "tone-chat" },
+  social_services: { icon: "SOCIAL", tone: "tone-social" },
+  communications_data: { icon: "SIM", tone: "tone-comms" },
+  internet_providers: { icon: "NET", tone: "tone-net" },
+  paid_apps: { icon: "APP", tone: "tone-tools" },
+  numbers_services: { icon: "123", tone: "tone-numbers" },
+  paid_subscriptions: { icon: "SUB", tone: "tone-subs" },
+  store_cards: { icon: "CARD", tone: "tone-store" },
+});
+
+function iconSvg(kind) {
+  const common = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+  const icons = {
+    GAME: `<svg ${common}><path d="M6 11h4l1.4 2.2h1.2L14 11h4"/><path d="M6.5 7.5h11A3.5 3.5 0 0 1 21 11v4.2a2.3 2.3 0 0 1-4 1.6l-1.2-1.3H8.2L7 16.8a2.3 2.3 0 0 1-4-1.6V11a3.5 3.5 0 0 1 3.5-3.5Z"/><path d="M7.5 11.5v3"/><path d="M6 13h3"/><path d="M16.5 12h.01"/><path d="M18.5 14h.01"/></svg>`,
+    CHAT: `<svg ${common}><path d="M21 11.5a7.5 7.5 0 0 1-8 7.45 8.6 8.6 0 0 1-3.4-.95L3 20l2-5.3A7.4 7.4 0 0 1 4.5 11.5a7.5 7.5 0 0 1 16.5 0Z"/><path d="M8 11h8"/><path d="M8 14h5"/></svg>`,
+    SOCIAL: `<svg ${common}><path d="M4 18V9"/><path d="M10 18V6"/><path d="M16 18v-4"/><path d="M22 18H2"/><path d="m15 8 3-3 3 3"/><path d="M18 5v8"/></svg>`,
+    SIM: `<svg ${common}><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M9 7h6"/><path d="M8 15h8"/><path d="M8 18h5"/><path d="M8.5 11.5h.01"/><path d="M12 11.5h.01"/><path d="M15.5 11.5h.01"/></svg>`,
+    NET: `<svg ${common}><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.4 2.5 3.6 5.5 3.6 9S14.4 18.5 12 21"/><path d="M12 3C9.6 5.5 8.4 8.5 8.4 12S9.6 18.5 12 21"/></svg>`,
+    APP: `<svg ${common}><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><path d="M16.5 13v7"/><path d="M13 16.5h7"/></svg>`,
+    "123": `<svg ${common}><path d="M5 8h3v8"/><path d="M4 16h5"/><path d="M11 9.5A2.5 2.5 0 0 1 15.5 11c0 2.5-4.5 2.5-4.5 5h5"/><path d="M18 9h2.5l-1.8 2.4A2.2 2.2 0 1 1 17.8 15"/></svg>`,
+    SUB: `<svg ${common}><path d="M12 3 14.7 8.5 21 9.4 16.5 13.8 17.6 20 12 17.1 6.4 20 7.5 13.8 3 9.4 9.3 8.5 12 3Z"/></svg>`,
+    CARD: `<svg ${common}><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18"/><path d="M7 15h4"/><path d="M15 15h2"/></svg>`,
+  };
+  return icons[kind] || "";
+}
+
 const CATALOG_CACHE_KEY = "phantom_digital_catalog_v4";
 const CATALOG_CACHE_TTL_MS = 2 * 60 * 1000;
 
@@ -659,7 +780,12 @@ function card(title, meta, onClick, disabled = false, opts = {}) {
   if (icon) {
     const ico = document.createElement("span");
     ico.className = "dept-icon";
-    ico.textContent = icon;
+    const svg = iconSvg(icon);
+    if (svg) {
+      ico.innerHTML = svg;
+    } else {
+      ico.textContent = icon;
+    }
     head.append(ico);
   }
   const strong = document.createElement("strong");
@@ -677,6 +803,7 @@ function card(title, meta, onClick, disabled = false, opts = {}) {
 
 function listTile(name, meta, onClick, opts = {}) {
   const imageUrl = String(opts.imageUrl || "").trim();
+  const tileIcon = String(opts.icon || "").trim();
   const hasMedia = Boolean(imageUrl) || Boolean(opts.forceMedia);
   const showMeta = opts.showMeta !== false && Boolean(meta);
   const showChevron = opts.showChevron !== false;
@@ -725,12 +852,23 @@ function listTile(name, meta, onClick, opts = {}) {
     overlay.append(body);
     el.append(overlay);
   } else {
+    if (tileIcon) {
+      const iconWrap = document.createElement("span");
+      iconWrap.className = "tile-icon";
+      const svg = iconSvg(tileIcon);
+      if (svg) {
+        iconWrap.innerHTML = svg;
+      } else {
+        iconWrap.textContent = tileIcon;
+      }
+      el.append(iconWrap);
+    }
     el.append(body);
   }
   if (showChevron) {
     const chev = document.createElement("b");
     chev.className = "tile-chevron";
-    chev.textContent = "›";
+    chev.textContent = ">";
     el.append(chev);
   }
   return el;
@@ -1222,6 +1360,7 @@ async function renderCategories() {
         {
           imageUrl: ["games", "store_cards"].includes(state.service) ? String(row1.image_url || "") : "",
           forceMedia: ["games", "store_cards"].includes(state.service),
+          icon: ["games", "store_cards"].includes(state.service) ? "" : String((serviceVisuals[state.service] || {}).icon || ""),
           showMeta: false,
         }
       )
@@ -1242,6 +1381,7 @@ async function renderCategories() {
           {
             imageUrl: ["games", "store_cards"].includes(state.service) ? String(row2.image_url || "") : "",
             forceMedia: ["games", "store_cards"].includes(state.service),
+            icon: ["games", "store_cards"].includes(state.service) ? "" : String((serviceVisuals[state.service] || {}).icon || ""),
             showMeta: false,
           }
         )
@@ -1292,7 +1432,7 @@ function renderVariantCategories(parent) {
             selection_kind: String(parent?.selection_kind || "region"),
             offer_mode: String(row1.offer_mode || "all"),
           }),
-        { showMeta: false }
+        { showMeta: false, icon: String((serviceVisuals[state.service] || {}).icon || "") }
       )
     );
     if (row2) {
@@ -1307,7 +1447,7 @@ function renderVariantCategories(parent) {
             selection_kind: String(parent?.selection_kind || "region"),
             offer_mode: String(row2.offer_mode || "all"),
           }),
-          { showMeta: false }
+          { showMeta: false, icon: String((serviceVisuals[state.service] || {}).icon || "") }
         )
       );
     }
@@ -2178,3 +2318,4 @@ if (inputModalEl) {
 
 applyLang();
 loadCatalog();
+
