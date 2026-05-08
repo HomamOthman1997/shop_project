@@ -804,10 +804,11 @@ function card(title, meta, onClick, disabled = false, opts = {}) {
 function listTile(name, meta, onClick, opts = {}) {
   const imageUrl = String(opts.imageUrl || "").trim();
   const tileIcon = String(opts.icon || "").trim();
+  const logoMode = Boolean(opts.logoMode);
   const hasMedia = Boolean(imageUrl) || Boolean(opts.forceMedia);
   const showMeta = opts.showMeta !== false && Boolean(meta);
   const showChevron = opts.showChevron !== false;
-  const el = button(`tile ${hasMedia ? "tile-media tile-media-cover" : ""}`.trim(), "", onClick);
+  const el = button(`tile ${hasMedia ? "tile-media tile-media-cover" : ""} ${logoMode ? "tile-logo-card" : ""}`.trim(), "", onClick);
   const buildMediaFallback = () => {
     const fallback = document.createElement("div");
     fallback.className = "tile-media-fallback";
@@ -1982,7 +1983,7 @@ function renderNumbersServices() {
             service_key: service.key,
             service_label: service.label,
           }),
-        { imageUrl: service.image_url || "", forceMedia: true, showMeta: false }
+        { imageUrl: service.image_url || "", forceMedia: true, logoMode: true, showMeta: false }
       )
     );
   }

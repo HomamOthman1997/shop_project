@@ -1515,6 +1515,52 @@ input:focus {
     linear-gradient(180deg, #111827 0%, #0b1220 100%);
 }
 
+.tile-logo-card {
+  min-height: 118px;
+  background:
+    linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(20, 28, 44, 0.96)),
+    linear-gradient(135deg, rgba(56, 189, 248, 0.16), rgba(168, 85, 247, 0.12));
+}
+
+.tile-logo-card .tile-media-frame {
+  inset: 12px 12px auto;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
+    rgba(2, 6, 23, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tile-logo-card .tile-media-image {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.34));
+}
+
+.tile-logo-card .tile-media-fallback {
+  background: transparent;
+}
+
+.tile-logo-card .tile-media-badge {
+  width: 42px;
+  height: 42px;
+  font-size: 15px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tile-logo-card .tile-media-overlay {
+  padding: 78px 12px 12px;
+  background: linear-gradient(180deg, transparent 0%, rgba(8, 12, 22, 0.72) 100%);
+}
+
+.tile-logo-card .tile-body strong {
+  font-size: 15px;
+}
+
 .item {
   min-height: 178px;
   padding: 12px;
