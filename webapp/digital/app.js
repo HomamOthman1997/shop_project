@@ -416,15 +416,15 @@ Object.assign(serviceLabelFallback, {
 });
 
 Object.assign(serviceVisuals, {
-  games: { icon: "GAME", tone: "tone-games" },
+  games: { icon: "GAME", tone: "tone-games", backgroundImage: "/mini/digital/static/section-games.jpg?v=20260507f" },
   chat_apps: { icon: "CHAT", tone: "tone-chat" },
   social_services: { icon: "SOCIAL", tone: "tone-social" },
-  communications_data: { icon: "SIM", tone: "tone-comms" },
+  communications_data: { icon: "SIM", tone: "tone-comms", backgroundImage: "/mini/digital/static/section-communications.jpg?v=20260507f" },
   internet_providers: { icon: "NET", tone: "tone-net" },
   paid_apps: { icon: "APP", tone: "tone-tools" },
-  numbers_services: { icon: "123", tone: "tone-numbers" },
+  numbers_services: { icon: "123", tone: "tone-numbers", backgroundImage: "/mini/digital/static/section-numbers.jpg?v=20260507f" },
   paid_subscriptions: { icon: "SUB", tone: "tone-subs" },
-  store_cards: { icon: "CARD", tone: "tone-store" },
+  store_cards: { icon: "CARD", tone: "tone-store", backgroundImage: "/mini/digital/static/section-store-cards.jpg?v=20260507f" },
 });
 
 function iconSvg(kind) {
@@ -774,7 +774,11 @@ function card(title, meta, onClick, disabled = false, opts = {}) {
   const tone = String(opts.tone || "").trim();
   const icon = String(opts.icon || "").trim();
   const fullSpan = Boolean(opts.fullSpan);
-  const el = button(`dept-tile ${tone} ${fullSpan ? "full-span" : ""}`.trim(), "", onClick, disabled);
+  const backgroundImage = String(opts.backgroundImage || "").trim();
+  const el = button(`dept-tile ${tone} ${fullSpan ? "full-span" : ""} ${backgroundImage ? "dept-image-card" : ""}`.trim(), "", onClick, disabled);
+  if (backgroundImage) {
+    el.style.setProperty("--dept-bg", `url("${backgroundImage}")`);
+  }
   const head = document.createElement("div");
   head.className = "dept-head";
   if (icon) {

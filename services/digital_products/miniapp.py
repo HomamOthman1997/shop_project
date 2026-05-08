@@ -1705,7 +1705,15 @@ async def static_file(request: web.Request) -> web.Response:
         raise web.HTTPNotFound()
     if not path.exists() or not path.is_file():
         raise web.HTTPNotFound()
-    content_type = "text/css" if path.suffix == ".css" else "application/javascript"
+    content_types = {
+        ".css": "text/css",
+        ".js": "application/javascript",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }
+    content_type = content_types.get(path.suffix.lower(), "application/octet-stream")
     return web.Response(body=path.read_bytes(), content_type=content_type, headers=dict(_NO_STORE_HEADERS))
 
 

@@ -1372,6 +1372,48 @@ input:focus {
     linear-gradient(315deg, rgba(0, 0, 0, 0.2), transparent 58%);
 }
 
+.dept-image-card {
+  min-height: 128px;
+  background:
+    linear-gradient(90deg, rgba(5, 10, 19, 0.84) 0%, rgba(5, 10, 19, 0.58) 42%, rgba(5, 10, 19, 0.18) 100%),
+    linear-gradient(180deg, rgba(5, 10, 19, 0.08) 0%, rgba(5, 10, 19, 0.44) 100%),
+    var(--dept-bg),
+    linear-gradient(145deg, #10192a 0%, #172033 100%);
+  background-size: cover;
+  background-position: center;
+  border-color: rgba(125, 211, 252, 0.28);
+}
+
+.dept-image-card::before {
+  z-index: 0;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.12), transparent 28%),
+    linear-gradient(90deg, rgba(5, 10, 19, 0.58), transparent 62%);
+  pointer-events: none;
+}
+
+.dept-image-card .dept-head,
+.dept-image-card .meta-pill {
+  position: relative;
+  z-index: 1;
+}
+
+.dept-image-card .dept-head {
+  align-self: end;
+}
+
+.dept-image-card .dept-icon {
+  background: rgba(15, 23, 42, 0.38);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+}
+
+.dept-image-card strong {
+  font-size: 16px;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.72);
+}
+
 .dept-tile::after {
   content: "";
   position: absolute;
