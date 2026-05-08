@@ -16,3 +16,4 @@ __pycache__/
 tree.txt
 .codex/
 logs/
+tmp_*
