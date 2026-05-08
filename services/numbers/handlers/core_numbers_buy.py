@@ -123,6 +123,7 @@ from services.numbers.manager import (
     PROVIDERS,
     buy_number_from_provider,
     finish_rental_from_provider,
+    get_all_prices,
     get_rental_info_from_provider,
     get_rental_sms_from_provider,
     notes_tags_from_provider,
@@ -781,8 +782,69 @@ def _temp_post_refund_kb(order_id: str, lang: str, *, allow_replace: bool = True
     rows: list[list[InlineKeyboardButton]] = []
     if allow_replace:
         rows.append([InlineKeyboardButton(text=t(lang, "temp_request_another"), callback_data=f"temp:replace:{order_id}")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=_numbers_text(lang, "Try another provider", "جرّب مزود آخر"),
+                    callback_data=f"temp:alt:{order_id}",
+                    style="success",
+                )
+            ]
+        )
     rows.append([InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="flow:main:back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _numbers_text(lang: str, en: str, ar: str) -> str:
+    return ar if str(lang or "").lower().startswith("ar") else en
+
+
+def _provider_retry_score(info: dict, cheapest: float) -> float:
+    try:
+        price = float(info.get("price") or 0)
+    except Exception:
+        price = 0.0
+    try:
+        rate = float(
+            info.get("recommended_success_rate")
+            if info.get("recommended_success_rate") is not None
+            else info.get("success_rate", 100)
+        )
+    except Exception:
+        rate = 100.0
+    rate = max(0.0, min(100.0, rate))
+    attempts = int(info.get("success_attempts") or 0)
+    context_attempts = int(info.get("context_success_attempts") or 0)
+    if attempts < 3 and context_attempts < 3:
+        rate = min(rate, 90.0)
+    price_ratio = price / cheapest if cheapest > 0 else 1.0
+    price_penalty = min(22.0, max(0.0, price_ratio - 1.0) * 12.0)
+    sample_bonus = min(4.0, (attempts + (context_attempts * 2)) * 0.25)
+    return rate - price_penalty + sample_bonus
+
+
+def _pick_retry_provider(prices: dict, *, exclude_provider: str | None = None) -> tuple[str, dict] | None:
+    excluded = str(exclude_provider or "").strip().lower()
+    candidates: list[tuple[float, float, str, dict]] = []
+    buyable: list[tuple[str, dict, float]] = []
+    for provider_code, info in (prices or {}).items():
+        code = str(provider_code or "").strip().lower()
+        if not code or code == excluded or code in _HIDDEN_TEMP_PROVIDER_CODES or not isinstance(info, dict):
+            continue
+        try:
+            price = float(info.get("price") or 0)
+        except Exception:
+            price = 0.0
+        if not bool(info.get("available_for_buy", True)) or not str(info.get("api_service_name") or "").strip() or price <= 0:
+            continue
+        buyable.append((code, info, price))
+    if not buyable:
+        return None
+    cheapest = min(price for _code, _info, price in buyable)
+    for code, info, price in buyable:
+        candidates.append((-_provider_retry_score(info, cheapest), price, code, info))
+    candidates.sort(key=lambda row: (row[0], row[1], row[2]))
+    return candidates[0][2], candidates[0][3]
 
 
 async def _safe_callback_answer(
@@ -3128,26 +3190,34 @@ async def temp_cancel_and_refund(callback: types.CallbackQuery):
     return await _safe_callback_answer(t(lang, "ok_plain"))
 
 
-@router.callback_query(lambda c: c.data and c.data.startswith("temp:replace:"))
-async def temp_replace_number(callback: types.CallbackQuery):
-    user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "en")
-    raw_id = callback.data.split(":", 2)[2]
-    order_oid, order = await _load_user_order(raw_id, callback.from_user.id)
-    if not order_oid or not order:
-        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
-    if _temp_order_has_received_code(order):
-        return await _safe_callback_answer(t(lang, "temp_second_code_failed"), show_alert=True)
-
-    provider_code = str(order.get("provider") or "").strip().lower()
-    api_service = str(order.get("temp_api_service") or "").strip()
-    service_name = str(order.get("temp_service_key") or str(order.get("service_id") or "")).strip()
-    country = order.get("temp_country")
-    state_code = order.get("temp_state")
-    final_price, cost_price = extract_order_amounts(order)
-
+async def _request_replacement_temp_number(
+    *,
+    callback: types.CallbackQuery,
+    order_oid: ObjectId,
+    order: dict,
+    lang: str,
+    provider_code: str,
+    api_service: str,
+    service_name: str,
+    country: Any,
+    state_code: Any,
+    final_price: float,
+    cost_price: float,
+    source_reason: str,
+) -> None:
     if not provider_code or not api_service:
         return await _safe_callback_answer(t(lang, "temp_replace_unavailable"), show_alert=True)
+
+    if str(order.get("status") or "").lower() not in {"cancelled", "failed", "refunded", "expired"}:
+        result = await _cancel_and_refund_temp_order(
+            order_id=order_oid,
+            order=order,
+            actor_user_id=callback.from_user.id,
+            reason=source_reason,
+            require_no_sms=True,
+        )
+        if not result.get("success"):
+            return await _safe_callback_answer(t(lang, "temp_cancel_failed"), show_alert=True)
 
     trust_gate = await _evaluate_temp_trust_gate(
         user_id=int(callback.from_user.id),
@@ -3163,18 +3233,6 @@ async def temp_replace_number(callback: types.CallbackQuery):
             ),
             show_alert=True,
         )
-
-    # Best-effort cancel+refund on original order if still open.
-    if str(order.get("status") or "").lower() not in {"cancelled", "failed", "refunded", "expired"}:
-        result = await _cancel_and_refund_temp_order(
-            order_id=order_oid,
-            order=order,
-            actor_user_id=callback.from_user.id,
-            reason="replace_request",
-            require_no_sms=True,
-        )
-        if not result.get("success"):
-            return await _safe_callback_answer(t(lang, "temp_cancel_failed"), show_alert=True)
 
     bot_id = (await callback.message.bot.get_me()).id
     reseller_id = await _resolve_user_reseller(callback.from_user.id, bot_id)
@@ -3197,6 +3255,8 @@ async def temp_replace_number(callback: types.CallbackQuery):
             "provisioning_country": country,
             "provisioning_state_code": state_code,
             "provisioning_created_at": _utc_now(),
+            "temp_retry_source_order_id": str(order_oid),
+            "temp_retry_reason": source_reason,
         },
     )
     ok, msg = await FinancialManager.process_core_purchase(
@@ -3220,6 +3280,7 @@ async def temp_replace_number(callback: types.CallbackQuery):
     purchase_options = {
         "reuse_mode": True,
         "_audit_requested_service": str(order.get("temp_service_key") or order.get("service_id") or ""),
+        "retry_reason": source_reason,
     }
     buy_res = await buy_number_from_provider(
         provider_code=provider_code,
@@ -3304,6 +3365,94 @@ async def temp_replace_number(callback: types.CallbackQuery):
     if fresh:
         await _queue_temp_waiter(bot=callback.message.bot, order=fresh, lang=lang, is_second_code=False)
     return await _safe_callback_answer(t(lang, "temp_replace_success"), show_alert=True)
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("temp:replace:"))
+async def temp_replace_number(callback: types.CallbackQuery):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    raw_id = callback.data.split(":", 2)[2]
+    order_oid, order = await _load_user_order(raw_id, callback.from_user.id)
+    if not order_oid or not order:
+        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
+    if _temp_order_has_received_code(order):
+        return await _safe_callback_answer(t(lang, "temp_second_code_failed"), show_alert=True)
+
+    provider_code = str(order.get("provider") or "").strip().lower()
+    api_service = str(order.get("temp_api_service") or "").strip()
+    service_name = str(order.get("temp_service_key") or str(order.get("service_id") or "")).strip()
+    country = order.get("temp_country")
+    state_code = order.get("temp_state")
+    final_price, cost_price = extract_order_amounts(order)
+
+    return await _request_replacement_temp_number(
+        callback=callback,
+        order_oid=order_oid,
+        order=order,
+        lang=lang,
+        provider_code=provider_code,
+        api_service=api_service,
+        service_name=service_name,
+        country=country,
+        state_code=state_code,
+        final_price=final_price,
+        cost_price=cost_price,
+        source_reason="replace_request",
+    )
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("temp:alt:"))
+async def temp_try_alternate_provider(callback: types.CallbackQuery):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    raw_id = callback.data.split(":", 2)[2]
+    order_oid, order = await _load_user_order(raw_id, callback.from_user.id)
+    if not order_oid or not order:
+        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
+    if _temp_order_has_received_code(order):
+        return await _safe_callback_answer(t(lang, "temp_second_code_failed"), show_alert=True)
+
+    service_name = str(order.get("temp_service_key") or str(order.get("service_id") or "")).strip()
+    country = order.get("temp_country")
+    state_code = order.get("temp_state")
+    current_provider = str(order.get("provider") or "").strip().lower()
+    if not service_name:
+        return await _safe_callback_answer(t(lang, "temp_replace_unavailable"), show_alert=True)
+
+    prices = await get_all_prices(service_name, country, state_code)
+    picked = _pick_retry_provider(prices, exclude_provider=current_provider)
+    if not picked:
+        return await _safe_callback_answer(
+            _numbers_text(lang, "No alternate provider is available for this choice.", "لا يوجد مزود بديل متاح لهذا الخيار."),
+            show_alert=True,
+        )
+    provider_code, provider_info = picked
+    try:
+        final_price = float(provider_info.get("price") or 0)
+    except Exception:
+        final_price = 0.0
+    try:
+        cost_price = float(provider_info.get("base_price") or final_price)
+    except Exception:
+        cost_price = final_price
+    api_service = str(provider_info.get("api_service_name") or "").strip()
+    if final_price <= 0 or not api_service:
+        return await _safe_callback_answer(t(lang, "temp_replace_unavailable"), show_alert=True)
+
+    return await _request_replacement_temp_number(
+        callback=callback,
+        order_oid=order_oid,
+        order=order,
+        lang=lang,
+        provider_code=provider_code,
+        api_service=api_service,
+        service_name=service_name,
+        country=country,
+        state_code=state_code,
+        final_price=final_price,
+        cost_price=cost_price,
+        source_reason="alternate_provider_request",
+    )
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("temp:second:"))

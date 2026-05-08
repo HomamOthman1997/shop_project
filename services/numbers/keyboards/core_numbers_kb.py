@@ -84,7 +84,7 @@ def _provider_buyable(info: dict) -> bool:
 
 
 def _recommended_provider(prices: dict) -> tuple[str, dict] | None:
-    candidates: list[tuple[tuple[float, float, int, str, str], str, dict]] = []
+    buyable: list[tuple[str, dict, float]] = []
     for provider_code, info in (prices or {}).items():
         code = str(provider_code or "").strip().lower()
         if not code or code in _HIDDEN_TEMP_PROVIDER_CODES or not isinstance(info, dict):
@@ -95,19 +95,34 @@ def _recommended_provider(prices: dict) -> tuple[str, dict] | None:
             price = float(info.get("price") or 0)
         except Exception:
             price = 0.0
+        if price <= 0:
+            continue
+        buyable.append((code, info, price))
+    if not buyable:
+        return None
+
+    cheapest = min(price for _code, _info, price in buyable if price > 0)
+    candidates: list[tuple[tuple[float, float, int, str, str], str, dict]] = []
+    for code, info, price in buyable:
         try:
-            rate = float(info.get("success_rate", 100) if info.get("success_rate") is not None else 100)
+            rate = float(
+                info.get("recommended_success_rate")
+                if info.get("recommended_success_rate") is not None
+                else info.get("success_rate", 100)
+            )
         except Exception:
             rate = 100.0
         rate = max(0.0, min(100.0, rate))
         attempts = int(info.get("success_attempts") or 0)
+        context_attempts = int(info.get("context_success_attempts") or 0)
         public_rank, public_id, _ = _provider_sort_key(code)
-        # Prefer proven reliability, then price. If there is not enough sample
-        # data, treat the provider as neutral instead of over-trusting 100%.
-        effective_rate = rate if attempts >= _SUCCESS_RATE_DISPLAY_MIN_ATTEMPTS else 90.0
-        candidates.append(((-effective_rate, price, public_rank, public_id, code), code, info))
-    if not candidates:
-        return None
+        if attempts < _SUCCESS_RATE_DISPLAY_MIN_ATTEMPTS and context_attempts < _SUCCESS_RATE_DISPLAY_MIN_ATTEMPTS:
+            rate = min(rate, 90.0)
+        price_ratio = price / cheapest if cheapest > 0 else 1.0
+        price_penalty = min(22.0, max(0.0, price_ratio - 1.0) * 12.0)
+        sample_bonus = min(4.0, (attempts + (context_attempts * 2)) * 0.25)
+        score = rate - price_penalty + sample_bonus
+        candidates.append(((-score, price, public_rank, public_id, code), code, info))
     candidates.sort(key=lambda row: row[0])
     return (candidates[0][1], candidates[0][2])
 
@@ -259,7 +274,7 @@ def provider_choice_kb(prices: dict, lang: str = "en", usd_to_syp: float | None 
         kb.inline_keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=f"{_numbers_text(lang, 'Details', 'التفاصيل')}: {provider_display_name(provider_code)} | ⭐ {_format_success_rate(info.get('success_rate', 100), attempts=info.get('success_attempts', 0))}",
+                    text=f"{_numbers_text(lang, 'Details', 'التفاصيل')}: {provider_display_name(provider_code)} | ⭐ {_format_success_rate(info.get('recommended_success_rate', info.get('success_rate', 100)), attempts=max(int(info.get('success_attempts') or 0), int(info.get('context_success_attempts') or 0)))}",
                     callback_data=f"buy_provider_info:{provider_code}",
                     style="primary",
                 )
@@ -274,8 +289,8 @@ def provider_choice_kb(prices: dict, lang: str = "en", usd_to_syp: float | None 
         if not can_buy and not (show_all_for_testing and testing_visible):
             continue
         success_rate_label = _format_success_rate(
-            info.get("success_rate", 100),
-            attempts=info.get("success_attempts", 0),
+            info.get("recommended_success_rate", info.get("success_rate", 100)),
+            attempts=max(int(info.get("success_attempts") or 0), int(info.get("context_success_attempts") or 0)),
         )
         if price_val > 0:
             price_label = _price_dual_label(price_val, usd_to_syp=usd_to_syp)
@@ -330,6 +345,15 @@ def temp_wait_timeout_kb(
         rows.append([InlineKeyboardButton(text=t(lang, "temp_cancel_refund"), callback_data=f"temp:cancel:{order_id}", style="danger", icon_custom_emoji_id=_ICON_CANCEL)])
     if allow_replace:
         rows.append([InlineKeyboardButton(text=t(lang, "temp_request_another"), callback_data=f"temp:replace:{order_id}")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=_numbers_text(lang, "Try another provider", "جرّب مزود آخر"),
+                    callback_data=f"temp:alt:{order_id}",
+                    style="success",
+                )
+            ]
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

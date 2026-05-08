@@ -8,6 +8,10 @@ async def bootstrap_temp_number_stats_indexes() -> None:
     await db.temp_number_events.create_index([("created_at", -1)], background=True)
     await db.temp_number_events.create_index([("provider", 1), ("service_id", 1), ("created_at", -1)], background=True)
     await db.temp_number_events.create_index([("service_id", 1), ("created_at", -1)], background=True)
+    await db.temp_number_events.create_index(
+        [("service_id", 1), ("provider", 1), ("payload.country", 1), ("payload.state", 1), ("created_at", -1)],
+        background=True,
+    )
     await db.temp_number_events.create_index([("user_id", 1), ("provider", 1), ("service_id", 1), ("created_at", -1)], background=True)
     await db.temp_number_events.create_index([("order_id", 1), ("created_at", -1)], background=True)
     await db.temp_number_events.create_index([("event", 1), ("created_at", -1)], background=True)
@@ -51,6 +55,8 @@ async def get_provider_success_rates(
     *,
     service_id: str,
     providers: list[str] | tuple[str, ...] | None = None,
+    country: str | None = None,
+    state: str | None = None,
     lookback_days: int = 14,
     min_attempts: int = 3,
     default_rate: float = 100.0,
@@ -66,6 +72,12 @@ async def get_provider_success_rates(
     }
     if provider_filter:
         match_filter["provider"] = {"$in": provider_filter}
+    country_value = str(country or "").strip()
+    state_value = str(state or "").strip()
+    if country_value:
+        match_filter["payload.country"] = country_value
+    if state_value:
+        match_filter["payload.state"] = state_value
 
     pipeline = [
         {"$match": match_filter},

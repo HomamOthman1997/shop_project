@@ -283,7 +283,29 @@ def _success_rate_default() -> float:
     return max(0.0, min(100.0, value))
 
 
-async def _apply_dynamic_success_rates(results: dict[str, Any], service_id: str) -> None:
+def _blend_success_rate(general: dict[str, Any], contextual: dict[str, Any], default_rate: float) -> float:
+    general_rate = float(general.get("success_rate", default_rate))
+    context_rate = float(contextual.get("success_rate", default_rate))
+    general_attempts = int(general.get("attempts") or 0)
+    context_attempts = int(contextual.get("attempts") or 0)
+    min_attempts = _success_rate_min_attempts()
+    if context_attempts >= min_attempts:
+        return context_rate
+    if context_attempts > 0:
+        context_weight = min(0.7, 0.35 + (0.35 * context_attempts / float(min_attempts)))
+        return (context_rate * context_weight) + (general_rate * (1.0 - context_weight))
+    if general_attempts > 0:
+        return general_rate
+    return default_rate
+
+
+async def _apply_dynamic_success_rates(
+    results: dict[str, Any],
+    service_id: str,
+    *,
+    country: str | None = None,
+    state: str | None = None,
+) -> None:
     if not results or not _success_rate_enabled():
         return
     providers = [str(code or "").strip().lower() for code in results.keys() if str(code or "").strip()]
@@ -297,6 +319,19 @@ async def _apply_dynamic_success_rates(results: dict[str, Any], service_id: str)
             min_attempts=_success_rate_min_attempts(),
             default_rate=_success_rate_default(),
         )
+        context_stats: dict[str, Any] = {}
+        country_value = str(country or "").strip()
+        state_value = str(state or "").strip() or "none"
+        if country_value:
+            context_stats = await temp_number_stats_repo.get_provider_success_rates(
+                service_id=str(service_id or "").strip(),
+                providers=providers,
+                country=country_value,
+                state=state_value,
+                lookback_days=_success_rate_lookback_days(),
+                min_attempts=_success_rate_min_attempts(),
+                default_rate=_success_rate_default(),
+            )
     except Exception:
         logger.exception("failed to compute provider success rates: service=%s", service_id)
         return
@@ -307,13 +342,25 @@ async def _apply_dynamic_success_rates(results: dict[str, Any], service_id: str)
             continue
         provider = str(provider_code or "").strip().lower()
         row = stats.get(provider) or {}
+        context_row = context_stats.get(provider) or {}
         try:
             rate_value = float(row.get("success_rate", default_rate))
         except Exception:
             rate_value = default_rate
+        try:
+            context_rate_value = float(context_row.get("success_rate", default_rate))
+        except Exception:
+            context_rate_value = default_rate
         info["success_rate"] = max(0.0, min(100.0, rate_value))
         info["success_attempts"] = int(row.get("attempts") or 0)
         info["success_sample_sufficient"] = bool(row.get("sample_sufficient"))
+        info["context_success_rate"] = max(0.0, min(100.0, context_rate_value))
+        info["context_success_attempts"] = int(context_row.get("attempts") or 0)
+        info["context_success_sample_sufficient"] = bool(context_row.get("sample_sufficient"))
+        info["recommended_success_rate"] = max(
+            0.0,
+            min(100.0, _blend_success_rate(row, context_row, default_rate)),
+        )
 
 
 def _is_unlimited_rental_service(service_key: str) -> bool:
@@ -810,7 +857,7 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
                     "canonical_service": str(resolve_canonical_service_key(str(service_key or "")) or ""),
                 }
     if results:
-        await _apply_dynamic_success_rates(results, str(service_key or ""))
+        await _apply_dynamic_success_rates(results, str(service_key or ""), country=country, state=state or "none")
     return results
 
 
@@ -1015,7 +1062,7 @@ async def get_all_rental_prices(service_key: str, country: str | None):
         if data:
             results[code] = data
     if results:
-        await _apply_dynamic_success_rates(results, f"{str(service_key or '')}:rental")
+        await _apply_dynamic_success_rates(results, f"{str(service_key or '')}:rental", country=country)
     return results
 
 

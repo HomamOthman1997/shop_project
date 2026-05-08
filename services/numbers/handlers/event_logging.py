@@ -75,6 +75,20 @@ async def _log_temp_event(
     temp_number_stats_repo_obj: Any,
     log_number_event_from_order_cb: Callable[..., Awaitable[None]],
 ) -> None:
+    order = order or {}
+    enriched_payload = dict(payload or {})
+    enriched_payload.setdefault(
+        "country",
+        str(order.get("temp_country") or order.get("provisioning_country") or "").strip(),
+    )
+    enriched_payload.setdefault(
+        "state",
+        str(order.get("temp_state") or order.get("provisioning_state_code") or "none").strip() or "none",
+    )
+    enriched_payload.setdefault(
+        "api_service",
+        str(order.get("temp_api_service") or order.get("provisioning_service") or "").strip(),
+    )
     try:
         await temp_number_stats_repo_obj.log_temp_number_event(
             order.get("_id"),
@@ -82,11 +96,11 @@ async def _log_temp_event(
             provider=str(order.get("provider") or ""),
             service_id=str(order.get("service_id") or ""),
             event=event,
-            payload=payload or {},
+            payload=enriched_payload,
         )
     except Exception:
         logger.exception("temp event log failed: event=%s order=%s", event, order.get("_id"))
-    await log_number_event_from_order_cb(order, event, payload=payload, number_mode="temp")
+    await log_number_event_from_order_cb(order, event, payload=enriched_payload, number_mode="temp")
 
 
 async def _log_rental_event(

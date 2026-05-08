@@ -146,3 +146,57 @@ def test_provider_choice_kb_uses_info_button_and_buy_action_button():
     ]
     assert first_row[0].style == "primary"
     assert getattr(first_row[1], "style", None) is None
+
+
+def test_provider_choice_kb_prefers_proven_success_over_small_savings():
+    kb = provider_choice_kb(
+        {
+            "herosms": {
+                "price": 0.50,
+                "api_service_name": "wa",
+                "available_for_buy": True,
+                "recommended_success_rate": 96,
+                "success_attempts": 14,
+            },
+            "telabot": {
+                "price": 0.45,
+                "api_service_name": "wa",
+                "available_for_buy": True,
+                "recommended_success_rate": 70,
+                "success_attempts": 12,
+            },
+        },
+        lang="en",
+        usd_to_syp=0,
+    )
+
+    assert kb.inline_keyboard[0][0].callback_data == "buy_provider:herosms"
+
+
+def test_provider_choice_kb_uses_context_success_for_best_option():
+    kb = provider_choice_kb(
+        {
+            "herosms": {
+                "price": 0.60,
+                "api_service_name": "wa",
+                "available_for_buy": True,
+                "success_rate": 99,
+                "success_attempts": 20,
+                "recommended_success_rate": 58,
+                "context_success_attempts": 5,
+            },
+            "telabot": {
+                "price": 0.62,
+                "api_service_name": "wa",
+                "available_for_buy": True,
+                "success_rate": 80,
+                "success_attempts": 20,
+                "recommended_success_rate": 92,
+                "context_success_attempts": 5,
+            },
+        },
+        lang="en",
+        usd_to_syp=0,
+    )
+
+    assert kb.inline_keyboard[0][0].callback_data == "buy_provider:telabot"
