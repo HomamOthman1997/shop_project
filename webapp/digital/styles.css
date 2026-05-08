@@ -1375,8 +1375,8 @@ input:focus {
 .dept-image-card {
   min-height: 128px;
   background:
-    linear-gradient(90deg, rgba(5, 10, 19, 0.84) 0%, rgba(5, 10, 19, 0.58) 42%, rgba(5, 10, 19, 0.18) 100%),
-    linear-gradient(180deg, rgba(5, 10, 19, 0.08) 0%, rgba(5, 10, 19, 0.44) 100%),
+    linear-gradient(90deg, rgba(5, 10, 19, 0.58) 0%, rgba(5, 10, 19, 0.3) 42%, rgba(5, 10, 19, 0.06) 100%),
+    linear-gradient(180deg, rgba(5, 10, 19, 0.02) 0%, rgba(5, 10, 19, 0.18) 100%),
     var(--dept-bg),
     linear-gradient(145deg, #10192a 0%, #172033 100%);
   background-size: cover;
@@ -1387,8 +1387,8 @@ input:focus {
 .dept-image-card::before {
   z-index: 0;
   background:
-    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.12), transparent 28%),
-    linear-gradient(90deg, rgba(5, 10, 19, 0.58), transparent 62%);
+    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.08), transparent 28%),
+    linear-gradient(90deg, rgba(5, 10, 19, 0.24), transparent 62%);
   pointer-events: none;
 }
 
@@ -1494,8 +1494,8 @@ input:focus {
 
 .dept-tile.dept-image-card {
   background:
-    linear-gradient(90deg, rgba(5, 10, 19, 0.84) 0%, rgba(5, 10, 19, 0.58) 42%, rgba(5, 10, 19, 0.18) 100%),
-    linear-gradient(180deg, rgba(5, 10, 19, 0.08) 0%, rgba(5, 10, 19, 0.44) 100%),
+    linear-gradient(90deg, rgba(5, 10, 19, 0.58) 0%, rgba(5, 10, 19, 0.3) 42%, rgba(5, 10, 19, 0.06) 100%),
+    linear-gradient(180deg, rgba(5, 10, 19, 0.02) 0%, rgba(5, 10, 19, 0.18) 100%),
     var(--dept-bg),
     linear-gradient(145deg, #10192a 0%, #172033 100%);
   background-size: cover;
