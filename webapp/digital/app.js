@@ -805,11 +805,16 @@ function listTile(name, meta, onClick, opts = {}) {
   const imageUrl = String(opts.imageUrl || "").trim();
   const tileIcon = String(opts.icon || "").trim();
   const logoMode = Boolean(opts.logoMode);
+  const storeCardMode = Boolean(opts.storeCardMode);
   const brandColor = String(opts.brandColor || "").trim();
   const hasMedia = Boolean(imageUrl) || Boolean(opts.forceMedia);
   const showMeta = opts.showMeta !== false && Boolean(meta);
   const showChevron = opts.showChevron !== false;
-  const el = button(`tile ${hasMedia ? "tile-media tile-media-cover" : ""} ${logoMode ? "tile-logo-card" : ""}`.trim(), "", onClick);
+  const el = button(
+    `tile ${hasMedia ? "tile-media tile-media-cover" : ""} ${logoMode ? "tile-logo-card" : ""} ${storeCardMode ? "tile-store-card" : ""}`.trim(),
+    "",
+    onClick
+  );
   if (brandColor) {
     el.style.setProperty("--brand-color", brandColor);
   }
@@ -1365,7 +1370,7 @@ async function renderCategories() {
         {
           imageUrl: ["games", "store_cards"].includes(state.service) ? String(row1.image_url || "") : "",
           forceMedia: ["games", "store_cards"].includes(state.service),
-          logoMode: state.service === "store_cards",
+          storeCardMode: state.service === "store_cards",
           icon: ["games", "store_cards"].includes(state.service) ? "" : String((serviceVisuals[state.service] || {}).icon || ""),
           showMeta: false,
         }
@@ -1387,7 +1392,7 @@ async function renderCategories() {
           {
             imageUrl: ["games", "store_cards"].includes(state.service) ? String(row2.image_url || "") : "",
             forceMedia: ["games", "store_cards"].includes(state.service),
-            logoMode: state.service === "store_cards",
+            storeCardMode: state.service === "store_cards",
             icon: ["games", "store_cards"].includes(state.service) ? "" : String((serviceVisuals[state.service] || {}).icon || ""),
             showMeta: false,
           }
