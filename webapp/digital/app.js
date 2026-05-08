@@ -1361,6 +1361,7 @@ async function renderCategories() {
         {
           imageUrl: ["games", "store_cards"].includes(state.service) ? String(row1.image_url || "") : "",
           forceMedia: ["games", "store_cards"].includes(state.service),
+          logoMode: state.service === "store_cards",
           icon: ["games", "store_cards"].includes(state.service) ? "" : String((serviceVisuals[state.service] || {}).icon || ""),
           showMeta: false,
         }
@@ -1382,6 +1383,7 @@ async function renderCategories() {
           {
             imageUrl: ["games", "store_cards"].includes(state.service) ? String(row2.image_url || "") : "",
             forceMedia: ["games", "store_cards"].includes(state.service),
+            logoMode: state.service === "store_cards",
             icon: ["games", "store_cards"].includes(state.service) ? "" : String((serviceVisuals[state.service] || {}).icon || ""),
             showMeta: false,
           }
