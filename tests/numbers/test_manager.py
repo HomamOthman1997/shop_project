@@ -928,7 +928,7 @@ def test_service_keyboard_top_and_search(monkeypatch):
 
     assert "One" in texts and "Ten" in texts
     assert any(getattr(btn, "switch_inline_query_current_chat", None) == "service " for btn in buttons)
-    assert any(getattr(btn, "callback_data", None) == "flow:country:back" for btn in buttons)
+    assert any(getattr(btn, "callback_data", None) == "flow:country:entry_back" for btn in buttons)
 
 
 def test_service_keyboard_rental_has_open_button(monkeypatch):
@@ -1210,7 +1210,11 @@ async def test_choose_service_uses_callback_message_when_last_msg_missing(monkey
 
     assert state._data["last_msg_id"] == 777
     assert callback.message.bot.edited.get("message_id") == 777
-    assert "Choose rental provider and period" in callback.message.bot.edited.get("text", "")
+    assert state.state == core.NumberFlow.country
+    assert state._data["service"] == "gmail"
+    assert state._data["country"] is None
+    assert "Choose country" in callback.message.bot.edited.get("text", "")
+    assert "Service: gmail" in callback.message.bot.edited.get("text", "")
 
 
 @pytest.mark.asyncio
@@ -1221,12 +1225,10 @@ async def test_handle_inline_service_selection_decodes_not_listed_query(monkeypa
 
     captured: dict[str, object] = {}
 
-    async def fake_load_service_prices(chat_id, bot, state, service_name):
-        captured["chat_id"] = chat_id
-        captured["bot"] = bot
-        captured["service_name"] = service_name
+    async def fake_show_country_entry_for_selected_service(**kwargs):
+        captured.update(kwargs)
 
-    monkeypatch.setattr(core, "_load_service_prices", fake_load_service_prices)
+    monkeypatch.setattr(core, "_show_country_entry_for_selected_service", fake_show_country_entry_for_selected_service)
 
     class DummyState:
         async def get_data(self):
@@ -1253,7 +1255,7 @@ async def test_handle_inline_service_selection_decodes_not_listed_query(monkeypa
 
     assert msg.deleted is True
     assert captured["chat_id"] == 321
-    assert captured["service_name"] == "my custom app"
+    assert captured["service_key"] == "my custom app"
 
 
 @pytest.mark.asyncio

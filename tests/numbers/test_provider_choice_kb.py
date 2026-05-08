@@ -8,6 +8,14 @@ from utils.provider_alias import provider_display_name, provider_public_id
 from utils.user_money import format_usd
 
 
+def _provider_rows(kb):
+    return [
+        row
+        for row in kb.inline_keyboard
+        if len(row) == 2 and str(getattr(row[0], "callback_data", "") or "").startswith("buy_provider_info:")
+    ]
+
+
 def test_provider_public_ids_shift_pvadeals_and_alisms():
     assert provider_public_id("pvadeals") == "S5"
     assert provider_public_id("alisms") == "S6"
@@ -62,8 +70,10 @@ def test_provider_choice_kb_prefers_state_tag_over_country():
         usd_to_syp=0,
     )
     rows = [[button.text for button in row] for row in kb.inline_keyboard]
-    assert rows[0] == [rows[0][0], f"Buy | {format_usd(0.13)}"]
-    assert rows[0][0].startswith("Charlie [CA] |")
+    provider_rows = [[button.text for button in row] for row in _provider_rows(kb)]
+    assert rows[0] == [f"Best option | {format_usd(0.13)}"]
+    assert provider_rows[0] == [provider_rows[0][0], f"Buy | {format_usd(0.13)}"]
+    assert provider_rows[0][0].startswith("Charlie [CA] |")
 
 
 def test_provider_choice_kb_shows_country_tag_when_available():
@@ -80,8 +90,10 @@ def test_provider_choice_kb_shows_country_tag_when_available():
         usd_to_syp=0,
     )
     rows = [[button.text for button in row] for row in kb.inline_keyboard]
-    assert rows[0] == [rows[0][0], f"Buy | {format_usd(0.02)}"]
-    assert rows[0][0].startswith("Alpha [KE] |")
+    provider_rows = [[button.text for button in row] for row in _provider_rows(kb)]
+    assert rows[0] == [f"Best option | {format_usd(0.02)}"]
+    assert provider_rows[0] == [provider_rows[0][0], f"Buy | {format_usd(0.02)}"]
+    assert provider_rows[0][0].startswith("Alpha [KE] |")
 
 
 def test_provider_choice_kb_shows_us_tag_for_us_only_providers():
@@ -104,10 +116,12 @@ def test_provider_choice_kb_shows_us_tag_for_us_only_providers():
         usd_to_syp=0,
     )
     rows = [[button.text for button in row] for row in kb.inline_keyboard]
-    assert rows[0] == [rows[0][0], f"Buy | {format_usd(0.75)}"]
-    assert rows[1] == [rows[1][0], f"Buy | {format_usd(0.45)}"]
-    assert rows[0][0].startswith("Bravo [US] |")
-    assert rows[1][0].startswith("Delta [US] |")
+    provider_rows = [[button.text for button in row] for row in _provider_rows(kb)]
+    assert rows[0] == [f"Best option | {format_usd(0.45)}"]
+    assert provider_rows[0] == [provider_rows[0][0], f"Buy | {format_usd(0.75)}"]
+    assert provider_rows[1] == [provider_rows[1][0], f"Buy | {format_usd(0.45)}"]
+    assert provider_rows[0][0].startswith("Bravo [US] |")
+    assert provider_rows[1][0].startswith("Delta [US] |")
 
 
 def test_provider_choice_kb_uses_info_button_and_buy_action_button():
@@ -123,7 +137,8 @@ def test_provider_choice_kb_uses_info_button_and_buy_action_button():
         lang="en",
         usd_to_syp=0,
     )
-    first_row = kb.inline_keyboard[0]
+    assert kb.inline_keyboard[0][0].callback_data == "buy_provider:smspool"
+    first_row = _provider_rows(kb)[0]
     assert len(first_row) == 2
     assert [button.callback_data for button in first_row] == [
         "buy_provider_info:smspool",

@@ -391,6 +391,7 @@ def _quick_country_keyboard(
             button_row.append(InlineKeyboardButton(text=label, callback_data=f"{callback_prefix}{code}"))
         if button_row:
             rows.append(button_row)
+    rows.append([InlineKeyboardButton(text=t(lang, "search_country"), switch_inline_query_current_chat="country ", style="primary")])
     if digital_mode:
         rows.append(
             [
@@ -543,11 +544,100 @@ def _numbers_text(lang: str, en: str, ar: str) -> str:
 
 
 def _country_entry_text(lang: str, num_type: str) -> str:
+    mode_label = _numbers_mode_name(lang, num_type)
     return _compose_numbers_screen(
         t(lang, "choose_country_or_search"),
-        [f"{t(lang, 'temp_mode_label')}: {_numbers_mode_name(lang, num_type)}"],
+        [f"{t(lang, 'temp_mode_label')}: {mode_label}"],
         trailing_lines=[t(lang, "numbers_country_search_hint")],
     )
+
+
+def _service_entry_text(lang: str, num_type: str) -> str:
+    return _compose_numbers_screen(
+        _service_prompt_bold(lang),
+        [f"{t(lang, 'temp_mode_label')}: {_numbers_mode_name(lang, num_type)}"],
+    )
+
+
+async def _show_service_entry(
+    message: types.Message,
+    state: FSMContext,
+    *,
+    lang: str,
+    num_type: str,
+) -> None:
+    await state.update_data(
+        num_type=num_type,
+        service=None,
+        country=None,
+        state=None,
+        numbers_preselected_service=False,
+        service_lookup_not_listed=False,
+    )
+    sent = await _safe_edit_text(
+        message,
+        _service_entry_text(lang, num_type),
+        reply_markup=service_kb(lang, num_type=num_type, country_code=None),
+        parse_mode="HTML",
+    )
+    await state.update_data(last_msg_id=sent.message_id)
+    await state.set_state(NumberFlow.service)
+
+
+async def _show_country_entry_for_selected_service(
+    *,
+    chat_id: int,
+    bot,
+    state: FSMContext,
+    lang: str,
+    num_type: str,
+    service_key: str,
+    last_msg_id: int | None,
+) -> None:
+    await state.update_data(service=service_key, country=None, state=None)
+    if str(num_type or "").strip().lower() == "rental":
+        options = _preferred_country_options()
+    else:
+        if last_msg_id:
+            try:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=last_msg_id,
+                    text=_compose_numbers_screen(
+                        t(lang, "loading_prices"),
+                        _numbers_context_lines(lang, service=service_key),
+                    ),
+                    reply_markup=None,
+                )
+            except Exception:
+                pass
+        options = await _cheap_country_options_for_service(service_key, limit=len(_preferred_country_options()))
+        if not options:
+            options = _preferred_country_options()
+    text = _compose_numbers_screen(
+        t(lang, "choose_country_or_search"),
+        _numbers_context_lines(lang, service=service_key),
+        trailing_lines=[t(lang, "numbers_country_search_hint")],
+    )
+    reply_markup = _quick_country_keyboard(lang, options)
+    if last_msg_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=last_msg_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+            await state.set_state(NumberFlow.country)
+            return
+        except Exception:
+            pass
+    current_callback = _CURRENT_CALLBACK.get()
+    current_message = getattr(current_callback, "message", None)
+    if current_message:
+        sent = await current_message.answer(text, reply_markup=reply_markup)
+        await state.update_data(last_msg_id=sent.message_id)
+    await state.set_state(NumberFlow.country)
 
 
 def _rental_home_text(lang: str) -> str:
@@ -856,26 +946,14 @@ async def choose_number_type(callback: types.CallbackQuery, state: FSMContext):
         await state.update_data(last_msg_id=sent.message_id)
         await state.set_state(NumberFlow.rental_home)
         return
-    sent = await _safe_edit_text(
-        callback.message,
-        _country_entry_text(lang, "temp"),
-        reply_markup=country_kb(lang),
-    )
-    await state.update_data(last_msg_id=sent.message_id)
-    await state.set_state(NumberFlow.country)
+    await _show_service_entry(callback.message, state, lang=lang, num_type="temp")
 
 
 @router.callback_query(lambda c: c.data == "flow:rental:add")
 async def rental_add_number(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
-    sent = await _safe_edit_text(
-        callback.message,
-        _country_entry_text(lang, "rental"),
-        reply_markup=country_kb(lang),
-    )
-    await state.update_data(last_msg_id=sent.message_id, num_type="rental")
-    await state.set_state(NumberFlow.country)
+    await _show_service_entry(callback.message, state, lang=lang, num_type="rental")
 
 
 @router.callback_query(lambda c: c.data == "flow:rental:menu")
@@ -890,7 +968,10 @@ async def rental_menu(callback: types.CallbackQuery, state: FSMContext):
 async def back_from_country_entry(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
-    if data.get("num_type") == "rental":
+    num_type = data.get("num_type", "temp")
+    if data.get("service"):
+        await _show_service_entry(callback.message, state, lang=lang, num_type=num_type)
+    elif num_type == "rental":
         await _safe_edit_text(
             callback.message,
             _rental_home_text(lang),
@@ -910,12 +991,19 @@ async def back_from_country_entry(callback: types.CallbackQuery, state: FSMConte
 async def back_to_country(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
-    if data.get("num_type") == "rental":
-        await _safe_edit_text(callback.message, _rental_home_text(lang), reply_markup=rental_home_kb(lang))
-        await state.set_state(NumberFlow.rental_home)
+    service_key = str(data.get("service") or "").strip()
+    if service_key:
+        await _show_country_entry_for_selected_service(
+            chat_id=callback.message.chat.id,
+            bot=callback.message.bot,
+            state=state,
+            lang=lang,
+            num_type=data.get("num_type", "temp"),
+            service_key=service_key,
+            last_msg_id=data.get("last_msg_id") or callback.message.message_id,
+        )
         return
-    await _safe_edit_text(callback.message, _country_entry_text(lang, "temp"), reply_markup=country_kb(lang))
-    await state.set_state(NumberFlow.country)
+    await _show_service_entry(callback.message, state, lang=lang, num_type=data.get("num_type", "temp"))
 
 
 @router.callback_query(lambda c: c.data == "flow:service:back")
@@ -923,20 +1011,7 @@ async def back_to_service(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
     num_type = data.get("num_type", "temp")
-    country_code = data.get("country")
-    await _safe_edit_text(callback.message, 
-        _compose_numbers_screen(
-            _service_prompt_bold(lang),
-            _numbers_context_lines(
-                lang,
-                country_code=country_code,
-                state_code=data.get("state"),
-            ),
-        ),
-        reply_markup=service_kb(lang, num_type=num_type, country_code=country_code),
-        parse_mode="HTML",
-    )
-    await state.set_state(NumberFlow.service)
+    await _show_service_entry(callback.message, state, lang=lang, num_type=num_type)
 
 
 @router.callback_query(lambda c: c.data == "flow:rental_providers:back")
@@ -1003,6 +1078,9 @@ async def choose_quick_country(callback: types.CallbackQuery, state: FSMContext)
         await state.update_data(numbers_preselected_service=False)
         await _load_service_prices(callback.message.chat.id, callback.message.bot, state, preselected_service)
         return await _safe_callback_answer()
+    if preselected_service:
+        await _load_service_prices(callback.message.chat.id, callback.message.bot, state, preselected_service)
+        return await _safe_callback_answer()
     text = _compose_numbers_screen(
         _service_prompt_bold(lang),
         _numbers_context_lines(lang, country_code=country_code),
@@ -1057,9 +1135,13 @@ async def handle_inline_country_selection(message: types.Message, state: FSMCont
     await message.delete()
     last_msg_id = data.get("last_msg_id")
     await state.update_data(country=country_code)
+    selected_service = str(data.get("service") or "").strip()
 
     if num_type == "rental":
         await state.update_data(state="none")
+        if selected_service:
+            await _load_service_prices(message.chat.id, message.bot, state, selected_service)
+            return
         text = _compose_numbers_screen(
             _service_prompt_bold(lang),
             _numbers_context_lines(lang, country_code=country_code),
@@ -1084,6 +1166,9 @@ async def handle_inline_country_selection(message: types.Message, state: FSMCont
         if preselected_service and bool(data.get("numbers_preselected_service")):
             await state.update_data(numbers_preselected_service=False)
             await _load_service_prices(message.chat.id, message.bot, state, preselected_service)
+            return
+        if selected_service:
+            await _load_service_prices(message.chat.id, message.bot, state, selected_service)
             return
         text = _compose_numbers_screen(
             _service_prompt_bold(lang),
@@ -1173,6 +1258,9 @@ async def handle_inline_state_selection(message: types.Message, state: FSMContex
         await state.update_data(numbers_preselected_service=False)
         await _load_service_prices(message.chat.id, message.bot, state, preselected_service)
         return
+    if preselected_service:
+        await _load_service_prices(message.chat.id, message.bot, state, preselected_service)
+        return
     text = _compose_numbers_screen(
         _service_prompt_bold(lang),
         _numbers_context_lines(lang, country_code=country_code, state_code=state_code),
@@ -1211,6 +1299,9 @@ async def choose_any_state(callback: types.CallbackQuery, state: FSMContext):
         await state.update_data(numbers_preselected_service=False)
         await _load_service_prices(callback.message.chat.id, callback.message.bot, state, preselected_service)
         return await _safe_callback_answer()
+    if preselected_service:
+        await _load_service_prices(callback.message.chat.id, callback.message.bot, state, preselected_service)
+        return await _safe_callback_answer()
     text = _compose_numbers_screen(
         _service_prompt_bold(lang),
         _numbers_context_lines(lang, country_code=country_code, state_code="none"),
@@ -1247,7 +1338,15 @@ async def handle_inline_service_selection(message: types.Message, state: FSMCont
         lookup_not_listed = True
     await state.update_data(service_lookup_not_listed=lookup_not_listed)
     await message.delete()
-    await _load_service_prices(message.chat.id, message.bot, state, service_key)
+    await _show_country_entry_for_selected_service(
+        chat_id=message.chat.id,
+        bot=message.bot,
+        state=state,
+        lang=lang,
+        num_type=data.get("num_type", "temp"),
+        service_key=service_key,
+        last_msg_id=data.get("last_msg_id"),
+    )
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("flow:service:"))
@@ -1259,7 +1358,16 @@ async def choose_service(callback: types.CallbackQuery, state: FSMContext):
     if not data.get("last_msg_id") and current_message_id:
         await state.update_data(last_msg_id=current_message_id)
     await state.update_data(service_lookup_not_listed=False)
-    await _load_service_prices(callback.message.chat.id, callback.message.bot, state, service_name)
+    await _show_country_entry_for_selected_service(
+        chat_id=callback.message.chat.id,
+        bot=callback.message.bot,
+        state=state,
+        lang=lang,
+        num_type=data.get("num_type", "temp"),
+        service_key=service_name,
+        last_msg_id=data.get("last_msg_id") or current_message_id,
+    )
+    await _safe_callback_answer()
 
 
 async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_name: str):

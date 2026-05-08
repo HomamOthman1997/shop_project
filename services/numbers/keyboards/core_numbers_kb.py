@@ -71,6 +71,47 @@ def _provider_sort_key(provider_code: str | None) -> tuple[int, str, str]:
     return (rank, public_id, code)
 
 
+def _numbers_text(lang: str, en: str, ar: str) -> str:
+    return ar if str(lang or "").lower().startswith("ar") else en
+
+
+def _provider_buyable(info: dict) -> bool:
+    try:
+        price_val = float(info.get("price") or 0)
+    except Exception:
+        price_val = 0.0
+    return bool(info.get("available_for_buy", True)) and bool(str(info.get("api_service_name") or "").strip()) and price_val > 0
+
+
+def _recommended_provider(prices: dict) -> tuple[str, dict] | None:
+    candidates: list[tuple[tuple[float, float, int, str, str], str, dict]] = []
+    for provider_code, info in (prices or {}).items():
+        code = str(provider_code or "").strip().lower()
+        if not code or code in _HIDDEN_TEMP_PROVIDER_CODES or not isinstance(info, dict):
+            continue
+        if not _provider_buyable(info):
+            continue
+        try:
+            price = float(info.get("price") or 0)
+        except Exception:
+            price = 0.0
+        try:
+            rate = float(info.get("success_rate", 100) if info.get("success_rate") is not None else 100)
+        except Exception:
+            rate = 100.0
+        rate = max(0.0, min(100.0, rate))
+        attempts = int(info.get("success_attempts") or 0)
+        public_rank, public_id, _ = _provider_sort_key(code)
+        # Prefer proven reliability, then price. If there is not enough sample
+        # data, treat the provider as neutral instead of over-trusting 100%.
+        effective_rate = rate if attempts >= _SUCCESS_RATE_DISPLAY_MIN_ATTEMPTS else 90.0
+        candidates.append(((-effective_rate, price, public_rank, public_id, code), code, info))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: row[0])
+    return (candidates[0][1], candidates[0][2])
+
+
 def _country_iso(country_code: str | None) -> str:
     if not country_code:
         return ""
@@ -181,7 +222,10 @@ def service_kb(lang: str = "en", num_type: str = "temp", country_code: str | Non
     for row in base_kb.inline_keyboard:
         kb.inline_keyboard.append(row)
     kb.inline_keyboard.append([search_button])
-    kb.inline_keyboard.append([InlineKeyboardButton(text=t(lang, "back_to_countries"), callback_data="flow:country:back")])
+    if country_code:
+        kb.inline_keyboard.append([InlineKeyboardButton(text=t(lang, "back_to_countries"), callback_data="flow:country:back")])
+    else:
+        kb.inline_keyboard.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:entry_back")])
     kb.inline_keyboard.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger", icon_custom_emoji_id=_ICON_CANCEL)])
     return kb
 
@@ -199,11 +243,33 @@ def no_availability_kb(lang: str = "en") -> InlineKeyboardMarkup:
 def provider_choice_kb(prices: dict, lang: str = "en", usd_to_syp: float | None = None) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(inline_keyboard=[])
     show_all_for_testing = bool(getattr(settings, "numbers_show_all_providers_for_testing", False))
+    recommended = _recommended_provider(prices)
+    if recommended:
+        provider_code, info = recommended
+        price_label = _price_dual_label(float(info.get("price") or 0), usd_to_syp=usd_to_syp)
+        kb.inline_keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{_numbers_text(lang, 'Best option', 'أفضل خيار')} | {price_label}",
+                    callback_data=f"buy_provider:{provider_code}",
+                    style="success",
+                )
+            ]
+        )
+        kb.inline_keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{_numbers_text(lang, 'Details', 'التفاصيل')}: {provider_display_name(provider_code)} | ⭐ {_format_success_rate(info.get('success_rate', 100), attempts=info.get('success_attempts', 0))}",
+                    callback_data=f"buy_provider_info:{provider_code}",
+                    style="primary",
+                )
+            ]
+        )
     for provider_code, info in sorted(prices.items(), key=lambda kv: _provider_sort_key(kv[0])):
         if str(provider_code or "").strip().lower() in _HIDDEN_TEMP_PROVIDER_CODES:
             continue
         price_val = float(info.get("price", 0) or 0)
-        can_buy = bool(info.get("available_for_buy", True)) and bool(str(info.get("api_service_name") or "").strip()) and price_val > 0
+        can_buy = _provider_buyable(info)
         testing_visible = bool(info.get("testing_visible"))
         if not can_buy and not (show_all_for_testing and testing_visible):
             continue
