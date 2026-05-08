@@ -1492,6 +1492,16 @@ input:focus {
   background: linear-gradient(145deg, #172554 0%, #2563eb 56%, #0891b2 100%);
 }
 
+.dept-tile.dept-image-card {
+  background:
+    linear-gradient(90deg, rgba(5, 10, 19, 0.84) 0%, rgba(5, 10, 19, 0.58) 42%, rgba(5, 10, 19, 0.18) 100%),
+    linear-gradient(180deg, rgba(5, 10, 19, 0.08) 0%, rgba(5, 10, 19, 0.44) 100%),
+    var(--dept-bg),
+    linear-gradient(145deg, #10192a 0%, #172033 100%);
+  background-size: cover;
+  background-position: center;
+}
+
 .category-list,
 .items-grid {
   gap: 10px;
