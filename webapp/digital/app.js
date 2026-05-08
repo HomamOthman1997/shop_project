@@ -310,16 +310,16 @@ Object.assign(serviceVisuals, {
 });
 
 const popularNumberServices = [
-  { key: "whatsapp", label: "WhatsApp", image_url: "https://cdn.simpleicons.org/whatsapp/25D366" },
-  { key: "telegram", label: "Telegram", image_url: "https://cdn.simpleicons.org/telegram/26A5E4" },
-  { key: "gmail", label: "Gmail / Google", image_url: "https://cdn.simpleicons.org/gmail/EA4335" },
-  { key: "anthropic", label: "Claude / Anthropic", image_url: "https://cdn.simpleicons.org/anthropic/FFFFFF" },
-  { key: "openai", label: "OpenAI / ChatGPT", image_url: "https://cdn.simpleicons.org/openai/FFFFFF" },
-  { key: "discord", label: "Discord", image_url: "https://cdn.simpleicons.org/discord/5865F2" },
-  { key: "facebook", label: "Facebook", image_url: "https://cdn.simpleicons.org/facebook/0866FF" },
-  { key: "instagram", label: "Instagram", image_url: "https://cdn.simpleicons.org/instagram/E4405F" },
-  { key: "tiktok", label: "TikTok", image_url: "https://cdn.simpleicons.org/tiktok/FFFFFF" },
-  { key: "amazon", label: "Amazon", image_url: "https://cdn.simpleicons.org/amazon/FF9900" },
+  { key: "whatsapp", label: "WhatsApp", image_url: "https://cdn.simpleicons.org/whatsapp/25D366", brand_color: "#25D366" },
+  { key: "telegram", label: "Telegram", image_url: "https://cdn.simpleicons.org/telegram/26A5E4", brand_color: "#26A5E4" },
+  { key: "gmail", label: "Gmail / Google", image_url: "https://cdn.simpleicons.org/gmail/EA4335", brand_color: "#EA4335" },
+  { key: "anthropic", label: "Claude / Anthropic", image_url: "https://cdn.simpleicons.org/anthropic/D8DEE9", brand_color: "#D8DEE9" },
+  { key: "openai", label: "OpenAI / ChatGPT", image_url: "https://cdn.simpleicons.org/openai/D8DEE9", brand_color: "#10A37F" },
+  { key: "discord", label: "Discord", image_url: "https://cdn.simpleicons.org/discord/5865F2", brand_color: "#5865F2" },
+  { key: "facebook", label: "Facebook", image_url: "https://cdn.simpleicons.org/facebook/0866FF", brand_color: "#0866FF" },
+  { key: "instagram", label: "Instagram", image_url: "https://cdn.simpleicons.org/instagram/E4405F", brand_color: "#E4405F" },
+  { key: "tiktok", label: "TikTok", image_url: "https://cdn.simpleicons.org/tiktok/F8FAFC", brand_color: "#00F2EA" },
+  { key: "amazon", label: "Amazon", image_url: "https://cdn.simpleicons.org/amazon/FF9900", brand_color: "#FF9900" },
 ];
 
 Object.assign(copy.ar, {
@@ -805,10 +805,14 @@ function listTile(name, meta, onClick, opts = {}) {
   const imageUrl = String(opts.imageUrl || "").trim();
   const tileIcon = String(opts.icon || "").trim();
   const logoMode = Boolean(opts.logoMode);
+  const brandColor = String(opts.brandColor || "").trim();
   const hasMedia = Boolean(imageUrl) || Boolean(opts.forceMedia);
   const showMeta = opts.showMeta !== false && Boolean(meta);
   const showChevron = opts.showChevron !== false;
   const el = button(`tile ${hasMedia ? "tile-media tile-media-cover" : ""} ${logoMode ? "tile-logo-card" : ""}`.trim(), "", onClick);
+  if (brandColor) {
+    el.style.setProperty("--brand-color", brandColor);
+  }
   const buildMediaFallback = () => {
     const fallback = document.createElement("div");
     fallback.className = "tile-media-fallback";
@@ -1985,7 +1989,7 @@ function renderNumbersServices() {
             service_key: service.key,
             service_label: service.label,
           }),
-        { imageUrl: service.image_url || "", forceMedia: true, logoMode: true, showMeta: false }
+        { imageUrl: service.image_url || "", forceMedia: true, logoMode: true, brandColor: service.brand_color || "", showMeta: false }
       )
     );
   }

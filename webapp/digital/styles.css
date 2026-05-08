@@ -1516,27 +1516,31 @@ input:focus {
 }
 
 .tile-logo-card {
-  min-height: 118px;
+  --brand-color: #38bdf8;
+  min-height: 148px;
   background:
-    linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(20, 28, 44, 0.96)),
-    linear-gradient(135deg, rgba(56, 189, 248, 0.16), rgba(168, 85, 247, 0.12));
+    radial-gradient(circle at 50% 24%, color-mix(in srgb, var(--brand-color) 34%, transparent), transparent 42%),
+    linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(9, 14, 25, 0.98));
 }
 
 .tile-logo-card .tile-media-frame {
-  inset: 12px 12px auto;
+  inset: 18px 0 auto;
+  width: 58px;
   height: 58px;
+  margin-inline: auto;
   display: grid;
   place-items: center;
-  border-radius: 8px;
+  border-radius: 18px;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
-    rgba(2, 6, 23, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+    linear-gradient(135deg, color-mix(in srgb, var(--brand-color) 26%, rgba(255, 255, 255, 0.06)), rgba(255, 255, 255, 0.04)),
+    rgba(2, 6, 23, 0.34);
+  border: 1px solid color-mix(in srgb, var(--brand-color) 34%, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 16px 28px color-mix(in srgb, var(--brand-color) 22%, transparent);
 }
 
 .tile-logo-card .tile-media-image {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   object-fit: contain;
   filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.34));
 }
@@ -1553,12 +1557,22 @@ input:focus {
 }
 
 .tile-logo-card .tile-media-overlay {
-  padding: 78px 12px 12px;
-  background: linear-gradient(180deg, transparent 0%, rgba(8, 12, 22, 0.72) 100%);
+  top: 0;
+  min-height: 100%;
+  padding: 88px 12px 14px;
+  align-content: end;
+  background: linear-gradient(180deg, transparent 0%, rgba(8, 12, 22, 0.34) 100%);
 }
 
 .tile-logo-card .tile-body strong {
-  font-size: 15px;
+  font-size: 16px;
+  line-height: 1.22;
+  text-align: center;
+  margin-inline: auto;
+}
+
+.tile-logo-card .tile-body {
+  justify-items: center;
 }
 
 .item {
