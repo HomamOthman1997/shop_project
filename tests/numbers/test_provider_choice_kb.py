@@ -44,6 +44,7 @@ def test_provider_choice_kb_hides_smsman_lanes():
         },
         lang="en",
         usd_to_syp=0,
+        show_all=True,
     )
     labels = [button.text for row in kb.inline_keyboard for button in row]
     joined = " | ".join(labels)
@@ -68,6 +69,7 @@ def test_provider_choice_kb_prefers_state_tag_over_country():
         },
         lang="en",
         usd_to_syp=0,
+        show_all=True,
     )
     rows = [[button.text for button in row] for row in kb.inline_keyboard]
     provider_rows = [[button.text for button in row] for row in _provider_rows(kb)]
@@ -88,6 +90,7 @@ def test_provider_choice_kb_shows_country_tag_when_available():
         },
         lang="en",
         usd_to_syp=0,
+        show_all=True,
     )
     rows = [[button.text for button in row] for row in kb.inline_keyboard]
     provider_rows = [[button.text for button in row] for row in _provider_rows(kb)]
@@ -114,6 +117,7 @@ def test_provider_choice_kb_shows_us_tag_for_us_only_providers():
         },
         lang="en",
         usd_to_syp=0,
+        show_all=True,
     )
     rows = [[button.text for button in row] for row in kb.inline_keyboard]
     provider_rows = [[button.text for button in row] for row in _provider_rows(kb)]
@@ -136,6 +140,7 @@ def test_provider_choice_kb_uses_info_button_and_buy_action_button():
         },
         lang="en",
         usd_to_syp=0,
+        show_all=True,
     )
     assert kb.inline_keyboard[0][0].callback_data == "buy_provider:smspool"
     first_row = _provider_rows(kb)[0]
@@ -146,6 +151,21 @@ def test_provider_choice_kb_uses_info_button_and_buy_action_button():
     ]
     assert first_row[0].style == "primary"
     assert getattr(first_row[1], "style", None) is None
+
+
+def test_provider_choice_kb_initial_view_is_compact():
+    kb = provider_choice_kb(
+        {
+            "herosms": {"price": 0.5, "api_service_name": "wa", "available_for_buy": True},
+            "telabot": {"price": 0.7, "api_service_name": "wa", "available_for_buy": True},
+        },
+        lang="en",
+        usd_to_syp=0,
+    )
+
+    callbacks = [button.callback_data for row in kb.inline_keyboard for button in row]
+    assert callbacks[:2] == ["buy_provider:herosms", "buy_provider_show_all"]
+    assert not any(str(value or "").startswith("buy_provider_info:") for value in callbacks)
 
 
 def test_provider_choice_kb_prefers_proven_success_over_small_savings():

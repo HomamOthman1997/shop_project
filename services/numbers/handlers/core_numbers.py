@@ -380,14 +380,7 @@ def _quick_country_keyboard(
             code = str(option.get("code") or "").strip()
             if not code:
                 continue
-            price = option.get("price")
             label = str(option.get("name") or code)
-            try:
-                price_val = float(price) if price is not None else 0.0
-            except Exception:
-                price_val = 0.0
-            if price_val > 0:
-                label = f"{label} | {format_usd(price_val)}"
             button_row.append(InlineKeyboardButton(text=label, callback_data=f"{callback_prefix}{code}"))
         if button_row:
             rows.append(button_row)
@@ -471,13 +464,13 @@ async def render_preselected_temp_service_countries(
         [f"{t(lang, 'service_label')}: {label}"] if label else [],
     )
     loading_text = _compose_numbers_screen(
-        _numbers_text(lang, "Loading prices...", "جاري جلب الأسعار..."),
+        _numbers_text(lang, "Loading countries...", "جاري تجهيز قائمة الدول..."),
         [f"{t(lang, 'service_label')}: {label}"] if label else [],
     )
     sent = await message.answer(loading_text)
     await state.update_data(last_msg_id=getattr(sent, "message_id", None))
-    priced = await _cheap_country_options_for_service(service_key, limit=len(_preferred_country_options()))
-    options = priced or _preferred_country_options()
+    priced = await _cheap_country_options_for_service(service_key, limit=10)
+    options = priced or _preferred_country_options()[:10]
     await _safe_edit_text(
         sent,
         text,
@@ -604,16 +597,16 @@ async def _show_country_entry_for_selected_service(
                     chat_id=chat_id,
                     message_id=last_msg_id,
                     text=_compose_numbers_screen(
-                        t(lang, "loading_prices"),
+                        _numbers_text(lang, "Loading countries...", "جاري تجهيز قائمة الدول..."),
                         _numbers_context_lines(lang, service=service_key),
                     ),
                     reply_markup=None,
                 )
             except Exception:
                 pass
-        options = await _cheap_country_options_for_service(service_key, limit=len(_preferred_country_options()))
+        options = await _cheap_country_options_for_service(service_key, limit=10)
         if not options:
-            options = _preferred_country_options()
+            options = _preferred_country_options()[:10]
     text = _compose_numbers_screen(
         t(lang, "choose_country_or_search"),
         _numbers_context_lines(lang, service=service_key),
@@ -1586,17 +1579,13 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
         increment_usage(service_name)
     except Exception:
         pass
-    show_all_for_testing = bool(getattr(settings, "numbers_show_all_providers_for_testing", False))
     prices = {
         code: info
         for code, info in prices.items()
         if (
-            (
-                bool(info.get("available_for_buy", True))
-                and bool(str(info.get("api_service_name") or "").strip())
-                and float(info.get("price", 0) or 0) > 0
-            )
-            or (show_all_for_testing and bool(info.get("testing_visible")))
+            bool(info.get("available_for_buy", True))
+            and bool(str(info.get("api_service_name") or "").strip())
+            and float(info.get("price", 0) or 0) > 0
         )
     }
     if not prices:
@@ -1615,7 +1604,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
             )
         await state.set_state(NumberFlow.service)
         return
-    await state.update_data(available_prices=prices)
+    await state.update_data(available_prices=prices, usd_to_syp_rate=usd_to_syp_rate, lang=lang)
     if last_msg_id:
         await bot.edit_message_text(
             chat_id=chat_id,

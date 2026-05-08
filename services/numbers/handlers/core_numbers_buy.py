@@ -110,6 +110,7 @@ from services.numbers.handlers.event_logging import (
 )
 from services.numbers.keyboards.core_numbers_kb import (
     confirm_buy_kb,
+    provider_choice_kb,
     temp_code_received_kb,
     temp_wait_timeout_kb,
     rental_confirm_kb,
@@ -2021,6 +2022,30 @@ async def provider_selected(callback: types.CallbackQuery, state: FSMContext):
     )
     await callback.message.edit_text(text, reply_markup=confirm_buy_kb(lang))
     await state.set_state(NumberFlow.confirm_buy)
+
+
+@router.callback_query(lambda c: c.data == "buy_provider_show_all")
+async def provider_show_all(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "en")
+    prices = data.get("available_prices") or {}
+    if not prices:
+        return await _safe_callback_answer(t(lang, "no_prices_available"), show_alert=True)
+    usd_to_syp_rate = float(data.get("usd_to_syp_rate") or 0)
+    state_code = str(data.get("state") or "")
+    state_label = t(lang, "state_any") if state_code.lower() in {"", "none"} else state_code
+    context = (
+        f"{t(lang, 'choose_provider_prompt')}\n\n"
+        f"{t(lang, 'service_label')}: {data.get('service')}\n"
+        f"{t(lang, 'country_label')}: {_country_display_name(data.get('country'))}"
+    )
+    if str(data.get("country") or "") == "1":
+        context += f"\n{t(lang, 'state_label')}: {state_label}"
+    await callback.message.edit_text(
+        context,
+        reply_markup=provider_choice_kb(prices, lang=lang, usd_to_syp=usd_to_syp_rate, show_all=True),
+    )
+    await _safe_callback_answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("buy_provider_info:"))

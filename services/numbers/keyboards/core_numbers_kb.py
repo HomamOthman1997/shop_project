@@ -255,9 +255,14 @@ def no_availability_kb(lang: str = "en") -> InlineKeyboardMarkup:
     )
 
 
-def provider_choice_kb(prices: dict, lang: str = "en", usd_to_syp: float | None = None) -> InlineKeyboardMarkup:
+def provider_choice_kb(
+    prices: dict,
+    lang: str = "en",
+    usd_to_syp: float | None = None,
+    *,
+    show_all: bool = False,
+) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(inline_keyboard=[])
-    show_all_for_testing = bool(getattr(settings, "numbers_show_all_providers_for_testing", False))
     recommended = _recommended_provider(prices)
     if recommended:
         provider_code, info = recommended
@@ -271,22 +276,26 @@ def provider_choice_kb(prices: dict, lang: str = "en", usd_to_syp: float | None 
                 )
             ]
         )
+    if not show_all:
         kb.inline_keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=f"{_numbers_text(lang, 'Details', 'التفاصيل')}: {provider_display_name(provider_code)} | ⭐ {_format_success_rate(info.get('recommended_success_rate', info.get('success_rate', 100)), attempts=max(int(info.get('success_attempts') or 0), int(info.get('context_success_attempts') or 0)))}",
-                    callback_data=f"buy_provider_info:{provider_code}",
+                    text=_numbers_text(lang, "Show all providers", "عرض كل المزودات"),
+                    callback_data="buy_provider_show_all",
                     style="primary",
                 )
             ]
         )
+        kb.inline_keyboard.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:service:back")])
+        kb.inline_keyboard.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger", icon_custom_emoji_id=_ICON_CANCEL)])
+        return kb
+
     for provider_code, info in sorted(prices.items(), key=lambda kv: _provider_sort_key(kv[0])):
         if str(provider_code or "").strip().lower() in _HIDDEN_TEMP_PROVIDER_CODES:
             continue
         price_val = float(info.get("price", 0) or 0)
         can_buy = _provider_buyable(info)
-        testing_visible = bool(info.get("testing_visible"))
-        if not can_buy and not (show_all_for_testing and testing_visible):
+        if not can_buy:
             continue
         success_rate_label = _format_success_rate(
             info.get("recommended_success_rate", info.get("success_rate", 100)),
