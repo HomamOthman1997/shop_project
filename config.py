@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     vaksms_key: Optional[str] = None
     vaksms_base_url: str = "https://vak-sms.com/api"
     vaksms_docs_url: str = "https://vak-sms.com/api/vak/"
+    vaksms_site_base_url: str = "https://vak-sms.com/backend"
     vaksms_stub_base_url: str = "https://vak-sms.com/stubs/handler_api.php"
     vaksms_rub_to_usd_rate: float = 0.0112
     # Optional NonVoIP replacement for smsman slot.

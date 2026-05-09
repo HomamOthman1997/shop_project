@@ -50,6 +50,7 @@ def _strip_html(value: str) -> str:
 class VAKSMSProvider(BaseProvider):
     DEFAULT_BASE = "https://vak-sms.com/api"
     DEFAULT_DOCS_URL = "https://vak-sms.com/api/vak/"
+    DEFAULT_SITE_BASE = "https://vak-sms.com/backend"
 
     def __init__(self) -> None:
         self._services_cache: list[dict[str, Any]] = []
@@ -66,6 +67,10 @@ class VAKSMSProvider(BaseProvider):
     @property
     def docs_url(self) -> str:
         return str(getattr(settings, "vaksms_docs_url", None) or self.DEFAULT_DOCS_URL).strip()
+
+    @property
+    def site_base_url(self) -> str:
+        return str(getattr(settings, "vaksms_site_base_url", None) or self.DEFAULT_SITE_BASE).strip().rstrip("/")
 
     def _api_key(self) -> Optional[str]:
         key = str(getattr(settings, "vaksms_key", None) or "").strip()
@@ -101,6 +106,24 @@ class VAKSMSProvider(BaseProvider):
                 return resp.status, data
         except Exception as exc:
             logger.warning("vaksms request failed endpoint=%s error=%s", endpoint, exc)
+            return 0, {"error": "request_failed", "message": str(exc)}
+
+    async def _site_request(self, endpoint: str, **params) -> tuple[int, Any]:
+        query = {key: value for key, value in params.items() if value not in (None, "")}
+        url = f"{self.site_base_url}/{str(endpoint).strip('/')}"
+        try:
+            session = await self._session()
+            async with session.get(url, params=query, timeout=20) as resp:
+                text = await resp.text()
+                if not text:
+                    return resp.status, {}
+                try:
+                    data = await resp.json(content_type=None)
+                except Exception:
+                    data = text.strip()
+                return resp.status, data
+        except Exception as exc:
+            logger.warning("vaksms site request failed endpoint=%s error=%s", endpoint, exc)
             return 0, {"error": "request_failed", "message": str(exc)}
 
     @staticmethod
@@ -246,6 +269,20 @@ class VAKSMSProvider(BaseProvider):
             return _as_float(data.get("balance"))
         return None
 
+    async def _site_country_stats(self, service_code: str, country_code: str | None) -> dict[str, Any] | None:
+        if not service_code or not country_code:
+            return None
+        status, data = await self._site_request("country/stats", serviceId=service_code)
+        if status != 200 or not isinstance(data, list):
+            return None
+        target = str(country_code or "").strip().lower()
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("id") or "").strip().lower() == target:
+                return item
+        return None
+
     async def get_price(self, service, country=None, state=None):
         service_code = await self.resolve_service_code(str(service or ""))
         if not service_code:
@@ -255,17 +292,23 @@ class VAKSMSProvider(BaseProvider):
         if status != 200 or not isinstance(data, dict):
             return {"success": False, "raw": data}
         count = int(data.get(service_code) or data.get(str(service_code).upper()) or 0)
-        price_rub = _as_float(data.get("price"))
-        if count <= 0 or price_rub is None or price_rub <= 0:
+        api_price = _as_float(data.get("price"))
+        site_stats = None
+        if count <= 0 and country_code:
+            site_stats = await self._site_country_stats(service_code, country_code)
+            site_count = int(site_stats.get("count") or 0) if isinstance(site_stats, dict) else 0
+            if site_count > 0:
+                count = site_count
+                api_price = _as_float(site_stats.get("apiPrice")) or api_price or _as_float(site_stats.get("minPrice"))
+        if count <= 0 or api_price is None or api_price <= 0:
             return {"success": False, "raw": data}
-        rub_to_usd = float(getattr(settings, "vaksms_rub_to_usd_rate", 0.0112) or 0.0112)
         return {
             "success": True,
-            "price": round(price_rub * rub_to_usd, 4),
+            "price": round(api_price, 4),
             "api_service_name": service_code,
             "provider_country": country_code or "ru",
             "provider_country_iso": str(country_code or "ru").upper(),
-            "raw": data,
+            "raw": {"api": data, "site": site_stats} if site_stats else data,
         }
 
     async def buy_number(self, service, country=None, state=None, **kwargs):
