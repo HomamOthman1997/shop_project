@@ -310,10 +310,12 @@ class VAKSMSProvider(BaseProvider):
         if not service_code:
             return {"success": False, "raw": "service_not_found"}
         country_code = await self._resolve_country(country)
+        auto_country = False
         site_stats = None
         if not country_code:
             site_stats = await self._best_site_country_stats(service_code)
             country_code = str(site_stats.get("id") or "").strip().lower() if isinstance(site_stats, dict) else None
+            auto_country = bool(country_code)
         status, data = await self._request("getCountNumber", service=service_code, country=country_code, price=1)
         if status != 200 or not isinstance(data, dict):
             return {"success": False, "raw": data}
@@ -327,7 +329,7 @@ class VAKSMSProvider(BaseProvider):
                 api_price = _as_float(site_stats.get("apiPrice")) or api_price or _as_float(site_stats.get("minPrice"))
         if count <= 0 or api_price is None or api_price <= 0:
             return {"success": False, "raw": data}
-        return {
+        result = {
             "success": True,
             "price": round(api_price, 4),
             "api_service_name": service_code,
@@ -335,6 +337,10 @@ class VAKSMSProvider(BaseProvider):
             "provider_country_iso": str(country_code or "ru").upper(),
             "raw": {"api": data, "site": site_stats} if site_stats else data,
         }
+        if auto_country and service_code == "wa" and api_price < 0.5:
+            result["recommendation_blocked"] = True
+            result["recommendation_reason"] = "low_confidence_auto_country"
+        return result
 
     async def buy_number(self, service, country=None, state=None, **kwargs):
         service_code = await self.resolve_service_code(str(service or ""))

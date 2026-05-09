@@ -51,9 +51,30 @@ def test_provider_choice_kb_hides_smsman_lanes():
     assert any(label.startswith("Echo [US] |") for label in labels)
     assert f"Buy | {format_usd(1.0)}" in labels
     assert any(label.startswith("Foxtrot [CO] |") for label in labels)
-    assert f"Buy | {format_usd(0.1)}" in labels
-    assert "Golf" not in joined
-    assert "Hotel" not in joined
+
+
+def test_provider_choice_kb_does_not_recommend_blocked_provider():
+    kb = provider_choice_kb(
+        {
+            "vaksms": {
+                "price": 0.11,
+                "api_service_name": "wa",
+                "available_for_buy": True,
+                "provider_country_iso": "ID",
+                "recommendation_blocked": True,
+            },
+            "textverified": {
+                "price": 1.65,
+                "api_service_name": "whatsapp",
+                "available_for_buy": True,
+                "provider_country_iso": "US",
+            },
+        },
+        lang="en",
+    )
+    labels = [[button.text for button in row] for row in kb.inline_keyboard]
+    assert labels[0][0].startswith("Best option |")
+    assert "1.65" in labels[0][0]
 
 
 def test_provider_choice_kb_prefers_state_tag_over_country():

@@ -102,6 +102,8 @@ def _recommended_provider(prices: dict) -> tuple[str, dict] | None:
             continue
         if not _provider_buyable(info):
             continue
+        if bool(info.get("recommendation_blocked")):
+            continue
         try:
             price = float(info.get("price") or 0)
         except Exception:

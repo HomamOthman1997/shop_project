@@ -71,6 +71,8 @@ class TelabotProvider(BaseProvider):
                         "success": True,
                         "price": price_val,
                         "api_service_name": service,
+                        "provider_country": "us",
+                        "provider_country_iso": "US",
                         "raw": item,
                     }
             return {"success": False, "raw": response}
@@ -89,6 +91,8 @@ class TelabotProvider(BaseProvider):
             "success": True,
             "price": price_val,
             "api_service_name": service,
+            "provider_country": "us",
+            "provider_country_iso": "US",
             "raw": response[service],
         }
 

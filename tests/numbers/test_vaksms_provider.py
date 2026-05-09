@@ -174,6 +174,8 @@ async def test_vaksms_get_price_picks_site_country_for_any_country(monkeypatch, 
     assert result["api_service_name"] == "wa"
     assert result["provider_country"] == "id"
     assert result["provider_country_iso"] == "ID"
+    assert result["recommendation_blocked"] is True
+    assert result["recommendation_reason"] == "low_confidence_auto_country"
 
 
 @pytest.mark.asyncio
