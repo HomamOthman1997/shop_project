@@ -83,6 +83,17 @@ def _provider_buyable(info: dict) -> bool:
     return bool(info.get("available_for_buy", True)) and bool(str(info.get("api_service_name") or "").strip()) and price_val > 0
 
 
+def _buyable_provider_count(prices: dict) -> int:
+    count = 0
+    for provider_code, info in (prices or {}).items():
+        code = str(provider_code or "").strip().lower()
+        if not code or code in _HIDDEN_TEMP_PROVIDER_CODES or not isinstance(info, dict):
+            continue
+        if _provider_buyable(info):
+            count += 1
+    return count
+
+
 def _recommended_provider(prices: dict) -> tuple[str, dict] | None:
     buyable: list[tuple[str, dict, float]] = []
     for provider_code, info in (prices or {}).items():
@@ -284,16 +295,20 @@ def provider_choice_kb(
             ]
         )
     if not show_all:
+        show_all_available = _buyable_provider_count(prices) > 1
+        if show_all_available:
+            kb.inline_keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        text=_numbers_text(lang, "Show all providers", "عرض كل المزودات"),
+                        callback_data="buy_provider_show_all",
+                        style="primary",
+                    )
+                ]
+            )
         kb.inline_keyboard.append(
-            [
-                InlineKeyboardButton(
-                    text=_numbers_text(lang, "Show all providers", "عرض كل المزودات"),
-                    callback_data="buy_provider_show_all",
-                    style="primary",
-                )
-            ]
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:service:back")]
         )
-        kb.inline_keyboard.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:service:back")])
         kb.inline_keyboard.append([InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger", icon_custom_emoji_id=_ICON_CANCEL)])
         return kb
 
