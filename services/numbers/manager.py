@@ -34,6 +34,7 @@ from services.numbers.manager_resolution import (
     _log_provider_resolution_failure,
     _service_resolution_snapshot,
 )
+from services.numbers.pricing_policy import temp_sale_price
 from services.numbers.providers.herosms_provider import HeroSMSProvider
 from services.numbers.providers.smsman_provider import SMSManProvider
 from services.numbers.providers.smspool_provider import SMSPoolProvider
@@ -629,7 +630,14 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
 
                     lane = dict(variant)
                     lane["base_price"] = base_price
-                    lane["price"] = round(base_price * (1.0 + markup_pct / 100.0), 4) if markup_pct > 0 else base_price
+                    lane["price"] = temp_sale_price(
+                        service_key=service_key,
+                        base_price=base_price,
+                        markup_percent=markup_pct,
+                        requested_country=c_code,
+                        provider_country_iso=lane.get("provider_country_iso"),
+                        provider_country=lane.get("provider_country"),
+                    )
                     lane["api_service_name"] = api_service_name
                     lane["available_for_buy"] = True
                     if provider_balance is not None:
@@ -741,12 +749,8 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
                         price_data["testing_visible"] = True
                         price_data["provider_reason"] = "provider_balance_low"
 
-                sale_price = base_price
-                if base_price > 0 and markup_pct > 0:
-                    sale_price = round(base_price * (1.0 + markup_pct / 100.0), 4)
                 resolved_api_service_name = str(price_data.get("api_service_name") or api_service_name)
                 price_data["base_price"] = base_price
-                price_data["price"] = sale_price
                 price_data["api_service_name"] = resolved_api_service_name
                 price_data["available_for_buy"] = bool(price_data.get("available_for_buy", True))
                 if not c_code:
@@ -759,6 +763,14 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
                         price_data["provider_state_code"] = provider_state_code
                     if provider_country_iso:
                         price_data["provider_country_iso"] = provider_country_iso
+                price_data["price"] = temp_sale_price(
+                    service_key=service_key,
+                    base_price=base_price,
+                    markup_percent=markup_pct,
+                    requested_country=c_code,
+                    provider_country_iso=price_data.get("provider_country_iso"),
+                    provider_country=price_data.get("provider_country"),
+                )
                 _log_provider_attempt_event(
                     phase="pricing",
                     provider_code=code,

@@ -255,7 +255,7 @@ async def test_get_all_prices(monkeypatch):
     monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
     res = await manager.get_all_prices('telegram', None, None)
     assert 'smspool' in res
-    assert res['smspool']['price'] == 1.23
+    assert res['smspool']['price'] == 1.5375
 
 
 @pytest.mark.asyncio
@@ -295,6 +295,57 @@ async def test_get_all_prices_vaksms_uses_provider_resolved_api_service(monkeypa
     result = await manager.get_all_prices("gmail", "1", None)
     assert result["vaksms"]["price"] == 0.17
     assert result["vaksms"]["api_service_name"] == "jewa"
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_pricing_uses_floor_and_min_markup(monkeypatch):
+    class _Provider:
+        async def get_price(self, service, country=None, state=None):
+            return {
+                "success": True,
+                "price": 0.27,
+                "api_service_name": "wa",
+                "provider_country_iso": "GR",
+            }
+
+        async def get_balance(self):
+            return 10.0
+
+    monkeypatch.setattr(manager, "PROVIDERS", {"herosms": _Provider()})
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+
+    async def _resolve(*args, **kwargs):
+        return {"resolved_provider_service": "wa", "provider_reason": "test"}
+
+    monkeypatch.setattr(manager, "get_provider_service_resolution_dynamic", _resolve)
+    manager._PROVIDER_BALANCE_CACHE.clear()
+
+    result = await manager.get_all_prices("whatsapp", "none", None, ignore_balance=True)
+    assert result["herosms"]["base_price"] == 0.27
+    assert result["herosms"]["price"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_telegram_us_pricing_uses_country_floor(monkeypatch):
+    class _Provider:
+        async def get_price(self, service, country=None, state=None):
+            return {"success": True, "price": 0.5, "api_service_name": "tg"}
+
+        async def get_balance(self):
+            return 10.0
+
+    monkeypatch.setattr(manager, "PROVIDERS", {"herosms": _Provider()})
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+
+    async def _resolve(*args, **kwargs):
+        return {"resolved_provider_service": "tg", "provider_reason": "test"}
+
+    monkeypatch.setattr(manager, "get_provider_service_resolution_dynamic", _resolve)
+    manager._PROVIDER_BALANCE_CACHE.clear()
+
+    result = await manager.get_all_prices("telegram", "1", None, ignore_balance=True)
+    assert result["herosms"]["base_price"] == 0.5
+    assert result["herosms"]["price"] == 0.9
 
 
 @pytest.mark.asyncio
