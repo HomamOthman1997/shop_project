@@ -40,7 +40,7 @@ from services.numbers.providers.smspool_provider import SMSPoolProvider
 from services.numbers.providers.telabot_provider import TelabotProvider
 from services.numbers.providers.textverified_provider import TextVerifiedProvider
 from services.numbers.providers.pvadeals_provider import PVADealsProvider
-from services.numbers.providers.alisms_provider import AliSMSProvider
+from services.numbers.providers.vaksms_provider import VAKSMSProvider
 from services.numbers.providers.error_normalizer import normalize_provider_error
 from services.numbers.service_map import (
     SERVICE_MAP,
@@ -59,7 +59,7 @@ PROVIDERS: dict[str, Any] = {
     "herosms": HeroSMSProvider(),
     "smsman": _SMSMAN_PROVIDER,
     "pvadeals": PVADealsProvider(),
-    "alisms": AliSMSProvider(),
+    "vaksms": VAKSMSProvider(),
     # Virtual second lane for the same backend provider (second-best offer).
     "smsman_s6": _SMSMAN_PROVIDER,
 }
@@ -125,7 +125,7 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {
         "supports_state_temp": False,
         "supports_state_rental": False,
     },
-    "alisms": {
+    "vaksms": {
         "supports_temp": True,
         "supports_rental": False,
         "supports_unlimited_rental": False,
@@ -501,7 +501,7 @@ async def get_provider_service_resolution_dynamic(service_key: str, provider_cod
             resolution["provider_reason"] = "service_not_supported"
             return _cache_and_return(resolution)
 
-        if provider_code in {"herosms", "smsman", "alisms"}:
+        if provider_code in {"herosms", "smsman", "vaksms"}:
             mapped = get_service_provider_map(norm_target).get(provider_code)
             if mapped:
                 resolution["resolved_provider_service"] = str(mapped)
@@ -660,7 +660,7 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
                 resolution["provider_reason"] = "resolved_not_listed_fallback" if api_service_name else "service_not_supported"
             else:
                 resolution = await get_provider_service_resolution_dynamic(service_key, code)
-                api_service_name = str(service_key or "") if code == "alisms" else str(resolution.get("resolved_provider_service") or "")
+                api_service_name = str(resolution.get("resolved_provider_service") or "")
             if not api_service_name:
                 if not balance_task.done():
                     balance_task.cancel()

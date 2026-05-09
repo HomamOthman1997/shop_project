@@ -94,13 +94,10 @@ def _extract_provider_location(
             if iso:
                 return "", iso
 
-    if code == "alisms" and isinstance(raw, dict):
-        service_block = next((value for value in raw.values() if isinstance(value, dict)), None)
-        if isinstance(service_block, dict) and service_block:
-            country_id = next(iter(service_block.keys()), "")
-            iso = _country_iso_value(str(country_id or "").strip())
-            if iso:
-                return "", iso
+    if code == "vaksms" and isinstance(raw, dict):
+        iso = _country_iso_value(str(price_data.get("provider_country_iso") or price_data.get("provider_country") or "").strip())
+        if iso:
+            return "", iso
 
     if code in {"textverified", "telabot"}:
         return "", "US"

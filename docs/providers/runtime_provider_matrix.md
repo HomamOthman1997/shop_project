@@ -6,7 +6,6 @@ This file is generated from source code and is intended to prevent docs/runtime 
 
 | Provider | Temp | Rental | Unlimited rental | State temp | State rental | In RENTAL_PROVIDER_CODES |
 |---|---:|---:|---:|---:|---:|---:|
-| alisms | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | herosms | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | pvadeals | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
 | smsman | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -14,6 +13,7 @@ This file is generated from source code and is intended to prevent docs/runtime 
 | smspool | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ |
 | telabot | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | textverified | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| vaksms | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ## Proxy providers
 

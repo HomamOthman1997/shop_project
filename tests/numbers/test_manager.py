@@ -35,7 +35,7 @@ def _patch_providers(monkeypatch):
     monkeypatch.setitem(manager.PROVIDERS, 'herosms', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'smsman', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'pvadeals', DummyProvider())
-    monkeypatch.setitem(manager.PROVIDERS, 'alisms', DummyProvider())
+    monkeypatch.setitem(manager.PROVIDERS, 'vaksms', DummyProvider())
 
 
 def test_service_name_lookup():
@@ -106,32 +106,32 @@ def test_service_name_lookup_does_not_map_google_to_youtube_for_pvadeals():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_provider_name_alisms(monkeypatch):
-    class _AliDummy:
+async def test_dynamic_provider_name_vaksms(monkeypatch):
+    class _VAKDummy:
         async def resolve_service_code(self, value):
             lookup = {"telegram": "tg", "google": "go"}
             return lookup.get(str(value).lower())
 
-    monkeypatch.setitem(manager.PROVIDERS, "alisms", _AliDummy())
-    assert await manager.get_provider_service_name_dynamic("telegram", "alisms") == "tg"
-    assert await manager.get_provider_service_name_dynamic("google", "alisms") == "go"
-    assert await manager.get_provider_service_name_dynamic("missingzzz", "alisms") is None
+    monkeypatch.setitem(manager.PROVIDERS, "vaksms", _VAKDummy())
+    assert await manager.get_provider_service_name_dynamic("telegram", "vaksms") == "tg"
+    assert await manager.get_provider_service_name_dynamic("google", "vaksms") == "go"
+    assert await manager.get_provider_service_name_dynamic("missingzzz", "vaksms") is None
 
 
 @pytest.mark.asyncio
 async def test_provider_service_resolution_uses_cache(monkeypatch):
     calls = {"n": 0}
 
-    class _AliDummy:
+    class _VAKDummy:
         async def resolve_service_code(self, value):
             calls["n"] += 1
             return "go" if str(value).lower() == "google" else None
 
-    monkeypatch.setitem(manager.PROVIDERS, "alisms", _AliDummy())
+    monkeypatch.setitem(manager.PROVIDERS, "vaksms", _VAKDummy())
     manager._SERVICE_RESOLUTION_CACHE.clear()
 
-    first = await manager.get_provider_service_resolution_dynamic("google", "alisms")
-    second = await manager.get_provider_service_resolution_dynamic("google", "alisms")
+    first = await manager.get_provider_service_resolution_dynamic("google", "vaksms")
+    second = await manager.get_provider_service_resolution_dynamic("google", "vaksms")
 
     assert first["resolved_provider_service"] == "go"
     assert second["resolved_provider_service"] == "go"
@@ -275,18 +275,26 @@ async def test_get_all_prices_exposes_smsman_s6_placeholder_in_testing_mode(monk
 
 
 @pytest.mark.asyncio
-async def test_get_all_prices_alisms_uses_provider_resolved_api_service(monkeypatch):
-    class _AliDummy:
+async def test_get_all_prices_vaksms_uses_provider_resolved_api_service(monkeypatch):
+    class _VAKDummy:
+        async def resolve_service_code(self, value):
+            return "jewa" if str(value).lower() == "gmail" else None
+
         async def get_price(self, service, country=None, state=None):
-            assert service == "gmail"
+            assert service == "jewa"
             return {"success": True, "price": 0.17, "api_service_name": "jewa"}
 
-    monkeypatch.setitem(manager.PROVIDERS, "alisms", _AliDummy())
+        async def get_balance(self):
+            return 10.0
+
+    monkeypatch.setitem(manager.PROVIDERS, "vaksms", _VAKDummy())
     monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+    manager._SERVICE_RESOLUTION_CACHE.clear()
+    manager._PROVIDER_BALANCE_CACHE.clear()
 
     result = await manager.get_all_prices("gmail", "1", None)
-    assert result["alisms"]["price"] == 0.17
-    assert result["alisms"]["api_service_name"] == "jewa"
+    assert result["vaksms"]["price"] == 0.17
+    assert result["vaksms"]["api_service_name"] == "jewa"
 
 
 @pytest.mark.asyncio
@@ -487,13 +495,13 @@ def test_provider_capability_matrix_rules():
     assert manager.provider_allows_temp("telabot", state_selected=True) is True
     assert manager.provider_allows_temp("pvadeals", state_selected=False) is True
     assert manager.provider_allows_temp("pvadeals", state_selected=True) is False
-    assert manager.provider_allows_temp("alisms", state_selected=False) is True
-    assert manager.provider_allows_temp("alisms", state_selected=True) is False
+    assert manager.provider_allows_temp("vaksms", state_selected=False) is True
+    assert manager.provider_allows_temp("vaksms", state_selected=True) is False
 
     assert manager.provider_allows_rental("herosms", service_key="paypal", country_iso="US") is True
     assert manager.provider_allows_rental("smspool", service_key="paypal", country_iso="US") is False
     assert manager.provider_allows_rental("pvadeals", service_key="paypal", country_iso="US") is True
-    assert manager.provider_allows_rental("alisms", service_key="paypal", country_iso="US") is False
+    assert manager.provider_allows_rental("vaksms", service_key="paypal", country_iso="US") is False
     assert manager.provider_allows_rental(
         "smspool",
         service_key=manager.RENTAL_UNLIMITED_SERVICE_KEY,

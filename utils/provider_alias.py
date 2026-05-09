@@ -10,7 +10,7 @@ _PROVIDER_PUBLIC_IDS: dict[str, str] = {
     "smspool": "S3",
     "telabot": "S4",
     "pvadeals": "S5",
-    "alisms": "S6",
+    "vaksms": "S6",
     "smsman": "S7",
     "smsman_s6": "S8",
     # Proxy providers are also hidden behind the same public IDs.

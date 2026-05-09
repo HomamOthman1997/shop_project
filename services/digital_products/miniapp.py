@@ -1359,7 +1359,6 @@ async def _catalog_payload() -> dict[str, Any]:
             "nonvoip_key",
             "herosms_key",
             "pvadeals_key",
-            "alisms_key",
             "vaksms_key",
         )
     )

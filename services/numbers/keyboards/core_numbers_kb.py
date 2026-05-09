@@ -409,7 +409,7 @@ def rental_providers_kb(
 
     if unlimited_mode:
         # Unlimited view: force provider ordering by internal provider codes.
-        provider_order = {"smspool": 0, "textverified": 1, "herosms": 2, "pvadeals": 3, "alisms": 4}
+        provider_order = {"smspool": 0, "textverified": 1, "herosms": 2, "pvadeals": 3, "vaksms": 4}
         ordered_rows = sorted(
             provider_rows,
             key=lambda item: (

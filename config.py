@@ -38,10 +38,9 @@ class Settings(BaseSettings):
     smsman_base_url: str = "https://api.sms-man.com/control"
     pvadeals_key: Optional[str] = None
     pvadeals_base_url: str = "https://prod-v3.pvadeals.com/v3/api"
-    alisms_key: Optional[str] = None
-    alisms_base_url: str = "https://api.alisms.org/stubs/handler_api.php"
     vaksms_key: Optional[str] = None
     vaksms_base_url: str = "https://vak-sms.com/api"
+    vaksms_docs_url: str = "https://vak-sms.com/api/vak/"
     vaksms_stub_base_url: str = "https://vak-sms.com/stubs/handler_api.php"
     vaksms_rub_to_usd_rate: float = 0.0112
     # Optional NonVoIP replacement for smsman slot.

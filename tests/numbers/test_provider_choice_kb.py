@@ -16,11 +16,11 @@ def _provider_rows(kb):
     ]
 
 
-def test_provider_public_ids_shift_pvadeals_and_alisms():
+def test_provider_public_ids_shift_pvadeals_and_vaksms():
     assert provider_public_id("pvadeals") == "S5"
-    assert provider_public_id("alisms") == "S6"
+    assert provider_public_id("vaksms") == "S6"
     assert provider_display_name("pvadeals") == "Echo"
-    assert provider_display_name("alisms") == "Foxtrot"
+    assert provider_display_name("vaksms") == "Foxtrot"
 
 
 def test_provider_choice_kb_hides_smsman_lanes():
@@ -35,7 +35,7 @@ def test_provider_choice_kb_hides_smsman_lanes():
                 "available_for_buy": True,
                 "provider_country_iso": "US",
             },
-            "alisms": {
+            "vaksms": {
                 "price": 0.1,
                 "api_service_name": "go",
                 "available_for_buy": True,
