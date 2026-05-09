@@ -179,9 +179,8 @@ def number_type_kb(lang: str) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text=_numbers_text(lang, "Call Number", "رقم اتصال"),
+                    text=_numbers_text(lang, "🆕 Call Number 🆕", "🆕 رقم اتصال 🆕"),
                     callback_data="flow:type:voice",
-                    style="primary",
                 )
             ],
             [
@@ -256,7 +255,7 @@ def service_kb(lang: str = "en", num_type: str = "temp", country_code: str | Non
 def no_availability_kb(lang: str = "en") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "back_to_services"), callback_data="flow:service:back")],
+            [InlineKeyboardButton(text=_numbers_text(lang, "⬅️ Back to Services", "رجوع إلى الخدمات ⬅️"), callback_data="flow:service:back")],
             [InlineKeyboardButton(text=t(lang, "back_to_countries"), callback_data="flow:country:back")],
             [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger", icon_custom_emoji_id=_ICON_CANCEL)],
         ]

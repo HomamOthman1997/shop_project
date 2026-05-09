@@ -1427,7 +1427,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
             except Exception:
                 pass
         try:
-            prices = await get_all_voice_prices(service_name, "1", state_code)
+            prices = await get_all_voice_prices(service_name, "1", state_code, ignore_balance=True)
         finally:
             await _stop_loading_text_animator(loading_stop, loading_task)
         if not prices:
