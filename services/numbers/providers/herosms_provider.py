@@ -4,6 +4,7 @@ import time
 from typing import Any, Optional
 
 from config import settings
+from services.numbers.auto_country_policy import allows_auto_country_iso
 from services.numbers.core.session_manager import SessionManager
 from services.numbers.data.countries import COUNTRIES_LIST
 
@@ -375,11 +376,15 @@ class HeroSMSProvider(BaseProvider):
             return {"success": False, "raw": data}
 
         provider_country_iso: str | None = None
+        provider_country: str | None = None
         if mapped_country is None and isinstance(data, dict):
             best_country_id: str | None = None
             best_price: float | None = None
             for country_key, service_block in data.items():
                 if not isinstance(service_block, dict):
+                    continue
+                country_iso = await self._hero_country_id_to_iso(country_key)
+                if not allows_auto_country_iso(country_iso):
                     continue
                 service_row = service_block.get(str(service))
                 if not isinstance(service_row, dict):
@@ -391,7 +396,13 @@ class HeroSMSProvider(BaseProvider):
                     best_price = float(cost)
                     best_country_id = str(country_key)
             if best_country_id:
+                provider_country = best_country_id
                 provider_country_iso = await self._hero_country_id_to_iso(best_country_id)
+                prices = [best_price] if best_price is not None else []
+            else:
+                prices = []
+            if not prices:
+                return {"success": False, "raw": data}
 
         result = {
             "success": True,
@@ -401,6 +412,8 @@ class HeroSMSProvider(BaseProvider):
         }
         if provider_country_iso:
             result["provider_country_iso"] = provider_country_iso
+        if provider_country:
+            result["provider_country"] = provider_country
         return result
 
     async def buy_number(self, service, country=None, state=None):

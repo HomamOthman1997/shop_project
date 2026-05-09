@@ -3,6 +3,7 @@ import re
 from typing import Any
 
 from config import settings
+from services.numbers.auto_country_policy import allows_auto_country_iso
 from services.numbers.core.session_manager import SessionManager
 from services.numbers.data.countries import COUNTRIES_LIST
 
@@ -151,6 +152,36 @@ class SMSPoolProvider(BaseProvider):
         # country codes like "1" by matching unrelated rows such as "11" or "154".
         return any(hint in direct for hint in hints if hint)
 
+    @staticmethod
+    def _row_country_iso(row: dict[str, Any]) -> str:
+        for key in ("short_name", "country", "country_name", "name", "tag"):
+            value = str(row.get(key) or "").strip()
+            if not value:
+                continue
+            normalized = _norm_country(value)
+            if normalized in {"us", "usa", "unitedstates", "unitedstatesofamerica"}:
+                return "US"
+            if len(value) == 2 and value.isalpha():
+                return value.upper()
+            for country_row in COUNTRIES_LIST:
+                iso = str(country_row.get("iso") or "").strip().upper()
+                name = str(country_row.get("name") or "").strip()
+                if normalized in {_norm_country(iso), _norm_country(name)}:
+                    return iso
+        return ""
+
+    @staticmethod
+    def _row_provider_country(row: dict[str, Any]) -> str:
+        for key in ("country", "short_name", "country_name", "name", "tag"):
+            value = str(row.get(key) or "").strip()
+            if value:
+                return value
+        return ""
+
+    @staticmethod
+    def _row_has_country_marker(row: dict[str, Any]) -> bool:
+        return any(str(row.get(key) or "").strip() for key in ("country", "short_name", "country_name", "name", "tag"))
+
     async def get_price(self, service, country=None, state=None):
         # ensure the key is configured; otherwise aiohttp will blow up with None
         key = settings.smspool_key
@@ -200,25 +231,45 @@ class SMSPoolProvider(BaseProvider):
                     filtered = [item for item in candidates if self._row_matches_country(item, str(country))]
                     if filtered:
                         candidates = filtered
+                elif candidates:
+                    regional = [
+                        item
+                        for item in candidates
+                        if allows_auto_country_iso(self._row_country_iso(item)) or not self._row_has_country_marker(item)
+                    ]
+                    candidates = regional
 
                 if not candidates:
                     return {"success": False, "raw": data}
 
                 # pick the lowest nonzero price from candidates
-                prices = []
+                best_item: dict[str, Any] | None = None
+                best_price: float | None = None
                 for item in candidates:
                     try:
-                        prices.append(float(item.get("price", 0) or 0))
+                        price = float(item.get("price", 0) or 0)
                     except Exception:
                         continue
-                price_val = min(prices) if prices else 0.0
+                    if price <= 0:
+                        continue
+                    if best_price is None or price < best_price:
+                        best_price = price
+                        best_item = item
+                price_val = best_price or 0.0
+                provider_country = self._row_provider_country(best_item or {})
+                provider_country_iso = self._row_country_iso(best_item or {})
 
-                return {
+                result = {
                     "success": True,
                     "price": price_val,
                     "api_service_name": service,
                     "raw": data,
                 }
+                if provider_country:
+                    result["provider_country"] = provider_country
+                if provider_country_iso:
+                    result["provider_country_iso"] = provider_country_iso
+                return result
 
         except Exception as e:
             logger.exception("SMSPool get_price error")

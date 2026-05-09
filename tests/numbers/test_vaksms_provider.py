@@ -157,8 +157,8 @@ async def test_vaksms_get_price_picks_site_country_for_any_country(monkeypatch, 
         ),
         (
             "https://vak-sms.com/api/getCountNumber/",
-            (("apiKey", "test-key"), ("country", "id"), ("price", 1), ("service", "wa")),
-        ): DummyResponse(status=200, json_data={"wa": 9774, "price": 0.1}),
+            (("apiKey", "test-key"), ("country", "us"), ("price", 1), ("service", "wa")),
+        ): DummyResponse(status=200, json_data={"wa": 922, "price": 0.88}),
     }
     session = DummySession(routes)
 
@@ -170,12 +170,11 @@ async def test_vaksms_get_price_picks_site_country_for_any_country(monkeypatch, 
 
     result = await provider.get_price("whatsapp", country="none")
     assert result["success"] is True
-    assert result["price"] == 0.1
+    assert result["price"] == 0.88
     assert result["api_service_name"] == "wa"
-    assert result["provider_country"] == "id"
-    assert result["provider_country_iso"] == "ID"
-    assert result["recommendation_blocked"] is True
-    assert result["recommendation_reason"] == "low_confidence_auto_country"
+    assert result["provider_country"] == "us"
+    assert result["provider_country_iso"] == "US"
+    assert "recommendation_blocked" not in result
 
 
 @pytest.mark.asyncio

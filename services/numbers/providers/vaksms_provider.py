@@ -4,6 +4,7 @@ import time
 from typing import Any, Optional
 
 from config import settings
+from services.numbers.auto_country_policy import allows_auto_country_iso
 from services.numbers.core.session_manager import SessionManager
 from services.numbers.data.countries import COUNTRIES_LIST
 
@@ -295,6 +296,8 @@ class VAKSMSProvider(BaseProvider):
                 continue
             country_id = str(item.get("id") or "").strip().lower()
             if not country_id:
+                continue
+            if not allows_auto_country_iso(country_id):
                 continue
             count = int(item.get("count") or 0)
             price = _as_float(item.get("apiPrice")) or _as_float(item.get("minPrice")) or 0.0
