@@ -2125,21 +2125,52 @@ async def provider_selected(callback: types.CallbackQuery, state: FSMContext):
         selected_provider_country=provider_info.get("provider_country") or data.get("country"),
         lang=lang,
     )
-    reuse_policy_text = "\n" + _temp_reuse_policy_text(
-        lang,
-        _provider_default_reuse_warranty_sec(provider_code),
-    )
     state_label = t(lang, "state_any") if str(data.get("state", "none")).lower() == "none" else str(data.get("state", "none"))
-    text = (
-        f"{t(lang, 'confirm_purchase')}\n\n"
-        f"{t(lang, 'provider_label')}: {provider_public_id(provider_code)}\n"
-        f"{t(lang, 'service_label')}: {data.get('service')}\n"
-        f"{t(lang, 'country_label')}: {_country_display_name(data.get('country'))}\n"
-        f"{t(lang, 'state_label')}: {state_label}\n"
-        f"{t(lang, 'price_label')}: {format_usd(float(provider_info['price']))}"
-        f"{reuse_policy_text}\n\n"
-        f"{t(lang, 'confirm_purchase_question')}"
-    )
+    is_voice = str(data.get("num_type") or "").strip().lower() == "voice"
+    if is_voice:
+        text = "\n".join(
+            [
+                t(lang, "confirm_purchase"),
+                "",
+                f"{t(lang, 'provider_label')}: {provider_public_id(provider_code)}",
+                f"{t(lang, 'service_label')}: {data.get('service')}",
+                f"{t(lang, 'country_label')}: {_country_display_name(data.get('country'))}",
+                f"{t(lang, 'price_label')}: {format_usd(float(provider_info['price']))}",
+                "",
+                _numbers_text(
+                    lang,
+                    "After confirmation, the bot will show a voice-capable number.",
+                    "بعد التأكيد سيعرض البوت رقم قابل لاستقبال مكالمة التفعيل.",
+                ),
+                _numbers_text(
+                    lang,
+                    "Send the verification call to that number. The bot will check TextVerified for the call recording.",
+                    "اطلب مكالمة التفعيل على الرقم. البوت سيراقب TextVerified للحصول على تسجيل المكالمة.",
+                ),
+                _numbers_text(
+                    lang,
+                    "There is no SMS resend or multi-code flow for call numbers. If no call arrives, try another number or cancel.",
+                    "لا يوجد إعادة إرسال SMS أو Multi-Code لرقم الاتصال. إذا لم تصل المكالمة جرّب رقم آخر أو ألغِ الطلب.",
+                ),
+                "",
+                t(lang, "confirm_purchase_question"),
+            ]
+        )
+    else:
+        reuse_policy_text = "\n" + _temp_reuse_policy_text(
+            lang,
+            _provider_default_reuse_warranty_sec(provider_code),
+        )
+        text = (
+            f"{t(lang, 'confirm_purchase')}\n\n"
+            f"{t(lang, 'provider_label')}: {provider_public_id(provider_code)}\n"
+            f"{t(lang, 'service_label')}: {data.get('service')}\n"
+            f"{t(lang, 'country_label')}: {_country_display_name(data.get('country'))}\n"
+            f"{t(lang, 'state_label')}: {state_label}\n"
+            f"{t(lang, 'price_label')}: {format_usd(float(provider_info['price']))}"
+            f"{reuse_policy_text}\n\n"
+            f"{t(lang, 'confirm_purchase_question')}"
+        )
     await callback.message.edit_text(text, reply_markup=confirm_buy_kb(lang))
     await state.set_state(NumberFlow.confirm_buy)
 
