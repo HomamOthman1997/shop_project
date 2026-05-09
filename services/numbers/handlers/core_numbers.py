@@ -26,7 +26,7 @@ from services.numbers.keyboards.core_numbers_kb import (
     tv_renewable_kb,
     tv_state_choice_kb,
 )
-from services.numbers.manager import RENTAL_UNLIMITED_SERVICE_KEY, get_all_prices, get_all_rental_prices
+from services.numbers.manager import RENTAL_UNLIMITED_SERVICE_KEY, get_all_prices, get_all_rental_prices, get_all_voice_prices
 from services.numbers.manager import TEMP_NOT_LISTED_SERVICE_KEY, provider_allows_rental
 from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_callback_guard
 from services.numbers.service_families import normalize_service_key
@@ -918,7 +918,7 @@ async def numbers_menu(message: types.Message, state: FSMContext):
     await state.set_state(NumberFlow.num_type)
 
 
-@router.callback_query(lambda c: c.data in {"flow:type:temp", "flow:type:rental", "flow:type:perm"})
+@router.callback_query(lambda c: c.data in {"flow:type:temp", "flow:type:rental", "flow:type:perm", "flow:type:voice"})
 async def choose_number_type(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
@@ -934,7 +934,7 @@ async def choose_number_type(callback: types.CallbackQuery, state: FSMContext):
         await state.update_data(last_msg_id=sent.message_id)
         await state.set_state(NumberFlow.rental_home)
         return
-    await _show_service_entry(callback.message, state, lang=lang, num_type="temp")
+    await _show_service_entry(callback.message, state, lang=lang, num_type="voice" if num_type == "voice" else "temp")
 
 
 @router.callback_query(lambda c: c.data == "flow:rental:add")
@@ -1254,7 +1254,7 @@ async def handle_inline_state_selection(message: types.Message, state: FSMContex
         await state.set_state(NumberFlow.rental_confirm)
         return
 
-    await state.update_data(state=state_code if num_type == "temp" else "none")
+    await state.update_data(state=state_code if num_type in {"temp", "voice"} else "none")
     country_code = data.get("country")
     preselected_service = str(data.get("service") or "").strip()
     if preselected_service and bool(data.get("numbers_preselected_service")):
@@ -1361,6 +1361,16 @@ async def choose_service(callback: types.CallbackQuery, state: FSMContext):
     if not data.get("last_msg_id") and current_message_id:
         await state.update_data(last_msg_id=current_message_id)
     await state.update_data(service_lookup_not_listed=False)
+    if str(data.get("num_type") or "").strip().lower() == "voice":
+        await state.update_data(service=service_name, country="1", state="none")
+        text = _compose_numbers_screen(
+            _us_state_prompt(lang),
+            _numbers_context_lines(lang, service=service_name, country_code="1"),
+            trailing_lines=[_numbers_text(lang, "Choose an area/state for the call number, or use any state.", "اختر ولاية/منطقة لرقم الاتصال أو استخدم بدون ولاية.")],
+        )
+        await _safe_edit_text(callback.message, text, reply_markup=_us_state_keyboard(lang), parse_mode="HTML")
+        await state.set_state(NumberFlow.state)
+        return await _safe_callback_answer()
     await _show_country_entry_for_selected_service(
         chat_id=callback.message.chat.id,
         bot=callback.message.bot,
@@ -1401,6 +1411,54 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
         )
         return
     usd_to_syp_rate = await _resolve_usd_to_syp_rate()
+
+    if num_type == "voice":
+        loading_stop = None
+        loading_task = None
+        if last_msg_id:
+            try:
+                await bot.edit_message_text(chat_id=chat_id, message_id=last_msg_id, text=t(lang, "loading_prices"), reply_markup=None)
+                loading_stop, loading_task = _start_loading_text_animator(
+                    bot,
+                    chat_id=chat_id,
+                    message_id=last_msg_id,
+                    base_text=t(lang, "loading_prices"),
+                )
+            except Exception:
+                pass
+        try:
+            prices = await get_all_voice_prices(service_name, "1", state_code)
+        finally:
+            await _stop_loading_text_animator(loading_stop, loading_task)
+        if not prices:
+            if last_msg_id:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=last_msg_id,
+                    text=_numbers_unavailable_text(
+                        lang,
+                        title=t(lang, "no_prices_available"),
+                        service=service_name,
+                        country_code="1",
+                        state_code=str(state_code or ""),
+                    ),
+                    reply_markup=no_availability_kb(lang),
+                )
+            await state.set_state(NumberFlow.service)
+            return
+        await state.update_data(available_prices=prices, usd_to_syp_rate=usd_to_syp_rate, lang=lang, num_type="voice", country="1")
+        if last_msg_id:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=last_msg_id,
+                text=_compose_numbers_screen(
+                    _numbers_text(lang, "Choose call-number option.", "اختر خيار رقم الاتصال."),
+                    _numbers_context_lines(lang, service=service_name, country_code="1", state_code=str(state_code or "none")),
+                ),
+                reply_markup=provider_choice_kb(prices, lang=lang, usd_to_syp=usd_to_syp_rate),
+            )
+        await state.set_state(NumberFlow.confirm_buy)
+        return
 
     if num_type == "rental":
         loading_stop = None

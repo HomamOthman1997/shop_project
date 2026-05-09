@@ -17,7 +17,7 @@ logger = logging.getLogger("textverified")
 
 class TextVerifiedProvider(BaseProvider):
     BASE = "https://www.textverified.com/api"
-    _sms_services_cache: set[str] | None = None
+    _services_cache_by_capability: dict[str, set[str]] = {}
     _auth_lock: asyncio.Lock | None = None
     _token_cache: dict[str, Any] = {"token": None, "expires_at": 0.0, "fingerprint": None}
     _price_cache: dict[tuple[str, str, str], tuple[float, dict[str, Any]]] = {}
@@ -272,9 +272,11 @@ class TextVerifiedProvider(BaseProvider):
         return None
 
     @classmethod
-    def _sms_services(cls) -> set[str]:
-        if cls._sms_services_cache is not None:
-            return set(cls._sms_services_cache)
+    def _services_for_capability(cls, capability_name: str) -> set[str]:
+        capability_filter = str(capability_name or "sms").strip().lower()
+        cached = cls._services_cache_by_capability.get(capability_filter)
+        if cached is not None:
+            return set(cached)
         services: set[str] = set()
         for row in textverified_services.DATA:
             if not isinstance(row, dict):
@@ -283,19 +285,19 @@ class TextVerifiedProvider(BaseProvider):
             capability = str(row.get("capability") or "").strip().lower()
             if not service_name:
                 continue
-            if capability and capability != "sms":
+            if capability and capability != capability_filter:
                 continue
             services.add(service_name)
-        cls._sms_services_cache = set(services)
+        cls._services_cache_by_capability[capability_filter] = set(services)
         return services
 
-    def _service_candidates(self, service: str) -> list[str]:
+    def _service_candidates(self, service: str, *, capability: str = "sms") -> list[str]:
         base = str(service or "").strip()
         if not base:
             return []
         out: list[str] = [base]
-        supported_sms = self._sms_services()
-        normalized_map: dict[str, str] = {normalize_service_key(name): name for name in supported_sms}
+        supported_services = self._services_for_capability(capability)
+        normalized_map: dict[str, str] = {normalize_service_key(name): name for name in supported_services}
 
         norm = normalize_service_key(base)
         canonical = CANONICAL_SERVICE_KEYS.get(norm, norm)
@@ -364,7 +366,15 @@ class TextVerifiedProvider(BaseProvider):
         return code in {"unauthorized", "forbidden", "invalidtoken", "invalidapikey"}
 
     async def get_price(self, service, country=None, state=None):
-        cached_price = self._get_cached_price(service, country, state)
+        return await self._get_verification_price(service, country=country, state=state, capability="sms")
+
+    async def get_voice_price(self, service, country=None, state=None):
+        return await self._get_verification_price(service, country=country, state=state, capability="voice")
+
+    async def _get_verification_price(self, service, country=None, state=None, *, capability: str = "sms"):
+        capability_value = str(capability or "sms").strip().lower()
+        cache_service_key = f"{capability_value}:{service}"
+        cached_price = self._get_cached_price(cache_service_key, country, state)
         if cached_price is not None:
             return cached_price
 
@@ -385,7 +395,7 @@ class TextVerifiedProvider(BaseProvider):
         elif True not in area_flags:
             area_flags.append(True)
 
-        service_candidates = self._service_candidates(str(service))
+        service_candidates = self._service_candidates(str(service), capability=capability_value)
         if not service_candidates:
             service_candidates = [str(service)]
 
@@ -395,7 +405,7 @@ class TextVerifiedProvider(BaseProvider):
                 body: dict[str, object] = {
                     "serviceName": candidate_service,
                     "numberType": "mobile",
-                    "capability": "sms",
+                    "capability": capability_value,
                     "areaCode": bool(area_flag),
                     "carrier": False,
                 }
@@ -461,7 +471,7 @@ class TextVerifiedProvider(BaseProvider):
                             "api_service_name": candidate_service,
                             "raw": data,
                         }
-                        self._cache_price(service, country, state, result)
+                        self._cache_price(cache_service_key, country, state, result)
                         return result
 
                 last_error = {
@@ -486,7 +496,16 @@ class TextVerifiedProvider(BaseProvider):
                 state_code = s
 
         requested_reuse = bool(kwargs.get("reuse_mode"))
-        service_candidates = self._service_candidates(str(service))
+        capability_raw = str(kwargs.get("capability") or "sms").strip()
+        capability_map = {
+            "sms": "sms",
+            "voice": "voice",
+            "smsandvoicecombo": "smsAndVoiceCombo",
+        }
+        capability_value = capability_map.get(capability_raw.lower(), "sms")
+        if capability_value not in {"sms", "voice", "smsAndVoiceCombo"}:
+            capability_value = "sms"
+        service_candidates = self._service_candidates(str(service), capability=capability_value)
         if not service_candidates:
             service_candidates = [str(service)]
 
@@ -521,7 +540,7 @@ class TextVerifiedProvider(BaseProvider):
             for candidate_area in area_candidates:
                 payload: dict[str, object] = {
                     "serviceName": candidate_service,
-                    "capability": "sms",
+                    "capability": capability_value,
                 }
                 if candidate_area:
                     payload["areaCodeSelectOption"] = [str(candidate_area)]
@@ -660,6 +679,42 @@ class TextVerifiedProvider(BaseProvider):
                     elif raw_sms not in (None, ""):
                         messages.append(str(raw_sms))
             return {"success": resp.status == 200, "messages": messages, "raw": data}
+
+    async def get_calls(self, activation_id: str, to_number: str | None = None) -> dict[str, Any]:
+        token = await self._auth()
+        if not token:
+            return {"success": False, "calls": [], "raw": "auth_failed"}
+
+        params: dict[str, str] = {
+            "reservationId": str(activation_id or "").strip(),
+            "reservationType": "verification",
+        }
+        if to_number:
+            params["to"] = str(to_number)
+        session = await SessionManager.get_session()
+        async with session.get(
+            f"{self.BASE}/pub/v2/calls",
+            headers={"Authorization": f"Bearer {token}"},
+            params=params,
+        ) as resp:
+            text = await resp.text()
+            try:
+                data = await resp.json()
+            except Exception:
+                data = {"raw_text": text}
+
+        calls: list[dict[str, Any]] = []
+        if isinstance(data, dict):
+            rows = data.get("data")
+            if isinstance(rows, list):
+                for row in rows:
+                    if isinstance(row, dict):
+                        calls.append(dict(row))
+            elif isinstance(data.get("calls"), list):
+                calls.extend([dict(row) for row in data.get("calls") if isinstance(row, dict)])
+        elif isinstance(data, list):
+            calls.extend([dict(row) for row in data if isinstance(row, dict)])
+        return {"success": resp.status == 200, "calls": calls, "raw": data}
 
     async def cancel(self, activation_id):
         token = await self._auth()

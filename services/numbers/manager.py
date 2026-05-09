@@ -1066,6 +1066,61 @@ async def get_all_rental_prices(service_key: str, country: str | None):
     return results
 
 
+async def get_all_voice_prices(service_key: str, country: str | None, state: str | None, *, ignore_balance: bool = False):
+    """Fetch incoming-call verification prices. Currently TextVerified only."""
+    provider_code = "textverified"
+    provider_obj = PROVIDERS.get(provider_code)
+    if not provider_obj or not hasattr(provider_obj, "get_voice_price"):
+        return {}
+    markup_pct = await _effective_numbers_markup_percent()
+    c_code = str(country) if country and country != "none" else None
+    s_code = str(state) if state and state != "none" else None
+    try:
+        price_result, balance_result = await asyncio.gather(
+            asyncio.wait_for(
+                provider_obj.get_voice_price(str(service_key or ""), c_code, s_code),
+                timeout=_price_screen_provider_timeout_sec(provider_code),
+            ),
+            _provider_balance_with_timeout(
+                provider_obj,
+                timeout_sec=_price_screen_balance_timeout_sec(),
+            ),
+            return_exceptions=True,
+        )
+        if isinstance(price_result, Exception):
+            raise price_result
+        if not isinstance(price_result, dict) or not bool(price_result.get("success")):
+            return {}
+        try:
+            base_price = float(price_result.get("price") or 0.0)
+        except Exception:
+            base_price = 0.0
+        if base_price <= 0:
+            return {}
+        provider_balance = None if isinstance(balance_result, Exception) else balance_result
+        if provider_balance is not None and provider_balance + 1e-9 < base_price and not ignore_balance:
+            return {}
+        sale_price = round(base_price * (1.0 + markup_pct / 100.0), 4) if markup_pct > 0 else base_price
+        info = dict(price_result)
+        info.update(
+            {
+                "base_price": base_price,
+                "price": sale_price,
+                "api_service_name": str(price_result.get("api_service_name") or service_key or ""),
+                "available_for_buy": True,
+                "voice_capable": True,
+                "success_rate": 100.0,
+                "success_attempts": 0,
+            }
+        )
+        if provider_balance is not None:
+            info["provider_balance"] = float(provider_balance)
+        return {provider_code: info}
+    except Exception as exc:
+        logger.warning("Provider %s voice price fetch failed: %s", provider_code, exc)
+        return {}
+
+
 async def buy_number_from_provider(
     provider_code: str,
     api_service_name: str,
@@ -1117,6 +1172,7 @@ async def buy_number_from_provider(
                 raw=result.get("raw") if isinstance(result, dict) else result,
             )
         return result
+
     except TypeError:
         # Backward compatibility for providers that do not accept extra kwargs.
         legacy_opts = {k: v for k, v in opts.items() if not str(k).startswith("_audit_")}
@@ -1150,6 +1206,13 @@ async def buy_number_from_provider(
                 raw=result.get("raw") if isinstance(result, dict) else result,
             )
         return result
+
+
+async def get_calls_from_provider(provider_code: str, provider_order_id: str, to_number: str | None = None) -> dict[str, Any]:
+    provider = PROVIDERS.get(provider_code)
+    if not provider or not hasattr(provider, "get_calls"):
+        return {"success": False, "calls": [], "raw": "provider_does_not_support_calls"}
+    return await provider.get_calls(provider_order_id, to_number=to_number)
 
 
 async def rent_number_from_provider(

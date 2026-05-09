@@ -179,6 +179,13 @@ def number_type_kb(lang: str) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
+                    text=_numbers_text(lang, "Call Number", "رقم اتصال"),
+                    callback_data="flow:type:voice",
+                    style="primary",
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text=t(lang, "cancel"),
                     callback_data="flow:cancel",
                     style="danger",

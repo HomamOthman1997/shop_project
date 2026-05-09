@@ -125,6 +125,7 @@ from services.numbers.manager import (
     buy_number_from_provider,
     finish_rental_from_provider,
     get_all_prices,
+    get_calls_from_provider,
     get_rental_info_from_provider,
     get_rental_sms_from_provider,
     notes_tags_from_provider,
@@ -798,6 +799,43 @@ def _temp_post_refund_kb(order_id: str, lang: str, *, allow_replace: bool = True
 
 def _numbers_text(lang: str, en: str, ar: str) -> str:
     return ar if str(lang or "").lower().startswith("ar") else en
+
+
+def _voice_waiting_text(
+    *,
+    lang: str,
+    provider_code: str,
+    number: str,
+    interval_sec: int,
+    service_name: str,
+) -> str:
+    return "\n".join(
+        [
+            _numbers_text(lang, "Call number is ready.", "رقم الاتصال جاهز."),
+            "",
+            f"{t(lang, 'provider_label')}: {provider_public_id(provider_code)}",
+            f"{t(lang, 'service_label')}: {service_name}",
+            f"{_numbers_text(lang, 'Number', 'الرقم')}: <code>{html.escape(str(number or ''))}</code>",
+            "",
+            _numbers_text(
+                lang,
+                f"Send the voice call now. I will check for the call recording every {int(interval_sec)} seconds.",
+                f"اطلب مكالمة التفعيل الآن. سأفحص تسجيل المكالمة كل {int(interval_sec)} ثانية.",
+            ),
+        ]
+    )
+
+
+def _voice_received_text(lang: str, order: dict, recording_uri: str) -> str:
+    number = str(order.get("provider_number") or "")
+    return "\n".join(
+        [
+            _numbers_text(lang, "Call received.", "وصلت المكالمة."),
+            "",
+            f"{_numbers_text(lang, 'Number', 'الرقم')}: <code>{html.escape(number)}</code>",
+            f"{_numbers_text(lang, 'Recording', 'التسجيل')}: {html.escape(str(recording_uri))}",
+        ]
+    )
 
 
 def _provider_retry_score(info: dict, cheapest: float) -> float:
@@ -1927,6 +1965,88 @@ async def _queue_temp_waiter(bot, order: dict, lang: str, is_second_code: bool =
     )
 
 
+async def _start_voice_waiter(*, bot, order: dict, lang: str) -> None:
+    order_id = order.get("_id")
+    provider_code = str(order.get("provider") or "").strip().lower()
+    provider_order_id = str(order.get("provider_order_id") or "").strip()
+    chat_id = int(order.get("temp_wait_chat_id") or 0)
+    msg_id = int(order.get("temp_wait_message_id") or 0)
+    if not order_id or not provider_code or not provider_order_id or not chat_id or not msg_id:
+        return
+
+    interval = _poll_interval_for_provider(provider_code)
+    started_at = _utc_now()
+    await update_order_details(
+        order_id,
+        {
+            "temp_wait_state": "waiting_for_call",
+            "temp_wait_started_at": started_at,
+            "temp_wait_interval_sec": interval,
+        },
+    )
+    await _log_temp_event(order, "voice_wait_started", {"interval_sec": interval})
+    deadline = started_at.timestamp() + _order_temp_timeout_sec(order)
+    while _utc_now().timestamp() < deadline:
+        current = await get_order(order_id)
+        if not current:
+            return
+        if str(current.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
+            return
+        calls_data = await get_calls_from_provider(provider_code, provider_order_id, to_number=str(current.get("provider_number") or ""))
+        calls = calls_data.get("calls") or []
+        recording_uri = ""
+        if isinstance(calls, list):
+            for call in calls:
+                if not isinstance(call, dict):
+                    continue
+                recording_uri = str(call.get("recordingUri") or call.get("recordingUrl") or "").strip()
+                if recording_uri:
+                    break
+        if recording_uri:
+            now = _utc_now()
+            await update_order_details(
+                order_id,
+                {
+                    "temp_wait_state": "call_received",
+                    "voice_call_received_at": now,
+                    "voice_recording_uri": recording_uri,
+                    "voice_calls": calls[:5] if isinstance(calls, list) else [],
+                },
+            )
+            await _log_temp_event(current, "voice_call_received", {"has_recording": True})
+            updated = await get_order(order_id) or current
+            await _safe_edit_message(
+                bot,
+                chat_id=chat_id,
+                message_id=msg_id,
+                text=_voice_received_text(lang, updated, recording_uri),
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="flow:main:back")]]
+                ),
+                parse_mode="HTML",
+            )
+            return
+        await asyncio.sleep(interval)
+
+    refreshed = await get_order(order_id)
+    if refreshed:
+        await _send_temp_timeout_state(bot, refreshed, lang)
+
+
+async def _queue_voice_waiter(bot, order: dict, lang: str) -> None:
+    task = asyncio.create_task(_start_voice_waiter(bot=bot, order=order, lang=lang))
+
+    def _done(t: asyncio.Task) -> None:
+        try:
+            _ = t.exception()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("voice waiter task failed unexpectedly")
+
+    task.add_done_callback(_done)
+
+
 @router.callback_query(lambda c: c.data == "flow:rental:my")
 async def rental_my_numbers(callback: types.CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
@@ -2820,6 +2940,7 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
     service_name = data.get("service")
     final_price = float(data.get("final_price", 0))
     cost_price = float(data.get("base_price", final_price))
+    number_mode = "voice" if str(data.get("num_type") or "").strip().lower() == "voice" else "temp"
 
     if not provider_code or not api_service or not service_name or final_price <= 0:
         return await _safe_callback_answer(t(lang, "invalid_order_info"), show_alert=True)
@@ -2861,7 +2982,7 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
     order_id = order["_id"]
     order.update(
         {
-            "number_mode": "temp",
+            "number_mode": number_mode,
             "provisioning_provider": str(provider_code),
             "provisioning_country": None if country == "none" else country,
             "provisioning_state_code": None if state_code == "none" else state_code,
@@ -2870,7 +2991,7 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
     await update_order_details(
         order_id,
         {
-            "number_mode": "temp",
+            "number_mode": number_mode,
             "telegram_bot_id": int(bot_id),
             "provisioning_state": "awaiting_charge",
             "provisioning_provider": str(provider_code),
@@ -2880,7 +3001,7 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
             "provisioning_created_at": _utc_now(),
         },
     )
-    await _log_number_event_from_order(order, "order_created", number_mode="temp")
+    await _log_number_event_from_order(order, "order_created", number_mode=number_mode)
 
     ok, message = await FinancialManager.process_core_purchase(
         user_id=user_id,
@@ -2891,13 +3012,13 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
     )
     if not ok:
         await update_order_status(order_id, "failed")
-        await _log_number_event_from_order(order, "wallet_charge_failed", payload={"message": str(message)}, status_after="failed", number_mode="temp")
+        await _log_number_event_from_order(order, "wallet_charge_failed", payload={"message": str(message)}, status_after="failed", number_mode=number_mode)
         await state.update_data(buy_confirm_inflight=False)
         inflight_locked = False
         return await _safe_callback_answer(finance_error_public_text(lang, str(message)), show_alert=True)
 
     await _best_effort_edit_text(callback.message, t(lang, "processing_order"))
-    await _log_number_event_from_order(order, "wallet_charged", status_after="paid", number_mode="temp")
+    await _log_number_event_from_order(order, "wallet_charged", status_after="paid", number_mode=number_mode)
 
     try:
         await update_order_details(
@@ -2911,12 +3032,14 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
             "reuse_mode": True,
             "_audit_requested_service": str(order.get("temp_service_key") or order.get("service_id") or ""),
         }
+        if number_mode == "voice":
+            purchase_options["capability"] = "voice"
         await _log_number_event_from_order(
             {**order, "provider": provider_code, "status": "paid"},
             "provider_buy_started",
             payload={"api_service": str(api_service)},
             status_after="paid",
-            number_mode="temp",
+            number_mode=number_mode,
         )
         req_country = None if provider_country == "none" else provider_country
         req_state = None if state_code == "none" else state_code
@@ -2950,14 +3073,14 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
                 "provider_buy_failed",
                 payload={"raw": buy_res.get("raw") if buy_res else "provider_no_response"},
                 status_after="refunded" if refund_ok else "failed",
-                number_mode="temp",
+                number_mode=number_mode,
             )
             await _log_number_event_from_order(
                 {**order, "provider": provider_code, "status": "paid"},
                 "refund_success" if refund_ok else "refund_failed",
                 payload={"source": "provider_buy_failed"},
                 status_after="refunded" if refund_ok else "failed",
-                number_mode="temp",
+                number_mode=number_mode,
             )
             if refund_ok:
                 try:
@@ -2996,7 +3119,8 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
                 "provider": provider_code,
                 "provider_number": number,
                 "provider_pool": provider_pool,
-                "number_mode": "temp",
+                "number_mode": number_mode,
+                "voice_enabled": number_mode == "voice",
                 "temp_api_service": str(api_service),
                 "temp_country": None if country == "none" else country,
                 "temp_state": None if state_code == "none" else state_code,
@@ -3031,7 +3155,7 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
             "provider_buy_success",
             payload={"provider_pool": provider_pool},
             status_after="success",
-            number_mode="temp",
+            number_mode=number_mode,
         )
 
         await _log_temp_event(
@@ -3055,15 +3179,25 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
             callback.message.bot,
             chat_id=callback.message.chat.id,
             message_id=callback.message.message_id,
-            text=_temp_waiting_text(
-                lang=lang,
-                provider_code=str(provider_code),
-                number=str(number),
-                country_code=str(country),
-                interval_sec=int(interval_sec),
-                elapsed_sec=0,
-                reuse_warranty_sec=reuse_warranty_sec,
-                service_name=str(service_name or ""),
+            text=(
+                _voice_waiting_text(
+                    lang=lang,
+                    provider_code=str(provider_code),
+                    number=str(number),
+                    interval_sec=int(interval_sec),
+                    service_name=str(service_name or ""),
+                )
+                if number_mode == "voice"
+                else _temp_waiting_text(
+                    lang=lang,
+                    provider_code=str(provider_code),
+                    number=str(number),
+                    country_code=str(country),
+                    interval_sec=int(interval_sec),
+                    elapsed_sec=0,
+                    reuse_warranty_sec=reuse_warranty_sec,
+                    service_name=str(service_name or ""),
+                )
             ),
             reply_markup=None,
             parse_mode="HTML",
@@ -3071,7 +3205,9 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
 
         # Reload order snapshot and start auto-wait flow.
         fresh_order = await get_order(order_id)
-        if fresh_order:
+        if fresh_order and number_mode == "voice":
+            await _queue_voice_waiter(bot=callback.message.bot, order=fresh_order, lang=lang)
+        elif fresh_order:
             await _queue_temp_waiter(bot=callback.message.bot, order=fresh_order, lang=lang, is_second_code=False)
         state_cleared = True
         inflight_locked = False

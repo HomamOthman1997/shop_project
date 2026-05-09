@@ -30,7 +30,7 @@ class _DummyResp:
 
 @pytest.fixture(autouse=True)
 def _reset_textverified_caches():
-    TextVerifiedProvider._sms_services_cache = None
+    TextVerifiedProvider._services_cache_by_capability = {}
     TextVerifiedProvider._auth_lock = None
     TextVerifiedProvider._token_cache = {"token": None, "expires_at": 0.0, "fingerprint": None}
     TextVerifiedProvider._price_cache = {}
@@ -70,7 +70,7 @@ async def test_buy_number_google_fallbacks_to_gmail(monkeypatch):
         return sess
 
     monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
-    TextVerifiedProvider._sms_services_cache = {"google", "gmail"}
+    TextVerifiedProvider._services_cache_by_capability = {"sms": {"google", "gmail"}}
 
     res = await provider.buy_number("google", reuse_mode=True)
     assert res["success"] is True
@@ -81,6 +81,86 @@ async def test_buy_number_google_fallbacks_to_gmail(monkeypatch):
     create_calls = [c for c in sess.calls if c[0] == "post" and c[1].endswith("/pub/v2/verifications")]
     assert create_calls[0][2]["serviceName"] == "google"
     assert create_calls[1][2]["serviceName"] == "gmail"
+
+
+@pytest.mark.asyncio
+async def test_buy_voice_number_uses_voice_capability(monkeypatch):
+    from services.numbers.core.session_manager import SessionManager
+
+    provider = TextVerifiedProvider()
+
+    async def fake_auth(self):
+        return "tok"
+
+    monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
+
+    class DummySession:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, url, headers=None, json=None):
+            payload = dict(json or {})
+            self.calls.append(("post", url, payload))
+            if url.endswith("/pub/v2/verifications"):
+                return _DummyResp(201, {"href": "https://www.textverified.com/api/pub/v2/verifications/v_voice", "method": "GET"})
+            return _DummyResp(400, {"errorCode": "Unavailable"})
+
+        def request(self, method, href, headers=None):
+            self.calls.append(("request", href, {}))
+            return _DummyResp(200, {"id": "v_voice", "number": "+15551234567"})
+
+    sess = DummySession()
+
+    async def fake_get_session():
+        return sess
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+    TextVerifiedProvider._services_cache_by_capability = {"voice": {"gmail"}}
+
+    res = await provider.buy_number("gmail", capability="voice")
+
+    assert res["success"] is True
+    create_call = next(c for c in sess.calls if c[0] == "post")
+    assert create_call[2]["capability"] == "voice"
+
+
+@pytest.mark.asyncio
+async def test_get_calls_returns_recording_uri(monkeypatch):
+    from services.numbers.core.session_manager import SessionManager
+
+    provider = TextVerifiedProvider()
+
+    async def fake_auth(self):
+        return "tok"
+
+    monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
+
+    class DummySession:
+        def get(self, url, headers=None, params=None):
+            assert url.endswith("/pub/v2/calls")
+            assert params["reservationId"] == "v_voice"
+            return _DummyResp(
+                200,
+                {
+                    "data": [
+                        {
+                            "id": "call_1",
+                            "to": "+15551234567",
+                            "recordingUri": "https://recording.example/call_1.mp3",
+                        }
+                    ]
+                },
+            )
+
+    async def fake_get_session():
+        return DummySession()
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+
+    res = await provider.get_calls("v_voice", to_number="+15551234567")
+
+    assert res["success"] is True
+    assert res["calls"][0]["recordingUri"] == "https://recording.example/call_1.mp3"
 
 
 @pytest.mark.asyncio
@@ -119,7 +199,7 @@ async def test_buy_number_fallback_from_area_code_to_any(monkeypatch):
 
     monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
     monkeypatch.setattr(tv_area_codes, "DATA", {"NY": ["212"]}, raising=False)
-    TextVerifiedProvider._sms_services_cache = {"gmail"}
+    TextVerifiedProvider._services_cache_by_capability = {"sms": {"gmail"}}
 
     res = await provider.buy_number("gmail", state="NY")
     assert res["success"] is True
@@ -142,7 +222,7 @@ async def test_buy_number_reuse_tries_state_area_codes_then_unavailable(monkeypa
 
     monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
     monkeypatch.setattr(tv_area_codes, "DATA", {"NY": ["212", "315", "718"]}, raising=False)
-    TextVerifiedProvider._sms_services_cache = {"gmail"}
+    TextVerifiedProvider._services_cache_by_capability = {"sms": {"gmail"}}
 
     class DummySession:
         def __init__(self):
@@ -224,7 +304,7 @@ async def test_get_price_retries_rate_limit_then_succeeds(monkeypatch):
 
     monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
     monkeypatch.setattr(TextVerifiedProvider, "_sleep", classmethod(fake_sleep))
-    TextVerifiedProvider._sms_services_cache = {"netspend"}
+    TextVerifiedProvider._services_cache_by_capability = {"sms": {"netspend"}}
 
     class DummySession:
         def __init__(self):
@@ -258,7 +338,7 @@ async def test_get_price_uses_short_cache(monkeypatch):
         return "tok"
 
     monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
-    TextVerifiedProvider._sms_services_cache = {"netspend"}
+    TextVerifiedProvider._services_cache_by_capability = {"sms": {"netspend"}}
 
     class DummySession:
         def __init__(self):
