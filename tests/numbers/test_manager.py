@@ -971,6 +971,15 @@ def test_service_keyboard_search_stays_above_back_to_countries(monkeypatch):
     assert rows[-2][0].callback_data == "flow:country:back"
 
 
+def test_country_keyboard_starts_with_any_country():
+    from services.numbers.keyboards.core_numbers_kb import country_kb
+
+    kb = country_kb("en")
+
+    assert kb.inline_keyboard[0][0].callback_data == "flow:quickcountry:none"
+    assert "Country" in kb.inline_keyboard[0][0].text
+
+
 def test_quick_country_keyboard_starts_with_any_country():
     from services.numbers.handlers.core_numbers import _quick_country_keyboard
 
@@ -1418,6 +1427,62 @@ async def test_not_listed_temp_falls_back_to_generic_providers(monkeypatch):
     await core._load_service_prices(123, bot, state, "my custom app")
 
     assert calls == ["my custom app", core.TEMP_NOT_LISTED_SERVICE_KEY]
+    assert state.state == core.NumberFlow.confirm_buy
+    assert "Choose provider" in bot.edits[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_load_service_prices_accepts_any_country(monkeypatch):
+    import services.numbers.handlers.core_numbers as core
+
+    calls: list[tuple[str, str, str]] = []
+
+    async def fake_get_all_prices(service_name, country, state_code):
+        calls.append((service_name, country, state_code))
+        return {
+            "herosms": {
+                "success": True,
+                "price": 0.75,
+                "base_price": 0.5,
+                "api_service_name": "wa",
+                "available_for_buy": True,
+                "success_rate": 100.0,
+                "success_attempts": 0,
+            }
+        }
+
+    async def fake_rate():
+        return 0.0
+
+    monkeypatch.setattr(core, "get_all_prices", fake_get_all_prices)
+    monkeypatch.setattr(core, "_resolve_usd_to_syp_rate", fake_rate)
+
+    class DummyBot:
+        def __init__(self):
+            self.edits = []
+
+        async def edit_message_text(self, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+            self.edits.append({"text": text, "reply_markup": reply_markup, "parse_mode": parse_mode})
+
+    class DummyState:
+        def __init__(self):
+            self._data = {"lang": "en", "num_type": "temp", "country": "none", "state": "none", "last_msg_id": 777}
+            self.state = None
+
+        async def get_data(self):
+            return dict(self._data)
+
+        async def update_data(self, **kw):
+            self._data.update(kw)
+
+        async def set_state(self, s):
+            self.state = s
+
+    bot = DummyBot()
+    state = DummyState()
+    await core._load_service_prices(123, bot, state, "whatsapp")
+
+    assert calls == [("whatsapp", "none", "none")]
     assert state.state == core.NumberFlow.confirm_buy
     assert "Choose provider" in bot.edits[-1]["text"]
 

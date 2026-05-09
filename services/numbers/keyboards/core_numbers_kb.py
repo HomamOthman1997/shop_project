@@ -203,6 +203,7 @@ def rental_home_kb(lang: str) -> InlineKeyboardMarkup:
 def country_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "inline_any_country"), callback_data="flow:quickcountry:none", style="success")],
             [InlineKeyboardButton(text=t(lang, "search_country"), switch_inline_query_current_chat="country ", style="primary")],
             [InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:country:entry_back")],
             [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger", icon_custom_emoji_id=_ICON_CANCEL)],

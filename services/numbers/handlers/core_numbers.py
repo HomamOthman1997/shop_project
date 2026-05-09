@@ -1390,7 +1390,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
         if current_message_id:
             last_msg_id = current_message_id
             await state.update_data(last_msg_id=last_msg_id)
-    if not _has_valid_country_selection(country):
+    if str(country or "").strip().lower() != "none" and not _has_valid_country_selection(country):
         await _redirect_to_country_selection(
             chat_id,
             bot,
