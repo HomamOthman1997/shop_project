@@ -145,6 +145,38 @@ async def test_vaksms_get_price_uses_site_stats_when_api_count_is_zero(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_vaksms_get_price_picks_site_country_for_any_country(monkeypatch, countries_payload, docs_html):
+    routes = {
+        ("https://vak-sms.com/api/vak/", ()): DummyResponse(status=200, text=docs_html),
+        ("https://vak-sms.com/backend/country/stats", (("serviceId", "wa"),)): DummyResponse(
+            status=200,
+            json_data=[
+                {"id": "us", "name": "United States", "count": 922, "apiPrice": 0.88, "minPrice": 4.6},
+                {"id": "id", "name": "Indonesia", "count": 28180, "apiPrice": 0.004, "minPrice": 0.004},
+            ],
+        ),
+        (
+            "https://vak-sms.com/api/getCountNumber/",
+            (("apiKey", "test-key"), ("country", "id"), ("price", 1), ("service", "wa")),
+        ): DummyResponse(status=200, json_data={"wa": 9774, "price": 0.1}),
+    }
+    session = DummySession(routes)
+
+    async def fake_get_session():
+        return session
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+    provider = VAKSMSProvider()
+
+    result = await provider.get_price("whatsapp", country="none")
+    assert result["success"] is True
+    assert result["price"] == 0.1
+    assert result["api_service_name"] == "wa"
+    assert result["provider_country"] == "id"
+    assert result["provider_country_iso"] == "ID"
+
+
+@pytest.mark.asyncio
 async def test_vaksms_buy_number_parses_json(monkeypatch, countries_payload, docs_html):
     routes = {
         ("https://vak-sms.com/api/vak/", ()): DummyResponse(status=200, text=docs_html),

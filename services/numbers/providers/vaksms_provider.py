@@ -283,19 +283,44 @@ class VAKSMSProvider(BaseProvider):
                 return item
         return None
 
+    async def _best_site_country_stats(self, service_code: str) -> dict[str, Any] | None:
+        if not service_code:
+            return None
+        status, data = await self._site_request("country/stats", serviceId=service_code)
+        if status != 200 or not isinstance(data, list):
+            return None
+        candidates: list[tuple[float, int, str, dict[str, Any]]] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            country_id = str(item.get("id") or "").strip().lower()
+            if not country_id:
+                continue
+            count = int(item.get("count") or 0)
+            price = _as_float(item.get("apiPrice")) or _as_float(item.get("minPrice")) or 0.0
+            if count > 0 and price > 0:
+                candidates.append((price, -count, country_id, item))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda row: (row[0], row[1], row[2]))
+        return candidates[0][3]
+
     async def get_price(self, service, country=None, state=None):
         service_code = await self.resolve_service_code(str(service or ""))
         if not service_code:
             return {"success": False, "raw": "service_not_found"}
         country_code = await self._resolve_country(country)
+        site_stats = None
+        if not country_code:
+            site_stats = await self._best_site_country_stats(service_code)
+            country_code = str(site_stats.get("id") or "").strip().lower() if isinstance(site_stats, dict) else None
         status, data = await self._request("getCountNumber", service=service_code, country=country_code, price=1)
         if status != 200 or not isinstance(data, dict):
             return {"success": False, "raw": data}
         count = int(data.get(service_code) or data.get(str(service_code).upper()) or 0)
         api_price = _as_float(data.get("price"))
-        site_stats = None
         if count <= 0 and country_code:
-            site_stats = await self._site_country_stats(service_code, country_code)
+            site_stats = site_stats or await self._site_country_stats(service_code, country_code)
             site_count = int(site_stats.get("count") or 0) if isinstance(site_stats, dict) else 0
             if site_count > 0:
                 count = site_count
