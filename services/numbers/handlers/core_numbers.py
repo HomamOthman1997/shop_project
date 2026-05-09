@@ -1363,13 +1363,7 @@ async def choose_service(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(service_lookup_not_listed=False)
     if str(data.get("num_type") or "").strip().lower() == "voice":
         await state.update_data(service=service_name, country="1", state="none")
-        text = _compose_numbers_screen(
-            _us_state_prompt(lang),
-            _numbers_context_lines(lang, service=service_name, country_code="1"),
-            trailing_lines=[_numbers_text(lang, "Choose an area/state for the call number, or use any state.", "اختر ولاية/منطقة لرقم الاتصال أو استخدم بدون ولاية.")],
-        )
-        await _safe_edit_text(callback.message, text, reply_markup=_us_state_keyboard(lang), parse_mode="HTML")
-        await state.set_state(NumberFlow.state)
+        await _load_service_prices(callback.message.chat.id, callback.message.bot, state, service_name)
         return await _safe_callback_answer()
     await _show_country_entry_for_selected_service(
         chat_id=callback.message.chat.id,
