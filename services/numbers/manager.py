@@ -1215,6 +1215,13 @@ async def get_calls_from_provider(provider_code: str, provider_order_id: str, to
     return await provider.get_calls(provider_order_id, to_number=to_number)
 
 
+async def get_recording_from_provider(provider_code: str, recording_uri: str) -> dict[str, Any]:
+    provider = PROVIDERS.get(provider_code)
+    if not provider or not hasattr(provider, "download_recording"):
+        return {"success": False, "raw": "provider_does_not_support_recording_download"}
+    return await provider.download_recording(recording_uri)
+
+
 async def rent_number_from_provider(
     provider_code: str,
     api_service_name: str,

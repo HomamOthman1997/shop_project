@@ -10,7 +10,7 @@ from typing import Any
 from aiogram import BaseMiddleware, Router, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from bson import ObjectId
 
 from config import settings
@@ -126,6 +126,7 @@ from services.numbers.manager import (
     finish_rental_from_provider,
     get_all_prices,
     get_calls_from_provider,
+    get_recording_from_provider,
     get_rental_info_from_provider,
     get_rental_sms_from_provider,
     notes_tags_from_provider,
@@ -813,7 +814,6 @@ def _voice_waiting_text(
         [
             _numbers_text(lang, "Call number is ready.", "رقم الاتصال جاهز."),
             "",
-            f"{t(lang, 'provider_label')}: {provider_public_id(provider_code)}",
             f"{t(lang, 'service_label')}: {service_name}",
             f"{_numbers_text(lang, 'Number', 'الرقم')}: <code>{html.escape(str(number or ''))}</code>",
             "",
@@ -826,16 +826,62 @@ def _voice_waiting_text(
     )
 
 
-def _voice_received_text(lang: str, order: dict, recording_uri: str) -> str:
+def _voice_received_text(lang: str, order: dict, *, recording_sent: bool) -> str:
     number = str(order.get("provider_number") or "")
+    status_line = _numbers_text(
+        lang,
+        "The recording was sent as a file below.",
+        "تم إرسال التسجيل كملف بالأسفل.",
+    )
+    if not recording_sent:
+        status_line = _numbers_text(
+            lang,
+            "The call was found, but the recording could not be sent automatically. Contact support for this order.",
+            "تم العثور على المكالمة، لكن تعذر إرسال التسجيل تلقائيا. تواصل مع الدعم بخصوص هذا الطلب.",
+        )
     return "\n".join(
         [
             _numbers_text(lang, "Call received.", "وصلت المكالمة."),
             "",
             f"{_numbers_text(lang, 'Number', 'الرقم')}: <code>{html.escape(number)}</code>",
-            f"{_numbers_text(lang, 'Recording', 'التسجيل')}: {html.escape(str(recording_uri))}",
+            status_line,
         ]
     )
+
+
+def _voice_recording_filename(content_type: str | None) -> str:
+    content_type = str(content_type or "").lower()
+    if "mpeg" in content_type or "mp3" in content_type:
+        return "call-recording.mp3"
+    if "wav" in content_type:
+        return "call-recording.wav"
+    if "ogg" in content_type:
+        return "call-recording.ogg"
+    if "mp4" in content_type or "m4a" in content_type:
+        return "call-recording.m4a"
+    return "call-recording.bin"
+
+
+async def _send_voice_recording_file(*, bot, chat_id: int, provider_code: str, recording_uri: str, lang: str) -> bool:
+    try:
+        data = await get_recording_from_provider(provider_code, recording_uri)
+    except Exception:
+        logger.exception("voice recording download failed")
+        return False
+    if not isinstance(data, dict) or not data.get("success") or not data.get("content"):
+        return False
+    content = bytes(data.get("content") or b"")
+    if not content:
+        return False
+    content_type = str(data.get("content_type") or "")
+    file = BufferedInputFile(content, filename=_voice_recording_filename(content_type))
+    caption = _numbers_text(lang, "Call recording", "تسجيل المكالمة")
+    try:
+        await bot.send_document(chat_id=chat_id, document=file, caption=caption)
+        return True
+    except Exception:
+        logger.exception("voice recording telegram send failed")
+        return False
 
 
 def _provider_retry_score(info: dict, cheapest: float) -> float:
@@ -2015,11 +2061,19 @@ async def _start_voice_waiter(*, bot, order: dict, lang: str) -> None:
             )
             await _log_temp_event(current, "voice_call_received", {"has_recording": True})
             updated = await get_order(order_id) or current
+            recording_sent = await _send_voice_recording_file(
+                bot=bot,
+                chat_id=chat_id,
+                provider_code=provider_code,
+                recording_uri=recording_uri,
+                lang=lang,
+            )
+            await update_order_details(order_id, {"voice_recording_sent_to_user": bool(recording_sent)})
             await _safe_edit_message(
                 bot,
                 chat_id=chat_id,
                 message_id=msg_id,
-                text=_voice_received_text(lang, updated, recording_uri),
+                text=_voice_received_text(lang, updated, recording_sent=recording_sent),
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="flow:main:back")]]
                 ),
@@ -2132,7 +2186,6 @@ async def provider_selected(callback: types.CallbackQuery, state: FSMContext):
             [
                 t(lang, "confirm_purchase"),
                 "",
-                f"{t(lang, 'provider_label')}: {provider_public_id(provider_code)}",
                 f"{t(lang, 'service_label')}: {data.get('service')}",
                 f"{t(lang, 'country_label')}: {_country_display_name(data.get('country'))}",
                 f"{t(lang, 'price_label')}: {format_usd(float(provider_info['price']))}",
@@ -2144,8 +2197,8 @@ async def provider_selected(callback: types.CallbackQuery, state: FSMContext):
                 ),
                 _numbers_text(
                     lang,
-                    "Send the verification call to that number. The bot will check TextVerified for the call recording.",
-                    "اطلب مكالمة التفعيل على الرقم. البوت سيراقب TextVerified للحصول على تسجيل المكالمة.",
+                    "Send the verification call to that number. The bot will check for the call recording.",
+                    "اطلب مكالمة التفعيل على الرقم. البوت سيراقب وصول تسجيل المكالمة.",
                 ),
                 _numbers_text(
                     lang,

@@ -716,6 +716,38 @@ class TextVerifiedProvider(BaseProvider):
             calls.extend([dict(row) for row in data if isinstance(row, dict)])
         return {"success": resp.status == 200, "calls": calls, "raw": data}
 
+    async def download_recording(self, recording_uri: str) -> dict[str, Any]:
+        uri = str(recording_uri or "").strip()
+        if not uri.lower().startswith(("http://", "https://")):
+            return {"success": False, "raw": "invalid_recording_uri"}
+
+        token = await self._auth()
+        session = await SessionManager.get_session()
+        attempts: list[dict[str, str]] = [{}]
+        if token:
+            attempts.append({"Authorization": f"Bearer {token}"})
+
+        last_error: dict[str, Any] | str = "download_failed"
+        for headers in attempts:
+            async with session.get(uri, headers=headers or None) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    last_error = {"status": resp.status, "raw_text": text[:500]}
+                    continue
+                content = await resp.read()
+                if not content:
+                    last_error = {"status": resp.status, "raw": "empty_recording"}
+                    continue
+                content_type = str(resp.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+                return {
+                    "success": True,
+                    "content": content,
+                    "content_type": content_type or "application/octet-stream",
+                    "raw": {"status": resp.status},
+                }
+
+        return {"success": False, "raw": last_error}
+
     async def cancel(self, activation_id):
         token = await self._auth()
         if not token:
