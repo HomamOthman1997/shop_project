@@ -1192,6 +1192,7 @@ async def _send_endpoint_delivery(
 ) -> bool:
     qty_line = t(lang, "custom_qty_line").format(qty=int(qty))
     if stock_items:
+        stock_items, _overflow_items = _split_claimed_inventory_items(stock_items, qty)
         payload = _format_stock_items_payload(stock_items)
         if not payload:
             return False
@@ -1356,6 +1357,7 @@ def _delivery_preview_text(
 ) -> str | None:
     qty_line = t(lang, "custom_qty_line").format(qty=int(qty))
     if stock_items:
+        stock_items, _overflow_items = _split_claimed_inventory_items(stock_items, qty)
         payload = _format_stock_items_payload(stock_items)
         if not payload:
             return None

@@ -221,6 +221,28 @@ def test_split_claimed_inventory_items_caps_delivery_and_returns_overflow():
     assert overflow == ["Email: third@example.com\nPassword: pass-3\nRecovery: No Recovery"]
 
 
+def test_delivery_preview_caps_malformed_inventory_to_requested_qty():
+    malformed = (
+        "Email: fifth@example.com\n"
+        "Password: pass-5\n"
+        "Recovery: No Recovery\n"
+        "Email: sixth@example.com\n"
+        "Password: pass-6\n"
+        "Recovery: No Recovery"
+    )
+    text = _delivery_preview_text(
+        endpoint={"delivery_type": "inventory"},
+        qty=1,
+        lang="en",
+        stock_items=[malformed],
+    )
+
+    assert text is not None
+    assert "fifth@example.com" in text
+    assert "sixth@example.com" not in text
+    assert text.count("Email:") == 1
+
+
 def test_parse_inventory_payload_splits_repeated_arabic_email_blocks_without_separators():
     payload = """الإيميل: first@example.com
 كلمة المرور: pass-1
