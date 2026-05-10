@@ -83,6 +83,10 @@ def _provider_buyable(info: dict) -> bool:
     return bool(info.get("available_for_buy", True)) and bool(str(info.get("api_service_name") or "").strip()) and price_val > 0
 
 
+def _hide_from_provider_grid(info: dict) -> bool:
+    return str(info.get("provider_reason") or "").strip().lower() == "provider_balance_low"
+
+
 def _provider_unavailable_label(info: dict, lang: str) -> str:
     reason = str(info.get("provider_reason") or "").strip().lower()
     if reason == "provider_balance_low":
@@ -100,6 +104,8 @@ def _visible_provider_count(prices: dict) -> int:
         code = str(provider_code or "").strip().lower()
         if not code or code in _HIDDEN_TEMP_PROVIDER_CODES or not isinstance(info, dict):
             continue
+        if _hide_from_provider_grid(info):
+            continue
         if _provider_buyable(info) or bool(info.get("testing_visible")):
             count += 1
     return count
@@ -110,6 +116,8 @@ def _recommended_provider(prices: dict) -> tuple[str, dict] | None:
     for provider_code, info in (prices or {}).items():
         code = str(provider_code or "").strip().lower()
         if not code or code in _HIDDEN_TEMP_PROVIDER_CODES or not isinstance(info, dict):
+            continue
+        if _hide_from_provider_grid(info):
             continue
         if not _provider_buyable(info):
             continue
@@ -327,6 +335,8 @@ def provider_choice_kb(
 
     for provider_code, info in sorted(prices.items(), key=lambda kv: _provider_sort_key(kv[0])):
         if str(provider_code or "").strip().lower() in _HIDDEN_TEMP_PROVIDER_CODES:
+            continue
+        if _hide_from_provider_grid(info):
             continue
         price_val = float(info.get("price", 0) or 0)
         can_buy = _provider_buyable(info)

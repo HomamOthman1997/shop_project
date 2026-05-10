@@ -77,7 +77,7 @@ def test_provider_choice_kb_does_not_recommend_blocked_provider():
     assert "1.65" in labels[0][0]
 
 
-def test_provider_choice_kb_show_all_includes_low_balance_providers():
+def test_provider_choice_kb_show_all_hides_low_balance_providers():
     kb = provider_choice_kb(
         {
             "herosms": {
@@ -107,11 +107,12 @@ def test_provider_choice_kb_show_all_includes_low_balance_providers():
     )
     rows = _provider_rows(kb)
     labels = [[button.text for button in row] for row in rows]
-    assert any(row[0].startswith("Alpha |") and row[1] == "Low balance" for row in labels)
-    assert any(row[0].startswith("Delta [US] |") and row[1] == "Low balance" for row in labels)
+    assert not any(row[0].startswith("Alpha |") for row in labels)
+    assert not any(row[0].startswith("Delta [US] |") for row in labels)
+    assert any(row[0].startswith("Bravo [US] |") for row in labels)
 
 
-def test_provider_choice_kb_compact_show_all_when_unavailable_provider_visible():
+def test_provider_choice_kb_compact_hides_show_all_when_only_low_balance_extra():
     kb = provider_choice_kb(
         {
             "textverified": {
@@ -133,7 +134,8 @@ def test_provider_choice_kb_compact_show_all_when_unavailable_provider_visible()
     )
 
     callbacks = [button.callback_data for row in kb.inline_keyboard for button in row]
-    assert callbacks[:2] == ["buy_provider:textverified", "buy_provider_show_all"]
+    assert callbacks[:1] == ["buy_provider:textverified"]
+    assert "buy_provider_show_all" not in callbacks
 
 
 def test_provider_choice_kb_prefers_state_tag_over_country():
