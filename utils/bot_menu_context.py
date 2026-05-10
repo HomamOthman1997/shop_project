@@ -4,7 +4,7 @@ from aiogram import Bot, types
 
 from config import settings
 from database.bots_repo import get_reseller_id_for_bot
-from keyboards.main_menu_kb import digital_products_main_menu, main_menu, reseller_user_main_menu
+from keyboards.main_menu_kb import digital_products_main_menu, main_menu, numbers_main_menu, reseller_user_main_menu
 from services.cards_bot.keyboards import cards_main_menu
 from utils.platform_services import render_main_product_lines
 from utils.translations import t
@@ -12,8 +12,10 @@ from utils.translations import t
 _cached_digital_products_bot_id: int | None = None
 _cached_card_ex_bot_id: int | None = None
 _cached_main_bot_id: int | None = None
+_cached_numbers_bot_id: int | None = None
 
 BOT_KIND_MAIN = "main"
+BOT_KIND_NUMBERS = "numbers"
 BOT_KIND_DIGITAL = "digital"
 BOT_KIND_CARD = "card"
 BOT_KIND_RESELLER = "reseller"
@@ -79,6 +81,17 @@ def main_bot_url(start: str | None = None) -> str | None:
     return f"https://t.me/{username}?start={start or 'hub'}"
 
 
+def numbers_bot_username() -> str:
+    return str(getattr(settings, "numbers_bot_username", "") or "").strip().lstrip("@")
+
+
+def numbers_bot_url(start: str | None = None) -> str | None:
+    username = numbers_bot_username()
+    if not username:
+        return None
+    return f"https://t.me/{username}?start={start or 'numbers'}"
+
+
 def digital_products_bot_username() -> str:
     return str(getattr(settings, "digital_products_bot_username", "") or "").strip().lstrip("@")
 
@@ -126,6 +139,14 @@ async def resolve_digital_products_bot_id() -> int | None:
     return _cached_digital_products_bot_id
 
 
+async def resolve_numbers_bot_id() -> int | None:
+    global _cached_numbers_bot_id
+    if isinstance(_cached_numbers_bot_id, int) and _cached_numbers_bot_id > 0:
+        return _cached_numbers_bot_id
+    _cached_numbers_bot_id = extract_bot_id_from_token(getattr(settings, "bot_numbers_token", ""))
+    return _cached_numbers_bot_id
+
+
 async def resolve_card_ex_bot_id() -> int | None:
     global _cached_card_ex_bot_id
     if isinstance(_cached_card_ex_bot_id, int) and _cached_card_ex_bot_id > 0:
@@ -137,6 +158,12 @@ async def resolve_card_ex_bot_id() -> int | None:
 async def is_digital_products_bot(bot_or_id) -> bool:
     bot_id = await resolve_runtime_bot_id(bot_or_id)
     target_bot_id = await resolve_digital_products_bot_id()
+    return isinstance(target_bot_id, int) and bot_id == target_bot_id
+
+
+async def is_numbers_bot(bot_or_id) -> bool:
+    bot_id = await resolve_runtime_bot_id(bot_or_id)
+    target_bot_id = await resolve_numbers_bot_id()
     return isinstance(target_bot_id, int) and bot_id == target_bot_id
 
 
@@ -155,6 +182,8 @@ async def is_card_ex_bot(bot_or_id) -> bool:
 async def resolve_bot_kind(bot_or_id) -> str:
     if await is_main_bot(bot_or_id):
         return BOT_KIND_MAIN
+    if await is_numbers_bot(bot_or_id):
+        return BOT_KIND_NUMBERS
     if await is_digital_products_bot(bot_or_id):
         return BOT_KIND_DIGITAL
     if await is_card_ex_bot(bot_or_id):
@@ -187,6 +216,8 @@ async def menu_for_current_bot(lang: str, bot_or_id, user_id: int | None = None)
     kind = await resolve_bot_kind(bot_or_id)
     if kind == BOT_KIND_DIGITAL:
         return digital_products_main_menu(lang)
+    if kind == BOT_KIND_NUMBERS:
+        return numbers_main_menu(lang)
     if kind == BOT_KIND_CARD:
         return cards_main_menu(lang, is_admin=isinstance(user_id, int) and int(user_id) in _cardex_admin_ids())
     if kind == BOT_KIND_RESELLER:

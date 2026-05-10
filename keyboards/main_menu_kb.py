@@ -32,6 +32,21 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
     )
 
 
+def numbers_main_menu(lang: str) -> ReplyKeyboardMarkup:
+    keyboard = [
+        [KeyboardButton(text=t(lang, "btn_numbers"))],
+        [
+            KeyboardButton(text=t(lang, "btn_balance")),
+            KeyboardButton(text=t(lang, "btn_settings")),
+        ],
+        [KeyboardButton(text=t(lang, "btn_support"))],
+    ]
+    return ReplyKeyboardMarkup(
+        keyboard=keyboard,
+        resize_keyboard=True,
+    )
+
+
 def reseller_user_main_menu(lang: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text=t(lang, "btn_services"))],

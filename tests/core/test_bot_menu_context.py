@@ -7,7 +7,7 @@ from utils.translations import t
 sys.path.insert(0, os.getcwd())
 
 from utils import bot_menu_context
-from keyboards.main_menu_kb import digital_products_main_menu, main_menu, reseller_user_main_menu
+from keyboards.main_menu_kb import digital_products_main_menu, main_menu, numbers_main_menu, reseller_user_main_menu
 from keyboards.reseller_main_menu import reseller_main_menu
 from services.cards_bot.keyboards import cards_main_menu
 
@@ -94,6 +94,20 @@ def test_digital_products_menu_exposes_miniapp_button_when_enabled(monkeypatch):
     assert t("en", "btn_sim_topup") not in labels
 
 
+def test_numbers_menu_is_numbers_only():
+    labels = [btn.text for row in numbers_main_menu("en").keyboard for btn in row]
+
+    assert labels == [
+        t("en", "btn_numbers"),
+        t("en", "btn_balance"),
+        t("en", "btn_settings"),
+        t("en", "btn_support"),
+    ]
+    assert t("en", "btn_services") not in labels
+    assert t("en", "btn_create_bot") not in labels
+    assert t("en", "btn_proxies") not in labels
+
+
 @pytest.mark.asyncio
 async def test_menu_for_current_bot_prioritizes_platform_store_bots_over_reseller_owned(monkeypatch):
     async def _true(*_args, **_kwargs):
@@ -103,6 +117,8 @@ async def test_menu_for_current_bot_prioritizes_platform_store_bots_over_reselle
         return False
 
     monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _true)
+    monkeypatch.setattr(bot_menu_context, "is_main_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_numbers_bot", _false)
     monkeypatch.setattr(bot_menu_context, "is_digital_products_bot", _true)
     monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _false)
 
@@ -114,6 +130,26 @@ async def test_menu_for_current_bot_prioritizes_platform_store_bots_over_reselle
 
 
 @pytest.mark.asyncio
+async def test_menu_for_current_bot_uses_numbers_menu(monkeypatch):
+    async def _false(*_args, **_kwargs):
+        return False
+
+    async def _true(*_args, **_kwargs):
+        return True
+
+    monkeypatch.setattr(bot_menu_context, "is_main_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_numbers_bot", _true)
+    monkeypatch.setattr(bot_menu_context, "is_digital_products_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _false)
+
+    kb = await bot_menu_context.menu_for_current_bot("ar", 123)
+    labels = [btn.text for row in kb.keyboard for btn in row]
+
+    assert labels == [btn.text for row in numbers_main_menu("ar").keyboard for btn in row]
+
+
+@pytest.mark.asyncio
 async def test_menu_for_current_bot_uses_cards_menu_before_reseller_menu(monkeypatch):
     async def _true(*_args, **_kwargs):
         return True
@@ -122,6 +158,8 @@ async def test_menu_for_current_bot_uses_cards_menu_before_reseller_menu(monkeyp
         return False
 
     monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _true)
+    monkeypatch.setattr(bot_menu_context, "is_main_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_numbers_bot", _false)
     monkeypatch.setattr(bot_menu_context, "is_digital_products_bot", _false)
     monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _true)
 
@@ -140,6 +178,7 @@ async def test_menu_for_current_bot_shows_card_admin_button_for_admin_user(monke
         return True
 
     monkeypatch.setattr(bot_menu_context, "is_main_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_numbers_bot", _false)
     monkeypatch.setattr(bot_menu_context, "is_digital_products_bot", _false)
     monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _true)
     monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _false)
@@ -160,6 +199,7 @@ async def test_resolve_bot_kind_prioritizes_platform_kinds_over_reseller(monkeyp
         return False
 
     monkeypatch.setattr(bot_menu_context, "is_main_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_numbers_bot", _false)
     monkeypatch.setattr(bot_menu_context, "is_digital_products_bot", _true)
     monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _false)
     monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _true)

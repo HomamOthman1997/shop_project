@@ -79,10 +79,11 @@ from utils.sentry_reporting import init_sentry
 from utils.log_noise import install_transient_noise_filter
 from utils.telegram_error_reporting import install_telegram_error_handler
 from utils.bot_kind_filter import BotKindFilter
-from utils.bot_menu_context import BOT_KIND_CARD, BOT_KIND_DIGITAL, BOT_KIND_MAIN, BOT_KIND_RESELLER
+from utils.bot_menu_context import BOT_KIND_CARD, BOT_KIND_DIGITAL, BOT_KIND_MAIN, BOT_KIND_NUMBERS, BOT_KIND_RESELLER
 
 _public_dispatcher_built = False
 _main_dispatcher_built = False
+_numbers_dispatcher_built = False
 _digital_products_dispatcher_built = False
 _card_ex_dispatcher_built = False
 _admin_alert_bot: Bot | None = None
@@ -90,6 +91,7 @@ _LOCK_FILE = Path(gettempdir()) / "shop_project_bot_manager.lock"
 _SCHED_STATE_FILE = Path(gettempdir()) / "shop_project_bot_manager.schedule.json"
 _LOCK_ACQUIRED = False
 _cached_main_bot_id: int | None = None
+_cached_numbers_bot_id: int | None = None
 _cached_admin_bot_id: int | None = None
 _cached_card_ex_bot_id: int | None = None
 
@@ -747,6 +749,50 @@ def build_main_dispatcher() -> Dispatcher:
     return dp
 
 
+def build_numbers_dispatcher() -> Dispatcher:
+    global _numbers_dispatcher_built
+    if _numbers_dispatcher_built:
+        msg = "Numbers dispatcher singleton violated: attempted to build more than one numbers Dispatcher in bot_manager process."
+        logging.critical(msg)
+        raise RuntimeError(msg)
+    _numbers_dispatcher_built = True
+
+    dp = Dispatcher()
+    dp.message.middleware(InteractionLockMiddleware())
+    dp.callback_query.middleware(InteractionLockMiddleware())
+
+    dp.message.middleware(VersionCheckMiddleware())
+    dp.callback_query.middleware(VersionCheckMiddleware())
+    dp.message.middleware(BotSubscriptionMiddleware())
+    dp.callback_query.middleware(BotSubscriptionMiddleware())
+    dp.message.middleware(FinancialComplianceMiddleware())
+    dp.callback_query.middleware(FinancialComplianceMiddleware())
+
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.start_numbers_clone", "handlers/start.py"), BOT_KIND_NUMBERS))
+    dp.include_router(
+        _restrict_router_to_kinds(
+            _load_router_clone("services.numbers.handlers.numbers_inline_numbers_clone", "services/numbers/handlers/numbers_inline.py"),
+            BOT_KIND_NUMBERS,
+        )
+    )
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.language_numbers_clone", "handlers/language.py"), BOT_KIND_NUMBERS))
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.subscription_numbers_clone", "handlers/subscription.py"), BOT_KIND_NUMBERS))
+    dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.main_menu_numbers_clone", "handlers/main_menu.py"), BOT_KIND_NUMBERS))
+    dp.include_router(
+        _restrict_router_to_kinds(
+            _load_router_clone("services.numbers.handlers.core_numbers_numbers_clone", "services/numbers/handlers/core_numbers.py"),
+            BOT_KIND_NUMBERS,
+        )
+    )
+    dp.include_router(
+        _restrict_router_to_kinds(
+            _load_router_clone("services.numbers.handlers.core_numbers_buy_numbers_clone", "services/numbers/handlers/core_numbers_buy.py"),
+            BOT_KIND_NUMBERS,
+        )
+    )
+    return dp
+
+
 def build_digital_products_dispatcher() -> Dispatcher:
     global _digital_products_dispatcher_built
     if _digital_products_dispatcher_built:
@@ -834,6 +880,26 @@ async def _resolve_main_bot_id() -> int | None:
             await bot.session.close()
 
 
+async def _resolve_numbers_bot_id() -> int | None:
+    global _cached_numbers_bot_id
+    if isinstance(_cached_numbers_bot_id, int) and _cached_numbers_bot_id > 0:
+        return _cached_numbers_bot_id
+    token = str(getattr(settings, "bot_numbers_token", "") or "").strip()
+    if not token:
+        return None
+    bot = Bot(token=token, timeout=30)
+    try:
+        me = await bot.get_me()
+        _cached_numbers_bot_id = int(me.id)
+        return _cached_numbers_bot_id
+    except Exception as exc:
+        logging.error("failed to resolve numbers bot id: %s", exc)
+        return None
+    finally:
+        with suppress(Exception):
+            await bot.session.close()
+
+
 async def _resolve_admin_bot_id() -> int | None:
     global _cached_admin_bot_id
     if isinstance(_cached_admin_bot_id, int) and _cached_admin_bot_id > 0:
@@ -893,11 +959,12 @@ async def _resolve_card_ex_bot_id() -> int | None:
             await bot.session.close()
 
 
-async def _fetch_verified_bot_maps() -> tuple[dict[int, str], dict[int, int], dict[int, str], dict[int, str], dict[int, str]]:
+async def _fetch_verified_bot_maps() -> tuple[dict[int, str], dict[int, int], dict[int, str], dict[int, str], dict[int, str], dict[int, str]]:
     bots_data = await get_verified_bots()
     public_map: dict[int, str] = {}
     owner_map: dict[int, int] = {}
     main_map: dict[int, str] = {}
+    numbers_map: dict[int, str] = {}
     digital_products_map: dict[int, str] = {}
     card_ex_map: dict[int, str] = {}
     seen_tokens: dict[str, int] = {}
@@ -949,6 +1016,13 @@ async def _fetch_verified_bot_maps() -> tuple[dict[int, str], dict[int, int], di
             owner_map[admin_bot_id] = int(getattr(settings, "owner_id", 0) or 0)
             seen_tokens[admin_token] = admin_bot_id
 
+    numbers_token = str(getattr(settings, "bot_numbers_token", "") or "").strip()
+    if numbers_token and numbers_token not in seen_tokens:
+        numbers_bot_id = await _resolve_numbers_bot_id()
+        if isinstance(numbers_bot_id, int) and numbers_bot_id > 0:
+            numbers_map[numbers_bot_id] = numbers_token
+            seen_tokens[numbers_token] = numbers_bot_id
+
     digital_products_token = str(getattr(settings, "bot_digital_products_token", "") or "").strip()
     if digital_products_token and digital_products_token not in seen_tokens:
         digital_products_bot_id = await _resolve_digital_products_bot_id()
@@ -963,7 +1037,7 @@ async def _fetch_verified_bot_maps() -> tuple[dict[int, str], dict[int, int], di
             card_ex_map[card_ex_bot_id] = card_ex_token
             seen_tokens[card_ex_token] = card_ex_bot_id
 
-    return public_map, owner_map, main_map, digital_products_map, card_ex_map
+    return public_map, owner_map, main_map, numbers_map, digital_products_map, card_ex_map
 
 
 _resolve_game_bot_id = _resolve_digital_products_bot_id
@@ -1028,6 +1102,7 @@ async def _stop_polling_group(dp: Dispatcher, task: asyncio.Task[None] | None, b
 async def sync_bots_forever(poll_seconds: int = 20) -> None:
     public_dp = build_public_dispatcher()
     main_dp = build_main_dispatcher()
+    numbers_dp = build_numbers_dispatcher()
     digital_products_dp = build_digital_products_dispatcher()
     card_ex_dp = build_card_ex_dispatcher()
 
@@ -1044,15 +1119,18 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
 
     current_public_map: dict[int, str] = {}
     current_main_map: dict[int, str] = {}
+    current_numbers_map: dict[int, str] = {}
     current_digital_products_map: dict[int, str] = {}
     current_card_ex_map: dict[int, str] = {}
     current_owner_map: dict[int, int] = {}
     public_polling_task: asyncio.Task[None] | None = None
     main_polling_task: asyncio.Task[None] | None = None
+    numbers_polling_task: asyncio.Task[None] | None = None
     digital_products_polling_task: asyncio.Task[None] | None = None
     card_ex_polling_task: asyncio.Task[None] | None = None
     running_public_bots: list[Bot] = []
     running_main_bots: list[Bot] = []
+    running_numbers_bots: list[Bot] = []
     running_digital_products_bots: list[Bot] = []
     running_card_ex_bots: list[Bot] = []
     miniapp_runner = None
@@ -1176,6 +1254,7 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                     latest_public_map,
                     latest_owner_map,
                     latest_main_map,
+                    latest_numbers_map,
                     latest_digital_products_map,
                     latest_card_ex_map,
                 ) = await _fetch_verified_bot_maps()
@@ -1205,6 +1284,15 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                 current_main_map = latest_main_map
                 if current_main_map:
                     main_polling_task, running_main_bots = await _start_polling_group("main", main_dp, current_main_map)
+
+            if latest_numbers_map != current_numbers_map:
+                logging.info("Numbers bot set changed. Restarting numbers polling. bots=%s", list(latest_numbers_map.keys()))
+                await _stop_polling_group(numbers_dp, numbers_polling_task, running_numbers_bots)
+                numbers_polling_task = None
+                running_numbers_bots = []
+                current_numbers_map = latest_numbers_map
+                if current_numbers_map:
+                    numbers_polling_task, running_numbers_bots = await _start_polling_group("numbers", numbers_dp, current_numbers_map)
 
             if latest_digital_products_map != current_digital_products_map:
                 logging.info("Digital-products bot set changed. Restarting digital-products polling. bots=%s", list(latest_digital_products_map.keys()))
@@ -1255,6 +1343,22 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                 running_main_bots = []
                 if current_main_map:
                     main_polling_task, running_main_bots = await _start_polling_group("main", main_dp, current_main_map)
+
+            if numbers_polling_task is not None and numbers_polling_task.done():
+                err = None
+                try:
+                    err = numbers_polling_task.exception()
+                except asyncio.CancelledError:
+                    err = None
+                except Exception as exc:
+                    err = exc
+                if err:
+                    logging.error("Numbers polling task crashed: %s", err)
+                await _stop_polling_group(numbers_dp, numbers_polling_task, running_numbers_bots)
+                numbers_polling_task = None
+                running_numbers_bots = []
+                if current_numbers_map:
+                    numbers_polling_task, running_numbers_bots = await _start_polling_group("numbers", numbers_dp, current_numbers_map)
 
             if digital_products_polling_task is not None and digital_products_polling_task.done():
                 err = None
@@ -1710,6 +1814,7 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                 await miniapp_runner.cleanup()
         await _stop_polling_group(public_dp, public_polling_task, running_public_bots)
         await _stop_polling_group(main_dp, main_polling_task, running_main_bots)
+        await _stop_polling_group(numbers_dp, numbers_polling_task, running_numbers_bots)
         await _stop_polling_group(digital_products_dp, digital_products_polling_task, running_digital_products_bots)
         await _stop_polling_group(card_ex_dp, card_ex_polling_task, running_card_ex_bots)
 
@@ -1728,9 +1833,10 @@ async def main() -> None:
     await _run_startup_bootstraps()
 
     logging.info(
-        "loaded settings: admin_token=%s main_token=%s smspool_key=%s herosms_key=%s smsman_key=%s",
+        "loaded settings: admin_token=%s main_token=%s numbers_token=%s smspool_key=%s herosms_key=%s smsman_key=%s",
         bool(settings.bot_admin_token),
         bool(settings.bot_main_token),
+        bool(getattr(settings, "bot_numbers_token", "")),
         bool(settings.smspool_key),
         bool(settings.herosms_key),
         bool(settings.smsman_key),

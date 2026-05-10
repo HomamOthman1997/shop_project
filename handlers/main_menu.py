@@ -39,6 +39,7 @@ from keyboards.reseller_main_menu import reseller_main_menu
 from utils.bot_menu_context import (
     is_digital_products_bot,
     is_main_bot,
+    is_numbers_bot,
     is_reseller_owned_bot,
     menu_for_current_bot,
     resolve_runtime_bot_id,
@@ -87,7 +88,7 @@ async def _wallet_scope_error_text(*, lang: str, bot_id: int) -> str:
 
 
 async def _uses_platform_wallet(bot_id: int) -> bool:
-    return await is_main_bot(bot_id) or await is_digital_products_bot(bot_id)
+    return await is_main_bot(bot_id) or await is_digital_products_bot(bot_id) or await is_numbers_bot(bot_id)
 
 
 async def _current_bot_id(bot) -> int:

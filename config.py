@@ -17,6 +17,7 @@ def _default_service_port() -> int:
 class Settings(BaseSettings):
     bot_admin_token: str
     bot_main_token: str
+    bot_numbers_token: Optional[str] = None
     bot_digital_products_token: Optional[str] = None
     bot_card_ex_token: Optional[str] = None
     mongo_uri: str
@@ -179,6 +180,7 @@ class Settings(BaseSettings):
     sentry_enable_mcp_integration: bool = True
     legacy_ledger_mirror: bool = False
     main_bot_username: Optional[str] = None
+    numbers_bot_username: Optional[str] = None
     digital_products_bot_username: Optional[str] = None
     card_ex_bot_username: Optional[str] = None
     # Optional Telegram custom emoji icons for keyboard buttons.
