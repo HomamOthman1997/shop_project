@@ -48,6 +48,29 @@ def _strip_html(value: str) -> str:
     return re.sub(r"<[^>]+>", "", value or "").strip()
 
 
+def _lowest_site_available_price(site_stats: dict[str, Any] | None) -> float | None:
+    if not isinstance(site_stats, dict):
+        return None
+    prices: list[float] = []
+    for item in site_stats.get("available") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            count = int(item.get("count") or 0)
+        except Exception:
+            count = 0
+        price = _as_float(item.get("price"))
+        if count > 0 and price is not None and price > 0:
+            prices.append(float(price))
+    if prices:
+        return min(prices)
+    count = int(site_stats.get("count") or 0)
+    price = _as_float(site_stats.get("minPrice"))
+    if count > 0 and price is not None and price > 0:
+        return float(price)
+    return None
+
+
 class VAKSMSProvider(BaseProvider):
     DEFAULT_BASE = "https://vak-sms.com/api"
     DEFAULT_DOCS_URL = "https://vak-sms.com/api/vak/"
@@ -324,19 +347,26 @@ class VAKSMSProvider(BaseProvider):
             return {"success": False, "raw": data}
         count = int(data.get(service_code) or data.get(str(service_code).upper()) or 0)
         api_price = _as_float(data.get("price"))
+        site_price: float | None = None
         if count <= 0 and country_code:
             site_stats = site_stats or await self._site_country_stats(service_code, country_code)
-        if count <= 0 or api_price is None or api_price <= 0:
+            site_price = _lowest_site_available_price(site_stats)
+        if count <= 0 and site_price is None:
+            return {"success": False, "raw": {"api": data, "site": site_stats} if site_stats else data}
+        display_price = site_price if site_price is not None else api_price
+        if display_price is None or display_price <= 0:
             return {"success": False, "raw": {"api": data, "site": site_stats} if site_stats else data}
         result = {
             "success": True,
-            "price": round(api_price, 4),
+            "price": round(display_price, 4),
             "api_service_name": service_code,
             "provider_country": country_code or "ru",
             "provider_country_iso": str(country_code or "ru").upper(),
             "raw": {"api": data, "site": site_stats} if site_stats else data,
         }
-        if auto_country and service_code == "wa" and api_price < 0.5:
+        if site_price is not None:
+            result["site_stock_pricing"] = True
+        if auto_country and service_code == "wa" and display_price < 0.5:
             result["recommendation_blocked"] = True
             result["recommendation_reason"] = "low_confidence_auto_country"
         return result
