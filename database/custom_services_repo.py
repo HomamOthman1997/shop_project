@@ -67,6 +67,9 @@ async def bootstrap_custom_services_indexes() -> None:
     await db.custom_service_preorders.create_index([("endpoint_id", 1), ("status", 1), ("created_at", 1)], background=True)
     await db.custom_service_preorders.create_index([("order_id", 1)], unique=True, background=True)
     await db.custom_service_preorders.create_index([("buyer_user_id", 1), ("status", 1), ("created_at", 1)], background=True)
+    await db.custom_service_preorders.create_index([("catalog_owner_id", 1), ("status", 1), ("created_at", 1)], background=True)
+    await db.custom_service_stock_events.create_index([("endpoint_id", 1), ("created_at", -1)], background=True)
+    await db.custom_service_stock_events.create_index([("catalog_owner_id", 1), ("created_at", -1)], background=True)
 
 
 async def ensure_root_node(reseller_id: int, *, catalog_type: str = "custom") -> dict:
@@ -195,6 +198,9 @@ async def create_endpoint(
         "product_info_text": "",
         "min_qty": max(1, int(min_qty)),
         "preorder_enabled": False,
+        "low_stock_threshold": 0,
+        "low_stock_alert_last_qty": None,
+        "low_stock_alert_sent_at": None,
         "created_at": now,
         "updated_at": now,
     }
@@ -265,6 +271,65 @@ async def set_endpoint_preorder_enabled(
             }
         },
         return_document=ReturnDocument.AFTER,
+    )
+
+
+async def set_endpoint_low_stock_threshold(
+    node_id,
+    reseller_id: int,
+    threshold: int,
+    *,
+    catalog_type: Optional[str] = None,
+) -> Optional[dict]:
+    query = {
+        "_id": _to_oid(node_id),
+        "reseller_id": int(reseller_id),
+        "node_type": "endpoint",
+        "is_active": True,
+    }
+    if catalog_type is not None:
+        query["catalog_type"] = _norm_catalog_type(catalog_type)
+    value = max(0, int(threshold))
+    return await db.custom_services.find_one_and_update(
+        query,
+        {
+            "$set": {
+                "low_stock_threshold": value,
+                "updated_at": datetime.now(UTC),
+            },
+            "$unset": {
+                "low_stock_alert_last_qty": "",
+                "low_stock_alert_sent_at": "",
+            },
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def mark_low_stock_alert_sent(
+    node_id,
+    reseller_id: int,
+    available_qty: int,
+    *,
+    catalog_type: Optional[str] = None,
+) -> None:
+    query = {
+        "_id": _to_oid(node_id),
+        "reseller_id": int(reseller_id),
+        "node_type": "endpoint",
+        "is_active": True,
+    }
+    if catalog_type is not None:
+        query["catalog_type"] = _norm_catalog_type(catalog_type)
+    await db.custom_services.update_one(
+        query,
+        {
+            "$set": {
+                "low_stock_alert_last_qty": int(available_qty),
+                "low_stock_alert_sent_at": datetime.now(UTC),
+                "updated_at": datetime.now(UTC),
+            }
+        },
     )
 
 
@@ -623,6 +688,52 @@ async def release_endpoint_stock(
     )
 
 
+async def record_stock_event(
+    *,
+    endpoint_id,
+    catalog_owner_id: int,
+    catalog_type: str = "custom",
+    event_type: str,
+    qty_delta: int,
+    actor_id: int | None = None,
+    order_id=None,
+    preorder_id=None,
+    note: str = "",
+) -> dict:
+    now = datetime.now(UTC)
+    doc = {
+        "endpoint_id": _to_oid(endpoint_id),
+        "catalog_owner_id": int(catalog_owner_id),
+        "catalog_type": _norm_catalog_type(catalog_type),
+        "event_type": str(event_type or "").strip(),
+        "qty_delta": int(qty_delta),
+        "actor_id": int(actor_id) if actor_id else None,
+        "order_id": order_id,
+        "preorder_id": _to_oid(preorder_id) if preorder_id else None,
+        "note": str(note or "").strip(),
+        "created_at": now,
+    }
+    res = await db.custom_service_stock_events.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return doc
+
+
+async def list_stock_events(
+    endpoint_id,
+    catalog_owner_id: int,
+    *,
+    catalog_type: str = "custom",
+    limit: int = 10,
+) -> list[dict]:
+    return await db.custom_service_stock_events.find(
+        {
+            "endpoint_id": _to_oid(endpoint_id),
+            "catalog_owner_id": int(catalog_owner_id),
+            "catalog_type": _norm_catalog_type(catalog_type),
+        }
+    ).sort("created_at", -1).limit(max(1, min(50, int(limit)))).to_list(None)
+
+
 async def move_node_in_parent(
     node_id,
     reseller_id: int,
@@ -852,6 +963,20 @@ async def get_next_pending_preorder(endpoint_id) -> Optional[dict]:
     )
 
 
+async def list_pending_preorders(
+    *,
+    catalog_owner_id: int | None = None,
+    endpoint_id=None,
+    limit: int = 10,
+) -> list[dict]:
+    query = {"status": {"$in": ["pending", "fulfilling"]}}
+    if catalog_owner_id is not None:
+        query["catalog_owner_id"] = int(catalog_owner_id)
+    if endpoint_id is not None:
+        query["endpoint_id"] = _to_oid(endpoint_id)
+    return await db.custom_service_preorders.find(query).sort("created_at", 1).limit(max(1, min(50, int(limit)))).to_list(None)
+
+
 async def mark_preorder_fulfilling(preorder_id, *, actor_id: int) -> Optional[dict]:
     return await db.custom_service_preorders.find_one_and_update(
         {"_id": _to_oid(preorder_id), "status": "pending"},
@@ -891,6 +1016,23 @@ async def mark_preorder_fulfilled(preorder_id, *, actor_id: int) -> Optional[dic
                 "updated_at": datetime.now(UTC),
                 "fulfilled_at": datetime.now(UTC),
                 "fulfilled_by": int(actor_id),
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def mark_preorder_rejected(preorder_id, *, actor_id: int, reason: str = "") -> Optional[dict]:
+    now = datetime.now(UTC)
+    return await db.custom_service_preorders.find_one_and_update(
+        {"_id": _to_oid(preorder_id), "status": {"$in": ["pending", "fulfilling"]}},
+        {
+            "$set": {
+                "status": "rejected",
+                "updated_at": now,
+                "rejected_at": now,
+                "rejected_by": int(actor_id),
+                "reject_reason": str(reason or "").strip(),
             }
         },
         return_document=ReturnDocument.AFTER,

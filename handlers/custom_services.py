@@ -4,12 +4,13 @@ import html
 import json
 import logging
 import re
+from datetime import UTC, datetime
 
 from aiogram import Bot, Router, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 
 from config import OWNER_ID, settings
 from database.bots_repo import get_bot_token, get_reseller_id_for_bot
@@ -25,14 +26,20 @@ from database.custom_services_repo import (
     get_pending_preorder_position,
     get_preorder_request,
     get_node,
+    list_pending_preorders,
+    list_stock_events,
+    mark_low_stock_alert_sent,
     list_children,
     mark_preorder_fulfilling,
     mark_preorder_fulfilled,
+    mark_preorder_rejected,
     move_node_in_parent,
     rename_node,
+    record_stock_event,
     reset_preorder_to_pending,
     release_endpoint_stock,
     reserve_endpoint_stock,
+    set_endpoint_low_stock_threshold,
     set_endpoint_preorder_enabled,
     set_endpoint_inventory,
     update_node_display_text,
@@ -902,10 +909,98 @@ async def _platform_bridge_bot() -> Bot:
     return Bot(token=token, timeout=30)
 
 
+async def _send_owner_ops_message(text: str, *, reply_markup: InlineKeyboardMarkup | None = None) -> bool:
+    target = await db.system_settings.find_one({"_id": "owner_notifications"}) or {}
+    target_chat_id = target.get("chat_id")
+    if not isinstance(target_chat_id, int):
+        return False
+
+    bridge_bot: Bot | None = None
+    try:
+        bridge_bot = await _platform_bridge_bot()
+        kwargs = {
+            "chat_id": int(target_chat_id),
+            "text": text,
+            "reply_markup": reply_markup,
+        }
+        if target.get("message_thread_id") is not None:
+            kwargs["message_thread_id"] = int(target.get("message_thread_id"))
+        await bridge_bot.send_message(**kwargs)
+        return True
+    except Exception:
+        logger.exception("Custom services owner ops message failed")
+        return False
+    finally:
+        if bridge_bot is not None:
+            try:
+                await bridge_bot.session.close()
+            except Exception:
+                pass
+
+
+async def _record_stock_event_safe(
+    *,
+    endpoint_id,
+    catalog_owner_id: int,
+    catalog_type: str,
+    event_type: str,
+    qty_delta: int,
+    actor_id: int | None = None,
+    order_id=None,
+    preorder_id=None,
+    note: str = "",
+) -> None:
+    try:
+        await record_stock_event(
+            endpoint_id=endpoint_id,
+            catalog_owner_id=catalog_owner_id,
+            catalog_type=catalog_type,
+            event_type=event_type,
+            qty_delta=qty_delta,
+            actor_id=actor_id,
+            order_id=order_id,
+            preorder_id=preorder_id,
+            note=note,
+        )
+    except Exception:
+        logger.exception("Custom stock event failed endpoint=%s type=%s", endpoint_id, event_type)
+
+
+async def _maybe_notify_low_stock(
+    *,
+    endpoint: dict | None,
+    catalog_owner_id: int,
+    catalog_type: str,
+) -> None:
+    if not endpoint:
+        return
+    try:
+        threshold = int(endpoint.get("low_stock_threshold") or 0)
+        available = int(endpoint.get("available_qty") or 0)
+        if threshold <= 0 or available > threshold:
+            return
+        if endpoint.get("low_stock_alert_last_qty") == available:
+            return
+        service_name = str(endpoint.get("name") or "Custom Service")
+        text = (
+            "Low stock alert\n\n"
+            f"Service: {service_name}\n"
+            f"Available: {available}\n"
+            f"Threshold: {threshold}\n"
+            f"Endpoint ID: {endpoint.get('_id')}"
+        )
+        sent = await _send_owner_ops_message(text)
+        if sent:
+            await mark_low_stock_alert_sent(endpoint["_id"], catalog_owner_id, available, catalog_type=catalog_type)
+    except Exception:
+        logger.exception("Custom low stock alert failed endpoint=%s", (endpoint or {}).get("_id"))
+
+
 def _owner_preorder_queue_kb(preorder_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Fulfill FIFO", callback_data=f"custom_preorder:fulfill:{preorder_id}")],
+            [InlineKeyboardButton(text="Reject & Refund", callback_data=f"custom_preorder:reject:{preorder_id}")],
         ]
     )
 
@@ -939,25 +1034,9 @@ async def _notify_owner_preorder_created(
         "Rule: fulfill in FIFO order only."
     )
 
-    bridge_bot: Bot | None = None
-    try:
-        bridge_bot = await _platform_bridge_bot()
-        kwargs = {
-            "chat_id": int(target_chat_id),
-            "text": text,
-            "reply_markup": _owner_preorder_queue_kb(str(preorder["_id"])),
-        }
-        if target.get("message_thread_id") is not None:
-            kwargs["message_thread_id"] = int(target.get("message_thread_id"))
-        await bridge_bot.send_message(**kwargs)
-    except Exception as exc:
-        logger.exception("Custom preorder owner notify failed preorder=%s err=%s", preorder.get("_id"), exc)
-    finally:
-        if bridge_bot is not None:
-            try:
-                await bridge_bot.session.close()
-            except Exception:
-                pass
+    sent = await _send_owner_ops_message(text, reply_markup=_owner_preorder_queue_kb(str(preorder["_id"])))
+    if not sent:
+        logger.warning("Custom preorder owner notify failed preorder=%s", preorder.get("_id"))
 
 
 async def _notify_preorder_completed_user(
@@ -1011,6 +1090,58 @@ async def _notify_preorder_completed_user(
         return False
 
 
+async def _notify_preorder_refunded_user(
+    *,
+    fallback_bot: Bot,
+    preorder: dict,
+    endpoint: dict | None,
+) -> bool:
+    buyer_user_id = int(preorder.get("buyer_user_id") or 0)
+    if buyer_user_id <= 0:
+        return False
+    user = await get_user(buyer_user_id)
+    lang = str((user or {}).get("language") or "en")
+    service_name = str(preorder.get("service_name") or (endpoint or {}).get("name") or t(lang, "custom_service_plain"))
+    amount = format_usd(float(preorder.get("total_price") or 0.0))
+    text = (
+        "Your custom service order was cancelled and refunded.\n"
+        f"Service: {service_name}\n"
+        f"Amount: {amount}"
+        if not str(lang or "").lower().startswith("ar")
+        else (
+            "تم إلغاء طلب الخدمة وإرجاع المبلغ إلى رصيدك.\n"
+            f"الخدمة: {service_name}\n"
+            f"المبلغ: {amount}"
+        )
+    )
+    source_bot_id = int(preorder.get("source_bot_id") or 0)
+    if source_bot_id > 0:
+        try:
+            token = await get_bot_token(source_bot_id)
+        except Exception:
+            token = None
+        if token:
+            bot: Bot | None = None
+            try:
+                bot = Bot(token=token, timeout=30)
+                await bot.send_message(chat_id=buyer_user_id, text=text)
+                return True
+            except Exception:
+                logger.exception("Custom preorder refund notify via source bot failed preorder=%s", preorder.get("_id"))
+            finally:
+                if bot is not None:
+                    try:
+                        await bot.session.close()
+                    except Exception:
+                        pass
+    try:
+        await fallback_bot.send_message(chat_id=buyer_user_id, text=text)
+        return True
+    except Exception:
+        logger.exception("Custom preorder refund notify fallback failed preorder=%s", preorder.get("_id"))
+        return False
+
+
 class CustomBuilderStates(StatesGroup):
     waiting_name = State()
     waiting_price = State()
@@ -1021,6 +1152,7 @@ class CustomBuilderStates(StatesGroup):
     waiting_delivery_payload = State()
     waiting_delivery_preview = State()
     waiting_product_info = State()
+    waiting_low_stock_threshold = State()
     waiting_buy_qty = State()
     waiting_buy_confirm = State()
 
@@ -1098,6 +1230,16 @@ async def _auto_fulfill_inventory_preorders(
         claim = await claim_endpoint_inventory(endpoint_id, catalog_owner_id, qty, catalog_type=catalog_type)
         if not claim:
             break
+        await _record_stock_event_safe(
+            endpoint_id=endpoint_id,
+            catalog_owner_id=catalog_owner_id,
+            catalog_type=catalog_type,
+            event_type="inventory_claim_auto_preorder",
+            qty_delta=-qty,
+            actor_id=0,
+            preorder_id=preorder.get("_id"),
+            order_id=preorder.get("order_id"),
+        )
 
         preorder_id = str(preorder.get("_id") or "").strip()
         claimed = await mark_preorder_fulfilling(preorder_id, actor_id=0)
@@ -1147,6 +1289,15 @@ async def _auto_fulfill_inventory_preorders(
                     },
                 )
                 await update_order_status(order_id, "success")
+            try:
+                latest_endpoint = await get_node(endpoint_id, reseller_id=catalog_owner_id, catalog_type=catalog_type)
+            except Exception:
+                latest_endpoint = None
+            await _maybe_notify_low_stock(
+                endpoint=latest_endpoint or {**endpoint, "available_qty": int(claim.get("remaining_qty") or 0)},
+                catalog_owner_id=catalog_owner_id,
+                catalog_type=catalog_type,
+            )
             delivered.append(preorder_id)
         except Exception:
             logger.exception("Custom preorder auto-fulfill failed preorder=%s", preorder_id)
@@ -1397,6 +1548,7 @@ async def _render_node(
         delivery_status = t(viewer_lang, "configured_plain") if delivery_type in {"text", "photo", "document", "inventory"} else t(viewer_lang, "not_configured_plain")
         has_product_info = bool(str(node.get("product_info_text") or "").strip())
         preorder_enabled = _endpoint_preorder_enabled(node)
+        low_stock_threshold = int(node.get("low_stock_threshold") or 0)
         if is_builder:
             text = (
                 f"{catalog_title} - {t(viewer_lang, 'endpoint_plain')}\n\n"
@@ -1407,7 +1559,8 @@ async def _render_node(
                 f"{t(viewer_lang, 'delivery_plain')}: {delivery_status}\n"
                 f"{t(viewer_lang, 'stock_items_plain')}: {inventory_count}\n"
                 f"{t(viewer_lang, 'product_info_plain')}: {t(viewer_lang, 'set_plain') if has_product_info else t(viewer_lang, 'not_set_plain')}\n"
-                f"Preorder: {'Enabled' if preorder_enabled else 'Disabled'}"
+                f"Preorder: {'Enabled' if preorder_enabled else 'Disabled'}\n"
+                f"Low-stock alert: {low_stock_threshold if low_stock_threshold > 0 else 'Off'}"
             )
         else:
             text = _public_endpoint_text(node, catalog_title=catalog_title, lang=viewer_lang)
@@ -1427,6 +1580,13 @@ async def _render_node(
                     InlineKeyboardButton(text="Replace Stock", callback_data=f"cstm:delivery:{node['_id']}"),
                 ]
             )
+            kb_rows.append(
+                [
+                    InlineKeyboardButton(text="Export Stock", callback_data=f"cstm:stockexport:{node['_id']}"),
+                    InlineKeyboardButton(text="Stock Log", callback_data=f"cstm:stocklog:{node['_id']}"),
+                ]
+            )
+            kb_rows.append([InlineKeyboardButton(text="Low Stock Alert", callback_data=f"cstm:lowstock:{node['_id']}")])
             kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "product_info_plain"), callback_data=f"cstm:pinfo:{node['_id']}")])
             if await _can_toggle_preorder(viewer_id, message_or_cb.bot):
                 kb_rows.append(
@@ -1468,6 +1628,8 @@ async def _render_node(
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "done_plain"), callback_data=f"cstm:layoutdone:{node['_id']}")])
             elif can_manage_structure:
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "add_plain"), callback_data=f"cstm:add:{node['_id']}")])
+                if bool(node.get("is_root")) and await _can_toggle_preorder(viewer_id, message_or_cb.bot):
+                    kb_rows.append([InlineKeyboardButton(text="Pending Orders", callback_data=f"cstm:preorders:{node['_id']}")])
                 kb_rows.append(
                     [
                         InlineKeyboardButton(text=t(viewer_lang, "rename_plain"), callback_data=f"cstm:rename:{node['_id']}"),
@@ -2731,6 +2893,15 @@ async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMC
     await state.clear()
     if not updated:
         return await callback.answer(t(lang, "custom_failed_save_delivery_payload"), show_alert=True)
+    await _record_stock_event_safe(
+        endpoint_id=updated["_id"],
+        catalog_owner_id=catalog_owner_id,
+        catalog_type=catalog_type,
+        event_type="stock_append" if stock_mode == "append" else "stock_replace",
+        qty_delta=len(items),
+        actor_id=callback.from_user.id,
+        note=f"warnings={len(warnings)}",
+    )
     fulfilled_preorders = await _auto_fulfill_inventory_preorders(
         bot=callback.bot,
         endpoint=updated,
@@ -2756,6 +2927,207 @@ async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMC
             is_builder=True,
             catalog_type=catalog_type,
         )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("cstm:stockexport:"))
+async def export_endpoint_stock(callback: types.CallbackQuery, state: FSMContext):
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+    node_id = callback.data.split(":", 2)[2]
+    endpoint = await get_node(node_id, reseller_id=catalog_owner_id)
+    if not endpoint or endpoint.get("node_type") != "endpoint":
+        return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
+    items = [str(item or "").strip() for item in list(endpoint.get("inventory_items") or []) if str(item or "").strip()]
+    payload = "\n\n".join(items).strip()
+    if not payload:
+        payload = str(endpoint.get("inventory_raw_payload") or "").strip()
+    if not payload:
+        return await callback.answer("No stock payload to export.", show_alert=True)
+    filename = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(endpoint.get("name") or "custom_stock")).strip("_")[:60] or "custom_stock"
+    document = BufferedInputFile(payload.encode("utf-8"), filename=f"{filename}.txt")
+    if callback.message:
+        await callback.message.answer_document(document=document, caption=f"Stock export: {endpoint.get('name')}")
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("cstm:stocklog:"))
+async def show_endpoint_stock_log(callback: types.CallbackQuery, state: FSMContext):
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+    node_id = callback.data.split(":", 2)[2]
+    endpoint = await get_node(node_id, reseller_id=catalog_owner_id)
+    if not endpoint or endpoint.get("node_type") != "endpoint":
+        return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
+    catalog_type = _catalog_type_from_node(endpoint)
+    events = await list_stock_events(endpoint["_id"], catalog_owner_id, catalog_type=catalog_type, limit=12)
+    lines = [f"Stock log: {endpoint.get('name')}", ""]
+    if not events:
+        lines.append("No stock events yet.")
+    for event in events:
+        created_at = event.get("created_at")
+        if isinstance(created_at, datetime):
+            stamp = created_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M")
+        else:
+            stamp = "-"
+        delta = int(event.get("qty_delta") or 0)
+        actor = event.get("actor_id") or "-"
+        note = str(event.get("note") or "").strip()
+        suffix = f" | {note}" if note else ""
+        lines.append(f"{stamp} | {event.get('event_type')} | {delta:+d} | actor {actor}{suffix}")
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=t(lang, "back"), callback_data=f"cstm:open:{endpoint['_id']}")]]
+    )
+    if callback.message:
+        await _safe_edit_text(callback.message, "\n".join(lines), reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("cstm:lowstock:"))
+async def set_low_stock_start(callback: types.CallbackQuery, state: FSMContext):
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+    node_id = callback.data.split(":", 2)[2]
+    endpoint = await get_node(node_id, reseller_id=catalog_owner_id)
+    if not endpoint or endpoint.get("node_type") != "endpoint":
+        return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
+    catalog_type = _catalog_type_from_node(endpoint)
+    await state.update_data(
+        low_stock_endpoint_id=str(endpoint["_id"]),
+        low_stock_return_node_id=str(endpoint["_id"]),
+        custom_mode="builder",
+        custom_catalog_type=catalog_type,
+        custom_catalog_owner_id=catalog_owner_id,
+    )
+    await state.set_state(CustomBuilderStates.waiting_low_stock_threshold)
+    if callback.message:
+        await callback.message.answer(
+            "Send low-stock threshold as a number.\nUse 0 to disable alerts."
+        )
+    await callback.answer()
+
+
+@router.message(CustomBuilderStates.waiting_low_stock_threshold)
+async def save_low_stock_threshold(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    lang = await _user_lang(message.from_user.id)
+    catalog_owner_id = await _builder_catalog_owner_id(message.from_user.id, message.bot, data)
+    endpoint_id = data.get("low_stock_endpoint_id")
+    catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
+    if not catalog_owner_id or not endpoint_id:
+        await state.clear()
+        return await message.answer(t(lang, "access_denied_plain"))
+    if _is_cancel_input(message.text):
+        await state.clear()
+        return await _render_node(message, state, catalog_owner_id, endpoint_id, is_builder=True, catalog_type=catalog_type)
+    try:
+        threshold = int((message.text or "").strip())
+    except Exception:
+        return await message.answer("Send a valid number, or 0 to disable.")
+    if threshold < 0:
+        return await message.answer("Threshold cannot be negative.")
+    updated = await set_endpoint_low_stock_threshold(endpoint_id, catalog_owner_id, threshold, catalog_type=catalog_type)
+    await state.clear()
+    if not updated:
+        return await message.answer(t(lang, "custom_endpoint_not_found"))
+    await message.answer(f"Low-stock alert {'disabled' if threshold == 0 else f'set to {threshold}'}")
+    await _render_node(message, state, catalog_owner_id, updated["_id"], is_builder=True, catalog_type=catalog_type)
+
+
+def _can_manage_preorder_actor(actor_id: int) -> bool:
+    return int(actor_id) == int(OWNER_ID or 0) or int(actor_id) in _custom_services_admin_ids()
+
+
+def _preorder_detail_text(preorder: dict, endpoint: dict | None = None) -> str:
+    customer_note = str(preorder.get("customer_note") or "").strip()
+    status = str(preorder.get("status") or "-")
+    service_name = str(preorder.get("service_name") or (endpoint or {}).get("name") or "-")
+    return (
+        "Custom Service Order\n\n"
+        f"Queue ID: {preorder.get('_id')}\n"
+        f"Status: {status}\n"
+        f"Service: {service_name}\n"
+        f"User ID: {int(preorder.get('buyer_user_id') or 0)}\n"
+        f"Qty: {int(preorder.get('qty') or 0)}\n"
+        f"Paid: {format_usd(float(preorder.get('total_price') or 0.0))}\n"
+        f"Endpoint ID: {preorder.get('endpoint_id')}\n"
+        f"Customer note: {customer_note or '-'}\n"
+        "\nRule: fulfill in FIFO order only."
+    )
+
+
+def _preorder_detail_kb(preorder_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Fulfill FIFO", callback_data=f"custom_preorder:fulfill:{preorder_id}")],
+            [InlineKeyboardButton(text="Reject & Refund", callback_data=f"custom_preorder:reject:{preorder_id}")],
+            [InlineKeyboardButton(text="Pending Orders", callback_data="custom_preorder:list")],
+        ]
+    )
+
+
+async def _show_pending_preorders(callback: types.CallbackQuery, *, catalog_owner_id: int | None = None) -> None:
+    rows = await list_pending_preorders(catalog_owner_id=catalog_owner_id, limit=15)
+    text_lines = ["Pending custom service orders", ""]
+    kb_rows: list[list[InlineKeyboardButton]] = []
+    if not rows:
+        text_lines.append("No pending orders.")
+    for row in rows:
+        service = str(row.get("service_name") or "Custom Service")
+        short_id = str(row.get("_id"))[-6:]
+        qty = int(row.get("qty") or 0)
+        paid = format_usd(float(row.get("total_price") or 0.0))
+        text_lines.append(f"#{short_id} | {service} | x{qty} | {paid} | user {int(row.get('buyer_user_id') or 0)}")
+        kb_rows.append([InlineKeyboardButton(text=f"#{short_id} {service[:32]}", callback_data=f"custom_preorder:view:{row['_id']}")])
+    kb_rows.append([InlineKeyboardButton(text="Refresh", callback_data="custom_preorder:list")])
+    if callback.message:
+        await _safe_edit_text(callback.message, "\n".join(text_lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows))
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and (c.data.startswith("cstm:preorders:") or c.data == "custom_preorder:list"))
+async def show_pending_custom_preorders(callback: types.CallbackQuery, state: FSMContext):
+    actor_id = int(callback.from_user.id)
+    if not _can_manage_preorder_actor(actor_id):
+        return await callback.answer("No permission", show_alert=True)
+    catalog_owner_id: int | None = None
+    if str(callback.data or "").startswith("cstm:preorders:"):
+        data = await state.get_data()
+        catalog_owner_id = await _builder_catalog_owner_id(actor_id, callback.bot, data)
+    await _show_pending_preorders(callback, catalog_owner_id=catalog_owner_id)
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("custom_preorder:view:"))
+async def view_custom_preorder(callback: types.CallbackQuery):
+    actor_id = int(callback.from_user.id)
+    if not _can_manage_preorder_actor(actor_id):
+        return await callback.answer("No permission", show_alert=True)
+    preorder_id = str(callback.data or "").split(":", 2)[2]
+    preorder = await get_preorder_request(preorder_id)
+    if not preorder:
+        return await callback.answer("Preorder not found", show_alert=True)
+    endpoint = await get_node(
+        preorder.get("endpoint_id"),
+        reseller_id=int(preorder.get("catalog_owner_id") or 0),
+        catalog_type=str(preorder.get("catalog_type") or _CATALOG_CUSTOM),
+    )
+    if callback.message:
+        await _safe_edit_text(callback.message, _preorder_detail_text(preorder, endpoint), reply_markup=_preorder_detail_kb(preorder_id))
     await callback.answer()
 
 
@@ -3215,6 +3587,14 @@ async def _execute_buy(
             return
         claimed_items = list(claim.get("claimed_items") or [])
         remaining_qty = int(claim.get("remaining_qty") or 0)
+        await _record_stock_event_safe(
+            endpoint_id=endpoint["_id"],
+            catalog_owner_id=catalog_owner_id,
+            catalog_type=catalog_type,
+            event_type="inventory_claim",
+            qty_delta=-qty,
+            actor_id=user_id,
+        )
     elif not preorder_flow:
         reserved = await reserve_endpoint_stock(endpoint["_id"], catalog_owner_id, qty, catalog_type=catalog_type)
         if not reserved:
@@ -3223,6 +3603,14 @@ async def _execute_buy(
             await _ask_buy_qty(message, endpoint, data)
             return
         remaining_qty = int(reserved.get("available_qty") or 0)
+        await _record_stock_event_safe(
+            endpoint_id=endpoint["_id"],
+            catalog_owner_id=catalog_owner_id,
+            catalog_type=catalog_type,
+            event_type="stock_reserve",
+            qty_delta=-qty,
+            actor_id=user_id,
+        )
     else:
         remaining_qty = int(endpoint.get("available_qty") or 0)
     if delivery_type == "inventory" and not claimed_items:
@@ -3315,6 +3703,12 @@ async def _execute_buy(
         else:
             await update_order_status(order_id, "success")
         purchased = True
+        latest_endpoint = await get_node(endpoint["_id"], reseller_id=catalog_owner_id, catalog_type=catalog_type)
+        await _maybe_notify_low_stock(
+            endpoint=latest_endpoint or {**endpoint, "available_qty": remaining_qty},
+            catalog_owner_id=catalog_owner_id,
+            catalog_type=catalog_type,
+        )
         if preorder_flow:
             queue_position = await get_pending_preorder_position(preorder["_id"])
             await state.clear()
@@ -3391,6 +3785,15 @@ async def _execute_buy(
                 qty,
                 catalog_type=catalog_type,
                 claimed_items=claimed_items,
+            )
+            await _record_stock_event_safe(
+                endpoint_id=endpoint["_id"],
+                catalog_owner_id=catalog_owner_id,
+                catalog_type=catalog_type,
+                event_type="stock_release_failed_purchase",
+                qty_delta=len(claimed_items) if claimed_items else qty,
+                actor_id=user_id,
+                order_id=order_id,
             )
 
 
@@ -3581,7 +3984,7 @@ async def handle_buy_confirm_text(message: types.Message, state: FSMContext):
 @router.callback_query(lambda c: c.data and c.data.startswith("custom_preorder:fulfill:"))
 async def fulfill_custom_preorder(callback: types.CallbackQuery):
     actor_id = int(callback.from_user.id)
-    if actor_id != int(OWNER_ID or 0) and actor_id not in _custom_services_admin_ids():
+    if not _can_manage_preorder_actor(actor_id):
         return await callback.answer("No permission", show_alert=True)
 
     preorder_id = str(callback.data or "").split(":", 2)[2]
@@ -3639,6 +4042,73 @@ async def fulfill_custom_preorder(callback: types.CallbackQuery):
         except Exception:
             pass
     await callback.answer("Preorder fulfilled", show_alert=not notified)
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("custom_preorder:reject:"))
+async def reject_custom_preorder(callback: types.CallbackQuery):
+    actor_id = int(callback.from_user.id)
+    if not _can_manage_preorder_actor(actor_id):
+        return await callback.answer("No permission", show_alert=True)
+
+    preorder_id = str(callback.data or "").split(":", 2)[2]
+    preorder = await get_preorder_request(preorder_id)
+    if not preorder:
+        return await callback.answer("Preorder not found", show_alert=True)
+    status = str(preorder.get("status") or "")
+    if status == "fulfilled":
+        return await callback.answer("Already fulfilled", show_alert=True)
+    if status == "rejected":
+        return await callback.answer("Already rejected", show_alert=True)
+
+    order_id = preorder.get("order_id")
+    buyer_user_id = int(preorder.get("buyer_user_id") or 0)
+    total_price = float(preorder.get("total_price") or 0.0)
+    wallet_scope_id = int(preorder.get("wallet_scope_id") or preorder.get("catalog_owner_id") or 0)
+    if not order_id or buyer_user_id <= 0 or wallet_scope_id <= 0:
+        return await callback.answer("Refund data is incomplete.", show_alert=True)
+
+    ok, reason = await FinancialManager.refund_custom_purchase(
+        buyer_user_id,
+        str(order_id),
+        total_price,
+        reseller_id=wallet_scope_id,
+    )
+    if not ok:
+        return await callback.answer(f"Refund failed: {reason}", show_alert=True)
+
+    rejected = await mark_preorder_rejected(preorder["_id"], actor_id=actor_id, reason="admin_rejected")
+    if not rejected:
+        return await callback.answer("Refund applied, but preorder status was already changed.", show_alert=True)
+
+    endpoint = await get_node(
+        preorder.get("endpoint_id"),
+        reseller_id=int(preorder.get("catalog_owner_id") or 0),
+        catalog_type=str(preorder.get("catalog_type") or _CATALOG_CUSTOM),
+    )
+    await update_order_details(
+        order_id,
+        {
+            "status": "refunded",
+            "custom_preorder_rejected": True,
+            "custom_preorder_rejected_by": actor_id,
+        },
+    )
+    await update_order_status(order_id, "refunded")
+    notified = await _notify_preorder_refunded_user(
+        fallback_bot=callback.bot,
+        preorder=rejected,
+        endpoint=endpoint,
+    )
+    if callback.message:
+        text = str(callback.message.text or "")
+        suffix = "\n\nRejected and refunded."
+        if not notified:
+            suffix += "\nUser notification failed; refund was still applied."
+        try:
+            await callback.message.edit_text(f"{text}{suffix}", reply_markup=None)
+        except Exception:
+            pass
+    await callback.answer("Preorder refunded", show_alert=not notified)
 
 
 

@@ -307,3 +307,124 @@ async def test_fulfill_custom_preorder_completes_order_and_notifies(monkeypatch)
     assert calls["details"][0][1]["custom_preorder_fulfilled_manually"] is True
     assert calls["notified"]
     assert callback.answers[-1]["text"] == "Preorder fulfilled"
+
+
+@pytest.mark.asyncio
+async def test_reject_custom_preorder_refunds_and_notifies(monkeypatch):
+    calls = {"refunds": [], "details": [], "statuses": [], "notified": []}
+    preorder = {
+        "_id": "pre1",
+        "endpoint_id": "ep3",
+        "catalog_owner_id": 500,
+        "wallet_scope_id": 500,
+        "catalog_type": "custom",
+        "buyer_user_id": 77,
+        "order_id": "order3",
+        "qty": 1,
+        "total_price": 4.0,
+        "status": "pending",
+    }
+
+    class _Message:
+        text = "Custom Service Preorder"
+
+        async def edit_text(self, text, **kwargs):
+            self.text = text
+
+    class _Callback:
+        data = "custom_preorder:reject:pre1"
+        from_user = SimpleNamespace(id=9001)
+        bot = SimpleNamespace()
+        message = _Message()
+
+        def __init__(self):
+            self.answers = []
+
+        async def answer(self, text=None, **kwargs):
+            self.answers.append({"text": text, "kwargs": kwargs})
+
+    async def _fake_get_preorder(_preorder_id):
+        return dict(preorder)
+
+    async def _fake_refund(*args, **kwargs):
+        calls["refunds"].append((args, kwargs))
+        return True, "Refund Success"
+
+    async def _fake_mark_rejected(_preorder_id, *, actor_id, reason=""):
+        return {**preorder, "status": "rejected", "rejected_by": actor_id, "reject_reason": reason}
+
+    async def _fake_get_node(*_args, **_kwargs):
+        return {"_id": "ep3", "name": "PayPal Accounts"}
+
+    async def _fake_update_order_details(order_id, payload):
+        calls["details"].append((order_id, payload))
+
+    async def _fake_update_order_status(order_id, status):
+        calls["statuses"].append((order_id, status))
+
+    async def _fake_notify(**kwargs):
+        calls["notified"].append(kwargs)
+        return True
+
+    monkeypatch.setattr(custom_services, "OWNER_ID", 9001)
+    monkeypatch.setattr(custom_services, "get_preorder_request", _fake_get_preorder)
+    monkeypatch.setattr(custom_services.FinancialManager, "refund_custom_purchase", _fake_refund)
+    monkeypatch.setattr(custom_services, "mark_preorder_rejected", _fake_mark_rejected)
+    monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
+    monkeypatch.setattr(custom_services, "update_order_details", _fake_update_order_details)
+    monkeypatch.setattr(custom_services, "update_order_status", _fake_update_order_status)
+    monkeypatch.setattr(custom_services, "_notify_preorder_refunded_user", _fake_notify)
+
+    callback = _Callback()
+    await custom_services.reject_custom_preorder(callback)
+
+    assert calls["refunds"]
+    assert calls["refunds"][0][0][:3] == (77, "order3", 4.0)
+    assert calls["statuses"] == [("order3", "refunded")]
+    assert calls["details"][0][1]["custom_preorder_rejected"] is True
+    assert calls["notified"]
+    assert callback.answers[-1]["text"] == "Preorder refunded"
+
+
+@pytest.mark.asyncio
+async def test_show_pending_preorders_lists_orders(monkeypatch):
+    rows = [
+        {
+            "_id": "abcdef123456",
+            "service_name": "PayPal Accounts",
+            "buyer_user_id": 77,
+            "qty": 2,
+            "total_price": 8.0,
+        }
+    ]
+
+    class _Message:
+        def __init__(self):
+            self.edits = []
+
+        async def edit_text(self, text, **kwargs):
+            self.edits.append({"text": text, "kwargs": kwargs})
+
+    class _Callback:
+        from_user = SimpleNamespace(id=9001)
+        bot = SimpleNamespace()
+
+        def __init__(self):
+            self.message = _Message()
+            self.answers = []
+
+        async def answer(self, text=None, **kwargs):
+            self.answers.append({"text": text, "kwargs": kwargs})
+
+    async def _fake_list_pending_preorders(**_kwargs):
+        return list(rows)
+
+    monkeypatch.setattr(custom_services, "list_pending_preorders", _fake_list_pending_preorders)
+
+    callback = _Callback()
+    await custom_services._show_pending_preorders(callback, catalog_owner_id=500)
+
+    assert callback.message.edits
+    assert "PayPal Accounts" in callback.message.edits[-1]["text"]
+    markup = callback.message.edits[-1]["kwargs"]["reply_markup"]
+    assert markup.inline_keyboard[0][0].callback_data == "custom_preorder:view:abcdef123456"
