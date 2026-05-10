@@ -382,6 +382,49 @@ async def set_endpoint_inventory(
     )
 
 
+async def append_endpoint_inventory(
+    node_id,
+    reseller_id: int,
+    *,
+    inventory_items: list[str],
+    raw_payload: str | None = None,
+    parse_warnings: list[str] | None = None,
+    catalog_type: Optional[str] = None,
+) -> Optional[dict]:
+    query = {
+        "_id": _to_oid(node_id),
+        "reseller_id": int(reseller_id),
+        "node_type": "endpoint",
+        "is_active": True,
+    }
+    if catalog_type is not None:
+        query["catalog_type"] = _norm_catalog_type(catalog_type)
+
+    cleaned = [str(item or "").strip() for item in (inventory_items or [])]
+    cleaned = [item for item in cleaned if item]
+    if not cleaned:
+        return await db.custom_services.find_one(query)
+
+    return await db.custom_services.find_one_and_update(
+        query,
+        {
+            "$inc": {"available_qty": len(cleaned)},
+            "$push": {"inventory_items": {"$each": cleaned}},
+            "$set": {
+                "inventory_raw_payload": str(raw_payload or "").strip(),
+                "inventory_parse_warnings": [str(item or "").strip() for item in (parse_warnings or []) if str(item or "").strip()],
+                "delivery_type": "inventory",
+                "delivery_text": None,
+                "delivery_file_id": None,
+                "delivery_caption": None,
+                "delivery_filename": None,
+                "updated_at": datetime.now(UTC),
+            },
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
 async def rename_node(
     node_id,
     reseller_id: int,
@@ -756,6 +799,8 @@ async def create_preorder_request(
     total_price: float,
     service_name: str,
     catalog_type: str = "custom",
+    customer_note: str = "",
+    source_bot_id: int | None = None,
 ) -> dict:
     now = datetime.now(UTC)
     doc = {
@@ -768,6 +813,8 @@ async def create_preorder_request(
         "unit_price": float(unit_price),
         "total_price": float(total_price),
         "service_name": str(service_name or "").strip(),
+        "customer_note": str(customer_note or "").strip(),
+        "source_bot_id": int(source_bot_id) if source_bot_id else None,
         "catalog_type": _norm_catalog_type(catalog_type),
         "status": "pending",
         "created_at": now,

@@ -166,6 +166,7 @@ async def test_execute_buy_creates_preorder_when_enabled(monkeypatch):
             "buy_financial_mode": "custom",
             "buy_return_node_id": "folder1",
             "buy_is_preorder": True,
+            "buy_customer_note": "Need Gmail for US profile",
         }
     )
     message = _FakeMessage()
@@ -227,5 +228,82 @@ async def test_execute_buy_creates_preorder_when_enabled(monkeypatch):
 
     assert created["buyer_user_id"] == 77
     assert created["service_name"] == "PayPal Accounts"
+    assert created["customer_note"] == "Need Gmail for US profile"
     assert notified
     assert any("Reservation created successfully" in row["text"] for row in message.answers)
+
+
+@pytest.mark.asyncio
+async def test_fulfill_custom_preorder_completes_order_and_notifies(monkeypatch):
+    calls = {"details": [], "statuses": [], "notified": []}
+    preorder = {
+        "_id": "pre1",
+        "endpoint_id": "ep3",
+        "catalog_owner_id": 500,
+        "catalog_type": "custom",
+        "buyer_user_id": 77,
+        "order_id": "order3",
+        "qty": 1,
+        "status": "pending",
+    }
+
+    class _Message:
+        text = "Custom Service Preorder"
+
+        async def edit_text(self, text, **kwargs):
+            self.text = text
+
+    class _Callback:
+        data = "custom_preorder:fulfill:pre1"
+        from_user = SimpleNamespace(id=9001)
+        bot = SimpleNamespace()
+        message = _Message()
+
+        def __init__(self):
+            self.answers = []
+
+        async def answer(self, text=None, **kwargs):
+            self.answers.append({"text": text, "kwargs": kwargs})
+
+    async def _fake_get_preorder(_preorder_id):
+        return dict(preorder)
+
+    async def _fake_next_pending(_endpoint_id):
+        return dict(preorder)
+
+    async def _fake_mark_fulfilling(_preorder_id, actor_id):
+        return {**preorder, "status": "fulfilling"}
+
+    async def _fake_mark_fulfilled(_preorder_id, actor_id):
+        return {**preorder, "status": "fulfilled"}
+
+    async def _fake_get_node(*_args, **_kwargs):
+        return {"_id": "ep3", "name": "PayPal Accounts"}
+
+    async def _fake_update_order_details(order_id, payload):
+        calls["details"].append((order_id, payload))
+
+    async def _fake_update_order_status(order_id, status):
+        calls["statuses"].append((order_id, status))
+
+    async def _fake_notify(**kwargs):
+        calls["notified"].append(kwargs)
+        return True
+
+    monkeypatch.setattr(custom_services, "OWNER_ID", 9001)
+    monkeypatch.setattr(custom_services, "get_preorder_request", _fake_get_preorder)
+    monkeypatch.setattr(custom_services, "get_next_pending_preorder", _fake_next_pending)
+    monkeypatch.setattr(custom_services, "mark_preorder_fulfilling", _fake_mark_fulfilling)
+    monkeypatch.setattr(custom_services, "mark_preorder_fulfilled", _fake_mark_fulfilled)
+    monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
+    monkeypatch.setattr(custom_services, "update_order_details", _fake_update_order_details)
+    monkeypatch.setattr(custom_services, "update_order_status", _fake_update_order_status)
+    monkeypatch.setattr(custom_services, "_notify_preorder_completed_user", _fake_notify)
+
+    callback = _Callback()
+    await custom_services.fulfill_custom_preorder(callback)
+
+    assert calls["statuses"] == [("order3", "success")]
+    assert calls["details"][0][1]["custom_preorder_fulfilled_manually"] is True
+    assert calls["notified"]
+    assert callback.answers[-1]["text"] == "Preorder fulfilled"
