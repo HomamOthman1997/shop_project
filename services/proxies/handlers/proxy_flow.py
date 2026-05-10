@@ -58,6 +58,7 @@ from utils.translations import t
 
 router = Router()
 logger = logging.getLogger("proxy_flow")
+PROXY_SERVICE_TEMP_DISABLED = True
 
 _PROXY_DURATION_ORDER = {
     "1 Day": 0,
@@ -1145,7 +1146,7 @@ async def _load_user_proxy_order(raw_id: str, user_id: int) -> tuple[ObjectId | 
     return order_oid, order
 
 
-@router.callback_query(lambda c: (not PROXY_PROVIDERS) and c.data and str(c.data).startswith("proxy:"))
+@router.callback_query(lambda c: (PROXY_SERVICE_TEMP_DISABLED or not PROXY_PROVIDERS) and c.data and str(c.data).startswith("proxy:"))
 async def proxy_disabled_callback_guard(callback: types.CallbackQuery, state: FSMContext):
     _data, lang = await _state_lang(state, int(callback.from_user.id))
     await state.clear()
@@ -1154,7 +1155,7 @@ async def proxy_disabled_callback_guard(callback: types.CallbackQuery, state: FS
     await callback.answer(_proxy_service_disabled_text(lang), show_alert=True)
 
 
-@router.message(lambda m: (not PROXY_PROVIDERS) and m.text and str(m.text).startswith("/proxy_"))
+@router.message(lambda m: (PROXY_SERVICE_TEMP_DISABLED or not PROXY_PROVIDERS) and m.text and str(m.text).startswith("/proxy_"))
 async def proxy_disabled_command_guard(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
@@ -1172,7 +1173,7 @@ async def open_proxy_menu(message: types.Message, state: FSMContext):
     except Exception:
         pass
 
-    if not PROXY_PROVIDERS:
+    if PROXY_SERVICE_TEMP_DISABLED or not PROXY_PROVIDERS:
         await state.clear()
         bot_id = (await message.bot.get_me()).id
         await message.answer(_proxy_service_disabled_text(lang), reply_markup=await menu_for_current_bot(lang, bot_id))

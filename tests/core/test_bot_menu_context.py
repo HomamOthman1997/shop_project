@@ -66,6 +66,8 @@ def test_main_menus_do_not_show_custom_services_button():
     ]
 
     assert t("en", "btn_services") in main_buttons
+    assert t("en", "btn_proxies") not in main_buttons
+    assert [btn.text for btn in main_menu("en").keyboard[1]] == [t("en", "btn_numbers"), t("en", "btn_create_bot")]
     assert t("en", "btn_services") in reseller_buttons
     assert "rsmenu:custom_services" in inline_callbacks
     assert "rsmenu:dashboard" in inline_callbacks

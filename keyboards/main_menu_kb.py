@@ -17,10 +17,9 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text=t(lang, "btn_services"))],
         [
-            KeyboardButton(text=t(lang, "btn_proxies")),
             KeyboardButton(text=t(lang, "btn_numbers")),
+            KeyboardButton(text=t(lang, "btn_create_bot")),
         ],
-        [KeyboardButton(text=t(lang, "btn_create_bot"))],
         [
             KeyboardButton(text=t(lang, "btn_balance")),
             KeyboardButton(text=t(lang, "btn_settings")),
