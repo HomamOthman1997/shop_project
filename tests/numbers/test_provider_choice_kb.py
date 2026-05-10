@@ -77,6 +77,40 @@ def test_provider_choice_kb_does_not_recommend_blocked_provider():
     assert "1.65" in labels[0][0]
 
 
+def test_provider_choice_kb_show_all_includes_low_balance_providers():
+    kb = provider_choice_kb(
+        {
+            "herosms": {
+                "price": 0.44,
+                "api_service_name": "go",
+                "available_for_buy": False,
+                "testing_visible": True,
+                "provider_reason": "provider_balance_low",
+            },
+            "telabot": {
+                "price": 0.385,
+                "api_service_name": "GMail",
+                "available_for_buy": False,
+                "testing_visible": True,
+                "provider_reason": "provider_balance_low",
+                "provider_country_iso": "US",
+            },
+            "textverified": {
+                "price": 0.825,
+                "api_service_name": "gmail",
+                "available_for_buy": True,
+                "provider_country_iso": "US",
+            },
+        },
+        lang="en",
+        show_all=True,
+    )
+    rows = _provider_rows(kb)
+    labels = [[button.text for button in row] for row in rows]
+    assert any(row[0].startswith("Alpha |") and row[1] == "Low balance" for row in labels)
+    assert any(row[0].startswith("Delta [US] |") and row[1] == "Low balance" for row in labels)
+
+
 def test_provider_choice_kb_prefers_state_tag_over_country():
     kb = provider_choice_kb(
         {

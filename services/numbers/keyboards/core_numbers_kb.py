@@ -83,6 +83,17 @@ def _provider_buyable(info: dict) -> bool:
     return bool(info.get("available_for_buy", True)) and bool(str(info.get("api_service_name") or "").strip()) and price_val > 0
 
 
+def _provider_unavailable_label(info: dict, lang: str) -> str:
+    reason = str(info.get("provider_reason") or "").strip().lower()
+    if reason == "provider_balance_low":
+        return _numbers_text(lang, "Low balance", "الرصيد منخفض")
+    if reason == "provider_balance_unknown":
+        return _numbers_text(lang, "Balance unknown", "الرصيد غير معروف")
+    if reason in {"service_not_supported", "second_lane_unavailable"}:
+        return _numbers_text(lang, "Unavailable", "غير متاح")
+    return _numbers_text(lang, "Details", "التفاصيل")
+
+
 def _buyable_provider_count(prices: dict) -> int:
     count = 0
     for provider_code, info in (prices or {}).items():
@@ -319,7 +330,8 @@ def provider_choice_kb(
             continue
         price_val = float(info.get("price", 0) or 0)
         can_buy = _provider_buyable(info)
-        if not can_buy:
+        row_testing_visible = bool(info.get("testing_visible"))
+        if not can_buy and not row_testing_visible:
             continue
         success_rate_label = _format_success_rate(
             info.get("recommended_success_rate", info.get("success_rate", 100)),
@@ -338,7 +350,11 @@ def provider_choice_kb(
             location_tag = f" [{provider_country_iso}]"
         provider_row_callback = f"buy_provider:{provider_code}"
         provider_info_callback = f"buy_provider_info:{provider_code}"
-        action_text = f"{t(lang, 'buy_plain')} | {price_label}" if can_buy and price_val > 0 else price_label
+        action_text = (
+            f"{t(lang, 'buy_plain')} | {price_label}"
+            if can_buy and price_val > 0
+            else _provider_unavailable_label(info, lang)
+        )
         action_callback = provider_row_callback if can_buy else provider_info_callback
         kb.inline_keyboard.append(
             [
