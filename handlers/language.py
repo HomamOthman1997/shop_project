@@ -4,7 +4,7 @@ from database.bots_repo import get_bot_settings
 from database.user_repo import update_user_language
 from keyboards.language_kb import language_keyboard
 from keyboards.subscription_kb import subscription_keyboard
-from utils.bot_menu_context import is_card_ex_bot, is_digital_products_bot, is_main_bot, menu_for_current_bot
+from utils.bot_menu_context import is_card_ex_bot, is_digital_products_bot, is_main_bot, is_numbers_bot, menu_for_current_bot
 from utils.translations import t
 
 router = Router()
@@ -15,7 +15,7 @@ async def _apply_language(callback: types.CallbackQuery, lang: str):
     await update_user_language(user_id, lang)
 
     bot_id = (await callback.bot.get_me()).id
-    if await is_main_bot(bot_id) or await is_digital_products_bot(bot_id) or await is_card_ex_bot(bot_id):
+    if await is_main_bot(bot_id) or await is_numbers_bot(bot_id) or await is_digital_products_bot(bot_id) or await is_card_ex_bot(bot_id):
         await callback.message.edit_text(
             t(lang, "main_menu"),
             reply_markup=await menu_for_current_bot(lang, bot_id, user_id=user_id),

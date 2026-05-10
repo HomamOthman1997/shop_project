@@ -14,6 +14,7 @@ from utils.bot_menu_context import (
     extract_bot_id_from_token,
     is_card_ex_bot,
     is_digital_products_bot,
+    is_numbers_bot,
     menu_for_current_bot,
     resolve_runtime_bot_id as resolve_runtime_bot_id_fast,
 )
@@ -302,6 +303,7 @@ async def start_cmd(
     stage_started = monotonic()
     is_digital_products_runtime_bot = await is_digital_products_bot(bot_id)
     is_card_ex_runtime_bot = await is_card_ex_bot(bot_id)
+    is_numbers_runtime_bot = await is_numbers_bot(bot_id)
     stage_ms["bot_kind"] = (monotonic() - stage_started) * 1000.0
     stage_started = monotonic()
     bot_context = await _get_bot_context(bot_id)
@@ -336,7 +338,12 @@ async def start_cmd(
         _log_start_perf(started_at=started_at, user_id=user_id, bot_id=bot_id, outcome=f"digital_payload:{payload}", stage_ms=stage_ms)
         return await _open_digital_products_start_payload(message, lang=lang, payload=payload)
 
-    if (isinstance(main_bot_id, int) and current_bot_id == main_bot_id) or is_digital_products_runtime_bot or is_card_ex_runtime_bot:
+    if (
+        (isinstance(main_bot_id, int) and current_bot_id == main_bot_id)
+        or is_numbers_runtime_bot
+        or is_digital_products_runtime_bot
+        or is_card_ex_runtime_bot
+    ):
         stage_started = monotonic()
         await message.answer(
             t(lang, "main_menu"),
@@ -433,6 +440,7 @@ async def _forced_start_flow(message: types.Message, state: FSMContext):
         return
     await state.clear()
     is_digital_products_runtime_bot = await is_digital_products_bot(bot_id)
+    is_numbers_runtime_bot = await is_numbers_bot(bot_id)
     bot_context = await _get_bot_context(bot_id)
     if not user:
         username = message.from_user.username or ""
@@ -451,7 +459,7 @@ async def _forced_start_flow(message: types.Message, state: FSMContext):
     # âœ”ï¸ ØªØ­Ø¯ÙŠØ« Ù†Ø³Ø®Ø© Ø§Ù„Ø¨ÙˆØª Ù„Ù„Ù…Ø³ØªØ®Ø¯Ù…
     await update_user_version(message.from_user.id, settings.bot_version)
 
-    if (isinstance(main_bot_id, int) and bot_id == main_bot_id) or is_digital_products_runtime_bot:
+    if (isinstance(main_bot_id, int) and bot_id == main_bot_id) or is_numbers_runtime_bot or is_digital_products_runtime_bot:
         await message.answer(
             t(lang, "main_menu"),
             reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id)

@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from config import OWNER_ID
 from database.bots_repo import get_reseller_id_for_bot
 from services.subscriptions.bot_subscription_service import get_bot_subscription
-from utils.bot_menu_context import resolve_runtime_bot_id
+from utils.bot_menu_context import is_card_ex_bot, is_digital_products_bot, is_main_bot, is_numbers_bot, resolve_runtime_bot_id
 
 
 logger = logging.getLogger(__name__)
@@ -98,6 +98,10 @@ class BotSubscriptionMiddleware(BaseMiddleware):
             bot_id = int(await resolve_runtime_bot_id(bot) or 0)
             self._bot_id_cache[bot_runtime_key] = (bot_id, now_ts)
             stage_ms["bot_id"] = (monotonic() - stage_started) * 1000.0
+        if await self._is_platform_bot(bot_id):
+            result = await handler(event, data)
+            self._log_if_slow(event, bot_id, stage_ms, started_at, "platform_bot")
+            return result
 
         reseller_id = self._cached_reseller_id(bot_id, now_ts)
         if reseller_id is None:
@@ -206,6 +210,15 @@ class BotSubscriptionMiddleware(BaseMiddleware):
             return str((user or {}).get("language") or "en")
         except Exception:
             return "en"
+
+    @staticmethod
+    async def _is_platform_bot(bot_id: int) -> bool:
+        return (
+            await is_main_bot(bot_id)
+            or await is_numbers_bot(bot_id)
+            or await is_digital_products_bot(bot_id)
+            or await is_card_ex_bot(bot_id)
+        )
 
     @staticmethod
     def _log_if_slow(event: TelegramObject, bot_id: int, stage_ms: dict[str, float], started_at: float, outcome: str) -> None:
