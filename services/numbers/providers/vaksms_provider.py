@@ -326,12 +326,8 @@ class VAKSMSProvider(BaseProvider):
         api_price = _as_float(data.get("price"))
         if count <= 0 and country_code:
             site_stats = site_stats or await self._site_country_stats(service_code, country_code)
-            site_count = int(site_stats.get("count") or 0) if isinstance(site_stats, dict) else 0
-            if site_count > 0:
-                count = site_count
-                api_price = _as_float(site_stats.get("apiPrice")) or api_price or _as_float(site_stats.get("minPrice"))
         if count <= 0 or api_price is None or api_price <= 0:
-            return {"success": False, "raw": data}
+            return {"success": False, "raw": {"api": data, "site": site_stats} if site_stats else data}
         result = {
             "success": True,
             "price": round(api_price, 4),
