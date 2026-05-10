@@ -70,6 +70,7 @@ def docs_html():
     <div id="serviceCodeList1">
       <tbody>
         <tr><td>Google</td><td>gl</td></tr>
+        <tr><td>Google Voice</td><td>gf</td></tr>
         <tr><td>Telegram</td><td>tg</td></tr>
         <tr><td>WhatsApp</td><td>wa</td></tr>
       </tbody>
@@ -142,8 +143,50 @@ async def test_vaksms_get_price_uses_site_stock_price_when_api_count_is_zero(mon
     assert result["api_service_name"] == "wa"
     assert result["provider_country"] == "us"
     assert result["site_stock_pricing"] is True
+    assert result["recommendation_blocked"] is True
+    assert result["recommendation_reason"] == "site_stock_api_mismatch"
     assert result["raw"]["api"] == {"wa": 0, "price": 0.88}
     assert result["raw"]["site"]["count"] == 922
+
+
+@pytest.mark.asyncio
+async def test_vaksms_google_does_not_resolve_to_google_voice(monkeypatch, docs_html):
+    routes = {
+        ("https://vak-sms.com/api/vak/", ()): DummyResponse(status=200, text=docs_html),
+    }
+    session = DummySession(routes)
+
+    async def fake_get_session():
+        return session
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+    provider = VAKSMSProvider()
+
+    candidates = await provider._resolve_service_code_candidates("google")
+    assert candidates == ["gl"]
+
+
+@pytest.mark.asyncio
+async def test_vaksms_gmail_does_not_resolve_to_google_voice(monkeypatch):
+    docs = """
+    <div id="serviceCodeList1">
+      <tbody>
+        <tr><td>Google Voice</td><td>gf</td></tr>
+      </tbody>
+    </div>
+    """
+    routes = {
+        ("https://vak-sms.com/api/vak/", ()): DummyResponse(status=200, text=docs),
+    }
+    session = DummySession(routes)
+
+    async def fake_get_session():
+        return session
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+    provider = VAKSMSProvider()
+
+    assert await provider.resolve_service_code("gmail") is None
 
 
 @pytest.mark.asyncio

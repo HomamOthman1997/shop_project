@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
+from config import settings
 from services.numbers.manager_helpers import _country_iso_value
 from services.numbers.service_families import normalize_service_key
 
@@ -18,6 +20,35 @@ _FLOORS_BY_SERVICE: dict[str, dict[str, float]] = {
         "US": 0.90,
     },
 }
+
+
+def _configured_floors() -> dict[str, dict[str, float]]:
+    floors = {service: dict(values) for service, values in _FLOORS_BY_SERVICE.items()}
+    raw = str(getattr(settings, "numbers_temp_price_floors_json", "") or "").strip()
+    if not raw:
+        return floors
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return floors
+    if not isinstance(data, dict):
+        return floors
+    for service_key, service_floors in data.items():
+        service = _policy_service_key(service_key)
+        if not service or not isinstance(service_floors, dict):
+            continue
+        target = floors.setdefault(service, {})
+        for country_key, value in service_floors.items():
+            country = str(country_key or "").strip().upper()
+            if not country:
+                continue
+            try:
+                price = float(value)
+            except (TypeError, ValueError):
+                continue
+            if price > 0:
+                target[country] = price
+    return floors
 
 
 def _policy_service_key(service_key: Any) -> str:
@@ -47,7 +78,7 @@ def temp_sale_price(
         effective_markup = max(effective_markup, _MIN_MARKUP_PERCENT)
 
     sale_price = cost * (1.0 + max(0.0, effective_markup) / 100.0)
-    floors = _FLOORS_BY_SERVICE.get(service) or {}
+    floors = _configured_floors().get(service) or {}
     if floors:
         iso = _country_iso_value(str(provider_country_iso or provider_country or requested_country or "").strip())
         floor = floors.get(iso) or floors.get("*") or 0.0

@@ -17,6 +17,12 @@ _SERVICE_HINT_SYNONYMS: dict[str, tuple[str, ...]] = {
     "googlegmail": ("google", "gmail"),
 }
 
+_SERVICE_NEGATIVE_TOKENS: dict[str, frozenset[str]] = {
+    "google": frozenset({"voice", "play", "chat", "business", "pay", "messenger"}),
+    "gmail": frozenset({"voice", "play", "chat", "business", "pay", "messenger"}),
+    "googlegmail": frozenset({"voice", "play", "chat", "business", "pay", "messenger"}),
+}
+
 _FALLBACK_SERVICES: tuple[dict[str, str], ...] = (
     {"code": "wa", "name": "WhatsApp"},
     {"code": "tg", "name": "Telegram"},
@@ -42,6 +48,24 @@ def _as_float(value: Any) -> float | None:
 
 def _norm(value: Any) -> str:
     return "".join(ch for ch in str(value or "").strip().lower() if ch.isalnum())
+
+
+def _tokens(value: Any) -> set[str]:
+    raw = str(value or "")
+    for sep in (",", "/", "+", "|", ";", "-", "_", "(", ")"):
+        raw = raw.replace(sep, " ")
+    return {_norm(item) for item in raw.split() if _norm(item)}
+
+
+def _service_name_allowed_for_hint(name: Any, expanded_norms: set[str]) -> bool:
+    name_tokens = _tokens(name)
+    if not name_tokens:
+        return True
+    for hint in expanded_norms:
+        blocked = _SERVICE_NEGATIVE_TOKENS.get(hint)
+        if blocked and (name_tokens & blocked):
+            return False
+    return True
 
 
 def _strip_html(value: str) -> str:
@@ -274,8 +298,9 @@ class VAKSMSProvider(BaseProvider):
                 _push(code)
         for item in services:
             code = str(item.get("code") or "").strip()
-            name_norm = _norm(item.get("name") or "")
-            if code and any(candidate and candidate in name_norm for candidate in expanded_norms):
+            name = item.get("name") or ""
+            name_tokens = _tokens(name)
+            if code and _service_name_allowed_for_hint(name, expanded_norms) and (name_tokens & expanded_norms):
                 _push(code)
         return ordered
 
@@ -366,6 +391,8 @@ class VAKSMSProvider(BaseProvider):
         }
         if site_price is not None:
             result["site_stock_pricing"] = True
+            result["recommendation_blocked"] = True
+            result["recommendation_reason"] = "site_stock_api_mismatch"
         if auto_country and service_code == "wa" and display_price < 0.5:
             result["recommendation_blocked"] = True
             result["recommendation_reason"] = "low_confidence_auto_country"

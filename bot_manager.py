@@ -74,6 +74,7 @@ from services.proxies.catalog_cache import set_offers_cache
 from services.proxies.manager import get_proxy_catalog
 from services.proxies.validation import run_proxy_catalog_validation
 from services.digital_products.validation import run_digital_products_validation
+from utils.provider_alias import provider_public_id
 from utils.sentry_reporting import init_sentry
 from utils.log_noise import install_transient_noise_filter
 from utils.telegram_error_reporting import install_telegram_error_handler
@@ -347,11 +348,16 @@ async def _run_provider_balance_alert_cycle(
         return
 
     provider_codes = sorted(PROVIDERS.keys())
+    seen_provider_objects: set[int] = set()
     low_now: dict[str, float] = {}
     for code in provider_codes:
         provider = PROVIDERS.get(code)
         if provider is None or not hasattr(provider, "get_balance"):
             continue
+        object_id = id(provider)
+        if object_id in seen_provider_objects:
+            continue
+        seen_provider_objects.add(object_id)
         try:
             raw = await asyncio.wait_for(provider.get_balance(), timeout=10.0)
         except Exception:
@@ -397,7 +403,7 @@ async def _run_provider_balance_alert_cycle(
         "",
     ]
     for code in sorted(should_alert.keys()):
-        lines.append(f"- {code}: {float(should_alert[code]):.4f}$")
+        lines.append(f"- {provider_public_id(code)} ({code}): {float(should_alert[code]):.4f}$")
     lines.append("")
     lines.append("Please top up provider balance.")
 

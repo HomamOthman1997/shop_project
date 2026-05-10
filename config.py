@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     smsman_price_currency: str = "RUB"
     smsman_rub_to_usd_rate: float = 0.0112
     numbers_service_markup_percent: float = 0.0
+    # Optional JSON override for temporary-number floors.
+    # Example: {"whatsapp":{"*":1.0,"US":1.5},"telegram":{"*":0.75,"US":0.9}}
+    numbers_temp_price_floors_json: Optional[str] = None
     numbers_markup_cache_ttl_sec: int = 60
     # Master switch: when disabled, all platform profit policy is bypassed.
     # This forces markups/fees/commissions to zero for analysis/testing.
