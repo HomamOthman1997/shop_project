@@ -35,6 +35,7 @@ from services.numbers.manager_resolution import (
     _service_resolution_snapshot,
 )
 from services.numbers.pricing_policy import temp_sale_price
+from services.numbers.virtual_policy import apply_virtual_offer_policy
 from services.numbers.providers.herosms_provider import HeroSMSProvider
 from services.numbers.providers.smsman_provider import SMSManProvider
 from services.numbers.providers.smspool_provider import SMSPoolProvider
@@ -638,6 +639,7 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
                         provider_country_iso=lane.get("provider_country_iso"),
                         provider_country=lane.get("provider_country"),
                     )
+                    apply_virtual_offer_policy(lane, service_key=service_key)
                     lane["api_service_name"] = api_service_name
                     lane["available_for_buy"] = True
                     if provider_balance is not None:
@@ -771,6 +773,7 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
                     provider_country_iso=price_data.get("provider_country_iso"),
                     provider_country=price_data.get("provider_country"),
                 )
+                apply_virtual_offer_policy(price_data, service_key=service_key)
                 _log_provider_attempt_event(
                     phase="pricing",
                     provider_code=code,

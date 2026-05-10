@@ -111,6 +111,31 @@ def test_provider_choice_kb_show_all_includes_low_balance_providers():
     assert any(row[0].startswith("Delta [US] |") and row[1] == "Low balance" for row in labels)
 
 
+def test_provider_choice_kb_compact_show_all_when_unavailable_provider_visible():
+    kb = provider_choice_kb(
+        {
+            "textverified": {
+                "price": 0.82,
+                "api_service_name": "gmail",
+                "available_for_buy": True,
+                "provider_country_iso": "US",
+            },
+            "herosms": {
+                "price": 0.70,
+                "api_service_name": "gmail",
+                "available_for_buy": False,
+                "testing_visible": True,
+                "provider_reason": "provider_balance_low",
+            },
+        },
+        lang="en",
+        show_all=False,
+    )
+
+    callbacks = [button.callback_data for row in kb.inline_keyboard for button in row]
+    assert callbacks[:2] == ["buy_provider:textverified", "buy_provider_show_all"]
+
+
 def test_provider_choice_kb_prefers_state_tag_over_country():
     kb = provider_choice_kb(
         {

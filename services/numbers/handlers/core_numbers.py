@@ -1645,9 +1645,12 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
         code: info
         for code, info in prices.items()
         if (
-            bool(info.get("available_for_buy", True))
-            and bool(str(info.get("api_service_name") or "").strip())
-            and float(info.get("price", 0) or 0) > 0
+            (
+                bool(info.get("available_for_buy", True))
+                and bool(str(info.get("api_service_name") or "").strip())
+                and float(info.get("price", 0) or 0) > 0
+            )
+            or bool(info.get("testing_visible"))
         )
     }
     if not prices:

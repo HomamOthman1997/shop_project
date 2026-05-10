@@ -349,6 +349,35 @@ async def test_telegram_us_pricing_uses_country_floor(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_all_prices_blocks_virtual_sensitive_recommendation(monkeypatch):
+    class _Provider:
+        async def get_price(self, service, country=None, state=None):
+            return {
+                "success": True,
+                "price": 0.36,
+                "api_service_name": "go",
+                "provider_country_iso": "USV",
+            }
+
+        async def get_balance(self):
+            return 10.0
+
+    monkeypatch.setattr(manager, "PROVIDERS", {"vaksms": _Provider()})
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+
+    async def _resolve(*args, **kwargs):
+        return {"resolved_provider_service": "go", "provider_reason": "test"}
+
+    monkeypatch.setattr(manager, "get_provider_service_resolution_dynamic", _resolve)
+    manager._PROVIDER_BALANCE_CACHE.clear()
+
+    result = await manager.get_all_prices("gmail", "none", None, ignore_balance=True)
+    assert result["vaksms"]["virtual_number"] is True
+    assert result["vaksms"]["recommendation_blocked"] is True
+    assert result["vaksms"]["recommendation_reason"] == "virtual_low_confidence"
+
+
+@pytest.mark.asyncio
 async def test_get_all_rental_prices_filters_options_by_provider_balance(monkeypatch):
     class _RentalDummy:
         async def get_rental_prices(self, service, country=None):

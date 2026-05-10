@@ -94,13 +94,13 @@ def _provider_unavailable_label(info: dict, lang: str) -> str:
     return _numbers_text(lang, "Details", "التفاصيل")
 
 
-def _buyable_provider_count(prices: dict) -> int:
+def _visible_provider_count(prices: dict) -> int:
     count = 0
     for provider_code, info in (prices or {}).items():
         code = str(provider_code or "").strip().lower()
         if not code or code in _HIDDEN_TEMP_PROVIDER_CODES or not isinstance(info, dict):
             continue
-        if _provider_buyable(info):
+        if _provider_buyable(info) or bool(info.get("testing_visible")):
             count += 1
     return count
 
@@ -308,7 +308,7 @@ def provider_choice_kb(
             ]
         )
     if not show_all:
-        show_all_available = _buyable_provider_count(prices) > 1
+        show_all_available = _visible_provider_count(prices) > 1
         if show_all_available:
             kb.inline_keyboard.append(
                 [
