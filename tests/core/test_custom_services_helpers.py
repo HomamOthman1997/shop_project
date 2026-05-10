@@ -183,6 +183,44 @@ Recovery: No Recovery
     ]
 
 
+def test_parse_inventory_payload_splits_repeated_email_inside_separator_block():
+    payload = """Email: first@example.com
+Password: pass-1
+Recovery: No Recovery
+=================
+Email: second@example.com
+Password: pass-2
+Recovery: No Recovery
+Email: third@example.com
+Password: pass-3
+Recovery: No Recovery
+"""
+
+    assert _parse_inventory_payload(payload, ssn_mode=False) == [
+        "Email: first@example.com\nPassword: pass-1\nRecovery: No Recovery",
+        "Email: second@example.com\nPassword: pass-2\nRecovery: No Recovery",
+        "Email: third@example.com\nPassword: pass-3\nRecovery: No Recovery",
+    ]
+
+
+def test_split_claimed_inventory_items_caps_delivery_and_returns_overflow():
+    from handlers.custom_services import _split_claimed_inventory_items
+
+    deliver, overflow = _split_claimed_inventory_items(
+        [
+            "Email: first@example.com\nPassword: pass-1\nRecovery: No Recovery",
+            "Email: second@example.com\nPassword: pass-2\nRecovery: No Recovery\nEmail: third@example.com\nPassword: pass-3\nRecovery: No Recovery",
+        ],
+        2,
+    )
+
+    assert deliver == [
+        "Email: first@example.com\nPassword: pass-1\nRecovery: No Recovery",
+        "Email: second@example.com\nPassword: pass-2\nRecovery: No Recovery",
+    ]
+    assert overflow == ["Email: third@example.com\nPassword: pass-3\nRecovery: No Recovery"]
+
+
 def test_parse_inventory_payload_splits_repeated_arabic_email_blocks_without_separators():
     payload = """الإيميل: first@example.com
 كلمة المرور: pass-1

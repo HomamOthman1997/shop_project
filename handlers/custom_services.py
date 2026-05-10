@@ -571,38 +571,11 @@ def _parse_ssn_blocks(text: str) -> list[str]:
     return records
 
 
-def _parse_generic_inventory_payload(text: str) -> list[str]:
-    raw = html.unescape(str(text or "").strip())
-    if not raw:
-        return []
-
-    normalized = re.sub(r"(?i)<br\s*/?>", "\n", raw)
-    normalized = re.sub(r"(?is)</?(div|span|label|p|textarea|body|html)[^>]*>", "\n", normalized)
-    normalized = re.sub(r"[ \t]+\n", "\n", normalized)
-    normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
-
-    blocks = []
-    for block in re.split(r"(?:\n\s*={3,}\s*\n|={3,})", normalized):
-        item = _normalize_stock_block(block)
-        if item:
-            blocks.append(item)
-    if blocks:
-        labeled_blocks = sum(
-            1
-            for block in blocks
-            if any(line.startswith(("Email:", "Password:", "Recovery:")) for line in block.splitlines())
-        )
-        single_email_blocks = all(
-            sum(1 for line in block.splitlines() if line.lower().startswith("email:")) <= 1
-            for block in blocks
-        )
-        if labeled_blocks == len(blocks) and single_email_blocks:
-            return blocks
-
+def _parse_labeled_inventory_groups(text: str) -> list[str]:
     labeled_groups: list[str] = []
     current_group: list[str] = []
     label_pattern = re.compile(r"^(Email|Password|Recovery)\s*:", re.IGNORECASE)
-    for raw_line in normalized.splitlines():
+    for raw_line in str(text or "").splitlines():
         line = _normalize_stock_line(raw_line)
         if not line:
             if current_group:
@@ -628,10 +601,61 @@ def _parse_generic_inventory_payload(text: str) -> list[str]:
             current_group.append(line)
     if current_group:
         labeled_groups.append("\n".join(current_group))
+    return [block.strip() for block in labeled_groups if block.strip()]
+
+
+def _parse_generic_inventory_payload(text: str) -> list[str]:
+    raw = html.unescape(str(text or "").strip())
+    if not raw:
+        return []
+
+    normalized = re.sub(r"(?i)<br\s*/?>", "\n", raw)
+    normalized = re.sub(r"(?is)</?(div|span|label|p|textarea|body|html)[^>]*>", "\n", normalized)
+    normalized = re.sub(r"[ \t]+\n", "\n", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
+
+    blocks = []
+    for block in re.split(r"(?:\n\s*={3,}\s*\n|={3,})", normalized):
+        item = _normalize_stock_block(block)
+        if not item:
+            continue
+        if sum(1 for line in item.splitlines() if line.lower().startswith("email:")) > 1:
+            split_items = _parse_labeled_inventory_groups(item)
+            if len(split_items) > 1:
+                blocks.extend(split_items)
+                continue
+        blocks.append(item)
+    if blocks:
+        labeled_blocks = sum(
+            1
+            for block in blocks
+            if any(line.startswith(("Email:", "Password:", "Recovery:")) for line in block.splitlines())
+        )
+        single_email_blocks = all(
+            sum(1 for line in block.splitlines() if line.lower().startswith("email:")) <= 1
+            for block in blocks
+        )
+        if labeled_blocks == len(blocks) and single_email_blocks:
+            return blocks
+
+    labeled_groups = _parse_labeled_inventory_groups(normalized)
     if labeled_groups and all(any(item.startswith(prefix) for prefix in ("Email:", "Password:", "Recovery:")) for block in labeled_groups for item in block.splitlines()):
         return [block.strip() for block in labeled_groups if block.strip()]
 
     return [line.strip() for line in normalized.splitlines() if line.strip()]
+
+
+def _split_claimed_inventory_items(stock_items: list[str] | None, qty: int) -> tuple[list[str], list[str]]:
+    expanded: list[str] = []
+    for item in [str(row or "").strip() for row in list(stock_items or []) if str(row or "").strip()]:
+        if sum(1 for line in item.splitlines() if line.strip().lower().startswith("email:")) > 1:
+            split_items = _parse_generic_inventory_payload(item)
+            if len(split_items) > 1:
+                expanded.extend(split_items)
+                continue
+        expanded.append(item)
+    qty_i = max(1, int(qty))
+    return expanded[:qty_i], expanded[qty_i:]
 
 
 def _format_stock_items_payload(stock_items: list[str] | None) -> str:
@@ -1255,7 +1279,16 @@ async def _auto_fulfill_inventory_preorders(
 
         buyer_user_id = int(claimed.get("buyer_user_id") or 0)
         order_id = claimed.get("order_id")
-        claimed_items = [str(item or "").strip() for item in list(claim.get("claimed_items") or []) if str(item or "").strip()]
+        claimed_items_raw = [str(item or "").strip() for item in list(claim.get("claimed_items") or []) if str(item or "").strip()]
+        claimed_items, overflow_items = _split_claimed_inventory_items(claimed_items_raw, qty)
+        if overflow_items:
+            await release_endpoint_stock(
+                endpoint_id,
+                catalog_owner_id,
+                len(overflow_items),
+                catalog_type=catalog_type,
+                claimed_items=overflow_items,
+            )
         if buyer_user_id <= 0 or not claimed_items:
             await reset_preorder_to_pending(preorder_id)
             await release_endpoint_stock(
@@ -1285,7 +1318,7 @@ async def _auto_fulfill_inventory_preorders(
                     {
                         "status": "success",
                         "custom_preorder_fulfilled_automatically": True,
-                        "remaining_qty": int(claim.get("remaining_qty") or 0),
+                        "remaining_qty": int(claim.get("remaining_qty") or 0) + len(overflow_items),
                     },
                 )
                 await update_order_status(order_id, "success")
@@ -1294,7 +1327,7 @@ async def _auto_fulfill_inventory_preorders(
             except Exception:
                 latest_endpoint = None
             await _maybe_notify_low_stock(
-                endpoint=latest_endpoint or {**endpoint, "available_qty": int(claim.get("remaining_qty") or 0)},
+                endpoint=latest_endpoint or {**endpoint, "available_qty": int(claim.get("remaining_qty") or 0) + len(overflow_items)},
                 catalog_owner_id=catalog_owner_id,
                 catalog_type=catalog_type,
             )
@@ -3586,7 +3619,17 @@ async def _execute_buy(
             await _ask_buy_qty(message, endpoint, data)
             return
         claimed_items = list(claim.get("claimed_items") or [])
+        claimed_items, overflow_items = _split_claimed_inventory_items(claimed_items, qty)
+        if overflow_items:
+            await release_endpoint_stock(
+                endpoint["_id"],
+                catalog_owner_id,
+                len(overflow_items),
+                catalog_type=catalog_type,
+                claimed_items=overflow_items,
+            )
         remaining_qty = int(claim.get("remaining_qty") or 0)
+        remaining_qty += len(overflow_items)
         await _record_stock_event_safe(
             endpoint_id=endpoint["_id"],
             catalog_owner_id=catalog_owner_id,
