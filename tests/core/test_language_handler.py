@@ -36,6 +36,23 @@ class DummyCallback:
         self.answered = True
 
 
+class DummyState:
+    def __init__(self):
+        self.data = {}
+        self.state = None
+        self.cleared = False
+
+    async def clear(self):
+        self.cleared = True
+        self.data.clear()
+
+    async def update_data(self, **kwargs):
+        self.data.update(kwargs)
+
+    async def set_state(self, state):
+        self.state = state
+
+
 @pytest.mark.asyncio
 async def test_language_selection_opens_digital_menu_without_channel_gate(monkeypatch):
     callback = DummyCallback(bot_id=777, user_id=888)
@@ -64,6 +81,7 @@ async def test_language_selection_opens_digital_menu_without_channel_gate(monkey
     monkeypatch.setattr(language_handler, "update_user_language", fake_update_language)
     monkeypatch.setattr(language_handler, "get_bot_settings", fake_get_settings)
     monkeypatch.setattr(language_handler, "is_main_bot", fake_false)
+    monkeypatch.setattr(language_handler, "is_numbers_bot", fake_false)
     monkeypatch.setattr(language_handler, "is_digital_products_bot", fake_true)
     monkeypatch.setattr(language_handler, "is_card_ex_bot", fake_false)
     monkeypatch.setattr(language_handler, "menu_for_current_bot", fake_menu)
@@ -91,6 +109,7 @@ async def test_language_selection_keeps_channel_warning_for_reseller_bot(monkeyp
     monkeypatch.setattr(language_handler, "update_user_language", fake_update_language)
     monkeypatch.setattr(language_handler, "get_bot_settings", fake_get_settings)
     monkeypatch.setattr(language_handler, "is_main_bot", fake_false)
+    monkeypatch.setattr(language_handler, "is_numbers_bot", fake_false)
     monkeypatch.setattr(language_handler, "is_digital_products_bot", fake_false)
     monkeypatch.setattr(language_handler, "is_card_ex_bot", fake_false)
 
@@ -100,3 +119,33 @@ async def test_language_selection_keeps_channel_warning_for_reseller_bot(monkeyp
     assert len(callback.message.edits) == 1
     assert "Subscription channel is not configured" in callback.message.edits[0]["text"]
     assert callback.message.edits[0]["reply_markup"] is None
+
+
+@pytest.mark.asyncio
+async def test_language_selection_opens_numbers_type_menu(monkeypatch):
+    callback = DummyCallback(bot_id=879, user_id=654)
+    state = DummyState()
+
+    async def fake_update_language(_user_id, _lang):
+        return None
+
+    async def fake_true(_bot_id):
+        return True
+
+    async def fake_false(_bot_id):
+        return False
+
+    monkeypatch.setattr(language_handler, "update_user_language", fake_update_language)
+    monkeypatch.setattr(language_handler, "is_numbers_bot", fake_true)
+    monkeypatch.setattr(language_handler, "is_main_bot", fake_false)
+    monkeypatch.setattr(language_handler, "is_digital_products_bot", fake_false)
+    monkeypatch.setattr(language_handler, "is_card_ex_bot", fake_false)
+
+    await language_handler._apply_language(callback, "en", state)
+
+    assert callback.answered is True
+    assert state.cleared is True
+    assert state.data["lang"] == "en"
+    assert state.state.state == "NumberFlow:num_type"
+    assert "Choose the type of number" in callback.message.edits[0]["text"]
+    assert callback.message.edits[0]["reply_markup"].inline_keyboard[0][0].callback_data == "flow:type:temp"

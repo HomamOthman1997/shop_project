@@ -23,6 +23,8 @@ from database.user_repo import get_user, create_user, set_user_reseller_for_bot,
 from database.bots_repo import get_bot_settings, get_reseller_id_for_bot
 from database.mongo import db
 from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_message_guard
+from services.numbers.handlers.core_numbers import NumberFlow, _compose_numbers_screen
+from services.numbers.keyboards.core_numbers_kb import number_type_kb
 from utils.translations import t
 from config import settings
 from utils.reseller_setup_guard import get_reseller_setup_status, render_reseller_setup_notice
@@ -153,6 +155,16 @@ def _notify_active_temp_order_background(message: types.Message, lang: str) -> N
             pass
 
     asyncio.create_task(_runner())
+
+
+async def _open_numbers_start_menu(message: types.Message, state: FSMContext, *, lang: str) -> None:
+    await state.update_data(lang=lang)
+    note = t(lang, "temp_numbers_type_note")
+    await message.answer(
+        _compose_numbers_screen(t(lang, "choose_number_type"), trailing_lines=[note]),
+        reply_markup=number_type_kb(lang),
+    )
+    await state.set_state(NumberFlow.num_type)
 
 
 async def _start_create_bot_flow(message: types.Message, state: FSMContext, *, lang: str) -> None:
@@ -344,6 +356,10 @@ async def start_cmd(
         or is_digital_products_runtime_bot
         or is_card_ex_runtime_bot
     ):
+        if is_numbers_runtime_bot:
+            await _open_numbers_start_menu(message, state, lang=lang)
+            _log_start_perf(started_at=started_at, user_id=user_id, bot_id=bot_id, outcome="numbers_start_menu", stage_ms=stage_ms)
+            return
         stage_started = monotonic()
         await message.answer(
             t(lang, "main_menu"),
@@ -459,7 +475,11 @@ async def _forced_start_flow(message: types.Message, state: FSMContext):
     # âœ”ï¸ ØªØ­Ø¯ÙŠØ« Ù†Ø³Ø®Ø© Ø§Ù„Ø¨ÙˆØª Ù„Ù„Ù…Ø³ØªØ®Ø¯Ù…
     await update_user_version(message.from_user.id, settings.bot_version)
 
-    if (isinstance(main_bot_id, int) and bot_id == main_bot_id) or is_numbers_runtime_bot or is_digital_products_runtime_bot:
+    if is_numbers_runtime_bot:
+        await _open_numbers_start_menu(message, state, lang=lang)
+        return
+
+    if (isinstance(main_bot_id, int) and bot_id == main_bot_id) or is_digital_products_runtime_bot:
         await message.answer(
             t(lang, "main_menu"),
             reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id)

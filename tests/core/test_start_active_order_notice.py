@@ -107,3 +107,36 @@ async def test_numbers_start_guards_skip_digital_and_card_bots(monkeypatch):
     assert await start._should_run_numbers_start_guards(10) is False
     assert await start._should_run_numbers_start_guards(20) is False
     assert await start._should_run_numbers_start_guards(30) is True
+
+
+@pytest.mark.asyncio
+async def test_open_numbers_start_menu_sets_number_type_state():
+    from handlers import start
+
+    class _DummyState:
+        def __init__(self):
+            self.data = {}
+            self.state = None
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def set_state(self, state):
+            self.state = state
+
+    class _DummyMessage:
+        def __init__(self):
+            self.answers = []
+
+        async def answer(self, text, reply_markup=None):
+            self.answers.append((text, reply_markup))
+
+    message = _DummyMessage()
+    state = _DummyState()
+
+    await start._open_numbers_start_menu(message, state, lang="en")
+
+    assert state.data["lang"] == "en"
+    assert state.state.state == "NumberFlow:num_type"
+    assert "Choose the type of number" in message.answers[0][0]
+    assert message.answers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"
