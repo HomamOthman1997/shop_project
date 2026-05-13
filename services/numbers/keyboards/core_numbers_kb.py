@@ -212,6 +212,7 @@ def number_type_kb(lang: str, *, show_cancel: bool = True) -> InlineKeyboardMark
             InlineKeyboardButton(
                 text=_numbers_text(lang, "🆕 Call Number 🆕", "🆕 رقم اتصال 🆕"),
                 callback_data="flow:type:voice",
+                style="danger",
             )
         ],
     ]
