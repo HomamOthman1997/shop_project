@@ -910,9 +910,8 @@ async def numbers_menu(message: types.Message, state: FSMContext):
     await state.clear()
     await state.update_data(lang=lang)
     await _hide_reply_keyboard(message, lang)
-    note = t(lang, "temp_numbers_type_note")
     await message.answer(
-        _compose_numbers_screen(t(lang, "choose_number_type"), trailing_lines=[note]),
+        "\u2800",
         reply_markup=number_type_kb(lang, show_cancel=False),
     )
     await state.set_state(NumberFlow.num_type)
@@ -969,8 +968,8 @@ async def back_from_country_entry(callback: types.CallbackQuery, state: FSMConte
     else:
         await _safe_edit_text(
             callback.message,
-            t(lang, "choose_number_type"),
-            reply_markup=number_type_kb(lang),
+            "\u2800",
+            reply_markup=number_type_kb(lang, show_cancel=False),
         )
         await state.set_state(NumberFlow.num_type)
 

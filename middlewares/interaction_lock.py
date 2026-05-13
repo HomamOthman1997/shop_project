@@ -61,11 +61,21 @@ class InteractionLockMiddleware(BaseMiddleware):
         )
         return any(self._text_equals_key(clean, key) for key in section_keys)
 
+    def _is_side_action_intent(self, text: str) -> bool:
+        clean = (text or "").strip()
+        if not clean:
+            return False
+        return (
+            self._text_equals_key(clean, "btn_support")
+            or self._text_equals_key(clean, "btn_settings")
+            or clean in {t("en", "user_settings_my_account"), t("ar", "user_settings_my_account")}
+        )
+
     def _is_fast_track_message(self, text: str) -> bool:
         clean = (text or "").strip()
         if not clean:
             return False
-        return self._is_main_menu_intent(clean) or self._is_top_level_section_trigger(clean)
+        return self._is_main_menu_intent(clean) or self._is_side_action_intent(clean) or self._is_top_level_section_trigger(clean)
 
     @staticmethod
     async def _current_state_name(data: Dict[str, Any]) -> str:
@@ -87,6 +97,8 @@ class InteractionLockMiddleware(BaseMiddleware):
     async def _should_block_cross_section_message(self, event: types.Message, data: Dict[str, Any]) -> bool:
         text = (event.text or "").strip()
         if not text:
+            return False
+        if self._is_side_action_intent(text):
             return False
         if self._is_main_menu_intent(text):
             return False

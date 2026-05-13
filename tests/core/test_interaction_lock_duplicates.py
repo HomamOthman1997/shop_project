@@ -65,3 +65,30 @@ async def test_top_level_menu_messages_bypass_message_window():
     assert first == "ok"
     assert second == "ok"
     assert called["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_support_side_action_is_allowed_during_active_state():
+    mw = InteractionLockMiddleware()
+    called = {"count": 0}
+
+    class _State:
+        async def get_state(self):
+            return "NumberFlow:num_type"
+
+    async def handler(_event, _data):
+        called["count"] += 1
+        return "ok"
+
+    event = types.Message(
+        message_id=1,
+        date=0,
+        chat=types.Chat(id=100, type="private"),
+        from_user=types.User(id=42, is_bot=False, first_name="T"),
+        text=t("en", "btn_support"),
+    )
+
+    result = await mw(handler, event, {"state": _State()})
+
+    assert result == "ok"
+    assert called["count"] == 1

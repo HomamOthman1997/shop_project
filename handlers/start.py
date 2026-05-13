@@ -164,9 +164,8 @@ async def _open_numbers_start_menu(message: types.Message, state: FSMContext, *,
         t(lang, "main_menu"),
         reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id),
     )
-    note = t(lang, "temp_numbers_type_note")
     await message.answer(
-        _compose_numbers_screen(t(lang, "choose_number_type"), trailing_lines=[note]),
+        "\u2800",
         reply_markup=number_type_kb(lang, show_cancel=False),
     )
     await state.set_state(NumberFlow.num_type)
