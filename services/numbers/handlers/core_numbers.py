@@ -41,7 +41,6 @@ from utils.usage_stats_manager import increment_usage
 router = Router()
 _CURRENT_CALLBACK: ContextVar[types.CallbackQuery | None] = ContextVar("core_numbers_current_callback", default=None)
 NUMBER_TYPE_STICKER_FILE_ID = "CAACAgQAAxkBAAEpIg1qBIOMcjbnr4ZAz6iUTnocsolAogAC9RkAAq7EiFKvA7_VkVEwHDsE"
-NUMBER_TYPE_ANCHOR_TEXT = "\u2800"
 
 
 class _CallbackContextMiddleware(BaseMiddleware):
@@ -119,6 +118,10 @@ async def _safe_edit_text(
             or "there is no text in the message to edit" in error_text
             or "no text in the message to edit" in error_text
         ):
+            try:
+                await message.delete()
+            except Exception:
+                pass
             return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
         raise
 
@@ -562,10 +565,12 @@ def _numbers_mode_name(lang: str, num_type: str | None) -> str:
 async def send_number_type_entry(message: types.Message, state: FSMContext, *, lang: str) -> None:
     await state.update_data(lang=lang)
     try:
-        await message.answer_sticker(NUMBER_TYPE_STICKER_FILE_ID)
+        await message.answer_sticker(
+            NUMBER_TYPE_STICKER_FILE_ID,
+            reply_markup=number_type_kb(lang, show_cancel=False),
+        )
     except Exception:
-        pass
-    await message.answer(NUMBER_TYPE_ANCHOR_TEXT, reply_markup=number_type_kb(lang, show_cancel=False))
+        await message.answer(t(lang, "choose_number_type"), reply_markup=number_type_kb(lang, show_cancel=False))
     await state.set_state(NumberFlow.num_type)
 
 

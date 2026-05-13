@@ -145,12 +145,9 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
     assert state.data["lang"] == "en"
     assert state.state.state == "NumberFlow:num_type"
     assert message.stickers
-    assert message.stickers[0][1] is None
-    assert message.answers
-    assert message.answers[0][0] == "\u2800"
-    kb = message.answers[0][1]
-    assert kb.inline_keyboard[0][0].callback_data == "flow:type:temp"
-    assert all(row[0].callback_data != "flow:cancel" for row in kb.inline_keyboard)
+    assert message.answers == []
+    assert message.stickers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"
+    assert all(row[0].callback_data != "flow:cancel" for row in message.stickers[0][1].inline_keyboard)
 
 
 @pytest.mark.asyncio
@@ -216,6 +213,5 @@ async def test_numbers_bot_cancel_returns_to_number_type_entry(monkeypatch):
     assert state.state.state == "NumberFlow:num_type"
     assert message.deleted is True
     assert message.stickers
-    assert message.stickers[0][1] is None
-    assert message.answers[0][0] == "\u2800"
-    assert message.answers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"
+    assert message.answers == []
+    assert message.stickers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"

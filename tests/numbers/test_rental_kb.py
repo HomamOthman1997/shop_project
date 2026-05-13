@@ -75,9 +75,13 @@ async def test_safe_edit_text_falls_back_when_source_message_is_sticker():
     class _Message:
         def __init__(self):
             self.answers = []
+            self.deleted = False
 
         async def edit_text(self, *_args, **_kwargs):
             raise TelegramBadRequest(method="editMessageText", message="Bad Request: there is no text in the message to edit")
+
+        async def delete(self):
+            self.deleted = True
 
         async def answer(self, text, reply_markup=None, parse_mode=None):
             self.answers.append((text, reply_markup, parse_mode))
@@ -88,4 +92,5 @@ async def test_safe_edit_text_falls_back_when_source_message_is_sticker():
     result = await core_numbers._safe_edit_text(message, "Next", reply_markup="KB", parse_mode="HTML")
 
     assert result == "new-message"
+    assert message.deleted is True
     assert message.answers == [("Next", "KB", "HTML")]
