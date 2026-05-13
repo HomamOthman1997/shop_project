@@ -33,7 +33,6 @@ from database.support_tickets_repo import (
     set_ticket_delivery,
 )
 from database.user_repo import get_user, get_user_reseller_for_bot, set_user_reseller_for_bot
-from keyboards.balance_keyboard import balance_keyboard
 from keyboards.recharge_methods_keyboard import recharge_methods_keyboard
 from keyboards.reseller_main_menu import reseller_main_menu
 from utils.bot_menu_context import (
@@ -64,6 +63,11 @@ def _btn_values(key: str) -> set[str]:
 
 def _is_btn(text: str | None, key: str) -> bool:
     return (text or "").strip() in _btn_values(key)
+
+
+def _is_account_button(text: str | None) -> bool:
+    raw = (text or "").strip()
+    return raw in {t("en", "user_settings_my_account"), t("ar", "user_settings_my_account")} or _is_btn(raw, "btn_settings")
 
 
 def _as_utc(dt: datetime | None) -> datetime | None:
@@ -250,8 +254,15 @@ async def _user_settings_main_text(user_doc: dict | None, *, lang: str, bot_id: 
         bot_id=bot_id,
         user_id=user_id,
     )
+    balance_text = await _account_balance_text(
+        user_doc,
+        lang=lang,
+        bot_id=bot_id,
+        user_id=user_id,
+    )
     return (
-        f"{t(lang, 'user_settings_title')}\n\n"
+        f"{t(lang, 'user_settings_my_account')}\n\n"
+        f"{balance_text}\n\n"
         f"{profile_text}\n\n"
         f"{t(lang, 'user_settings_hint')}"
     )
@@ -369,6 +380,8 @@ def _user_settings_main_kb(lang: str, user_doc: dict | None) -> InlineKeyboardMa
     user_lang = str((user_doc or {}).get("language") or "en").strip().lower()
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_balance"), callback_data="uset:balance")],
+            [InlineKeyboardButton(text=t(lang, "btn_add_balance"), callback_data="uset:recharge")],
             [
                 InlineKeyboardButton(
                     text=f"{t(lang, 'user_settings_lang')}: {_language_label(user_lang)}",
@@ -400,6 +413,16 @@ def _user_settings_lang_kb(lang: str, current_lang: str) -> InlineKeyboardMarkup
 def _user_settings_back_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data="uset:open")],
+            [InlineKeyboardButton(text=t(lang, "user_settings_close"), callback_data="uset:close")],
+        ]
+    )
+
+
+def _account_balance_kb(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_add_balance"), callback_data="uset:recharge")],
             [InlineKeyboardButton(text=t(lang, "back"), callback_data="uset:open")],
             [InlineKeyboardButton(text=t(lang, "user_settings_close"), callback_data="uset:close")],
         ]
@@ -444,6 +467,15 @@ async def _user_profile_settings_text(user_doc: dict | None, *, lang: str, bot_i
     )
 
 
+async def _account_balance_text(user_doc: dict | None, *, lang: str, bot_id: int, user_id: int) -> str:
+    wallet_scope_id = await _resolve_user_reseller(user_doc, bot_id=bot_id, user_id=user_id)
+    if not wallet_scope_id:
+        return await _wallet_scope_error_text(lang=lang, bot_id=bot_id)
+    balance = await get_user_wallet_balance(user_id, int(wallet_scope_id))
+    note = t(lang, "available_wallet_balance_note_platform_shared" if await _uses_platform_wallet(bot_id) else "available_wallet_balance_note")
+    return f"{t(lang, 'balance_info').format(balance=balance)}\n{note}"
+
+
 async def _open_user_settings_message(message: types.Message, user_doc: dict | None, lang: str):
     bot_id = (await message.bot.get_me()).id
     text = await _user_settings_main_text(
@@ -452,11 +484,6 @@ async def _open_user_settings_message(message: types.Message, user_doc: dict | N
         bot_id=bot_id,
         user_id=message.from_user.id,
     )
-    await send_loading_sticker(
-        message,
-        remove_keyboard=True,
-        fallback_text=t(lang, "keyboard_cleanup_placeholder"),
-    )
     await message.answer(
         text,
         reply_markup=_user_settings_main_kb(lang, user_doc),
@@ -464,11 +491,6 @@ async def _open_user_settings_message(message: types.Message, user_doc: dict | N
 
 
 async def _open_support_menu_message(message: types.Message, lang: str) -> None:
-    await send_loading_sticker(
-        message,
-        remove_keyboard=True,
-        fallback_text=t(lang, "keyboard_cleanup_placeholder"),
-    )
     await message.answer(
         _support_menu_text(lang),
         reply_markup=_support_menu_kb(lang),
@@ -854,15 +876,19 @@ async def balance_handler(message: types.Message):
     balance = await get_user_wallet_balance(message.from_user.id, int(wallet_scope_id))
     text = t(lang, "balance_info").format(balance=balance)
     text += "\n" + t(lang, "available_wallet_balance_note_platform_shared" if platform_wallet_flow else "available_wallet_balance_note")
-    await message.answer(text, reply_markup=balance_keyboard(lang))
+    await message.answer(text, reply_markup=_account_balance_kb(lang))
 
 
 @router.message(lambda msg: _is_btn(msg.text, "btn_add_balance"))
 async def show_recharge_methods(message: types.Message, state: FSMContext):
-    user = await get_user(message.from_user.id)
+    await _start_recharge_flow(message, state, user_id=message.from_user.id)
+
+
+async def _start_recharge_flow(message: types.Message, state: FSMContext, *, user_id: int) -> None:
+    user = await get_user(user_id)
     lang = user.get("language", "en") if user else "en"
     bot_id = (await message.bot.get_me()).id
-    wallet_scope_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
+    wallet_scope_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=user_id)
     platform_wallet_flow = await _uses_platform_wallet(bot_id)
 
     if not wallet_scope_id:
@@ -892,17 +918,18 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     flow_lang = (user or {}).get("language", data.get("recharge_lang", "en"))
 
+    if _is_account_button(text):
+        return await _open_user_settings_message(message, user, flow_lang)
+
     if _is_btn(text, "btn_cancel") or _is_btn(text, "btn_back_main"):
         await state.clear()
         return await _return_main_menu(message, message.from_user.id)
 
     if _is_btn(text, "btn_balance"):
-        await state.clear()
         user = await get_user(message.from_user.id)
         bot_id = (await message.bot.get_me()).id
         wallet_scope_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
         if not wallet_scope_id:
-            await state.clear()
             return await message.answer(
                 await _wallet_scope_error_text(
                     lang=(user or {}).get("language", "en"),
@@ -910,7 +937,7 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
                 )
             )
         bal = await get_user_wallet_balance(message.from_user.id, int(wallet_scope_id))
-        return await message.answer(t((user or {}).get("language", "en"), "balance_info").format(balance=bal), reply_markup=balance_keyboard((user or {}).get("language", "en")))
+        return await message.answer(t((user or {}).get("language", "en"), "balance_info").format(balance=bal), reply_markup=_account_balance_kb((user or {}).get("language", "en")))
 
     if _is_btn(text, "btn_back"):
         await state.clear()
@@ -972,16 +999,17 @@ async def receive_recharge_amount(message: types.Message, state: FSMContext):
     raw = (message.text or "").strip()
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", (await state.get_data()).get("recharge_lang", "en"))
+    if _is_account_button(raw):
+        return await _open_user_settings_message(message, user, lang)
+
     if _is_btn(raw, "btn_cancel") or _is_btn(raw, "btn_back_main"):
         await state.clear()
         return await _return_main_menu(message, message.from_user.id)
     if _is_btn(raw, "btn_balance"):
-        await state.clear()
         user = await get_user(message.from_user.id)
         bot_id = (await message.bot.get_me()).id
         wallet_scope_id = await _resolve_user_reseller(user, bot_id=bot_id, user_id=message.from_user.id)
         if not wallet_scope_id:
-            await state.clear()
             return await message.answer(
                 await _wallet_scope_error_text(
                     lang=(user or {}).get("language", "en"),
@@ -989,7 +1017,7 @@ async def receive_recharge_amount(message: types.Message, state: FSMContext):
                 )
             )
         bal = await get_user_wallet_balance(message.from_user.id, int(wallet_scope_id))
-        return await message.answer(t((user or {}).get("language", "en"), "balance_info").format(balance=bal), reply_markup=balance_keyboard((user or {}).get("language", "en")))
+        return await message.answer(t((user or {}).get("language", "en"), "balance_info").format(balance=bal), reply_markup=_account_balance_kb((user or {}).get("language", "en")))
 
     if _is_btn(raw, "btn_back"):
         data = await state.get_data()
@@ -1111,6 +1139,9 @@ async def receive_recharge_proof_text(message: types.Message, state: FSMContext)
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", flow_lang)
 
+    if _is_account_button(raw):
+        return await _open_user_settings_message(message, user, lang)
+
     if _is_btn(raw, "btn_cancel") or _is_btn(raw, "btn_back_main"):
         await state.clear()
         return await _return_main_menu(message, message.from_user.id)
@@ -1130,7 +1161,7 @@ async def receive_recharge_proof_text(message: types.Message, state: FSMContext)
         bal = await get_user_wallet_balance(message.from_user.id, int(wallet_scope_id))
         return await message.answer(
             t((user or {}).get("language", "en"), "balance_info").format(balance=bal),
-            reply_markup=balance_keyboard((user or {}).get("language", "en")),
+            reply_markup=_account_balance_kb((user or {}).get("language", "en")),
         )
 
     if _is_btn(raw, "btn_back"):
@@ -1293,14 +1324,13 @@ async def main_bot_services_back_to_menu(callback: types.CallbackQuery):
     await _return_main_menu(callback.message, callback.from_user.id)
 
 
-@router.message(lambda msg: _is_btn(msg.text, "btn_settings") or _is_btn(msg.text, "btn_reseller_stats") or _is_btn(msg.text, "btn_support"))
+@router.message(lambda msg: _is_account_button(msg.text) or _is_btn(msg.text, "btn_reseller_stats") or _is_btn(msg.text, "btn_support"))
 async def simple_menu_placeholders(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = user.get("language", "en") if user else "en"
     if _is_btn(message.text, "btn_support"):
-        await state.clear()
         return await _open_support_menu_message(message, lang)
-    if _is_btn(message.text, "btn_settings"):
+    if _is_account_button(message.text):
         return await _open_user_settings_message(message, user, lang)
     if _is_btn(message.text, "btn_reseller_stats"):
         bot_id = (await message.bot.get_me()).id
@@ -1551,6 +1581,35 @@ async def user_settings_open_callback(callback: types.CallbackQuery):
         ),
         reply_markup=_user_settings_main_kb(lang, user),
     )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "uset:balance")
+async def user_settings_balance_callback(callback: types.CallbackQuery):
+    if not callback.message:
+        await callback.answer()
+        return
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    bot_id = (await callback.bot.get_me()).id
+    await callback.message.edit_text(
+        await _account_balance_text(
+            user,
+            lang=lang,
+            bot_id=bot_id,
+            user_id=callback.from_user.id,
+        ),
+        reply_markup=_account_balance_kb(lang),
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "uset:recharge")
+async def user_settings_recharge_callback(callback: types.CallbackQuery, state: FSMContext):
+    if not callback.message:
+        await callback.answer()
+        return
+    await _start_recharge_flow(callback.message, state, user_id=callback.from_user.id)
     await callback.answer()
 
 

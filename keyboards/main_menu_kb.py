@@ -21,11 +21,10 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
             KeyboardButton(text=t(lang, "btn_create_bot")),
         ],
         [
-            KeyboardButton(text=t(lang, "btn_balance")),
-            KeyboardButton(text=t(lang, "btn_settings")),
+            KeyboardButton(text=t(lang, "user_settings_my_account")),
+            KeyboardButton(text=t(lang, "btn_support")),
         ],
     ]
-    keyboard.append([KeyboardButton(text=t(lang, "btn_support"))])
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
         resize_keyboard=True,
@@ -36,10 +35,9 @@ def numbers_main_menu(lang: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text=t(lang, "btn_numbers"))],
         [
-            KeyboardButton(text=t(lang, "btn_balance")),
-            KeyboardButton(text=t(lang, "btn_settings")),
+            KeyboardButton(text=t(lang, "user_settings_my_account")),
+            KeyboardButton(text=t(lang, "btn_support")),
         ],
-        [KeyboardButton(text=t(lang, "btn_support"))],
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
@@ -51,8 +49,7 @@ def reseller_user_main_menu(lang: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text=t(lang, "btn_services"))],
         [
-            KeyboardButton(text=t(lang, "btn_balance")),
-            KeyboardButton(text=t(lang, "btn_settings")),
+            KeyboardButton(text=t(lang, "user_settings_my_account")),
         ],
         [KeyboardButton(text=t(lang, "btn_cyberzone_services"))],
     ]
@@ -69,10 +66,9 @@ def digital_products_main_menu(lang: str) -> ReplyKeyboardMarkup:
         keyboard = [
             [KeyboardButton(text="Open Digital Store", web_app=WebAppInfo(url=miniapp_url))],
             [
-                KeyboardButton(text=t(lang, "btn_balance")),
-                KeyboardButton(text=t(lang, "btn_settings")),
+                KeyboardButton(text=t(lang, "user_settings_my_account")),
+                KeyboardButton(text=t(lang, "btn_support")),
             ],
-            [KeyboardButton(text=t(lang, "btn_support"))],
         ]
     else:
         keyboard = [
@@ -82,10 +78,9 @@ def digital_products_main_menu(lang: str) -> ReplyKeyboardMarkup:
             ],
             [KeyboardButton(text=t(lang, "btn_sim_topup"))],
             [
-                KeyboardButton(text=t(lang, "btn_balance")),
-                KeyboardButton(text=t(lang, "btn_settings")),
+                KeyboardButton(text=t(lang, "user_settings_my_account")),
+                KeyboardButton(text=t(lang, "btn_support")),
             ],
-            [KeyboardButton(text=t(lang, "btn_support"))],
         ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,

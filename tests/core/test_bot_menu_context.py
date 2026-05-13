@@ -99,8 +99,7 @@ def test_numbers_menu_is_numbers_only():
 
     assert labels == [
         t("en", "btn_numbers"),
-        t("en", "btn_balance"),
-        t("en", "btn_settings"),
+        t("en", "user_settings_my_account"),
         t("en", "btn_support"),
     ]
     assert t("en", "btn_services") not in labels

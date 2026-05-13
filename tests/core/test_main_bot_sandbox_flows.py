@@ -118,6 +118,23 @@ async def test_support_close_returns_main_menu(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_support_button_does_not_clear_existing_state(monkeypatch):
+    message = _FakeMessage(text=main_menu.t("en", "btn_support"))
+    state = _FakeState({"flow": "numbers"})
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+
+    await main_menu.simple_menu_placeholders(message, state)
+
+    assert state.cleared is False
+    assert message.answers
+    assert message.answers[-1][1].__class__.__name__ == "InlineKeyboardMarkup"
+
+
+@pytest.mark.asyncio
 async def test_user_settings_close_returns_main_menu(monkeypatch):
     callback = _FakeCallback()
     called = {}
@@ -132,6 +149,28 @@ async def test_user_settings_close_returns_main_menu(monkeypatch):
 
     assert called["message"] is callback.message
     assert called["user_id"] == callback.from_user.id
+
+
+@pytest.mark.asyncio
+async def test_account_button_during_recharge_method_keeps_state(monkeypatch):
+    message = _FakeMessage(text=main_menu.t("en", "user_settings_my_account"))
+    state = _FakeState({"recharge_lang": "en"})
+    state.state = main_menu.RechargeFlow.waiting_method
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    async def _open_account(_message, _user, _lang):
+        await _message.answer("ACCOUNT")
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "_open_user_settings_message", _open_account)
+
+    await main_menu.ask_recharge_amount(message, state)
+
+    assert state.cleared is False
+    assert state.state == main_menu.RechargeFlow.waiting_method
+    assert message.answers[-1][0] == "ACCOUNT"
 
 
 @pytest.mark.asyncio
