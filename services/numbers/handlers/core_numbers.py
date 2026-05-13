@@ -913,7 +913,7 @@ async def numbers_menu(message: types.Message, state: FSMContext):
     note = t(lang, "temp_numbers_type_note")
     await message.answer(
         _compose_numbers_screen(t(lang, "choose_number_type"), trailing_lines=[note]),
-        reply_markup=number_type_kb(lang),
+        reply_markup=number_type_kb(lang, show_cancel=False),
     )
     await state.set_state(NumberFlow.num_type)
 

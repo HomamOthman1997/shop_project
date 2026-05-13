@@ -24,9 +24,13 @@ async def _apply_language(callback: types.CallbackQuery, lang: str, state: FSMCo
             await state.update_data(lang=lang)
             await state.set_state(NumberFlow.num_type)
         note = t(lang, "temp_numbers_type_note")
+        await callback.message.answer(
+            t(lang, "main_menu"),
+            reply_markup=await menu_for_current_bot(lang, bot_id, user_id=user_id),
+        )
         await callback.message.edit_text(
             _compose_numbers_screen(t(lang, "choose_number_type"), trailing_lines=[note]),
-            reply_markup=number_type_kb(lang),
+            reply_markup=number_type_kb(lang, show_cancel=False),
         )
         await callback.answer()
         return

@@ -192,29 +192,31 @@ def _can_show_unlimited(country_code: str | None) -> bool:
     return _country_iso(country_code) in {"US", "CA", "GB"}
 
 
-def number_type_kb(lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=t(lang, "temp_numbers"),
-                    callback_data="flow:type:temp",
-                    style="primary",
-                    icon_custom_emoji_id=_ICON_TEMP_NUMBERS,
-                ),
-                InlineKeyboardButton(
-                    text=t(lang, "rental_numbers"),
-                    callback_data="flow:type:rental",
-                    style="success",
-                    icon_custom_emoji_id=_ICON_RENTAL_NUMBERS,
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text=_numbers_text(lang, "🆕 Call Number 🆕", "🆕 رقم اتصال 🆕"),
-                    callback_data="flow:type:voice",
-                )
-            ],
+def number_type_kb(lang: str, *, show_cancel: bool = True) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=t(lang, "temp_numbers"),
+                callback_data="flow:type:temp",
+                style="primary",
+                icon_custom_emoji_id=_ICON_TEMP_NUMBERS,
+            ),
+            InlineKeyboardButton(
+                text=t(lang, "rental_numbers"),
+                callback_data="flow:type:rental",
+                style="success",
+                icon_custom_emoji_id=_ICON_RENTAL_NUMBERS,
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=_numbers_text(lang, "🆕 Call Number 🆕", "🆕 رقم اتصال 🆕"),
+                callback_data="flow:type:voice",
+            )
+        ],
+    ]
+    if show_cancel:
+        rows.append(
             [
                 InlineKeyboardButton(
                     text=t(lang, "cancel"),
@@ -222,9 +224,9 @@ def number_type_kb(lang: str) -> InlineKeyboardMarkup:
                     style="danger",
                     icon_custom_emoji_id=_ICON_CANCEL,
                 )
-            ],
-        ]
-    )
+            ]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def rental_home_kb(lang: str) -> InlineKeyboardMarkup:

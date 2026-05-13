@@ -12,9 +12,13 @@ import handlers.language as language_handler
 class DummyMessage:
     def __init__(self):
         self.edits = []
+        self.answers = []
 
     async def edit_text(self, text, reply_markup=None):
         self.edits.append({"text": text, "reply_markup": reply_markup})
+
+    async def answer(self, text, reply_markup=None):
+        self.answers.append({"text": text, "reply_markup": reply_markup})
 
 
 class DummyBot:
@@ -147,5 +151,10 @@ async def test_language_selection_opens_numbers_type_menu(monkeypatch):
     assert state.cleared is True
     assert state.data["lang"] == "en"
     assert state.state.state == "NumberFlow:num_type"
+    assert callback.message.answers[-1]["reply_markup"].keyboard
     assert "Choose the type of number" in callback.message.edits[0]["text"]
     assert callback.message.edits[0]["reply_markup"].inline_keyboard[0][0].callback_data == "flow:type:temp"
+    assert all(
+        row[0].callback_data != "flow:cancel"
+        for row in callback.message.edits[0]["reply_markup"].inline_keyboard
+    )

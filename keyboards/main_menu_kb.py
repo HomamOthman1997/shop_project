@@ -33,7 +33,6 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
 
 def numbers_main_menu(lang: str) -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton(text=t(lang, "btn_numbers"))],
         [
             KeyboardButton(text=t(lang, "user_settings_my_account")),
             KeyboardButton(text=t(lang, "btn_support")),
