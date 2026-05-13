@@ -209,8 +209,10 @@ async def list_user_open_temp_and_voice_orders(user_id: int, limit: int = 20):
             {
                 "user_id": int(user_id),
                 "number_mode": {"$in": ["temp", "voice"]},
-                "status": {"$in": ["success", "pending", "paid"]},
+                "status": "success",
+                "provisioning_state": "provisioned",
                 "provider_order_id": {"$exists": True, "$nin": [None, ""]},
+                "provider_number": {"$exists": True, "$nin": [None, "", "?"]},
                 "temp_wait_state": {"$in": ["waiting", "waiting_for_call", "code_received", "call_received", "refund_pending"]},
             }
         )

@@ -1287,6 +1287,26 @@ def _my_number_manage_kb(order: dict, order_id: str, lang: str) -> InlineKeyboar
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _is_manageable_my_number(order: dict) -> bool:
+    number = str(order.get("provider_number") or "").strip()
+    if not number or number == "?":
+        return False
+    mode = str(order.get("number_mode") or "").strip().lower()
+    if mode in {"temp", "voice"}:
+        return (
+            str(order.get("status") or "").strip().lower() == "success"
+            and str(order.get("provisioning_state") or "").strip().lower() == "provisioned"
+            and bool(str(order.get("provider_order_id") or "").strip())
+        )
+    if mode == "rental":
+        return (
+            str(order.get("status") or "").strip().lower() in {"success", "done"}
+            and str(order.get("provisioning_state") or "").strip().lower() == "provisioned"
+            and bool(str(order.get("provider_order_id") or "").strip())
+        )
+    return False
+
+
 def _duration_text(option: dict, lang: str) -> str:
     label = str(option.get("duration_label") or "").strip()
     if label:
@@ -2138,7 +2158,7 @@ async def _queue_voice_waiter(bot, order: dict, lang: str) -> None:
 async def _show_my_numbers(target: types.Message | types.CallbackQuery, user_id: int, lang: str) -> None:
     temp_voice_orders = await list_user_open_temp_and_voice_orders(user_id, limit=20)
     rental_orders = await list_user_rental_orders(user_id, limit=20)
-    orders = [*temp_voice_orders, *rental_orders]
+    orders = [order for order in [*temp_voice_orders, *rental_orders] if _is_manageable_my_number(order)]
     if not orders:
         text = t(lang, "my_numbers_empty")
         markup = InlineKeyboardMarkup(

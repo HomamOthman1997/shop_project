@@ -6,7 +6,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 sys.path.insert(0, os.getcwd())
 
-from services.numbers.handlers import core_numbers
+from services.numbers.handlers import core_numbers, core_numbers_buy
 from services.numbers.keyboards import core_numbers_kb
 from services.numbers.keyboards.core_numbers_kb import number_type_kb, rental_providers_kb
 
@@ -140,3 +140,42 @@ async def test_rental_type_goes_directly_to_service_selection():
     assert "Rental Numbers Menu" not in text
     assert markup.inline_keyboard
     assert parse_mode == "HTML"
+
+
+def test_my_numbers_only_lists_provisioned_successful_numbers():
+    assert core_numbers_buy._is_manageable_my_number(
+        {
+            "number_mode": "temp",
+            "status": "success",
+            "provisioning_state": "provisioned",
+            "provider_order_id": "act-1",
+            "provider_number": "+15550001111",
+        }
+    )
+    assert not core_numbers_buy._is_manageable_my_number(
+        {
+            "number_mode": "temp",
+            "status": "paid",
+            "provisioning_state": "charged_pending_provider",
+            "provider_order_id": "act-1",
+            "provider_number": "+15550001111",
+        }
+    )
+    assert not core_numbers_buy._is_manageable_my_number(
+        {
+            "number_mode": "temp",
+            "status": "success",
+            "provisioning_state": "provider_failed_refunded",
+            "provider_order_id": "act-1",
+            "provider_number": "+15550001111",
+        }
+    )
+    assert not core_numbers_buy._is_manageable_my_number(
+        {
+            "number_mode": "rental",
+            "status": "success",
+            "provisioning_state": "provisioned",
+            "provider_order_id": "rent-1",
+            "provider_number": "",
+        }
+    )
