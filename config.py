@@ -187,6 +187,9 @@ class Settings(BaseSettings):
     # Keep empty to use plain text fallback.
     tg_icon_temp_numbers: Optional[str] = None
     tg_icon_rental_numbers: Optional[str] = None
+    tg_icon_call_number: Optional[str] = None
+    tg_icon_account: Optional[str] = None
+    tg_icon_support: Optional[str] = None
     tg_icon_confirm: Optional[str] = None
     tg_icon_cancel: Optional[str] = None
     bot_sync_poll_seconds: int = 20

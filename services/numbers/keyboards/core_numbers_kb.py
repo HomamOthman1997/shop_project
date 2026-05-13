@@ -23,6 +23,7 @@ def _icon(icon_id: str | None) -> str | None:
 
 _ICON_TEMP_NUMBERS = _icon(getattr(settings, "tg_icon_temp_numbers", None))
 _ICON_RENTAL_NUMBERS = _icon(getattr(settings, "tg_icon_rental_numbers", None))
+_ICON_CALL_NUMBER = _icon(getattr(settings, "tg_icon_call_number", None))
 _ICON_CONFIRM = _icon(getattr(settings, "tg_icon_confirm", None))
 _ICON_CANCEL = _icon(getattr(settings, "tg_icon_cancel", None))
 _SUCCESS_RATE_DISPLAY_MIN_ATTEMPTS = max(
@@ -192,17 +193,25 @@ def _can_show_unlimited(country_code: str | None) -> bool:
     return _country_iso(country_code) in {"US", "CA", "GB"}
 
 
+def _button_label(text: str, *, icon_id: str | None = None) -> str:
+    if not icon_id:
+        return text
+    cleaned = re.sub(r"^[^\w\u0600-\u06FF]+", "", str(text or "")).strip()
+    cleaned = re.sub(r"[^\w\u0600-\u06FF]+$", "", cleaned).strip()
+    return cleaned or str(text or "").strip()
+
+
 def number_type_kb(lang: str, *, show_cancel: bool = True) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
-                text=t(lang, "temp_numbers"),
+                text=_button_label(t(lang, "temp_numbers"), icon_id=_ICON_TEMP_NUMBERS),
                 callback_data="flow:type:temp",
                 style="primary",
                 icon_custom_emoji_id=_ICON_TEMP_NUMBERS,
             ),
             InlineKeyboardButton(
-                text=t(lang, "rental_numbers"),
+                text=_button_label(t(lang, "rental_numbers"), icon_id=_ICON_RENTAL_NUMBERS),
                 callback_data="flow:type:rental",
                 style="success",
                 icon_custom_emoji_id=_ICON_RENTAL_NUMBERS,
@@ -210,9 +219,10 @@ def number_type_kb(lang: str, *, show_cancel: bool = True) -> InlineKeyboardMark
         ],
         [
             InlineKeyboardButton(
-                text=_numbers_text(lang, "🆕 Call Number 🆕", "🆕 رقم اتصال 🆕"),
+                text=_button_label(_numbers_text(lang, "🆕 Call Number 🆕", "🆕 رقم اتصال 🆕"), icon_id=_ICON_CALL_NUMBER),
                 callback_data="flow:type:voice",
                 style="danger",
+                icon_custom_emoji_id=_ICON_CALL_NUMBER,
             )
         ],
     ]

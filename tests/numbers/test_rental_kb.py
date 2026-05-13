@@ -1,9 +1,14 @@
 import os
 import sys
 
+import pytest
+from aiogram.exceptions import TelegramBadRequest
+
 sys.path.insert(0, os.getcwd())
 
-from services.numbers.keyboards.core_numbers_kb import rental_providers_kb
+from services.numbers.handlers import core_numbers
+from services.numbers.keyboards import core_numbers_kb
+from services.numbers.keyboards.core_numbers_kb import number_type_kb, rental_providers_kb
 
 
 def test_rental_providers_kb_uses_internal_provider_codes_for_layout():
@@ -48,3 +53,39 @@ def test_rental_providers_kb_uses_internal_provider_codes_for_layout():
     assert rows[7] == ["30D | 10.00 💲"]
     assert kb.inline_keyboard[0][0].style == "primary"
     assert getattr(kb.inline_keyboard[1][0], "style", None) is None
+
+
+def test_number_type_kb_removes_free_emoji_when_custom_icon_is_set(monkeypatch):
+    monkeypatch.setattr(core_numbers_kb, "_ICON_TEMP_NUMBERS", "custom-temp")
+    monkeypatch.setattr(core_numbers_kb, "_ICON_RENTAL_NUMBERS", "custom-rental")
+    monkeypatch.setattr(core_numbers_kb, "_ICON_CALL_NUMBER", "custom-call")
+
+    kb = number_type_kb("en", show_cancel=False)
+
+    assert kb.inline_keyboard[0][0].text == "Temp Number"
+    assert kb.inline_keyboard[0][0].icon_custom_emoji_id == "custom-temp"
+    assert kb.inline_keyboard[0][1].text == "Rental Number"
+    assert kb.inline_keyboard[0][1].icon_custom_emoji_id == "custom-rental"
+    assert kb.inline_keyboard[1][0].text == "Call Number"
+    assert kb.inline_keyboard[1][0].icon_custom_emoji_id == "custom-call"
+
+
+@pytest.mark.asyncio
+async def test_safe_edit_text_falls_back_when_source_message_is_sticker():
+    class _Message:
+        def __init__(self):
+            self.answers = []
+
+        async def edit_text(self, *_args, **_kwargs):
+            raise TelegramBadRequest(method="editMessageText", message="Bad Request: there is no text in the message to edit")
+
+        async def answer(self, text, reply_markup=None, parse_mode=None):
+            self.answers.append((text, reply_markup, parse_mode))
+            return "new-message"
+
+    message = _Message()
+
+    result = await core_numbers._safe_edit_text(message, "Next", reply_markup="KB", parse_mode="HTML")
+
+    assert result == "new-message"
+    assert message.answers == [("Next", "KB", "HTML")]

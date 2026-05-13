@@ -309,7 +309,7 @@
     "rental_my_numbers_title": "Your rental numbers:",
     "rental_notes_tags_text": "Notes:\n{notes}\n\nTags:\n{tags}",
     "rental_number_label": "Number",
-    "rental_numbers": "📆 Rental Numbers",
+    "rental_numbers": "📆 Rental Number",
     "rental_purchase_complete": "✅ Rental Purchase Completed\n\n📱 Number: {number}\n🧾 Order: {order_id}\n🌐 Provider: {provider}\n⏳ Duration: {duration}",
     "rental_renew_failed": "Could not renew this rental.",
     "rental_renewable_label": "Renewable",
