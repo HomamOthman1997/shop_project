@@ -161,10 +161,10 @@ async def test_language_selection_opens_numbers_type_menu(monkeypatch):
     assert state.cleared is True
     assert state.data["lang"] == "en"
     assert state.state.state == "NumberFlow:num_type"
-    assert callback.message.answers == []
     assert callback.message.stickers
-    assert callback.message.stickers[0]["reply_markup"].inline_keyboard[0][0].callback_data == "flow:type:temp"
-    assert all(
-        row[0].callback_data != "flow:cancel"
-        for row in callback.message.stickers[0]["reply_markup"].inline_keyboard
-    )
+    assert callback.message.stickers[0]["reply_markup"] is None
+    assert callback.message.answers
+    assert callback.message.answers[0]["text"] == "\u2800"
+    kb = callback.message.answers[0]["reply_markup"]
+    assert kb.inline_keyboard[0][0].callback_data == "flow:type:temp"
+    assert all(row[0].callback_data != "flow:cancel" for row in kb.inline_keyboard)

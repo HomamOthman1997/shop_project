@@ -1,5 +1,6 @@
 import os
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -143,7 +144,78 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
 
     assert state.data["lang"] == "en"
     assert state.state.state == "NumberFlow:num_type"
-    assert message.answers == []
     assert message.stickers
-    assert message.stickers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"
-    assert all(row[0].callback_data != "flow:cancel" for row in message.stickers[0][1].inline_keyboard)
+    assert message.stickers[0][1] is None
+    assert message.answers
+    assert message.answers[0][0] == "\u2800"
+    kb = message.answers[0][1]
+    assert kb.inline_keyboard[0][0].callback_data == "flow:type:temp"
+    assert all(row[0].callback_data != "flow:cancel" for row in kb.inline_keyboard)
+
+
+@pytest.mark.asyncio
+async def test_numbers_bot_cancel_returns_to_number_type_entry(monkeypatch):
+    from services.numbers.handlers import core_numbers
+
+    async def fake_get_user(_user_id):
+        return {"language": "en"}
+
+    async def fake_true(_bot_id):
+        return True
+
+    async def fake_rental_guard(*_args, **_kwargs):
+        return False
+
+    class _DummyState:
+        def __init__(self):
+            self.data = {}
+            self.cleared = False
+            self.state = None
+
+        async def clear(self):
+            self.data.clear()
+            self.cleared = True
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def set_state(self, state):
+            self.state = state
+
+    class _DummyMessage:
+        def __init__(self):
+            self.deleted = False
+            self.answers = []
+            self.stickers = []
+
+        async def delete(self):
+            self.deleted = True
+
+        async def answer(self, text, reply_markup=None):
+            self.answers.append((text, reply_markup))
+
+        async def answer_sticker(self, sticker, reply_markup=None):
+            self.stickers.append((sticker, reply_markup))
+
+    class _DummyBot:
+        async def get_me(self):
+            return SimpleNamespace(id=879)
+
+    message = _DummyMessage()
+    callback = SimpleNamespace(from_user=SimpleNamespace(id=55), bot=_DummyBot(), message=message)
+    state = _DummyState()
+
+    monkeypatch.setattr(core_numbers, "get_user", fake_get_user)
+    monkeypatch.setattr(core_numbers, "is_numbers_bot", fake_true)
+    monkeypatch.setattr(core_numbers, "_handle_rental_exit_callback_guard", fake_rental_guard)
+
+    await core_numbers.back_to_main(callback, state)
+
+    assert state.cleared is True
+    assert state.data["lang"] == "en"
+    assert state.state.state == "NumberFlow:num_type"
+    assert message.deleted is True
+    assert message.stickers
+    assert message.stickers[0][1] is None
+    assert message.answers[0][0] == "\u2800"
+    assert message.answers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"

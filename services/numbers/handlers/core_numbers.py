@@ -32,7 +32,7 @@ from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_callb
 from services.numbers.service_families import normalize_service_key
 from services.numbers.states.core_numbers_states import NumberFlow
 from services.numbers.data import tv_area_codes
-from utils.bot_menu_context import menu_for_current_bot
+from utils.bot_menu_context import is_numbers_bot, menu_for_current_bot
 from utils.provider_alias import provider_public_id
 from utils.translations import t
 from utils.user_money import format_usd, format_usd_compact
@@ -41,6 +41,7 @@ from utils.usage_stats_manager import increment_usage
 router = Router()
 _CURRENT_CALLBACK: ContextVar[types.CallbackQuery | None] = ContextVar("core_numbers_current_callback", default=None)
 NUMBER_TYPE_STICKER_FILE_ID = "CAACAgQAAxkBAAEpIg1qBIOMcjbnr4ZAz6iUTnocsolAogAC9RkAAq7EiFKvA7_VkVEwHDsE"
+NUMBER_TYPE_ANCHOR_TEXT = "\u2800"
 
 
 class _CallbackContextMiddleware(BaseMiddleware):
@@ -245,6 +246,10 @@ async def _return_to_main_menu(callback: types.CallbackQuery, state: FSMContext)
         await callback.message.delete()
     except Exception:
         pass
+
+    if await is_numbers_bot(bot_id):
+        await send_number_type_entry(callback.message, state, lang=lang)
+        return
 
     await callback.message.answer(t(lang, "main_menu"), reply_markup=await menu_for_current_bot(lang, bot_id))
 
@@ -557,12 +562,10 @@ def _numbers_mode_name(lang: str, num_type: str | None) -> str:
 async def send_number_type_entry(message: types.Message, state: FSMContext, *, lang: str) -> None:
     await state.update_data(lang=lang)
     try:
-        await message.answer_sticker(
-            NUMBER_TYPE_STICKER_FILE_ID,
-            reply_markup=number_type_kb(lang, show_cancel=False),
-        )
+        await message.answer_sticker(NUMBER_TYPE_STICKER_FILE_ID)
     except Exception:
-        await message.answer(t(lang, "choose_number_type"), reply_markup=number_type_kb(lang, show_cancel=False))
+        pass
+    await message.answer(NUMBER_TYPE_ANCHOR_TEXT, reply_markup=number_type_kb(lang, show_cancel=False))
     await state.set_state(NumberFlow.num_type)
 
 
