@@ -40,7 +40,7 @@ from utils.usage_stats_manager import increment_usage
 
 router = Router()
 _CURRENT_CALLBACK: ContextVar[types.CallbackQuery | None] = ContextVar("core_numbers_current_callback", default=None)
-NUMBER_TYPE_STICKER_FILE_ID = "AAMCBAADGQEAASkiDWoEg4xyNuevhkDPqJROehyyiUCiAAL1GQACrsSIUq8Dv9WRUTAcAQAHbQADOwQ"
+NUMBER_TYPE_STICKER_FILE_ID = "CAACAgQAAxkBAAEpIg1qBIOMcjbnr4ZAz6iUTnocsolAogAC9RkAAq7EiFKvA7_VkVEwHDsE"
 
 
 class _CallbackContextMiddleware(BaseMiddleware):
@@ -548,7 +548,10 @@ def _numbers_mode_name(lang: str, num_type: str | None) -> str:
 
 async def send_number_type_entry(message: types.Message, state: FSMContext, *, lang: str) -> None:
     await state.update_data(lang=lang)
-    await message.answer_sticker(NUMBER_TYPE_STICKER_FILE_ID)
+    try:
+        await message.answer_sticker(NUMBER_TYPE_STICKER_FILE_ID)
+    except Exception:
+        pass
     await message.answer("\u2800", reply_markup=number_type_kb(lang, show_cancel=False))
     await state.set_state(NumberFlow.num_type)
 
