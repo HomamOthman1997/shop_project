@@ -134,7 +134,15 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def _to_utc_datetime(value: datetime | None) -> datetime | None:
+def _to_utc_datetime(value) -> datetime | None:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            value = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
     if not isinstance(value, datetime):
         return None
     if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
@@ -366,7 +374,10 @@ def _temp_waiting_text(
     ]
     if service_name:
         details.append(f"{t(lang, 'service_label')}: {html.escape(str(service_name))}")
-    details.append(_temp_reuse_policy_text(lang, reuse_warranty_sec))
+    if _normalize_warranty_sec(reuse_warranty_sec) and int(elapsed_sec or 0) >= int(_normalize_warranty_sec(reuse_warranty_sec) or 0):
+        details.append(t(lang, "temp_reuse_expired"))
+    else:
+        details.append(_temp_reuse_policy_text(lang, reuse_warranty_sec))
     return "\n".join(details)
 
 

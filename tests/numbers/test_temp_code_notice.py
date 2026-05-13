@@ -7,6 +7,7 @@ from services.numbers.handlers.core_numbers_buy import (
     _temp_code_notice_text,
     _temp_code_received_text,
 )
+from services.numbers.handlers.temp_order_utils import _temp_waiting_text
 
 
 def test_temp_code_received_text_hides_code_from_status_card():
@@ -33,3 +34,19 @@ def test_temp_code_notice_text_includes_code_and_balance_notice():
     assert "💲 0.50" in text
     assert "💲 9.50" in text
     assert "الرصيد الحالي" in text
+
+
+def test_temp_waiting_text_marks_resend_window_expired():
+    text = _temp_waiting_text(
+        lang="en",
+        provider_code="textverified",
+        number="+15550001111",
+        country_code="1",
+        interval_sec=30,
+        elapsed_sec=901,
+        reuse_warranty_sec=900,
+        service_name="gmail",
+    )
+
+    assert "Reuse warranty timer ended" in text
+    assert "Resend window: 15 minutes guaranteed" not in text

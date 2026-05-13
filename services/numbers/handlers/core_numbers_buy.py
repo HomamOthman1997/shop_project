@@ -987,14 +987,16 @@ async def _sync_temp_wait_controls(bot, order: dict, lang: str):
         return
     elapsed = _temp_elapsed_sec(order)
     timeout_sec = _order_temp_timeout_sec(order)
+    reuse_warranty_sec = _order_reuse_warranty_sec(order)
+    display_elapsed = elapsed if _temp_resend_available(order) else max(elapsed, reuse_warranty_sec)
     text = t(lang, "temp_no_code_timeout") if elapsed >= timeout_sec else _temp_waiting_text(
         lang=lang,
         provider_code=str(order.get("provider") or ""),
         number=str(order.get("provider_number") or ""),
         country_code=str(order.get("temp_country") or ""),
         interval_sec=_poll_interval_for_provider(str(order.get("provider") or "")),
-        elapsed_sec=elapsed,
-        reuse_warranty_sec=_order_reuse_warranty_sec(order),
+        elapsed_sec=display_elapsed,
+        reuse_warranty_sec=reuse_warranty_sec,
         service_name=str(order.get("temp_service_key") or order.get("service_id") or ""),
     )
     await _safe_edit_message(
@@ -1274,6 +1276,22 @@ def _my_number_detail_text(order: dict, lang: str) -> str:
     return "\n".join(lines)
 
 
+def _temp_resend_available(order: dict) -> bool:
+    mode = str(order.get("number_mode") or "").strip().lower()
+    if mode != "temp":
+        return False
+    if str(order.get("status") or "").strip().lower() != "success":
+        return False
+    if str(order.get("provisioning_state") or "").strip().lower() != "provisioned":
+        return False
+    if not str(order.get("provider_order_id") or "").strip():
+        return False
+    warranty_until = _to_utc_datetime(order.get("temp_reuse_warranty_until"))
+    if warranty_until:
+        return _seconds_left_until(warranty_until) > 0
+    return _temp_elapsed_sec(order) < _order_reuse_warranty_sec(order)
+
+
 def _my_number_manage_kb(order: dict, order_id: str, lang: str) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     mode = str(order.get("number_mode") or "").strip().lower()
@@ -1281,7 +1299,7 @@ def _my_number_manage_kb(order: dict, order_id: str, lang: str) -> InlineKeyboar
         rows.append([InlineKeyboardButton(text=t(lang, "my_numbers_activate"), callback_data=f"rent:wake:{order_id}")])
         if bool(order.get("rental_is_renewable")):
             rows.append([InlineKeyboardButton(text=t(lang, "rental_btn_renew"), callback_data=f"rent:renew:{order_id}")])
-    else:
+    elif _temp_resend_available(order):
         rows.append([InlineKeyboardButton(text=t(lang, "temp_second_code"), callback_data=f"temp:second:{order_id}")])
     rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:rental:my")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -3784,6 +3802,8 @@ async def temp_second_code(callback: types.CallbackQuery):
     provider_order_id = str(order.get("provider_order_id") or "")
     if not provider or not provider_order_id:
         return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
+    if not _temp_resend_available(order):
+        return await _safe_callback_answer_or_message(callback, t(lang, "temp_second_code_failed"), show_alert=True)
 
     resend_result = await _provider_resend(provider, provider_order_id)
     if not bool((resend_result or {}).get("success")):

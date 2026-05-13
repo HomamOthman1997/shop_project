@@ -234,6 +234,7 @@ async def test_simulated_temp_second_code_flow(monkeypatch):
     order = {
         "_id": order_id,
         "status": "success",
+        "number_mode": "temp",
         "user_id": 7417429062,
         "reseller_id": 7417429062,
         "provider": "textverified",
@@ -246,6 +247,8 @@ async def test_simulated_temp_second_code_flow(monkeypatch):
         "temp_state": "none",
         "selling_price": 1.0,
         "base_price": 0.6,
+        "provisioning_state": "provisioned",
+        "created_at": datetime.now(UTC),
         "temp_reuse_warranty_sec": 900,
     }
     calls: dict[str, object] = {"details": []}

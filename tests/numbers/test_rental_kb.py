@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from aiogram.exceptions import TelegramBadRequest
@@ -179,3 +180,19 @@ def test_my_numbers_only_lists_provisioned_successful_numbers():
             "provider_number": "",
         }
     )
+
+
+def test_temp_resend_expires_after_warranty_window():
+    now = datetime.now(UTC)
+    valid_order = {
+        "number_mode": "temp",
+        "status": "success",
+        "provisioning_state": "provisioned",
+        "provider_order_id": "act-1",
+        "provider_number": "+15550001111",
+        "temp_reuse_warranty_until": now + timedelta(minutes=3),
+    }
+    expired_order = {**valid_order, "temp_reuse_warranty_until": now - timedelta(minutes=1)}
+
+    assert core_numbers_buy._temp_resend_available(valid_order)
+    assert not core_numbers_buy._temp_resend_available(expired_order)
