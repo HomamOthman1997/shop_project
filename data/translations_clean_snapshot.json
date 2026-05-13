@@ -438,7 +438,7 @@
     "temp_mode_single_value": "One-time",
     "temp_no_code_timeout": "No code received within 5 minutes.\nYou can cancel and refund.",
     "temp_no_new_sms": "No new SMS yet.",
-    "temp_numbers": "⏱️ Temporary Numbers",
+    "temp_numbers": "⏱️ Temp Number",
     "temp_numbers_type_note": "For temporary numbers: resend is guaranteed for 15 minutes. It may still work after that while the provider keeps the number active, but this is not guaranteed.",
     "temp_refresh_now": "Refresh Now",
     "temp_refresh_wait": "Refresh in {seconds}s",

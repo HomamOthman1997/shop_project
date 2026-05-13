@@ -157,11 +157,6 @@ def _notify_active_temp_order_background(message: types.Message, lang: str) -> N
 
 
 async def _open_numbers_start_menu(message: types.Message, state: FSMContext, *, lang: str) -> None:
-    bot_id = await _resolve_runtime_bot_id(message.bot)
-    await message.answer(
-        t(lang, "main_menu"),
-        reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id),
-    )
     await send_number_type_entry(message, state, lang=lang)
 
 

@@ -127,7 +127,6 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
     class _DummyMessage:
         def __init__(self):
             self.from_user = type("U", (), {"id": 55})()
-            self.bot = type("B", (), {"get_me": staticmethod(_get_me)})()
             self.answers = []
             self.stickers = []
 
@@ -137,14 +136,6 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
         async def answer_sticker(self, sticker, reply_markup=None):
             self.stickers.append((sticker, reply_markup))
 
-    async def _get_me():
-        return type("Me", (), {"id": 879})()
-
-    async def _menu(_lang, _bot_id, user_id=None):
-        return type("Reply", (), {"keyboard": [[object()]]})()
-
-    monkeypatch.setattr(start, "menu_for_current_bot", _menu)
-
     message = _DummyMessage()
     state = _DummyState()
 
@@ -152,7 +143,7 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
 
     assert state.data["lang"] == "en"
     assert state.state.state == "NumberFlow:num_type"
-    assert message.answers[0][1].keyboard
+    assert message.answers == []
     assert message.stickers
     assert message.stickers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"
     assert all(row[0].callback_data != "flow:cancel" for row in message.stickers[0][1].inline_keyboard)
