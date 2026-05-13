@@ -159,11 +159,7 @@ def _notify_active_temp_order_background(message: types.Message, lang: str) -> N
 
 async def _refresh_numbers_reply_keyboard(message: types.Message, *, lang: str) -> None:
     try:
-        sent = await message.answer("\u2060", reply_markup=numbers_main_menu(lang))
-        try:
-            await sent.delete()
-        except Exception:
-            pass
+        await message.answer(t(lang, "numbers_keyboard_ready"), reply_markup=numbers_main_menu(lang))
     except Exception:
         pass
 

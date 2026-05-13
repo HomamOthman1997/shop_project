@@ -130,17 +130,9 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
             self.from_user = type("U", (), {"id": 55})()
             self.answers = []
             self.stickers = []
-            self.deleted_keyboard_refresh = False
 
         async def answer(self, text, reply_markup=None):
             self.answers.append((text, reply_markup))
-            parent = self
-
-            class _Sent:
-                async def delete(self):
-                    parent.deleted_keyboard_refresh = True
-
-            return _Sent()
 
         async def answer_sticker(self, sticker, reply_markup=None):
             self.stickers.append((sticker, reply_markup))
@@ -153,9 +145,8 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
     assert state.data["lang"] == "en"
     assert state.state.state == "NumberFlow:num_type"
     assert message.answers
-    assert message.answers[0][0] == "\u2060"
+    assert message.answers[0][0] == "Menu"
     assert message.answers[0][1].keyboard[0][0].text == "📦 My Numbers"
-    assert message.deleted_keyboard_refresh is True
     assert message.stickers
     assert message.stickers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"
     assert all(row[0].callback_data != "flow:cancel" for row in message.stickers[0][1].inline_keyboard)
