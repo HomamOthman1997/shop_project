@@ -32,6 +32,10 @@ class _FakeMessage:
         self.answers.append((str(text), reply_markup))
         return SimpleNamespace(message_id=321)
 
+    async def edit_text(self, text, reply_markup=None, **_kwargs):
+        self.answers.append((str(text), reply_markup))
+        return SimpleNamespace(message_id=321)
+
     async def delete(self):
         self.deleted = True
 
@@ -171,6 +175,41 @@ async def test_account_button_during_recharge_method_keeps_state(monkeypatch):
     assert state.cleared is False
     assert state.state == main_menu.RechargeFlow.waiting_method
     assert message.answers[-1][0] == "ACCOUNT"
+
+
+@pytest.mark.asyncio
+async def test_language_change_refreshes_reply_keyboard(monkeypatch):
+    callback = _FakeCallback(data="uset:langset:en", bot_id=222)
+    updated = {}
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    async def _main_text(*_args, **_kwargs):
+        return "ACCOUNT"
+
+    async def _menu(lang, bot_id, user_id=None):
+        updated["lang"] = lang
+        updated["bot_id"] = bot_id
+        updated["user_id"] = user_id
+        return "REPLY_MENU"
+
+    class _Users:
+        async def update_one(self, query, update):
+            updated["query"] = query
+            updated["update"] = update
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "_user_settings_main_text", _main_text)
+    monkeypatch.setattr(main_menu, "menu_for_current_bot", _menu)
+    monkeypatch.setattr(main_menu, "db", SimpleNamespace(users=_Users()))
+
+    await main_menu.user_settings_language_set(callback)
+
+    assert updated["update"]["$set"]["language"] == "en"
+    assert callback.message.answers[-1] == ("Main Menu", "REPLY_MENU")
+    assert updated["lang"] == "en"
+    assert updated["user_id"] == callback.from_user.id
 
 
 @pytest.mark.asyncio

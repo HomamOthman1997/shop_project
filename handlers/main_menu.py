@@ -1650,6 +1650,10 @@ async def user_settings_language_set(callback: types.CallbackQuery):
         ),
         reply_markup=_user_settings_main_kb(lang, user),
     )
+    await callback.message.answer(
+        t(lang, "main_menu"),
+        reply_markup=await menu_for_current_bot(lang, bot_id, user_id=callback.from_user.id),
+    )
     await callback.answer(t(lang, "user_settings_saved"), show_alert=True)
 
 
