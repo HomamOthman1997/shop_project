@@ -194,6 +194,9 @@ async def test_language_change_refreshes_reply_keyboard(monkeypatch):
         updated["user_id"] = user_id
         return "REPLY_MENU"
 
+    async def _false(*_args, **_kwargs):
+        return False
+
     class _Users:
         async def update_one(self, query, update):
             updated["query"] = query
@@ -203,13 +206,51 @@ async def test_language_change_refreshes_reply_keyboard(monkeypatch):
     monkeypatch.setattr(main_menu, "_user_settings_main_text", _main_text)
     monkeypatch.setattr(main_menu, "menu_for_current_bot", _menu)
     monkeypatch.setattr(main_menu, "db", SimpleNamespace(users=_Users()))
+    monkeypatch.setattr(main_menu, "is_numbers_bot", _false)
 
-    await main_menu.user_settings_language_set(callback)
+    await main_menu.user_settings_language_set(callback, _FakeState())
 
     assert updated["update"]["$set"]["language"] == "en"
     assert callback.message.answers[-1] == ("Main Menu", "REPLY_MENU")
     assert updated["lang"] == "en"
     assert updated["user_id"] == callback.from_user.id
+
+
+@pytest.mark.asyncio
+async def test_numbers_language_change_restarts_numbers_flow(monkeypatch):
+    callback = _FakeCallback(data="uset:langset:ar", bot_id=879)
+    state = _FakeState({"old": "value"})
+    restarted = {}
+
+    async def _get_user(_user_id):
+        return {"language": "ar"}
+
+    async def _true(*_args, **_kwargs):
+        return True
+
+    async def _restart(message, state_arg, *, lang):
+        restarted["message"] = message
+        restarted["state"] = state_arg
+        restarted["lang"] = lang
+        await message.answer("RESTARTED")
+
+    class _Users:
+        async def update_one(self, query, update):
+            restarted["update"] = update
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "is_numbers_bot", _true)
+    monkeypatch.setattr(main_menu, "db", SimpleNamespace(users=_Users()))
+    monkeypatch.setattr("handlers.start._open_numbers_start_menu", _restart)
+
+    await main_menu.user_settings_language_set(callback, state)
+
+    assert restarted["update"]["$set"]["language"] == "ar"
+    assert state.cleared is True
+    assert restarted["message"] is callback.message
+    assert restarted["state"] is state
+    assert restarted["lang"] == "ar"
+    assert callback.message.answers[-1][0] == "RESTARTED"
 
 
 @pytest.mark.asyncio

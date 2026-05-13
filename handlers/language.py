@@ -5,8 +5,6 @@ from database.bots_repo import get_bot_settings
 from database.user_repo import update_user_language
 from keyboards.language_kb import language_keyboard
 from keyboards.subscription_kb import subscription_keyboard
-from services.numbers.handlers.core_numbers import NumberFlow, _compose_numbers_screen
-from services.numbers.keyboards.core_numbers_kb import number_type_kb
 from utils.bot_menu_context import is_card_ex_bot, is_digital_products_bot, is_main_bot, is_numbers_bot, menu_for_current_bot
 from utils.translations import t
 
@@ -21,17 +19,14 @@ async def _apply_language(callback: types.CallbackQuery, lang: str, state: FSMCo
     if await is_numbers_bot(bot_id):
         if state is not None:
             await state.clear()
-            await state.update_data(lang=lang)
-            await state.set_state(NumberFlow.num_type)
-        note = t(lang, "temp_numbers_type_note")
-        await callback.message.answer(
-            t(lang, "main_menu"),
-            reply_markup=await menu_for_current_bot(lang, bot_id, user_id=user_id),
-        )
-        await callback.message.edit_text(
-            _compose_numbers_screen(t(lang, "choose_number_type"), trailing_lines=[note]),
-            reply_markup=number_type_kb(lang, show_cancel=False),
-        )
+            from handlers.start import _open_numbers_start_menu
+
+            await _open_numbers_start_menu(callback.message, state, lang=lang)
+        else:
+            await callback.message.answer(
+                t(lang, "main_menu"),
+                reply_markup=await menu_for_current_bot(lang, bot_id, user_id=user_id),
+            )
         await callback.answer()
         return
 

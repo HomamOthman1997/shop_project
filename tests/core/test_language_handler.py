@@ -34,6 +34,8 @@ class DummyCallback:
         self.from_user = SimpleNamespace(id=user_id)
         self.bot = DummyBot(bot_id)
         self.message = DummyMessage()
+        self.message.bot = self.bot
+        self.message.from_user = self.from_user
         self.answered = False
 
     async def answer(self):
@@ -139,11 +141,15 @@ async def test_language_selection_opens_numbers_type_menu(monkeypatch):
     async def fake_false(_bot_id):
         return False
 
+    async def fake_menu(_lang, _bot_id, user_id=None):
+        return "REPLY_MENU"
+
     monkeypatch.setattr(language_handler, "update_user_language", fake_update_language)
     monkeypatch.setattr(language_handler, "is_numbers_bot", fake_true)
     monkeypatch.setattr(language_handler, "is_main_bot", fake_false)
     monkeypatch.setattr(language_handler, "is_digital_products_bot", fake_false)
     monkeypatch.setattr(language_handler, "is_card_ex_bot", fake_false)
+    monkeypatch.setattr("handlers.start.menu_for_current_bot", fake_menu)
 
     await language_handler._apply_language(callback, "en", state)
 
@@ -151,10 +157,10 @@ async def test_language_selection_opens_numbers_type_menu(monkeypatch):
     assert state.cleared is True
     assert state.data["lang"] == "en"
     assert state.state.state == "NumberFlow:num_type"
-    assert callback.message.answers[-1]["reply_markup"].keyboard
-    assert "Choose the type of number" in callback.message.edits[0]["text"]
-    assert callback.message.edits[0]["reply_markup"].inline_keyboard[0][0].callback_data == "flow:type:temp"
+    assert callback.message.answers[0]["reply_markup"] == "REPLY_MENU"
+    assert "Choose the type of number" in callback.message.answers[1]["text"]
+    assert callback.message.answers[1]["reply_markup"].inline_keyboard[0][0].callback_data == "flow:type:temp"
     assert all(
         row[0].callback_data != "flow:cancel"
-        for row in callback.message.edits[0]["reply_markup"].inline_keyboard
+        for row in callback.message.answers[1]["reply_markup"].inline_keyboard
     )

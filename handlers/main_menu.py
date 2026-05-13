@@ -1629,7 +1629,7 @@ async def user_settings_language_menu(callback: types.CallbackQuery):
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("uset:langset:"))
-async def user_settings_language_set(callback: types.CallbackQuery):
+async def user_settings_language_set(callback: types.CallbackQuery, state: FSMContext):
     if not callback.message:
         await callback.answer()
         return
@@ -1641,6 +1641,14 @@ async def user_settings_language_set(callback: types.CallbackQuery):
     user = await get_user(callback.from_user.id)
     lang = selected
     bot_id = (await callback.bot.get_me()).id
+    if await is_numbers_bot(bot_id):
+        await state.clear()
+        from handlers.start import _open_numbers_start_menu
+
+        await _open_numbers_start_menu(callback.message, state, lang=lang)
+        await callback.answer(t(lang, "user_settings_saved"), show_alert=True)
+        return
+
     await callback.message.edit_text(
         await _user_settings_main_text(
             user,
