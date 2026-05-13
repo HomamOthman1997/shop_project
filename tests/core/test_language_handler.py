@@ -21,8 +21,8 @@ class DummyMessage:
     async def answer(self, text, reply_markup=None):
         self.answers.append({"text": text, "reply_markup": reply_markup})
 
-    async def answer_sticker(self, sticker):
-        self.stickers.append(sticker)
+    async def answer_sticker(self, sticker, reply_markup=None):
+        self.stickers.append({"sticker": sticker, "reply_markup": reply_markup})
 
 
 class DummyBot:
@@ -163,9 +163,8 @@ async def test_language_selection_opens_numbers_type_menu(monkeypatch):
     assert state.state.state == "NumberFlow:num_type"
     assert callback.message.answers[0]["reply_markup"] == "REPLY_MENU"
     assert callback.message.stickers
-    assert callback.message.answers[1]["text"] == "\u2800"
-    assert callback.message.answers[1]["reply_markup"].inline_keyboard[0][0].callback_data == "flow:type:temp"
+    assert callback.message.stickers[0]["reply_markup"].inline_keyboard[0][0].callback_data == "flow:type:temp"
     assert all(
         row[0].callback_data != "flow:cancel"
-        for row in callback.message.answers[1]["reply_markup"].inline_keyboard
+        for row in callback.message.stickers[0]["reply_markup"].inline_keyboard
     )

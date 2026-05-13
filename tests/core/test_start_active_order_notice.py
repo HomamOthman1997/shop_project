@@ -134,8 +134,8 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
         async def answer(self, text, reply_markup=None):
             self.answers.append((text, reply_markup))
 
-        async def answer_sticker(self, sticker):
-            self.stickers.append(sticker)
+        async def answer_sticker(self, sticker, reply_markup=None):
+            self.stickers.append((sticker, reply_markup))
 
     async def _get_me():
         return type("Me", (), {"id": 879})()
@@ -154,6 +154,5 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
     assert state.state.state == "NumberFlow:num_type"
     assert message.answers[0][1].keyboard
     assert message.stickers
-    assert message.answers[1][0] == "\u2800"
-    assert message.answers[1][1].inline_keyboard[0][0].callback_data == "flow:type:temp"
-    assert all(row[0].callback_data != "flow:cancel" for row in message.answers[1][1].inline_keyboard)
+    assert message.stickers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"
+    assert all(row[0].callback_data != "flow:cancel" for row in message.stickers[0][1].inline_keyboard)

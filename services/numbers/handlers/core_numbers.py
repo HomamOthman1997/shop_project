@@ -549,10 +549,12 @@ def _numbers_mode_name(lang: str, num_type: str | None) -> str:
 async def send_number_type_entry(message: types.Message, state: FSMContext, *, lang: str) -> None:
     await state.update_data(lang=lang)
     try:
-        await message.answer_sticker(NUMBER_TYPE_STICKER_FILE_ID)
+        await message.answer_sticker(
+            NUMBER_TYPE_STICKER_FILE_ID,
+            reply_markup=number_type_kb(lang, show_cancel=False),
+        )
     except Exception:
-        pass
-    await message.answer("\u2800", reply_markup=number_type_kb(lang, show_cancel=False))
+        await message.answer(t(lang, "choose_number_type"), reply_markup=number_type_kb(lang, show_cancel=False))
     await state.set_state(NumberFlow.num_type)
 
 
@@ -972,16 +974,11 @@ async def back_from_country_entry(callback: types.CallbackQuery, state: FSMConte
         )
         await state.set_state(NumberFlow.rental_home)
     else:
-        await _safe_edit_text(
-            callback.message,
-            "\u2800",
-            reply_markup=number_type_kb(lang, show_cancel=False),
-        )
         try:
-            await callback.message.answer_sticker(NUMBER_TYPE_STICKER_FILE_ID)
+            await callback.message.delete()
         except Exception:
             pass
-        await state.set_state(NumberFlow.num_type)
+        await send_number_type_entry(callback.message, state, lang=lang)
 
 
 @router.callback_query(lambda c: c.data == "flow:country:back")
