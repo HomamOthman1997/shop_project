@@ -58,6 +58,9 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
 def numbers_main_menu(lang: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [
+            _kb_button(t(lang, "btn_my_numbers")),
+        ],
+        [
             _kb_button(t(lang, "user_settings_my_account"), icon_id=_ICON_ACCOUNT),
             _kb_button(t(lang, "btn_support"), icon_id=_ICON_SUPPORT),
         ],

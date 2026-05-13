@@ -53,6 +53,7 @@ class InteractionLockMiddleware(BaseMiddleware):
             "btn_balance",
             "btn_settings",
             "btn_support",
+            "btn_my_numbers",
             "btn_custom_services",
             "btn_reseller_balance",
             "btn_recharge_requests",
@@ -67,6 +68,7 @@ class InteractionLockMiddleware(BaseMiddleware):
             return False
         return (
             self._text_equals_key(clean, "btn_support")
+            or self._text_equals_key(clean, "btn_my_numbers")
             or self._text_equals_key(clean, "btn_settings")
             or clean in {t("en", "user_settings_my_account"), t("ar", "user_settings_my_account")}
         )

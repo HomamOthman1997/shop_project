@@ -9,6 +9,7 @@ import asyncio
 from keyboards.language_kb import language_keyboard
 from keyboards.subscription_kb import subscription_keyboard
 from keyboards.reseller_main_menu import reseller_main_menu
+from keyboards.main_menu_kb import numbers_main_menu
 from utils.permissions import is_reseller
 from utils.bot_menu_context import (
     extract_bot_id_from_token,
@@ -157,6 +158,7 @@ def _notify_active_temp_order_background(message: types.Message, lang: str) -> N
 
 
 async def _open_numbers_start_menu(message: types.Message, state: FSMContext, *, lang: str) -> None:
+    await message.answer(t(lang, "main_menu"), reply_markup=numbers_main_menu(lang))
     await send_number_type_entry(message, state, lang=lang)
 
 

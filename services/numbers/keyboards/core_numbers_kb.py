@@ -244,7 +244,6 @@ def rental_home_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=t(lang, "rental_add_number"), callback_data="flow:rental:add", style="success")],
-            [InlineKeyboardButton(text=t(lang, "rental_my_numbers"), callback_data="flow:rental:my", style="primary")],
             [InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:main:back")],
             [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="flow:cancel", style="danger", icon_custom_emoji_id=_ICON_CANCEL)],
         ]

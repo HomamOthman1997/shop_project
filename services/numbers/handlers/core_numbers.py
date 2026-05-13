@@ -937,7 +937,9 @@ async def numbers_menu(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = user.get("language", "en") if user else "en"
     await state.clear()
-    await _hide_reply_keyboard(message, lang)
+    bot_id = (await message.bot.get_me()).id
+    if not await is_numbers_bot(bot_id):
+        await _hide_reply_keyboard(message, lang)
     await send_number_type_entry(message, state, lang=lang)
 
 

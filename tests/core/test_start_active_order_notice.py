@@ -144,8 +144,10 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
 
     assert state.data["lang"] == "en"
     assert state.state.state == "NumberFlow:num_type"
+    assert message.answers
+    assert message.answers[0][0] == "Main Menu"
+    assert message.answers[0][1].keyboard[0][0].text == "📦 My Numbers"
     assert message.stickers
-    assert message.answers == []
     assert message.stickers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"
     assert all(row[0].callback_data != "flow:cancel" for row in message.stickers[0][1].inline_keyboard)
 

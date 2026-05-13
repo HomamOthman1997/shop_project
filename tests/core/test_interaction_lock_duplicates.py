@@ -92,3 +92,30 @@ async def test_support_side_action_is_allowed_during_active_state():
 
     assert result == "ok"
     assert called["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_my_numbers_side_action_is_allowed_during_active_state():
+    mw = InteractionLockMiddleware()
+    called = {"count": 0}
+
+    class _State:
+        async def get_state(self):
+            return "NumberFlow:service"
+
+    async def handler(_event, _data):
+        called["count"] += 1
+        return "ok"
+
+    event = types.Message(
+        message_id=1,
+        date=0,
+        chat=types.Chat(id=100, type="private"),
+        from_user=types.User(id=42, is_bot=False, first_name="T"),
+        text=t("en", "btn_my_numbers"),
+    )
+
+    result = await mw(handler, event, {"state": _State()})
+
+    assert result == "ok"
+    assert called["count"] == 1

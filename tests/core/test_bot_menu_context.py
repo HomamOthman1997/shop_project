@@ -98,6 +98,7 @@ def test_numbers_menu_is_numbers_only():
     labels = [btn.text for row in numbers_main_menu("en").keyboard for btn in row]
 
     assert labels == [
+        t("en", "btn_my_numbers"),
         t("en", "user_settings_my_account"),
         t("en", "btn_support"),
     ]

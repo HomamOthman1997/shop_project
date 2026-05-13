@@ -24,6 +24,7 @@ from database.orders_repo import (
     list_open_rental_orders_without_sms,
     list_open_temp_orders_for_recovery,
     list_paid_number_orders_missing_provider,
+    list_user_open_temp_and_voice_orders,
     list_user_open_temp_orders,
     list_user_open_rental_orders_without_sms,
     list_user_rental_orders,
@@ -353,7 +354,6 @@ def _rental_manage_kb(order_id: str, lang: str, can_renew: bool = False, back_ca
 
 def _rental_result_kb(order_id: str, lang: str, can_renew: bool = False) -> InlineKeyboardMarkup:
     kb = _rental_manage_kb(order_id=order_id, lang=lang, can_renew=can_renew)
-    kb.inline_keyboard.append([InlineKeyboardButton(text=t(lang, "rental_my_numbers"), callback_data="flow:rental:my")])
     return kb
 
 
@@ -1216,41 +1216,76 @@ async def _best_effort_edit_text(
         logger.warning("Best-effort edit_text failed: %s", exc)
 
 
-def _order_short_label(order: dict) -> str:
-    number = _format_number_for_copy_text(
-        str(order.get("provider_number") or "?"),
-        str(order.get("rental_country") or order.get("temp_country") or ""),
-    )
-    service = str(order.get("service_id") or "").replace(":rental", "")
-    provider = provider_public_id(order.get("provider"))
-    label = f"{number} | {service} | {provider}"
+def _number_mode_label(order: dict, lang: str) -> str:
+    mode = str(order.get("number_mode") or "").strip().lower()
+    if mode == "rental":
+        return _numbers_text(lang, "Rental", "إيجار")
+    if mode == "voice":
+        return _numbers_text(lang, "Call", "اتصال")
+    return _numbers_text(lang, "Temp", "مؤقت")
+
+
+def _my_number_short_label(order: dict, lang: str) -> str:
+    country_code = str(order.get("rental_country") or order.get("temp_country") or "")
+    number = _format_number_for_copy_text(str(order.get("provider_number") or "?"), country_code)
+    service = str(order.get("service_id") or order.get("temp_service_key") or "").replace(":rental", "")
+    label = f"{_number_mode_label(order, lang)} | {number} | {service or '-'}"
     if len(label) > 60:
         label = label[:57] + "..."
     return label
 
 
-def _rental_detail_text(order: dict, lang: str) -> str:
-    service = str(order.get("service_id") or "").replace(":rental", "")
+def _compact_datetime(value: Any) -> str:
+    dt = _to_utc_datetime(value)
+    if not dt:
+        return "-"
+    return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _my_number_detail_text(order: dict, lang: str) -> str:
+    mode = str(order.get("number_mode") or "").strip().lower()
+    is_rental = mode == "rental"
     country = _country_display_name(
-        order.get("rental_country"),
-        country_name=order.get("rental_country_name"),
+        order.get("rental_country") if is_rental else order.get("temp_country"),
+        country_name=order.get("rental_country_name") if is_rental else order.get("temp_country_name"),
     )
-    duration = str(order.get("rental_duration_label") or "-")
-    renewable = bool(order.get("rental_is_renewable"))
-    billing_cycle = str(order.get("rental_billing_cycle_label") or "-")
-    if not renewable:
-        billing_cycle = "-"
+    number = _format_number_for_copy_text(
+        order.get("provider_number") or "-",
+        order.get("rental_country") if is_rental else order.get("temp_country"),
+    )
     lines = [
-        f"{t(lang, 'service_label')}: {service}",
+        t(lang, "my_numbers_detail_title"),
+        "",
+        f"{t(lang, 'my_numbers_type_label')}: {_number_mode_label(order, lang)}",
+        f"{t(lang, 'service_label')}: {str(order.get('service_id') or order.get('temp_service_key') or '-').replace(':rental', '')}",
         f"{t(lang, 'country_label')}: {country}",
-        f"{t(lang, 'rental_duration_label')}: {duration}",
-        f"{t(lang, 'rental_renewable_label')}: {_bool_text(renewable, lang)}",
-        f"{t(lang, 'rental_billing_cycle_label')}: {billing_cycle}",
-        f"{t(lang, 'price_label')}: {format_usd(_as_float(order.get('selling_price') or order.get('retail_amount') or 0))}",
-        f"{t(lang, 'provider_label')}: {provider_public_id(order.get('provider'))}",
-        f"{t(lang, 'rental_number_label')}: {_format_number_for_copy_text(order.get('provider_number') or '-', order.get('rental_country') or '')}",
+        f"{t(lang, 'rental_number_label')}: {number}",
     ]
+    if is_rental:
+        lines.extend(
+            [
+                f"{t(lang, 'rental_duration_label')}: {str(order.get('rental_duration_label') or '-')}",
+                f"{t(lang, 'rental_renewable_label')}: {_bool_text(bool(order.get('rental_is_renewable')), lang)}",
+                f"{t(lang, 'my_numbers_expires_label')}: {_compact_datetime(order.get('rental_end_date'))}",
+            ]
+        )
+    else:
+        lines.append(f"{t(lang, 'my_numbers_status_label')}: {str(order.get('temp_wait_state') or order.get('status') or '-')}")
+        lines.append(f"{t(lang, 'my_numbers_resend_window_label')}: {_compact_datetime(order.get('temp_reuse_warranty_until'))}")
     return "\n".join(lines)
+
+
+def _my_number_manage_kb(order: dict, order_id: str, lang: str) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    mode = str(order.get("number_mode") or "").strip().lower()
+    if mode == "rental":
+        rows.append([InlineKeyboardButton(text=t(lang, "my_numbers_activate"), callback_data=f"rent:wake:{order_id}")])
+        if bool(order.get("rental_is_renewable")):
+            rows.append([InlineKeyboardButton(text=t(lang, "rental_btn_renew"), callback_data=f"rent:renew:{order_id}")])
+    else:
+        rows.append([InlineKeyboardButton(text=t(lang, "temp_second_code"), callback_data=f"temp:second:{order_id}")])
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:rental:my")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _duration_text(option: dict, lang: str) -> str:
@@ -2101,48 +2136,63 @@ async def _queue_voice_waiter(bot, order: dict, lang: str) -> None:
     task.add_done_callback(_done)
 
 
+async def _show_my_numbers(target: types.Message | types.CallbackQuery, user_id: int, lang: str) -> None:
+    temp_voice_orders = await list_user_open_temp_and_voice_orders(user_id, limit=20)
+    rental_orders = await list_user_rental_orders(user_id, limit=20)
+    orders = [*temp_voice_orders, *rental_orders]
+    if not orders:
+        text = t(lang, "my_numbers_empty")
+        markup = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "rental_add_number"), callback_data="flow:rental:add")],
+                [InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:main:back")],
+            ]
+        )
+        if isinstance(target, types.CallbackQuery):
+            await target.message.edit_text(text, reply_markup=markup)
+        else:
+            await target.answer(text, reply_markup=markup)
+        return
+
+    rows: list[list[InlineKeyboardButton]] = []
+    for order in orders:
+        oid = str(order.get("_id"))
+        if oid:
+            rows.append([InlineKeyboardButton(text=_my_number_short_label(order, lang), callback_data=f"num:my:view:{oid}")])
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:main:back")])
+    text = t(lang, "my_numbers_title")
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    if isinstance(target, types.CallbackQuery):
+        await target.message.edit_text(text, reply_markup=markup)
+    else:
+        await target.answer(text, reply_markup=markup)
+
+
+@router.message(lambda msg: bool(msg.text) and ((msg.text or "").strip() in {t("en", "btn_my_numbers"), t("ar", "btn_my_numbers")}))
+async def my_numbers_menu(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await _show_my_numbers(message, message.from_user.id, lang)
+
+
 @router.callback_query(lambda c: c.data == "flow:rental:my")
 async def rental_my_numbers(callback: types.CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
-    orders = await list_user_rental_orders(callback.from_user.id, limit=20)
-    if not orders:
-        await callback.message.edit_text(
-            t(lang, "rental_my_numbers_empty"),
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text=t(lang, "rental_add_number"), callback_data="flow:rental:add")],
-                    [InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:rental:menu")],
-                ]
-            ),
-        )
-        return
-
-    rows = []
-    for order in orders:
-        oid = str(order.get("_id"))
-        if not oid:
-            continue
-        rows.append([InlineKeyboardButton(text=_order_short_label(order), callback_data=f"rent:my:view:{oid}")])
-    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:rental:menu")])
-    await callback.message.edit_text(
-        t(lang, "rental_my_numbers_title"),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-    )
+    await _show_my_numbers(callback, callback.from_user.id, lang)
 
 
-@router.callback_query(lambda c: c.data and c.data.startswith("rent:my:view:"))
-async def rental_my_view(callback: types.CallbackQuery):
+@router.callback_query(lambda c: c.data and (c.data.startswith("num:my:view:") or c.data.startswith("rent:my:view:")))
+async def my_number_view(callback: types.CallbackQuery):
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
     raw_id = callback.data.split(":", 3)[3]
     _oid, order = await _load_user_order(raw_id, callback.from_user.id)
     if not order:
         return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
-    can_renew = bool(order.get("rental_is_renewable"))
     await callback.message.edit_text(
-        _rental_detail_text(order, lang),
-        reply_markup=_rental_manage_kb(order_id=raw_id, lang=lang, can_renew=can_renew, back_callback="flow:rental:my"),
+        _my_number_detail_text(order, lang),
+        reply_markup=_my_number_manage_kb(order, raw_id, lang),
     )
 
 

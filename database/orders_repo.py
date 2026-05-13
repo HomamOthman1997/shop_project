@@ -203,6 +203,23 @@ async def list_user_open_temp_orders(user_id: int, limit: int = 20):
     return await cursor.to_list(length=int(limit))
 
 
+async def list_user_open_temp_and_voice_orders(user_id: int, limit: int = 20):
+    cursor = (
+        db.orders.find(
+            {
+                "user_id": int(user_id),
+                "number_mode": {"$in": ["temp", "voice"]},
+                "status": {"$in": ["success", "pending", "paid"]},
+                "provider_order_id": {"$exists": True, "$nin": [None, ""]},
+                "temp_wait_state": {"$in": ["waiting", "waiting_for_call", "code_received", "call_received", "refund_pending"]},
+            }
+        )
+        .sort("created_at", -1)
+        .limit(int(limit))
+    )
+    return await cursor.to_list(length=int(limit))
+
+
 async def list_paid_number_orders_missing_provider(limit: int = 200):
     cursor = (
         db.orders.find(
