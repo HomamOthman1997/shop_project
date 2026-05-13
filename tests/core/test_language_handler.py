@@ -13,12 +13,16 @@ class DummyMessage:
     def __init__(self):
         self.edits = []
         self.answers = []
+        self.stickers = []
 
     async def edit_text(self, text, reply_markup=None):
         self.edits.append({"text": text, "reply_markup": reply_markup})
 
     async def answer(self, text, reply_markup=None):
         self.answers.append({"text": text, "reply_markup": reply_markup})
+
+    async def answer_sticker(self, sticker):
+        self.stickers.append(sticker)
 
 
 class DummyBot:
@@ -158,6 +162,7 @@ async def test_language_selection_opens_numbers_type_menu(monkeypatch):
     assert state.data["lang"] == "en"
     assert state.state.state == "NumberFlow:num_type"
     assert callback.message.answers[0]["reply_markup"] == "REPLY_MENU"
+    assert callback.message.stickers
     assert callback.message.answers[1]["text"] == "\u2800"
     assert callback.message.answers[1]["reply_markup"].inline_keyboard[0][0].callback_data == "flow:type:temp"
     assert all(

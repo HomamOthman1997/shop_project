@@ -23,8 +23,7 @@ from database.user_repo import get_user, create_user, set_user_reseller_for_bot,
 from database.bots_repo import get_bot_settings, get_reseller_id_for_bot
 from database.mongo import db
 from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_message_guard
-from services.numbers.handlers.core_numbers import NumberFlow, _compose_numbers_screen
-from services.numbers.keyboards.core_numbers_kb import number_type_kb
+from services.numbers.handlers.core_numbers import send_number_type_entry
 from utils.translations import t
 from config import settings
 from utils.reseller_setup_guard import get_reseller_setup_status, render_reseller_setup_notice
@@ -158,17 +157,12 @@ def _notify_active_temp_order_background(message: types.Message, lang: str) -> N
 
 
 async def _open_numbers_start_menu(message: types.Message, state: FSMContext, *, lang: str) -> None:
-    await state.update_data(lang=lang)
     bot_id = await _resolve_runtime_bot_id(message.bot)
     await message.answer(
         t(lang, "main_menu"),
         reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id),
     )
-    await message.answer(
-        "\u2800",
-        reply_markup=number_type_kb(lang, show_cancel=False),
-    )
-    await state.set_state(NumberFlow.num_type)
+    await send_number_type_entry(message, state, lang=lang)
 
 
 async def _start_create_bot_flow(message: types.Message, state: FSMContext, *, lang: str) -> None:

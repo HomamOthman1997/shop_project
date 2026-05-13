@@ -40,6 +40,7 @@ from utils.usage_stats_manager import increment_usage
 
 router = Router()
 _CURRENT_CALLBACK: ContextVar[types.CallbackQuery | None] = ContextVar("core_numbers_current_callback", default=None)
+NUMBER_TYPE_STICKER_FILE_ID = "AAMCBAADGQEAASkiDWoEg4xyNuevhkDPqJROehyyiUCiAAL1GQACrsSIUq8Dv9WRUTAcAQAHbQADOwQ"
 
 
 class _CallbackContextMiddleware(BaseMiddleware):
@@ -545,6 +546,13 @@ def _numbers_mode_name(lang: str, num_type: str | None) -> str:
     return t(lang, "rental_numbers") if str(num_type or "").strip().lower() == "rental" else t(lang, "temp_numbers")
 
 
+async def send_number_type_entry(message: types.Message, state: FSMContext, *, lang: str) -> None:
+    await state.update_data(lang=lang)
+    await message.answer_sticker(NUMBER_TYPE_STICKER_FILE_ID)
+    await message.answer("\u2800", reply_markup=number_type_kb(lang, show_cancel=False))
+    await state.set_state(NumberFlow.num_type)
+
+
 def _numbers_text(lang: str, en: str, ar: str) -> str:
     return ar if str(lang or "").lower().startswith("ar") else en
 
@@ -908,13 +916,8 @@ async def numbers_menu(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = user.get("language", "en") if user else "en"
     await state.clear()
-    await state.update_data(lang=lang)
     await _hide_reply_keyboard(message, lang)
-    await message.answer(
-        "\u2800",
-        reply_markup=number_type_kb(lang, show_cancel=False),
-    )
-    await state.set_state(NumberFlow.num_type)
+    await send_number_type_entry(message, state, lang=lang)
 
 
 @router.callback_query(lambda c: c.data in {"flow:type:temp", "flow:type:rental", "flow:type:perm", "flow:type:voice"})
@@ -971,6 +974,10 @@ async def back_from_country_entry(callback: types.CallbackQuery, state: FSMConte
             "\u2800",
             reply_markup=number_type_kb(lang, show_cancel=False),
         )
+        try:
+            await callback.message.answer_sticker(NUMBER_TYPE_STICKER_FILE_ID)
+        except Exception:
+            pass
         await state.set_state(NumberFlow.num_type)
 
 
