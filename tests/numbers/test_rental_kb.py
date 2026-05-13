@@ -94,3 +94,49 @@ async def test_safe_edit_text_falls_back_when_source_message_is_sticker():
     assert result == "new-message"
     assert message.deleted is True
     assert message.answers == [("Next", "KB", "HTML")]
+
+
+@pytest.mark.asyncio
+async def test_rental_type_goes_directly_to_service_selection():
+    class _Message:
+        def __init__(self):
+            self.message_id = 44
+            self.edits = []
+
+        async def edit_text(self, text, reply_markup=None, parse_mode=None):
+            self.edits.append((text, reply_markup, parse_mode))
+            return self
+
+    class _State:
+        def __init__(self):
+            self.data = {"lang": "en"}
+            self.last_state = None
+
+        async def get_data(self):
+            return dict(self.data)
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def set_state(self, state):
+            self.last_state = state
+
+    callback = type(
+        "CB",
+        (),
+        {
+            "data": "flow:type:rental",
+            "message": _Message(),
+        },
+    )()
+    state = _State()
+
+    await core_numbers.choose_number_type(callback, state)
+
+    assert state.data["num_type"] == "rental"
+    assert state.last_state == core_numbers.NumberFlow.service
+    assert callback.message.edits
+    text, markup, parse_mode = callback.message.edits[0]
+    assert "Rental Numbers Menu" not in text
+    assert markup.inline_keyboard
+    assert parse_mode == "HTML"

@@ -17,7 +17,6 @@ from services.numbers.keyboards.core_numbers_kb import (
     no_availability_kb,
     number_type_kb,
     provider_choice_kb,
-    rental_home_kb,
     rental_confirm_kb,
     rental_providers_kb,
     rental_options_kb,
@@ -657,13 +656,6 @@ async def _show_country_entry_for_selected_service(
     await state.set_state(NumberFlow.country)
 
 
-def _rental_home_text(lang: str) -> str:
-    return _compose_numbers_screen(
-        t(lang, "rental_menu_title"),
-        trailing_lines=[t(lang, "rental_home_context_hint")],
-    )
-
-
 def _numbers_unavailable_text(
     lang: str,
     *,
@@ -951,15 +943,12 @@ async def choose_number_type(callback: types.CallbackQuery, state: FSMContext):
     if num_type == "perm":
         num_type = "rental"
     await state.update_data(num_type=num_type)
-    if num_type == "rental":
-        sent = await _safe_edit_text(callback.message, 
-            _rental_home_text(lang),
-            reply_markup=rental_home_kb(lang),
-        )
-        await state.update_data(last_msg_id=sent.message_id)
-        await state.set_state(NumberFlow.rental_home)
-        return
-    await _show_service_entry(callback.message, state, lang=lang, num_type="voice" if num_type == "voice" else "temp")
+    await _show_service_entry(
+        callback.message,
+        state,
+        lang=lang,
+        num_type="voice" if num_type == "voice" else num_type,
+    )
 
 
 @router.callback_query(lambda c: c.data == "flow:rental:add")
@@ -973,8 +962,7 @@ async def rental_add_number(callback: types.CallbackQuery, state: FSMContext):
 async def rental_menu(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
-    await _safe_edit_text(callback.message, _rental_home_text(lang), reply_markup=rental_home_kb(lang))
-    await state.set_state(NumberFlow.rental_home)
+    await _show_service_entry(callback.message, state, lang=lang, num_type="rental")
 
 
 @router.callback_query(lambda c: c.data == "flow:country:entry_back")
@@ -985,12 +973,7 @@ async def back_from_country_entry(callback: types.CallbackQuery, state: FSMConte
     if data.get("service"):
         await _show_service_entry(callback.message, state, lang=lang, num_type=num_type)
     elif num_type == "rental":
-        await _safe_edit_text(
-            callback.message,
-            _rental_home_text(lang),
-            reply_markup=rental_home_kb(lang),
-        )
-        await state.set_state(NumberFlow.rental_home)
+        await _show_service_entry(callback.message, state, lang=lang, num_type="rental")
     else:
         try:
             await callback.message.delete()

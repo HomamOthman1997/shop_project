@@ -157,8 +157,19 @@ def _notify_active_temp_order_background(message: types.Message, lang: str) -> N
     asyncio.create_task(_runner())
 
 
+async def _refresh_numbers_reply_keyboard(message: types.Message, *, lang: str) -> None:
+    try:
+        sent = await message.answer("\u2060", reply_markup=numbers_main_menu(lang))
+        try:
+            await sent.delete()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 async def _open_numbers_start_menu(message: types.Message, state: FSMContext, *, lang: str) -> None:
-    await message.answer(t(lang, "main_menu"), reply_markup=numbers_main_menu(lang))
+    await _refresh_numbers_reply_keyboard(message, lang=lang)
     await send_number_type_entry(message, state, lang=lang)
 
 

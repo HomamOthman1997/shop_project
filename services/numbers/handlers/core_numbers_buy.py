@@ -115,7 +115,6 @@ from services.numbers.keyboards.core_numbers_kb import (
     temp_code_received_kb,
     temp_wait_timeout_kb,
     rental_confirm_kb,
-    rental_home_kb,
     rental_providers_kb,
     rental_warning_kb,
     service_kb,
