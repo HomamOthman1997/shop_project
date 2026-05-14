@@ -207,6 +207,13 @@ def test_add_to_channel_url_targets_requested_bot_username():
     assert "Digital" not in url
 
 
+def test_add_to_group_url_carries_create_flow_payload():
+    url = vr._add_to_group_url("@test_bot", start_payload="setup_ABC123")
+
+    assert url.startswith("https://t.me/test_bot?startgroup=setup_ABC123&admin=")
+    assert "manage_topics" in url
+
+
 @pytest.mark.asyncio
 async def test_channel_admin_prompt_refreshes_add_link_from_token(monkeypatch):
     state = _FakeState()
@@ -252,6 +259,92 @@ async def test_channel_admin_prompt_refreshes_add_link_from_token(monkeypatch):
     assert buttons[0][0].url.startswith("https://t.me/test_bot?startchannel=true&admin=")
     assert "PHanToOomDigitalServices" not in buttons[0][0].url
     assert state.data["bot_username"] == "test_bot"
+
+
+@pytest.mark.asyncio
+async def test_auto_setup_reseller_topics_discovers_group_and_binds_routes(monkeypatch):
+    calls = {}
+
+    class _TempSession:
+        async def close(self):
+            return None
+
+    class _TempBot:
+        def __init__(self, token):
+            self.token = token
+            self.session = _TempSession()
+
+        async def get_me(self):
+            return SimpleNamespace(id=8791141203)
+
+        async def get_chat_member(self, chat_id, user_id):
+            calls["member"] = (chat_id, user_id)
+            return SimpleNamespace(status="administrator", can_manage_topics=True)
+
+        async def create_forum_topic(self, chat_id, name):
+            calls.setdefault("topics", []).append((chat_id, name))
+            return SimpleNamespace(message_thread_id=11 if name == "Payment Requests" else 22)
+
+    async def _discover(_token, _flow_ref):
+        return [-100777]
+
+    async def _set_pay(reseller_id, chat_id, message_thread_id):
+        calls["pay"] = (reseller_id, chat_id, message_thread_id)
+
+    async def _set_ex(reseller_id, chat_id, message_thread_id):
+        calls["ex"] = (reseller_id, chat_id, message_thread_id)
+
+    monkeypatch.setattr(vr, "Bot", _TempBot)
+    monkeypatch.setattr(vr, "_discover_setup_group_candidates", _discover)
+    monkeypatch.setattr(vr, "set_recharge_routing", _set_pay)
+    monkeypatch.setattr(vr, "set_exchange_routing", _set_ex)
+
+    ok, err = await vr._auto_setup_reseller_topics(
+        bot_token="8791141203:AAE3lSGuFNNtWvSjL5mgk9VRNAhxIknW1x0",
+        reseller_id=77,
+        data={vr.FLOW_REF_KEY: "ABC123"},
+        pay_route=None,
+        ex_route=None,
+    )
+
+    assert ok is True
+    assert err == ""
+    assert calls["member"] == (-100777, 8791141203)
+    assert calls["topics"] == [(-100777, "Payment Requests"), (-100777, "Exchange Alerts")]
+    assert calls["pay"] == (77, -100777, 11)
+    assert calls["ex"] == (77, -100777, 22)
+
+
+@pytest.mark.asyncio
+async def test_preflight_auto_sets_topics_when_group_routing_missing(monkeypatch):
+    async def _no_pay(_reseller_id):
+        return None
+
+    async def _no_ex(_reseller_id):
+        return None
+
+    async def _auto_setup(**kwargs):
+        return True, ""
+
+    monkeypatch.setattr(vr, "get_recharge_routing", _no_pay)
+    monkeypatch.setattr(vr, "get_exchange_routing", _no_ex)
+    monkeypatch.setattr(vr, "_auto_setup_reseller_topics", _auto_setup)
+
+    ok, checks = await vr._run_preflight_checks(
+        {
+            "bot_token": "8791141203:AAE3lSGuFNNtWvSjL5mgk9VRNAhxIknW1x0",
+            "bot_id": 8791141203,
+            "channel": "@my_channel",
+            "token_verified": True,
+            "channel_verified": True,
+            "admin_verified": True,
+        },
+        requester_id=77,
+    )
+
+    assert ok is True
+    assert checks["reseller_group"] is True
+    assert checks["auto_topics"] is True
 
 
 def test_telegram_chat_ref_coerces_numeric_channel_ids():

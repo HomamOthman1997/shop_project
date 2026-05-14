@@ -89,3 +89,56 @@ async def test_confirm_routes_non_syrian_phone_or_location_to_manual_review(monk
     assert captured["reasons"] == ["phone_not_syria", "location_not_syria"]
     assert captured["payload"]["phone_region"] == "US"
     assert captured["payload"]["location"]["country_code"] == "OUTSIDE_SYRIA"
+
+
+@pytest.mark.asyncio
+async def test_confirm_rechecks_stale_failed_preflight(monkeypatch):
+    state = _FakeState(
+        {
+            "bot_token": "1234567890:AAExample_token-value_1234567890",
+            "bot_id": 555001,
+            "channel": "@chan",
+            "fullname": "User Name",
+            "phone": "+963991234567",
+            "address": "Telegram location: 34.900000, 35.900000",
+            "preflight_ok": False,
+            "preflight_checks": {
+                "token": True,
+                "channel": True,
+                "admin": True,
+                "reseller_group": False,
+                "warning": "old failure",
+            },
+        }
+    )
+    callback = _FakeCallback()
+    captured = {}
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    async def _false(*_args, **_kwargs):
+        return False
+
+    async def _recheck(_data, requester_id=None):
+        captured["requester_id"] = requester_id
+        return False, {
+            "token": True,
+            "channel": True,
+            "admin": True,
+            "reseller_group": False,
+            "warning": "fresh failure",
+        }
+
+    async def _set_or_edit_prompt(**kwargs):
+        captured["text"] = kwargs.get("text", "")
+
+    monkeypatch.setattr(vr, "get_user", _get_user)
+    monkeypatch.setattr(vr, "_is_bot_id_already_registered", _false)
+    monkeypatch.setattr(vr, "_run_preflight_checks", _recheck)
+    monkeypatch.setattr(vr, "_set_or_edit_prompt", _set_or_edit_prompt)
+
+    await vr.confirm_create_flow(callback, state)
+
+    assert captured["requester_id"] == 77
+    assert "fresh failure" in captured["text"]

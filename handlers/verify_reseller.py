@@ -30,7 +30,12 @@ from services.subscriptions.bot_subscription_service import get_bot_subscription
 from database.custom_services_repo import clone_catalog_from_reseller_template
 from database.financial_ledger import get_reseller_wallet_balance
 from database.mongo import db
-from database.reseller_settings_repo import get_exchange_routing, get_recharge_routing
+from database.reseller_settings_repo import (
+    get_exchange_routing,
+    get_recharge_routing,
+    set_exchange_routing,
+    set_recharge_routing,
+)
 from database.user_repo import get_user
 from keyboards.reseller_main_menu import reseller_main_menu
 from utils.bot_menu_context import is_reseller_owned_bot, menu_for_current_bot, send_main_bot_message
@@ -101,6 +106,11 @@ def _extract_token_input(raw: str) -> str:
 
 def _clean_bot_username(username: str | None) -> str:
     return str(username or "").strip().lstrip("@")
+
+
+def _safe_deep_link_payload(payload: str | None) -> str:
+    clean = re.sub(r"[^A-Za-z0-9_-]+", "", str(payload or ""))
+    return (clean[:64] or "true")
 
 
 def _token_bot_id_hint(bot_token: str | None) -> str:
@@ -255,8 +265,9 @@ def _add_to_channel_url(bot_username: str) -> str:
     return f"https://t.me/{username}?startchannel=true&admin={perms}"
 
 
-def _add_to_group_url(bot_username: str) -> str:
+def _add_to_group_url(bot_username: str, start_payload: str | None = None) -> str:
     username = _clean_bot_username(bot_username)
+    payload = _safe_deep_link_payload(start_payload)
     perms = "+".join(
         [
             "manage_chat",
@@ -271,7 +282,7 @@ def _add_to_group_url(bot_username: str) -> str:
             "manage_topics",
         ]
     )
-    return f"https://t.me/{username}?startgroup=true&admin={perms}"
+    return f"https://t.me/{username}?startgroup={payload}&admin={perms}"
 
 
 def _verify_channel_admin_kb(lang: str, add_url: str, include_back: bool = True) -> types.InlineKeyboardMarkup:
@@ -726,15 +737,7 @@ async def _is_bot_admin_with_topics(bot_token: str, chat_id: int) -> tuple[bool,
     bot = None
     try:
         bot = Bot(token=bot_token)
-        me = await bot.get_me()
-        member = await bot.get_chat_member(chat_id=int(chat_id), user_id=int(me.id))
-        status = str(getattr(member, "status", "") or "").lower()
-        if status not in {"administrator", "creator"}:
-            return False, "bot is not admin in group"
-        can_manage_topics = getattr(member, "can_manage_topics", None)
-        if status != "creator" and can_manage_topics is False:
-            return False, "missing Manage Topics permission"
-        return True, ""
+        return await _bot_can_manage_topics_in_chat(bot, int(chat_id))
     except Exception as exc:
         return False, str(exc)
     finally:
@@ -743,6 +746,181 @@ async def _is_bot_admin_with_topics(bot_token: str, chat_id: int) -> tuple[bool,
                 await bot.session.close()
             except Exception:
                 pass
+
+
+async def _bot_can_manage_topics_in_chat(bot: Bot, chat_id: int) -> tuple[bool, str]:
+    try:
+        me = await bot.get_me()
+        member = await bot.get_chat_member(chat_id=int(chat_id), user_id=int(me.id))
+    except Exception as exc:
+        return False, str(exc)
+
+    status = _member_status_value(getattr(member, "status", None))
+    if status not in {"administrator", "creator"}:
+        return False, "bot is not admin in group"
+    can_manage_topics = getattr(member, "can_manage_topics", None)
+    if status != "creator" and can_manage_topics is False:
+        return False, "missing Manage Topics permission"
+    return True, ""
+
+
+async def _create_forum_topic_safe(bot: Bot, chat_id: int, name: str) -> tuple[int | None, str | None]:
+    try:
+        topic = await bot.create_forum_topic(chat_id=int(chat_id), name=name)
+        thread_id = int(getattr(topic, "message_thread_id", 0) or 0)
+        if thread_id <= 0:
+            return None, "invalid topic id"
+        return thread_id, None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _chat_is_group(chat) -> bool:
+    chat_type = _chat_type_value(getattr(chat, "type", None))
+    return chat_type in {"group", "supergroup"}
+
+
+def _append_unique_chat_id(values: list[int], chat_id) -> None:
+    try:
+        value = int(chat_id)
+    except Exception:
+        return
+    if value and value not in values:
+        values.append(value)
+
+
+async def _discover_setup_group_candidates(bot_token: str, flow_ref: str | None = None) -> list[int]:
+    exact: list[int] = []
+    generic: list[int] = []
+    payload = f"setup_{str(flow_ref or '').strip()}".lower() if flow_ref else ""
+    bot = None
+    try:
+        bot = Bot(token=bot_token)
+        try:
+            await bot.delete_webhook(drop_pending_updates=False)
+        except Exception:
+            pass
+        updates = await bot.get_updates(
+            limit=50,
+            timeout=0,
+            allowed_updates=["message", "my_chat_member"],
+            request_timeout=20,
+        )
+    except Exception as exc:
+        logger.info(
+            "create_bot_setup_group_discovery_failed token_bot_id=%s err=%s",
+            _token_bot_id_hint(bot_token),
+            exc,
+        )
+        return []
+    finally:
+        if bot is not None:
+            try:
+                await bot.session.close()
+            except Exception:
+                pass
+
+    for update in reversed(updates or []):
+        message = getattr(update, "message", None)
+        if message is not None:
+            chat = getattr(message, "chat", None)
+            text = str(getattr(message, "text", "") or "").strip().lower()
+            if _chat_is_group(chat):
+                if payload and payload in text:
+                    _append_unique_chat_id(exact, getattr(chat, "id", None))
+                elif text.startswith("/start"):
+                    _append_unique_chat_id(generic, getattr(chat, "id", None))
+
+        member_update = getattr(update, "my_chat_member", None)
+        if member_update is not None:
+            chat = getattr(member_update, "chat", None)
+            new_member = getattr(member_update, "new_chat_member", None)
+            status = _member_status_value(getattr(new_member, "status", None))
+            if _chat_is_group(chat) and status in {"administrator", "creator", "member"}:
+                _append_unique_chat_id(generic, getattr(chat, "id", None))
+
+    return exact + [chat_id for chat_id in generic if chat_id not in exact]
+
+
+def _routing_thread_id(route: dict | None, chat_id: int) -> int | None:
+    if not route:
+        return None
+    try:
+        if int(route.get("chat_id")) != int(chat_id):
+            return None
+    except Exception:
+        return None
+    raw = route.get("message_thread_id")
+    if raw in (None, ""):
+        return None
+    try:
+        value = int(raw)
+    except Exception:
+        return None
+    return value if value > 0 else None
+
+
+async def _auto_setup_reseller_topics(
+    *,
+    bot_token: str,
+    reseller_id: int,
+    data: dict,
+    pay_route: dict | None,
+    ex_route: dict | None,
+) -> tuple[bool, str]:
+    candidates: list[int] = []
+    for route in (pay_route, ex_route):
+        if route and route.get("chat_id") is not None:
+            _append_unique_chat_id(candidates, route.get("chat_id"))
+
+    for chat_id in await _discover_setup_group_candidates(bot_token, data.get(FLOW_REF_KEY)):
+        _append_unique_chat_id(candidates, chat_id)
+
+    if not candidates:
+        return False, "payment group is not configured yet"
+
+    bot = None
+    last_error = ""
+    try:
+        bot = Bot(token=bot_token)
+        for chat_id in candidates:
+            ok_admin, admin_err = await _bot_can_manage_topics_in_chat(bot, chat_id)
+            if not ok_admin:
+                last_error = f"group permission check pending: {admin_err}"
+                continue
+
+            payment_thread_id = _routing_thread_id(pay_route, chat_id)
+            exchange_thread_id = _routing_thread_id(ex_route, chat_id)
+            if payment_thread_id is None:
+                payment_thread_id, pay_err = await _create_forum_topic_safe(bot, chat_id, "Payment Requests")
+                if payment_thread_id is None:
+                    last_error = f"Auto Setup Topics failed for payment topic: {pay_err}"
+                    continue
+            if exchange_thread_id is None:
+                exchange_thread_id, ex_err = await _create_forum_topic_safe(bot, chat_id, "Exchange Alerts")
+                if exchange_thread_id is None:
+                    last_error = f"Auto Setup Topics failed for exchange topic: {ex_err}"
+                    continue
+
+            await set_recharge_routing(int(reseller_id), int(chat_id), int(payment_thread_id))
+            await set_exchange_routing(int(reseller_id), int(chat_id), int(exchange_thread_id))
+            logger.info(
+                "create_bot_auto_topics_completed reseller_id=%s bot_id=%s chat_id=%s payment_thread_id=%s exchange_thread_id=%s",
+                reseller_id,
+                _token_bot_id_hint(bot_token),
+                chat_id,
+                payment_thread_id,
+                exchange_thread_id,
+            )
+            return True, ""
+    finally:
+        if bot is not None:
+            try:
+                await bot.session.close()
+            except Exception:
+                pass
+
+    return False, last_error or "Auto Setup Topics could not find a ready group"
 
 
 async def _run_preflight_checks(data: dict, requester_id: int | None = None) -> tuple[bool, dict]:
@@ -777,20 +955,44 @@ async def _run_preflight_checks(data: dict, requester_id: int | None = None) -> 
     if rid > 0:
         try:
             pay_route = await get_recharge_routing(rid)
+            ex_route = await get_exchange_routing(rid)
+            pay_ready = bool(pay_route and pay_route.get("chat_id") is not None and pay_route.get("message_thread_id") is not None)
+            ex_ready = bool(ex_route and ex_route.get("chat_id") is not None and ex_route.get("message_thread_id") is not None)
+            auto_attempted = False
             if pay_route and pay_route.get("chat_id") is not None:
                 pay_chat_id = int(pay_route.get("chat_id"))
                 ok_group, group_err = await _is_bot_admin_with_topics(token, pay_chat_id)
-                if ok_group:
+                if ok_group and pay_ready and ex_ready:
                     ex_ok = True
-                    ex_route = await get_exchange_routing(rid)
                     if ex_route and ex_route.get("chat_id") is not None:
                         ex_chat_id = int(ex_route.get("chat_id"))
                         ex_ok, _ex_err = await _is_bot_admin_with_topics(token, ex_chat_id)
                     out["reseller_group"] = bool(ex_ok)
                 else:
-                    out["warning"] = f"group permission check pending: {group_err}"
-            else:
-                out["warning"] = "payment routing group is not configured yet"
+                    auto_attempted = True
+                    auto_ok, auto_err = await _auto_setup_reseller_topics(
+                        bot_token=token,
+                        reseller_id=rid,
+                        data=data,
+                        pay_route=pay_route,
+                        ex_route=ex_route,
+                    )
+                    out["reseller_group"] = bool(auto_ok)
+                    out["auto_topics"] = bool(auto_ok)
+                    if not auto_ok:
+                        out["warning"] = auto_err or f"group permission check pending: {group_err}"
+            if not out["reseller_group"] and not auto_attempted:
+                auto_ok, auto_err = await _auto_setup_reseller_topics(
+                    bot_token=token,
+                    reseller_id=rid,
+                    data=data,
+                    pay_route=pay_route,
+                    ex_route=ex_route,
+                )
+                out["reseller_group"] = bool(auto_ok)
+                out["auto_topics"] = bool(auto_ok)
+                if not auto_ok and not out["warning"]:
+                    out["warning"] = auto_err or "payment routing group is not configured yet"
         except Exception as exc:
             out["warning"] = f"group setup check skipped: {exc}"
     if not out["reseller_group"]:
@@ -1948,12 +2150,15 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
 
     if callback.data == "verify:open_group_create":
         data = await state.get_data()
+        flow_ref = str(data.get(FLOW_REF_KEY) or _new_flow_ref())
+        if not data.get(FLOW_REF_KEY):
+            await state.update_data(**{FLOW_REF_KEY: flow_ref})
         bot_username = await _refresh_flow_bot_identity(
             str(data.get("bot_token") or ""),
             state,
             fallback_username=str(data.get("bot_username") or ""),
         )
-        group_url = _add_to_group_url(bot_username)
+        group_url = _add_to_group_url(bot_username, start_payload=f"setup_{flow_ref}")
         setup_help_text = f"{t(lang, 'verify_setup_help_text')}\n\n{t(lang, 'preflight_required_before_approval_title')}"
         await _set_or_edit_prompt(
             bot=callback.bot,
@@ -1990,7 +2195,7 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
 
     preflight_checks = data.get("preflight_checks") or {}
     preflight_ok = bool(data.get("preflight_ok"))
-    if not preflight_checks:
+    if not preflight_checks or not preflight_ok:
         preflight_ok, preflight_checks = await _run_preflight_checks(data, requester_id=int(callback.from_user.id))
         await state.update_data(preflight_ok=preflight_ok, preflight_checks=preflight_checks)
         logger.info(

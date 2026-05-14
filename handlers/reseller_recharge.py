@@ -844,7 +844,7 @@ async def _settings_overview_text(reseller_id: int) -> str:
         f"• Support topics: {support_ready}/4 ready\n"
         f"• Exchange rate: {rate:.2f} local per 1 💲\n"
         f"• Payment methods: {enabled_count}/{total_count} enabled\n\n"
-        "Optional advanced mode: add your reseller bot as admin in a private group and enable Topics.\n"
+        "Optional advanced mode: enable Topics in a private group, then add your reseller bot as admin with Manage Topics.\n"
         "Easy mode works without group (requests go to DM fallback).\n\n"
         "Choose what you want to update:"
     )
@@ -912,8 +912,8 @@ def _payment_setup_help_text() -> str:
         "- You can keep routing on DM fallback (no group required).\n"
         "- In Settings, tap 'Use DM Routing (Easy)'.\n\n"
         "Important first step:\n"
-        "- Add your reseller bot as Admin in your private group.\n"
-        "- Enable Topics in the group and grant Manage Topics permission.\n\n"
+        "- Enable Topics in your private group before adding the bot.\n"
+        "- Add your reseller bot as Admin with all permissions, especially Manage Topics.\n\n"
         "1) For payment requests delivery:\n"
         "- Create a private group.\n"
         "- Enable Topics.\n"
@@ -1946,7 +1946,7 @@ async def settings_auto_topics_start(callback: types.CallbackQuery, state: FSMCo
             "Supported formats:\n"
             "1) Group link copied from Telegram (t.me/c/...)\n"
             "2) -100CHAT_ID\n\n"
-            "Note: bot must be admin in that group with Manage Topics permission.",
+            "Note: enable Topics before adding the bot, then grant all admin permissions, especially Manage Topics.",
             reply_markup=_settings_wait_input_kb(),
         )
 
@@ -1964,7 +1964,7 @@ async def settings_auto_support_topics_start(callback: types.CallbackQuery, stat
             "Supported formats:\n"
             "1) Group link copied from Telegram (t.me/c/...)\n"
             "2) -100CHAT_ID\n\n"
-            "Note: bot must be admin in that group with Manage Topics permission.",
+            "Note: enable Topics before adding the bot, then grant all admin permissions, especially Manage Topics.",
             reply_markup=_settings_wait_input_kb(),
         )
 
@@ -1986,7 +1986,7 @@ async def settings_auto_topics_apply(message: types.Message, state: FSMContext):
         return await message.answer(
             "Auto setup failed.\n"
             f"Reason: {admin_err}\n\n"
-            "Please add bot as admin in the group and grant Manage Topics, then retry."
+            "Please enable Topics first, then add the bot as admin with all permissions, especially Manage Topics, and retry."
         )
 
     pay_thread_id, pay_err = await _create_forum_topic_safe(message.bot, chat_id, "Payment Requests")
@@ -2036,7 +2036,7 @@ async def settings_auto_support_topics_apply(message: types.Message, state: FSMC
         return await message.answer(
             "Auto setup failed.\n"
             f"Reason: {admin_err}\n\n"
-            "Please add bot as admin in the group and grant Manage Topics, then retry."
+            "Please enable Topics first, then add the bot as admin with all permissions, especially Manage Topics, and retry."
         )
 
     created: list[tuple[str, int]] = []
