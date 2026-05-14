@@ -387,3 +387,26 @@ def test_temp_resend_stays_available_for_my_numbers_retention():
 
     assert core_numbers_buy._temp_resend_available(valid_order)
     assert not core_numbers_buy._temp_resend_available(expired_order)
+
+
+def test_voice_my_number_detail_uses_call_copy_and_check_action():
+    order = {
+        "_id": "507f1f77bcf86cd799439111",
+        "number_mode": "voice",
+        "status": "success",
+        "provisioning_state": "provisioned",
+        "provider_order_id": "voice-1",
+        "provider_number": "+15550001111",
+        "temp_country": "1",
+        "temp_service_key": "gmail",
+        "temp_wait_state": "waiting_for_call",
+        "temp_reuse_warranty_until": datetime.now(UTC),
+    }
+
+    text = core_numbers_buy._my_number_detail_text(order, "en")
+    markup = core_numbers_buy._my_number_manage_kb(order, str(order["_id"]), "en")
+    callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
+
+    assert "Waiting for call" in text
+    assert "Guaranteed resend until" not in text
+    assert f"voice:check:{order['_id']}" in callbacks

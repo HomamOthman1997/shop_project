@@ -430,6 +430,32 @@ async def test_get_all_rental_prices_keeps_provider_visible_when_no_affordable_o
 
 
 @pytest.mark.asyncio
+async def test_get_all_rental_prices_filters_balance_against_provider_cost(monkeypatch):
+    class _RentalDummy:
+        async def get_rental_prices(self, service, country=None):
+            return {
+                "success": True,
+                "options": [
+                    {"country": "US", "duration": 24, "price": 1.0, "count": 1},
+                ],
+            }
+
+    async def _fake_balance(_provider):
+        return 1.0
+
+    monkeypatch.setitem(manager.PROVIDERS, "textverified", _RentalDummy())
+    monkeypatch.setattr(manager, "_provider_balance", _fake_balance)
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 100.0)
+
+    result = await manager.get_all_rental_prices("gmail", "US")
+    assert "textverified" in result
+    option = result["textverified"]["options"][0]
+    assert option["base_price"] == 1.0
+    assert option["price"] == 2.0
+    assert result["textverified"]["available_for_buy"] is True
+
+
+@pytest.mark.asyncio
 async def test_get_all_prices_uses_provider_country_iso_field(monkeypatch):
     class _HeroDummy:
         async def get_price(self, service, country=None, state=None):
@@ -1715,7 +1741,8 @@ async def test_balance_handler_and_topup_removed(monkeypatch):
 
     msg = DummyMsg('/balance', user_id=99, username='abc')
     await balance_handler(msg)
-    assert "Your balance is 💲 7.50." in msg.reply
+    assert "Balance: 💲 7.50" in msg.reply
+    assert "available wallet balance" in msg.reply
 
     result = await admin._execute_owner_action(action="topup", payload="@abc 10", actor_id=1)
     assert result == "Unknown action."

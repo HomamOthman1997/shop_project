@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 from datetime import UTC, datetime, timedelta
@@ -530,8 +531,8 @@ async def test_simulated_rental_purchase_then_renew_after_two_hours(monkeypatch)
     async def _fake_log_rental_event(**kwargs):
         calls.setdefault("rental_events", []).append(kwargs.get("event"))
 
-    async def _fake_best_effort_edit_text(message, text):
-        await message.edit_text(text)
+    async def _fake_best_effort_edit_text(message, text, reply_markup=None, parse_mode=None):
+        await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
     async def _fake_load_user_order(raw_id, user_id):
         assert raw_id == order_id
@@ -541,6 +542,9 @@ async def test_simulated_rental_purchase_then_renew_after_two_hours(monkeypatch)
     async def _fake_renew_rental_from_provider(provider_code, activation_id):
         calls["renew_provider"] = {"provider_code": provider_code, "activation_id": activation_id}
         return {"success": True, "raw": {"ok": True, "renewedAt": "2026-03-31T04:00:00Z"}}
+
+    async def _fake_rental_refund_guard(**kwargs):
+        calls["guard"] = dict(kwargs)
 
     monkeypatch.setattr(hb, "get_user", _fake_get_user)
     monkeypatch.setattr(hb, "_resolve_user_reseller", _fake_resolve_user_reseller)
@@ -555,6 +559,7 @@ async def test_simulated_rental_purchase_then_renew_after_two_hours(monkeypatch)
     monkeypatch.setattr(hb, "_safe_callback_answer", lambda *args, **kwargs: __import__("asyncio").sleep(0, result=True))
     monkeypatch.setattr(hb, "_load_user_order", _fake_load_user_order)
     monkeypatch.setattr(hb, "renew_rental_from_provider", _fake_renew_rental_from_provider)
+    monkeypatch.setattr(hb, "_rental_refund_guard", _fake_rental_refund_guard)
 
     purchase_state = _DummyState(
         {
@@ -587,6 +592,8 @@ async def test_simulated_rental_purchase_then_renew_after_two_hours(monkeypatch)
     assert persisted_order["provider_order_id"] == "lr_001"
     assert persisted_order["rental_is_renewable"] is True
     assert any(status == "success" for _, status in calls["statuses"])
+    await asyncio.sleep(0)
+    assert calls["guard"]["order_id"] == order_id
     assert purchase_callback.message.edits[-1]["reply_markup"] is not None
 
     renew_callback = _DummyCallback(f"rent:renew:{order_id}")

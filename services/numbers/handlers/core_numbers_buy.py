@@ -1205,14 +1205,37 @@ async def _safe_edit_message(
         raise
 
 
+async def _best_effort_safe_edit_message(
+    bot,
+    *,
+    chat_id: int,
+    message_id: int,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+    parse_mode: str | None = None,
+) -> None:
+    try:
+        await _safe_edit_message(
+            bot,
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+    except Exception as exc:
+        logger.warning("Best-effort bot edit_message_text failed: %s", exc)
+
+
 async def _best_effort_edit_text(
     message: types.Message,
     text: str,
     *,
     reply_markup: InlineKeyboardMarkup | None = None,
+    parse_mode: str | None = None,
 ) -> None:
     try:
-        await message.edit_text(text, reply_markup=reply_markup)
+        await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     except Exception as exc:
         logger.warning("Best-effort edit_text failed: %s", exc)
 
@@ -1272,6 +1295,7 @@ def _temp_my_numbers_active(order: dict) -> bool:
 def _my_number_detail_text(order: dict, lang: str) -> str:
     mode = str(order.get("number_mode") or "").strip().lower()
     is_rental = mode == "rental"
+    is_voice = mode == "voice"
     country = _country_display_name(
         order.get("rental_country") if is_rental else order.get("temp_country"),
         country_name=order.get("rental_country_name") if is_rental else order.get("temp_country_name"),
@@ -1296,6 +1320,20 @@ def _my_number_detail_text(order: dict, lang: str) -> str:
                 f"{t(lang, 'my_numbers_expires_label')}: {_compact_datetime(order.get('rental_end_date'))}",
             ]
         )
+    elif is_voice:
+        state = str(order.get("temp_wait_state") or order.get("status") or "-")
+        if state == "waiting_for_call":
+            status = _numbers_text(lang, "Waiting for call", "بانتظار المكالمة")
+        elif state == "call_received":
+            status = _numbers_text(lang, "Call received", "وصلت المكالمة")
+        else:
+            status = state
+        lines.append(f"{t(lang, 'my_numbers_status_label')}: {status}")
+        if order.get("voice_recording_uri"):
+            recording_status = _numbers_text(lang, "Available", "متوفر")
+            if order.get("voice_recording_sent_to_user"):
+                recording_status = _numbers_text(lang, "Sent", "تم الإرسال")
+            lines.append(f"{_numbers_text(lang, 'Recording', 'التسجيل')}: {recording_status}")
     else:
         lines.append(f"{t(lang, 'my_numbers_status_label')}: {str(order.get('temp_wait_state') or order.get('status') or '-')}")
         lines.append(f"{t(lang, 'my_numbers_resend_window_label')}: {_compact_datetime(order.get('temp_reuse_warranty_until'))}")
@@ -1313,6 +1351,8 @@ def _my_number_manage_kb(order: dict, order_id: str, lang: str) -> InlineKeyboar
         rows.append([InlineKeyboardButton(text=t(lang, "my_numbers_activate"), callback_data=f"rent:wake:{order_id}")])
         if bool(order.get("rental_is_renewable")):
             rows.append([InlineKeyboardButton(text=t(lang, "rental_btn_renew"), callback_data=f"rent:renew:{order_id}")])
+    elif mode == "voice":
+        rows.append([InlineKeyboardButton(text=_numbers_text(lang, "Check call", "فحص المكالمة"), callback_data=f"voice:check:{order_id}")])
     elif _temp_resend_available(order):
         rows.append([InlineKeyboardButton(text=t(lang, "temp_second_code"), callback_data=f"temp:second:{order_id}")])
     rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:rental:my")])
@@ -2099,6 +2139,64 @@ async def _queue_temp_waiter(bot, order: dict, lang: str, is_second_code: bool =
     )
 
 
+def _voice_recording_uri_from_calls(calls: Any) -> str:
+    if not isinstance(calls, list):
+        return ""
+    for call in calls:
+        if not isinstance(call, dict):
+            continue
+        recording_uri = str(call.get("recordingUri") or call.get("recordingUrl") or "").strip()
+        if recording_uri:
+            return recording_uri
+    return ""
+
+
+async def _mark_voice_call_received_and_notify(
+    *,
+    bot,
+    order_id,
+    order: dict,
+    calls: Any,
+    recording_uri: str,
+    lang: str,
+    chat_id: int,
+    message_id: int,
+    source: str,
+) -> bool:
+    now = _utc_now()
+    await update_order_details(
+        order_id,
+        {
+            "temp_wait_state": "call_received",
+            "voice_call_received_at": now,
+            "voice_recording_uri": recording_uri,
+            "voice_calls": calls[:5] if isinstance(calls, list) else [],
+        },
+    )
+    await _log_temp_event(order, "voice_call_received", {"has_recording": True, "source": source})
+    updated = await get_order(order_id) or order
+    recording_sent = await _send_voice_recording_file(
+        bot=bot,
+        chat_id=chat_id,
+        provider_code=str(order.get("provider") or ""),
+        recording_uri=recording_uri,
+        lang=lang,
+    )
+    await update_order_details(order_id, {"voice_recording_sent_to_user": bool(recording_sent)})
+    updated = await get_order(order_id) or updated
+    await _best_effort_safe_edit_message(
+        bot,
+        chat_id=chat_id,
+        message_id=message_id,
+        text=_voice_received_text(lang, updated, recording_sent=recording_sent),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="flow:main:back")]]
+        ),
+        parse_mode="HTML",
+    )
+    return True
+
+
 async def _start_voice_waiter(*, bot, order: dict, lang: str) -> None:
     order_id = order.get("_id")
     provider_code = str(order.get("provider") or "").strip().lower()
@@ -2128,44 +2226,18 @@ async def _start_voice_waiter(*, bot, order: dict, lang: str) -> None:
             return
         calls_data = await get_calls_from_provider(provider_code, provider_order_id, to_number=str(current.get("provider_number") or ""))
         calls = calls_data.get("calls") or []
-        recording_uri = ""
-        if isinstance(calls, list):
-            for call in calls:
-                if not isinstance(call, dict):
-                    continue
-                recording_uri = str(call.get("recordingUri") or call.get("recordingUrl") or "").strip()
-                if recording_uri:
-                    break
+        recording_uri = _voice_recording_uri_from_calls(calls)
         if recording_uri:
-            now = _utc_now()
-            await update_order_details(
-                order_id,
-                {
-                    "temp_wait_state": "call_received",
-                    "voice_call_received_at": now,
-                    "voice_recording_uri": recording_uri,
-                    "voice_calls": calls[:5] if isinstance(calls, list) else [],
-                },
-            )
-            await _log_temp_event(current, "voice_call_received", {"has_recording": True})
-            updated = await get_order(order_id) or current
-            recording_sent = await _send_voice_recording_file(
+            await _mark_voice_call_received_and_notify(
                 bot=bot,
-                chat_id=chat_id,
-                provider_code=provider_code,
+                order_id=order_id,
+                order=current,
+                calls=calls,
                 recording_uri=recording_uri,
                 lang=lang,
-            )
-            await update_order_details(order_id, {"voice_recording_sent_to_user": bool(recording_sent)})
-            await _safe_edit_message(
-                bot,
                 chat_id=chat_id,
                 message_id=msg_id,
-                text=_voice_received_text(lang, updated, recording_sent=recording_sent),
-                reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="flow:main:back")]]
-                ),
-                parse_mode="HTML",
+                source="voice_waiter",
             )
             return
         await asyncio.sleep(interval)
@@ -2246,6 +2318,69 @@ async def my_number_view(callback: types.CallbackQuery):
     await callback.message.edit_text(
         _my_number_detail_text(order, lang),
         reply_markup=_my_number_manage_kb(order, raw_id, lang),
+    )
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("voice:check:"))
+async def voice_check_now(callback: types.CallbackQuery):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    raw_id = callback.data.split(":", 2)[2]
+    order_oid, order = await _load_user_order(raw_id, callback.from_user.id)
+    if not order_oid or not order or str(order.get("number_mode") or "").strip().lower() != "voice":
+        return await _safe_callback_answer(callback, t(lang, "order_not_found"), show_alert=True)
+    if str(order.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
+        return await _safe_callback_answer(callback, t(lang, "order_not_found"), show_alert=True)
+
+    cooldown_left = _temp_refresh_cooldown_left(order)
+    if cooldown_left > 0:
+        return await _safe_callback_answer(callback, t(lang, "temp_refresh_wait").format(seconds=cooldown_left), show_alert=True)
+
+    provider = str(order.get("provider") or "")
+    provider_order_id = str(order.get("provider_order_id") or "")
+    if not provider or not provider_order_id:
+        return await _safe_callback_answer(callback, t(lang, "order_not_found"), show_alert=True)
+
+    recording_uri = str(order.get("voice_recording_uri") or "").strip()
+    calls = order.get("voice_calls") or []
+    if not recording_uri:
+        try:
+            calls_data = await get_calls_from_provider(provider, provider_order_id, to_number=str(order.get("provider_number") or ""))
+        except Exception as exc:
+            logger.warning("Manual voice call check failed for order %s: %s", order_oid, exc)
+            return await _safe_callback_answer(callback, provider_generic_error(lang), show_alert=True)
+        calls = calls_data.get("calls") or []
+        recording_uri = _voice_recording_uri_from_calls(calls)
+
+    if recording_uri:
+        await _mark_voice_call_received_and_notify(
+            bot=callback.message.bot,
+            order_id=order_oid,
+            order=order,
+            calls=calls,
+            recording_uri=recording_uri,
+            lang=lang,
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            source="manual_voice_check",
+        )
+        return await _safe_callback_answer_or_message(callback, t(lang, "ok_plain"))
+
+    now = _utc_now()
+    await update_order_details(order_oid, {"temp_last_refresh_at": now})
+    await _log_temp_event(order, "manual_voice_check_no_call", {"cooldown_sec": TEMP_REFRESH_COOLDOWN_SEC})
+    refreshed = await get_order(order_oid) or order
+    await _best_effort_safe_edit_message(
+        callback.message.bot,
+        chat_id=callback.message.chat.id,
+        message_id=callback.message.message_id,
+        text=_my_number_detail_text(refreshed, lang),
+        reply_markup=_my_number_manage_kb(refreshed, str(order_oid), lang),
+    )
+    return await _safe_callback_answer(
+        callback,
+        _numbers_text(lang, "No call found yet.", "ما في مكالمة جديدة بعد."),
+        show_alert=True,
     )
 
 
@@ -2792,22 +2927,26 @@ async def rent_confirm_process(callback: types.CallbackQuery, state: FSMContext)
         )
 
         duration_text = _duration_text(selected, lang)
-        await callback.message.edit_text(
-            t(lang, "rental_purchase_complete").format(
-                number=_format_number_for_copy_html(number, country),
-                order_id=provider_order_id,
-                provider=provider_public_id(provider_code),
-                duration=duration_text,
-            ),
-            reply_markup=_rental_result_kb(str(order_id), lang, can_renew=is_renewable),
-            parse_mode="HTML",
-        )
         asyncio.create_task(
             _rental_refund_guard(
                 order_id=order_id,
                 actor_user_id=int(user_id),
             )
         )
+        try:
+            await _best_effort_edit_text(
+                callback.message,
+                t(lang, "rental_purchase_complete").format(
+                    number=_format_number_for_copy_html(number, country),
+                    order_id=provider_order_id,
+                    provider=provider_public_id(provider_code),
+                    duration=duration_text,
+                ),
+                reply_markup=_rental_result_kb(str(order_id), lang, can_renew=is_renewable),
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Rental completion edit failed after provider success: %s", exc)
         state_cleared = True
         inflight_locked = False
         await state.clear()
@@ -3323,8 +3462,10 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
                 "temp_replace_enabled": False,
                 "temp_codes": [],
                 "temp_codes_count": 0,
+                "temp_wait_state": "waiting_for_call" if number_mode == "voice" else "waiting",
+                "temp_wait_started_at": now,
                 "provisioning_state": "provisioned",
-                "provisioned_at": _utc_now(),
+                "provisioned_at": now,
             },
         )
         await update_order_status(order_id, "success")
@@ -3362,7 +3503,13 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
             },
         )
 
-        await _safe_edit_message(
+        # Reload order snapshot and start auto-wait flow.
+        fresh_order = await get_order(order_id)
+        if fresh_order and number_mode == "voice":
+            await _queue_voice_waiter(bot=callback.message.bot, order=fresh_order, lang=lang)
+        elif fresh_order:
+            await _queue_temp_waiter(bot=callback.message.bot, order=fresh_order, lang=lang, is_second_code=False)
+        await _best_effort_safe_edit_message(
             callback.message.bot,
             chat_id=callback.message.chat.id,
             message_id=callback.message.message_id,
@@ -3389,13 +3536,6 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
             reply_markup=None,
             parse_mode="HTML",
         )
-
-        # Reload order snapshot and start auto-wait flow.
-        fresh_order = await get_order(order_id)
-        if fresh_order and number_mode == "voice":
-            await _queue_voice_waiter(bot=callback.message.bot, order=fresh_order, lang=lang)
-        elif fresh_order:
-            await _queue_temp_waiter(bot=callback.message.bot, order=fresh_order, lang=lang, is_second_code=False)
         state_cleared = True
         inflight_locked = False
         await state.clear()
@@ -3421,7 +3561,7 @@ async def temp_refresh_now(callback: types.CallbackQuery):
     raw_id = callback.data.split(":", 2)[2]
     order_oid, order = await _load_user_order(raw_id, callback.from_user.id)
     if not order_oid or not order:
-        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
+        return await _safe_callback_answer(callback, t(lang, "order_not_found"), show_alert=True)
     if str(order.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
         return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
 
@@ -3949,6 +4089,8 @@ async def temp_second_code(callback: types.CallbackQuery):
             "temp_second_code_count": int(order.get("temp_second_code_count") or 0) + 1,
             "provider_order_id": new_provider_order_id,
             "provider_number": new_provider_number or str(order.get("provider_number") or ""),
+            "temp_wait_state": "waiting",
+            "temp_wait_started_at": now,
         },
     )
     await _log_temp_event(
@@ -3966,7 +4108,10 @@ async def temp_second_code(callback: types.CallbackQuery):
         ),
     )
 
-    await _safe_edit_message(
+    refreshed = await get_order(order_oid)
+    if refreshed:
+        await _queue_temp_waiter(bot=callback.message.bot, order=refreshed, lang=lang, is_second_code=True)
+    await _best_effort_safe_edit_message(
         callback.message.bot,
         chat_id=callback.message.chat.id,
         message_id=callback.message.message_id,
@@ -3983,9 +4128,6 @@ async def temp_second_code(callback: types.CallbackQuery):
         reply_markup=None,
         parse_mode="HTML",
     )
-    refreshed = await get_order(order_oid)
-    if refreshed:
-        await _queue_temp_waiter(bot=callback.message.bot, order=refreshed, lang=lang, is_second_code=True)
     return await _safe_callback_answer_or_message(
         callback,
         t(lang, "temp_second_code_done").format(amount=float(extra_sale)),
@@ -4006,10 +4148,17 @@ async def cancel_buy(callback: types.CallbackQuery, state: FSMContext):
         await _return_to_main_menu_from_buy(callback, state, lang)
         await _safe_callback_answer(callback)
         return
+    if int(res.get("user_id") or 0) != int(user_id):
+        await _safe_callback_answer(callback, t(lang, "order_not_found"), show_alert=True)
+        return
 
     order_id = res.get("order_id")
     order = await get_order(order_id)
     if not order:
+        await _safe_callback_answer(callback, t(lang, "order_not_found"), show_alert=True)
+        return
+    order_user_id = int(order.get("user_id") or 0)
+    if order_user_id != int(user_id):
         await _safe_callback_answer(callback, t(lang, "order_not_found"), show_alert=True)
         return
 
@@ -4026,11 +4175,11 @@ async def cancel_buy(callback: types.CallbackQuery, state: FSMContext):
                 pass
 
     refund_ok, refund_msg = await FinancialManager.refund_core_purchase(
-        user_id,
+        order_user_id,
         order_id,
         sale_price,
         cost_price,
-        reseller_id=int(order.get("reseller_id") or user_id),
+        reseller_id=int(order.get("reseller_id") or order_user_id),
     )
     if not refund_ok:
         await callback.message.edit_text(
@@ -4053,32 +4202,27 @@ async def resend_code(callback: types.CallbackQuery, state: FSMContext):
         raw_id = callback.data.split(":", 2)[2]
     else:
         raw_id = callback.data.replace("num_resend_", "")
-    try:
-        order_oid = ObjectId(raw_id)
-    except Exception:
-        return await _safe_callback_answer(t(lang, "invalid_order_info"), show_alert=True)
-
-    order = await get_order(order_oid)
-    if not order:
-        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
+    order_oid, order = await _load_user_order(raw_id, callback.from_user.id)
+    if not order_oid or not order:
+        return await _safe_callback_answer(callback, t(lang, "order_not_found"), show_alert=True)
     if str(order.get("number_mode") or "").lower() == "temp":
-        return await _safe_callback_answer(t(lang, "temp_second_code"), show_alert=True)
+        return await _safe_callback_answer(callback, t(lang, "temp_second_code"), show_alert=True)
     provider = order.get("provider")
     provider_order_id = order.get("provider_order_id")
     if not provider or not provider_order_id:
-        return await _safe_callback_answer(t(lang, "cannot_resend"), show_alert=True)
+        return await _safe_callback_answer(callback, t(lang, "cannot_resend"), show_alert=True)
 
     prov = PROVIDERS.get(provider)
     if not prov or not hasattr(prov, "resend"):
-        return await _safe_callback_answer(t(lang, "service_no_resend"), show_alert=True)
+        return await _safe_callback_answer(callback, t(lang, "service_no_resend"), show_alert=True)
 
     try:
         ok = await prov.resend(provider_order_id)
         if ok:
-            return await _safe_callback_answer(t(lang, "resend_requested"), show_alert=True)
+            return await _safe_callback_answer(callback, t(lang, "resend_requested"), show_alert=True)
     except Exception:
         pass
-    return await _safe_callback_answer(t(lang, "resend_failed"), show_alert=True)
+    return await _safe_callback_answer(callback, t(lang, "resend_failed"), show_alert=True)
 
 
 

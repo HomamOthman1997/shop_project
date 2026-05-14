@@ -231,7 +231,7 @@ async def list_paid_number_orders_missing_provider(limit: int = 200):
     cursor = (
         db.orders.find(
             {
-                "number_mode": {"$in": ["temp", "rental"]},
+                "number_mode": {"$in": ["temp", "voice", "rental"]},
                 "status": "paid",
                 "$or": [
                     {"provider_order_id": {"$exists": False}},

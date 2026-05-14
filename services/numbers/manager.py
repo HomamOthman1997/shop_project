@@ -1010,7 +1010,7 @@ async def get_all_rental_prices(service_key: str, country: str | None):
                         if not isinstance(option, dict):
                             continue
                         try:
-                            option_price = float(option.get("price") or 0.0)
+                            option_price = float(option.get("base_price") or option.get("price") or 0.0)
                         except Exception:
                             option_price = 0.0
                         if option_price > 0 and provider_balance + 1e-9 >= option_price:
