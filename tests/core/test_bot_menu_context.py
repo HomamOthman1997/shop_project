@@ -99,9 +99,9 @@ def test_numbers_menu_is_numbers_only():
 
     assert labels == [
         t("en", "btn_my_numbers"),
-        t("en", "btn_more_services"),
         t("en", "user_settings_my_account"),
         t("en", "btn_support"),
+        t("en", "btn_more_services"),
     ]
     assert t("en", "btn_services") not in labels
     assert t("en", "btn_create_bot") not in labels
