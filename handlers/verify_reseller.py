@@ -99,6 +99,61 @@ def _extract_token_input(raw: str) -> str:
     return cleaned
 
 
+def _clean_bot_username(username: str | None) -> str:
+    return str(username or "").strip().lstrip("@")
+
+
+def _token_bot_id_hint(bot_token: str | None) -> str:
+    token = str(bot_token or "").strip()
+    if ":" not in token:
+        return "-"
+    return token.split(":", 1)[0].strip() or "-"
+
+
+async def _refresh_flow_bot_identity(
+    bot_token: str,
+    state: FSMContext | None = None,
+    *,
+    fallback_username: str = "",
+) -> str:
+    username = _clean_bot_username(fallback_username)
+    if not bot_token:
+        return username
+
+    bot = None
+    try:
+        bot = Bot(token=bot_token)
+        me = await bot.get_me()
+        resolved_username = _clean_bot_username(getattr(me, "username", ""))
+        updates = {}
+        try:
+            updates["bot_id"] = int(getattr(me, "id", 0) or 0)
+        except Exception:
+            pass
+        if resolved_username:
+            updates["bot_username"] = resolved_username
+        title = str(getattr(me, "first_name", "") or "").strip()
+        if title:
+            updates["bot_title"] = title
+        if state is not None and updates:
+            await state.update_data(**updates)
+        return resolved_username or username
+    except Exception as exc:
+        logger.warning(
+            "create_bot_identity_refresh_failed token_bot_id=%s fallback_username=%s err=%s",
+            _token_bot_id_hint(bot_token),
+            username or "-",
+            exc,
+        )
+        return username
+    finally:
+        if bot is not None:
+            try:
+                await bot.session.close()
+            except Exception:
+                pass
+
+
 def _verify_nav_kb(lang: str, include_back: bool) -> types.InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if include_back:
@@ -180,7 +235,7 @@ def _bot_already_registered_text(lang: str) -> str:
 
 
 def _add_to_channel_url(bot_username: str) -> str:
-    username = (bot_username or "").lstrip("@").strip()
+    username = _clean_bot_username(bot_username)
     # Ask for broad admin rights up front to avoid future permission gaps.
     perms = "+".join(
         [
@@ -197,11 +252,11 @@ def _add_to_channel_url(bot_username: str) -> str:
             "anonymous",
         ]
     )
-    return f"https://t.me/{username}?startchannel&admin={perms}"
+    return f"https://t.me/{username}?startchannel=true&admin={perms}"
 
 
 def _add_to_group_url(bot_username: str) -> str:
-    username = (bot_username or "").lstrip("@").strip()
+    username = _clean_bot_username(bot_username)
     perms = "+".join(
         [
             "manage_chat",
@@ -1228,7 +1283,36 @@ async def ask_token(message: types.Message, state: FSMContext):
     if await is_reseller_owned_bot(message.bot):
         await send_main_bot_message(message, lang=lang)
         return
-    await state.update_data(**{INTRO_MSG_ID_KEY: None, FLOW_REF_KEY: _new_flow_ref(), "lang": lang})
+    await state.update_data(
+        **{
+            INTRO_MSG_ID_KEY: None,
+            PROMPT_MSG_ID_KEY: None,
+            CHANNEL_PROMPT_MSG_ID_KEY: None,
+            PHONE_PROMPT_MSG_ID_KEY: None,
+            ADDRESS_PROMPT_MSG_ID_KEY: None,
+            REPLY_KB_ANCHOR_MSG_ID_KEY: None,
+            FLOW_REF_KEY: _new_flow_ref(),
+            "lang": lang,
+            "bot_token": "",
+            "bot_id": None,
+            "bot_username": "",
+            "bot_title": "",
+            "token_verified": False,
+            "channel": "",
+            "channel_verified": False,
+            "admin_verified": False,
+            "fullname": "",
+            "phone": "",
+            "phone_country": "",
+            "phone_region": "",
+            "address": "",
+            "location_lat": None,
+            "location_lon": None,
+            "location_country": "",
+            "preflight_ok": False,
+            "preflight_checks": None,
+        }
+    )
     await _hide_reply_keyboard(message.bot, message.chat.id, state)
 
     await _set_or_edit_prompt(
@@ -1348,7 +1432,7 @@ async def save_token(message: types.Message, state: FSMContext):
         await state.update_data(
             bot_token=token,
             bot_id=me.id,
-            bot_username=me.username or "",
+            bot_username=_clean_bot_username(getattr(me, "username", "")),
             bot_title=me.first_name or "",
             token_verified=True,
             channel_verified=False,
@@ -1501,7 +1585,11 @@ async def _handle_channel_value(
     await state.update_data(channel=channel_norm)
     data = await state.get_data()
     bot_token = data.get("bot_token", "")
-    bot_username = data.get("bot_username", "")
+    bot_username = await _refresh_flow_bot_identity(
+        str(bot_token or ""),
+        state,
+        fallback_username=str(data.get("bot_username", "") or ""),
+    )
     add_url = _add_to_channel_url(bot_username)
 
     is_channel = True if trusted_channel else await _is_channel_target(bot_token, channel_norm)
@@ -1562,7 +1650,11 @@ async def recheck_channel_admin(callback: types.CallbackQuery, state: FSMContext
     data = await state.get_data()
     channel = data.get("channel", "")
     bot_token = data.get("bot_token", "")
-    bot_username = data.get("bot_username", "")
+    bot_username = await _refresh_flow_bot_identity(
+        str(bot_token or ""),
+        state,
+        fallback_username=str(data.get("bot_username", "") or ""),
+    )
     add_url = _add_to_channel_url(bot_username)
 
     await callback.answer()
@@ -1856,7 +1948,12 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
 
     if callback.data == "verify:open_group_create":
         data = await state.get_data()
-        group_url = _add_to_group_url(str(data.get("bot_username") or ""))
+        bot_username = await _refresh_flow_bot_identity(
+            str(data.get("bot_token") or ""),
+            state,
+            fallback_username=str(data.get("bot_username") or ""),
+        )
+        group_url = _add_to_group_url(bot_username)
         setup_help_text = f"{t(lang, 'verify_setup_help_text')}\n\n{t(lang, 'preflight_required_before_approval_title')}"
         await _set_or_edit_prompt(
             bot=callback.bot,

@@ -200,6 +200,60 @@ async def test_receive_channel_shared_uses_chat_id_as_trusted_channel(monkeypatc
     assert handled["trusted_channel"] is True
 
 
+def test_add_to_channel_url_targets_requested_bot_username():
+    url = vr._add_to_channel_url("@test_bot")
+
+    assert url.startswith("https://t.me/test_bot?startchannel=true&admin=")
+    assert "Digital" not in url
+
+
+@pytest.mark.asyncio
+async def test_channel_admin_prompt_refreshes_add_link_from_token(monkeypatch):
+    state = _FakeState()
+    state.data.update(
+        {
+            "bot_token": "8791141203:AAE3lSGuFNNtWvSjL5mgk9VRNAhxIknW1x0",
+            "bot_username": "PHanToOomDigitalServices",
+        }
+    )
+    message = _FakeMessage("")
+    prompts = []
+
+    class _TempSession:
+        async def close(self):
+            return None
+
+    class _TempBot:
+        def __init__(self, token):
+            self.token = token
+            self.session = _TempSession()
+
+        async def get_me(self):
+            return SimpleNamespace(id=8791141203, username="test_bot", first_name="test")
+
+    async def _fake_is_admin(*_args, **_kwargs):
+        return False
+
+    async def _fake_prompt(**kwargs):
+        prompts.append(kwargs)
+        return None
+
+    async def _fake_show_channel(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(vr, "Bot", _TempBot)
+    monkeypatch.setattr(vr, "_is_bot_admin_in_channel", _fake_is_admin)
+    monkeypatch.setattr(vr, "_set_or_edit_prompt", _fake_prompt)
+    monkeypatch.setattr(vr, "_show_channel_picker_prompt", _fake_show_channel)
+
+    await vr._handle_channel_value(message, state, "en", "@my_channel", trusted_channel=True)
+
+    buttons = prompts[-1]["reply_markup"].inline_keyboard
+    assert buttons[0][0].url.startswith("https://t.me/test_bot?startchannel=true&admin=")
+    assert "PHanToOomDigitalServices" not in buttons[0][0].url
+    assert state.data["bot_username"] == "test_bot"
+
+
 def test_telegram_chat_ref_coerces_numeric_channel_ids():
     assert vr._telegram_chat_ref("-1001234567890") == -1001234567890
     assert vr._telegram_chat_ref("@my_channel") == "@my_channel"
