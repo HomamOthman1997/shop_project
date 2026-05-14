@@ -558,7 +558,12 @@ def _provider_screen_padding(prices: dict[str, dict] | None = None) -> list[str]
 
 
 def _numbers_mode_name(lang: str, num_type: str | None) -> str:
-    return t(lang, "rental_numbers") if str(num_type or "").strip().lower() == "rental" else t(lang, "temp_numbers")
+    normalized = str(num_type or "").strip().lower()
+    if normalized == "rental":
+        return t(lang, "rental_numbers")
+    if normalized == "voice":
+        return _numbers_text(lang, "Call Number", "رقم اتصال")
+    return t(lang, "temp_numbers")
 
 
 async def send_number_type_entry(message: types.Message, state: FSMContext, *, lang: str) -> None:
@@ -570,6 +575,25 @@ async def send_number_type_entry(message: types.Message, state: FSMContext, *, l
         )
     except Exception:
         await message.answer(t(lang, "choose_number_type"), reply_markup=number_type_kb(lang, show_cancel=False))
+    await state.set_state(NumberFlow.num_type)
+
+
+async def _show_number_type_entry(message: types.Message, state: FSMContext, *, lang: str) -> None:
+    await state.update_data(
+        lang=lang,
+        num_type=None,
+        service=None,
+        country=None,
+        state=None,
+        numbers_preselected_service=False,
+        service_lookup_not_listed=False,
+    )
+    sent = await _safe_edit_text(
+        message,
+        t(lang, "choose_number_type"),
+        reply_markup=number_type_kb(lang, show_cancel=False),
+    )
+    await state.update_data(last_msg_id=sent.message_id)
     await state.set_state(NumberFlow.num_type)
 
 
@@ -628,6 +652,10 @@ async def _show_country_entry_for_selected_service(
     service_key: str,
     last_msg_id: int | None,
 ) -> None:
+    if str(num_type or "").strip().lower() == "voice":
+        await state.update_data(service=service_key, country="1", state="none")
+        await _load_service_prices(chat_id, bot, state, service_key)
+        return
     await state.update_data(service=service_key, country=None, state=None)
     options = _preferred_country_options()[:10]
     text = _compose_numbers_screen(
@@ -955,7 +983,7 @@ async def choose_number_type(callback: types.CallbackQuery, state: FSMContext):
 async def rental_add_number(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
-    await _show_service_entry(callback.message, state, lang=lang, num_type="rental")
+    await _show_number_type_entry(callback.message, state, lang=lang)
 
 
 @router.callback_query(lambda c: c.data == "flow:rental:menu")
@@ -1394,6 +1422,10 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
     country = data.get("country")
     state_code = data.get("state")
     last_msg_id = data.get("last_msg_id")
+    if num_type == "voice":
+        country = "1"
+        state_code = "none"
+        await state.update_data(country=country, state=state_code)
     if not last_msg_id:
         current_callback = _CURRENT_CALLBACK.get()
         current_message = getattr(current_callback, "message", None)
@@ -1407,7 +1439,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
             bot,
             state,
             lang=lang,
-            num_type="rental" if num_type == "rental" else "temp",
+            num_type=num_type if num_type in {"rental", "voice"} else "temp",
             last_msg_id=last_msg_id,
         )
         return
@@ -1441,7 +1473,6 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
                         title=t(lang, "no_prices_available"),
                         service=service_name,
                         country_code="1",
-                        state_code=str(state_code or ""),
                     ),
                     reply_markup=no_availability_kb(lang),
                 )
@@ -1454,7 +1485,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
                 message_id=last_msg_id,
                 text=_compose_numbers_screen(
                     _numbers_text(lang, "Choose call-number option.", "اختر خيار رقم الاتصال."),
-                    _numbers_context_lines(lang, service=service_name, country_code="1", state_code=str(state_code or "none")),
+                    _numbers_context_lines(lang, service=service_name, country_code="1"),
                 ),
                 reply_markup=provider_choice_kb(prices, lang=lang, usd_to_syp=usd_to_syp_rate),
             )

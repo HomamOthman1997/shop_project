@@ -143,6 +143,196 @@ async def test_rental_type_goes_directly_to_service_selection():
     assert parse_mode == "HTML"
 
 
+@pytest.mark.asyncio
+async def test_voice_type_shows_call_number_service_selection():
+    class _Message:
+        def __init__(self):
+            self.message_id = 46
+            self.edits = []
+
+        async def edit_text(self, text, reply_markup=None, parse_mode=None):
+            self.edits.append((text, reply_markup, parse_mode))
+            return self
+
+    class _State:
+        def __init__(self):
+            self.data = {"lang": "en"}
+            self.last_state = None
+
+        async def get_data(self):
+            return dict(self.data)
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def set_state(self, state):
+            self.last_state = state
+
+    callback = type("CB", (), {"data": "flow:type:voice", "message": _Message()})()
+    state = _State()
+
+    await core_numbers.choose_number_type(callback, state)
+
+    assert state.data["num_type"] == "voice"
+    assert state.last_state == core_numbers.NumberFlow.service
+    text, markup, parse_mode = callback.message.edits[0]
+    assert "Mode: Call Number" in text
+    assert "Mode: ⏱️ Temp Number" not in text
+    assert markup.inline_keyboard
+    assert parse_mode == "HTML"
+
+
+@pytest.mark.asyncio
+async def test_voice_inline_service_selection_skips_country_selection(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_load_service_prices(chat_id, bot, state, service_name):
+        captured["chat_id"] = chat_id
+        captured["service_name"] = service_name
+
+    monkeypatch.setattr(core_numbers, "_load_service_prices", fake_load_service_prices)
+
+    class _State:
+        def __init__(self):
+            self.data = {"lang": "en", "num_type": "voice", "last_msg_id": 50}
+            self.last_state = None
+
+        async def get_data(self):
+            return dict(self.data)
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def set_state(self, state):
+            self.last_state = state
+
+    class _Message:
+        def __init__(self):
+            self.text = "/select_service_gmail"
+            self.chat = type("Chat", (), {"id": 123})()
+            self.bot = object()
+            self.deleted = False
+
+        async def delete(self):
+            self.deleted = True
+
+    message = _Message()
+    state = _State()
+
+    await core_numbers.handle_inline_service_selection(message, state)
+
+    assert message.deleted is True
+    assert captured == {"chat_id": 123, "service_name": "gmail"}
+    assert state.data["service"] == "gmail"
+    assert state.data["country"] == "1"
+    assert state.data["state"] == "none"
+    assert state.last_state is None
+
+
+@pytest.mark.asyncio
+async def test_voice_price_loading_forces_us_without_state(monkeypatch):
+    calls: list[tuple[str, str, str, bool]] = []
+
+    async def fake_get_all_voice_prices(service_name, country, state_code, ignore_balance=True):
+        calls.append((service_name, country, state_code, ignore_balance))
+        return {
+            "textverified": {
+                "success": True,
+                "price": 1.0,
+                "available_for_buy": True,
+                "success_rate": 100.0,
+                "success_attempts": 0,
+            }
+        }
+
+    async def fake_rate():
+        return 0.0
+
+    monkeypatch.setattr(core_numbers, "get_all_voice_prices", fake_get_all_voice_prices)
+    monkeypatch.setattr(core_numbers, "_resolve_usd_to_syp_rate", fake_rate)
+
+    class _Bot:
+        def __init__(self):
+            self.edits = []
+
+        async def edit_message_text(self, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+            self.edits.append(
+                {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": text,
+                    "reply_markup": reply_markup,
+                    "parse_mode": parse_mode,
+                }
+            )
+
+    class _State:
+        def __init__(self):
+            self.data = {"lang": "en", "num_type": "voice", "country": "90", "state": "CA", "last_msg_id": 51}
+            self.last_state = None
+
+        async def get_data(self):
+            return dict(self.data)
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def set_state(self, state):
+            self.last_state = state
+
+    bot = _Bot()
+    state = _State()
+
+    await core_numbers._load_service_prices(123, bot, state, "gmail")
+
+    assert calls == [("gmail", "1", "none", True)]
+    assert state.data["country"] == "1"
+    assert state.data["state"] == "none"
+    assert state.last_state == core_numbers.NumberFlow.confirm_buy
+    assert "Country: United States" in bot.edits[-1]["text"]
+    assert "State:" not in bot.edits[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_rental_add_number_returns_to_number_type_selection():
+    class _Message:
+        def __init__(self):
+            self.message_id = 45
+            self.edits = []
+
+        async def edit_text(self, text, reply_markup=None, parse_mode=None):
+            self.edits.append((text, reply_markup, parse_mode))
+            return self
+
+    class _State:
+        def __init__(self):
+            self.data = {"lang": "en", "num_type": "rental", "service": "telegram", "country": "1"}
+            self.last_state = None
+
+        async def get_data(self):
+            return dict(self.data)
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def set_state(self, state):
+            self.last_state = state
+
+    callback = type("CB", (), {"data": "flow:rental:add", "message": _Message()})()
+    state = _State()
+
+    await core_numbers.rental_add_number(callback, state)
+
+    assert state.last_state == core_numbers.NumberFlow.num_type
+    assert state.data["num_type"] is None
+    assert state.data["service"] is None
+    text, markup, parse_mode = callback.message.edits[0]
+    assert text == core_numbers.t("en", "choose_number_type")
+    assert parse_mode is None
+    callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
+    assert callbacks == ["flow:type:temp", "flow:type:rental", "flow:type:voice"]
+
+
 def test_my_numbers_only_lists_provisioned_successful_numbers():
     assert core_numbers_buy._is_manageable_my_number(
         {
