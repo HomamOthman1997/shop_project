@@ -139,3 +139,36 @@ async def test_save_token_explains_registered_bot_and_stays_on_token_step(monkey
     assert "token you sent belongs to a bot" in text
     buttons = prompts[-1]["reply_markup"].inline_keyboard
     assert buttons[0][0].text == "🔁 I Have a New Token"
+
+
+@pytest.mark.asyncio
+async def test_receive_channel_keeps_manual_channel_in_channel_step(monkeypatch):
+    state = _FakeState()
+    message = _FakeMessage("@my_channel")
+    handled = {}
+
+    async def _fake_user(_uid):
+        return {"language": "en"}
+
+    async def _fake_delete(*_args, **_kwargs):
+        handled["deleted"] = True
+
+    async def _fake_handle_channel(message_arg, state_arg, lang, channel_norm):
+        handled["message"] = message_arg
+        handled["state"] = state_arg
+        handled["lang"] = lang
+        handled["channel_norm"] = channel_norm
+
+    async def _fail_save_token(*_args, **_kwargs):
+        raise AssertionError("manual channel was routed as a bot token")
+
+    monkeypatch.setattr(vr, "get_user", _fake_user)
+    monkeypatch.setattr(vr, "_safe_delete_user_message", _fake_delete)
+    monkeypatch.setattr(vr, "_handle_channel_value", _fake_handle_channel)
+    monkeypatch.setattr(vr, "save_token", _fail_save_token)
+
+    await vr.receive_channel(message, state)
+
+    assert handled["deleted"] is True
+    assert handled["channel_norm"] == "@my_channel"
+    assert state.state is None

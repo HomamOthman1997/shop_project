@@ -25,6 +25,7 @@ from database.bots_repo import (
     update_reseller_info,
     verify_bot,
 )
+from database.bot_logs_repo import get_bot_logs_target
 from services.subscriptions.bot_subscription_service import get_bot_subscription
 from database.custom_services_repo import clone_catalog_from_reseller_template
 from database.financial_ledger import get_reseller_wallet_balance
@@ -58,10 +59,23 @@ ADDRESS_PROMPT_MSG_ID_KEY = "verify_address_prompt_msg_id"
 CHANNEL_PROMPT_MSG_ID_KEY = "verify_channel_prompt_msg_id"
 FLOW_REF_KEY = "verify_flow_ref"
 REPLY_KB_ANCHOR_MSG_ID_KEY = "verify_reply_kb_anchor_msg_id"
+BOT_TOKEN_RE = re.compile(r"\d{8,12}:[A-Za-z0-9_-]{20,}")
+SYRIA_COUNTRY_CODE = "SY"
+SYRIA_APPROX_POLYGON = (
+    (35.62, 32.31),
+    (36.84, 32.31),
+    (38.80, 33.37),
+    (42.38, 37.32),
+    (41.25, 37.22),
+    (39.10, 36.88),
+    (37.15, 36.70),
+    (35.78, 35.92),
+    (35.62, 33.25),
+)
 
 
 def is_valid_token(text: str):
-    return bool(_extract_token_input(text))
+    return bool(BOT_TOKEN_RE.fullmatch(_normalize_token_input(text)))
 
 
 def _normalize_token_input(raw: str) -> str:
@@ -78,9 +92,9 @@ def _extract_token_input(raw: str) -> str:
     cleaned = _normalize_token_input(raw)
     if not cleaned:
         return ""
-    m = re.search(r"(\d{8,12}:[A-Za-z0-9_-]{20,})", cleaned)
+    m = BOT_TOKEN_RE.search(cleaned)
     if m:
-        return m.group(1)
+        return m.group(0)
     return cleaned
 
 
@@ -278,6 +292,15 @@ def _phone_request_kb(lang: str) -> ReplyKeyboardMarkup:
     )
 
 
+def _location_request_kb(lang: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=t(lang, "location_share_button"), request_location=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True,
+    )
+
+
 def _channel_request_kb(lang: str) -> ReplyKeyboardMarkup:
     # Keep request lightweight; admin rights are verified in the next step.
     return ReplyKeyboardMarkup(
@@ -457,6 +480,16 @@ async def _show_phone_request_keyboard(bot: Bot, chat_id: int, state: FSMContext
     )
 
 
+async def _show_location_request_keyboard(bot: Bot, chat_id: int, state: FSMContext, lang: str):
+    await _refresh_reply_keyboard(
+        bot=bot,
+        chat_id=chat_id,
+        state=state,
+        reply_markup=_location_request_kb(lang),
+        text=t(lang, "location_keyboard_ready"),
+    )
+
+
 async def _refresh_reply_keyboard(
     bot: Bot,
     chat_id: int,
@@ -605,7 +638,7 @@ def _missing_fields_text(lang: str, data: dict) -> str:
         "channel": "القناة" if str(lang or "").lower().startswith("ar") else "Channel",
         "fullname": "الاسم الكامل" if str(lang or "").lower().startswith("ar") else "Full name",
         "phone": "رقم الهاتف" if str(lang or "").lower().startswith("ar") else "Phone number",
-        "address": "العنوان" if str(lang or "").lower().startswith("ar") else "Address",
+        "address": "الموقع" if str(lang or "").lower().startswith("ar") else "Location",
     }
     missing = [label for key, label in labels.items() if not data.get(key)]
     if str(lang or "").lower().startswith("ar"):
@@ -627,8 +660,8 @@ def _normalize_manual_phone(raw: str) -> str:
 
 def _address_invalid_text(lang: str) -> str:
     if str(lang or "").lower().startswith("ar"):
-        return "يرجى إرسال عنوان واضح وليس قصيرًا جدًا."
-    return "Please send a clear address. It is too short right now."
+        return "يرجى مشاركة موقعك من تيليغرام بدل كتابة العنوان."
+    return "Please share your Telegram location instead of typing an address."
 
 
 async def _is_bot_admin_with_topics(bot_token: str, chat_id: int) -> tuple[bool, str]:
@@ -763,10 +796,199 @@ def _approval_packet_text(lang: str, payload: dict) -> str:
     )
 
 
+def _owner_review_kb(request_id) -> types.InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=t("en", "owner_approve_create"), callback_data=f"verify_owner:approve:{request_id}")
+    kb.button(text=t("en", "owner_reject_create"), callback_data=f"verify_owner:reject:{request_id}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def _bot_creation_review_text(req: dict, payload: dict, reasons: list[str]) -> str:
+    user = req.get("requester") or {}
+    username = str(user.get("username") or "").strip()
+    uname = f"@{username}" if username else "-"
+    loc = payload.get("location") or {}
+    reason_text = "\n".join(f"- {reason}" for reason in reasons) or "-"
+    bot_username = f"@{payload.get('bot_username')}" if payload.get("bot_username") else "-"
+    return (
+        "Manual Bot Creation Review\n\n"
+        f"Request ID: {req.get('_id')}\n"
+        f"Reason:\n{reason_text}\n\n"
+        f"Requester ID: {req.get('requester_id')}\n"
+        f"Username: {uname}\n"
+        f"Name: {user.get('full_name') or '-'}\n\n"
+        f"Bot Name: {payload.get('bot_title') or '-'}\n"
+        f"Bot Username: {bot_username}\n"
+        f"Bot ID: {payload.get('bot_id') or '-'}\n"
+        f"Channel: {payload.get('channel') or '-'}\n"
+        f"Full Name: {payload.get('fullname') or '-'}\n"
+        f"Phone: {payload.get('phone') or '-'}\n"
+        f"Phone Country: {payload.get('phone_country') or '-'} ({payload.get('phone_region') or '-'})\n"
+        f"Location: {loc.get('latitude') or '-'}, {loc.get('longitude') or '-'}\n"
+        f"Location Country: {loc.get('country_code') or '-'}\n"
+        f"Live Location: {'yes' if loc.get('live') else 'no'}"
+    )
+
+
+async def _owner_bot_creation_target() -> dict | None:
+    target = await db.system_settings.find_one({"_id": "owner_bot_creation_requests"}) or {}
+    if not isinstance(target.get("chat_id"), int):
+        target = await db.system_settings.find_one({"_id": "owner_notifications"}) or {}
+    if isinstance(target.get("chat_id"), int):
+        thread_id = target.get("message_thread_id")
+        return {
+            "chat_id": int(target["chat_id"]),
+            "message_thread_id": int(thread_id) if isinstance(thread_id, int) else None,
+        }
+    logs_target = await get_bot_logs_target()
+    if logs_target and isinstance(logs_target.get("chat_id"), int):
+        return {
+            "chat_id": int(logs_target["chat_id"]),
+            "message_thread_id": logs_target.get("message_thread_id"),
+        }
+    owner_id = int(getattr(settings, "owner_id", 0) or 0)
+    if owner_id > 0:
+        return {"chat_id": owner_id, "message_thread_id": None}
+    return None
+
+
+async def _notify_owner_bot_creation_review(source_bot: Bot, req: dict, payload: dict, reasons: list[str]) -> tuple[bool, str, dict]:
+    target = await _owner_bot_creation_target()
+    if not target:
+        return False, "owner_target_not_bound", {}
+
+    bot = source_bot
+    close_bot = False
+    admin_token = str(getattr(settings, "bot_admin_token", "") or "").strip()
+    if admin_token:
+        try:
+            bot = Bot(token=admin_token)
+            close_bot = True
+        except Exception:
+            bot = source_bot
+            close_bot = False
+
+    try:
+        kwargs = {
+            "chat_id": int(target["chat_id"]),
+            "text": _bot_creation_review_text(req, payload, reasons),
+            "reply_markup": _owner_review_kb(req["_id"]),
+        }
+        if target.get("message_thread_id") is not None:
+            kwargs["message_thread_id"] = int(target["message_thread_id"])
+        sent = await bot.send_message(**kwargs)
+        delivery = {
+            "chat_id": int(target["chat_id"]),
+            "message_id": int(getattr(sent, "message_id", 0) or 0),
+            "message_thread_id": target.get("message_thread_id"),
+            "bot": "admin" if close_bot else "source",
+        }
+        return True, "owner_review", delivery
+    except Exception as exc:
+        return False, str(exc), dict(target)
+    finally:
+        if close_bot:
+            try:
+                await bot.session.close()
+            except Exception:
+                pass
+
+
+async def _submit_manual_bot_creation_review(
+    *,
+    callback: types.CallbackQuery,
+    state: FSMContext,
+    lang: str,
+    payload: dict,
+    reasons: list[str],
+    preflight_checks: dict,
+) -> None:
+    user = await get_user(callback.from_user.id)
+    requester = {
+        "username": getattr(callback.from_user, "username", "") or (user or {}).get("username", ""),
+        "full_name": " ".join(
+            part for part in [getattr(callback.from_user, "first_name", ""), getattr(callback.from_user, "last_name", "")]
+            if part
+        ).strip(),
+    }
+    now = datetime.now(UTC)
+    req = {
+        "status": "pending",
+        "requester_id": int(callback.from_user.id),
+        "requester_lang": lang,
+        "source_bot_token": str(getattr(settings, "bot_main_token", "") or ""),
+        "source_bot_id": int((await callback.bot.get_me()).id),
+        "requester": requester,
+        "payload": payload,
+        "review_reasons": reasons,
+        "preflight_checks": preflight_checks,
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = await db.bot_creation_requests.insert_one(req)
+    req["_id"] = result.inserted_id
+    delivered, route, delivery = await _notify_owner_bot_creation_review(callback.bot, req, payload, reasons)
+    await db.bot_creation_requests.update_one(
+        {"_id": result.inserted_id},
+        {
+            "$set": {
+                "owner_notified": bool(delivered),
+                "owner_notify_route": route,
+                "delivery": delivery,
+                "updated_at": datetime.now(UTC),
+            }
+        },
+    )
+    if not delivered:
+        logger.warning("create_bot_manual_review_notify_failed request_id=%s route=%s", result.inserted_id, route)
+
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    text = (
+        f"{t(lang, 'manual_review_required_text')}\n\n{_manual_review_reasons_text(lang, reasons)}"
+    )
+    await callback.message.answer(text)
+    await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
+
+
+def _normalize_phone_for_region(phone_raw: str) -> str:
+    normalized = re.sub(r"[^\d+]", "", phone_raw or "")
+    if not normalized:
+        return ""
+    if normalized.startswith("00"):
+        normalized = f"+{normalized[2:]}"
+    digits = re.sub(r"\D", "", normalized)
+    if not normalized.startswith("+") and digits:
+        normalized = f"+{digits}"
+    return normalized
+
+
+def _extract_phone_region(phone_raw: str) -> str:
+    normalized = _normalize_phone_for_region(phone_raw)
+    if not normalized:
+        return ""
+    digits = re.sub(r"\D", "", normalized)
+    if digits.startswith("963"):
+        return SYRIA_COUNTRY_CODE
+    try:
+        import phonenumbers  # type: ignore
+
+        parsed = phonenumbers.parse(normalized, None)
+        return (phonenumbers.region_code_for_number(parsed) or "").upper()
+    except Exception:
+        return ""
+
+
+def _phone_is_syrian(phone_raw: str) -> bool:
+    return _extract_phone_region(phone_raw) == SYRIA_COUNTRY_CODE
 
 
 def _extract_phone_country(phone_raw: str) -> str:
-    normalized = re.sub(r"[^\d+]", "", phone_raw or "")
+    normalized = _normalize_phone_for_region(phone_raw)
     if not normalized:
         return "Unknown"
     try:
@@ -774,14 +996,64 @@ def _extract_phone_country(phone_raw: str) -> str:
         from phonenumbers import geocoder  # type: ignore
 
         parsed = phonenumbers.parse(normalized, None)
-        region = phonenumbers.region_code_for_number(parsed) or ""
+        region = (phonenumbers.region_code_for_number(parsed) or "").upper()
         country_name = geocoder.country_name_for_number(parsed, "en") or region or ""
         label = country_name.strip() if country_name else region
         if label:
             return label
         return "Unknown"
     except Exception:
+        if _extract_phone_region(phone_raw) == SYRIA_COUNTRY_CODE:
+            return "Syria"
         return "Unknown"
+
+
+def _point_in_polygon(lon: float, lat: float, polygon: tuple[tuple[float, float], ...]) -> bool:
+    inside = False
+    j = len(polygon) - 1
+    for i, (xi, yi) in enumerate(polygon):
+        xj, yj = polygon[j]
+        crosses = ((yi > lat) != (yj > lat)) and (
+            lon < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi
+        )
+        if crosses:
+            inside = not inside
+        j = i
+    return inside
+
+
+def _is_location_in_syria(latitude: float, longitude: float) -> bool:
+    try:
+        lat = float(latitude)
+        lon = float(longitude)
+    except Exception:
+        return False
+    if lat < 32.0 or lat > 37.6 or lon < 35.4 or lon > 42.5:
+        return False
+    return _point_in_polygon(lon, lat, SYRIA_APPROX_POLYGON)
+
+
+def _location_address_text(latitude: float, longitude: float, *, live: bool) -> str:
+    kind = "Telegram live location" if live else "Telegram location"
+    return f"{kind}: {float(latitude):.6f}, {float(longitude):.6f}"
+
+
+def _manual_review_reasons(data: dict) -> list[str]:
+    reasons: list[str] = []
+    if data.get("phone_region") != SYRIA_COUNTRY_CODE:
+        reasons.append("phone_not_syria")
+    if data.get("location_country_code") != SYRIA_COUNTRY_CODE:
+        reasons.append("location_not_syria")
+    return reasons
+
+
+def _manual_review_reasons_text(lang: str, reasons: list[str]) -> str:
+    is_ar = _is_ar(lang)
+    labels = {
+        "phone_not_syria": "رقم الهاتف ليس سورياً" if is_ar else "Phone number is not Syrian",
+        "location_not_syria": "الموقع خارج سوريا" if is_ar else "Location is outside Syria",
+    }
+    return "\n".join(f"- {labels.get(reason, reason)}" for reason in reasons)
 
 
 def _normalize_channel_input(raw: str) -> str:
@@ -1321,17 +1593,24 @@ async def receive_phone(message: types.Message, state: FSMContext):
         return
     phone = (message.contact.phone_number or "").strip()
     phone_country = _extract_phone_country(phone)
-    await state.update_data(phone=phone, phone_country=phone_country)
+    phone_region = _extract_phone_region(phone)
+    await state.update_data(
+        phone=phone,
+        phone_country=phone_country,
+        phone_region=phone_region,
+        phone_is_syria=(phone_region == SYRIA_COUNTRY_CODE),
+    )
     await _hide_reply_keyboard(message.bot, message.chat.id, state)
     await state.update_data(**{ADDRESS_PROMPT_MSG_ID_KEY: None})
     await _set_or_edit_prompt(
         bot=message.bot,
         chat_id=message.chat.id,
         state=state,
-        text=_step_prompt_html(lang, 5, "Address", "العنوان", t(lang, "send_address")),
+        text=_step_prompt_html(lang, 5, "Telegram Location", "موقع تيليغرام", t(lang, "send_address")),
         reply_markup=_verify_nav_kb(lang, include_back=True),
         parse_mode="HTML",
     )
+    await _show_location_request_keyboard(message.bot, message.chat.id, state, lang)
     await state.set_state(VerifyReseller.waiting_for_address)
 
 
@@ -1346,17 +1625,24 @@ async def receive_phone_text_fallback(message: types.Message, state: FSMContext)
     phone = _normalize_manual_phone(message.text or "")
     if phone:
         phone_country = _extract_phone_country(phone)
-        await state.update_data(phone=phone, phone_country=phone_country)
+        phone_region = _extract_phone_region(phone)
+        await state.update_data(
+            phone=phone,
+            phone_country=phone_country,
+            phone_region=phone_region,
+            phone_is_syria=(phone_region == SYRIA_COUNTRY_CODE),
+        )
         await _hide_reply_keyboard(message.bot, message.chat.id, state)
         await state.update_data(**{ADDRESS_PROMPT_MSG_ID_KEY: None})
         await _set_or_edit_prompt(
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_step_prompt_html(lang, 5, "Address", "العنوان", t(lang, "send_address")),
+            text=_step_prompt_html(lang, 5, "Telegram Location", "موقع تيليغرام", t(lang, "send_address")),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
+        await _show_location_request_keyboard(message.bot, message.chat.id, state, lang)
         await state.set_state(VerifyReseller.waiting_for_address)
         return
     await _set_or_edit_prompt(
@@ -1371,38 +1657,36 @@ async def receive_phone_text_fallback(message: types.Message, state: FSMContext)
     await state.update_data(**{PHONE_PROMPT_MSG_ID_KEY: None})
 
 
-@router.message(VerifyReseller.waiting_for_address)
-async def receive_address(message: types.Message, state: FSMContext):
-    user = await get_user(message.from_user.id)
-    lang = user.get("language", "en") if user else "en"
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    address = (message.text or "").strip()
-    if len(address) < 6:
-        return await _set_or_edit_prompt(
-            bot=message.bot,
-            chat_id=message.chat.id,
-            state=state,
-            text=_step_prompt_html(lang, 5, "Address", "العنوان", f"{_address_invalid_text(lang)}\n\n{t(lang, 'send_address')}"),
-            reply_markup=_verify_nav_kb(lang, include_back=True),
-            parse_mode="HTML",
-        )
-
+async def _finalize_location_step(message: types.Message, state: FSMContext, lang: str, location: types.Location):
+    latitude = float(location.latitude)
+    longitude = float(location.longitude)
+    live_period = getattr(location, "live_period", None)
+    is_live = bool(live_period)
+    location_is_syria = _is_location_in_syria(latitude, longitude)
     await _delete_state_message_by_key(message.bot, message.chat.id, state, ADDRESS_PROMPT_MSG_ID_KEY)
-    await state.update_data(address=address)
+    await _hide_reply_keyboard(message.bot, message.chat.id, state)
+    await state.update_data(
+        address=_location_address_text(latitude, longitude, live=is_live),
+        location_latitude=latitude,
+        location_longitude=longitude,
+        location_live=is_live,
+        location_live_period=int(live_period) if live_period else None,
+        location_country_code=SYRIA_COUNTRY_CODE if location_is_syria else "OUTSIDE_SYRIA",
+        location_is_syria=location_is_syria,
+    )
     data = await state.get_data()
 
     preflight_ok, preflight_checks = await _run_preflight_checks(data, requester_id=int(message.from_user.id))
     await state.update_data(preflight_ok=preflight_ok, preflight_checks=preflight_checks)
     logger.info(
-        "create_bot_preflight user_id=%s bot_id=%s ok=%s checks=%s",
+        "create_bot_preflight user_id=%s bot_id=%s ok=%s checks=%s phone_region=%s location_is_syria=%s location_live=%s",
         message.from_user.id,
         data.get("bot_id"),
         preflight_ok,
         preflight_checks,
+        data.get("phone_region"),
+        location_is_syria,
+        is_live,
     )
 
     summary_text = _build_summary_text(data, lang, preflight_checks)
@@ -1416,6 +1700,36 @@ async def receive_address(message: types.Message, state: FSMContext):
         parse_mode="HTML",
     )
     await state.set_state(VerifyReseller.waiting_for_confirm)
+
+
+@router.message(VerifyReseller.waiting_for_address, lambda msg: msg.location is not None)
+async def receive_location(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = user.get("language", "en") if user else "en"
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    await _finalize_location_step(message, state, lang, message.location)
+
+
+@router.message(VerifyReseller.waiting_for_address)
+async def receive_address(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = user.get("language", "en") if user else "en"
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    await _set_or_edit_prompt(
+        bot=message.bot,
+        chat_id=message.chat.id,
+        state=state,
+        text=_step_prompt_html(lang, 5, "Telegram Location", "موقع تيليغرام", f"{_address_invalid_text(lang)}\n\n{t(lang, 'send_address')}"),
+        reply_markup=_verify_nav_kb(lang, include_back=True),
+        parse_mode="HTML",
+    )
+    await _show_location_request_keyboard(message.bot, message.chat.id, state, lang)
 
 
 @router.callback_query(
@@ -1551,8 +1865,35 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
         "fullname": data["fullname"],
         "phone": data["phone"],
         "phone_country": data.get("phone_country", "Unknown"),
+        "phone_region": data.get("phone_region", ""),
         "address": data["address"],
+        "location": {
+            "latitude": data.get("location_latitude"),
+            "longitude": data.get("location_longitude"),
+            "country_code": data.get("location_country_code", ""),
+            "is_syria": bool(data.get("location_is_syria")),
+            "live": bool(data.get("location_live")),
+            "live_period": data.get("location_live_period"),
+        },
     }
+
+    manual_review_reasons = _manual_review_reasons(data)
+    if manual_review_reasons:
+        logger.info(
+            "create_bot_manual_review_required user_id=%s bot_id=%s reasons=%s",
+            callback.from_user.id,
+            payload.get("bot_id"),
+            manual_review_reasons,
+        )
+        await _submit_manual_bot_creation_review(
+            callback=callback,
+            state=state,
+            lang=lang,
+            payload=payload,
+            reasons=manual_review_reasons,
+            preflight_checks=preflight_checks,
+        )
+        return
 
     created_new_bot = False
     core_activated = False
@@ -1765,14 +2106,16 @@ async def verify_navigation(callback: types.CallbackQuery, state: FSMContext):
     if current == VerifyReseller.waiting_for_confirm.state:
         await state.set_state(VerifyReseller.waiting_for_address)
         await callback.answer()
-        return await _set_or_edit_prompt(
+        await _set_or_edit_prompt(
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_step_prompt_html(lang, 5, "Address", "العنوان", t(lang, "send_address")),
+            text=_step_prompt_html(lang, 5, "Telegram Location", "موقع تيليغرام", t(lang, "send_address")),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
+        await _show_location_request_keyboard(callback.bot, callback.message.chat.id, state, lang)
+        return
 
     await callback.answer()
     return await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)

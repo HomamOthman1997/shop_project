@@ -752,6 +752,7 @@ def build_main_dispatcher() -> Dispatcher:
     dp.include_router(_restrict_router_to_kinds(_load_router_clone("handlers.main_menu_main_clone", "handlers/main_menu.py"), BOT_KIND_MAIN))
     dp.include_router(_restrict_router_to_kinds(proxy_flow_router, BOT_KIND_MAIN))
     dp.include_router(_restrict_router_to_kinds(verify_reseller_base, BOT_KIND_MAIN))
+    dp.include_router(_restrict_router_to_kinds(owner_requests_router, BOT_KIND_MAIN))
     dp.include_router(_restrict_router_to_kinds(custom_services_router, BOT_KIND_MAIN))
     dp.include_router(_restrict_router_to_kinds(core_numbers_router, BOT_KIND_MAIN))
     dp.include_router(_restrict_router_to_kinds(core_numbers_buy_router, BOT_KIND_MAIN))
