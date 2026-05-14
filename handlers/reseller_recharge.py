@@ -41,7 +41,7 @@ from database.reseller_settings_repo import (
 from database.user_repo import get_user, get_user_by_username, get_user_reseller_for_bot
 from keyboards.balance_keyboard import balance_keyboard
 from keyboards.reseller_main_menu import reseller_main_menu
-from utils.bot_menu_context import send_main_bot_message
+from utils.bot_menu_context import extract_bot_id_from_token, send_main_bot_message
 from utils.permissions import is_reseller, owner_only
 from utils.recharge_ui import (
     format_owner_reseller_topup_text,
@@ -55,6 +55,21 @@ from utils.user_money import format_usd
 router = Router()
 
 
+def _configured_platform_bot_token(bot_id: int) -> str:
+    for attr in (
+        "bot_main_token",
+        "bot_numbers_token",
+        "bot_digital_products_token",
+        "bot_card_ex_token",
+        "bot_cards_token",
+        "bot_admin_token",
+    ):
+        token = str(getattr(settings, attr, "") or "").strip()
+        if token and extract_bot_id_from_token(token) == int(bot_id):
+            return token
+    return ""
+
+
 async def _resolve_request_user_notification_bot(req: dict, fallback_bot: Bot) -> Bot:
     details = req.get("details") or {}
     source_bot_id = int(details.get("source_bot_id") or 0)
@@ -62,15 +77,7 @@ async def _resolve_request_user_notification_bot(req: dict, fallback_bot: Bot) -
     if source_bot_id <= 0 or source_bot_id == fallback_id:
         return fallback_bot
 
-    token = ""
-    try:
-        if source_bot_id == int(getattr(settings, "bot_main_id", 0) or 0):
-            token = str(getattr(settings, "bot_main_token", "") or "").strip()
-        elif source_bot_id == int(getattr(settings, "bot_admin_id", 0) or 0):
-            token = str(getattr(settings, "bot_admin_token", "") or "").strip()
-    except Exception:
-        token = ""
-
+    token = _configured_platform_bot_token(source_bot_id)
     if not token:
         bot_row = await db.bots.find_one({"bot_id": source_bot_id, "active": True}, {"token": 1})
         token = str((bot_row or {}).get("token") or "").strip()
@@ -1256,9 +1263,9 @@ async def _apply_owner_reseller_topup_decision(bot, owner_id: int, request_id: s
                 await _notify_recharge_request_user(
                     req,
                     bot,
-                    "Main Bot balance request accepted.\n"
-                    f"Added credits: {amount_done:.4f}\n"
-                    f"Current Main Bot balance: {format_usd(new_bal)}",
+                    "Your balance was topped up.\n"
+                    f"Added: {amount_done:.4f} credits\n"
+                    f"Current balance: {format_usd(new_bal)}",
                 )
             except Exception:
                 pass

@@ -219,3 +219,42 @@ async def test_notify_recharge_request_user_uses_source_bot(monkeypatch):
     )
 
     assert sent == [("source", 987, "hello")]
+
+
+@pytest.mark.asyncio
+async def test_resolve_notification_bot_uses_configured_numbers_bot_token(monkeypatch):
+    created: list[tuple[str, int | None]] = []
+
+    class FakeCreatedBot:
+        def __init__(self, token, timeout=None):
+            self.token = token
+            self.timeout = timeout
+            self.session = SimpleNamespace(close=self._close)
+            created.append((token, timeout))
+
+        async def _close(self):
+            return None
+
+    class FakeFallbackBot:
+        async def get_me(self):
+            return SimpleNamespace(id=999)
+
+    class FakeBotsCollection:
+        async def find_one(self, *_args, **_kwargs):
+            raise AssertionError("configured platform token should be used before db lookup")
+
+    monkeypatch.setattr(reseller_recharge.settings, "bot_numbers_token", "222:NUMBERS", raising=False)
+    monkeypatch.setattr(reseller_recharge, "Bot", FakeCreatedBot)
+    monkeypatch.setattr(
+        reseller_recharge,
+        "db",
+        SimpleNamespace(bots=FakeBotsCollection()),
+    )
+
+    bot = await reseller_recharge._resolve_request_user_notification_bot(
+        {"details": {"source_bot_id": 222}},
+        FakeFallbackBot(),
+    )
+
+    assert bot.token == "222:NUMBERS"
+    assert created == [("222:NUMBERS", 30)]
