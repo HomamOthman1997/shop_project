@@ -139,6 +139,50 @@ async def test_support_button_does_not_clear_existing_state(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_numbers_bot_support_menu_only_shows_numbers_and_balance(monkeypatch):
+    message = _FakeMessage(text=main_menu.t("en", "btn_support"))
+    state = _FakeState({"flow": "numbers"})
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    async def _is_numbers(_bot_id):
+        return True
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "is_numbers_bot", _is_numbers)
+
+    await main_menu.simple_menu_placeholders(message, state)
+
+    markup = message.answers[-1][1]
+    callbacks = [button.callback_data for row in markup.inline_keyboard for button in row if button.callback_data]
+    assert callbacks == ["support:cat:numbers", "support:cat:user_balance", "support:close"]
+
+
+@pytest.mark.asyncio
+async def test_more_services_button_opens_other_bot_links(monkeypatch):
+    message = _FakeMessage(text=main_menu.t("en", "btn_more_services"))
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "main_bot_url", lambda start="hub": "https://t.me/main?start=hub")
+    monkeypatch.setattr(main_menu, "digital_products_bot_url", lambda start="hub": "https://t.me/digital?start=hub")
+    monkeypatch.setattr(main_menu, "card_ex_bot_url", lambda start="cards": "https://t.me/cards?start=cards")
+
+    await main_menu.open_more_services_from_numbers_menu(message)
+
+    markup = message.answers[-1][1]
+    urls = [button.url for row in markup.inline_keyboard for button in row]
+    assert urls == [
+        "https://t.me/main?start=hub",
+        "https://t.me/digital?start=hub",
+        "https://t.me/cards?start=cards",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_user_settings_close_returns_main_menu(monkeypatch):
     callback = _FakeCallback()
     called = {}

@@ -36,9 +36,12 @@ from database.user_repo import get_user, get_user_reseller_for_bot, set_user_res
 from keyboards.recharge_methods_keyboard import recharge_methods_keyboard
 from keyboards.reseller_main_menu import reseller_main_menu
 from utils.bot_menu_context import (
+    card_ex_bot_url,
+    digital_products_bot_url,
     is_digital_products_bot,
     is_main_bot,
     is_numbers_bot,
+    main_bot_url,
     is_reseller_owned_bot,
     menu_for_current_bot,
     resolve_runtime_bot_id,
@@ -269,6 +272,7 @@ async def _user_settings_main_text(user_doc: dict | None, *, lang: str, bot_id: 
 
 
 SUPPORT_CATEGORIES = ("proxies", "numbers", "services", "user_balance")
+NUMBERS_BOT_SUPPORT_CATEGORIES = ("numbers", "user_balance")
 
 
 def _support_category_label(lang: str, category: str) -> str:
@@ -279,15 +283,21 @@ def _support_menu_text(lang: str) -> str:
     return t(lang, "support_menu_text")
 
 
-def _support_menu_kb(lang: str) -> InlineKeyboardMarkup:
+async def _support_categories_for_bot(bot_id: int) -> tuple[str, ...]:
+    if await is_numbers_bot(bot_id):
+        return NUMBERS_BOT_SUPPORT_CATEGORIES
+    return SUPPORT_CATEGORIES
+
+
+def _support_menu_kb(lang: str, categories: tuple[str, ...] = SUPPORT_CATEGORIES) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=_support_category_label(lang, category), callback_data=f"support:cat:{category}")]
+        for category in categories
+        if category in SUPPORT_CATEGORIES
+    ]
+    rows.append([InlineKeyboardButton(text=t(lang, "user_settings_close"), callback_data="support:close")])
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=_support_category_label(lang, "proxies"), callback_data="support:cat:proxies")],
-            [InlineKeyboardButton(text=_support_category_label(lang, "numbers"), callback_data="support:cat:numbers")],
-            [InlineKeyboardButton(text=_support_category_label(lang, "services"), callback_data="support:cat:services")],
-            [InlineKeyboardButton(text=_support_category_label(lang, "user_balance"), callback_data="support:cat:user_balance")],
-            [InlineKeyboardButton(text=t(lang, "user_settings_close"), callback_data="support:close")],
-        ]
+        inline_keyboard=rows
     )
 
 
@@ -490,10 +500,34 @@ async def _open_user_settings_message(message: types.Message, user_doc: dict | N
 
 
 async def _open_support_menu_message(message: types.Message, lang: str) -> None:
+    bot_id = int(await _current_bot_id(message.bot) or 0)
+    categories = await _support_categories_for_bot(bot_id)
     await message.answer(
         _support_menu_text(lang),
-        reply_markup=_support_menu_kb(lang),
+        reply_markup=_support_menu_kb(lang, categories),
     )
+
+
+def _more_services_kb(lang: str) -> InlineKeyboardMarkup | None:
+    rows: list[list[InlineKeyboardButton]] = []
+    main_url = main_bot_url("hub")
+    digital_url = digital_products_bot_url("hub")
+    card_url = card_ex_bot_url("cards")
+    if main_url:
+        rows.append([InlineKeyboardButton(text=t(lang, "open_main_bot_button"), url=main_url)])
+    if digital_url:
+        rows.append([InlineKeyboardButton(text=t(lang, "open_digital_products_button"), url=digital_url)])
+    if card_url:
+        rows.append([InlineKeyboardButton(text=t(lang, "open_card_ex_bot_button"), url=card_url)])
+    if not rows:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _open_more_services_message(message: types.Message, lang: str) -> None:
+    markup = _more_services_kb(lang)
+    text = t(lang, "more_services_text") if markup else t(lang, "more_services_not_configured_text")
+    await message.answer(text, reply_markup=markup)
 
 
 async def _send_support_header_if_needed(
@@ -1311,6 +1345,13 @@ async def open_digital_products_from_main_menu(message: types.Message):
     await send_digital_products_message(message, lang=lang)
 
 
+@router.message(lambda msg: _is_btn(msg.text, "btn_more_services"))
+async def open_more_services_from_numbers_menu(message: types.Message):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await _open_more_services_message(message, lang)
+
+
 @router.callback_query(lambda c: c.data == "back_to_main_menu")
 async def main_bot_services_back_to_menu(callback: types.CallbackQuery):
     await callback.answer()
@@ -1343,9 +1384,9 @@ async def support_category_selected(callback: types.CallbackQuery, state: FSMCon
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
     category = str((callback.data or "").split(":", 2)[2]).strip().lower()
-    if category not in SUPPORT_CATEGORIES:
-        return await callback.answer(t(lang, "support_invalid_category"), show_alert=True)
     bot_id = int(await _current_bot_id(callback.bot) or 0)
+    if category not in await _support_categories_for_bot(bot_id):
+        return await callback.answer(t(lang, "support_invalid_category"), show_alert=True)
     target = await _resolve_support_target(bot_id, category)
     if not target or not isinstance(target.get("chat_id"), int):
         return await callback.answer(t(lang, "support_not_configured_text"), show_alert=True)
