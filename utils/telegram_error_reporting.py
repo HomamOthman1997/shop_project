@@ -57,6 +57,8 @@ class TelegramErrorHandler(logging.Handler):
             "failed to fetch updates" in text
             and (
                 "telegramnetworkerror" in text
+                or "telegramconflicterror" in text
+                or "terminated by other getupdates request" in text
                 or "server disconnected" in text
                 or "cannot connect to host api.telegram.org" in text
                 or "clientconnectordnserror" in text
