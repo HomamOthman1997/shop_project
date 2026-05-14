@@ -34,7 +34,7 @@ def submit_brand_kb(top_brands: list[str]) -> InlineKeyboardMarkup:
             row = []
     if row:
         rows.append(row)
-    rows.append([InlineKeyboardButton(text="Type Brand", callback_data="cardx:brandsearch")])
+    rows.append([InlineKeyboardButton(text="Search Type", callback_data="cardx:brandsearch")])
     rows.append([InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -55,7 +55,7 @@ def submit_brand_results_kb(brands: list[str]) -> InlineKeyboardMarkup:
 
 
 def denomination_kb(values: list[str] | None = None) -> InlineKeyboardMarkup:
-    base = ["1", "2", "3", "4", "5", "10", "15", "20", "25", "50", "100"]
+    base = ["1", "2", "3", "4", "5", "6", "10", "15", "20", "25", "30", "40", "50", "100"]
     current = []
     seen = set()
     for item in (base + (values or [])):
@@ -74,6 +74,7 @@ def denomination_kb(values: list[str] | None = None) -> InlineKeyboardMarkup:
     if row:
         rows.append(row)
     rows.append([InlineKeyboardButton(text="Manual Value", callback_data="cardx:den:manual")])
+    rows.append([InlineKeyboardButton(text="Back", callback_data="cardx:back:brand")])
     rows.append([InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -86,6 +87,7 @@ def currency_kb() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="EUR", callback_data="cardx:cur:EUR"),
                 InlineKeyboardButton(text="GBP", callback_data="cardx:cur:GBP"),
             ],
+            [InlineKeyboardButton(text="Back", callback_data="cardx:back:den")],
             [InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")],
         ]
     )
@@ -103,7 +105,10 @@ def region_kb() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="EU", callback_data="cardx:reg:EU"),
                 InlineKeyboardButton(text="GLOBAL", callback_data="cardx:reg:GLOBAL"),
             ],
-            [InlineKeyboardButton(text="Skip", callback_data="cardx:reg:GLOBAL")],
+            [
+                InlineKeyboardButton(text="Skip", callback_data="cardx:reg:GLOBAL"),
+                InlineKeyboardButton(text="Back", callback_data="cardx:back:cur"),
+            ],
             [InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")],
         ]
     )
@@ -114,8 +119,30 @@ def confirm_submit_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="Confirm", callback_data="cardx:confirm"),
+                InlineKeyboardButton(text="Edit Code", callback_data="cardx:edit:code"),
+            ],
+            [
+                InlineKeyboardButton(text="Edit Type", callback_data="cardx:back:brand"),
                 InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel"),
             ]
+        ]
+    )
+
+
+def submit_code_prompt_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Back", callback_data="cardx:back:region")],
+            [InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")],
+        ]
+    )
+
+
+def submit_pin_prompt_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Back", callback_data="cardx:back:code")],
+            [InlineKeyboardButton(text="Cancel", callback_data="cardx:cancel")],
         ]
     )
 

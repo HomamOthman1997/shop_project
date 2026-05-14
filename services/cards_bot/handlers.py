@@ -20,6 +20,8 @@ from services.cards_bot.keyboards import (
     region_kb,
     submit_brand_kb,
     submit_brand_results_kb,
+    submit_code_prompt_kb,
+    submit_pin_prompt_kb,
     withdraw_confirm_kb,
     withdraw_currency_kb,
 )
@@ -46,6 +48,8 @@ from services.cards_bot.states import CardsAdminFlow, CardsSubmitFlow, CardsWith
 from utils.user_money import format_usd
 
 router = Router()
+CUSTOM_DEN_KEY = "cardx_custom_denominations"
+_PRICING_CACHE: dict[str, list[dict]] = {}
 
 
 def _is_owner(user_id: int) -> bool:
@@ -135,6 +139,39 @@ def _fmt_card_line(row: dict) -> str:
     )
 
 
+def _decimal_label(value: Decimal) -> str:
+    text = format(value.normalize(), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def _get_custom_dens(data: dict | None) -> list[str]:
+    raw = (data or {}).get(CUSTOM_DEN_KEY, [])
+    if not isinstance(raw, list):
+        return []
+    result: list[str] = []
+    for item in raw:
+        text = str(item).strip()
+        if text:
+            result.append(text)
+    return result
+
+
+def _remember_custom_den(data: dict, value: Decimal) -> None:
+    values = _get_custom_dens(data)
+    label = _decimal_label(value)
+    if label in values:
+        data[CUSTOM_DEN_KEY] = values
+        return
+    values.append(label)
+    try:
+        values.sort(key=lambda x: Decimal(x))
+    except Exception:
+        pass
+    data[CUSTOM_DEN_KEY] = values[-20:]
+
+
 def _card_summary_text(lang: str, data: dict) -> str:
     return _t(
         lang,
@@ -197,6 +234,67 @@ async def start_brand_search(callback: types.CallbackQuery, state: FSMContext) -
     await callback.answer()
 
 
+@router.callback_query(F.data == "cardx:back:brand")
+async def submit_back_brand(callback: types.CallbackQuery, state: FSMContext) -> None:
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    lang = _lang(user_doc)
+    await state.set_state(CardsSubmitFlow.waiting_brand)
+    if callback.message:
+        await callback.message.answer(
+            _t(lang, "Choose card brand", "Choose card brand"),
+            reply_markup=submit_brand_kb(await list_top_card_brands(limit=8)),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:back:den")
+async def submit_back_den(callback: types.CallbackQuery, state: FSMContext) -> None:
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    lang = _lang(user_doc)
+    data = await state.get_data()
+    await state.set_state(CardsSubmitFlow.waiting_denomination)
+    if callback.message:
+        await callback.message.answer(
+            _t(lang, "Choose denomination", "Choose denomination"),
+            reply_markup=denomination_kb(_get_custom_dens(data)),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:back:cur")
+async def submit_back_cur(callback: types.CallbackQuery, state: FSMContext) -> None:
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    lang = _lang(user_doc)
+    await state.set_state(CardsSubmitFlow.waiting_currency)
+    if callback.message:
+        await callback.message.answer(_t(lang, "Choose currency", "Choose currency"), reply_markup=currency_kb())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:back:region")
+async def submit_back_region(callback: types.CallbackQuery, state: FSMContext) -> None:
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    lang = _lang(user_doc)
+    await state.set_state(CardsSubmitFlow.waiting_region)
+    if callback.message:
+        await callback.message.answer(_t(lang, "Choose region", "Choose region"), reply_markup=region_kb())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:back:code")
+@router.callback_query(F.data == "cardx:edit:code")
+async def submit_back_code(callback: types.CallbackQuery, state: FSMContext) -> None:
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    lang = _lang(user_doc)
+    await state.set_state(CardsSubmitFlow.waiting_code)
+    if callback.message:
+        await callback.message.answer(
+            _t(lang, "Send the card code", "Send the card code"),
+            reply_markup=submit_code_prompt_kb(),
+        )
+    await callback.answer()
+
+
 @router.message(CardsSubmitFlow.waiting_brand_search)
 async def handle_brand_search(message: types.Message, state: FSMContext) -> None:
     user_doc = await _ensure_global_user(message)
@@ -217,12 +315,13 @@ async def choose_brand(callback: types.CallbackQuery, state: FSMContext) -> None
     user_doc, _ = await _ensure_card_user(callback.from_user)
     lang = _lang(user_doc)
     brand = str(callback.data or "").split(":", 2)[-1].strip().upper()
+    data = await state.get_data()
     await state.update_data(brand=brand)
     await state.set_state(CardsSubmitFlow.waiting_denomination)
     if callback.message:
         await callback.message.answer(
             _t(lang, "Choose denomination", "اختر القيمة"),
-            reply_markup=denomination_kb(),
+            reply_markup=denomination_kb(_get_custom_dens(data)),
         )
     await callback.answer()
 
@@ -263,7 +362,13 @@ async def handle_manual_denomination(message: types.Message, state: FSMContext) 
     except ValueError:
         await message.answer(_t(lang, "Invalid denomination value.", "القيمة غير صالحة."))
         return
-    await state.update_data(denomination=str(value), expect_manual_den=False)
+    data[CUSTOM_DEN_KEY] = _get_custom_dens(data)
+    _remember_custom_den(data, value)
+    await state.update_data(
+        denomination=str(value),
+        expect_manual_den=False,
+        **{CUSTOM_DEN_KEY: data[CUSTOM_DEN_KEY]},
+    )
     await state.set_state(CardsSubmitFlow.waiting_currency)
     await message.answer(
         _t(lang, "Choose currency", "اختر العملة"),
@@ -294,7 +399,10 @@ async def choose_region(callback: types.CallbackQuery, state: FSMContext) -> Non
     await state.update_data(region=region)
     await state.set_state(CardsSubmitFlow.waiting_code)
     if callback.message:
-        await callback.message.answer(_t(lang, "Send the card code", "أرسل كود البطاقة"))
+        await callback.message.answer(
+            _t(lang, "Send the card code", "Send the card code"),
+            reply_markup=submit_code_prompt_kb(),
+        )
     await callback.answer()
 
 
@@ -308,7 +416,10 @@ async def handle_card_code(message: types.Message, state: FSMContext) -> None:
         return
     await state.update_data(code=code)
     await state.set_state(CardsSubmitFlow.waiting_pin)
-    await message.answer(_t(lang, "Send PIN or '-' to skip", "أرسل الـ PIN أو اكتب - للتخطي"))
+    await message.answer(
+        _t(lang, "Send PIN or '-' to skip", "Send PIN or '-' to skip"),
+        reply_markup=submit_pin_prompt_kb(),
+    )
 
 
 @router.message(CardsSubmitFlow.waiting_pin)
@@ -370,7 +481,7 @@ async def cancel_card_flow(callback: types.CallbackQuery, state: FSMContext) -> 
     lang = _lang(user_doc)
     await state.clear()
     if callback.message:
-        await callback.message.answer(_t(lang, "Cancelled.", "تم الإلغاء."), reply_markup=cards_main_menu(lang))
+        await callback.message.answer(_t(lang, "Cancelled.", "تم الإلغاء."), reply_markup=_cards_menu(lang, callback.from_user.id))
     await callback.answer()
 
 
@@ -738,29 +849,99 @@ async def owner_missing_pricing(message: types.Message) -> None:
 async def owner_set_price(message: types.Message) -> None:
     if not _is_cards_admin(message.from_user.id):
         return
+
     payload = str(message.text or "").split(maxsplit=1)
+    actor_key = str(message.from_user.id)
+
     if len(payload) < 2:
-        await message.answer("Usage: /cards_price BRAND|DEN|CUR|REG|CUSTOMER_RATE|TRADER_RATE")
+        rows = await list_missing_pricing(limit=20)
+        _PRICING_CACHE[actor_key] = rows
+        if not rows:
+            await message.answer("No open missing pricing rows.")
+            return
+        lines = []
+        for idx, row in enumerate(rows, start=1):
+            lines.append(
+                f"{idx}. {row.get('brand')} | {float(row.get('denomination') or 0):.2f} {row.get('currency')} | {row.get('region')}"
+            )
+        await message.answer(
+            "Open pricing queue:\n\n"
+            + "\n".join(lines)
+            + "\n\nSet with:\n/cards_price <index> <customer_rate> [trader_rate]"
+            + "\nExample: /cards_price 2 78 80"
+            + "\n\nLegacy format still works:\n/cards_price BRAND|DEN|CUR|REG|CUSTOMER_RATE|TRADER_RATE"
+        )
         return
-    parts = [part.strip() for part in payload[1].split("|")]
-    if len(parts) != 6:
-        await message.answer("Usage: /cards_price BRAND|DEN|CUR|REG|CUSTOMER_RATE|TRADER_RATE")
+
+    raw = payload[1].strip()
+
+    if "|" in raw:
+        parts = [part.strip() for part in raw.split("|")]
+        if len(parts) != 6:
+            await message.answer("Usage: /cards_price BRAND|DEN|CUR|REG|CUSTOMER_RATE|TRADER_RATE")
+            return
+        brand, den, cur, reg, customer_rate, trader_rate = parts
+        try:
+            row = await create_pricing_rule(
+                actor_user_id=str(message.from_user.id),
+                brand=brand,
+                denomination=parse_decimal(den),
+                currency=cur,
+                region=reg,
+                customer_buy_rate_percent=parse_decimal(customer_rate),
+                trader_rate_percent=parse_decimal(trader_rate),
+            )
+        except Exception as exc:
+            await message.answer(f"Failed: {exc}")
+            return
+        await message.answer(
+            f"Pricing rule created: {row.get('brand')} {row.get('denomination')} {row.get('currency')} {row.get('region')}"
+        )
         return
-    brand, den, cur, reg, customer_rate, trader_rate = parts
+
+    parts = [part for part in raw.split() if part.strip()]
+    if len(parts) < 2:
+        await message.answer("Usage: /cards_price <index> <customer_rate> [trader_rate]")
+        return
+    try:
+        index = int(parts[0])
+        customer_rate = parse_decimal(parts[1])
+        trader_rate = parse_decimal(parts[2]) if len(parts) > 2 else customer_rate
+    except Exception:
+        await message.answer("Invalid values. Use: /cards_price <index> <customer_rate> [trader_rate]")
+        return
+
+    rows = _PRICING_CACHE.get(actor_key) or await list_missing_pricing(limit=20)
+    _PRICING_CACHE[actor_key] = rows
+    if not rows:
+        await message.answer("No open missing pricing rows.")
+        return
+    if index < 1 or index > len(rows):
+        await message.answer(f"Index out of range. Use 1..{len(rows)}")
+        return
+
+    target = rows[index - 1]
     try:
         row = await create_pricing_rule(
             actor_user_id=str(message.from_user.id),
-            brand=brand,
-            denomination=parse_decimal(den),
-            currency=cur,
-            region=reg,
-            customer_buy_rate_percent=parse_decimal(customer_rate),
-            trader_rate_percent=parse_decimal(trader_rate),
+            brand=str(target.get("brand") or ""),
+            denomination=parse_decimal(str(target.get("denomination") or "")),
+            currency=str(target.get("currency") or "USD"),
+            region=str(target.get("region") or "GLOBAL"),
+            customer_buy_rate_percent=customer_rate,
+            trader_rate_percent=trader_rate,
         )
     except Exception as exc:
         await message.answer(f"Failed: {exc}")
         return
-    await message.answer(f"Pricing rule created: {row.get('brand')} {row.get('denomination')} {row.get('currency')} {row.get('region')}")
+
+    refreshed = await list_missing_pricing(limit=20)
+    _PRICING_CACHE[actor_key] = refreshed
+    await message.answer(
+        f"Pricing saved: {row.get('brand')} {row.get('denomination')} {row.get('currency')} {row.get('region')}\n"
+        f"Customer: {row.get('customer_buy_rate_percent')} | Trader: {row.get('trader_rate_percent')}\n"
+        f"Remaining open: {len(refreshed)}"
+    )
 
 
 @router.message(Command("cards_withdrawals"))

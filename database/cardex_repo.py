@@ -123,7 +123,22 @@ async def list_top_card_brands(limit: int = 4) -> list[str]:
         {"$limit": max(1, int(limit))},
     ]
     rows = [str(row.get("_id") or "").upper() async for row in db.cardex_cards.aggregate(pipeline)]
-    defaults = ["AMAZON", "APPLE", "PAYPAL", "STEAM", "PLAYSTATION", "VISA"]
+    defaults = [
+        "AMAZON",
+        "APPLE",
+        "MASTER SWAG",
+        "NETENDU",
+        "PAYPAL",
+        "PLAYSTATION",
+        "RAYZER",
+        "RAZER",
+        "STARBUCKS",
+        "STEAM",
+        "TARGET",
+        "UBER",
+        "VISA",
+        "WALMART",
+    ]
     for item in defaults:
         if item not in rows:
             rows.append(item)
@@ -143,7 +158,22 @@ async def search_card_brands(query: str | None, limit: int = 20) -> list[str]:
         brand = str(row.get("brand") or "").upper().strip()
         if brand:
             brands.add(brand)
-    defaults = ["AMAZON", "APPLE", "PAYPAL", "STEAM", "PLAYSTATION", "VISA", "WALMART", "UBER"]
+    defaults = [
+        "AMAZON",
+        "APPLE",
+        "MASTER SWAG",
+        "NETENDU",
+        "PAYPAL",
+        "PLAYSTATION",
+        "RAYZER",
+        "RAZER",
+        "STARBUCKS",
+        "STEAM",
+        "TARGET",
+        "UBER",
+        "VISA",
+        "WALMART",
+    ]
     for item in defaults:
         if q and q not in item:
             continue

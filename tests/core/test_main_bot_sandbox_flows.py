@@ -177,6 +177,15 @@ async def test_account_button_during_recharge_method_keeps_state(monkeypatch):
     assert message.answers[-1][0] == "ACCOUNT"
 
 
+def test_user_settings_main_keyboard_hides_redundant_balance_button():
+    kb = main_menu._user_settings_main_kb("en", {"language": "en"})
+
+    buttons = [button.text for row in kb.inline_keyboard for button in row]
+
+    assert main_menu.t("en", "btn_balance") not in buttons
+    assert main_menu.t("en", "btn_add_balance") in buttons
+
+
 @pytest.mark.asyncio
 async def test_language_change_refreshes_reply_keyboard(monkeypatch):
     callback = _FakeCallback(data="uset:langset:en", bot_id=222)

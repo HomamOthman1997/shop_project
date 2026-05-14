@@ -260,11 +260,11 @@ async def _user_settings_main_text(user_doc: dict | None, *, lang: str, bot_id: 
         bot_id=bot_id,
         user_id=user_id,
     )
-    return (
-        f"{t(lang, 'user_settings_my_account')}\n\n"
-        f"{balance_text}\n\n"
-        f"{profile_text}\n\n"
-        f"{t(lang, 'user_settings_hint')}"
+    return t(lang, "user_settings_main_text").format(
+        title=t(lang, "user_settings_my_account"),
+        balance_text=balance_text,
+        profile_text=profile_text,
+        hint=t(lang, "user_settings_hint"),
     )
 
 
@@ -380,7 +380,6 @@ def _user_settings_main_kb(lang: str, user_doc: dict | None) -> InlineKeyboardMa
     user_lang = str((user_doc or {}).get("language") or "en").strip().lower()
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "btn_balance"), callback_data="uset:balance")],
             [InlineKeyboardButton(text=t(lang, "btn_add_balance"), callback_data="uset:recharge")],
             [
                 InlineKeyboardButton(
