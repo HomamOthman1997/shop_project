@@ -186,7 +186,7 @@ async def test_menu_for_current_bot_shows_card_admin_button_for_admin_user(monke
     kb = await bot_menu_context.menu_for_current_bot("ar", 123, user_id=10)
     labels = [btn.text for row in kb.keyboard for btn in row]
 
-    assert "لوحة الإدارة" in labels
+    assert labels == ["لوحة الإدارة"]
 
 
 @pytest.mark.asyncio

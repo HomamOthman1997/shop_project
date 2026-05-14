@@ -13,14 +13,18 @@ def cards_main_menu(lang: str | None = None, *, is_admin: bool = False) -> Reply
     support = "الدعم" if is_ar else "Support"
     admin_panel = "لوحة الإدارة" if is_ar else "Admin Panel"
 
+    if is_admin:
+        return ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text=admin_panel)]],
+            resize_keyboard=True,
+        )
+
     keyboard = [
         [KeyboardButton(text=sell)],
         [KeyboardButton(text=wallet), KeyboardButton(text=my_cards)],
         [KeyboardButton(text=withdraw), KeyboardButton(text=my_withdrawals)],
         [KeyboardButton(text=support)],
     ]
-    if is_admin:
-        keyboard.append([KeyboardButton(text=admin_panel)])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
@@ -199,6 +203,16 @@ def cards_admin_panel_kb(lang: str | None = None) -> InlineKeyboardMarkup:
     is_ar = str(lang or "").lower().startswith("ar")
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="تقرير اليوم" if is_ar else "Today's Report",
+                    callback_data="cardx:panel:today_report",
+                ),
+                InlineKeyboardButton(
+                    text="تصدير بطاقات اليوم" if is_ar else "Export Today's Cards",
+                    callback_data="cardx:panel:export_today",
+                ),
+            ],
             [
                 InlineKeyboardButton(
                     text="تسعير ناقص" if is_ar else "Missing Pricing",

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
+import re
+from collections import defaultdict
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
 from aiogram import F, Router, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.types import BufferedInputFile
 
 from config import settings
 from database.user_repo import create_user, get_user
@@ -32,6 +37,7 @@ from services.cards_bot.service import (
     ensure_user_from_telegram,
     get_missing_pricing,
     get_wallet_snapshot,
+    list_cards_for_daily_export,
     list_cards_for_review,
     list_cards_for_user,
     list_missing_pricing,
@@ -49,7 +55,7 @@ from utils.user_money import format_usd
 
 router = Router()
 CUSTOM_DEN_KEY = "cardx_custom_denominations"
-_PRICING_CACHE: dict[str, list[dict]] = {}
+logger = logging.getLogger(__name__)
 
 
 def _is_owner(user_id: int) -> bool:
@@ -130,6 +136,14 @@ def _cards_menu(lang: str, user_id: int):
 
 def _fmt_money(value) -> str:
     return format_usd(value)
+
+
+def _operation_failed_text(lang: str) -> str:
+    return _t(
+        lang,
+        "The request could not be completed right now. Please try again later.",
+        "تعذر تنفيذ الطلب الآن. يرجى المحاولة لاحقًا.",
+    )
 
 
 def _fmt_card_line(row: dict) -> str:
@@ -601,8 +615,9 @@ async def confirm_withdraw(callback: types.CallbackQuery, state: FSMContext) -> 
             payout_currency=str(data.get("withdraw_currency") or "USD"),
             notes=str(data.get("withdraw_note") or ""),
         )
-    except Exception as exc:
-        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("card-ex withdrawal request failed user_id=%s", callback.from_user.id)
+        await callback.answer(_operation_failed_text(lang), show_alert=True)
         return
     await state.clear()
     if callback.message:
@@ -655,6 +670,97 @@ def _admin_panel_text(lang: str) -> str:
 
 def _missing_pricing_line(row: dict) -> str:
     return f"{row.get('brand')} | {float(row.get('denomination') or 0):.2f} {row.get('currency')} | {row.get('region')}"
+
+
+def _card_export_filename(brand: str, day: datetime) -> str:
+    safe_brand = re.sub(r"[^A-Za-z0-9_-]+", "_", str(brand or "cards").strip().upper()).strip("_") or "CARDS"
+    return f"cardex_{day.strftime('%Y-%m-%d')}_{safe_brand}.txt"
+
+
+def _card_export_line(row: dict) -> str:
+    parts = [
+        str(row.get("code") or "").strip(),
+        str(row.get("pin") or "").strip() or "-",
+        f"{float(row.get('denomination') or 0):.2f} {row.get('currency')}",
+        str(row.get("region") or "GLOBAL"),
+        str(row.get("status") or "-"),
+        str(row.get("_id") or "-"),
+    ]
+    return " | ".join(parts)
+
+
+def _group_cards_export_files(rows: list[dict], *, day: datetime) -> list[tuple[str, str, int]]:
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        grouped[str(row.get("brand") or "UNKNOWN").upper().strip() or "UNKNOWN"].append(row)
+
+    files: list[tuple[str, str, int]] = []
+    for brand in sorted(grouped):
+        brand_rows = grouped[brand]
+        lines = [
+            f"Card-EX daily export",
+            f"Date: {day.strftime('%Y-%m-%d')}",
+            f"Brand: {brand}",
+            f"Count: {len(brand_rows)}",
+            "",
+            "CODE | PIN | VALUE | REGION | STATUS | REF",
+        ]
+        lines.extend(_card_export_line(row) for row in brand_rows)
+        files.append((_card_export_filename(brand, day), "\n".join(lines) + "\n", len(brand_rows)))
+    return files
+
+
+def _count_by(rows: list[dict], key: str) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for row in rows:
+        label = str(row.get(key) or "UNKNOWN").upper().strip() or "UNKNOWN"
+        counts[label] += 1
+    return dict(sorted(counts.items()))
+
+
+def _cards_today_report_text(
+    lang: str,
+    *,
+    day: datetime,
+    rows: list[dict],
+    pending_reviews: int,
+    missing_pricing: int,
+    open_withdrawals: int,
+) -> str:
+    by_status = _count_by(rows, "status")
+    by_brand = _count_by(rows, "brand")
+    status_lines = "\n".join(f"- {key}: {value}" for key, value in by_status.items()) or "- none"
+    brand_lines = "\n".join(f"- {key}: {value}" for key, value in by_brand.items()) or "- none"
+    if str(lang or "").lower().startswith("ar"):
+        return (
+            f"تقرير بطاقات اليوم\n\n"
+            f"التاريخ: {day.strftime('%Y-%m-%d')} UTC\n"
+            f"إجمالي بطاقات اليوم: {len(rows)}\n"
+            f"بانتظار المراجعة: {pending_reviews}\n"
+            f"تسعير ناقص: {missing_pricing}\n"
+            f"طلبات سحب مفتوحة: {open_withdrawals}\n\n"
+            f"حسب الحالة:\n{status_lines}\n\n"
+            f"حسب النوع:\n{brand_lines}"
+        )
+    return (
+        f"Card-EX Today Report\n\n"
+        f"Date: {day.strftime('%Y-%m-%d')} UTC\n"
+        f"Today's cards: {len(rows)}\n"
+        f"Pending review: {pending_reviews}\n"
+        f"Missing pricing: {missing_pricing}\n"
+        f"Open withdrawals: {open_withdrawals}\n\n"
+        f"By status:\n{status_lines}\n\n"
+        f"By type:\n{brand_lines}"
+    )
+
+
+def _today_utc_window(now: datetime | None = None) -> tuple[datetime, datetime]:
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    current = current.astimezone(UTC)
+    start = datetime.combine(current.date(), time.min, tzinfo=UTC)
+    return start, start + timedelta(days=1)
 
 
 async def _open_cards_admin_panel(target, *, lang: str) -> None:
@@ -818,146 +924,61 @@ async def open_cards_withdrawals_panel(callback: types.CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.message(Command("cards_reviews"))
-async def owner_cards_reviews(message: types.Message) -> None:
-    if not _is_cards_admin(message.from_user.id):
+@router.callback_query(F.data == "cardx:panel:today_report")
+async def open_cards_today_report(callback: types.CallbackQuery) -> None:
+    if not _is_cards_admin(callback.from_user.id):
+        await callback.answer("No permission", show_alert=True)
         return
-    rows = await list_cards_for_review(limit=10)
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    lang = _lang(user_doc)
+    since, until = _today_utc_window()
+    rows = await list_cards_for_daily_export(since=since, until=until, limit=2000)
+    pending_reviews = len(await list_cards_for_review(limit=200))
+    missing_pricing = len(await list_missing_pricing(limit=200))
+    open_withdrawals = len(await list_open_withdrawals(limit=200))
+    if callback.message:
+        await callback.message.answer(
+            _cards_today_report_text(
+                lang,
+                day=since,
+                rows=rows,
+                pending_reviews=pending_reviews,
+                missing_pricing=missing_pricing,
+                open_withdrawals=open_withdrawals,
+            ),
+            reply_markup=cards_admin_panel_kb(lang),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:panel:export_today")
+async def export_today_cards_panel(callback: types.CallbackQuery) -> None:
+    if not _is_cards_admin(callback.from_user.id):
+        await callback.answer("No permission", show_alert=True)
+        return
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    lang = _lang(user_doc)
+    since, until = _today_utc_window()
+    rows = await list_cards_for_daily_export(since=since, until=until, limit=2000)
     if not rows:
-        await message.answer("No cards pending review.")
+        await callback.answer(_t(lang, "No cards to export today.", "لا توجد بطاقات للتصدير اليوم."), show_alert=True)
         return
-    for row in rows:
-        await message.answer(_fmt_card_line(row), reply_markup=admin_review_actions_kb(str(row.get("_id"))))
-
-
-@router.message(Command("cards_missing_pricing"))
-async def owner_missing_pricing(message: types.Message) -> None:
-    if not _is_cards_admin(message.from_user.id):
-        return
-    rows = await list_missing_pricing(limit=20)
-    if not rows:
-        await message.answer("No missing pricing rows.")
-        return
-    lines = [
-        f"{row.get('brand')} | {float(row.get('denomination') or 0):.2f} {row.get('currency')} | {row.get('region')} | seen={row.get('seen_count')}"
-        for row in rows
-    ]
-    await message.answer("Missing pricing\n\n" + "\n".join(lines))
-
-
-@router.message(Command("cards_price"))
-async def owner_set_price(message: types.Message) -> None:
-    if not _is_cards_admin(message.from_user.id):
-        return
-
-    payload = str(message.text or "").split(maxsplit=1)
-    actor_key = str(message.from_user.id)
-
-    if len(payload) < 2:
-        rows = await list_missing_pricing(limit=20)
-        _PRICING_CACHE[actor_key] = rows
-        if not rows:
-            await message.answer("No open missing pricing rows.")
-            return
-        lines = []
-        for idx, row in enumerate(rows, start=1):
-            lines.append(
-                f"{idx}. {row.get('brand')} | {float(row.get('denomination') or 0):.2f} {row.get('currency')} | {row.get('region')}"
+    files = _group_cards_export_files(rows, day=since)
+    if callback.message:
+        await callback.message.answer(
+            _t(
+                lang,
+                f"Exporting {len(rows)} cards in {len(files)} files.",
+                f"جاري تصدير {len(rows)} بطاقة ضمن {len(files)} ملف.",
             )
-        await message.answer(
-            "Open pricing queue:\n\n"
-            + "\n".join(lines)
-            + "\n\nSet with:\n/cards_price <index> <customer_rate> [trader_rate]"
-            + "\nExample: /cards_price 2 78 80"
-            + "\n\nLegacy format still works:\n/cards_price BRAND|DEN|CUR|REG|CUSTOMER_RATE|TRADER_RATE"
         )
-        return
-
-    raw = payload[1].strip()
-
-    if "|" in raw:
-        parts = [part.strip() for part in raw.split("|")]
-        if len(parts) != 6:
-            await message.answer("Usage: /cards_price BRAND|DEN|CUR|REG|CUSTOMER_RATE|TRADER_RATE")
-            return
-        brand, den, cur, reg, customer_rate, trader_rate = parts
-        try:
-            row = await create_pricing_rule(
-                actor_user_id=str(message.from_user.id),
-                brand=brand,
-                denomination=parse_decimal(den),
-                currency=cur,
-                region=reg,
-                customer_buy_rate_percent=parse_decimal(customer_rate),
-                trader_rate_percent=parse_decimal(trader_rate),
+        for filename, content, count in files:
+            document = BufferedInputFile(content.encode("utf-8"), filename=filename)
+            await callback.message.answer_document(
+                document=document,
+                caption=_t(lang, f"{filename} ({count} cards)", f"{filename} ({count} بطاقة)"),
             )
-        except Exception as exc:
-            await message.answer(f"Failed: {exc}")
-            return
-        await message.answer(
-            f"Pricing rule created: {row.get('brand')} {row.get('denomination')} {row.get('currency')} {row.get('region')}"
-        )
-        return
-
-    parts = [part for part in raw.split() if part.strip()]
-    if len(parts) < 2:
-        await message.answer("Usage: /cards_price <index> <customer_rate> [trader_rate]")
-        return
-    try:
-        index = int(parts[0])
-        customer_rate = parse_decimal(parts[1])
-        trader_rate = parse_decimal(parts[2]) if len(parts) > 2 else customer_rate
-    except Exception:
-        await message.answer("Invalid values. Use: /cards_price <index> <customer_rate> [trader_rate]")
-        return
-
-    rows = _PRICING_CACHE.get(actor_key) or await list_missing_pricing(limit=20)
-    _PRICING_CACHE[actor_key] = rows
-    if not rows:
-        await message.answer("No open missing pricing rows.")
-        return
-    if index < 1 or index > len(rows):
-        await message.answer(f"Index out of range. Use 1..{len(rows)}")
-        return
-
-    target = rows[index - 1]
-    try:
-        row = await create_pricing_rule(
-            actor_user_id=str(message.from_user.id),
-            brand=str(target.get("brand") or ""),
-            denomination=parse_decimal(str(target.get("denomination") or "")),
-            currency=str(target.get("currency") or "USD"),
-            region=str(target.get("region") or "GLOBAL"),
-            customer_buy_rate_percent=customer_rate,
-            trader_rate_percent=trader_rate,
-        )
-    except Exception as exc:
-        await message.answer(f"Failed: {exc}")
-        return
-
-    refreshed = await list_missing_pricing(limit=20)
-    _PRICING_CACHE[actor_key] = refreshed
-    await message.answer(
-        f"Pricing saved: {row.get('brand')} {row.get('denomination')} {row.get('currency')} {row.get('region')}\n"
-        f"Customer: {row.get('customer_buy_rate_percent')} | Trader: {row.get('trader_rate_percent')}\n"
-        f"Remaining open: {len(refreshed)}"
-    )
-
-
-@router.message(Command("cards_withdrawals"))
-async def owner_open_withdrawals(message: types.Message) -> None:
-    if not _is_cards_admin(message.from_user.id):
-        return
-    rows = await list_open_withdrawals(limit=10)
-    if not rows:
-        await message.answer("No open withdrawals.")
-        return
-    for row in rows:
-        text = (
-            f"{row.get('_id')} | user={row.get('user_id')} | {_fmt_money(row.get('requested_usd_amount'))} "
-            f"| {row.get('payout_currency')} | {row.get('status')}\n{row.get('notes') or '-'}"
-        )
-        await message.answer(text, reply_markup=admin_withdraw_actions_kb(str(row.get("_id"))))
+    await callback.answer("Exported")
 
 
 @router.callback_query(F.data.startswith("cardx:admin:accept:"))
@@ -971,8 +992,9 @@ async def owner_accept_card(callback: types.CallbackQuery) -> None:
         await callback.answer("Accepted", show_alert=False)
         if callback.message:
             await callback.message.answer(f"Accepted: {_fmt_card_line(row)}")
-    except Exception as exc:
-        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("card-ex admin accept failed card_id=%s actor_id=%s", card_id, callback.from_user.id)
+        await callback.answer("Action failed. Check logs.", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("cardx:admin:reject:"))
@@ -986,8 +1008,9 @@ async def owner_reject_card(callback: types.CallbackQuery) -> None:
         await callback.answer("Rejected", show_alert=False)
         if callback.message:
             await callback.message.answer(f"Rejected: {_fmt_card_line(row)}")
-    except Exception as exc:
-        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception("card-ex admin reject failed card_id=%s actor_id=%s", card_id, callback.from_user.id)
+        await callback.answer("Action failed. Check logs.", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("cardx:admin:w"))
@@ -1020,5 +1043,11 @@ async def owner_withdraw_action(callback: types.CallbackQuery) -> None:
         await callback.answer(status.title(), show_alert=False)
         if callback.message:
             await callback.message.answer(f"Withdrawal updated: {row.get('_id')} -> {status}")
-    except Exception as exc:
-        await callback.answer(str(exc), show_alert=True)
+    except Exception:
+        logger.exception(
+            "card-ex admin withdrawal update failed withdrawal_id=%s status=%s actor_id=%s",
+            withdrawal_id,
+            status,
+            callback.from_user.id,
+        )
+        await callback.answer("Action failed. Check logs.", show_alert=True)

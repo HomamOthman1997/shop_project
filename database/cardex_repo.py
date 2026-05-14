@@ -332,6 +332,15 @@ async def list_cards_for_review(limit: int = 20) -> list[dict[str, Any]]:
     return await db.cardex_cards.find({"status": {"$in": ["submitted", "under_review"]}}).sort("created_at", 1).limit(max(1, int(limit))).to_list(length=max(1, int(limit)))
 
 
+async def list_cards_for_daily_export(*, since: datetime, until: datetime, limit: int = 1000) -> list[dict[str, Any]]:
+    return await db.cardex_cards.find(
+        {
+            "created_at": {"$gte": since, "$lt": until},
+            "status": {"$ne": "rejected"},
+        }
+    ).sort([("brand", 1), ("created_at", 1)]).limit(max(1, int(limit))).to_list(length=max(1, int(limit)))
+
+
 async def get_card(card_id: str) -> dict[str, Any] | None:
     return await db.cardex_cards.find_one({"_id": str(card_id)})
 
