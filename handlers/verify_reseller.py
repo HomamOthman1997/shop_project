@@ -1088,6 +1088,20 @@ def _member_status_value(status) -> str:
     return str(getattr(status, "value", status) or "").lower()
 
 
+async def _chat_admins_include_bot(bot: Bot, chat_id, bot_id: int) -> bool:
+    try:
+        admins = await bot.get_chat_administrators(chat_id)
+    except Exception as exc:
+        logger.info(
+            "create_bot_channel_admins_lookup_failed bot_id=%s chat_id=%s err=%s",
+            bot_id,
+            chat_id,
+            exc,
+        )
+        return False
+    return any(getattr(getattr(admin, "user", None), "id", None) == bot_id for admin in admins)
+
+
 async def _is_channel_target(bot_token: str, channel_ref: str) -> bool:
     if not bot_token or not channel_ref:
         return False
@@ -1121,8 +1135,27 @@ async def _is_bot_admin_in_channel(bot_token: str, channel_ref: str) -> bool:
 
                 # Fast path: direct membership check.
                 member = await bot.get_chat_member(chat_id, me.id)
-                if _member_status_value(getattr(member, "status", None)) in {"administrator", "creator"}:
+                status = _member_status_value(getattr(member, "status", None))
+                if status in {"administrator", "creator"}:
                     return True
+                if await _chat_admins_include_bot(bot, chat_id, me.id):
+                    logger.info(
+                        "create_bot_channel_admins_fallback_success bot_id=%s channel_ref=%s chat_id=%s attempt=%s member_status=%s",
+                        me.id,
+                        channel_ref,
+                        chat_id,
+                        attempt + 1,
+                        status or "-",
+                    )
+                    return True
+                logger.info(
+                    "create_bot_channel_admin_check_non_admin bot_id=%s channel_ref=%s chat_id=%s attempt=%s member_status=%s",
+                    me.id,
+                    channel_ref,
+                    chat_id,
+                    attempt + 1,
+                    status or "-",
+                )
 
                 # Not admin yet (or stale state). retry a bit.
                 await asyncio.sleep(1.0)
@@ -1130,15 +1163,24 @@ async def _is_bot_admin_in_channel(bot_token: str, channel_ref: str) -> bool:
 
             except TelegramBadRequest as exc:
                 err = str(exc).lower()
-
-                # Fallback for channels where member list endpoint can be limited.
-                if "member list is inaccessible" in err:
-                    try:
-                        admins = await bot.get_chat_administrators(chat_id)
-                        if any(getattr(a.user, "id", None) == me.id for a in admins):
-                            return True
-                    except Exception:
-                        pass
+                if await _chat_admins_include_bot(bot, chat_id, me.id):
+                    logger.info(
+                        "create_bot_channel_admins_fallback_success bot_id=%s channel_ref=%s chat_id=%s attempt=%s bad_request=%s",
+                        me.id,
+                        channel_ref,
+                        chat_id,
+                        attempt + 1,
+                        err,
+                    )
+                    return True
+                logger.warning(
+                    "create_bot_channel_admin_check_bad_request bot_id=%s channel_ref=%s chat_id=%s attempt=%s err=%s",
+                    me.id,
+                    channel_ref,
+                    chat_id,
+                    attempt + 1,
+                    err,
+                )
 
                 # transient/propagation issues: retry shortly
                 if attempt < 3:
@@ -1146,13 +1188,27 @@ async def _is_bot_admin_in_channel(bot_token: str, channel_ref: str) -> bool:
                     continue
                 return False
 
-            except TelegramNetworkError:
+            except TelegramNetworkError as exc:
+                logger.warning(
+                    "create_bot_channel_admin_check_network bot_id=%s channel_ref=%s attempt=%s err=%s",
+                    me.id,
+                    channel_ref,
+                    attempt + 1,
+                    exc,
+                )
                 if attempt < 3:
                     await asyncio.sleep(1.0)
                     continue
                 return False
 
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "create_bot_channel_admin_check_unexpected bot_id=%s channel_ref=%s attempt=%s err=%s",
+                    me.id,
+                    channel_ref,
+                    attempt + 1,
+                    exc,
+                )
                 if attempt < 3:
                     await asyncio.sleep(1.0)
                     continue
