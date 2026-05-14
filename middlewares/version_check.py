@@ -42,14 +42,16 @@ def _allow_owner_panel_callback(user_id: int, callback_data: str | None) -> bool
         "owner_quick:",
         "owner_deposit:",
         "owner_rchg:",
+        "verify_owner:",
         "support:",
+        "custom_preorder:",
     )
     return raw.startswith(allowed_prefixes)
 
 
 class VersionCheckMiddleware(BaseMiddleware):
     @staticmethod
-    async def _is_support_owner_reply_state(data: Dict[str, Any]) -> bool:
+    async def _is_admin_operation_state(data: Dict[str, Any]) -> bool:
         state = data.get("state")
         if state is None or not hasattr(state, "get_state"):
             return False
@@ -57,7 +59,13 @@ class VersionCheckMiddleware(BaseMiddleware):
             current_state = str(await state.get_state() or "")
         except Exception:
             return False
-        return "SupportOwnerReplyFlow" in current_state
+        return any(
+            name in current_state
+            for name in (
+                "SupportOwnerReplyFlow",
+                "OwnerResellerTopupFSM",
+            )
+        )
 
     async def __call__(
         self,
@@ -177,9 +185,9 @@ class VersionCheckMiddleware(BaseMiddleware):
             self._log_if_slow(event, user_id, started_at, stage_ms, "no_version")
             return result
 
-        if await self._is_support_owner_reply_state(data):
+        if await self._is_admin_operation_state(data):
             result = await handler(event, data)
-            self._log_if_slow(event, user_id, started_at, stage_ms, "support_owner_reply")
+            self._log_if_slow(event, user_id, started_at, stage_ms, "admin_operation_state")
             return result
 
         if bot_version != settings.bot_version:

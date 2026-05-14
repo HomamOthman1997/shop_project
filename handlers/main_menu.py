@@ -74,6 +74,14 @@ def _is_account_button(text: str | None) -> bool:
     return raw in {t("en", "user_settings_my_account"), t("ar", "user_settings_my_account")} or _is_btn(raw, "btn_settings")
 
 
+def _is_slash_command(text: str | None, command: str) -> bool:
+    first = (text or "").strip().split(maxsplit=1)[0].lower()
+    name = str(command or "").strip().lower().lstrip("/")
+    if not first or not name:
+        return False
+    return first == f"/{name}" or first.startswith(f"/{name}@")
+
+
 def _as_utc(dt: datetime | None) -> datetime | None:
     if not isinstance(dt, datetime):
         return None
@@ -1570,7 +1578,7 @@ async def support_message_router(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
     raw = (message.text or "").strip()
-    if raw in {t(lang, "support_done_button"), "/done"}:
+    if raw == t(lang, "support_done_button") or _is_slash_command(raw, "done"):
         return await _finish_support_session(
             message,
             state,
@@ -1578,7 +1586,7 @@ async def support_message_router(message: types.Message, state: FSMContext):
             user_doc=user,
             lang=lang,
         )
-    if _is_btn(raw, "btn_cancel") or raw == "/cancel":
+    if _is_btn(raw, "btn_cancel") or _is_slash_command(raw, "cancel"):
         return await _cancel_support_session(
             message,
             state,
@@ -1648,11 +1656,11 @@ async def support_owner_reply_router(message: types.Message, state: FSMContext):
     if int(message.from_user.id) != actor_id:
         return
     raw = (message.text or "").strip()
-    if raw in {t("en", "support_done_button"), t("ar", "support_done_button"), "/done"}:
+    if raw in {t("en", "support_done_button"), t("ar", "support_done_button")} or _is_slash_command(raw, "done"):
         await state.clear()
         await message.answer(t("en", "support_owner_reply_done"), reply_markup=types.ReplyKeyboardRemove())
         return
-    if raw in {t("en", "btn_cancel"), t("ar", "btn_cancel"), "/cancel"}:
+    if raw in {t("en", "btn_cancel"), t("ar", "btn_cancel")} or _is_slash_command(raw, "cancel"):
         await state.clear()
         await message.answer(t("en", "support_owner_reply_cancelled"), reply_markup=types.ReplyKeyboardRemove())
         return

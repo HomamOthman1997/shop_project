@@ -705,6 +705,12 @@ def build_public_dispatcher() -> Dispatcher:
     dp.callback_query.middleware(FinancialComplianceMiddleware())
 
     dp.include_router(_restrict_router_to_kinds(support_admin_router, BOT_KIND_ADMIN))
+    dp.include_router(
+        _restrict_router_to_kinds(
+            _load_router_clone("handlers.admin_services_admin_clone", "handlers/admin_services.py"),
+            BOT_KIND_ADMIN,
+        )
+    )
     dp.include_router(_restrict_router_to_kinds(start_base, BOT_KIND_RESELLER))
     dp.include_router(_restrict_router_to_kinds(language_base, BOT_KIND_RESELLER))
     dp.include_router(_restrict_router_to_kinds(subscription_base, BOT_KIND_RESELLER))

@@ -9,6 +9,7 @@ sys.path.insert(0, os.getcwd())
 import handlers.main_menu as main_menu
 import handlers.support_admin as support_admin
 import handlers.verify_reseller as verify_reseller
+from middlewares.version_check import VersionCheckMiddleware
 
 
 class _FakeBot:
@@ -255,6 +256,28 @@ async def test_support_inline_cancel_returns_main_menu(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_support_done_command_with_bot_mention_finishes_without_payload(monkeypatch):
+    message = _FakeMessage(text="/done@Test97CZbot")
+    state = _FakeState({"support_category": "numbers", "support_payloads": []})
+    called = {}
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    async def _return_main_menu(_message, _user_id):
+        called["returned"] = True
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "_return_main_menu", _return_main_menu)
+
+    await main_menu.support_message_router(message, state)
+
+    assert state.cleared is True
+    assert called == {"returned": True}
+    assert message.answers[-1][0] == main_menu.t("en", "support_not_configured_text")
+
+
+@pytest.mark.asyncio
 async def test_support_owner_reply_uses_ticket_source_bot(monkeypatch):
     actor_id = int(main_menu.OWNER_ID)
     message = _FakeMessage(user_id=actor_id, text="hello from admin", bot_id=900)
@@ -287,6 +310,25 @@ async def test_support_owner_reply_uses_ticket_source_bot(monkeypatch):
     assert reply_bot.sent_messages == [(77, "hello from admin")]
     assert marked == {"ticket_id": "ticket-1", "actor_id": actor_id}
     assert message.answers[-1][0] == main_menu.t("en", "support_owner_reply_sent")
+
+
+@pytest.mark.asyncio
+async def test_support_owner_done_command_with_bot_mention_is_not_forwarded(monkeypatch):
+    actor_id = int(main_menu.OWNER_ID)
+    message = _FakeMessage(user_id=actor_id, text="/done@Test97CZbot", bot_id=900)
+    state = _FakeState(
+        {
+            "support_reply_user_id": 77,
+            "support_reply_ticket_id": "ticket-1",
+            "support_reply_actor_id": actor_id,
+        }
+    )
+
+    await main_menu.support_owner_reply_router(message, state)
+
+    assert state.cleared is True
+    assert message.bot.sent_messages == []
+    assert message.answers[-1][0] == main_menu.t("en", "support_owner_reply_done")
 
 
 @pytest.mark.asyncio
@@ -338,6 +380,63 @@ async def test_admin_support_router_delegates_ticket_actions(monkeypatch):
     await support_admin.support_owner_reply_open(callback, state)
 
     assert called == {"callback": callback, "state": state}
+
+
+@pytest.mark.asyncio
+async def test_admin_support_router_delegates_owner_recharge_actions(monkeypatch):
+    callback = _FakeCallback(data="owner_rchg:accept:req1")
+    called = {}
+
+    async def _owner_accept_reseller_topup(_callback):
+        called["callback"] = _callback
+
+    monkeypatch.setattr(
+        support_admin.reseller_recharge,
+        "owner_accept_reseller_topup",
+        _owner_accept_reseller_topup,
+    )
+
+    await support_admin.owner_accept_reseller_topup(callback)
+
+    assert called == {"callback": callback}
+
+
+@pytest.mark.asyncio
+async def test_admin_support_router_delegates_owner_request_review(monkeypatch):
+    callback = _FakeCallback(data="verify_owner:approve:req1")
+    called = {}
+
+    async def _owner_review_callback(_callback):
+        called["callback"] = _callback
+
+    monkeypatch.setattr(support_admin.owner_requests, "owner_review_callback", _owner_review_callback)
+
+    await support_admin.owner_review_callback(callback)
+
+    assert called == {"callback": callback}
+
+
+@pytest.mark.asyncio
+async def test_admin_support_router_delegates_custom_preorder_actions(monkeypatch):
+    callback = _FakeCallback(data="custom_preorder:reject:req1")
+    called = {}
+
+    async def _reject_custom_preorder(_callback):
+        called["callback"] = _callback
+
+    monkeypatch.setattr(support_admin.custom_services, "reject_custom_preorder", _reject_custom_preorder)
+
+    await support_admin.reject_custom_preorder(callback)
+
+    assert called == {"callback": callback}
+
+
+@pytest.mark.asyncio
+async def test_version_check_bypasses_admin_operation_states():
+    state = _FakeState()
+    state.state = "OwnerResellerTopupFSM:waiting_manual_amount"
+
+    assert await VersionCheckMiddleware._is_admin_operation_state({"state": state}) is True
 
 
 @pytest.mark.asyncio
