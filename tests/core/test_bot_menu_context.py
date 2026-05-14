@@ -1,5 +1,6 @@
 import os
 import sys
+from types import SimpleNamespace
 
 import pytest
 from utils.translations import t
@@ -205,3 +206,22 @@ async def test_resolve_bot_kind_prioritizes_platform_kinds_over_reseller(monkeyp
     monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _true)
 
     assert await bot_menu_context.resolve_bot_kind(123) == bot_menu_context.BOT_KIND_DIGITAL
+
+
+@pytest.mark.asyncio
+async def test_resolve_bot_kind_detects_admin_bot_from_token(monkeypatch):
+    async def _false(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(bot_menu_context, "_cached_admin_bot_id", None)
+    monkeypatch.setattr(bot_menu_context.settings, "bot_admin_token", "999:admin-token")
+    monkeypatch.setattr(bot_menu_context, "is_main_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_numbers_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_digital_products_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _false)
+    monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _false)
+
+    assert (
+        await bot_menu_context.resolve_bot_kind(SimpleNamespace(token="999:admin-token"))
+        == bot_menu_context.BOT_KIND_ADMIN
+    )

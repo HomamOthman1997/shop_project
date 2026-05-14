@@ -13,7 +13,9 @@ _cached_digital_products_bot_id: int | None = None
 _cached_card_ex_bot_id: int | None = None
 _cached_main_bot_id: int | None = None
 _cached_numbers_bot_id: int | None = None
+_cached_admin_bot_id: int | None = None
 
+BOT_KIND_ADMIN = "admin"
 BOT_KIND_MAIN = "main"
 BOT_KIND_NUMBERS = "numbers"
 BOT_KIND_DIGITAL = "digital"
@@ -68,6 +70,14 @@ async def resolve_main_bot_id() -> int | None:
         return _cached_main_bot_id
     _cached_main_bot_id = extract_bot_id_from_token(getattr(settings, "bot_main_token", ""))
     return _cached_main_bot_id
+
+
+async def resolve_admin_bot_id() -> int | None:
+    global _cached_admin_bot_id
+    if isinstance(_cached_admin_bot_id, int) and _cached_admin_bot_id > 0:
+        return _cached_admin_bot_id
+    _cached_admin_bot_id = extract_bot_id_from_token(getattr(settings, "bot_admin_token", ""))
+    return _cached_admin_bot_id
 
 
 def main_bot_username() -> str:
@@ -173,6 +183,12 @@ async def is_main_bot(bot_or_id) -> bool:
     return isinstance(target_bot_id, int) and bot_id == target_bot_id
 
 
+async def is_admin_bot(bot_or_id) -> bool:
+    bot_id = await resolve_runtime_bot_id(bot_or_id)
+    target_bot_id = await resolve_admin_bot_id()
+    return isinstance(target_bot_id, int) and bot_id == target_bot_id
+
+
 async def is_card_ex_bot(bot_or_id) -> bool:
     bot_id = await resolve_runtime_bot_id(bot_or_id)
     target_bot_id = await resolve_card_ex_bot_id()
@@ -182,6 +198,8 @@ async def is_card_ex_bot(bot_or_id) -> bool:
 async def resolve_bot_kind(bot_or_id) -> str:
     if await is_main_bot(bot_or_id):
         return BOT_KIND_MAIN
+    if await is_admin_bot(bot_or_id):
+        return BOT_KIND_ADMIN
     if await is_numbers_bot(bot_or_id):
         return BOT_KIND_NUMBERS
     if await is_digital_products_bot(bot_or_id):

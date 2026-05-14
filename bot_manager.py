@@ -49,6 +49,7 @@ from handlers.language import router as language_base
 from handlers.main_menu import router as main_menu_base
 from handlers.main_bot_redirects import router as main_bot_redirects_router
 from handlers.reseller_recharge import router as reseller_recharge_router
+from handlers.support_admin import router as support_admin_router
 from handlers.start import router as start_base
 from handlers.subscription import router as subscription_base
 from handlers.verify_reseller import router as verify_reseller_base
@@ -79,7 +80,7 @@ from utils.sentry_reporting import init_sentry
 from utils.log_noise import install_transient_noise_filter
 from utils.telegram_error_reporting import install_telegram_error_handler
 from utils.bot_kind_filter import BotKindFilter
-from utils.bot_menu_context import BOT_KIND_CARD, BOT_KIND_DIGITAL, BOT_KIND_MAIN, BOT_KIND_NUMBERS, BOT_KIND_RESELLER
+from utils.bot_menu_context import BOT_KIND_ADMIN, BOT_KIND_CARD, BOT_KIND_DIGITAL, BOT_KIND_MAIN, BOT_KIND_NUMBERS, BOT_KIND_RESELLER
 
 _public_dispatcher_built = False
 _main_dispatcher_built = False
@@ -703,6 +704,7 @@ def build_public_dispatcher() -> Dispatcher:
     dp.message.middleware(FinancialComplianceMiddleware())
     dp.callback_query.middleware(FinancialComplianceMiddleware())
 
+    dp.include_router(_restrict_router_to_kinds(support_admin_router, BOT_KIND_ADMIN))
     dp.include_router(_restrict_router_to_kinds(start_base, BOT_KIND_RESELLER))
     dp.include_router(_restrict_router_to_kinds(language_base, BOT_KIND_RESELLER))
     dp.include_router(_restrict_router_to_kinds(subscription_base, BOT_KIND_RESELLER))

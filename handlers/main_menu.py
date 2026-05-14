@@ -10,7 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 from config import OWNER_ID, settings
-from database.bots_repo import get_reseller_id_for_bot
+from database.bots_repo import get_bot_token, get_reseller_id_for_bot
 from database.financial_ledger import get_reseller_wallet_balance, get_user_wallet_balance
 from database.mongo import db
 from database.recharge_repo import create_recharge_request
@@ -38,6 +38,7 @@ from keyboards.reseller_main_menu import reseller_main_menu
 from utils.bot_menu_context import (
     card_ex_bot_url,
     digital_products_bot_url,
+    extract_bot_id_from_token,
     is_digital_products_bot,
     is_main_bot,
     is_numbers_bot,
@@ -393,6 +394,37 @@ async def _support_bot_for_scope(scope: str, current_bot: Bot) -> Bot:
             raise TelegramBadRequest(method="sendMessage", message="support bridge bot is not configured")
         return Bot(token=token, timeout=30)
     return current_bot
+
+
+def _configured_platform_bot_token(bot_id: int) -> str:
+    for attr in (
+        "bot_main_token",
+        "bot_numbers_token",
+        "bot_digital_products_token",
+        "bot_card_ex_token",
+        "bot_admin_token",
+    ):
+        token = str(getattr(settings, attr, "") or "").strip()
+        if token and extract_bot_id_from_token(token) == int(bot_id):
+            return token
+    return ""
+
+
+async def _support_reply_bot_for_ticket(ticket: dict, current_bot: Bot) -> tuple[Bot, bool]:
+    source_bot_id = int((ticket or {}).get("source_bot_id") or 0)
+    current_bot_id = int(await _current_bot_id(current_bot) or 0)
+    if source_bot_id <= 0 or source_bot_id == current_bot_id:
+        return current_bot, False
+
+    token = _configured_platform_bot_token(source_bot_id)
+    if not token:
+        try:
+            token = str(await get_bot_token(source_bot_id) or "").strip()
+        except Exception:
+            token = ""
+    if not token:
+        return current_bot, False
+    return Bot(token=token, timeout=30), True
 
 
 def _user_settings_main_kb(lang: str, user_doc: dict | None) -> InlineKeyboardMarkup:
@@ -1573,9 +1605,11 @@ async def _support_actor_allowed(callback: types.CallbackQuery, ticket: dict | N
     scope = str(ticket.get("scope") or "").strip().lower()
     if scope == "platform":
         return int(callback.from_user.id) == int(OWNER_ID)
-    bot_id = int(await _current_bot_id(callback.bot) or 0)
-    reseller_id = int(await get_reseller_id_for_bot(bot_id) or 0)
-    return reseller_id > 0 and int(callback.from_user.id) == reseller_id
+    owner_id = int(ticket.get("owner_id") or 0)
+    if owner_id <= 0:
+        bot_id = int(await _current_bot_id(callback.bot) or 0)
+        owner_id = int(await get_reseller_id_for_bot(bot_id) or 0)
+    return owner_id > 0 and int(callback.from_user.id) == owner_id
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("support:reply_ticket:"))
@@ -1594,6 +1628,7 @@ async def support_owner_reply_open(callback: types.CallbackQuery, state: FSMCont
         support_reply_user_id=int(ticket.get("user_id") or 0),
         support_reply_category=str(ticket.get("category") or ""),
         support_reply_ticket_id=str(ticket["_id"]),
+        support_reply_actor_id=int(callback.from_user.id),
     )
     await callback.answer()
     if callback.message:
@@ -1608,7 +1643,9 @@ async def support_owner_reply_open(callback: types.CallbackQuery, state: FSMCont
 
 @router.message(SupportOwnerReplyFlow.waiting_message)
 async def support_owner_reply_router(message: types.Message, state: FSMContext):
-    if int(message.from_user.id) != int(OWNER_ID):
+    data = await state.get_data()
+    actor_id = int(data.get("support_reply_actor_id") or OWNER_ID)
+    if int(message.from_user.id) != actor_id:
         return
     raw = (message.text or "").strip()
     if raw in {t("en", "support_done_button"), t("ar", "support_done_button"), "/done"}:
@@ -1620,7 +1657,6 @@ async def support_owner_reply_router(message: types.Message, state: FSMContext):
         await message.answer(t("en", "support_owner_reply_cancelled"), reply_markup=types.ReplyKeyboardRemove())
         return
 
-    data = await state.get_data()
     target_user_id = int(data.get("support_reply_user_id") or 0)
     ticket_id = str(data.get("support_reply_ticket_id") or "").strip()
     if target_user_id <= 0:
@@ -1628,11 +1664,18 @@ async def support_owner_reply_router(message: types.Message, state: FSMContext):
         await message.answer(t("en", "support_owner_reply_cancelled"), reply_markup=types.ReplyKeyboardRemove())
         return
 
+    reply_bot = message.bot
+    close_reply_bot = False
     try:
-        await message.bot.copy_message(
-            chat_id=target_user_id,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
+        ticket = await get_support_ticket(ticket_id) if ticket_id else None
+        if ticket:
+            reply_bot, close_reply_bot = await _support_reply_bot_for_ticket(ticket, message.bot)
+        await _relay_support_payload(
+            message.bot,
+            reply_bot,
+            _extract_support_payload(message),
+            target={"chat_id": target_user_id},
+            user_id=target_user_id,
         )
         if ticket_id:
             await mark_support_ticket_replied(ticket_id, actor_id=int(message.from_user.id))
@@ -1642,6 +1685,12 @@ async def support_owner_reply_router(message: types.Message, state: FSMContext):
     except Exception:
         logger.exception("support owner reply failed user_id=%s", target_user_id)
         await message.answer(t("en", "support_owner_reply_failed_user"), reply_markup=_support_session_kb("en"))
+    finally:
+        if close_reply_bot:
+            try:
+                await reply_bot.session.close()
+            except Exception:
+                pass
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("support:solve_ticket:"))
@@ -1655,13 +1704,22 @@ async def support_ticket_solve(callback: types.CallbackQuery):
         await callback.answer(t("en", "no_permission"), show_alert=True)
         return
     await mark_support_ticket_solved(ticket_id, actor_id=int(callback.from_user.id))
+    notice_bot = callback.bot
+    close_notice_bot = False
     try:
-        await callback.bot.send_message(
+        notice_bot, close_notice_bot = await _support_reply_bot_for_ticket(ticket, callback.bot)
+        await notice_bot.send_message(
             chat_id=int(ticket.get("user_id") or 0),
             text=t("en", "support_ticket_solved_user"),
         )
     except Exception:
         pass
+    finally:
+        if close_notice_bot:
+            try:
+                await notice_bot.session.close()
+            except Exception:
+                pass
     await callback.answer(t("en", "support_ticket_solved_admin"), show_alert=True)
     if callback.message:
         try:

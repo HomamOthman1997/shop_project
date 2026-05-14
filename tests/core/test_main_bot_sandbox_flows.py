@@ -7,26 +7,43 @@ import pytest
 sys.path.insert(0, os.getcwd())
 
 import handlers.main_menu as main_menu
+import handlers.support_admin as support_admin
 import handlers.verify_reseller as verify_reseller
 
 
 class _FakeBot:
     def __init__(self, bot_id: int = 111):
         self._bot_id = bot_id
+        self.sent_messages: list[tuple[int, str]] = []
+        self.session = SimpleNamespace(close=self._close_session)
 
     async def get_me(self):
         return SimpleNamespace(id=self._bot_id)
+
+    async def send_message(self, chat_id, text, **_kwargs):
+        self.sent_messages.append((int(chat_id), str(text)))
+        return SimpleNamespace(message_id=654)
+
+    async def _close_session(self):
+        return None
 
 
 class _FakeMessage:
     def __init__(self, user_id: int = 50, text: str | None = None, bot_id: int = 111):
         self.from_user = SimpleNamespace(id=user_id)
         self.text = text
+        self.caption = None
         self.bot = _FakeBot(bot_id=bot_id)
         self.chat = SimpleNamespace(id=user_id, type="private")
+        self.message_id = 123
         self.photo = []
+        self.document = None
+        self.video = None
+        self.voice = None
+        self.audio = None
         self.answers: list[tuple[str, object | None]] = []
         self.edits: list[tuple[str, object | None]] = []
+        self.reply_markup_edits: list[object | None] = []
         self.deleted = False
 
     async def answer(self, text, reply_markup=None, **_kwargs):
@@ -36,6 +53,10 @@ class _FakeMessage:
     async def edit_text(self, text, reply_markup=None, **_kwargs):
         self.edits.append((str(text), reply_markup))
         self.answers.append((str(text), reply_markup))
+        return SimpleNamespace(message_id=321)
+
+    async def edit_reply_markup(self, reply_markup=None, **_kwargs):
+        self.reply_markup_edits.append(reply_markup)
         return SimpleNamespace(message_id=321)
 
     async def delete(self):
@@ -231,6 +252,92 @@ async def test_support_inline_cancel_returns_main_menu(monkeypatch):
     assert called["message"] is callback.message
     assert called["user_id"] == callback.from_user.id
     assert callback.answers == [""]
+
+
+@pytest.mark.asyncio
+async def test_support_owner_reply_uses_ticket_source_bot(monkeypatch):
+    actor_id = int(main_menu.OWNER_ID)
+    message = _FakeMessage(user_id=actor_id, text="hello from admin", bot_id=900)
+    state = _FakeState(
+        {
+            "support_reply_user_id": 77,
+            "support_reply_ticket_id": "ticket-1",
+            "support_reply_actor_id": actor_id,
+        }
+    )
+    reply_bot = _FakeBot(bot_id=222)
+    marked = {}
+
+    async def _get_support_ticket(_ticket_id):
+        return {"_id": "ticket-1", "source_bot_id": 222}
+
+    async def _support_reply_bot_for_ticket(_ticket, _current_bot):
+        return reply_bot, False
+
+    async def _mark_support_ticket_replied(ticket_id, *, actor_id):
+        marked["ticket_id"] = ticket_id
+        marked["actor_id"] = actor_id
+
+    monkeypatch.setattr(main_menu, "get_support_ticket", _get_support_ticket)
+    monkeypatch.setattr(main_menu, "_support_reply_bot_for_ticket", _support_reply_bot_for_ticket)
+    monkeypatch.setattr(main_menu, "mark_support_ticket_replied", _mark_support_ticket_replied)
+
+    await main_menu.support_owner_reply_router(message, state)
+
+    assert reply_bot.sent_messages == [(77, "hello from admin")]
+    assert marked == {"ticket_id": "ticket-1", "actor_id": actor_id}
+    assert message.answers[-1][0] == main_menu.t("en", "support_owner_reply_sent")
+
+
+@pytest.mark.asyncio
+async def test_support_ticket_solve_notifies_user_through_source_bot(monkeypatch):
+    actor_id = int(main_menu.OWNER_ID)
+    callback = _FakeCallback(user_id=actor_id, data="support:solve_ticket:ticket-1", bot_id=900)
+    notice_bot = _FakeBot(bot_id=222)
+    marked = {}
+
+    async def _get_support_ticket(_ticket_id):
+        return {
+            "_id": "ticket-1",
+            "scope": "platform",
+            "source_bot_id": 222,
+            "user_id": 77,
+        }
+
+    async def _support_reply_bot_for_ticket(_ticket, _current_bot):
+        return notice_bot, False
+
+    async def _mark_support_ticket_solved(ticket_id, *, actor_id):
+        marked["ticket_id"] = ticket_id
+        marked["actor_id"] = actor_id
+
+    monkeypatch.setattr(main_menu, "get_support_ticket", _get_support_ticket)
+    monkeypatch.setattr(main_menu, "_support_reply_bot_for_ticket", _support_reply_bot_for_ticket)
+    monkeypatch.setattr(main_menu, "mark_support_ticket_solved", _mark_support_ticket_solved)
+
+    await main_menu.support_ticket_solve(callback)
+
+    assert notice_bot.sent_messages == [(77, main_menu.t("en", "support_ticket_solved_user"))]
+    assert marked == {"ticket_id": "ticket-1", "actor_id": actor_id}
+    assert callback.message.reply_markup_edits
+    assert callback.answers == [main_menu.t("en", "support_ticket_solved_admin")]
+
+
+@pytest.mark.asyncio
+async def test_admin_support_router_delegates_ticket_actions(monkeypatch):
+    callback = _FakeCallback(data="support:reply_ticket:ticket-1")
+    state = _FakeState()
+    called = {}
+
+    async def _support_owner_reply_open(_callback, _state):
+        called["callback"] = _callback
+        called["state"] = _state
+
+    monkeypatch.setattr(main_menu, "support_owner_reply_open", _support_owner_reply_open)
+
+    await support_admin.support_owner_reply_open(callback, state)
+
+    assert called == {"callback": callback, "state": state}
 
 
 @pytest.mark.asyncio
