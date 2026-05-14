@@ -7,6 +7,7 @@ import pytest
 sys.path.insert(0, os.getcwd())
 
 from services.subscriptions import bot_subscription_service as svc
+from services.subscriptions import presentation as sub_pres
 from services.subscriptions.presentation import subscription_summary_lines
 
 
@@ -335,5 +336,39 @@ def test_subscription_summary_lines_arabic_are_readable():
 
     joined = "\n".join(lines)
     assert "خطة الاشتراك" in joined
+
+
+def test_reseller_subscription_keyboard_has_activate_and_direct_main_bot_link(monkeypatch):
+    monkeypatch.setattr(sub_pres, "main_bot_url", lambda start="hub": "https://t.me/MainBot?start=hub")
+
+    kb = sub_pres.reseller_subscription_kb(
+        {
+            "status": "payment_required",
+            "trial_available": True,
+            "trial_price_usd": 1.0,
+            "renewal_plan_months": 1,
+        },
+        "ar",
+    )
+
+    assert kb.inline_keyboard[0][0].callback_data == "rs_sub:activate"
+    assert "تفعيل الشهر التجريبي" in kb.inline_keyboard[0][0].text
+    assert kb.inline_keyboard[1][0].url == "https://t.me/MainBot?start=hub"
+    assert kb.inline_keyboard[1][0].callback_data is None
+    callbacks = [button.callback_data for row in kb.inline_keyboard for button in row]
+    assert "rsmenu:main_bot_services" not in callbacks
+    joined = "\n".join(
+        subscription_summary_lines(
+            "ar",
+            {
+                "status": "payment_required",
+                "trial_available": False,
+                "renewal_plan_months": 1,
+                "renewal_charge_usd": 10.0,
+                "trial_price_usd": 1.0,
+                "renewal_discount_percent": 0.0,
+            },
+        )
+    )
     assert "الحالة" in joined
     assert "الدفعة المطلوبة" in joined

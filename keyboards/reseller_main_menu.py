@@ -1,5 +1,13 @@
 ﻿from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from config import settings
 from utils.translations import t
+
+
+def _main_bot_button(lang: str) -> InlineKeyboardButton:
+    username = str(getattr(settings, "main_bot_username", "") or "").strip().lstrip("@")
+    if username:
+        return InlineKeyboardButton(text=t(lang, "btn_cyberzone_services"), url=f"https://t.me/{username}?start=hub")
+    return InlineKeyboardButton(text=t(lang, "btn_cyberzone_services"), callback_data="rsmenu:main_bot_services")
 
 
 def reseller_main_menu(lang: str = "en") -> InlineKeyboardMarkup:
@@ -11,7 +19,7 @@ def reseller_main_menu(lang: str = "en") -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text=t(lang, "btn_services"), callback_data="rsmenu:custom_services"),
-                InlineKeyboardButton(text=t(lang, "btn_cyberzone_services"), callback_data="rsmenu:main_bot_services"),
+                _main_bot_button(lang),
             ],
             [
                 InlineKeyboardButton(text="طلبات الشحن", callback_data="rsmenu:recharge_requests"),

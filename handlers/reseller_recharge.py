@@ -11,7 +11,7 @@ from bson import ObjectId
 
 from config import OWNER_ID, settings
 from database.bots_repo import get_bot_settings
-from services.subscriptions.bot_subscription_service import get_bot_subscription, set_bot_subscription_plan
+from services.subscriptions.bot_subscription_service import get_bot_subscription, set_bot_subscription_plan, sync_bot_subscription
 from services.subscriptions.presentation import reseller_subscription_kb, subscription_summary_lines
 from database.financial_ledger import credit_user_wallet, get_reseller_wallet_balance, get_user_wallet_balance
 from database.mongo import db
@@ -340,7 +340,7 @@ async def _send_reseller_balance(message: types.Message, reseller_id: int, lang:
     subscription = await get_bot_subscription(int(bot_id))
     await message.answer(
         await _render_reseller_balance_text(reseller_id, bot_id, lang),
-        reply_markup=reseller_subscription_kb(subscription),
+        reply_markup=reseller_subscription_kb(subscription, lang),
     )
 
 
@@ -477,9 +477,38 @@ async def reseller_subscription_plan_set(callback: types.CallbackQuery):
     lang = await _reseller_lang(callback.from_user.id)
     await callback.message.edit_text(
         await _render_reseller_balance_text(callback.from_user.id, bot_id, lang),
-        reply_markup=reseller_subscription_kb(subscription),
+        reply_markup=reseller_subscription_kb(subscription, lang),
     )
     await callback.answer("Subscription plan updated")
+
+
+@router.callback_query(lambda c: c.data == "rs_sub:activate")
+async def reseller_subscription_activate(callback: types.CallbackQuery):
+    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
+        return await callback.answer("Reseller only", show_alert=True)
+    if not callback.message:
+        return await callback.answer()
+    bot_id = (await callback.bot.get_me()).id
+    before = await get_bot_subscription(int(bot_id))
+    subscription = await sync_bot_subscription(int(bot_id), collect_due=True)
+    lang = await _reseller_lang(callback.from_user.id)
+    await callback.message.edit_text(
+        await _render_reseller_balance_text(callback.from_user.id, bot_id, lang),
+        reply_markup=reseller_subscription_kb(subscription, lang),
+    )
+    before_status = str(before.get("status") or "").strip().lower()
+    after_status = str(subscription.get("status") or "").strip().lower()
+    if after_status != before_status and after_status in {"trial_active", "active"}:
+        text = "تم تفعيل الاشتراك." if str(lang).lower().startswith("ar") else "Subscription activated."
+        return await callback.answer(text, show_alert=True)
+    if after_status in {"payment_required", "suspended"}:
+        text = (
+            "الرصيد غير كافٍ. افتح البوت الرئيسي واشحن رصيدك ثم اضغط تفعيل."
+            if str(lang).lower().startswith("ar")
+            else "Insufficient balance. Open the Main Bot, top up, then press Activate."
+        )
+        return await callback.answer(text, show_alert=True)
+    await callback.answer("Subscription checked")
 
 
 @router.callback_query(lambda c: c.data == "rsmenu:dashboard")

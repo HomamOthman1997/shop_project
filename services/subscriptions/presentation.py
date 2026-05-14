@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from aiogram import types
 
 from .bot_subscription_service import get_subscription_plan_options
+from utils.bot_menu_context import main_bot_url
 from utils.user_money import format_usd
 
 
@@ -71,9 +72,35 @@ def subscription_summary_lines(lang: str, subscription: dict) -> list[str]:
     return lines
 
 
-def reseller_subscription_kb(subscription: dict) -> types.InlineKeyboardMarkup:
+def reseller_subscription_kb(subscription: dict, lang: str = "en") -> types.InlineKeyboardMarkup:
+    is_ar = str(lang or "").lower().startswith("ar")
+    status = str(subscription.get("status") or "").strip().lower()
     current_plan = int(subscription.get("renewal_plan_months") or 1)
     rows: list[list[types.InlineKeyboardButton]] = []
+
+    if status in {"payment_required", "suspended", "grace_period"}:
+        trial_available = bool(subscription.get("trial_available"))
+        amount = float(
+            subscription.get("trial_price_usd")
+            if trial_available
+            else subscription.get("renewal_charge_usd") or subscription.get("monthly_price_usd") or 0.0
+        )
+        label = (
+            f"تفعيل الشهر التجريبي - {format_usd(amount)}"
+            if is_ar and trial_available
+            else f"تفعيل الاشتراك - {format_usd(amount)}"
+            if is_ar
+            else f"Activate Trial - {format_usd(amount)}"
+            if trial_available
+            else f"Activate Subscription - {format_usd(amount)}"
+        )
+        rows.append([types.InlineKeyboardButton(text=label, callback_data="rs_sub:activate")])
+
+    main_url = main_bot_url("hub")
+    if main_url:
+        main_label = "فتح البوت الرئيسي للشحن" if is_ar else "Open Main Bot to Top Up"
+        rows.append([types.InlineKeyboardButton(text=main_label, url=main_url)])
+
     plan_buttons: list[types.InlineKeyboardButton] = []
     for option in get_subscription_plan_options():
         months = int(option["months"])
@@ -84,8 +111,7 @@ def reseller_subscription_kb(subscription: dict) -> types.InlineKeyboardMarkup:
         if discount > 0:
             label += f" (-{discount:.0f}%)"
         plan_buttons.append(types.InlineKeyboardButton(text=label, callback_data=f"rs_sub:plan:{months}"))
-    rows.append([types.InlineKeyboardButton(text="Open Main Bot", callback_data="rsmenu:main_bot_services")])
     rows.append(plan_buttons[:2])
     rows.append([plan_buttons[2]])
-    rows.append([types.InlineKeyboardButton(text="Back", callback_data="rsmenu:menu")])
+    rows.append([types.InlineKeyboardButton(text="رجوع" if is_ar else "Back", callback_data="rsmenu:menu")])
     return types.InlineKeyboardMarkup(inline_keyboard=rows)
