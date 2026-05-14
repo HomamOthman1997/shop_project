@@ -4,7 +4,7 @@ import logging
 import re
 from contextvars import ContextVar
 from contextlib import suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aiogram import BaseMiddleware, Router, types
@@ -160,6 +160,7 @@ router.callback_query.middleware(_CallbackContextMiddleware())
 
 TEMP_REFUND_RETRY_INTERVAL_SEC = 45
 RENTAL_OWNER_ALERT_WINDOW_SEC = 180
+TEMP_MY_NUMBERS_RETENTION_DAYS = 5
 _HIDDEN_TEMP_PROVIDER_CODES = {"smsman", "smsman_s6"}
 
 
@@ -988,14 +989,13 @@ async def _sync_temp_wait_controls(bot, order: dict, lang: str):
     elapsed = _temp_elapsed_sec(order)
     timeout_sec = _order_temp_timeout_sec(order)
     reuse_warranty_sec = _order_reuse_warranty_sec(order)
-    display_elapsed = elapsed if _temp_resend_available(order) else max(elapsed, reuse_warranty_sec)
     text = t(lang, "temp_no_code_timeout") if elapsed >= timeout_sec else _temp_waiting_text(
         lang=lang,
         provider_code=str(order.get("provider") or ""),
         number=str(order.get("provider_number") or ""),
         country_code=str(order.get("temp_country") or ""),
         interval_sec=_poll_interval_for_provider(str(order.get("provider") or "")),
-        elapsed_sec=display_elapsed,
+        elapsed_sec=elapsed,
         reuse_warranty_sec=reuse_warranty_sec,
         service_name=str(order.get("temp_service_key") or order.get("service_id") or ""),
     )
@@ -1243,6 +1243,32 @@ def _compact_datetime(value: Any) -> str:
     return dt.strftime("%Y-%m-%d %H:%M UTC")
 
 
+def _temp_my_numbers_expires_at(order: dict) -> datetime | None:
+    created_at = _to_utc_datetime((order or {}).get("created_at"))
+    if not created_at:
+        return None
+    return created_at + timedelta(days=TEMP_MY_NUMBERS_RETENTION_DAYS)
+
+
+def _temp_my_numbers_active(order: dict) -> bool:
+    mode = str((order or {}).get("number_mode") or "").strip().lower()
+    if mode != "temp":
+        return False
+    if str((order or {}).get("status") or "").strip().lower() != "success":
+        return False
+    if str((order or {}).get("provisioning_state") or "").strip().lower() != "provisioned":
+        return False
+    if not str((order or {}).get("provider_order_id") or "").strip():
+        return False
+    number = str((order or {}).get("provider_number") or "").strip()
+    if not number or number == "?":
+        return False
+    expires_at = _temp_my_numbers_expires_at(order)
+    if not expires_at:
+        return True
+    return _seconds_left_until(expires_at) > 0
+
+
 def _my_number_detail_text(order: dict, lang: str) -> str:
     mode = str(order.get("number_mode") or "").strip().lower()
     is_rental = mode == "rental"
@@ -1277,19 +1303,7 @@ def _my_number_detail_text(order: dict, lang: str) -> str:
 
 
 def _temp_resend_available(order: dict) -> bool:
-    mode = str(order.get("number_mode") or "").strip().lower()
-    if mode != "temp":
-        return False
-    if str(order.get("status") or "").strip().lower() != "success":
-        return False
-    if str(order.get("provisioning_state") or "").strip().lower() != "provisioned":
-        return False
-    if not str(order.get("provider_order_id") or "").strip():
-        return False
-    warranty_until = _to_utc_datetime(order.get("temp_reuse_warranty_until"))
-    if warranty_until:
-        return _seconds_left_until(warranty_until) > 0
-    return _temp_elapsed_sec(order) < _order_reuse_warranty_sec(order)
+    return _temp_my_numbers_active(order)
 
 
 def _my_number_manage_kb(order: dict, order_id: str, lang: str) -> InlineKeyboardMarkup:
@@ -1311,6 +1325,8 @@ def _is_manageable_my_number(order: dict) -> bool:
         return False
     mode = str(order.get("number_mode") or "").strip().lower()
     if mode in {"temp", "voice"}:
+        if mode == "temp":
+            return _temp_my_numbers_active(order)
         return (
             str(order.get("status") or "").strip().lower() == "success"
             and str(order.get("provisioning_state") or "").strip().lower() == "provisioned"
@@ -3787,6 +3803,25 @@ async def temp_try_alternate_provider(callback: types.CallbackQuery):
     )
 
 
+def _second_code_log_payload(order: dict, *, now: datetime, extra: dict | None = None) -> dict:
+    payload = {
+        "provider": str(order.get("provider") or ""),
+        "provider_order_id": str(order.get("provider_order_id") or ""),
+        "seconds_since_purchase": _seconds_between(now, order.get("created_at")),
+        "seconds_since_first_code": _seconds_between(now, order.get("temp_first_sms_at")),
+        "seconds_since_last_sms": _seconds_between(now, order.get("temp_last_sms_at")),
+        "seconds_since_previous_second_code": _seconds_between(now, order.get("temp_second_code_last_at")),
+        "resend_retention_expires_at": (
+            _temp_my_numbers_expires_at(order).isoformat() if _temp_my_numbers_expires_at(order) else None
+        ),
+        "resend_guarantee_seconds": _order_reuse_warranty_sec(order),
+        "codes_count_before": int(order.get("temp_codes_count") or len(order.get("temp_codes") or []) or 0),
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
 @router.callback_query(lambda c: c.data and c.data.startswith("temp:second:"))
 async def temp_second_code(callback: types.CallbackQuery):
     user = await get_user(callback.from_user.id)
@@ -3803,18 +3838,53 @@ async def temp_second_code(callback: types.CallbackQuery):
     if not provider or not provider_order_id:
         return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
     if not _temp_resend_available(order):
+        await _log_temp_event(
+            order,
+            "second_code_not_allowed",
+            _second_code_log_payload(order, now=now, extra={"reason": "retention_expired_or_invalid_order"}),
+        )
         return await _safe_callback_answer_or_message(callback, t(lang, "temp_second_code_failed"), show_alert=True)
 
+    await _log_temp_event(order, "second_code_attempted", _second_code_log_payload(order, now=now))
     resend_result = await _provider_resend(provider, provider_order_id)
     if not bool((resend_result or {}).get("success")):
+        await _log_temp_event(
+            order,
+            "second_code_provider_rejected",
+            _second_code_log_payload(
+                order,
+                now=now,
+                extra={
+                    "provider_error": _provider_error_text(resend_result or {}),
+                    "provider_response_status": str((resend_result or {}).get("status") or ""),
+                },
+            ),
+        )
         return await _safe_callback_answer_or_message(callback, t(lang, "temp_second_code_failed"), show_alert=True)
     new_provider_order_id = str((resend_result or {}).get("order_id") or provider_order_id).strip() or provider_order_id
     new_provider_number = str((resend_result or {}).get("number") or order.get("provider_number") or "").strip()
+    await _log_temp_event(
+        order,
+        "second_code_provider_success",
+        _second_code_log_payload(
+            order,
+            now=now,
+            extra={
+                "new_provider_order_id": new_provider_order_id,
+                "number_changed": bool(new_provider_number and new_provider_number != str(order.get("provider_number") or "")),
+            },
+        ),
+    )
 
     sale_price, cost_price = extract_order_amounts(order)
     extra_sale = round(max(0.0, sale_price) / 2.0, 4)
     extra_cost = round(max(0.0, cost_price) / 2.0, 4)
     if extra_sale <= 0:
+        await _log_temp_event(
+            order,
+            "second_code_not_allowed",
+            _second_code_log_payload(order, now=now, extra={"reason": "missing_extra_price"}),
+        )
         return await _safe_callback_answer_or_message(callback, t(lang, "temp_second_code_failed"), show_alert=True)
 
     bot_id = (await callback.message.bot.get_me()).id
@@ -3848,6 +3918,15 @@ async def temp_second_code(callback: types.CallbackQuery):
     )
     if not ok:
         await update_order_status(second_order["_id"], "failed")
+        await _log_temp_event(
+            order,
+            "second_code_charge_failed",
+            _second_code_log_payload(
+                order,
+                now=now,
+                extra={"extra_sale": extra_sale, "extra_cost": extra_cost, "finance_error": str(msg)},
+            ),
+        )
         return await _safe_callback_answer_or_message(
             callback,
             finance_error_public_text(lang, str(msg)),
@@ -3872,7 +3951,20 @@ async def temp_second_code(callback: types.CallbackQuery):
             "provider_number": new_provider_number or str(order.get("provider_number") or ""),
         },
     )
-    await _log_temp_event(order, "second_code_requested", {"extra_sale": extra_sale, "extra_cost": extra_cost})
+    await _log_temp_event(
+        order,
+        "second_code_requested",
+        _second_code_log_payload(
+            order,
+            now=now,
+            extra={
+                "extra_sale": extra_sale,
+                "extra_cost": extra_cost,
+                "new_provider_order_id": new_provider_order_id,
+                "second_order_id": str(second_order["_id"]),
+            },
+        ),
+    )
 
     await _safe_edit_message(
         callback.message.bot,

@@ -199,7 +199,7 @@ class Settings(BaseSettings):
     secrets_max_age_days: int = 90
     lifecycle_cleanup_interval_sec: int = 21600
     lifecycle_telemetry_retention_days: int = 30
-    lifecycle_number_events_retention_days: int = 30
+    lifecycle_number_events_retention_days: int = 120
     lifecycle_usage_retention_days: int = 180
     lifecycle_order_archive_age_days: int = 120
     lifecycle_orders_archive_retention_days: int = 365

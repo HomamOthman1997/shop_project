@@ -1,4 +1,4 @@
-﻿from datetime import UTC, datetime
+﻿from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from .mongo import db
@@ -204,6 +204,7 @@ async def list_user_open_temp_orders(user_id: int, limit: int = 20):
 
 
 async def list_user_open_temp_and_voice_orders(user_id: int, limit: int = 20):
+    temp_cutoff = datetime.now(UTC) - timedelta(days=5)
     cursor = (
         db.orders.find(
             {
@@ -214,6 +215,10 @@ async def list_user_open_temp_and_voice_orders(user_id: int, limit: int = 20):
                 "provider_order_id": {"$exists": True, "$nin": [None, ""]},
                 "provider_number": {"$exists": True, "$nin": [None, "", "?"]},
                 "temp_wait_state": {"$in": ["waiting", "waiting_for_call", "code_received", "call_received", "refund_pending"]},
+                "$or": [
+                    {"number_mode": "voice"},
+                    {"number_mode": "temp", "created_at": {"$gte": temp_cutoff}},
+                ],
             }
         )
         .sort("created_at", -1)

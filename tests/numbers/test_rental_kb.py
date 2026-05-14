@@ -182,7 +182,7 @@ def test_my_numbers_only_lists_provisioned_successful_numbers():
     )
 
 
-def test_temp_resend_expires_after_warranty_window():
+def test_temp_resend_stays_available_for_my_numbers_retention():
     now = datetime.now(UTC)
     valid_order = {
         "number_mode": "temp",
@@ -190,9 +190,10 @@ def test_temp_resend_expires_after_warranty_window():
         "provisioning_state": "provisioned",
         "provider_order_id": "act-1",
         "provider_number": "+15550001111",
-        "temp_reuse_warranty_until": now + timedelta(minutes=3),
+        "created_at": now - timedelta(hours=2),
+        "temp_reuse_warranty_until": now - timedelta(minutes=90),
     }
-    expired_order = {**valid_order, "temp_reuse_warranty_until": now - timedelta(minutes=1)}
+    expired_order = {**valid_order, "created_at": now - timedelta(days=6)}
 
     assert core_numbers_buy._temp_resend_available(valid_order)
     assert not core_numbers_buy._temp_resend_available(expired_order)

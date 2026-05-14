@@ -249,6 +249,7 @@ async def test_simulated_temp_second_code_flow(monkeypatch):
         "base_price": 0.6,
         "provisioning_state": "provisioned",
         "created_at": datetime.now(UTC),
+        "temp_first_sms_at": datetime.now(UTC) - timedelta(minutes=5),
         "temp_reuse_warranty_sec": 900,
     }
     calls: dict[str, object] = {"details": []}
@@ -283,7 +284,7 @@ async def test_simulated_temp_second_code_flow(monkeypatch):
         return True, "OK"
 
     async def _fake_log_temp_event(order_obj, event, payload):
-        calls["temp_event"] = (event, payload)
+        calls.setdefault("temp_events", []).append((event, payload))
 
     async def _fake_safe_edit_message(bot, chat_id, message_id, text, reply_markup=None, parse_mode=None):
         calls["final_message"] = text
@@ -318,6 +319,9 @@ async def test_simulated_temp_second_code_flow(monkeypatch):
     assert calls["wallet_charge"]["sale_price"] == 0.5
     assert any(str(raw_id) == order_id and patch.get("provider_order_id") == "tv_002" for raw_id, patch in calls["details"])
     assert calls["queued_waiter"]["is_second_code"] is True
+    event_names = [event for event, _payload in calls["temp_events"]]
+    assert event_names == ["second_code_attempted", "second_code_provider_success", "second_code_requested"]
+    assert calls["temp_events"][-1][1]["seconds_since_first_code"] is not None
 
 
 @pytest.mark.asyncio

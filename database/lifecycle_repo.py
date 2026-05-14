@@ -52,7 +52,7 @@ async def get_last_cleanup_metrics() -> dict[str, Any] | None:
 async def run_lifecycle_cleanup(
     *,
     telemetry_retention_days: int = 30,
-    number_events_retention_days: int = 30,
+    number_events_retention_days: int = 120,
     usage_retention_days: int = 180,
     archived_orders_retention_days: int = 365,
     order_archive_age_days: int = 120,
@@ -71,7 +71,7 @@ async def run_lifecycle_cleanup(
     }
 
     proxy_cutoff = now - timedelta(days=max(1, int(telemetry_retention_days or 30)))
-    num_evt_cutoff = now - timedelta(days=max(1, int(number_events_retention_days or 30)))
+    num_evt_cutoff = now - timedelta(days=max(1, int(number_events_retention_days or 120)))
     usage_cutoff = now - timedelta(days=max(7, int(usage_retention_days or 180)))
     archived_cutoff = now - timedelta(days=max(30, int(archived_orders_retention_days or 365)))
     orders_cutoff = now - timedelta(days=max(7, int(order_archive_age_days or 120)))

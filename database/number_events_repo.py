@@ -84,8 +84,10 @@ def build_numbers_report_from_events(events: list[dict[str, Any]], *, since: dat
     provider_failures: Counter[tuple[str, str, str]] = Counter()
     no_code_cases: Counter[tuple[str, str, str]] = Counter()
     second_code_cases: Counter[tuple[str, str, str]] = Counter()
+    second_code_failures: Counter[tuple[str, str, str]] = Counter()
     protection_saved: Counter[tuple[str, str, str]] = Counter()
     total_seconds_to_first_sms: defaultdict[tuple[str, str, str], list[int]] = defaultdict(list)
+    total_seconds_to_second_code: defaultdict[tuple[str, str, str], list[int]] = defaultdict(list)
     suspicious_users: Counter[int] = Counter()
 
     for event in events:
@@ -111,7 +113,10 @@ def build_numbers_report_from_events(events: list[dict[str, Any]], *, since: dat
                 "codes_received": 0,
                 "refunds": 0,
                 "provider_failures": 0,
+                "second_code_attempts": 0,
                 "second_code_requests": 0,
+                "second_code_failures": 0,
+                "avg_seconds_to_second_code": None,
                 "protection_saved": 0,
                 "avg_seconds_to_first_sms": None,
             },
@@ -127,9 +132,14 @@ def build_numbers_report_from_events(events: list[dict[str, Any]], *, since: dat
         if event_name in {"provider_buy_failed", "provider_rent_failed"}:
             bucket["provider_failures"] += 1
             provider_failures[key] += 1
+        if event_name == "second_code_attempted":
+            bucket["second_code_attempts"] += 1
         if event_name == "second_code_requested":
             bucket["second_code_requests"] += 1
             second_code_cases[key] += 1
+        if event_name in {"second_code_provider_rejected", "second_code_not_allowed", "second_code_charge_failed"}:
+            bucket["second_code_failures"] += 1
+            second_code_failures[key] += 1
         if event_name in {
             "auto_cancel_refund_guard_success",
             "auto_cancel_refund_global_guard_success",
@@ -143,6 +153,12 @@ def build_numbers_report_from_events(events: list[dict[str, Any]], *, since: dat
         try:
             if seconds_to_first_sms is not None:
                 total_seconds_to_first_sms[key].append(int(seconds_to_first_sms))
+        except Exception:
+            pass
+        seconds_to_second_code = event.get("payload", {}).get("seconds_since_first_code")
+        try:
+            if event_name == "second_code_requested" and seconds_to_second_code is not None:
+                total_seconds_to_second_code[key].append(int(seconds_to_second_code))
         except Exception:
             pass
         if event_name in {"wait_timeout", "wait_timeout_auto_refunded", "cancelled_refunded"}:
@@ -182,6 +198,9 @@ def build_numbers_report_from_events(events: list[dict[str, Any]], *, since: dat
         sms_times = total_seconds_to_first_sms.get(key) or []
         if sms_times:
             row["avg_seconds_to_first_sms"] = round(sum(sms_times) / len(sms_times), 2)
+        second_code_times = total_seconds_to_second_code.get(key) or []
+        if second_code_times:
+            row["avg_seconds_to_second_code"] = round(sum(second_code_times) / len(second_code_times), 2)
         provider_rows.append(row)
 
     def _top_counter_rows(counter: Counter[tuple[str, str, str]], *, label: str) -> list[dict[str, Any]]:
@@ -226,6 +245,7 @@ def build_numbers_report_from_events(events: list[dict[str, Any]], *, since: dat
         "top_provider_failures": _top_counter_rows(provider_failures, label="provider_failures"),
         "top_no_code_cases": _top_counter_rows(no_code_cases, label="no_code_cases"),
         "top_second_code_usage": _top_counter_rows(second_code_cases, label="second_code_usage"),
+        "top_second_code_failures": _top_counter_rows(second_code_failures, label="second_code_failures"),
         "top_protection_saved": _top_counter_rows(protection_saved, label="protection_saved"),
         "suspicious_users": suspicious_rows,
     }

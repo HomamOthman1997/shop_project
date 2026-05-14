@@ -13,7 +13,7 @@ Last updated: 2026-03-23
 ## Data retention for operational collections
 
 - `proxy_events`: 30 days
-- `number_order_events`: 30 days
+- `number_order_events`: 120 days
 - low-signal `usage_stats` rows (`count <= 1` and stale): 180 days
 - archived orders (`orders_archive`): 365 days
 

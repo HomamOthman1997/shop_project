@@ -1635,7 +1635,7 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                         7, int(getattr(settings, "lifecycle_telemetry_retention_days", 30) or 30)
                     ),
                     number_events_retention_days=max(
-                        7, int(getattr(settings, "lifecycle_number_events_retention_days", 30) or 30)
+                        7, int(getattr(settings, "lifecycle_number_events_retention_days", 120) or 120)
                     ),
                     usage_retention_days=max(
                         30, int(getattr(settings, "lifecycle_usage_retention_days", 180) or 180)

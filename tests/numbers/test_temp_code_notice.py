@@ -48,5 +48,5 @@ def test_temp_waiting_text_marks_resend_window_expired():
         service_name="gmail",
     )
 
-    assert "Reuse warranty timer ended" in text
-    assert "Resend window: 15 minutes guaranteed" not in text
+    assert "guaranteed resend period ended" in text
+    assert "Resend is guaranteed for the first 15 minutes" not in text
