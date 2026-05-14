@@ -1073,14 +1073,29 @@ def _normalize_channel_input(raw: str) -> str:
     return f"@{clean.lstrip('@')}"
 
 
+def _telegram_chat_ref(channel_ref: str):
+    clean = str(channel_ref or "").strip()
+    if re.fullmatch(r"-?\d+", clean):
+        return int(clean)
+    return clean
+
+
+def _chat_type_value(chat_type) -> str:
+    return str(getattr(chat_type, "value", chat_type) or "").lower()
+
+
+def _member_status_value(status) -> str:
+    return str(getattr(status, "value", status) or "").lower()
+
+
 async def _is_channel_target(bot_token: str, channel_ref: str) -> bool:
     if not bot_token or not channel_ref:
         return False
     bot = None
     try:
         bot = Bot(token=bot_token)
-        chat = await bot.get_chat(channel_ref)
-        return getattr(chat, "type", None) == "channel"
+        chat = await bot.get_chat(_telegram_chat_ref(channel_ref))
+        return _chat_type_value(getattr(chat, "type", None)) == "channel"
     except Exception:
         return False
     finally:
@@ -1096,14 +1111,17 @@ async def _is_bot_admin_in_channel(bot_token: str, channel_ref: str) -> bool:
     try:
         bot = Bot(token=bot_token)
         me = await bot.get_me()
+        chat_ref = _telegram_chat_ref(channel_ref)
 
         for attempt in range(4):
+            chat_id = chat_ref
             try:
-                chat = await bot.get_chat(channel_ref)
+                chat = await bot.get_chat(chat_ref)
+                chat_id = chat.id
 
                 # Fast path: direct membership check.
-                member = await bot.get_chat_member(chat.id, me.id)
-                if member.status in {"administrator", "creator"}:
+                member = await bot.get_chat_member(chat_id, me.id)
+                if _member_status_value(getattr(member, "status", None)) in {"administrator", "creator"}:
                     return True
 
                 # Not admin yet (or stale state). retry a bit.
@@ -1116,7 +1134,7 @@ async def _is_bot_admin_in_channel(bot_token: str, channel_ref: str) -> bool:
                 # Fallback for channels where member list endpoint can be limited.
                 if "member list is inaccessible" in err:
                     try:
-                        admins = await bot.get_chat_administrators(chat.id)
+                        admins = await bot.get_chat_administrators(chat_id)
                         if any(getattr(a.user, "id", None) == me.id for a in admins):
                             return True
                     except Exception:

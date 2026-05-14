@@ -198,3 +198,42 @@ async def test_receive_channel_shared_uses_chat_id_as_trusted_channel(monkeypatc
 
     assert handled["channel_norm"] == "-1001234567890"
     assert handled["trusted_channel"] is True
+
+
+def test_telegram_chat_ref_coerces_numeric_channel_ids():
+    assert vr._telegram_chat_ref("-1001234567890") == -1001234567890
+    assert vr._telegram_chat_ref("@my_channel") == "@my_channel"
+
+
+@pytest.mark.asyncio
+async def test_is_bot_admin_in_channel_uses_numeric_shared_chat_id(monkeypatch):
+    seen = {}
+
+    class _TempSession:
+        async def close(self):
+            return None
+
+    class _TempBot:
+        def __init__(self, token):
+            self.token = token
+            self.session = _TempSession()
+
+        async def get_me(self):
+            return SimpleNamespace(id=42)
+
+        async def get_chat(self, chat_id):
+            seen["get_chat_id"] = chat_id
+            return SimpleNamespace(id=chat_id)
+
+        async def get_chat_member(self, chat_id, user_id):
+            seen["get_member_chat_id"] = chat_id
+            seen["get_member_user_id"] = user_id
+            return SimpleNamespace(status="administrator")
+
+    monkeypatch.setattr(vr, "Bot", _TempBot)
+
+    assert await vr._is_bot_admin_in_channel("8791141203:AAE3lSGuFNNtWvSjL5mgk9VRNAhxIknW1x0", "-1001234567890") is True
+    assert seen["get_chat_id"] == -1001234567890
+    assert isinstance(seen["get_chat_id"], int)
+    assert seen["get_member_chat_id"] == -1001234567890
+    assert seen["get_member_user_id"] == 42
