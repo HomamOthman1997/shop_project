@@ -273,7 +273,8 @@ def _phone_request_kb(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=t(lang, "phone_share_button"), request_contact=True)]],
         resize_keyboard=True,
-        one_time_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True,
     )
 
 
@@ -295,7 +296,8 @@ def _channel_request_kb(lang: str) -> ReplyKeyboardMarkup:
             ]
         ],
         resize_keyboard=True,
-        one_time_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True,
     )
 
 
@@ -436,11 +438,23 @@ async def _clear_reply_keyboard_anchor(bot: Bot, chat_id: int, state: FSMContext
 
 
 async def _show_channel_picker_prompt(bot: Bot, chat_id: int, state: FSMContext, lang: str):
-    await _refresh_reply_keyboard(bot=bot, chat_id=chat_id, state=state, reply_markup=_channel_request_kb(lang))
+    await _refresh_reply_keyboard(
+        bot=bot,
+        chat_id=chat_id,
+        state=state,
+        reply_markup=_channel_request_kb(lang),
+        text=t(lang, "channel_picker_ready"),
+    )
 
 
 async def _show_phone_request_keyboard(bot: Bot, chat_id: int, state: FSMContext, lang: str):
-    await _refresh_reply_keyboard(bot=bot, chat_id=chat_id, state=state, reply_markup=_phone_request_kb(lang))
+    await _refresh_reply_keyboard(
+        bot=bot,
+        chat_id=chat_id,
+        state=state,
+        reply_markup=_phone_request_kb(lang),
+        text=t(lang, "phone_keyboard_ready"),
+    )
 
 
 async def _refresh_reply_keyboard(
@@ -448,6 +462,7 @@ async def _refresh_reply_keyboard(
     chat_id: int,
     state: FSMContext | None = None,
     reply_markup: ReplyKeyboardMarkup | None = None,
+    text: str | None = None,
 ):
     if reply_markup is None:
         return
@@ -457,7 +472,7 @@ async def _refresh_reply_keyboard(
         sent = await _safe_bot_send_message(
             bot=bot,
             chat_id=chat_id,
-            text="\u2800",
+            text=(str(text or "").strip() or "\u2800"),
             reply_markup=reply_markup,
         )
         if state is not None:
