@@ -9,6 +9,7 @@ sys.path.insert(0, os.getcwd())
 
 from utils import bot_menu_context
 from keyboards.main_menu_kb import digital_products_main_menu, main_menu, numbers_main_menu, reseller_user_main_menu
+from keyboards import reseller_main_menu as reseller_menu_mod
 from keyboards.reseller_main_menu import reseller_main_menu
 from services.cards_bot.keyboards import cards_main_menu
 
@@ -76,6 +77,16 @@ def test_main_menus_do_not_show_custom_services_button():
     assert "rsmenu:adjust_user_balance" in inline_callbacks
     assert "rsmenu:core_topup" in inline_callbacks
     assert "rsmenu:stats" in inline_callbacks
+
+
+def test_reseller_menu_uses_direct_main_bot_link(monkeypatch):
+    monkeypatch.setattr(reseller_menu_mod.settings, "main_bot_username", "MainHubBot", raising=False)
+
+    buttons = [btn for row in reseller_main_menu("en").inline_keyboard for btn in row]
+    main_button = next(btn for btn in buttons if btn.text == "🚀 Main Bot")
+
+    assert main_button.url == "https://t.me/MainHubBot?start=hub"
+    assert main_button.callback_data is None
 
 
 def test_digital_products_menu_exposes_miniapp_button_when_enabled(monkeypatch):

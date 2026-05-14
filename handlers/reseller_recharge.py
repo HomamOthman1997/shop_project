@@ -12,7 +12,12 @@ from bson import ObjectId
 from config import OWNER_ID, settings
 from database.bots_repo import get_bot_settings
 from services.subscriptions.bot_subscription_service import get_bot_subscription, set_bot_subscription_plan, sync_bot_subscription
-from services.subscriptions.presentation import reseller_subscription_kb, subscription_summary_lines
+from services.subscriptions.presentation import (
+    format_subscription_dt,
+    reseller_subscription_kb,
+    subscription_status_label,
+    subscription_summary_lines,
+)
 from database.financial_ledger import credit_user_wallet, get_reseller_wallet_balance, get_user_wallet_balance
 from database.mongo import db
 from database.owner_payment_settings_repo import (
@@ -41,7 +46,7 @@ from database.reseller_settings_repo import (
 from database.user_repo import get_user, get_user_by_username, get_user_reseller_for_bot
 from keyboards.balance_keyboard import balance_keyboard
 from keyboards.reseller_main_menu import reseller_main_menu
-from utils.bot_menu_context import extract_bot_id_from_token, send_main_bot_message
+from utils.bot_menu_context import extract_bot_id_from_token, main_bot_url, send_main_bot_message
 from utils.permissions import is_reseller, owner_only
 from utils.recharge_ui import (
     format_owner_reseller_topup_text,
@@ -286,6 +291,47 @@ async def _reseller_setup_ready(reseller_id: int) -> tuple[bool, dict]:
     return bool(status.get("ready")), status
 
 
+def _is_ar(lang: str) -> bool:
+    return str(lang or "").lower().startswith("ar")
+
+
+def _txt(lang: str, ar: str, en: str) -> str:
+    return ar if _is_ar(lang) else en
+
+
+def _ready_mark(value: bool) -> str:
+    return "✅" if bool(value) else "❌"
+
+
+def _ready_word(lang: str, value: bool) -> str:
+    if _is_ar(lang):
+        return "جاهز" if bool(value) else "ناقص"
+    return "Ready" if bool(value) else "Needs setup"
+
+
+def _reseller_dashboard_kb(lang: str) -> types.InlineKeyboardMarkup:
+    rows = [
+        [
+            types.InlineKeyboardButton(text=_txt(lang, "💳 الرصيد والاشتراك", "💳 Balance & Subscription"), callback_data="rsmenu:balance"),
+            types.InlineKeyboardButton(text=_txt(lang, "⚙️ الإعدادات", "⚙️ Settings"), callback_data="rsmenu:settings"),
+        ],
+        [
+            types.InlineKeyboardButton(text=_txt(lang, "🧾 طلبات الشحن", "🧾 Recharge Requests"), callback_data="rsmenu:recharge_requests"),
+            types.InlineKeyboardButton(text=_txt(lang, "🧩 خدماتك", "🧩 Your Services"), callback_data="rsmenu:custom_services"),
+        ],
+    ]
+    url = main_bot_url("hub")
+    if url:
+        rows.append([types.InlineKeyboardButton(text=_txt(lang, "🚀 فتح البوت الرئيسي", "🚀 Open Main Bot"), url=url)])
+    rows.append(
+        [
+            types.InlineKeyboardButton(text=_txt(lang, "💰 شحن رصيد البوت", "💰 Top Up Main Balance"), callback_data="rsmenu:core_topup"),
+            types.InlineKeyboardButton(text=_txt(lang, "📈 الإحصائيات", "📈 Stats"), callback_data="rsmenu:stats"),
+        ]
+    )
+    return types.InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 async def _guard_reseller_setup(callback: types.CallbackQuery, *, allow_settings: bool = False) -> bool:
     if not callback.message:
         return False
@@ -377,8 +423,10 @@ async def _build_reseller_stats_text(reseller_id: int, bot_id: int | None = None
     )
 
 
-async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int) -> str:
+async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int, lang: str | None = None) -> str:
     rid = int(reseller_id)
+    lang = lang or await _reseller_lang(rid)
+    is_ar = _is_ar(lang)
     main_balance = await get_reseller_wallet_balance(rid, wallet_type="main")
     earnings_balance = await get_reseller_wallet_balance(rid, wallet_type="earnings")
     pending_recharge = await db.recharge_requests.count_documents({"reseller_id": rid, "status": "pending"})
@@ -390,6 +438,14 @@ async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int) -> str:
     rate = await get_exchange_rate(rid)
     ready, setup = await _reseller_setup_ready(rid)
     subscription = await get_bot_subscription(int(bot_id))
+    support_routes = await get_all_support_routing(rid)
+    support_ready = sum(1 for cat, _title in _SUPPORT_TOPIC_CATEGORIES if (support_routes.get(cat) or {}).get("chat_id"))
+    sub_status = subscription_status_label(lang, str(subscription.get("status") or ""))
+    sub_end = (
+        subscription.get("trial_ends_at")
+        if str(subscription.get("status") or "").strip().lower() == "trial_active"
+        else subscription.get("subscription_ends_at")
+    )
     open_orders = await db.orders.count_documents(
         {
             "reseller_id": rid,
@@ -398,25 +454,63 @@ async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int) -> str:
         }
     )
 
+    if is_ar:
+        next_step = (
+            "الإعداد جاهز. راقب طلبات الشحن والطلبات المفتوحة من الأزرار بالأسفل."
+            if ready
+            else "أكمل وسائل الدفع وتوبيك الدفع من الإعدادات قبل نشر البوت للزبائن."
+        )
+        return (
+            "📊 لوحة الريسيلر\n\n"
+            "الحالة السريعة\n"
+            f"• الإعداد: {_ready_mark(ready)} {_ready_word(lang, ready)}\n"
+            f"• البوتات النشطة لديك: {active_bots}\n"
+            f"• المستخدمون المرتبطون بهذا البوت: {linked_users}\n"
+            f"• طلبات الأرقام المفتوحة: {open_orders}\n"
+            f"• طلبات الشحن المعلقة: {pending_recharge}\n"
+            f"• طلبات تحتاج إثبات إضافي: {need_more_proof}\n\n"
+            "الرصيد والاشتراك\n"
+            f"• رصيد البوت الرئيسي: {format_usd(main_balance)}\n"
+            f"• أرباح خدماتك الخاصة: {format_usd(earnings_balance)}\n"
+            f"• حالة اشتراك هذا البوت: {sub_status}\n"
+            f"• تاريخ الانتهاء: {format_subscription_dt(sub_end)}\n\n"
+            "جاهزية التشغيل\n"
+            f"• وسائل الدفع: {enabled_methods}/{len(methods)} مفعلة\n"
+            f"• مسار الدفع: {_ready_mark(setup.get('payment_routing_ok'))} {_ready_word(lang, setup.get('payment_routing_ok'))}\n"
+            f"• مسار الصرف: {_ready_mark(setup.get('exchange_routing_ok'))} {_ready_word(lang, setup.get('exchange_routing_ok'))}\n"
+            f"• التوبيكس: {_ready_mark(setup.get('topics_enabled'))} {_ready_word(lang, setup.get('topics_enabled'))}\n"
+            f"• تبويبات الدعم: {support_ready}/{len(_SUPPORT_TOPIC_CATEGORIES)} جاهزة\n"
+            f"• سعر الصرف: 1 💲 = {rate:.2f}\n\n"
+            f"الخطوة التالية: {next_step}"
+        )
+
+    next_step = (
+        "Setup is ready. Use the buttons below to monitor orders and recharge requests."
+        if ready
+        else "Finish payment methods and payment topic routing in Settings before publishing this bot."
+    )
     return (
-        "Reseller Dashboard\n\n"
-        f"Reseller ID: {rid}\n"
-        f"Setup ready: {ready}\n"
-        f"Active bots: {active_bots}\n"
-        f"Users linked to this bot: {linked_users}\n"
-        f"Open numbers orders: {open_orders}\n\n"
-            f"Main Bot balance: {format_usd(main_balance)}\n"
-        f"Custom-profit wallet: {format_usd(earnings_balance)}\n"
-        + "\n".join(subscription_summary_lines("en", subscription))
-        + "\n"
-        f"Pending recharge requests: {pending_recharge}\n"
-        f"Need-more-proof requests: {need_more_proof}\n\n"
-        f"Exchange rate: 1 💲 = {rate:.2f} local\n"
-        f"Payment methods enabled: {enabled_methods}/{len(methods)}\n"
-        f"Payment routing ready: {bool(setup.get('payment_routing_ok'))}\n"
-        f"Exchange routing ready: {bool(setup.get('exchange_routing_ok'))}\n"
-        f"Group setup ready: {bool(setup.get('group_ready'))}\n"
-        f"Topics enabled: {bool(setup.get('topics_enabled'))}"
+        "📊 Reseller Dashboard\n\n"
+        "Quick status\n"
+        f"• Setup: {_ready_mark(ready)} {_ready_word(lang, ready)}\n"
+        f"• Your active bots: {active_bots}\n"
+        f"• Users linked to this bot: {linked_users}\n"
+        f"• Open numbers orders: {open_orders}\n"
+        f"• Pending recharge requests: {pending_recharge}\n"
+        f"• Need-more-proof requests: {need_more_proof}\n\n"
+        "Balance and subscription\n"
+        f"• Main Bot balance: {format_usd(main_balance)}\n"
+        f"• Custom-services profit: {format_usd(earnings_balance)}\n"
+        f"• This bot subscription: {sub_status}\n"
+        f"• Ends at: {format_subscription_dt(sub_end)}\n\n"
+        "Operational readiness\n"
+        f"• Payment methods: {enabled_methods}/{len(methods)} enabled\n"
+        f"• Payment routing: {_ready_mark(setup.get('payment_routing_ok'))} {_ready_word(lang, setup.get('payment_routing_ok'))}\n"
+        f"• Exchange routing: {_ready_mark(setup.get('exchange_routing_ok'))} {_ready_word(lang, setup.get('exchange_routing_ok'))}\n"
+        f"• Topics: {_ready_mark(setup.get('topics_enabled'))} {_ready_word(lang, setup.get('topics_enabled'))}\n"
+        f"• Support topics: {support_ready}/{len(_SUPPORT_TOPIC_CATEGORIES)} ready\n"
+        f"• Exchange rate: 1 💲 = {rate:.2f} local\n\n"
+        f"Next step: {next_step}"
     )
 
 
@@ -520,7 +614,10 @@ async def reseller_menu_dashboard(callback: types.CallbackQuery):
         lang = await _reseller_lang(callback.from_user.id)
         await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
         bot_id = (await callback.bot.get_me()).id
-        await callback.message.answer(await _build_reseller_dashboard_text(callback.from_user.id, bot_id))
+        await callback.message.answer(
+            await _build_reseller_dashboard_text(callback.from_user.id, bot_id, lang),
+            reply_markup=_reseller_dashboard_kb(lang),
+        )
 
 
 @router.callback_query(lambda c: c.data == "rsmenu:menu")

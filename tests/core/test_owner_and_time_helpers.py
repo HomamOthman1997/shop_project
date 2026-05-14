@@ -11,7 +11,7 @@ from config import settings
 from database.financial_ledger import _cycle_bounds
 from handlers.admin_services import _parse_owner_target_payload
 from handlers.main_menu import _as_utc as main_menu_as_utc
-from handlers.reseller_recharge import _build_reseller_stats_text
+from handlers.reseller_recharge import _build_reseller_dashboard_text, _build_reseller_stats_text
 from middlewares.version_check import _as_utc as version_check_as_utc, _allow_owner_panel_callback
 
 
@@ -111,3 +111,68 @@ async def test_reseller_stats_text_renders(monkeypatch):
     assert "Active bots: 2" in text
     assert "Linked users: 18" in text
     assert "Payment methods configured: 2" in text
+
+
+@pytest.mark.asyncio
+async def test_reseller_dashboard_text_is_actionable(monkeypatch):
+    async def fake_balance(_rid, wallet_type="main"):
+        return 15.0 if wallet_type == "main" else 4.0
+
+    async def fake_methods(_rid):
+        return [{"code": "usdt", "enabled": True}, {"code": "cash", "enabled": False}]
+
+    async def fake_rate(_rid):
+        return 13250.0
+
+    async def fake_setup(_rid):
+        return False, {
+            "payment_routing_ok": False,
+            "exchange_routing_ok": True,
+            "topics_enabled": False,
+        }
+
+    async def fake_subscription(_bot_id):
+        return {
+            "status": "payment_required",
+            "trial_available": True,
+            "trial_price_usd": 1.0,
+            "renewal_plan_months": 1,
+        }
+
+    async def fake_support(_rid):
+        return {"numbers": {"chat_id": -1001}, "user_balance": {"chat_id": -1001}}
+
+    class FixedCount:
+        def __init__(self, value):
+            self.value = value
+
+        async def count_documents(self, _query):
+            return self.value
+
+    class RechargeRequests:
+        async def count_documents(self, query):
+            return 3 if str(query.get("status") or "") == "pending" else 1
+
+    fake_db = SimpleNamespace(
+        recharge_requests=RechargeRequests(),
+        user_reseller_links=FixedCount(9),
+        bots=FixedCount(1),
+        orders=FixedCount(2),
+    )
+
+    import handlers.reseller_recharge as reseller_recharge
+
+    monkeypatch.setattr(reseller_recharge, "get_reseller_wallet_balance", fake_balance)
+    monkeypatch.setattr(reseller_recharge, "get_payment_methods", fake_methods)
+    monkeypatch.setattr(reseller_recharge, "get_exchange_rate", fake_rate)
+    monkeypatch.setattr(reseller_recharge, "_reseller_setup_ready", fake_setup)
+    monkeypatch.setattr(reseller_recharge, "get_bot_subscription", fake_subscription)
+    monkeypatch.setattr(reseller_recharge, "get_all_support_routing", fake_support)
+    monkeypatch.setattr(reseller_recharge, "db", fake_db)
+
+    text = await _build_reseller_dashboard_text(77, 555, "en")
+
+    assert "Reseller Dashboard" in text
+    assert "Next step:" in text
+    assert "Finish payment methods" in text
+    assert "Support topics: 2/4 ready" in text

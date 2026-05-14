@@ -115,7 +115,7 @@ async def test_reseller_dashboard_callback(monkeypatch):
     async def _fake_hide(*_a, **_k):
         return None
 
-    async def _fake_dash(_rid, _bot_id):
+    async def _fake_dash(_rid, _bot_id, _lang=None):
         return "DASHBOARD_OK"
 
     monkeypatch.setattr(reseller_recharge, "_is_current_bot_reseller", _fake_is_reseller)
