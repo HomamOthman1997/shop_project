@@ -8,7 +8,7 @@ from bson import ObjectId
 
 sys.path.insert(0, os.getcwd())
 
-import handlers.verify_reseller as vr
+import handlers.owner_requests as owner_requests
 
 
 class _FakeCollection:
@@ -102,24 +102,20 @@ async def test_owner_review_approve_branch(monkeypatch):
         bot_creation_requests=_FakeCollection(req),
         bots=_FakeBotsCollection(),
     )
-    monkeypatch.setattr(vr, "db", fake_db)
-    monkeypatch.setattr(vr, "OWNER_ID", 999)
+    monkeypatch.setattr(owner_requests, "db", fake_db)
+    monkeypatch.setattr(owner_requests, "OWNER_ID", 999)
 
     async def _ok(*_a, **_k):
         return None
 
-    async def _tpl(*_a, **_k):
-        return {"success": True, "reason": "", "copied": 0}
-
-    monkeypatch.setattr(vr, "add_bot", _ok)
-    monkeypatch.setattr(vr, "update_bot_channel", _ok)
-    monkeypatch.setattr(vr, "update_reseller_info", _ok)
-    monkeypatch.setattr(vr, "verify_bot", _ok)
-    monkeypatch.setattr(vr, "clone_catalog_from_reseller_template", _tpl)
-    monkeypatch.setattr(vr, "_notify_requester_via_source_bot", _ok)
+    monkeypatch.setattr(owner_requests, "add_bot", _ok)
+    monkeypatch.setattr(owner_requests, "update_bot_channel", _ok)
+    monkeypatch.setattr(owner_requests, "update_reseller_info", _ok)
+    monkeypatch.setattr(owner_requests, "verify_bot", _ok)
+    monkeypatch.setattr(owner_requests, "_notify_requester", _ok)
     callback = _FakeCallback(f"verify_owner:approve:{str(req['_id'])}", user_id=999)
 
-    await vr.owner_review_callback(callback)
+    await owner_requests.owner_review_callback(callback)
 
     assert req["status"] == "approved"
     assert callback.answers
@@ -133,16 +129,16 @@ async def test_owner_review_reject_branch(monkeypatch):
         bot_creation_requests=_FakeCollection(req),
         bots=_FakeBotsCollection(),
     )
-    monkeypatch.setattr(vr, "db", fake_db)
-    monkeypatch.setattr(vr, "OWNER_ID", 321)
+    monkeypatch.setattr(owner_requests, "db", fake_db)
+    monkeypatch.setattr(owner_requests, "OWNER_ID", 321)
 
     async def _ok(*_a, **_k):
         return None
 
-    monkeypatch.setattr(vr, "_notify_requester_via_source_bot", _ok)
+    monkeypatch.setattr(owner_requests, "_notify_requester", _ok)
     callback = _FakeCallback(f"verify_owner:reject:{str(req['_id'])}", user_id=321)
 
-    await vr.owner_review_callback(callback)
+    await owner_requests.owner_review_callback(callback)
 
     assert req["status"] == "rejected"
     assert callback.answers

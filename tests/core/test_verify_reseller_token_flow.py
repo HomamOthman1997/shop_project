@@ -87,3 +87,55 @@ async def test_save_token_accepts_valid_token_when_no_pending_or_registered(monk
     assert state.data["bot_username"] == "testsdfsdfsfsbot"
     assert state.state == vr.VerifyReseller.waiting_for_channel
     assert prompts
+
+
+@pytest.mark.asyncio
+async def test_save_token_explains_registered_bot_and_stays_on_token_step(monkeypatch):
+    state = _FakeState()
+    message = _FakeMessage("8791141203:AAE3lSGuFNNtWvSjL5mgk9VRNAhxIknW1x0")
+    prompts = []
+
+    class _TempSession:
+        async def close(self):
+            return None
+
+    class _TempBot:
+        def __init__(self, token):
+            self.token = token
+            self.session = _TempSession()
+
+        async def get_me(self):
+            return SimpleNamespace(id=8791141203, username="already_here_bot", first_name="Already Here")
+
+    async def _fake_user(_uid):
+        return {"language": "en"}
+
+    async def _fake_delete(*_args, **_kwargs):
+        return None
+
+    async def _fake_prompt(**kwargs):
+        prompts.append(kwargs)
+        return None
+
+    async def _fake_registered(_bot_id):
+        return True
+
+    async def _fake_pending(_bot_id):
+        return False
+
+    monkeypatch.setattr(vr, "Bot", _TempBot)
+    monkeypatch.setattr(vr, "get_user", _fake_user)
+    monkeypatch.setattr(vr, "_safe_delete_user_message", _fake_delete)
+    monkeypatch.setattr(vr, "_set_or_edit_prompt", _fake_prompt)
+    monkeypatch.setattr(vr, "_is_bot_id_already_registered", _fake_registered)
+    monkeypatch.setattr(vr, "_has_pending_bot_request_for_bot_id", _fake_pending)
+
+    await vr.save_token(message, state)
+
+    assert state.state is None
+    assert prompts
+    text = prompts[-1]["text"]
+    assert "Step 1/6 - Bot Token" in text
+    assert "token you sent belongs to a bot" in text
+    buttons = prompts[-1]["reply_markup"].inline_keyboard
+    assert buttons[0][0].text == "🔁 I Have a New Token"

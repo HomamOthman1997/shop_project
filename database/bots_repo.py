@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+from pymongo.errors import DuplicateKeyError
+
 from config import settings
 from database.mongo import db
 from services.subscriptions.bot_subscription_service import (
@@ -16,30 +18,79 @@ from services.subscriptions.bot_subscription_service import (
 )
 
 
+class BotAlreadyRegisteredError(RuntimeError):
+    pass
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+async def bootstrap_bot_indexes() -> None:
+    await db.bots.create_index(
+        [("bot_id", 1)],
+        unique=True,
+        partialFilterExpression={"active": True},
+        name="active_bot_id_unique",
+        background=True,
+    )
+    await db.bots.create_index([("owner_id", 1), ("active", 1)], name="owner_active_lookup", background=True)
+    await db.bot_creation_requests.create_index(
+        [("status", 1), ("payload.bot_id", 1), ("created_at", -1)],
+        background=True,
+    )
 
 
 async def add_bot(token: str, owner_id: int, bot_id: int):
     now = _utc_now()
     subscription = await build_initial_subscription_for_owner(int(owner_id), now=now)
-    await db.bots.insert_one(
-        {
-            "bot_id": bot_id,
-            "token": token,
-            "owner_id": owner_id,
-            "active": True,
-            "created_at": now,
-            "webhook_url": None,
-            "subscription": subscription,
-            "settings": {
-                "language": "en",
-                "subscription_channel": None,
-                "version": settings.bot_version,
-            },
-        }
-    )
+    try:
+        await db.bots.insert_one(
+            {
+                "bot_id": bot_id,
+                "token": token,
+                "owner_id": owner_id,
+                "active": True,
+                "created_at": now,
+                "webhook_url": None,
+                "subscription": subscription,
+                "provisioning": {
+                    "status": "creating",
+                    "started_at": now,
+                    "updated_at": now,
+                    "source": "create_bot_flow",
+                },
+                "settings": {
+                    "language": "en",
+                    "subscription_channel": None,
+                    "version": settings.bot_version,
+                },
+            }
+        )
+    except DuplicateKeyError as exc:
+        raise BotAlreadyRegisteredError(f"bot_id {int(bot_id)} already exists") from exc
     await sync_bot_subscription(int(bot_id), collect_due=True)
+
+
+async def mark_bot_provisioning_status(
+    bot_id: int,
+    status: str,
+    *,
+    active: bool | None = None,
+    error: str | None = None,
+) -> None:
+    now = _utc_now()
+    update = {
+        "provisioning.status": str(status or "").strip() or "unknown",
+        "provisioning.updated_at": now,
+    }
+    if active is not None:
+        update["active"] = bool(active)
+    if error:
+        update["provisioning.error"] = str(error)[:500]
+    elif status == "active":
+        update["provisioning.error"] = ""
+    await db.bots.update_one({"bot_id": int(bot_id)}, {"$set": update})
 
 
 async def get_active_bots():

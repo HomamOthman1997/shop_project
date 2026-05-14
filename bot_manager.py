@@ -15,7 +15,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import MenuButtonWebApp, WebAppInfo
 
 from config import settings, validate_runtime_security, enforce_openrouter_only_mode
-from database.bots_repo import get_verified_bots
+from database.bots_repo import bootstrap_bot_indexes, get_verified_bots
 from database.custom_services_repo import bootstrap_custom_services_indexes
 from database.user_repo import bootstrap_user_indexes, bootstrap_user_links_indexes
 from database.mongo import db
@@ -149,6 +149,7 @@ async def _run_startup_step(
 
 async def _run_startup_bootstraps() -> None:
     steps = [
+        ("bot indexes", bootstrap_bot_indexes),
         ("financial indexes", bootstrap_financial_indexes),
         ("card-ex indexes", bootstrap_cardex_indexes),
         ("custom services indexes", bootstrap_custom_services_indexes),

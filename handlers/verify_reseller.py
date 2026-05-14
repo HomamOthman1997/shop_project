@@ -16,8 +16,15 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from config import OWNER_ID, settings
-from database.bots_repo import add_bot, update_bot_channel, update_reseller_info, verify_bot
+from config import settings
+from database.bots_repo import (
+    BotAlreadyRegisteredError,
+    add_bot,
+    mark_bot_provisioning_status,
+    update_bot_channel,
+    update_reseller_info,
+    verify_bot,
+)
 from services.subscriptions.bot_subscription_service import get_bot_subscription
 from database.custom_services_repo import clone_catalog_from_reseller_template
 from database.financial_ledger import get_reseller_wallet_balance
@@ -53,75 +60,6 @@ FLOW_REF_KEY = "verify_flow_ref"
 REPLY_KB_ANCHOR_MSG_ID_KEY = "verify_reply_kb_anchor_msg_id"
 
 
-async def _notify_requester_via_source_bot(_req: dict, *, approved: bool) -> None:
-    return None
-
-
-async def owner_review_callback(callback: types.CallbackQuery):
-    owner_id = int(globals().get("OWNER_ID", 0) or 0)
-    if int(callback.from_user.id) != owner_id:
-        return await callback.answer("No permission", show_alert=True)
-
-    parts = str(callback.data or "").split(":", 2)
-    if len(parts) != 3:
-        return await callback.answer("Invalid review payload", show_alert=True)
-    action, raw_id = parts[1], parts[2]
-    try:
-        request_id = uuid.UUID(raw_id)  # type: ignore[arg-type]
-    except Exception:
-        from bson import ObjectId
-
-        try:
-            request_id = ObjectId(raw_id)
-        except Exception:
-            return await callback.answer("Invalid request id", show_alert=True)
-
-    req = await db.bot_creation_requests.find_one({"_id": request_id, "status": "pending"})
-    if not req:
-        return await callback.answer("Request not found", show_alert=True)
-
-    payload = dict(req.get("payload") or {})
-    lang = str(req.get("requester_lang") or "en")
-    if action == "reject":
-        await db.bot_creation_requests.update_one(
-            {"_id": request_id},
-            {"$set": {"status": "rejected", "reviewed_at": datetime.now(UTC), "reviewed_by": int(callback.from_user.id)}},
-        )
-        await _notify_requester_via_source_bot(req, approved=False)
-        if callback.message:
-            try:
-                await callback.message.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
-        return await callback.answer(t(lang, "request_rejected"))
-
-    if action != "approve":
-        return await callback.answer("Invalid review action", show_alert=True)
-
-    exists = await db.bots.find_one({"bot_id": payload.get("bot_id")})
-    if not exists:
-        await add_bot(payload["bot_token"], int(req.get("requester_id") or 0), payload["bot_id"])
-    await update_bot_channel(payload["bot_id"], payload["channel"])
-    await update_reseller_info(payload["bot_id"], payload["fullname"], payload["phone"], payload["address"])
-    await verify_bot(payload["bot_id"])
-    await clone_catalog_from_reseller_template(
-        source_reseller_id=int(req.get("requester_id") or 0),
-        target_reseller_id=int(req.get("requester_id") or 0),
-        catalog_type="custom",
-    )
-    await db.bot_creation_requests.update_one(
-        {"_id": request_id},
-        {"$set": {"status": "approved", "reviewed_at": datetime.now(UTC), "reviewed_by": int(callback.from_user.id)}},
-    )
-    await _notify_requester_via_source_bot(req, approved=True)
-    if callback.message:
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-    return await callback.answer(t(lang, "request_approved"))
-
-
 def is_valid_token(text: str):
     return bool(_extract_token_input(text))
 
@@ -155,6 +93,18 @@ def _verify_nav_kb(lang: str, include_back: bool) -> types.InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def _verify_token_kb(lang: str, include_back: bool = False, *, retry: bool = False) -> types.InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    if retry:
+        kb.button(text=t(lang, "send_new_token_button"), callback_data="verify:retry_token")
+    kb.button(text=t(lang, "open_botfather_button"), url="https://t.me/BotFather")
+    if include_back:
+        kb.button(text=t(lang, "back"), callback_data="verify_nav:back")
+    kb.button(text=t(lang, "cancel"), callback_data="verify_nav:cancel", style="danger")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
 def _verify_confirm_kb(
     lang: str,
     *,
@@ -178,6 +128,40 @@ def _verify_intro_kb(lang: str) -> types.InlineKeyboardMarkup:
     kb.button(text=t(lang, "cancel"), callback_data="verify_nav:cancel", style="danger")
     kb.adjust(1)
     return kb.as_markup()
+
+
+def _is_ar(lang: str) -> bool:
+    return str(lang or "").lower().startswith("ar")
+
+
+def _step_label(lang: str, step: int, title_en: str, title_ar: str) -> str:
+    if _is_ar(lang):
+        return f"الخطوة {step}/6 - {title_ar}"
+    return f"Step {step}/6 - {title_en}"
+
+
+def _step_prompt_html(lang: str, step: int, title_en: str, title_ar: str, body: str) -> str:
+    return f"<b>{escape(_step_label(lang, step, title_en, title_ar))}</b>\n\n{_as_html_quote(body)}"
+
+
+def _intro_prompt_html(lang: str) -> str:
+    title = "قبل ما نبدأ" if _is_ar(lang) else "Before We Start"
+    return f"<b>{escape(title)}</b>\n\n{_as_html_quote(_intro_rest_text(lang))}"
+
+
+def _token_prompt_html(lang: str, prefix: str | None = None) -> str:
+    body = _token_rest_text(lang)
+    if prefix:
+        body = f"{prefix}\n\n{body}"
+    return _step_prompt_html(lang, 1, "Bot Token", "توكن البوت", body)
+
+
+def _summary_prompt_html(lang: str, summary_text: str) -> str:
+    return _step_prompt_html(lang, 6, "Review & Activate", "المراجعة والتفعيل", summary_text)
+
+
+def _bot_already_registered_text(lang: str) -> str:
+    return t(lang, "bot_already_registered_detail")
 
 
 def _add_to_channel_url(bot_username: str) -> str:
@@ -548,7 +532,6 @@ def _build_preflight_block(lang: str, checks: dict) -> str:
     def mark(v: bool) -> str:
         return t(lang, "preflight_ok_mark") if v else t(lang, "preflight_fail_mark")
 
-    is_ar = str(lang or "").lower().startswith("ar")
     lines = [
         t(lang, "preflight_title"),
         f"{mark(checks.get('token', False))} {t(lang, 'preflight_token_check')}",
@@ -564,11 +547,7 @@ def _build_preflight_block(lang: str, checks: dict) -> str:
         lines.extend(
             [
                 "",
-                (
-                    "خطوات مطلوبة قبل التفعيل:"
-                    if is_ar
-                    else "Required steps before activation:"
-                ),
+                t(lang, "preflight_required_before_approval_title"),
                 t(lang, "preflight_optional_after_approval_step_1"),
                 t(lang, "preflight_optional_after_approval_step_2"),
                 t(lang, "preflight_optional_after_approval_step_3"),
@@ -587,12 +566,6 @@ def _build_summary_text(data: dict, lang: str, checks: dict | None = None) -> st
         phone=data.get("phone", "-"),
         address=data.get("address", "-"),
     )
-    progress_line = (
-        "Step 6/6: Final review before activation"
-        if not str(lang or "").lower().startswith("ar")
-        else "الخطوة 6/6: مراجعة نهائية قبل التفعيل"
-    )
-    summary = f"{progress_line}\n\n{summary}"
     if checks is not None:
         summary = f"{summary}\n\n{_build_preflight_block(lang, checks)}"
     return summary
@@ -724,7 +697,7 @@ async def _run_preflight_checks(data: dict, requester_id: int | None = None) -> 
     return True, out
 
 async def _is_bot_id_already_registered(bot_id: int) -> bool:
-    doc = await db.bots.find_one({"bot_id": bot_id, "active": True}, {"_id": 1})
+    doc = await db.bots.find_one({"bot_id": int(bot_id)}, {"_id": 1})
     return doc is not None
 
 
@@ -900,7 +873,7 @@ async def ask_token(message: types.Message, state: FSMContext):
         bot=message.bot,
         chat_id=message.chat.id,
         state=state,
-        text=_as_html_quote(_intro_rest_text(lang)),
+        text=_intro_prompt_html(lang),
         reply_markup=_verify_intro_kb(lang),
         parse_mode="HTML",
     )
@@ -916,8 +889,8 @@ async def start_token_step(callback: types.CallbackQuery, state: FSMContext):
         bot=callback.bot,
         chat_id=callback.message.chat.id,
         state=state,
-        text=_as_html_quote(_token_rest_text(lang)),
-        reply_markup=_verify_nav_kb(lang, include_back=False),
+        text=_token_prompt_html(lang),
+        reply_markup=_verify_token_kb(lang, include_back=False),
         parse_mode="HTML",
     )
     await state.set_state(VerifyReseller.waiting_for_token)
@@ -928,6 +901,24 @@ async def start_token_step(callback: types.CallbackQuery, state: FSMContext):
 async def ignore_intro_text(message: types.Message):
     # Intro step accepts only inline buttons (Continue/Cancel).
     await _safe_delete_user_message(message, context="verify_waiting_intro")
+
+
+@router.callback_query(VerifyReseller.waiting_for_token, lambda c: c.data == "verify:retry_token")
+async def retry_token_step(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = user.get("language", "en") if user else "en"
+    await callback.answer()
+    await _set_or_edit_prompt(
+        bot=callback.bot,
+        chat_id=callback.message.chat.id,
+        state=state,
+        text=_token_prompt_html(lang),
+        reply_markup=_verify_token_kb(lang, include_back=False),
+        parse_mode="HTML",
+        preferred_message_id=callback.message.message_id,
+    )
+
+
 @router.message(VerifyReseller.waiting_for_token)
 async def save_token(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
@@ -938,12 +929,13 @@ async def save_token(message: types.Message, state: FSMContext):
     await _safe_delete_user_message(message, context="verify_waiting_token")
 
     if not is_valid_token(token):
+        logger.info("create_bot_token_invalid user_id=%s token_prefix=%s", message.from_user.id, token[:12])
         return await _set_or_edit_prompt(
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=f"{escape(t(lang, 'invalid_token'))}\n\n{_as_html_quote(_token_rest_text(lang))}",
-            reply_markup=_verify_nav_kb(lang, include_back=False),
+            text=_token_prompt_html(lang, t(lang, "invalid_token")),
+            reply_markup=_verify_token_kb(lang, include_back=False, retry=True),
             parse_mode="HTML",
         )
 
@@ -952,27 +944,45 @@ async def save_token(message: types.Message, state: FSMContext):
         me = await bot.get_me()
 
         if await _is_bot_id_already_registered(me.id):
+            logger.info(
+                "create_bot_token_registered user_id=%s bot_id=%s bot_username=%s",
+                message.from_user.id,
+                me.id,
+                me.username or "",
+            )
             await _set_or_edit_prompt(
                 bot=message.bot,
                 chat_id=message.chat.id,
                 state=state,
-                text=f"{escape(t(lang, 'bot_already_registered'))}\n\n{_as_html_quote(_token_rest_text(lang))}",
-                reply_markup=_verify_nav_kb(lang, include_back=False),
+                text=_token_prompt_html(lang, _bot_already_registered_text(lang)),
+                reply_markup=_verify_token_kb(lang, include_back=False, retry=True),
                 parse_mode="HTML",
             )
             return
 
         if await _has_pending_bot_request_for_bot_id(me.id):
+            logger.info(
+                "create_bot_token_pending_review user_id=%s bot_id=%s bot_username=%s",
+                message.from_user.id,
+                me.id,
+                me.username or "",
+            )
             await _set_or_edit_prompt(
                 bot=message.bot,
                 chat_id=message.chat.id,
                 state=state,
-                text=f"{escape(t(lang, 'bot_pending_review_exists'))}\n\n{_as_html_quote(_token_rest_text(lang))}",
-                reply_markup=_verify_nav_kb(lang, include_back=False),
+                text=_token_prompt_html(lang, t(lang, "bot_pending_review_exists")),
+                reply_markup=_verify_token_kb(lang, include_back=False, retry=True),
                 parse_mode="HTML",
             )
             return
 
+        logger.info(
+            "create_bot_token_accepted user_id=%s bot_id=%s bot_username=%s",
+            message.from_user.id,
+            me.id,
+            me.username or "",
+        )
         await state.update_data(
             bot_token=token,
             bot_id=me.id,
@@ -989,7 +999,7 @@ async def save_token(message: types.Message, state: FSMContext):
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
+            text=_step_prompt_html(lang, 2, "Subscription Channel", "قناة الاشتراك", f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -1006,8 +1016,8 @@ async def save_token(message: types.Message, state: FSMContext):
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=f"{escape(t(lang, 'token_verify_network'))}\n\n{_as_html_quote(_token_rest_text(lang))}",
-            reply_markup=_verify_nav_kb(lang, include_back=False),
+            text=_token_prompt_html(lang, t(lang, "token_verify_network")),
+            reply_markup=_verify_token_kb(lang, include_back=False, retry=True),
             parse_mode="HTML",
         )
     except TelegramBadRequest as exc:
@@ -1023,8 +1033,8 @@ async def save_token(message: types.Message, state: FSMContext):
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=f"{escape(t(lang, key))}\n\n{_as_html_quote(_token_rest_text(lang))}",
-            reply_markup=_verify_nav_kb(lang, include_back=False),
+            text=_token_prompt_html(lang, t(lang, key)),
+            reply_markup=_verify_token_kb(lang, include_back=False, retry=True),
             parse_mode="HTML",
         )
     except Exception as exc:
@@ -1037,8 +1047,8 @@ async def save_token(message: types.Message, state: FSMContext):
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=f"{escape(t(lang, 'token_verify_failed'))}\n\n{_as_html_quote(_token_rest_text(lang))}",
-            reply_markup=_verify_nav_kb(lang, include_back=False),
+            text=_token_prompt_html(lang, t(lang, "token_verify_failed")),
+            reply_markup=_verify_token_kb(lang, include_back=False, retry=True),
             parse_mode="HTML",
         )
     finally:
@@ -1084,7 +1094,7 @@ async def receive_channel(message: types.Message, state: FSMContext):
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
+            text=_step_prompt_html(lang, 2, "Subscription Channel", "قناة الاشتراك", f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -1099,7 +1109,7 @@ async def _handle_channel_value(message: types.Message, state: FSMContext, lang:
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(f"{t(lang, 'invalid_channel')}\n\n{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
+            text=_step_prompt_html(lang, 2, "Subscription Channel", "قناة الاشتراك", f"{t(lang, 'invalid_channel')}\n\n{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -1119,7 +1129,7 @@ async def _handle_channel_value(message: types.Message, state: FSMContext, lang:
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(f"{_channel_target_invalid_text(lang)}\n\n{_manual_channel_hint(lang)}"),
+            text=_step_prompt_html(lang, 2, "Subscription Channel", "قناة الاشتراك", f"{_channel_target_invalid_text(lang)}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_channel_admin_kb(lang, add_url, include_back=True),
             parse_mode="HTML",
         )
@@ -1130,7 +1140,7 @@ async def _handle_channel_value(message: types.Message, state: FSMContext, lang:
         bot=message.bot,
         chat_id=message.chat.id,
         state=state,
-        text=_as_html_quote(t(lang, "checking_channel_admin")),
+        text=_step_prompt_html(lang, 2, "Subscription Channel", "قناة الاشتراك", t(lang, "checking_channel_admin")),
         reply_markup=_verify_nav_kb(lang, include_back=True),
         parse_mode="HTML",
     )
@@ -1142,7 +1152,7 @@ async def _handle_channel_value(message: types.Message, state: FSMContext, lang:
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(t(lang, "channel_admin_required")),
+            text=_step_prompt_html(lang, 2, "Subscription Channel", "قناة الاشتراك", t(lang, "channel_admin_required")),
             reply_markup=_verify_channel_admin_kb(lang, add_url, include_back=True),
             parse_mode="HTML",
         )
@@ -1156,7 +1166,7 @@ async def _handle_channel_value(message: types.Message, state: FSMContext, lang:
         bot=message.bot,
         chat_id=message.chat.id,
         state=state,
-        text=_as_html_quote(t(lang, "send_fullname")),
+        text=_step_prompt_html(lang, 3, "Full Name", "الاسم الكامل", t(lang, "send_fullname")),
         reply_markup=_verify_nav_kb(lang, include_back=True),
         parse_mode="HTML",
     )
@@ -1179,7 +1189,7 @@ async def recheck_channel_admin(callback: types.CallbackQuery, state: FSMContext
         bot=callback.bot,
         chat_id=callback.message.chat.id,
         state=state,
-        text=_as_html_quote(t(lang, "checking_channel_admin")),
+        text=_step_prompt_html(lang, 2, "Subscription Channel", "قناة الاشتراك", t(lang, "checking_channel_admin")),
         reply_markup=_verify_nav_kb(lang, include_back=True),
         parse_mode="HTML",
         preferred_message_id=callback.message.message_id,
@@ -1192,7 +1202,7 @@ async def recheck_channel_admin(callback: types.CallbackQuery, state: FSMContext
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(f"{_channel_target_invalid_text(lang)}\n\n{_manual_channel_hint(lang)}"),
+            text=_step_prompt_html(lang, 2, "Subscription Channel", "قناة الاشتراك", f"{_channel_target_invalid_text(lang)}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_channel_admin_kb(lang, add_url, include_back=True),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
@@ -1205,7 +1215,7 @@ async def recheck_channel_admin(callback: types.CallbackQuery, state: FSMContext
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
+            text=_step_prompt_html(lang, 2, "Subscription Channel", "قناة الاشتراك", f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
@@ -1220,7 +1230,7 @@ async def recheck_channel_admin(callback: types.CallbackQuery, state: FSMContext
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(t(lang, "channel_admin_required")),
+            text=_step_prompt_html(lang, 2, "Subscription Channel", "قناة الاشتراك", t(lang, "channel_admin_required")),
             reply_markup=_verify_channel_admin_kb(lang, add_url, include_back=True),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
@@ -1235,7 +1245,7 @@ async def recheck_channel_admin(callback: types.CallbackQuery, state: FSMContext
         bot=callback.bot,
         chat_id=callback.message.chat.id,
         state=state,
-        text=_as_html_quote(t(lang, "send_fullname")),
+        text=_step_prompt_html(lang, 3, "Full Name", "الاسم الكامل", t(lang, "send_fullname")),
         reply_markup=_verify_nav_kb(lang, include_back=True),
         parse_mode="HTML",
         preferred_message_id=callback.message.message_id,
@@ -1257,7 +1267,7 @@ async def receive_fullname(message: types.Message, state: FSMContext):
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(f"{t(lang, 'full_name_required')}\n\n{t(lang, 'send_fullname')}"),
+            text=_step_prompt_html(lang, 3, "Full Name", "الاسم الكامل", f"{t(lang, 'full_name_required')}\n\n{t(lang, 'send_fullname')}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -1266,7 +1276,7 @@ async def receive_fullname(message: types.Message, state: FSMContext):
         bot=message.bot,
         chat_id=message.chat.id,
         state=state,
-        text=_as_html_quote(t(lang, "send_phone")),
+        text=_step_prompt_html(lang, 4, "Phone Number", "رقم الهاتف", t(lang, "send_phone")),
         reply_markup=_verify_nav_kb(lang, include_back=True),
         parse_mode="HTML",
     )
@@ -1288,7 +1298,7 @@ async def receive_phone(message: types.Message, state: FSMContext):
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(f"{t(lang, 'phone_contact_only')}\n\n{t(lang, 'send_phone')}"),
+            text=_step_prompt_html(lang, 4, "Phone Number", "رقم الهاتف", f"{t(lang, 'phone_contact_only')}\n\n{t(lang, 'send_phone')}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -1303,7 +1313,7 @@ async def receive_phone(message: types.Message, state: FSMContext):
         bot=message.bot,
         chat_id=message.chat.id,
         state=state,
-        text=_as_html_quote(t(lang, "send_address")),
+        text=_step_prompt_html(lang, 5, "Address", "العنوان", t(lang, "send_address")),
         reply_markup=_verify_nav_kb(lang, include_back=True),
         parse_mode="HTML",
     )
@@ -1328,7 +1338,7 @@ async def receive_phone_text_fallback(message: types.Message, state: FSMContext)
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(t(lang, "send_address")),
+            text=_step_prompt_html(lang, 5, "Address", "العنوان", t(lang, "send_address")),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -1338,7 +1348,7 @@ async def receive_phone_text_fallback(message: types.Message, state: FSMContext)
         bot=message.bot,
         chat_id=message.chat.id,
         state=state,
-        text=_as_html_quote(f"{t(lang, 'phone_contact_only')}\n\n{t(lang, 'send_phone')}"),
+        text=_step_prompt_html(lang, 4, "Phone Number", "رقم الهاتف", f"{t(lang, 'phone_contact_only')}\n\n{t(lang, 'send_phone')}"),
         reply_markup=_verify_nav_kb(lang, include_back=True),
         parse_mode="HTML",
     )
@@ -1361,7 +1371,7 @@ async def receive_address(message: types.Message, state: FSMContext):
             bot=message.bot,
             chat_id=message.chat.id,
             state=state,
-            text=_as_html_quote(f"{_address_invalid_text(lang)}\n\n{t(lang, 'send_address')}"),
+            text=_step_prompt_html(lang, 5, "Address", "العنوان", f"{_address_invalid_text(lang)}\n\n{t(lang, 'send_address')}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -1372,6 +1382,13 @@ async def receive_address(message: types.Message, state: FSMContext):
 
     preflight_ok, preflight_checks = await _run_preflight_checks(data, requester_id=int(message.from_user.id))
     await state.update_data(preflight_ok=preflight_ok, preflight_checks=preflight_checks)
+    logger.info(
+        "create_bot_preflight user_id=%s bot_id=%s ok=%s checks=%s",
+        message.from_user.id,
+        data.get("bot_id"),
+        preflight_ok,
+        preflight_checks,
+    )
 
     summary_text = _build_summary_text(data, lang, preflight_checks)
 
@@ -1379,7 +1396,7 @@ async def receive_address(message: types.Message, state: FSMContext):
         bot=message.bot,
         chat_id=message.chat.id,
         state=state,
-        text=_as_html_quote(summary_text),
+        text=_summary_prompt_html(lang, summary_text),
         reply_markup=_verify_confirm_kb(lang, setup_required=not bool(preflight_ok)),
         parse_mode="HTML",
     )
@@ -1405,7 +1422,7 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(summary_text),
+            text=_summary_prompt_html(lang, summary_text),
             reply_markup=_verify_confirm_kb(lang, setup_required=not bool(data.get("preflight_ok"))),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
@@ -1421,7 +1438,7 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(setup_help_text),
+            text=_step_prompt_html(lang, 6, "Setup Checklist", "قائمة الإعداد", setup_help_text),
             reply_markup=_verify_setup_help_kb(lang, group_url),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
@@ -1433,19 +1450,21 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
     required = ("bot_token", "bot_id", "channel", "fullname", "phone", "address")
 
     if await _is_bot_id_already_registered(int(data.get("bot_id", 0) or 0)):
-        await callback.answer(t(lang, "bot_already_registered"), show_alert=True)
+        logger.info("create_bot_confirm_registered user_id=%s bot_id=%s", callback.from_user.id, data.get("bot_id"))
+        await callback.answer(_bot_already_registered_text(lang), show_alert=True)
         return await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
     if any(not data.get(k) for k in required):
+        missing_text = _missing_fields_text(lang, data)
         await _set_or_edit_prompt(
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(f"{_build_summary_text(data, lang)}\n\n{_missing_fields_text(lang, data)}"),
+            text=_summary_prompt_html(lang, f"{_build_summary_text(data, lang)}\n\n{missing_text}"),
             reply_markup=_verify_confirm_kb(lang, setup_required=True),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
         )
-        await callback.answer(_missing_fields_text(lang, data), show_alert=True)
+        await callback.answer(missing_text, show_alert=True)
         return
 
     preflight_checks = data.get("preflight_checks") or {}
@@ -1453,13 +1472,20 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
     if not preflight_checks:
         preflight_ok, preflight_checks = await _run_preflight_checks(data, requester_id=int(callback.from_user.id))
         await state.update_data(preflight_ok=preflight_ok, preflight_checks=preflight_checks)
+        logger.info(
+            "create_bot_preflight_recheck user_id=%s bot_id=%s ok=%s checks=%s",
+            callback.from_user.id,
+            data.get("bot_id"),
+            preflight_ok,
+            preflight_checks,
+        )
     if not preflight_ok:
         summary_text = _build_summary_text(data, lang, preflight_checks)
         await _set_or_edit_prompt(
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(f"{summary_text}\n\n{t(lang, 'preflight_fix_and_retry')}"),
+            text=_summary_prompt_html(lang, f"{summary_text}\n\n{t(lang, 'preflight_fix_and_retry')}"),
             reply_markup=_verify_confirm_kb(lang, setup_required=True),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
@@ -1470,6 +1496,13 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
     trial_price = float(getattr(settings, "reseller_bot_trial_price_usd", 1.0) or 1.0)
     current_balance = await get_reseller_wallet_balance(int(callback.from_user.id), wallet_type="main")
     if current_balance + 1e-9 < trial_price:
+        logger.info(
+            "create_bot_insufficient_balance user_id=%s bot_id=%s required=%.4f balance=%.4f",
+            callback.from_user.id,
+            data.get("bot_id"),
+            trial_price,
+            current_balance,
+        )
         insufficient_text = (
             f"الرصيد غير كافٍ لتفعيل أول شهر تجريبي مدفوع.\n"
             f"المطلوب: {format_usd(trial_price)}\n"
@@ -1486,7 +1519,7 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(f"{_build_summary_text(data, lang, preflight_checks)}\n\n{insufficient_text}"),
+            text=_summary_prompt_html(lang, f"{_build_summary_text(data, lang, preflight_checks)}\n\n{insufficient_text}"),
             reply_markup=_verify_confirm_kb(lang, setup_required=not bool(preflight_ok)),
             parse_mode="HTML",
             preferred_message_id=callback.message.message_id,
@@ -1506,15 +1539,41 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
         "address": data["address"],
     }
 
+    created_new_bot = False
+    core_activated = False
     try:
         exists = await db.bots.find_one({"bot_id": payload.get("bot_id")})
-        if not exists:
-            await add_bot(payload["bot_token"], callback.from_user.id, payload["bot_id"])
+        if exists:
+            logger.info(
+                "create_bot_confirm_existing_record user_id=%s bot_id=%s active=%s",
+                callback.from_user.id,
+                payload.get("bot_id"),
+                exists.get("active"),
+            )
+            await callback.answer(_bot_already_registered_text(lang), show_alert=True)
+            return await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
+
+        await add_bot(payload["bot_token"], callback.from_user.id, payload["bot_id"])
+        created_new_bot = True
+        logger.info(
+            "create_bot_record_inserted user_id=%s bot_id=%s bot_username=%s",
+            callback.from_user.id,
+            payload.get("bot_id"),
+            payload.get("bot_username") or "",
+        )
 
         subscription = await get_bot_subscription(int(payload["bot_id"]))
         if str(subscription.get("status") or "").strip().lower() == "payment_required":
             await db.bots.delete_one({"bot_id": payload["bot_id"], "owner_id": int(callback.from_user.id)})
+            created_new_bot = False
             retry_balance = await get_reseller_wallet_balance(int(callback.from_user.id), wallet_type="main")
+            logger.info(
+                "create_bot_subscription_payment_required user_id=%s bot_id=%s required=%.4f balance=%.4f",
+                callback.from_user.id,
+                payload.get("bot_id"),
+                trial_price,
+                retry_balance,
+            )
             insufficient_text = (
                 f"تعذر تفعيل البوت لأن الرصيد لم يعد كافيًا.\n"
                 f"المطلوب: {format_usd(trial_price)}\n"
@@ -1531,7 +1590,7 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
                 bot=callback.bot,
                 chat_id=callback.message.chat.id,
                 state=state,
-                text=_as_html_quote(f"{_build_summary_text(data, lang, preflight_checks)}\n\n{insufficient_text}"),
+                text=_summary_prompt_html(lang, f"{_build_summary_text(data, lang, preflight_checks)}\n\n{insufficient_text}"),
                 reply_markup=_verify_confirm_kb(lang, setup_required=not bool(preflight_ok)),
                 parse_mode="HTML",
                 preferred_message_id=callback.message.message_id,
@@ -1554,22 +1613,31 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
         await update_bot_channel(payload["bot_id"], payload["channel"])
         await update_reseller_info(payload["bot_id"], payload["fullname"], payload["phone"], payload["address"])
         await verify_bot(payload["bot_id"])
+        await mark_bot_provisioning_status(int(payload["bot_id"]), "active", active=True)
+        core_activated = True
 
         template_reseller_id = await _resolve_template_reseller_id()
         if template_reseller_id and int(callback.from_user.id) != int(template_reseller_id):
-            clone_res = await clone_catalog_from_reseller_template(
-                source_reseller_id=int(template_reseller_id),
-                target_reseller_id=int(callback.from_user.id),
-                catalog_type="custom",
-            )
-            logger.info(
-                "custom template clone result source=%s target=%s success=%s reason=%s copied=%s",
-                template_reseller_id,
-                callback.from_user.id,
-                clone_res.get("success"),
-                clone_res.get("reason"),
-                clone_res.get("copied"),
-            )
+            try:
+                clone_res = await clone_catalog_from_reseller_template(
+                    source_reseller_id=int(template_reseller_id),
+                    target_reseller_id=int(callback.from_user.id),
+                    catalog_type="custom",
+                )
+                logger.info(
+                    "custom template clone result source=%s target=%s success=%s reason=%s copied=%s",
+                    template_reseller_id,
+                    callback.from_user.id,
+                    clone_res.get("success"),
+                    clone_res.get("reason"),
+                    clone_res.get("copied"),
+                )
+            except Exception:
+                logger.exception(
+                    "custom template clone failed after bot activation user_id=%s bot_id=%s",
+                    callback.from_user.id,
+                    payload.get("bot_id"),
+                )
 
         await callback.answer()
         try:
@@ -1583,9 +1651,25 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
             f"{t(lang, 'request_approved_next_step')}"
         )
         await callback.message.answer(success_text, reply_markup=_approval_followup_kb(lang))
+        logger.info(
+            "create_bot_success user_id=%s bot_id=%s bot_username=%s subscription_status=%s",
+            callback.from_user.id,
+            payload.get("bot_id"),
+            payload.get("bot_username") or "",
+            subscription.get("status"),
+        )
         await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
+    except BotAlreadyRegisteredError:
+        logger.info("create_bot_duplicate_insert user_id=%s bot_id=%s", callback.from_user.id, payload.get("bot_id"))
+        await callback.answer(_bot_already_registered_text(lang), show_alert=True)
+        return await _return_to_main_menu(callback, callback.from_user.id, lang, callback.bot, state)
     except Exception as exc:
         logger.exception("auto create bot failed user_id=%s bot_id=%s: %s", callback.from_user.id, payload.get("bot_id"), exc)
+        if created_new_bot and not core_activated:
+            try:
+                await mark_bot_provisioning_status(int(payload["bot_id"]), "failed", active=False, error=str(exc))
+            except Exception:
+                logger.exception("failed to mark create_bot provisioning failure bot_id=%s", payload.get("bot_id"))
         await callback.answer(t(lang, "owner_approve_failed").format(error=exc), show_alert=True)
 
 @router.callback_query(lambda c: c.data in {"verify_nav:back", "verify_nav:cancel"})
@@ -1606,7 +1690,7 @@ async def verify_navigation(callback: types.CallbackQuery, state: FSMContext):
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(_intro_rest_text(lang)),
+            text=_intro_prompt_html(lang),
             reply_markup=_verify_intro_kb(lang),
             parse_mode="HTML",
         )
@@ -1618,8 +1702,8 @@ async def verify_navigation(callback: types.CallbackQuery, state: FSMContext):
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(_token_rest_text(lang)),
-            reply_markup=_verify_nav_kb(lang, include_back=False),
+            text=_token_prompt_html(lang),
+            reply_markup=_verify_token_kb(lang, include_back=False),
             parse_mode="HTML",
         )
 
@@ -1630,7 +1714,7 @@ async def verify_navigation(callback: types.CallbackQuery, state: FSMContext):
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
+            text=_step_prompt_html(lang, 2, "Subscription Channel", "قناة الاشتراك", f"{t(lang, 'send_channel')}\n\n{_manual_channel_hint(lang)}"),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -1644,7 +1728,7 @@ async def verify_navigation(callback: types.CallbackQuery, state: FSMContext):
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(t(lang, "send_fullname")),
+            text=_step_prompt_html(lang, 3, "Full Name", "الاسم الكامل", t(lang, "send_fullname")),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -1656,7 +1740,7 @@ async def verify_navigation(callback: types.CallbackQuery, state: FSMContext):
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(t(lang, "send_phone")),
+            text=_step_prompt_html(lang, 4, "Phone Number", "رقم الهاتف", t(lang, "send_phone")),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
@@ -1670,7 +1754,7 @@ async def verify_navigation(callback: types.CallbackQuery, state: FSMContext):
             bot=callback.bot,
             chat_id=callback.message.chat.id,
             state=state,
-            text=_as_html_quote(t(lang, "send_address")),
+            text=_step_prompt_html(lang, 5, "Address", "العنوان", t(lang, "send_address")),
             reply_markup=_verify_nav_kb(lang, include_back=True),
             parse_mode="HTML",
         )
