@@ -26,6 +26,7 @@ class _FakeMessage:
         self.chat = SimpleNamespace(id=user_id, type="private")
         self.photo = []
         self.answers: list[tuple[str, object | None]] = []
+        self.edits: list[tuple[str, object | None]] = []
         self.deleted = False
 
     async def answer(self, text, reply_markup=None, **_kwargs):
@@ -33,6 +34,7 @@ class _FakeMessage:
         return SimpleNamespace(message_id=321)
 
     async def edit_text(self, text, reply_markup=None, **_kwargs):
+        self.edits.append((str(text), reply_markup))
         self.answers.append((str(text), reply_markup))
         return SimpleNamespace(message_id=321)
 
@@ -157,6 +159,78 @@ async def test_numbers_bot_support_menu_only_shows_numbers_and_balance(monkeypat
     markup = message.answers[-1][1]
     callbacks = [button.callback_data for row in markup.inline_keyboard for button in row if button.callback_data]
     assert callbacks == ["support:cat:numbers", "support:cat:user_balance", "support:close"]
+
+
+@pytest.mark.asyncio
+async def test_support_category_edits_menu_and_keeps_inline_done_visible(monkeypatch):
+    callback = _FakeCallback(data="support:cat:numbers", bot_id=222)
+    state = _FakeState({"flow": "numbers"})
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    async def _current_bot_id(_bot):
+        return 222
+
+    async def _is_numbers(_bot_id):
+        return True
+
+    async def _resolve_support_target(_bot_id, _category):
+        return {"chat_id": 1000}
+
+    async def _support_scope_for_bot(_bot_id):
+        return "platform", None
+
+    async def _has_open_support_ticket(**_kwargs):
+        return False
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "_current_bot_id", _current_bot_id)
+    monkeypatch.setattr(main_menu, "is_numbers_bot", _is_numbers)
+    monkeypatch.setattr(main_menu, "_resolve_support_target", _resolve_support_target)
+    monkeypatch.setattr(main_menu, "_support_scope_for_bot", _support_scope_for_bot)
+    monkeypatch.setattr(main_menu, "has_open_support_ticket", _has_open_support_ticket)
+
+    await main_menu.support_category_selected(callback, state)
+
+    assert state.cleared is True
+    assert state.state == main_menu.SupportFlow.waiting_message
+    assert callback.message.edits
+    text, markup = callback.message.edits[-1]
+    assert "Send your messages now for:" in text
+    callbacks = [
+        button.callback_data
+        for row in markup.inline_keyboard
+        for button in row
+        if button.callback_data
+    ]
+    assert callbacks == ["support:done", "support:cancel"]
+    assert callback.answers == [""]
+
+
+@pytest.mark.asyncio
+async def test_support_inline_cancel_returns_main_menu(monkeypatch):
+    callback = _FakeCallback(data="support:cancel")
+    state = _FakeState({"support_category": "numbers"})
+    called = {}
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    async def _return_main_menu(message, user_id):
+        called["message"] = message
+        called["user_id"] = user_id
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "_return_main_menu", _return_main_menu)
+
+    await main_menu.support_cancel_callback(callback, state)
+
+    assert state.cleared is True
+    assert callback.message.answers[-1][0] == main_menu.t("en", "support_cancelled_text")
+    assert called["message"] is callback.message
+    assert called["user_id"] == callback.from_user.id
+    assert callback.answers == [""]
 
 
 @pytest.mark.asyncio

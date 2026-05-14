@@ -313,6 +313,15 @@ def _support_session_kb(lang: str) -> ReplyKeyboardMarkup:
     )
 
 
+def _support_session_inline_kb(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "support_done_button"), callback_data="support:done")],
+            [InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data="support:cancel")],
+        ]
+    )
+
+
 def _support_session_intro(lang: str, category: str) -> str:
     return t(lang, "support_session_intro").format(category=_support_category_label(lang, category))
 
@@ -1408,11 +1417,74 @@ async def support_category_selected(callback: types.CallbackQuery, state: FSMCon
         support_ticket_id=None,
     )
     if callback.message:
-        await callback.message.answer(
+        await _safe_edit_text(
+            callback.message,
             _support_session_intro(lang, category),
-            reply_markup=_support_session_kb(lang),
+            reply_markup=_support_session_inline_kb(lang),
         )
     await callback.answer()
+
+
+async def _finish_support_session(
+    message: types.Message,
+    state: FSMContext,
+    *,
+    user_id: int,
+    user_doc: dict | None,
+    lang: str,
+) -> None:
+    data = await state.get_data()
+    category = str(data.get("support_category") or "").strip().lower()
+    payloads = list(data.get("support_payloads") or [])
+    delivered = False
+    ticket_id = ""
+    ticket_no = 0
+    if category in SUPPORT_CATEGORIES and payloads:
+        delivered = await _forward_support_message(
+            message.bot,
+            category=category,
+            lang=lang,
+            state=state,
+            user_doc=user_doc,
+            user_id=user_id,
+            source_chat_id=message.chat.id,
+            payloads=payloads,
+        )
+        ticket_id = str((await state.get_data()).get("support_ticket_id") or "").strip()
+        if ticket_id:
+            ticket = await get_support_ticket(ticket_id)
+            ticket_no = int((ticket or {}).get("ticket_no") or 0)
+    await state.clear()
+    if not delivered:
+        await message.answer(
+            t(lang, "support_not_configured_text"),
+            reply_markup=types.ReplyKeyboardRemove(),
+        )
+        await _return_main_menu(message, user_id)
+        return
+    await message.answer(
+        t(lang, "support_done_eta_text").format(
+            category=_support_category_label(lang, category),
+            ticket_no=ticket_no or "-",
+        ),
+        reply_markup=types.ReplyKeyboardRemove(),
+    )
+    await _return_main_menu(message, user_id)
+
+
+async def _cancel_support_session(
+    message: types.Message,
+    state: FSMContext,
+    *,
+    user_id: int,
+    lang: str,
+) -> None:
+    await state.clear()
+    await message.answer(
+        t(lang, "support_cancelled_text"),
+        reply_markup=types.ReplyKeyboardRemove(),
+    )
+    await _return_main_menu(message, user_id)
 
 
 @router.callback_query(lambda c: c.data == "support:close")
@@ -1427,6 +1499,35 @@ async def support_close(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@router.callback_query(lambda c: c.data == "support:done")
+async def support_done_callback(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if callback.message:
+        await _finish_support_session(
+            callback.message,
+            state,
+            user_id=int(callback.from_user.id),
+            user_doc=user,
+            lang=lang,
+        )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "support:cancel")
+async def support_cancel_callback(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if callback.message:
+        await _cancel_support_session(
+            callback.message,
+            state,
+            user_id=int(callback.from_user.id),
+            lang=lang,
+        )
+    await callback.answer()
+
+
 @router.callback_query(lambda c: c.data == "support:ticket_solved")
 async def support_ticket_solved_badge(callback: types.CallbackQuery):
     await callback.answer()
@@ -1438,49 +1539,20 @@ async def support_message_router(message: types.Message, state: FSMContext):
     lang = (user or {}).get("language", "en")
     raw = (message.text or "").strip()
     if raw in {t(lang, "support_done_button"), "/done"}:
-        data = await state.get_data()
-        category = str(data.get("support_category") or "").strip().lower()
-        payloads = list(data.get("support_payloads") or [])
-        delivered = False
-        ticket_id = ""
-        ticket_no = 0
-        if category in SUPPORT_CATEGORIES and payloads:
-            delivered = await _forward_support_message(
-                message.bot,
-                category=category,
-                lang=lang,
-                state=state,
-                user_doc=user,
-                user_id=message.from_user.id,
-                source_chat_id=message.chat.id,
-                payloads=payloads,
-            )
-            ticket_id = str((await state.get_data()).get("support_ticket_id") or "").strip()
-            if ticket_id:
-                ticket = await get_support_ticket(ticket_id)
-                ticket_no = int((ticket or {}).get("ticket_no") or 0)
-        await state.clear()
-        if not delivered:
-            await message.answer(
-                t(lang, "support_not_configured_text"),
-                reply_markup=types.ReplyKeyboardRemove(),
-            )
-            return await _return_main_menu(message, message.from_user.id)
-        await message.answer(
-            t(lang, "support_done_eta_text").format(
-                category=_support_category_label(lang, category),
-                ticket_no=ticket_no or "-",
-            ),
-            reply_markup=types.ReplyKeyboardRemove(),
+        return await _finish_support_session(
+            message,
+            state,
+            user_id=int(message.from_user.id),
+            user_doc=user,
+            lang=lang,
         )
-        return await _return_main_menu(message, message.from_user.id)
     if _is_btn(raw, "btn_cancel") or raw == "/cancel":
-        await state.clear()
-        await message.answer(
-            t(lang, "support_cancelled_text"),
-            reply_markup=types.ReplyKeyboardRemove(),
+        return await _cancel_support_session(
+            message,
+            state,
+            user_id=int(message.from_user.id),
+            lang=lang,
         )
-        return await _return_main_menu(message, message.from_user.id)
 
     data = await state.get_data()
     category = str(data.get("support_category") or "").strip().lower()
