@@ -60,6 +60,7 @@ CHANNEL_PROMPT_MSG_ID_KEY = "verify_channel_prompt_msg_id"
 FLOW_REF_KEY = "verify_flow_ref"
 REPLY_KB_ANCHOR_MSG_ID_KEY = "verify_reply_kb_anchor_msg_id"
 BOT_TOKEN_RE = re.compile(r"\d{8,12}:[A-Za-z0-9_-]{20,}")
+CHANNEL_PICKER_REQUEST_ID = 1
 SYRIA_COUNTRY_CODE = "SY"
 SYRIA_APPROX_POLYGON = (
     (35.62, 32.31),
@@ -309,7 +310,7 @@ def _channel_request_kb(lang: str) -> ReplyKeyboardMarkup:
                 KeyboardButton(
                     text=t(lang, "channel_picker_button"),
                     request_chat=KeyboardButtonRequestChat(
-                        request_id=1,
+                        request_id=CHANNEL_PICKER_REQUEST_ID,
                         chat_is_channel=True,
                         chat_has_username=True,
                         request_title=True,
@@ -1343,7 +1344,7 @@ async def save_token(message: types.Message, state: FSMContext):
             await bot.session.close()
 
 
-@router.message(VerifyReseller.waiting_for_channel, lambda msg: msg.chat_shared is not None)
+@router.message(VerifyReseller.waiting_for_channel, lambda msg: getattr(msg, "chat_shared", None) is not None)
 async def receive_channel_shared(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = user.get("language", "en") if user else "en"
@@ -1352,17 +1353,30 @@ async def receive_channel_shared(message: types.Message, state: FSMContext):
     except Exception:
         pass
 
-    shared = message.chat_shared
+    shared = getattr(message, "chat_shared", None)
     channel_norm = ""
     if shared:
-        shared_username = getattr(shared, "chat_username", None)
+        request_id = int(getattr(shared, "request_id", 0) or 0)
+        if request_id != CHANNEL_PICKER_REQUEST_ID:
+            logger.warning(
+                "create_bot_channel_shared_unexpected_request_id user_id=%s request_id=%s",
+                message.from_user.id,
+                request_id,
+            )
+            return
+        shared_username = getattr(shared, "chat_username", None) or getattr(shared, "username", None)
         shared_chat_id = getattr(shared, "chat_id", None)
         if shared_username:
             channel_norm = f"@{str(shared_username).lstrip('@')}"
         elif shared_chat_id:
             channel_norm = str(shared_chat_id)
 
-    await _handle_channel_value(message, state, lang, channel_norm)
+    logger.info(
+        "create_bot_channel_shared user_id=%s channel=%s",
+        message.from_user.id,
+        channel_norm or "-",
+    )
+    await _handle_channel_value(message, state, lang, channel_norm, trusted_channel=bool(channel_norm))
 
 
 @router.message(VerifyReseller.waiting_for_channel)
@@ -1390,7 +1404,14 @@ async def receive_channel(message: types.Message, state: FSMContext):
     await _handle_channel_value(message, state, lang, channel_norm)
 
 
-async def _handle_channel_value(message: types.Message, state: FSMContext, lang: str, channel_norm: str):
+async def _handle_channel_value(
+    message: types.Message,
+    state: FSMContext,
+    lang: str,
+    channel_norm: str,
+    *,
+    trusted_channel: bool = False,
+):
     if not channel_norm:
         await _set_or_edit_prompt(
             bot=message.bot,
@@ -1409,7 +1430,7 @@ async def _handle_channel_value(message: types.Message, state: FSMContext, lang:
     bot_username = data.get("bot_username", "")
     add_url = _add_to_channel_url(bot_username)
 
-    is_channel = await _is_channel_target(bot_token, channel_norm)
+    is_channel = True if trusted_channel else await _is_channel_target(bot_token, channel_norm)
     if not is_channel:
         await state.update_data(channel_verified=False, admin_verified=False, preflight_ok=False, preflight_checks=None)
         await _set_or_edit_prompt(

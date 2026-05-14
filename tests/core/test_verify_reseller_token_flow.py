@@ -172,3 +172,29 @@ async def test_receive_channel_keeps_manual_channel_in_channel_step(monkeypatch)
     assert handled["deleted"] is True
     assert handled["channel_norm"] == "@my_channel"
     assert state.state is None
+
+
+@pytest.mark.asyncio
+async def test_receive_channel_shared_uses_chat_id_as_trusted_channel(monkeypatch):
+    state = _FakeState()
+    message = _FakeMessage("")
+    message.chat_shared = SimpleNamespace(request_id=vr.CHANNEL_PICKER_REQUEST_ID, chat_id=-1001234567890)
+    handled = {}
+
+    async def _fake_user(_uid):
+        return {"language": "en"}
+
+    async def _fake_handle_channel(message_arg, state_arg, lang, channel_norm, **kwargs):
+        handled["message"] = message_arg
+        handled["state"] = state_arg
+        handled["lang"] = lang
+        handled["channel_norm"] = channel_norm
+        handled["trusted_channel"] = kwargs.get("trusted_channel")
+
+    monkeypatch.setattr(vr, "get_user", _fake_user)
+    monkeypatch.setattr(vr, "_handle_channel_value", _fake_handle_channel)
+
+    await vr.receive_channel_shared(message, state)
+
+    assert handled["channel_norm"] == "-1001234567890"
+    assert handled["trusted_channel"] is True
