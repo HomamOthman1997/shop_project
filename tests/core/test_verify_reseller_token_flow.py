@@ -214,6 +214,41 @@ def test_add_to_group_url_carries_create_flow_payload():
     assert "manage_topics" in url
 
 
+def test_create_bot_intro_explains_trial_subscription_and_scope(monkeypatch):
+    monkeypatch.setattr(vr.settings, "reseller_bot_trial_days", 14, raising=False)
+    monkeypatch.setattr(vr.settings, "reseller_bot_trial_price_usd", 2.5, raising=False)
+    monkeypatch.setattr(vr.settings, "reseller_bot_monthly_price_usd", 9.0, raising=False)
+    monkeypatch.setattr(vr.settings, "reseller_bot_grace_days", 4, raising=False)
+
+    text = vr._intro_prompt_html("en")
+
+    assert "Create Your Bot" in text
+    assert "customer-facing Telegram bot" in text
+    assert "Trial: 14 days" in text
+    assert "2.50" in text
+    assert "9.00" in text
+    assert "4-day grace period" in text
+    assert "Auto Setup Topics" in text
+    assert "You manage your customers, pricing, and support" in text
+
+
+def test_create_bot_intro_arabic_explains_terms(monkeypatch):
+    monkeypatch.setattr(vr.settings, "reseller_bot_trial_days", 14, raising=False)
+    monkeypatch.setattr(vr.settings, "reseller_bot_trial_price_usd", 2.5, raising=False)
+    monkeypatch.setattr(vr.settings, "reseller_bot_monthly_price_usd", 9.0, raising=False)
+    monkeypatch.setattr(vr.settings, "reseller_bot_grace_days", 4, raising=False)
+
+    text = vr._intro_prompt_html("ar")
+
+    assert "إنشاء بوتك الخاص" in text
+    assert "التريل: 14 يوم" in text
+    assert "2.50" in text
+    assert "9.00" in text
+    assert "مهلة 4 أيام" in text
+    assert "Manage Topics" in text
+    assert "أنت تدير زبائنك وأسعارك ودعمك" in text
+
+
 @pytest.mark.asyncio
 async def test_channel_admin_prompt_refreshes_add_link_from_token(monkeypatch):
     state = _FakeState()

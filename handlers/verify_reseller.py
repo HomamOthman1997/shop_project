@@ -225,7 +225,7 @@ def _step_prompt_html(lang: str, step: int, title_en: str, title_ar: str, body: 
 
 
 def _intro_prompt_html(lang: str) -> str:
-    title = "قبل ما نبدأ" if _is_ar(lang) else "Before We Start"
+    title = "إنشاء بوتك الخاص" if _is_ar(lang) else "Create Your Bot"
     return f"<b>{escape(title)}</b>\n\n{_as_html_quote(_intro_rest_text(lang))}"
 
 
@@ -628,11 +628,34 @@ def _token_rest_text(lang: str) -> str:
 
 
 def _intro_rest_text(lang: str) -> str:
-    intro_text = t(lang, "reseller_create_intro")
+    intro_text = t(
+        lang,
+        "reseller_create_intro",
+        trial_days=_settings_int("reseller_bot_trial_days", 30),
+        grace_days=_settings_int("reseller_bot_grace_days", 3),
+        trial_price=format_usd(_settings_float("reseller_bot_trial_price_usd", 1.0)),
+        monthly_price=format_usd(_settings_float("reseller_bot_monthly_price_usd", 10.0)),
+    )
     lines = intro_text.splitlines()
     if len(lines) <= 1:
         return intro_text
     return "\n".join(lines[1:]).strip()
+
+
+def _settings_float(name: str, default: float) -> float:
+    try:
+        value = float(getattr(settings, name, default) or default)
+    except Exception:
+        value = default
+    return value if value > 0 else default
+
+
+def _settings_int(name: str, default: int) -> int:
+    try:
+        value = int(getattr(settings, name, default) or default)
+    except Exception:
+        value = default
+    return value if value > 0 else default
 
 
 def _as_html_quote(text: str) -> str:
