@@ -184,6 +184,31 @@ async def test_numbers_bot_support_menu_only_shows_numbers_and_balance(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_main_bot_support_menu_only_shows_services_and_balance(monkeypatch):
+    message = _FakeMessage(text=main_menu.t("en", "btn_support"))
+    state = _FakeState()
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    async def _is_numbers(_bot_id):
+        return False
+
+    async def _is_main(_bot_id):
+        return True
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "is_numbers_bot", _is_numbers)
+    monkeypatch.setattr(main_menu, "is_main_bot", _is_main)
+
+    await main_menu.simple_menu_placeholders(message, state)
+
+    markup = message.answers[-1][1]
+    callbacks = [button.callback_data for row in markup.inline_keyboard for button in row if button.callback_data]
+    assert callbacks == ["support:cat:services", "support:cat:user_balance", "support:close"]
+
+
+@pytest.mark.asyncio
 async def test_support_category_edits_menu_and_keeps_inline_done_visible(monkeypatch):
     callback = _FakeCallback(data="support:cat:numbers", bot_id=222)
     state = _FakeState({"flow": "numbers"})
@@ -447,7 +472,7 @@ async def test_more_services_button_opens_other_bot_links(monkeypatch):
         return {"language": "en"}
 
     monkeypatch.setattr(main_menu, "get_user", _get_user)
-    monkeypatch.setattr(main_menu, "main_bot_url", lambda start="hub": "https://t.me/main?start=hub")
+    monkeypatch.setattr(main_menu, "numbers_bot_url", lambda start="numbers": "https://t.me/numbers?start=numbers")
     monkeypatch.setattr(main_menu, "digital_products_bot_url", lambda start="hub": "https://t.me/digital?start=hub")
     monkeypatch.setattr(main_menu, "card_ex_bot_url", lambda start="cards": "https://t.me/cards?start=cards")
 
@@ -456,7 +481,7 @@ async def test_more_services_button_opens_other_bot_links(monkeypatch):
     markup = message.answers[-1][1]
     urls = [button.url for row in markup.inline_keyboard for button in row]
     assert urls == [
-        "https://t.me/main?start=hub",
+        "https://t.me/numbers?start=numbers",
         "https://t.me/digital?start=hub",
         "https://t.me/cards?start=cards",
     ]

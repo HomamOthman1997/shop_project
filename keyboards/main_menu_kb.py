@@ -41,12 +41,14 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text=t(lang, "btn_services"))],
         [
-            KeyboardButton(text=t(lang, "btn_numbers")),
             KeyboardButton(text=t(lang, "btn_create_bot")),
         ],
         [
             _kb_button(t(lang, "user_settings_my_account"), icon_id=_ICON_ACCOUNT),
             _kb_button(t(lang, "btn_support"), icon_id=_ICON_SUPPORT),
+        ],
+        [
+            _kb_button(t(lang, "btn_more_services")),
         ],
     ]
     return ReplyKeyboardMarkup(

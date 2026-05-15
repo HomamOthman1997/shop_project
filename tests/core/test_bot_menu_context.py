@@ -58,7 +58,8 @@ async def test_send_digital_products_message_clears_reply_keyboard_first(monkeyp
 
 
 def test_main_menus_do_not_show_custom_services_button():
-    main_buttons = [btn.text for row in main_menu("en").keyboard for btn in row]
+    main_rows = [[btn.text for btn in row] for row in main_menu("en").keyboard]
+    main_buttons = [btn for row in main_rows for btn in row]
     reseller_buttons = [btn.text for row in reseller_user_main_menu("en").keyboard for btn in row]
     inline_callbacks = [
         btn.callback_data
@@ -68,8 +69,14 @@ def test_main_menus_do_not_show_custom_services_button():
     ]
 
     assert t("en", "btn_services") in main_buttons
+    assert t("en", "btn_numbers") not in main_buttons
     assert t("en", "btn_proxies") not in main_buttons
-    assert [btn.text for btn in main_menu("en").keyboard[1]] == [t("en", "btn_numbers"), t("en", "btn_create_bot")]
+    assert main_rows == [
+        [t("en", "btn_services")],
+        [t("en", "btn_create_bot")],
+        [t("en", "user_settings_my_account"), t("en", "btn_support")],
+        [t("en", "btn_more_services")],
+    ]
     assert t("en", "btn_services") in reseller_buttons
     assert "rsmenu:custom_services" in inline_callbacks
     assert "rsmenu:dashboard" in inline_callbacks

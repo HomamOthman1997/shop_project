@@ -223,13 +223,13 @@ def test_create_bot_intro_explains_trial_subscription_and_scope(monkeypatch):
     text = vr._intro_prompt_html("en")
 
     assert "Create Your Bot" in text
-    assert "customer-facing Telegram bot" in text
-    assert "Trial: 14 days" in text
+    assert "hosted Telegram bot connected to CyberZone" in text
+    assert "Paid trial: 14 days" in text
     assert "2.50" in text
     assert "9.00" in text
-    assert "4-day grace period" in text
-    assert "Auto Setup Topics" in text
-    assert "You manage your customers, pricing, and support" in text
+    assert "4 days to top up" in text
+    assert "Manage Topics" in text
+    assert "You manage your customers, prices, catalog, and support" in text
 
 
 def test_create_bot_intro_arabic_explains_terms(monkeypatch):

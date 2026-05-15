@@ -42,7 +42,7 @@ from utils.bot_menu_context import (
     is_digital_products_bot,
     is_main_bot,
     is_numbers_bot,
-    main_bot_url,
+    numbers_bot_url,
     is_reseller_owned_bot,
     menu_for_current_bot,
     resolve_runtime_bot_id,
@@ -282,6 +282,7 @@ async def _user_settings_main_text(user_doc: dict | None, *, lang: str, bot_id: 
 
 SUPPORT_CATEGORIES = ("proxies", "numbers", "services", "user_balance")
 NUMBERS_BOT_SUPPORT_CATEGORIES = ("numbers", "user_balance")
+MAIN_BOT_SUPPORT_CATEGORIES = ("services", "user_balance")
 
 
 def _support_category_label(lang: str, category: str) -> str:
@@ -295,6 +296,8 @@ def _support_menu_text(lang: str) -> str:
 async def _support_categories_for_bot(bot_id: int) -> tuple[str, ...]:
     if await is_numbers_bot(bot_id):
         return NUMBERS_BOT_SUPPORT_CATEGORIES
+    if await is_main_bot(bot_id):
+        return MAIN_BOT_SUPPORT_CATEGORIES
     return SUPPORT_CATEGORIES
 
 
@@ -559,11 +562,11 @@ async def _open_support_menu_message(message: types.Message, lang: str) -> None:
 
 def _more_services_kb(lang: str) -> InlineKeyboardMarkup | None:
     rows: list[list[InlineKeyboardButton]] = []
-    main_url = main_bot_url("hub")
+    numbers_url = numbers_bot_url("numbers")
     digital_url = digital_products_bot_url("hub")
     card_url = card_ex_bot_url("cards")
-    if main_url:
-        rows.append([InlineKeyboardButton(text=t(lang, "open_main_bot_button"), url=main_url)])
+    if numbers_url:
+        rows.append([InlineKeyboardButton(text=t(lang, "open_numbers_bot_button"), url=numbers_url)])
     if digital_url:
         rows.append([InlineKeyboardButton(text=t(lang, "open_digital_products_button"), url=digital_url)])
     if card_url:
