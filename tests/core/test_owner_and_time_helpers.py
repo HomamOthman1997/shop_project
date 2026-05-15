@@ -140,7 +140,7 @@ async def test_reseller_dashboard_text_is_actionable(monkeypatch):
         }
 
     async def fake_support(_rid):
-        return {"numbers": {"chat_id": -1001}, "user_balance": {"chat_id": -1001}}
+        return {"services": {"chat_id": -1001}, "user_balance": {"chat_id": -1001}}
 
     class FixedCount:
         def __init__(self, value):
@@ -173,6 +173,10 @@ async def test_reseller_dashboard_text_is_actionable(monkeypatch):
     text = await _build_reseller_dashboard_text(77, 555, "en")
 
     assert "Reseller Dashboard" in text
-    assert "Next step:" in text
-    assert "Finish payment methods" in text
-    assert "Support topics: 2/4 ready" in text
+    assert "Next:" in text
+    assert "Finish payment method details" in text
+    assert "Customer support: 2/2 ready (Custom Services + Balance)" in text
+    assert "Payment methods: 0/1 ready" in text
+    assert "Open numbers orders" not in text
+    assert "Custom-services profit" not in text
+    assert "Exchange routing" not in text
