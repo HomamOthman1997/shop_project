@@ -1117,7 +1117,7 @@ async def _start_polling_group(name: str, dp: Dispatcher, token_map: dict[int, s
             await bot.delete_webhook(drop_pending_updates=False)
             bots.append(bot)
         except TelegramUnauthorizedError:
-            logging.error(
+            logging.warning(
                 "Skipping unauthorized polling bot: group=%s bot_id=%s token_bot_id=%s",
                 name,
                 bot_id,
@@ -1158,6 +1158,8 @@ async def _stop_polling_group(dp: Dispatcher, task: asyncio.Task[None] | None, b
                 await task
         except asyncio.CancelledError:
             pass
+        except TelegramUnauthorizedError as exc:
+            logging.warning("polling task stopped because Telegram rejected a bot token: %s", exc)
         except Exception as exc:
             logging.error("polling task stopped with error: %s", exc)
 
@@ -1387,7 +1389,9 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                     err = None
                 except Exception as exc:
                     err = exc
-                if err:
+                if isinstance(err, TelegramUnauthorizedError):
+                    logging.warning("Polling task stopped because Telegram rejected a bot token: %s", err)
+                elif err:
                     logging.error("Polling task crashed: %s", err)
                 await _stop_polling_group(public_dp, public_polling_task, running_public_bots)
                 public_polling_task = None
@@ -1403,7 +1407,9 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                     err = None
                 except Exception as exc:
                     err = exc
-                if err:
+                if isinstance(err, TelegramUnauthorizedError):
+                    logging.warning("Main polling task stopped because Telegram rejected a bot token: %s", err)
+                elif err:
                     logging.error("Main polling task crashed: %s", err)
                 await _stop_polling_group(main_dp, main_polling_task, running_main_bots)
                 main_polling_task = None
@@ -1419,7 +1425,9 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                     err = None
                 except Exception as exc:
                     err = exc
-                if err:
+                if isinstance(err, TelegramUnauthorizedError):
+                    logging.warning("Numbers polling task stopped because Telegram rejected a bot token: %s", err)
+                elif err:
                     logging.error("Numbers polling task crashed: %s", err)
                 await _stop_polling_group(numbers_dp, numbers_polling_task, running_numbers_bots)
                 numbers_polling_task = None
@@ -1435,7 +1443,9 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                     err = None
                 except Exception as exc:
                     err = exc
-                if err:
+                if isinstance(err, TelegramUnauthorizedError):
+                    logging.warning("Digital-products polling task stopped because Telegram rejected a bot token: %s", err)
+                elif err:
                     logging.error("Digital-products polling task crashed: %s", err)
                 await _stop_polling_group(digital_products_dp, digital_products_polling_task, running_digital_products_bots)
                 digital_products_polling_task = None
@@ -1451,7 +1461,9 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                     err = None
                 except Exception as exc:
                     err = exc
-                if err:
+                if isinstance(err, TelegramUnauthorizedError):
+                    logging.warning("Card-EX polling task stopped because Telegram rejected a bot token: %s", err)
+                elif err:
                     logging.error("Card-EX polling task crashed: %s", err)
                 await _stop_polling_group(card_ex_dp, card_ex_polling_task, running_card_ex_bots)
                 card_ex_polling_task = None
