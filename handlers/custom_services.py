@@ -965,7 +965,7 @@ async def _platform_bridge_bot() -> Bot:
     token = _support_bridge_token()
     if not token:
         raise TelegramBadRequest(method="sendMessage", message="platform bridge bot is not configured")
-    return Bot(token=token, timeout=30)
+    return Bot(token=token)
 
 
 async def _send_owner_ops_message(text: str, *, reply_markup: InlineKeyboardMarkup | None = None) -> bool:
@@ -1157,7 +1157,7 @@ async def _notify_preorder_completed_user(
         if token:
             bot: Bot | None = None
             try:
-                bot = Bot(token=token, timeout=30)
+                bot = Bot(token=token)
                 await bot.send_message(chat_id=buyer_user_id, text=text)
                 return True
             except Exception:
@@ -1209,7 +1209,7 @@ async def _notify_preorder_refunded_user(
         if token:
             bot: Bot | None = None
             try:
-                bot = Bot(token=token, timeout=30)
+                bot = Bot(token=token)
                 await bot.send_message(chat_id=buyer_user_id, text=text)
                 return True
             except Exception:

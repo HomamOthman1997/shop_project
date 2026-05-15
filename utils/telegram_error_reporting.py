@@ -26,7 +26,7 @@ class TelegramErrorHandler(logging.Handler):
         if not self._bot_token:
             return None
         if self._bot is None:
-            self._bot = Bot(token=self._bot_token, timeout=30)
+            self._bot = Bot(token=self._bot_token)
         return self._bot
 
     async def _emit_async(self, text: str) -> None:

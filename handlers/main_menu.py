@@ -136,7 +136,7 @@ async def _platform_bridge_bot(current_bot: Bot) -> Bot:
     token = _support_bridge_token()
     if not token:
         raise TelegramBadRequest(method="sendMessage", message="platform bridge bot is not configured")
-    return Bot(token=token, timeout=30)
+    return Bot(token=token)
 
 
 async def _download_telegram_file(bot: Bot, file_id: str) -> tuple[bytes, str]:
@@ -403,7 +403,7 @@ async def _support_bot_for_scope(scope: str, current_bot: Bot) -> Bot:
         token = _support_bridge_token()
         if not token:
             raise TelegramBadRequest(method="sendMessage", message="support bridge bot is not configured")
-        return Bot(token=token, timeout=30)
+        return Bot(token=token)
     return current_bot
 
 
@@ -435,7 +435,7 @@ async def _support_reply_bot_for_ticket(ticket: dict, current_bot: Bot) -> tuple
             token = ""
     if not token:
         return current_bot, False
-    return Bot(token=token, timeout=30), True
+    return Bot(token=token), True
 
 
 def _user_settings_main_kb(lang: str, user_doc: dict | None) -> InlineKeyboardMarkup:

@@ -251,7 +251,7 @@ async def _get_admin_alert_bot() -> Bot | None:
     if not token:
         return None
     if _admin_alert_bot is None:
-        _admin_alert_bot = Bot(token=token, timeout=30)
+        _admin_alert_bot = Bot(token=token)
     return _admin_alert_bot
 
 
@@ -878,7 +878,7 @@ async def _resolve_main_bot_id() -> int | None:
     token = str(getattr(settings, "bot_main_token", "") or "").strip()
     if not token:
         return None
-    bot = Bot(token=token, timeout=30)
+    bot = Bot(token=token)
     try:
         me = await bot.get_me()
         _cached_main_bot_id = int(me.id)
@@ -898,7 +898,7 @@ async def _resolve_numbers_bot_id() -> int | None:
     token = str(getattr(settings, "bot_numbers_token", "") or "").strip()
     if not token:
         return None
-    bot = Bot(token=token, timeout=30)
+    bot = Bot(token=token)
     try:
         me = await bot.get_me()
         _cached_numbers_bot_id = int(me.id)
@@ -918,7 +918,7 @@ async def _resolve_admin_bot_id() -> int | None:
     token = str(getattr(settings, "bot_admin_token", "") or "").strip()
     if not token:
         return None
-    bot = Bot(token=token, timeout=30)
+    bot = Bot(token=token)
     try:
         me = await bot.get_me()
         _cached_admin_bot_id = int(me.id)
@@ -935,7 +935,7 @@ async def _resolve_digital_products_bot_id() -> int | None:
     token = str(getattr(settings, "bot_digital_products_token", "") or "").strip()
     if not token:
         return None
-    bot = Bot(token=token, timeout=30)
+    bot = Bot(token=token)
     try:
         me = await bot.get_me()
         return int(me.id)
@@ -957,7 +957,7 @@ async def _resolve_card_ex_bot_id() -> int | None:
     )
     if not token:
         return None
-    bot = Bot(token=token, timeout=30)
+    bot = Bot(token=token)
     try:
         me = await bot.get_me()
         _cached_card_ex_bot_id = int(me.id)

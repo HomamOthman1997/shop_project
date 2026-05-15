@@ -257,4 +257,4 @@ async def test_resolve_notification_bot_uses_configured_numbers_bot_token(monkey
     )
 
     assert bot.token == "222:NUMBERS"
-    assert created == [("222:NUMBERS", 30)]
+    assert created == [("222:NUMBERS", None)]

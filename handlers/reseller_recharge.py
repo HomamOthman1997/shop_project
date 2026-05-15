@@ -88,7 +88,7 @@ async def _resolve_request_user_notification_bot(req: dict, fallback_bot: Bot) -
         token = str((bot_row or {}).get("token") or "").strip()
     if not token:
         return fallback_bot
-    return Bot(token=token, timeout=30)
+    return Bot(token=token)
 
 
 async def _notify_recharge_request_user(
