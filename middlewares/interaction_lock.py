@@ -3,6 +3,7 @@ import time
 from typing import Any, Awaitable, Callable, Dict
 
 from aiogram import BaseMiddleware, types
+from aiogram.exceptions import TelegramBadRequest
 
 from config import settings
 from utils.translations import t
@@ -198,6 +199,15 @@ class InteractionLockMiddleware(BaseMiddleware):
 
         try:
             return await handler(event, data)
+        except TelegramBadRequest as exc:
+            if "message is not modified" in str(exc).lower():
+                if is_callback:
+                    try:
+                        await event.answer()
+                    except Exception:
+                        pass
+                return None
+            raise
         finally:
             async with self._guard:
                 self._inflight.discard(user_id)
