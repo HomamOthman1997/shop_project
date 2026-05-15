@@ -689,17 +689,27 @@ async def _forward_support_message(
     return False
 
 
-async def _build_reseller_stats_text(reseller_id: int) -> str:
+async def _build_reseller_stats_text(reseller_id: int, bot_id: int | None = None, lang: str = "en") -> str:
     rid = int(reseller_id)
+    is_ar = str(lang or "").lower().startswith("ar")
     main_balance = await get_reseller_wallet_balance(rid, wallet_type="main")
     earnings_balance = await get_reseller_wallet_balance(rid, wallet_type="earnings")
     pending_recharge = await db.recharge_requests.count_documents({"reseller_id": rid, "status": "pending"})
     need_more_proof = await db.recharge_requests.count_documents({"reseller_id": rid, "status": "need_more_proof"})
+    if is_ar:
+        return (
+            "📈 المبيعات والأرباح\n\n"
+            f"معرّف الريسيلر: {rid}\n"
+            f"رصيد البوت الرئيسي: {format_usd(main_balance)}\n"
+            f"محفظة أرباح الكتالوج: {format_usd(earnings_balance)}\n"
+            f"طلبات الشحن المعلقة: {pending_recharge}\n"
+            f"طلبات تحتاج إثبات إضافي: {need_more_proof}"
+        )
     return (
-        "Reseller Quick Stats\n\n"
+        "📈 Sales & Profit\n\n"
         f"Reseller ID: {rid}\n"
         f"Main Bot balance: {format_usd(main_balance)}\n"
-        f"Custom-profit wallet: {format_usd(earnings_balance)}\n"
+        f"Catalog-profit wallet: {format_usd(earnings_balance)}\n"
         f"Pending recharge requests: {pending_recharge}\n"
         f"Need-more-proof requests: {need_more_proof}"
     )
@@ -1428,7 +1438,7 @@ async def simple_menu_placeholders(message: types.Message, state: FSMContext):
         bot_id = (await message.bot.get_me()).id
         if not await is_reseller(message.from_user.id, bot_id=bot_id):
             return await message.answer(t(lang, "reseller_only_command"))
-        return await message.answer(await _build_reseller_stats_text(message.from_user.id))
+        return await message.answer(await _build_reseller_stats_text(message.from_user.id, bot_id, lang))
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("support:cat:"))

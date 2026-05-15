@@ -80,9 +80,12 @@ def test_builder_add_options_for_folder_and_endpoint():
 
     folder_actions = _flatten_callback_data(folder_kb)
     endpoint_actions = _flatten_callback_data(endpoint_kb)
+    folder_labels = [btn.text for row in folder_kb.inline_keyboard for btn in row]
 
     assert "cstm:addf:x1" in folder_actions
     assert "cstm:adde:x1" in folder_actions
+    assert "Add Folder" in folder_labels
+    assert "Add Item" in folder_labels
     assert "cstm:adds:x1" not in folder_actions
     assert "cstm:addse:x1" not in folder_actions
 

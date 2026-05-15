@@ -78,6 +78,18 @@ def _ui_label(lang: str, en: str, ar: str) -> str:
     return ar if str(lang or "").lower().startswith("ar") else en
 
 
+def _builder_item_label(lang: str) -> str:
+    return _ui_label(lang, "Item", "عنصر")
+
+
+def _builder_add_button_text(lang: str, *, is_root: bool) -> str:
+    return _ui_label(lang, "Add Folder", "إضافة مجلد") if is_root else _ui_label(lang, "Add Folder / Item", "إضافة مجلد أو عنصر")
+
+
+def _builder_add_item_text(lang: str) -> str:
+    return _ui_label(lang, "Add Item", "إضافة عنصر")
+
+
 def _is_services_trigger(text: str | None) -> bool:
     raw = (text or "").strip()
     if not raw:
@@ -143,17 +155,17 @@ def _builder_help_text(lang: str) -> str:
     if str(lang or "").lower().startswith("ar"):
         return (
             "دليل سريع للبيلدر:\n"
-            "1) افتح مجلد ثم اضغط إضافة لإضافة مجلد/خدمة.\n"
+            "1) افتح مجلد ثم اضغط إضافة مجلد أو عنصر.\n"
             "2) استخدم إعادة التسمية/التحريك لترتيب الكتالوج.\n"
-            "3) افتح الخدمة لتعديل النص/الملف والسعر والمخزون.\n"
-            "4) جرب شراء الخدمة للتأكد من المخرجات قبل النشر."
+            "3) العنصر هو المنتج الذي يشتريه الزبون: عدّل السعر والمخزون والتسليم منه.\n"
+            "4) استخدم المعاينة كزبون قبل النشر."
         )
     return (
         "Builder quick guide:\n"
-        "1) Open a folder then press Add to create folder/endpoint.\n"
+        "1) Open a folder, then press Add Folder / Item.\n"
         "2) Use rename/move to organize the catalog.\n"
-        "3) Open endpoint to edit delivery text/file, price, and stock.\n"
-        "4) Test-buy endpoint before publishing."
+        "3) An item is what customers buy: edit price, stock, and delivery there.\n"
+        "4) Preview as customer before publishing."
     )
 
 
@@ -1073,7 +1085,7 @@ async def _maybe_notify_low_stock(
             f"Service: {service_name}\n"
             f"Available: {available}\n"
             f"Threshold: {threshold}\n"
-            f"Endpoint ID: {endpoint.get('_id')}"
+            f"Item ID: {endpoint.get('_id')}"
         )
         sent = await _send_owner_ops_message(text)
         if sent:
@@ -1115,7 +1127,7 @@ async def _notify_owner_preorder_created(
         f"Username: {username}\n"
         f"Qty: {int(preorder.get('qty') or 0)}\n"
         f"Paid: {format_usd(float(preorder.get('total_price') or 0.0))}\n"
-        f"Endpoint ID: {endpoint.get('_id')}\n"
+        f"Item ID: {endpoint.get('_id')}\n"
         f"Customer note: {customer_note or '-'}\n"
         "Rule: fulfill in FIFO order only."
     )
@@ -1448,14 +1460,15 @@ def _builder_add_options_kb(
     *,
     is_root: bool = False,
     can_add_folder: bool = True,
+    lang: str = "en",
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if node_type == "folder":
         if can_add_folder:
-            rows.append([InlineKeyboardButton(text=t("en", "custom_add_folder"), callback_data=f"cstm:addf:{node_id}")])
+            rows.append([InlineKeyboardButton(text=_ui_label(lang, "Add Folder", "إضافة مجلد"), callback_data=f"cstm:addf:{node_id}")])
         if not is_root:
-            rows.append([InlineKeyboardButton(text=t("en", "custom_add_endpoint"), callback_data=f"cstm:adde:{node_id}")])
-    rows.append([InlineKeyboardButton(text=t("en", "back"), callback_data=f"cstm:open:{node_id}")])
+            rows.append([InlineKeyboardButton(text=_builder_add_item_text(lang), callback_data=f"cstm:adde:{node_id}")])
+    rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data=f"cstm:open:{node_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1650,7 +1663,7 @@ async def _render_node(
         low_stock_threshold = int(node.get("low_stock_threshold") or 0)
         if is_builder:
             text_lines = [
-                f"{catalog_title} - {t(viewer_lang, 'endpoint_plain')}",
+                f"{catalog_title} - {_builder_item_label(viewer_lang)}",
                 "",
                 f"{t(viewer_lang, 'name_plain')}: {node.get('name')}",
                 f"{t(viewer_lang, 'price_label')}: {format_usd(price)}",
@@ -1746,7 +1759,7 @@ async def _render_node(
             if layout_mode and can_manage_structure:
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "done_plain"), callback_data=f"cstm:layoutdone:{node['_id']}")])
             elif can_manage_structure:
-                kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "add_plain"), callback_data=f"cstm:add:{node['_id']}")])
+                kb_rows.append([InlineKeyboardButton(text=_builder_add_button_text(viewer_lang, is_root=bool(node.get("is_root"))), callback_data=f"cstm:add:{node['_id']}")])
                 if bool(node.get("is_root")) and can_toggle_preorder:
                     kb_rows.append([InlineKeyboardButton(text=_ui_label(viewer_lang, "Pending Preorders", "طلبات الحجز المعلقة"), callback_data=f"cstm:preorders:{node['_id']}")])
                 kb_rows.append(
@@ -2179,6 +2192,7 @@ async def add_options(callback: types.CallbackQuery, state: FSMContext):
             str(node.get("node_type") or "folder"),
             is_root=bool(node.get("is_root")),
             can_add_folder=can_add_folder,
+            lang=await _user_lang(callback.from_user.id),
         )
         try:
             await callback.message.edit_reply_markup(reply_markup=kb)
@@ -2872,10 +2886,11 @@ async def toggle_endpoint_preorder(callback: types.CallbackQuery, state: FSMCont
     if not catalog_owner_id:
         return await callback.answer("No permission", show_alert=True)
 
+    lang = await _user_lang(callback.from_user.id)
     node_id = str(callback.data or "").split(":", 2)[2]
     endpoint = await get_node(node_id, reseller_id=catalog_owner_id)
     if not endpoint or endpoint.get("node_type") != "endpoint":
-        return await callback.answer("Endpoint not found", show_alert=True)
+        return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
 
     updated = await set_endpoint_preorder_enabled(
         endpoint["_id"],
@@ -3288,7 +3303,7 @@ def _preorder_detail_text(preorder: dict, endpoint: dict | None = None) -> str:
         f"User ID: {int(preorder.get('buyer_user_id') or 0)}\n"
         f"Qty: {int(preorder.get('qty') or 0)}\n"
         f"Paid: {format_usd(float(preorder.get('total_price') or 0.0))}\n"
-        f"Endpoint ID: {preorder.get('endpoint_id')}\n"
+        f"Item ID: {preorder.get('endpoint_id')}\n"
         f"Customer note: {customer_note or '-'}\n"
         "\nRule: fulfill in FIFO order only."
     )

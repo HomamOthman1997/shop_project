@@ -21,25 +21,23 @@ def _main_bot_button(lang: str) -> InlineKeyboardButton:
 def reseller_main_menu(lang: str = "en") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=_label(lang, "📊 لوحة التحكم", "📊 Control Center"), callback_data="rsmenu:dashboard")],
             [
-                InlineKeyboardButton(text=_label(lang, "📊 لوحة الريسيلر", "📊 Dashboard"), callback_data="rsmenu:dashboard"),
-                InlineKeyboardButton(text=_label(lang, "💳 الرصيد والاشتراك", "💳 Balance & Subscription"), callback_data="rsmenu:balance"),
+                InlineKeyboardButton(text=_label(lang, "🧩 كتالوج البوت", "🧩 Bot Catalog"), callback_data="rsmenu:custom_services"),
+                InlineKeyboardButton(text=_label(lang, "⚙️ إعداد التشغيل", "⚙️ Setup"), callback_data="rsmenu:settings"),
             ],
             [
-                InlineKeyboardButton(text=_label(lang, "🧩 خدماتك", "🧩 Your Services"), callback_data="rsmenu:custom_services"),
-                _main_bot_button(lang),
+                InlineKeyboardButton(text=_label(lang, "💳 الرصيد والاشتراك", "💳 Balance & Subscription"), callback_data="rsmenu:balance"),
+                InlineKeyboardButton(text=_label(lang, "💰 شحن رصيد البوت", "💰 Top Up Bot"), callback_data="rsmenu:core_topup"),
             ],
             [
                 InlineKeyboardButton(text=_label(lang, "🧾 طلبات الشحن", "🧾 Recharge Requests"), callback_data="rsmenu:recharge_requests"),
-                InlineKeyboardButton(text=_label(lang, "⚙️ الإعدادات", "⚙️ Settings"), callback_data="rsmenu:settings"),
+                InlineKeyboardButton(text=_label(lang, "📈 المبيعات والأرباح", "📈 Sales & Profit"), callback_data="rsmenu:stats"),
             ],
             [
-                InlineKeyboardButton(text=_label(lang, "💰 شحن رصيد البوت", "💰 Top Up Main Balance"), callback_data="rsmenu:core_topup"),
+                InlineKeyboardButton(text=_label(lang, "👤 رصيد مستخدم", "👤 User Balance"), callback_data="rsmenu:adjust_user_balance"),
                 InlineKeyboardButton(text=_label(lang, "📣 إذاعة", "📣 Broadcast"), callback_data="rsmenu:broadcast"),
             ],
-            [
-                InlineKeyboardButton(text=_label(lang, "👤 تعديل رصيد مستخدم", "👤 Adjust User Balance"), callback_data="rsmenu:adjust_user_balance"),
-                InlineKeyboardButton(text=_label(lang, "📈 الإحصائيات", "📈 Stats"), callback_data="rsmenu:stats"),
-            ],
+            [_main_bot_button(lang)],
         ]
     )

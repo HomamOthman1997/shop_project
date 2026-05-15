@@ -1,4 +1,4 @@
-﻿from datetime import UTC, datetime
+﻿from datetime import UTC, datetime, timedelta
 from html import escape
 import re
 from urllib.parse import parse_qs, urlparse
@@ -358,11 +358,16 @@ def _dashboard_next_step(
 def _reseller_dashboard_kb(lang: str) -> types.InlineKeyboardMarkup:
     rows = [
         [
-            types.InlineKeyboardButton(text=_txt(lang, "⚙️ الإعدادات", "⚙️ Settings"), callback_data="rsmenu:settings"),
+            types.InlineKeyboardButton(text=_txt(lang, "⚙️ إعداد التشغيل", "⚙️ Setup"), callback_data="rsmenu:settings"),
+            types.InlineKeyboardButton(text=_txt(lang, "🧩 كتالوج البوت", "🧩 Bot Catalog"), callback_data="rsmenu:custom_services"),
+        ],
+        [
             types.InlineKeyboardButton(text=_txt(lang, "🧾 طلبات الشحن", "🧾 Recharge Requests"), callback_data="rsmenu:recharge_requests"),
+            types.InlineKeyboardButton(text=_txt(lang, "📈 المبيعات والأرباح", "📈 Sales & Profit"), callback_data="rsmenu:stats"),
         ],
         [
             types.InlineKeyboardButton(text=_txt(lang, "💳 الرصيد والاشتراك", "💳 Balance & Subscription"), callback_data="rsmenu:balance"),
+            types.InlineKeyboardButton(text=_txt(lang, "💰 شحن رصيد البوت", "💰 Top Up Bot"), callback_data="rsmenu:core_topup"),
         ],
     ]
     url = main_bot_url("hub")
@@ -429,14 +434,78 @@ async def _send_reseller_balance(message: types.Message, reseller_id: int, lang:
     )
 
 
-async def _build_reseller_stats_text(reseller_id: int, bot_id: int | None = None) -> str:
+async def _sum_reseller_order_sales(reseller_id: int, *, since: datetime | None = None) -> float:
+    orders = getattr(db, "orders", None)
+    if orders is None or not hasattr(orders, "aggregate"):
+        return 0.0
+    match: dict = {
+        "reseller_id": int(reseller_id),
+        "status": {"$in": ["paid", "success", "done", "completed"]},
+    }
+    if since is not None:
+        match["created_at"] = {"$gte": since}
+    cursor = orders.aggregate(
+        [
+            {"$match": match},
+            {
+                "$project": {
+                    "amount": {
+                        "$ifNull": [
+                            "$retail_amount",
+                            {"$ifNull": ["$selling_price", 0]},
+                        ]
+                    }
+                }
+            },
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+        ]
+    )
+    rows = await cursor.to_list(length=1)
+    return float((rows[0] if rows else {}).get("total") or 0.0)
+
+
+async def _sum_reseller_profit_ledger(reseller_id: int, *, since: datetime | None = None) -> float:
+    ledger = getattr(db, "ledger_entries", None)
+    if ledger is None or not hasattr(ledger, "aggregate"):
+        return 0.0
+    match: dict = {
+        "owner_type": "reseller",
+        "owner_id": int(reseller_id),
+        "reseller_id": int(reseller_id),
+        "wallet_type": "reseller_earnings",
+    }
+    if since is not None:
+        match["created_at"] = {"$gte": since}
+    cursor = ledger.aggregate(
+        [
+            {"$match": match},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+        ]
+    )
+    rows = await cursor.to_list(length=1)
+    return float((rows[0] if rows else {}).get("total") or 0.0)
+
+
+async def _build_reseller_stats_text(reseller_id: int, bot_id: int | None = None, lang: str = "en") -> str:
     rid = int(reseller_id)
+    lang = lang or "en"
+    is_ar = _is_ar(lang)
     main_balance = await get_reseller_wallet_balance(rid, wallet_type="main")
     earnings_balance = await get_reseller_wallet_balance(rid, wallet_type="earnings")
     pending_recharge = await db.recharge_requests.count_documents({"reseller_id": rid, "status": "pending"})
     need_more_proof = await db.recharge_requests.count_documents({"reseller_id": rid, "status": "need_more_proof"})
     linked_users = await db.user_reseller_links.count_documents({"reseller_id": rid})
     active_bots = await db.bots.count_documents({"owner_id": rid, "active": True})
+    now = datetime.now(UTC)
+    day_start = now - timedelta(days=1)
+    month_start = now - timedelta(days=30)
+    paid_statuses = {"$in": ["paid", "success", "done", "completed"]}
+    sales_24h_count = await db.orders.count_documents({"reseller_id": rid, "status": paid_statuses, "created_at": {"$gte": day_start}})
+    sales_30d_count = await db.orders.count_documents({"reseller_id": rid, "status": paid_statuses, "created_at": {"$gte": month_start}})
+    sales_24h_amount = await _sum_reseller_order_sales(rid, since=day_start)
+    sales_30d_amount = await _sum_reseller_order_sales(rid, since=month_start)
+    profit_24h = await _sum_reseller_profit_ledger(rid, since=day_start)
+    profit_30d = await _sum_reseller_profit_ledger(rid, since=month_start)
     methods = await get_payment_methods(rid)
     rate = await get_exchange_rate(rid)
     resolved_bot_id = int(bot_id or 0)
@@ -445,16 +514,40 @@ async def _build_reseller_stats_text(reseller_id: int, bot_id: int | None = None
     else:
         subscription = await get_bot_subscription(resolved_bot_id)
 
+    subscription_lines = "\n".join(subscription_summary_lines(lang, subscription))
+    if is_ar:
+        return (
+            "📈 المبيعات والأرباح\n\n"
+            f"• معرّف الريسيلر: {rid}\n"
+            f"• البوتات الفعالة: {active_bots}\n"
+            f"• الزبائن المرتبطون: {linked_users}\n"
+            f"• رصيد البوت الرئيسي: {format_usd(main_balance)}\n"
+            f"• محفظة أرباح الكتالوج: {format_usd(earnings_balance)}\n"
+            f"• مبيعات آخر 24 ساعة: {sales_24h_count} طلب | {format_usd(sales_24h_amount)}\n"
+            f"• أرباح آخر 24 ساعة: {format_usd(profit_24h)}\n"
+            f"• مبيعات آخر 30 يوم: {sales_30d_count} طلب | {format_usd(sales_30d_amount)}\n"
+            f"• أرباح آخر 30 يوم: {format_usd(profit_30d)}\n"
+            f"{subscription_lines}\n"
+            "استخدام محفظة الأرباح: أرباح العناصر التي تضيفها في كتالوج بوتك\n"
+            f"سعر الصرف: 1 💲 = {rate:.2f} محلي\n"
+            f"وسائل الدفع المضبوطة: {len(methods)}\n"
+            f"طلبات الشحن المعلقة: {pending_recharge}\n"
+            f"طلبات تحتاج إثبات إضافي: {need_more_proof}"
+        )
+
     return (
-        "Reseller Stats\n\n"
+        "📈 Sales & Profit\n\n"
         f"Reseller ID: {rid}\n"
         f"Active bots: {active_bots}\n"
         f"Linked users: {linked_users}\n"
         f"Main Bot balance: {format_usd(main_balance)}\n"
-        f"Custom-profit wallet: {format_usd(earnings_balance)}\n"
-        + "\n".join(subscription_summary_lines("en", subscription))
-        + "\n"
-        "Custom-profit wallet use: profit from your own services\n"
+        f"Catalog-profit wallet: {format_usd(earnings_balance)}\n"
+        f"Sales last 24h: {sales_24h_count} orders | {format_usd(sales_24h_amount)}\n"
+        f"Profit last 24h: {format_usd(profit_24h)}\n"
+        f"Sales last 30d: {sales_30d_count} orders | {format_usd(sales_30d_amount)}\n"
+        f"Profit last 30d: {format_usd(profit_30d)}\n"
+        f"{subscription_lines}\n"
+        "Catalog-profit wallet use: profit from your own items\n"
         f"Exchange rate: 1 💲 = {rate:.2f} local\n"
         f"Payment methods configured: {len(methods)}\n"
         f"Pending recharge requests: {pending_recharge}\n"
@@ -503,7 +596,7 @@ async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int, lang: st
             else f"{_ready_mark(True)} توبيك/غروب"
         )
         return (
-            "📊 لوحة الريسيلر\n\n"
+            "📊 لوحة التحكم\n\n"
             f"• حالة البوت: {_ready_mark(ready)} {_ready_word(lang, ready)}\n"
             f"• الاشتراك: {sub_status}\n"
             f"• ينتهي: {format_subscription_dt(sub_end)}\n"
@@ -518,7 +611,7 @@ async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int, lang: st
     recharge_line = f"{pending_recharge} pending" if pending_recharge else "none pending"
     payment_route_line = "✅ DM fallback (ready)" if not setup.get("payment_routing_ok") else "✅ Topic/group"
     return (
-        "📊 Reseller Dashboard\n\n"
+        "📊 Control Center\n\n"
         f"• Bot status: {_ready_mark(ready)} {_ready_word(lang, ready)}\n"
         f"• Subscription: {sub_status}\n"
         f"• Ends at: {format_subscription_dt(sub_end)}\n\n"
@@ -729,8 +822,8 @@ async def reseller_menu_settings(callback: types.CallbackQuery, state: FSMContex
         lang = await _reseller_lang(callback.from_user.id)
         await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
         await callback.message.edit_text(
-            await _settings_overview_text(callback.from_user.id),
-            reply_markup=await _settings_main_kb(callback.from_user.id),
+            await _settings_overview_text(callback.from_user.id, lang),
+            reply_markup=await _settings_main_kb(callback.from_user.id, lang),
         )
 
 
@@ -745,7 +838,8 @@ async def reseller_menu_stats(callback: types.CallbackQuery):
         lang = await _reseller_lang(callback.from_user.id)
         await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
         await callback.message.answer(
-            await _build_reseller_stats_text(callback.from_user.id, (await callback.bot.get_me()).id)
+            await _build_reseller_stats_text(callback.from_user.id, (await callback.bot.get_me()).id, lang),
+            reply_markup=_reseller_dashboard_kb(lang),
         )
 
 
@@ -917,7 +1011,7 @@ async def reseller_broadcast_text_submit(message: types.Message, state: FSMConte
     await message.answer(result_text, reply_markup=reseller_main_menu(lang))
 
 
-async def _settings_main_kb(reseller_id: int) -> types.InlineKeyboardMarkup:
+async def _settings_main_kb(reseller_id: int, lang: str = "en") -> types.InlineKeyboardMarkup:
     pay_route = await get_recharge_routing(int(reseller_id))
     ex_route = await get_exchange_routing(int(reseller_id))
     support_routes = await get_all_support_routing(int(reseller_id))
@@ -928,51 +1022,51 @@ async def _settings_main_kb(reseller_id: int) -> types.InlineKeyboardMarkup:
     pay_ok = bool(pay_route and pay_route.get("chat_id"))
     ex_ok = bool(ex_route and ex_route.get("chat_id"))
     support_ok = all(bool((support_routes.get(cat) or {}).get("chat_id")) for cat, _ in _SUPPORT_TOPIC_CATEGORIES)
-    pay_label = f"Payment Topic {'✅' if pay_ok else 'DM (Easy)'}"
-    ex_label = f"Exchange Topic {'✅' if ex_ok else 'DM (Easy)'}"
-    support_label = f"Support Topics {'✅' if support_ok else '⚠️'}"
-    rate_label = f"Exchange Rate: {rate:.2f}"
+    pay_label = _txt(lang, f"استلام الدفع {'✅' if pay_ok else 'رسائل خاصة'}", f"Payment Delivery {'✅ Topic' if pay_ok else 'DM Easy'}")
+    ex_label = _txt(lang, f"تنبيهات الصرف {'✅' if ex_ok else 'رسائل خاصة'}", f"Exchange Alerts {'✅ Topic' if ex_ok else 'DM Easy'}")
+    support_label = _txt(lang, f"توبيكات الدعم {'✅' if support_ok else 'اختياري'}", f"Support Topics {'✅' if support_ok else 'Optional'}")
+    rate_label = _txt(lang, f"سعر الصرف: {rate:.2f}", f"Exchange Rate: {rate:.2f}")
     ready_count = sum(
         1
         for m in methods
         if bool(m.get("enabled", True)) and not _payment_method_needs_target(m)
     )
-    methods_label = f"Payment Methods ({ready_count}/{enabled_count} ready)"
+    methods_label = _txt(lang, f"وسائل الدفع ({ready_count}/{enabled_count} جاهزة)", f"Payment Methods ({ready_count}/{enabled_count} ready)")
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                types.InlineKeyboardButton(text="Help & Guide", callback_data="rs:help"),
+                types.InlineKeyboardButton(text=_txt(lang, "دليل سريع", "Quick Guide"), callback_data="rs:help"),
                 types.InlineKeyboardButton(text=methods_label, callback_data="rs:methods"),
             ],
-            [types.InlineKeyboardButton(text="Auto Setup Topics", callback_data="rs:auto:topics")],
+            [types.InlineKeyboardButton(text=_txt(lang, "إعداد توبيكات الدفع تلقائياً", "Auto Setup Payment Topics"), callback_data="rs:auto:topics")],
             [types.InlineKeyboardButton(text=support_label, callback_data="rs:auto:support_topics")],
             [types.InlineKeyboardButton(text=pay_label, callback_data="rs:bind:pay:link")],
             [types.InlineKeyboardButton(text=ex_label, callback_data="rs:bind:ex:link")],
-            [types.InlineKeyboardButton(text="Use DM Routing (Easy)", callback_data="rs:routing:dm")],
+            [types.InlineKeyboardButton(text=_txt(lang, "استخدم الرسائل الخاصة (الأسهل)", "Use DM Routing (Easy)"), callback_data="rs:routing:dm")],
             [types.InlineKeyboardButton(text=rate_label, callback_data="rs:rate")],
-            [types.InlineKeyboardButton(text="⬅️ Back to Reseller Menu", callback_data="rs:close")],
+            [types.InlineKeyboardButton(text=_txt(lang, "⬅️ رجوع للوحة الريسيلر", "⬅️ Back to Reseller Menu"), callback_data="rs:close")],
         ]
     )
 
 
-def _settings_help_kb() -> types.InlineKeyboardMarkup:
+def _settings_help_kb(lang: str = "en") -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="⬅️ Back to Settings", callback_data="rs:open")],
-            [types.InlineKeyboardButton(text="⬅️ Back to Reseller Menu", callback_data="rs:close")],
+            [types.InlineKeyboardButton(text=_txt(lang, "⬅️ رجوع للإعداد", "⬅️ Back to Setup"), callback_data="rs:open")],
+            [types.InlineKeyboardButton(text=_txt(lang, "⬅️ رجوع للوحة الريسيلر", "⬅️ Back to Reseller Menu"), callback_data="rs:close")],
         ]
     )
 
 
-def _settings_wait_input_kb() -> types.InlineKeyboardMarkup:
+def _settings_wait_input_kb(lang: str = "en") -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="⬅️ Back to Settings", callback_data="rs:open")],
+            [types.InlineKeyboardButton(text=_txt(lang, "⬅️ رجوع للإعداد", "⬅️ Back to Setup"), callback_data="rs:open")],
         ]
     )
 
 
-async def _settings_overview_text(reseller_id: int) -> str:
+async def _settings_overview_text(reseller_id: int, lang: str = "en") -> str:
     pay_route = await get_recharge_routing(int(reseller_id))
     ex_route = await get_exchange_routing(int(reseller_id))
     support_routes = await get_all_support_routing(int(reseller_id))
@@ -986,18 +1080,31 @@ async def _settings_overview_text(reseller_id: int) -> str:
     total_count = len(methods)
     rate = await get_exchange_rate(int(reseller_id))
 
-    pay_status = "✅ Bound" if (pay_route and pay_route.get("chat_id")) else "DM fallback (easy mode)"
-    ex_status = "✅ Bound" if (ex_route and ex_route.get("chat_id")) else "DM fallback (easy mode)"
+    pay_status = _txt(lang, "✅ مربوط" if (pay_route and pay_route.get("chat_id")) else "رسائل خاصة (الوضع الأسهل)", "✅ Bound" if (pay_route and pay_route.get("chat_id")) else "DM fallback (easy mode)")
+    ex_status = _txt(lang, "✅ مربوط" if (ex_route and ex_route.get("chat_id")) else "رسائل خاصة (الوضع الأسهل)", "✅ Bound" if (ex_route and ex_route.get("chat_id")) else "DM fallback (easy mode)")
     support_ready = sum(1 for cat, _ in _SUPPORT_TOPIC_CATEGORIES if (support_routes.get(cat) or {}).get("chat_id"))
     support_total = len(_SUPPORT_TOPIC_CATEGORIES)
 
+    if _is_ar(lang):
+        return (
+            "⚙️ إعداد تشغيل البوت\n\n"
+            "أقل شيء لتشغيل أول بوت: فعّل وسيلة دفع واحدة وضع رقمك الحقيقي أو عنوان محفظتك.\n"
+            "الغروبات والتوبيكات اختيارية؛ إذا ما ربطتها ستصلك طلبات الشحن على الخاص.\n\n"
+            f"• استلام طلبات الدفع: {pay_status}\n"
+            f"• تنبيهات سعر الصرف: {ex_status}\n"
+            f"• توبيكات الدعم: {support_ready}/{support_total} جاهزة (اختياري)\n"
+            f"• سعر الصرف: {rate:.2f} محلي لكل 1 💲\n"
+            f"• وسائل الدفع: {ready_count}/{enabled_count} جاهزة، {enabled_count}/{total_count} مفعّلة\n\n"
+            "اختر الشيء الذي تريد تعديله:"
+        )
+
     return (
-        "Reseller Settings\n\n"
+        "⚙️ Bot Setup\n\n"
         "Minimum to start: one enabled payment method with your real number or wallet.\n"
         "Groups/topics are optional; without them, recharge requests go to your DM.\n\n"
-        f"• Payment routing: {pay_status}\n"
-        f"• Exchange routing: {ex_status}\n"
-        f"• Support topics: {support_ready}/{support_total} ready\n"
+        f"• Payment delivery: {pay_status}\n"
+        f"• Exchange alerts: {ex_status}\n"
+        f"• Support topics: {support_ready}/{support_total} ready (optional)\n"
         f"• Exchange rate: {rate:.2f} local per 1 💲\n"
         f"• Payment methods: {ready_count}/{enabled_count} ready, {enabled_count}/{total_count} enabled\n\n"
         "Choose what you want to update:"
@@ -1032,14 +1139,14 @@ async def _create_forum_topic_safe(bot: Bot, chat_id: int, name: str) -> tuple[i
         return None, str(exc)
 
 
-def _settings_methods_kb(methods: list[dict]) -> types.InlineKeyboardMarkup:
+def _settings_methods_kb(methods: list[dict], lang: str = "en") -> types.InlineKeyboardMarkup:
     rows: list[list[types.InlineKeyboardButton]] = []
     for m in methods:
         code = str(m.get("code") or "")
         title = str(m.get("title") or code)
         status = "✅" if bool(m.get("enabled", True)) else "⛔"
         rows.append([types.InlineKeyboardButton(text=f"{status} {title} ({code})", callback_data=f"rs:method:{code}")])
-    rows.append([types.InlineKeyboardButton(text="Back to Settings", callback_data="rs:open")])
+    rows.append([types.InlineKeyboardButton(text=_txt(lang, "رجوع للإعداد", "Back to Setup"), callback_data="rs:open")])
     return types.InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1051,24 +1158,44 @@ def _payment_method_needs_target(method: dict) -> bool:
     return upper.startswith("SET_") or "YOUR_" in upper
 
 
-def _settings_method_kb(code: str) -> types.InlineKeyboardMarkup:
+def _settings_method_kb(code: str, lang: str = "en") -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="Use This Method Only", callback_data=f"rs:mset:only:{code}")],
-            [types.InlineKeyboardButton(text="Set Payment Number/Wallet", callback_data=f"rs:mset:target:{code}")],
-            [types.InlineKeyboardButton(text="Turn Method ON/OFF", callback_data=f"rs:mset:enabled:{code}")],
-            [types.InlineKeyboardButton(text="Set Currency (USD/SYP)", callback_data=f"rs:mset:currency:{code}")],
-            [types.InlineKeyboardButton(text="Set Rate per Credit", callback_data=f"rs:mset:rate:{code}")],
-            [types.InlineKeyboardButton(text="Set Display Name", callback_data=f"rs:mset:title:{code}")],
-            [types.InlineKeyboardButton(text="Set Support Username", callback_data=f"rs:mset:support:{code}")],
-            [types.InlineKeyboardButton(text="Set Instructions Text", callback_data=f"rs:mset:text:{code}")],
-            [types.InlineKeyboardButton(text="Back to Methods", callback_data="rs:methods")],
-            [types.InlineKeyboardButton(text="Back to Settings", callback_data="rs:open")],
+            [types.InlineKeyboardButton(text=_txt(lang, "استخدم هذه الوسيلة فقط", "Use This Method Only"), callback_data=f"rs:mset:only:{code}")],
+            [types.InlineKeyboardButton(text=_txt(lang, "ضع رقم/محفظة الدفع", "Set Payment Number/Wallet"), callback_data=f"rs:mset:target:{code}")],
+            [types.InlineKeyboardButton(text=_txt(lang, "تشغيل/إيقاف الوسيلة", "Turn Method ON/OFF"), callback_data=f"rs:mset:enabled:{code}")],
+            [types.InlineKeyboardButton(text=_txt(lang, "عملة الوسيلة (USD/SYP)", "Set Currency (USD/SYP)"), callback_data=f"rs:mset:currency:{code}")],
+            [types.InlineKeyboardButton(text=_txt(lang, "سعر كل كريدت", "Set Rate per Credit"), callback_data=f"rs:mset:rate:{code}")],
+            [types.InlineKeyboardButton(text=_txt(lang, "اسم الوسيلة للزبون", "Set Display Name"), callback_data=f"rs:mset:title:{code}")],
+            [types.InlineKeyboardButton(text=_txt(lang, "يوزر الدعم", "Set Support Username"), callback_data=f"rs:mset:support:{code}")],
+            [types.InlineKeyboardButton(text=_txt(lang, "نص التعليمات", "Set Instructions Text"), callback_data=f"rs:mset:text:{code}")],
+            [types.InlineKeyboardButton(text=_txt(lang, "رجوع لوسائل الدفع", "Back to Methods"), callback_data="rs:methods")],
+            [types.InlineKeyboardButton(text=_txt(lang, "رجوع للإعداد", "Back to Setup"), callback_data="rs:open")],
         ]
     )
 
 
-def _payment_setup_help_text() -> str:
+def _payment_setup_help_text(lang: str = "en") -> str:
+    if _is_ar(lang):
+        return (
+            "دليل إعداد الريسيلر:\n\n"
+            "الوضع الأسهل لأول بوت:\n"
+            "- تحتاج فقط وسيلة دفع واحدة عليها رقمك الحقيقي أو عنوان محفظتك.\n"
+            "- يمكنك ترك الاستلام على الرسائل الخاصة؛ الغروب غير مطلوب لتشغيل أول بوت.\n"
+            "- افتح وسائل الدفع، اختر الوسيلة، اضغط ضع رقم/محفظة الدفع، ثم أرسل الرقم أو العنوان.\n"
+            "- اضغط استخدم هذه الوسيلة فقط إذا لا تريد ضبط كل الوسائل الافتراضية.\n\n"
+            "الوضع المتقدم بالغروب اختياري:\n"
+            "- فعّل Topics في الغروب الخاص قبل إضافة البوت.\n"
+            "- أضف بوت الريسيلر Admin مع صلاحية Manage Topics.\n\n"
+            "1) لاستلام طلبات الدفع:\n"
+            "- انسخ رابط توبيك Payment Requests ثم استخدم زر استلام الدفع.\n\n"
+            "2) لتنبيهات سعر الصرف:\n"
+            "- انسخ رابط توبيك Exchange ثم استخدم زر تنبيهات الصرف.\n\n"
+            "3) لسعر الصرف:\n"
+            "- استخدم زر سعر الصرف. السعر مستقل لكل ريسيلر.\n\n"
+            "4) لوسائل الدفع:\n"
+            "- لكل وسيلة يمكنك ضبط الاسم، الرقم/المحفظة، الدعم، التعليمات، وسعر الكريدت."
+        )
     return (
         "Reseller setup guide:\n\n"
         "Easy mode:\n"
@@ -1096,38 +1223,58 @@ def _payment_setup_help_text() -> str:
     )
 
 
-def _format_payment_methods_text(methods: list[dict]) -> str:
+def _format_payment_methods_text(methods: list[dict], lang: str = "en") -> str:
+    is_ar = _is_ar(lang)
     lines = [
-        "Payment Methods\n",
-        "Minimum setup: make one method ON and replace its placeholder target with your real payment number or wallet.\n",
+        "وسائل الدفع\n" if is_ar else "Payment Methods\n",
+        "أقل إعداد مطلوب: شغّل وسيلة واحدة وضع رقمك الحقيقي أو عنوان محفظتك بدل القيمة المؤقتة.\n" if is_ar else "Minimum setup: make one method ON and replace its placeholder target with your real payment number or wallet.\n",
     ]
     for m in methods:
         enabled = bool(m.get("enabled", True))
         if not enabled:
-            status = "OFF"
+            status = "متوقفة" if is_ar else "OFF"
         elif _payment_method_needs_target(m):
-            status = "NEEDS NUMBER/WALLET"
+            status = "تحتاج رقم/محفظة" if is_ar else "NEEDS NUMBER/WALLET"
         else:
-            status = "READY"
+            status = "جاهزة" if is_ar else "READY"
         lines.append(
             f"- {m.get('code')}: {m.get('title')} | "
             f"{('local' if str(m.get('currency', 'USD')).upper() == 'SYP' else '💲')} | "
             f"per_credit={float(m.get('per_credit', 1.0)):.4f} | {status}"
         )
-    lines.append("\nSelect a method below. For a first bot, configure one method and use 'Use This Method Only'.")
+    lines.append(
+        "\nاختر وسيلة من الأسفل. لأول بوت اضبط وسيلة واحدة واضغط 'استخدم هذه الوسيلة فقط'."
+        if is_ar
+        else "\nSelect a method below. For a first bot, configure one method and use 'Use This Method Only'."
+    )
     return "\n".join(lines)
 
 
-def _format_payment_method_details(method: dict) -> str:
+def _format_payment_method_details(method: dict, lang: str = "en") -> str:
+    is_ar = _is_ar(lang)
     rendered = str(method.get("instructions") or "")
     preview = render_method_instructions(method)
     if len(rendered) > 500:
         rendered = rendered[:500] + "..."
     if len(preview) > 700:
         preview = preview[:700] + "..."
-    setup_state = "Ready" if bool(method.get("enabled", True)) and not _payment_method_needs_target(method) else "Needs number/wallet"
+    setup_state = _txt(lang, "جاهزة", "Ready") if bool(method.get("enabled", True)) and not _payment_method_needs_target(method) else _txt(lang, "تحتاج رقم/محفظة", "Needs number/wallet")
     if not bool(method.get("enabled", True)):
-        setup_state = "Off"
+        setup_state = _txt(lang, "متوقفة", "Off")
+    if is_ar:
+        return (
+            "تفاصيل وسيلة الدفع\n\n"
+            f"الكود: {method.get('code')}\n"
+            f"الاسم: {method.get('title')}\n"
+            f"الحالة: {setup_state}\n"
+            f"العملة: {('محلي' if str(method.get('currency', 'USD')).upper() == 'SYP' else '💲')}\n"
+            f"مفعّلة: {bool(method.get('enabled', True))}\n"
+            f"سعر كل كريدت: {float(method.get('per_credit', 1.0)):.4f}\n"
+            f"الرقم/المحفظة: {method.get('target')}\n"
+            f"الدعم: {method.get('support')}\n\n"
+            f"نص التعليمات:\n{rendered}\n\n"
+            f"المعاينة للزبون:\n{preview}"
+        )
     return (
         "Payment Method Details\n\n"
         f"Code: {method.get('code')}\n"
@@ -2032,8 +2179,8 @@ async def open_reseller_settings(message: types.Message, state: FSMContext):
     lang = await _reseller_lang(message.from_user.id)
     await _hide_reply_keyboard(message.bot, message.chat.id, lang)
     await message.answer(
-        await _settings_overview_text(message.from_user.id),
-        reply_markup=await _settings_main_kb(message.from_user.id),
+        await _settings_overview_text(message.from_user.id, lang),
+        reply_markup=await _settings_main_kb(message.from_user.id, lang),
     )
 
 
@@ -2043,9 +2190,10 @@ async def settings_open_callback(callback: types.CallbackQuery, state: FSMContex
         return await callback.answer("Reseller only", show_alert=True)
     await state.clear()
     if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
         await callback.message.edit_text(
-            await _settings_overview_text(callback.from_user.id),
-            reply_markup=await _settings_main_kb(callback.from_user.id),
+            await _settings_overview_text(callback.from_user.id, lang),
+            reply_markup=await _settings_main_kb(callback.from_user.id, lang),
         )
     await callback.answer()
 
@@ -2059,11 +2207,13 @@ async def settings_use_dm_routing(callback: types.CallbackQuery, state: FSMConte
     await clear_recharge_routing(rid)
     await clear_exchange_routing(rid)
     if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
         await callback.message.edit_text(
-            await _settings_overview_text(rid),
-            reply_markup=await _settings_main_kb(rid),
+            await _settings_overview_text(rid, lang),
+            reply_markup=await _settings_main_kb(rid, lang),
         )
-    await callback.answer("DM routing enabled")
+    lang = await _reseller_lang(callback.from_user.id)
+    await callback.answer(_txt(lang, "تم تفعيل الاستلام على الخاص", "DM routing enabled"))
 
 
 @router.callback_query(lambda c: c.data == "rs:close")
@@ -2085,7 +2235,8 @@ async def settings_help_callback(callback: types.CallbackQuery):
     if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
         return await callback.answer("Reseller only", show_alert=True)
     if callback.message:
-        await callback.message.edit_text(_payment_setup_help_text(), reply_markup=_settings_help_kb())
+        lang = await _reseller_lang(callback.from_user.id)
+        await callback.message.edit_text(_payment_setup_help_text(lang), reply_markup=_settings_help_kb(lang))
     await callback.answer()
 
 
@@ -2095,9 +2246,10 @@ async def settings_bind_here(callback: types.CallbackQuery):
         return await callback.answer("Reseller only", show_alert=True)
     # Deprecated action kept for old messages that still carry these callbacks.
     if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
         await callback.message.edit_text(
-            await _settings_overview_text(callback.from_user.id),
-            reply_markup=await _settings_main_kb(callback.from_user.id),
+            await _settings_overview_text(callback.from_user.id, lang),
+            reply_markup=await _settings_main_kb(callback.from_user.id, lang),
         )
     await callback.answer("Use By Link")
 
@@ -2114,14 +2266,29 @@ async def settings_bind_by_link_start(callback: types.CallbackQuery, state: FSMC
         kind = "exchange"
     await callback.answer()
     if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
+        text = (
+            (
+                f"أرسل رابط/هدف توبيك {'الدفع' if kind == 'payment' else 'الصرف'} الآن.\n\n"
+                "الصيغ المقبولة:\n"
+                "1) رابط التوبيك من تيليغرام (t.me/c/...)\n"
+                "2) -100CHAT_ID TOPIC_ID\n"
+                "3) -100CHAT_ID بدون توبيك\n\n"
+                "مثال: -1001234567890 44"
+            )
+            if _is_ar(lang)
+            else (
+                f"Send {kind} topic target now.\n\n"
+                "Supported formats:\n"
+                "1) Topic link copied from Telegram (t.me/c/...)\n"
+                "2) -100CHAT_ID TOPIC_ID\n"
+                "3) -100CHAT_ID (without topic)\n\n"
+                "Example: -1001234567890 44"
+            )
+        )
         await callback.message.edit_text(
-            f"Send {kind} topic target now.\n\n"
-            "Supported formats:\n"
-            "1) Topic link copied from Telegram (t.me/c/...)\n"
-            "2) -100CHAT_ID TOPIC_ID\n"
-            "3) -100CHAT_ID (without topic)\n\n"
-            "Example: -1001234567890 44",
-            reply_markup=_settings_wait_input_kb(),
+            text,
+            reply_markup=_settings_wait_input_kb(lang),
         )
 
 
@@ -2132,14 +2299,26 @@ async def settings_auto_topics_start(callback: types.CallbackQuery, state: FSMCo
     await state.set_state(ResellerSettingsFSM.waiting_auto_topics_group_target)
     await callback.answer()
     if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
         await callback.message.edit_text(
-            "Auto setup topics\n\n"
-            "Send your private group target now.\n"
-            "Supported formats:\n"
-            "1) Group link copied from Telegram (t.me/c/...)\n"
-            "2) -100CHAT_ID\n\n"
-            "Note: enable Topics before adding the bot, then grant all admin permissions, especially Manage Topics.",
-            reply_markup=_settings_wait_input_kb(),
+            (
+                "إعداد توبيكات الدفع تلقائياً\n\n"
+                "أرسل رابط/آيدي الغروب الخاص الآن.\n"
+                "الصيغ المقبولة:\n"
+                "1) رابط الغروب من تيليغرام (t.me/c/...)\n"
+                "2) -100CHAT_ID\n\n"
+                "ملاحظة: فعّل Topics قبل إضافة البوت، ثم أعطه Admin وخاصة صلاحية Manage Topics."
+            )
+            if _is_ar(lang)
+            else (
+                "Auto setup topics\n\n"
+                "Send your private group target now.\n"
+                "Supported formats:\n"
+                "1) Group link copied from Telegram (t.me/c/...)\n"
+                "2) -100CHAT_ID\n\n"
+                "Note: enable Topics before adding the bot, then grant all admin permissions, especially Manage Topics."
+            ),
+            reply_markup=_settings_wait_input_kb(lang),
         )
 
 
@@ -2150,14 +2329,26 @@ async def settings_auto_support_topics_start(callback: types.CallbackQuery, stat
     await state.set_state(ResellerSettingsFSM.waiting_support_topics_group_target)
     await callback.answer()
     if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
         await callback.message.edit_text(
-            "Auto setup support topics\n\n"
-            "Send your private group target now.\n"
-            "Supported formats:\n"
-            "1) Group link copied from Telegram (t.me/c/...)\n"
-            "2) -100CHAT_ID\n\n"
-            "Note: enable Topics before adding the bot, then grant all admin permissions, especially Manage Topics.",
-            reply_markup=_settings_wait_input_kb(),
+            (
+                "إعداد توبيكات الدعم تلقائياً\n\n"
+                "أرسل رابط/آيدي الغروب الخاص الآن.\n"
+                "الصيغ المقبولة:\n"
+                "1) رابط الغروب من تيليغرام (t.me/c/...)\n"
+                "2) -100CHAT_ID\n\n"
+                "ملاحظة: فعّل Topics قبل إضافة البوت، ثم أعطه Admin وخاصة صلاحية Manage Topics."
+            )
+            if _is_ar(lang)
+            else (
+                "Auto setup support topics\n\n"
+                "Send your private group target now.\n"
+                "Supported formats:\n"
+                "1) Group link copied from Telegram (t.me/c/...)\n"
+                "2) -100CHAT_ID\n\n"
+                "Note: enable Topics before adding the bot, then grant all admin permissions, especially Manage Topics."
+            ),
+            reply_markup=_settings_wait_input_kb(lang),
         )
 
 
@@ -2203,11 +2394,12 @@ async def settings_auto_topics_apply(message: types.Message, state: FSMContext):
         message_thread_id=ex_thread_id,
     )
     await state.clear()
+    lang = await _reseller_lang(message.from_user.id)
     await message.answer(
         "Auto setup completed.\n\n"
         f"Payment Requests topic: {pay_thread_id}\n"
         f"Exchange Alerts topic: {ex_thread_id}",
-        reply_markup=await _settings_main_kb(message.from_user.id),
+        reply_markup=await _settings_main_kb(message.from_user.id, lang),
     )
 
 
@@ -2242,20 +2434,21 @@ async def settings_auto_support_topics_apply(message: types.Message, state: FSMC
         created.append((title, thread_id))
 
     await state.clear()
+    lang = await _reseller_lang(message.from_user.id)
     if failures:
         details = "\n".join(failures)
         return await message.answer(
             "Support topics setup finished with errors.\n\n"
             f"Created: {len(created)}/{len(_SUPPORT_TOPIC_CATEGORIES)}\n"
             f"{details}",
-            reply_markup=await _settings_main_kb(message.from_user.id),
+            reply_markup=await _settings_main_kb(message.from_user.id, lang),
         )
 
     created_lines = "\n".join(f"{title}: {thread_id}" for title, thread_id in created)
     await message.answer(
         "Support topics setup completed.\n\n"
         f"{created_lines}",
-        reply_markup=await _settings_main_kb(message.from_user.id),
+        reply_markup=await _settings_main_kb(message.from_user.id, lang),
     )
 
 
@@ -2274,11 +2467,12 @@ async def settings_bind_payment_by_link_apply(message: types.Message, state: FSM
         message_thread_id=thread_id,
     )
     await state.clear()
+    lang = await _reseller_lang(message.from_user.id)
     await message.answer(
         "Payment topic routing updated.\n"
         f"chat_id={chat_id}\n"
         f"topic_id={thread_id or '-'}",
-        reply_markup=await _settings_main_kb(message.from_user.id),
+        reply_markup=await _settings_main_kb(message.from_user.id, lang),
     )
 
 
@@ -2297,11 +2491,12 @@ async def settings_bind_exchange_by_link_apply(message: types.Message, state: FS
         message_thread_id=thread_id,
     )
     await state.clear()
+    lang = await _reseller_lang(message.from_user.id)
     await message.answer(
         "Exchange reminder routing updated.\n"
         f"chat_id={chat_id}\n"
         f"topic_id={thread_id or '-'}",
-        reply_markup=await _settings_main_kb(message.from_user.id),
+        reply_markup=await _settings_main_kb(message.from_user.id, lang),
     )
 
 
@@ -2313,11 +2508,20 @@ async def settings_exchange_rate_start(callback: types.CallbackQuery, state: FSM
     await state.set_state(ResellerSettingsFSM.waiting_exchange_rate)
     await callback.answer()
     if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
         await callback.message.edit_text(
-            "Send your local-to-dollar rate now.\n"
-            f"Current rate for your reseller account: {current:.2f}\n\n"
-            "This value is private per reseller (each reseller has independent rate).",
-            reply_markup=_settings_wait_input_kb(),
+            (
+                "أرسل سعر الدولار مقابل العملة المحلية الآن.\n"
+                f"السعر الحالي لحسابك: {current:.2f}\n\n"
+                "هذا السعر خاص بحسابك كريسيلر ولا يؤثر على غيرك."
+            )
+            if _is_ar(lang)
+            else (
+                "Send your local-to-dollar rate now.\n"
+                f"Current rate for your reseller account: {current:.2f}\n\n"
+                "This value is private per reseller (each reseller has independent rate)."
+            ),
+            reply_markup=_settings_wait_input_kb(lang),
         )
 
 
@@ -2335,9 +2539,10 @@ async def settings_exchange_rate_apply(message: types.Message, state: FSMContext
         return await message.answer("Rate must be greater than zero.")
     await set_exchange_rate(message.from_user.id, rate)
     await state.clear()
+    lang = await _reseller_lang(message.from_user.id)
     await message.answer(
         f"Exchange rate updated for your reseller account: 1 💲 = {rate:.2f} local",
-        reply_markup=await _settings_main_kb(message.from_user.id),
+        reply_markup=await _settings_main_kb(message.from_user.id, lang),
     )
 
 
@@ -2347,9 +2552,10 @@ async def settings_methods_menu(callback: types.CallbackQuery):
         return await callback.answer("Reseller only", show_alert=True)
     methods = await get_payment_methods(callback.from_user.id)
     if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
         await callback.message.edit_text(
-            _format_payment_methods_text(methods),
-            reply_markup=_settings_methods_kb(methods),
+            _format_payment_methods_text(methods, lang),
+            reply_markup=_settings_methods_kb(methods, lang),
         )
     await callback.answer()
 
@@ -2363,9 +2569,10 @@ async def settings_method_details(callback: types.CallbackQuery):
     if not method:
         return await callback.answer("Method not found", show_alert=True)
     if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
         await callback.message.edit_text(
-            _format_payment_method_details(method),
-            reply_markup=_settings_method_kb(code),
+            _format_payment_method_details(method, lang),
+            reply_markup=_settings_method_kb(code, lang),
         )
     await callback.answer()
 
@@ -2389,26 +2596,43 @@ async def settings_method_edit_start(callback: types.CallbackQuery, state: FSMCo
             await update_payment_method(callback.from_user.id, row_code, enabled=(row_code == code))
         method = await _find_payment_method(callback.from_user.id, code)
         await state.clear()
-        await callback.answer("This is now the only enabled payment method.")
+        lang = await _reseller_lang(callback.from_user.id)
+        await callback.answer(_txt(lang, "صارت هذه وسيلة الدفع الوحيدة المفعّلة.", "This is now the only enabled payment method."))
         if callback.message and method:
             await callback.message.edit_text(
-                _format_payment_method_details(method),
-                reply_markup=_settings_method_kb(code),
+                _format_payment_method_details(method, lang),
+                reply_markup=_settings_method_kb(code, lang),
             )
         return
 
-    prompts = {
-        "title": "Send the display name customers will see. Example: Syriatel Cash",
-        "target": "Send your real payment number, account, or wallet address. Multiple lines are OK.",
-        "currency": "Send currency: USD, SYP, dollar, local, 💲, or ليرة",
-        "enabled": "Send method status: on/off, enable/disable, or تشغيل/إيقاف",
-        "support": "Send support username (example: @support_user).",
-        "text": (
-            "Send full instructions text now.\n"
-            "Allowed placeholders: {target} {support} {per_credit} {currency}"
-        ),
-        "rate": "Send new per-credit value (numeric, > 0).",
-    }
+    lang = await _reseller_lang(callback.from_user.id)
+    prompts = (
+        {
+            "title": "أرسل الاسم الذي سيظهر للزبون. مثال: Syriatel Cash",
+            "target": "أرسل رقم الدفع الحقيقي أو الحساب أو عنوان المحفظة. يمكن إرسال أكثر من سطر.",
+            "currency": "أرسل العملة: USD, SYP, dollar, local, 💲, أو ليرة",
+            "enabled": "أرسل حالة الوسيلة: on/off أو تشغيل/إيقاف",
+            "support": "أرسل يوزر الدعم. مثال: @support_user",
+            "text": (
+                "أرسل نص التعليمات كاملًا الآن.\n"
+                "المتغيرات المسموحة: {target} {support} {per_credit} {currency}"
+            ),
+            "rate": "أرسل سعر الكريدت الجديد كرقم أكبر من صفر.",
+        }
+        if _is_ar(lang)
+        else {
+            "title": "Send the display name customers will see. Example: Syriatel Cash",
+            "target": "Send your real payment number, account, or wallet address. Multiple lines are OK.",
+            "currency": "Send currency: USD, SYP, dollar, local, 💲, or ليرة",
+            "enabled": "Send method status: on/off, enable/disable, or تشغيل/إيقاف",
+            "support": "Send support username (example: @support_user).",
+            "text": (
+                "Send full instructions text now.\n"
+                "Allowed placeholders: {target} {support} {per_credit} {currency}"
+            ),
+            "rate": "Send new per-credit value (numeric, > 0).",
+        }
+    )
     if field not in prompts:
         return await callback.answer("Unknown field", show_alert=True)
 
@@ -2478,9 +2702,10 @@ async def settings_method_edit_apply(message: types.Message, state: FSMContext):
     method = await _find_payment_method(message.from_user.id, code)
     if not method:
         return await message.answer("Updated, but failed to reload method details.")
+    lang = await _reseller_lang(message.from_user.id)
     await message.answer(
-        _format_payment_method_details(method),
-        reply_markup=_settings_method_kb(code),
+        _format_payment_method_details(method, lang),
+        reply_markup=_settings_method_kb(code, lang),
     )
 
 
@@ -2522,7 +2747,8 @@ async def reject_recharge_command(message: types.Message):
 async def payment_setup_help(message: types.Message):
     if not await _is_current_bot_reseller(message.from_user.id, message.bot):
         return await message.answer("This action is reseller-only.")
-    await message.answer(_payment_setup_help_text(), reply_markup=_settings_help_kb())
+    lang = await _reseller_lang(message.from_user.id)
+    await message.answer(_payment_setup_help_text(lang), reply_markup=_settings_help_kb(lang))
 
 
 @router.message(lambda msg: (msg.text or "").startswith("/bind_payment_topic"))

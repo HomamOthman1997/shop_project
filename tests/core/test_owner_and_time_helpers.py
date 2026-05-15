@@ -106,10 +106,11 @@ async def test_reseller_stats_text_renders(monkeypatch):
     monkeypatch.setattr(reseller_recharge, "db", fake_db)
 
     text = await _build_reseller_stats_text(7731488539)
-    assert "Reseller Stats" in text
+    assert "Sales & Profit" in text
     assert "Reseller ID: 7731488539" in text
     assert "Active bots: 2" in text
     assert "Linked users: 18" in text
+    assert "Sales last 24h" in text
     assert "Payment methods configured: 2" in text
 
 
@@ -172,10 +173,10 @@ async def test_reseller_dashboard_text_is_actionable(monkeypatch):
 
     text = await _build_reseller_dashboard_text(77, 555, "en")
 
-    assert "Reseller Dashboard" in text
+    assert "Control Center" in text
     assert "Next:" in text
-    assert "Finish payment method details" in text
-    assert "Customer support: 2/2 ready (Custom Services + Balance)" in text
+    assert "Set a real number or wallet" in text
+    assert "Customer support: 2/2 ready (optional)" in text
     assert "Payment methods: 0/1 ready" in text
     assert "Open numbers orders" not in text
     assert "Custom-services profit" not in text
