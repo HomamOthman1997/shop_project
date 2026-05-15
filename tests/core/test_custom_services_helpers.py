@@ -162,6 +162,12 @@ def test_stock_preview_masks_sensitive_values():
     assert "recovery@example.com" not in preview
 
 
+def test_stock_preview_keyboard_is_localized():
+    ar_labels = [btn.text for row in custom_services._stock_preview_kb("ar").inline_keyboard for btn in row]
+    assert "✅ حفظ الستوك" in ar_labels
+    assert "✏️ إرسال من جديد" in ar_labels
+
+
 def test_parse_inventory_payload_supports_html_and_arabic_labels():
     payload = (
         "الايميل: first@example.com<br>"
@@ -670,6 +676,128 @@ async def test_main_bot_admin_gets_operational_access_only(monkeypatch):
     assert await _can_manage_builder(9002, _Bot()) is True
     assert await _can_manage_builder_structure(9002, _Bot()) is False
     assert await _can_manage_builder_structure(9001, _Bot()) is True
+
+
+@pytest.mark.asyncio
+async def test_preview_endpoint_as_customer_uses_public_view(monkeypatch):
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=111)
+
+    class _Message:
+        def __init__(self):
+            self.edits = []
+
+        async def edit_text(self, text, **kwargs):
+            self.edits.append({"text": text, "kwargs": kwargs})
+
+    class _Callback:
+        data = "cstm:preview:ep1"
+        from_user = SimpleNamespace(id=9001)
+
+        def __init__(self):
+            self.bot = _Bot()
+            self.message = _Message()
+            self.answers = []
+
+        async def answer(self, text=None, **kwargs):
+            self.answers.append({"text": text, "kwargs": kwargs})
+
+    class _State:
+        async def get_data(self):
+            return {"custom_catalog_owner_id": 9001}
+
+    async def _fake_can_manage(_user_id, _bot):
+        return True
+
+    async def _fake_owner(_user_id, _bot, _data):
+        return 9001
+
+    async def _fake_get_node(_node_id, **_kwargs):
+        return {
+            "_id": "ep1",
+            "reseller_id": 9001,
+            "node_type": "endpoint",
+            "name": "Gmail",
+            "price": 2.0,
+            "available_qty": 3,
+            "delivery_type": "inventory",
+            "inventory_items": ["x"],
+            "product_info_text": "Fresh account",
+        }
+
+    async def _fake_preorder(_endpoint, _bot):
+        return False
+
+    async def _fake_lang(_user_id):
+        return "en"
+
+    monkeypatch.setattr(custom_services, "_user_lang", _fake_lang)
+    monkeypatch.setattr(custom_services, "_can_manage_builder", _fake_can_manage)
+    monkeypatch.setattr(custom_services, "_builder_catalog_owner_id", _fake_owner)
+    monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
+    monkeypatch.setattr(custom_services, "_can_use_preorder", _fake_preorder)
+
+    callback = _Callback()
+    await custom_services.preview_endpoint_as_customer(callback, _State())
+
+    assert callback.message.edits
+    text = callback.message.edits[-1]["text"]
+    assert "Gmail" in text
+    assert "Fresh account" in text
+    assert "Stock Items" not in text
+
+
+@pytest.mark.asyncio
+async def test_delete_endpoint_blocks_pending_custom_work(monkeypatch):
+    node = {"_id": ObjectId(), "reseller_id": 9001, "node_type": "endpoint", "name": "Gmail"}
+
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=111)
+
+    class _Callback:
+        def __init__(self):
+            self.data = f"cstm:del:{node['_id']}"
+            self.from_user = SimpleNamespace(id=9001)
+            self.bot = _Bot()
+            self.message = None
+            self.answers = []
+
+        async def answer(self, text=None, **kwargs):
+            self.answers.append({"text": str(text or ""), "kwargs": kwargs})
+
+    class _State:
+        async def get_data(self):
+            return {"custom_catalog_owner_id": 9001}
+
+    async def _fake_can_structure(_user_id, _bot):
+        return True
+
+    async def _fake_owner(_user_id, _bot, _data):
+        return 9001
+
+    async def _fake_get_node(_node_id, **_kwargs):
+        return dict(node)
+
+    async def _fake_has_pending(_node, _owner_id, _catalog_type):
+        return True
+
+    async def _fake_lang(_user_id):
+        return "en"
+
+    monkeypatch.setattr(custom_services, "_user_lang", _fake_lang)
+    monkeypatch.setattr(custom_services, "_can_manage_builder_structure", _fake_can_structure)
+    monkeypatch.setattr(custom_services, "_builder_catalog_owner_id", _fake_owner)
+    monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
+    monkeypatch.setattr(custom_services, "_node_has_pending_custom_work", _fake_has_pending)
+
+    callback = _Callback()
+    await custom_services.delete_node_cb(callback, _State())
+
+    assert callback.answers
+    assert callback.answers[-1]["kwargs"].get("show_alert") is True
+    assert "pending" in callback.answers[-1]["text"].lower()
 
 
 @pytest.mark.asyncio

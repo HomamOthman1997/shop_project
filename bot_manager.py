@@ -12,6 +12,7 @@ from tempfile import gettempdir
 from typing import Any
 
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramUnauthorizedError
 from aiogram.types import MenuButtonWebApp, WebAppInfo
 
 from config import settings, validate_runtime_security, enforce_openrouter_only_mode
@@ -1069,14 +1070,70 @@ async def _ensure_digital_store_menu_button(bot: Bot) -> None:
         )
 
 
+def _mask_bot_id_from_token(token: str) -> str:
+    prefix = str(token or "").split(":", 1)[0].strip()
+    return prefix if prefix else "unknown"
+
+
+async def _mark_polling_token_unauthorized(bot_id: int, token: str, group_name: str) -> None:
+    now = _utc_now()
+    try:
+        await db.bots.update_one(
+            {"bot_id": int(bot_id), "token": str(token or "").strip(), "active": True},
+            {
+                "$set": {
+                    "active": False,
+                    "provisioning.status": "token_unauthorized",
+                    "provisioning.error": "Telegram server says Unauthorized. The bot token was revoked or is invalid.",
+                    "provisioning.updated_at": now,
+                    "polling.disabled_reason": "telegram_unauthorized",
+                    "polling.disabled_group": str(group_name or ""),
+                    "polling.disabled_at": now,
+                }
+            },
+        )
+    except Exception:
+        logging.exception("failed to mark unauthorized polling bot inactive: bot_id=%s group=%s", bot_id, group_name)
+
+
 async def _start_polling_group(name: str, dp: Dispatcher, token_map: dict[int, str]) -> tuple[asyncio.Task[None] | None, list[Bot]]:
     if not token_map:
         return None, []
-    bots = [Bot(token=t) for _, t in sorted(token_map.items())]
+    bots: list[Bot] = []
 
-    for bot in bots:
-        with suppress(Exception):
+    for bot_id, token in sorted(token_map.items()):
+        bot = Bot(token=token)
+        try:
+            me = await bot.get_me()
+            if int(me.id) != int(bot_id):
+                logging.warning(
+                    "Skipping polling bot with mismatched token identity: group=%s expected_bot_id=%s actual_bot_id=%s",
+                    name,
+                    bot_id,
+                    me.id,
+                )
+                await bot.session.close()
+                continue
             await bot.delete_webhook(drop_pending_updates=False)
+            bots.append(bot)
+        except TelegramUnauthorizedError:
+            logging.error(
+                "Skipping unauthorized polling bot: group=%s bot_id=%s token_bot_id=%s",
+                name,
+                bot_id,
+                _mask_bot_id_from_token(token),
+            )
+            await _mark_polling_token_unauthorized(int(bot_id), token, name)
+            with suppress(Exception):
+                await bot.session.close()
+        except Exception as exc:
+            logging.error("Skipping polling bot after startup check failed: group=%s bot_id=%s error=%s", name, bot_id, exc)
+            with suppress(Exception):
+                await bot.session.close()
+
+    if not bots:
+        return None, []
+
     if name == "digital-products":
         for bot in bots:
             await _ensure_digital_store_menu_button(bot)

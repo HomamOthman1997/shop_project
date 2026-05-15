@@ -69,7 +69,14 @@ _FINANCIAL_CUSTOM = "custom"
 _FINANCIAL_CORE = "core"
 _CUSTOM_GRID_COLUMNS = 3
 _MAX_FOLDER_CHILDREN = 9
+_MAX_STOCK_ITEMS_PER_SAVE = 500
+_MAX_STOCK_PAYLOAD_CHARS = 50000
 _ID_INFO_ARCHIVED = True
+
+
+def _ui_label(lang: str, en: str, ar: str) -> str:
+    return ar if str(lang or "").lower().startswith("ar") else en
+
 
 def _is_services_trigger(text: str | None) -> bool:
     raw = (text or "").strip()
@@ -1018,6 +1025,33 @@ async def _record_stock_event_safe(
         logger.exception("Custom stock event failed endpoint=%s type=%s", endpoint_id, event_type)
 
 
+async def _record_builder_audit(
+    *,
+    action: str,
+    actor_id: int,
+    catalog_owner_id: int,
+    node: dict | None = None,
+    catalog_type: str = _CATALOG_CUSTOM,
+    details: dict | None = None,
+) -> None:
+    try:
+        await db.custom_service_audit_events.insert_one(
+            {
+                "action": str(action or "").strip(),
+                "actor_id": int(actor_id),
+                "catalog_owner_id": int(catalog_owner_id),
+                "catalog_type": str(catalog_type or _CATALOG_CUSTOM),
+                "node_id": (node or {}).get("_id"),
+                "node_type": str((node or {}).get("node_type") or ""),
+                "node_name": str((node or {}).get("name") or ""),
+                "details": dict(details or {}),
+                "created_at": datetime.now(UTC),
+            }
+        )
+    except Exception:
+        logger.exception("Custom builder audit failed action=%s owner=%s", action, catalog_owner_id)
+
+
 async def _maybe_notify_low_stock(
     *,
     endpoint: dict | None,
@@ -1638,6 +1672,14 @@ async def _render_node(
                 preorder_available=preorder_available,
             )
         if is_builder and can_manage_ops:
+            kb_rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=_ui_label(viewer_lang, "Preview as Customer", "معاينة كزبون"),
+                        callback_data=f"cstm:preview:{node['_id']}",
+                    )
+                ]
+            )
             if can_manage_structure:
                 kb_rows.append(
                     [
@@ -1649,23 +1691,27 @@ async def _render_node(
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "edit_plain"), callback_data=f"cstm:edit:{node['_id']}")])
             kb_rows.append(
                 [
-                    InlineKeyboardButton(text="Add Stock", callback_data=f"cstm:stockadd:{node['_id']}"),
-                    InlineKeyboardButton(text="Replace Stock", callback_data=f"cstm:delivery:{node['_id']}"),
+                    InlineKeyboardButton(text=_ui_label(viewer_lang, "Add Stock", "إضافة ستوك"), callback_data=f"cstm:stockadd:{node['_id']}"),
+                    InlineKeyboardButton(text=_ui_label(viewer_lang, "Replace Stock", "استبدال الستوك"), callback_data=f"cstm:delivery:{node['_id']}"),
                 ]
             )
             kb_rows.append(
                 [
-                    InlineKeyboardButton(text="Export Stock", callback_data=f"cstm:stockexport:{node['_id']}"),
-                    InlineKeyboardButton(text="Stock Log", callback_data=f"cstm:stocklog:{node['_id']}"),
+                    InlineKeyboardButton(text=_ui_label(viewer_lang, "Export Stock", "تصدير الستوك"), callback_data=f"cstm:stockexport:{node['_id']}"),
+                    InlineKeyboardButton(text=_ui_label(viewer_lang, "Stock Log", "سجل الستوك"), callback_data=f"cstm:stocklog:{node['_id']}"),
                 ]
             )
-            kb_rows.append([InlineKeyboardButton(text="Low Stock Alert", callback_data=f"cstm:lowstock:{node['_id']}")])
+            kb_rows.append([InlineKeyboardButton(text=_ui_label(viewer_lang, "Low Stock Alert", "تنبيه نقص الستوك"), callback_data=f"cstm:lowstock:{node['_id']}")])
             kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "product_info_plain"), callback_data=f"cstm:pinfo:{node['_id']}")])
             if can_toggle_preorder:
                 kb_rows.append(
                     [
                         InlineKeyboardButton(
-                            text="Disable Preorder" if preorder_enabled else "Enable Preorder",
+                            text=(
+                                _ui_label(viewer_lang, "Disable Preorder", "إيقاف الحجز المسبق")
+                                if preorder_enabled
+                                else _ui_label(viewer_lang, "Enable Preorder", "تفعيل الحجز المسبق")
+                            ),
                             callback_data=f"cstm:preordertoggle:{node['_id']}",
                         )
                     ]
@@ -1683,7 +1729,7 @@ async def _render_node(
             if _endpoint_ready_for_sale(node):
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "buy_plain"), callback_data=f"cstm:buy:{node['_id']}")])
             elif preorder_available:
-                kb_rows.append([InlineKeyboardButton(text="Reserve", callback_data=f"cstm:buy:{node['_id']}")])
+                kb_rows.append([InlineKeyboardButton(text=_ui_label(viewer_lang, "Reserve Preorder", "حجز مسبق"), callback_data=f"cstm:buy:{node['_id']}")])
 
         back_cb = f"cstm:open:{parent_id}" if parent_id else "cstm:cancel"
         kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "back"), callback_data=back_cb)])
@@ -1702,7 +1748,7 @@ async def _render_node(
             elif can_manage_structure:
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "add_plain"), callback_data=f"cstm:add:{node['_id']}")])
                 if bool(node.get("is_root")) and can_toggle_preorder:
-                    kb_rows.append([InlineKeyboardButton(text="Pending Orders", callback_data=f"cstm:preorders:{node['_id']}")])
+                    kb_rows.append([InlineKeyboardButton(text=_ui_label(viewer_lang, "Pending Preorders", "طلبات الحجز المعلقة"), callback_data=f"cstm:preorders:{node['_id']}")])
                 kb_rows.append(
                     [
                         InlineKeyboardButton(text=t(viewer_lang, "rename_plain"), callback_data=f"cstm:rename:{node['_id']}"),
@@ -2073,6 +2119,37 @@ async def open_node(callback: types.CallbackQuery, state: FSMContext):
     )
 
 
+@router.callback_query(lambda c: c.data and c.data.startswith("cstm:preview:"))
+async def preview_endpoint_as_customer(callback: types.CallbackQuery, state: FSMContext):
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+
+    node_id = str(callback.data or "").split(":", 2)[2]
+    endpoint = await get_node(node_id, reseller_id=catalog_owner_id)
+    if not endpoint or endpoint.get("node_type") != "endpoint":
+        return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
+
+    catalog_type = _catalog_type_from_node(endpoint)
+    preorder_available = await _can_use_preorder(endpoint, callback.bot)
+    text = _public_endpoint_text(
+        endpoint,
+        catalog_title=t(lang, "custom_services_title"),
+        lang=lang,
+        preorder_available=preorder_available,
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=t(lang, "back"), callback_data=f"cstm:open:{endpoint['_id']}")]]
+    )
+    if callback.message:
+        await _safe_edit_text(callback.message, text, reply_markup=kb)
+    await callback.answer()
+
+
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:add:"))
 async def add_options(callback: types.CallbackQuery, state: FSMContext):
     if not await _can_manage_builder_structure(callback.from_user.id, callback.bot):
@@ -2268,7 +2345,14 @@ async def add_entry_name(message: types.Message, state: FSMContext):
                 is_builder=True,
                 catalog_type=catalog_type,
             )
-        await create_folder(catalog_owner_id, anchor["_id"], name, catalog_type=catalog_type)
+        created = await create_folder(catalog_owner_id, anchor["_id"], name, catalog_type=catalog_type)
+        await _record_builder_audit(
+            action="folder_created",
+            actor_id=message.from_user.id,
+            catalog_owner_id=catalog_owner_id,
+            node=created,
+            catalog_type=catalog_type,
+        )
         await state.clear()
         await message.answer(t(await _user_lang(message.from_user.id), "custom_folder_created"))
         return await _render_node(
@@ -2366,6 +2450,14 @@ async def rename_node_submit(message: types.Message, state: FSMContext):
     if not updated:
         return await message.answer(t(await _user_lang(message.from_user.id), "node_not_found_plain"))
 
+    await _record_builder_audit(
+        action="node_renamed",
+        actor_id=message.from_user.id,
+        catalog_owner_id=catalog_owner_id,
+        node=updated,
+        catalog_type=catalog_type,
+        details={"new_name": new_name},
+    )
     await message.answer(t(await _user_lang(message.from_user.id), "custom_name_updated"))
     return await _render_node(
         message,
@@ -2464,6 +2556,14 @@ async def edit_display_text_submit(message: types.Message, state: FSMContext):
     if not updated:
         return await message.answer(t(await _user_lang(message.from_user.id), "node_not_found_plain"))
 
+    await _record_builder_audit(
+        action="folder_text_updated",
+        actor_id=message.from_user.id,
+        catalog_owner_id=catalog_owner_id,
+        node=updated,
+        catalog_type=catalog_type,
+        details={"has_text": bool(raw_text)},
+    )
     await message.answer(t(await _user_lang(message.from_user.id), "custom_display_text_updated"))
     return await _render_node(
         message,
@@ -2563,6 +2663,14 @@ async def add_endpoint_stock(message: types.Message, state: FSMContext):
         if not updated:
             return await message.answer(t(await _user_lang(message.from_user.id), "custom_endpoint_not_found"))
 
+        await _record_builder_audit(
+            action="endpoint_pricing_updated",
+            actor_id=message.from_user.id,
+            catalog_owner_id=catalog_owner_id or message.from_user.id,
+            node=updated,
+            catalog_type=catalog_type,
+            details={"price": float(data.get("edit_price")), "available_qty": int(stock)},
+        )
         await message.answer(t(await _user_lang(message.from_user.id), "custom_endpoint_updated"))
         if return_node_id:
             return await _render_node(
@@ -2593,7 +2701,7 @@ async def add_endpoint_stock(message: types.Message, state: FSMContext):
 
         parent_id = anchor["_id"] if data.get("builder_add_mode") == "adde" else anchor.get("parent_id")
         catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
-        await create_endpoint(
+        created = await create_endpoint(
             reseller_id=catalog_owner_id or message.from_user.id,
             parent_id=parent_id,
             name=str(data.get("builder_name") or "").strip(),
@@ -2601,6 +2709,14 @@ async def add_endpoint_stock(message: types.Message, state: FSMContext):
             available_qty=stock,
             min_qty=1,
             catalog_type=catalog_type,
+        )
+        await _record_builder_audit(
+            action="endpoint_created",
+            actor_id=message.from_user.id,
+            catalog_owner_id=catalog_owner_id or message.from_user.id,
+            node=created,
+            catalog_type=catalog_type,
+            details={"price": float(data.get("builder_price")), "available_qty": int(stock)},
         )
 
         return_node_id = data.get("builder_return_node_id") or str(anchor["_id"])
@@ -2770,6 +2886,14 @@ async def toggle_endpoint_preorder(callback: types.CallbackQuery, state: FSMCont
     if not updated:
         return await callback.answer("Update failed", show_alert=True)
 
+    await _record_builder_audit(
+        action="preorder_toggled",
+        actor_id=callback.from_user.id,
+        catalog_owner_id=catalog_owner_id,
+        node=updated,
+        catalog_type=_catalog_type_from_node(updated),
+        details={"enabled": _endpoint_preorder_enabled(updated)},
+    )
     if callback.message:
         await _render_node(
             callback,
@@ -2859,10 +2983,26 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
     text = str(message.text or "").strip()
     if not text:
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_send_stock_lines_plain_text"))
+    if len(text) > _MAX_STOCK_PAYLOAD_CHARS:
+        return await message.answer(
+            _ui_label(
+                await _user_lang(message.from_user.id),
+                f"Stock payload is too large. Send at most {_MAX_STOCK_PAYLOAD_CHARS} characters per save.",
+                f"حجم الستوك كبير. أرسل بحد أقصى {_MAX_STOCK_PAYLOAD_CHARS} حرف بكل عملية حفظ.",
+            )
+        )
     ssn_mode = await _is_ssn_stock_endpoint(endpoint, catalog_owner_id)
     items, raw_payload, warnings = _parse_inventory_submission(text, ssn_mode=ssn_mode)
     if not items:
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_no_valid_stock_lines"))
+    if len(items) > _MAX_STOCK_ITEMS_PER_SAVE:
+        return await message.answer(
+            _ui_label(
+                await _user_lang(message.from_user.id),
+                f"Too many stock items. Send at most {_MAX_STOCK_ITEMS_PER_SAVE} items per save.",
+                f"عدد عناصر الستوك كبير. أرسل بحد أقصى {_MAX_STOCK_ITEMS_PER_SAVE} عنصر بكل عملية حفظ.",
+            )
+        )
     await state.update_data(
         delivery_preview_raw_payload=raw_payload,
         delivery_preview_items=items,
@@ -2968,6 +3108,14 @@ async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMC
         qty_delta=len(items),
         actor_id=callback.from_user.id,
         note=f"warnings={len(warnings)}",
+    )
+    await _record_builder_audit(
+        action="stock_appended" if stock_mode == "append" else "stock_replaced",
+        actor_id=callback.from_user.id,
+        catalog_owner_id=catalog_owner_id,
+        node=updated,
+        catalog_type=catalog_type,
+        details={"count": len(items), "warnings": len(warnings)},
     )
     fulfilled_preorders = await _auto_fulfill_inventory_preorders(
         bot=callback.bot,
@@ -3112,6 +3260,14 @@ async def save_low_stock_threshold(message: types.Message, state: FSMContext):
     await state.clear()
     if not updated:
         return await message.answer(t(lang, "custom_endpoint_not_found"))
+    await _record_builder_audit(
+        action="low_stock_threshold_updated",
+        actor_id=message.from_user.id,
+        catalog_owner_id=catalog_owner_id,
+        node=updated,
+        catalog_type=catalog_type,
+        details={"threshold": threshold},
+    )
     await message.answer(f"Low-stock alert {'disabled' if threshold == 0 else f'set to {threshold}'}")
     await _render_node(message, state, catalog_owner_id, updated["_id"], is_builder=True, catalog_type=catalog_type)
 
@@ -3146,6 +3302,34 @@ def _preorder_detail_kb(preorder_id: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Pending Orders", callback_data="custom_preorder:list")],
         ]
     )
+
+
+async def _node_has_pending_custom_work(node: dict, catalog_owner_id: int, catalog_type: str) -> bool:
+    node_id = node.get("_id")
+    if not node_id:
+        return False
+    try:
+        pending_preorders = await db.custom_service_preorders.count_documents(
+            {
+                "endpoint_id": node_id,
+                "catalog_owner_id": int(catalog_owner_id),
+                "catalog_type": str(catalog_type or _CATALOG_CUSTOM),
+                "status": {"$in": ["pending", "fulfilling", "refunding"]},
+            }
+        )
+        if pending_preorders:
+            return True
+        pending_orders = await db.orders.count_documents(
+            {
+                "service_ref_id": str(node_id),
+                "reseller_id": int(catalog_owner_id),
+                "status": {"$in": ["pending", "queued", "processing"]},
+            }
+        )
+        return bool(pending_orders)
+    except Exception:
+        logger.exception("Custom delete pending-work check failed node=%s", node_id)
+        return True
 
 
 async def _show_pending_preorders(callback: types.CallbackQuery, *, catalog_owner_id: int | None = None) -> None:
@@ -3267,6 +3451,14 @@ async def set_product_info_submit(message: types.Message, state: FSMContext):
     if not updated:
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_failed_save_product_info"))
 
+    await _record_builder_audit(
+        action="product_info_updated",
+        actor_id=message.from_user.id,
+        catalog_owner_id=catalog_owner_id,
+        node=updated,
+        catalog_type=catalog_type,
+        details={"has_product_info": bool(text)},
+    )
     await message.answer(t(await _user_lang(message.from_user.id), "custom_product_info_saved"))
     return await _render_node(
         message,
@@ -3303,7 +3495,24 @@ async def delete_node_cb(callback: types.CallbackQuery, state: FSMContext):
 
     parent_id = node.get("parent_id")
     catalog_type = _catalog_type_from_node(node)
+    if str(node.get("node_type") or "") == "endpoint" and await _node_has_pending_custom_work(node, catalog_owner_id, catalog_type):
+        return await callback.answer(
+            _ui_label(
+                lang,
+                "This service has pending orders or reservations. Finish them before deleting it.",
+                "هذه الخدمة عليها طلبات أو حجوزات معلقة. أنهِها قبل الحذف.",
+            ),
+            show_alert=True,
+        )
     modified = await deactivate_node(node_id, catalog_owner_id, catalog_type=catalog_type)
+    await _record_builder_audit(
+        action="node_deleted",
+        actor_id=callback.from_user.id,
+        catalog_owner_id=catalog_owner_id,
+        node=node,
+        catalog_type=catalog_type,
+        details={"modified": int(modified)},
+    )
     await callback.answer(t(lang, "custom_deleted_items").format(count=modified))
 
     if callback.message:
@@ -3363,6 +3572,14 @@ async def move_node_cb(callback: types.CallbackQuery, state: FSMContext):
             return await callback.answer(t(lang, "custom_root_folder_cannot_be_moved"), show_alert=True)
         return await callback.answer(t(lang, "custom_move_failed"), show_alert=True)
 
+    await _record_builder_audit(
+        action="node_moved",
+        actor_id=callback.from_user.id,
+        catalog_owner_id=catalog_owner_id,
+        node=node,
+        catalog_type=catalog_type,
+        details={"direction": direction},
+    )
     parent_id = node.get("parent_id")
     if not parent_id:
         root = await ensure_root_node(catalog_owner_id, catalog_type=catalog_type)
@@ -3531,9 +3748,9 @@ def _purchase_complete_kb(lang: str) -> InlineKeyboardMarkup:
 def _stock_preview_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Save Stock", callback_data="cstm:stocksave")],
+            [InlineKeyboardButton(text=_ui_label(lang, "✅ Save Stock", "✅ حفظ الستوك"), callback_data="cstm:stocksave")],
             [
-                InlineKeyboardButton(text="✏️ Send Again", callback_data="cstm:stockretry"),
+                InlineKeyboardButton(text=_ui_label(lang, "✏️ Send Again", "✏️ إرسال من جديد"), callback_data="cstm:stockretry"),
                 InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data="cstm:stockcancel"),
             ],
         ]
@@ -3553,7 +3770,7 @@ async def _ask_buy_qty(message: types.Message, endpoint: dict, data: dict) -> No
     if not options:
         options = [1]
     await message.answer(
-        "Choose preorder quantity" if preorder else t(lang, "choose_quantity_plain"),
+        _ui_label(lang, "Choose reservation quantity", "اختر كمية الحجز") if preorder else t(lang, "choose_quantity_plain"),
         reply_markup=_buy_qty_kb(
             lang=lang,
             endpoint_id=str(endpoint["_id"]),
@@ -3590,9 +3807,9 @@ async def _show_buy_confirm(message: types.Message, state: FSMContext, endpoint:
     if preorder and customer_note:
         summary = f"{summary}\n\nOrder details:\n{customer_note}"
     preorder_hint = (
-        "Reply with order details for the admin, or press Confirm if no details are needed."
+        _ui_label(lang, "Reply with order details for the admin, or press Confirm if no details are needed.", "أرسل تفاصيل الطلب للأدمن، أو اضغط تأكيد إذا لا توجد تفاصيل إضافية.")
         if preorder and not customer_note
-        else "Confirm preorder?"
+        else _ui_label(lang, "Confirm reservation?", "تأكيد الحجز؟")
     )
     await message.answer(
         f"{summary}\n\n{preorder_hint if preorder else t(lang, 'confirm_purchase_question')}",
