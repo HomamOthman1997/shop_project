@@ -896,7 +896,7 @@ def _public_available_qty(endpoint: dict | None) -> int:
     return 0
 
 
-def _public_endpoint_text(endpoint: dict, *, catalog_title: str, lang: str) -> str:
+def _public_endpoint_text(endpoint: dict, *, catalog_title: str, lang: str, preorder_available: bool = False) -> str:
     name = str(endpoint.get("name") or "").strip()
     price = float(endpoint.get("price", 0) or 0)
     available = _public_available_qty(endpoint)
@@ -910,7 +910,7 @@ def _public_endpoint_text(endpoint: dict, *, catalog_title: str, lang: str) -> s
     ]
     if product_info:
         lines.extend(["", product_info])
-    elif available <= 0 and not _endpoint_preorder_enabled(endpoint):
+    elif available <= 0 and not preorder_available:
         lines.extend(["", t(lang, "custom_service_unavailable")])
     return "\n".join(lines).strip()
 
@@ -1549,6 +1549,7 @@ async def _render_node(
     access_level = await _custom_services_access_level(viewer_id, message_or_cb.bot) if is_builder else "none"
     can_manage_ops = access_level in {"full", "ops"}
     can_manage_structure = access_level == "full"
+    can_toggle_preorder = await _can_toggle_preorder(viewer_id, message_or_cb.bot)
 
     if node_type == "folder" and is_builder and layout_mode and can_manage_structure:
         kb_rows.extend(_children_grid_preview_rows(children))
@@ -1583,22 +1584,31 @@ async def _render_node(
         delivery_status = t(viewer_lang, "configured_plain") if delivery_type in {"text", "photo", "document", "inventory"} else t(viewer_lang, "not_configured_plain")
         has_product_info = bool(str(node.get("product_info_text") or "").strip())
         preorder_enabled = _endpoint_preorder_enabled(node)
+        preorder_available = await _can_use_preorder(node, message_or_cb.bot)
         low_stock_threshold = int(node.get("low_stock_threshold") or 0)
         if is_builder:
-            text = (
-                f"{catalog_title} - {t(viewer_lang, 'endpoint_plain')}\n\n"
-                f"{t(viewer_lang, 'name_plain')}: {node.get('name')}\n"
-                f"{t(viewer_lang, 'price_label')}: {format_usd(price)}\n"
-                f"{t(viewer_lang, 'available_plain')}: {stock}\n"
-                f"{t(viewer_lang, 'minimum_qty_plain')}: {min_q}\n"
-                f"{t(viewer_lang, 'delivery_plain')}: {delivery_status}\n"
-                f"{t(viewer_lang, 'stock_items_plain')}: {inventory_count}\n"
-                f"{t(viewer_lang, 'product_info_plain')}: {t(viewer_lang, 'set_plain') if has_product_info else t(viewer_lang, 'not_set_plain')}\n"
-                f"Preorder: {'Enabled' if preorder_enabled else 'Disabled'}\n"
-                f"Low-stock alert: {low_stock_threshold if low_stock_threshold > 0 else 'Off'}"
-            )
+            text_lines = [
+                f"{catalog_title} - {t(viewer_lang, 'endpoint_plain')}",
+                "",
+                f"{t(viewer_lang, 'name_plain')}: {node.get('name')}",
+                f"{t(viewer_lang, 'price_label')}: {format_usd(price)}",
+                f"{t(viewer_lang, 'available_plain')}: {stock}",
+                f"{t(viewer_lang, 'minimum_qty_plain')}: {min_q}",
+                f"{t(viewer_lang, 'delivery_plain')}: {delivery_status}",
+                f"{t(viewer_lang, 'stock_items_plain')}: {inventory_count}",
+                f"{t(viewer_lang, 'product_info_plain')}: {t(viewer_lang, 'set_plain') if has_product_info else t(viewer_lang, 'not_set_plain')}",
+            ]
+            if can_toggle_preorder:
+                text_lines.append(f"Preorder: {'Enabled' if preorder_enabled else 'Disabled'}")
+            text_lines.append(f"Low-stock alert: {low_stock_threshold if low_stock_threshold > 0 else 'Off'}")
+            text = "\n".join(text_lines)
         else:
-            text = _public_endpoint_text(node, catalog_title=catalog_title, lang=viewer_lang)
+            text = _public_endpoint_text(
+                node,
+                catalog_title=catalog_title,
+                lang=viewer_lang,
+                preorder_available=preorder_available,
+            )
         if is_builder and can_manage_ops:
             if can_manage_structure:
                 kb_rows.append(
@@ -1623,7 +1633,7 @@ async def _render_node(
             )
             kb_rows.append([InlineKeyboardButton(text="Low Stock Alert", callback_data=f"cstm:lowstock:{node['_id']}")])
             kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "product_info_plain"), callback_data=f"cstm:pinfo:{node['_id']}")])
-            if await _can_toggle_preorder(viewer_id, message_or_cb.bot):
+            if can_toggle_preorder:
                 kb_rows.append(
                     [
                         InlineKeyboardButton(
@@ -1644,7 +1654,7 @@ async def _render_node(
         else:
             if _endpoint_ready_for_sale(node):
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "buy_plain"), callback_data=f"cstm:buy:{node['_id']}")])
-            elif await _can_use_preorder(node, message_or_cb.bot):
+            elif preorder_available:
                 kb_rows.append([InlineKeyboardButton(text="Reserve", callback_data=f"cstm:buy:{node['_id']}")])
 
         back_cb = f"cstm:open:{parent_id}" if parent_id else "cstm:cancel"
@@ -1663,7 +1673,7 @@ async def _render_node(
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "done_plain"), callback_data=f"cstm:layoutdone:{node['_id']}")])
             elif can_manage_structure:
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "add_plain"), callback_data=f"cstm:add:{node['_id']}")])
-                if bool(node.get("is_root")) and await _can_toggle_preorder(viewer_id, message_or_cb.bot):
+                if bool(node.get("is_root")) and can_toggle_preorder:
                     kb_rows.append([InlineKeyboardButton(text="Pending Orders", callback_data=f"cstm:preorders:{node['_id']}")])
                 kb_rows.append(
                     [

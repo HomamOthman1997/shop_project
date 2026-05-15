@@ -234,6 +234,55 @@ async def test_execute_buy_creates_preorder_when_enabled(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_reseller_bot_cannot_start_custom_service_preorder(monkeypatch):
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=222)
+
+    class _Callback:
+        data = "cstm:buy:ep3"
+        from_user = SimpleNamespace(id=77)
+        message = None
+
+        def __init__(self):
+            self.bot = _Bot()
+            self.answers = []
+
+        async def answer(self, text=None, **kwargs):
+            self.answers.append({"text": str(text or ""), "kwargs": kwargs})
+
+    async def _fake_get_user(_user_id):
+        return {"language": "en"}
+
+    async def _fake_get_node(_node_id, **_kwargs):
+        return {
+            "_id": "ep3",
+            "node_type": "endpoint",
+            "reseller_id": 500,
+            "delivery_type": "inventory",
+            "available_qty": 0,
+            "inventory_items": [],
+            "price": 4.0,
+            "name": "PayPal Accounts",
+            "preorder_enabled": True,
+        }
+
+    async def _fake_main(_bot_id):
+        return False
+
+    monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
+    monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
+    monkeypatch.setattr(custom_services, "is_main_bot", _fake_main)
+
+    callback = _Callback()
+    await custom_services.start_buy_endpoint(callback, _FakeState({}))
+
+    assert callback.answers
+    assert callback.answers[-1]["kwargs"].get("show_alert") is True
+    assert "not ready" in callback.answers[-1]["text"].lower()
+
+
+@pytest.mark.asyncio
 async def test_fulfill_custom_preorder_completes_order_and_notifies(monkeypatch):
     calls = {"details": [], "statuses": [], "notified": []}
     preorder = {

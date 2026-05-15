@@ -428,6 +428,29 @@ def test_public_endpoint_text_hides_internal_builder_fields():
     assert "Product Info:" not in text
 
 
+def test_public_endpoint_text_does_not_hide_unavailable_for_reseller_preorder():
+    endpoint = {
+        "name": "GMAIL",
+        "price": 1.0,
+        "available_qty": 0,
+        "inventory_items": [],
+        "delivery_type": "inventory",
+        "product_info_text": "",
+        "preorder_enabled": True,
+    }
+
+    reseller_text = _public_endpoint_text(endpoint, catalog_title="Custom Services", lang="en")
+    main_text = _public_endpoint_text(
+        endpoint,
+        catalog_title="Custom Services",
+        lang="en",
+        preorder_available=True,
+    )
+
+    assert t("en", "custom_service_unavailable") in reseller_text
+    assert t("en", "custom_service_unavailable") not in main_text
+
+
 @pytest.mark.asyncio
 async def test_owner_can_open_builder_on_main_bot(monkeypatch):
     class _Bot:
