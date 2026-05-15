@@ -67,7 +67,7 @@ def test_number_type_kb_removes_free_emoji_when_custom_icon_is_set(monkeypatch):
     assert kb.inline_keyboard[0][0].icon_custom_emoji_id == "custom-temp"
     assert kb.inline_keyboard[0][1].text == "Rental Number"
     assert kb.inline_keyboard[0][1].icon_custom_emoji_id == "custom-rental"
-    assert kb.inline_keyboard[1][0].text == "Call Number"
+    assert kb.inline_keyboard[1][0].text == "US Call Number"
     assert kb.inline_keyboard[1][0].icon_custom_emoji_id == "custom-call"
 
 
@@ -176,7 +176,8 @@ async def test_voice_type_shows_call_number_service_selection():
     assert state.data["num_type"] == "voice"
     assert state.last_state == core_numbers.NumberFlow.service
     text, markup, parse_mode = callback.message.edits[0]
-    assert "Mode: Call Number" in text
+    assert "Mode: US Call Number" in text
+    assert "US only. Country and state are selected automatically." in text
     assert "Mode: ⏱️ Temp Number" not in text
     assert markup.inline_keyboard
     assert parse_mode == "HTML"
@@ -290,6 +291,7 @@ async def test_voice_price_loading_forces_us_without_state(monkeypatch):
     assert state.data["state"] == "none"
     assert state.last_state == core_numbers.NumberFlow.confirm_buy
     assert "Country: United States" in bot.edits[-1]["text"]
+    assert "Choose US call-number option." in bot.edits[-1]["text"]
     assert "State:" not in bot.edits[-1]["text"]
 
 
@@ -410,3 +412,33 @@ def test_voice_my_number_detail_uses_call_copy_and_check_action():
     assert "Waiting for call" in text
     assert "Guaranteed resend until" not in text
     assert f"voice:check:{order['_id']}" in callbacks
+
+
+def test_rental_my_number_detail_uses_full_rental_actions():
+    order = {
+        "_id": "507f1f77bcf86cd799439112",
+        "number_mode": "rental",
+        "status": "success",
+        "provisioning_state": "provisioned",
+        "provider_order_id": "rent-1",
+        "provider_number": "+15550002222",
+        "rental_country": "1",
+        "rental_country_name": "United States",
+        "service_id": "telegram:rental",
+        "rental_duration_label": "24h (1d)",
+        "rental_is_renewable": True,
+        "rental_end_date": datetime(2026, 5, 16, 12, 0, tzinfo=UTC),
+    }
+
+    text = core_numbers_buy._my_number_detail_text(order, "en")
+    markup = core_numbers_buy._my_number_manage_kb(order, str(order["_id"]), "en")
+    callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
+
+    assert "Type: Rental" in text
+    assert "Duration: 24h (1d)" in text
+    assert "Renewable: Yes" in text
+    assert f"rent:sms:{order['_id']}" in callbacks
+    assert f"rent:finish:{order['_id']}" in callbacks
+    assert f"rent:renew:{order['_id']}" in callbacks
+    assert f"rent:wake:{order['_id']}" in callbacks
+    assert "flow:rental:my" in callbacks

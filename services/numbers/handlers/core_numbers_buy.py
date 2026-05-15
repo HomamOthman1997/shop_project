@@ -1348,9 +1348,12 @@ def _my_number_manage_kb(order: dict, order_id: str, lang: str) -> InlineKeyboar
     rows: list[list[InlineKeyboardButton]] = []
     mode = str(order.get("number_mode") or "").strip().lower()
     if mode == "rental":
-        rows.append([InlineKeyboardButton(text=t(lang, "my_numbers_activate"), callback_data=f"rent:wake:{order_id}")])
-        if bool(order.get("rental_is_renewable")):
-            rows.append([InlineKeyboardButton(text=t(lang, "rental_btn_renew"), callback_data=f"rent:renew:{order_id}")])
+        return _rental_manage_kb(
+            order_id=order_id,
+            lang=lang,
+            can_renew=bool(order.get("rental_is_renewable")),
+            back_callback="flow:rental:my",
+        )
     elif mode == "voice":
         rows.append([InlineKeyboardButton(text=_numbers_text(lang, "Check call", "فحص المكالمة"), callback_data=f"voice:check:{order_id}")])
     elif _temp_resend_available(order):
@@ -2430,8 +2433,8 @@ async def provider_selected(callback: types.CallbackQuery, state: FSMContext):
                 "",
                 _numbers_text(
                     lang,
-                    "After confirmation, the bot will show a voice-capable number.",
-                    "بعد التأكيد سيعرض البوت رقم قابل لاستقبال مكالمة التفعيل.",
+                    "After confirmation, the bot will show a US voice-capable number.",
+                    "بعد التأكيد سيعرض البوت رقم أمريكي قابل لاستقبال مكالمة التفعيل.",
                 ),
                 _numbers_text(
                     lang,

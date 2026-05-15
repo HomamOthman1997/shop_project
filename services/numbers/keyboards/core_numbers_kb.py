@@ -219,7 +219,7 @@ def number_type_kb(lang: str, *, show_cancel: bool = True) -> InlineKeyboardMark
         ],
         [
             InlineKeyboardButton(
-                text=_button_label(_numbers_text(lang, "🆕 Call Number 🆕", "🆕 رقم اتصال 🆕"), icon_id=_ICON_CALL_NUMBER),
+                text=_button_label(_numbers_text(lang, "🇺🇸 US Call Number", "🇺🇸 رقم اتصال أمريكي"), icon_id=_ICON_CALL_NUMBER),
                 callback_data="flow:type:voice",
                 style="danger",
                 icon_custom_emoji_id=_ICON_CALL_NUMBER,

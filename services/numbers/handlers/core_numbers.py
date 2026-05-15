@@ -562,7 +562,7 @@ def _numbers_mode_name(lang: str, num_type: str | None) -> str:
     if normalized == "rental":
         return t(lang, "rental_numbers")
     if normalized == "voice":
-        return _numbers_text(lang, "Call Number", "رقم اتصال")
+        return _numbers_text(lang, "US Call Number", "رقم اتصال أمريكي")
     return t(lang, "temp_numbers")
 
 
@@ -611,9 +611,19 @@ def _country_entry_text(lang: str, num_type: str) -> str:
 
 
 def _service_entry_text(lang: str, num_type: str) -> str:
+    trailing_lines = None
+    if str(num_type or "").strip().lower() == "voice":
+        trailing_lines = [
+            _numbers_text(
+                lang,
+                "US only. Country and state are selected automatically.",
+                "أمريكي فقط. يتم تحديد الدولة والولاية تلقائياً.",
+            )
+        ]
     return _compose_numbers_screen(
         _service_prompt_bold(lang),
         [f"{t(lang, 'temp_mode_label')}: {_numbers_mode_name(lang, num_type)}"],
+        trailing_lines=trailing_lines,
     )
 
 
@@ -1484,7 +1494,7 @@ async def _load_service_prices(chat_id: int, bot, state: FSMContext, service_nam
                 chat_id=chat_id,
                 message_id=last_msg_id,
                 text=_compose_numbers_screen(
-                    _numbers_text(lang, "Choose call-number option.", "اختر خيار رقم الاتصال."),
+                    _numbers_text(lang, "Choose US call-number option.", "اختر خيار رقم الاتصال الأمريكي."),
                     _numbers_context_lines(lang, service=service_name, country_code="1"),
                 ),
                 reply_markup=provider_choice_kb(prices, lang=lang, usd_to_syp=usd_to_syp_rate),
