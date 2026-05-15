@@ -197,6 +197,74 @@ async def _subscription_charge_already_applied(charge_key: str, owner_id: int) -
     return bool(found)
 
 
+def _trial_payment_recorded_in_history(subscription: dict | None) -> bool:
+    history = (subscription or {}).get("history") if isinstance((subscription or {}).get("history"), dict) else {}
+    try:
+        paid_amount = float(history.get("trial_paid_amount") or 0.0)
+    except Exception:
+        paid_amount = 0.0
+    return bool(
+        history.get("trial_paid_at")
+        or history.get("trial_charge_key")
+        or paid_amount > 0
+    )
+
+
+async def _trial_payment_recorded(bot_id: int, owner_id: int, subscription: dict | None) -> bool:
+    if _trial_payment_recorded_in_history(subscription):
+        return True
+    if int(bot_id or 0) <= 0 or int(owner_id or 0) <= 0:
+        return False
+    charge_key = f"bot_subscription:{int(bot_id)}:trial:first"
+    return await _subscription_charge_already_applied(charge_key, int(owner_id))
+
+
+def _reset_unpaid_trial_subscription(subscription: dict, *, now: datetime) -> dict:
+    updated = dict(subscription or {})
+    history = dict(updated.get("history") or {})
+    history["unpaid_trial_reset_at"] = now
+    if updated.get("trial_started_at") is not None:
+        history["unpaid_trial_previous_started_at"] = updated.get("trial_started_at")
+    if updated.get("trial_ends_at") is not None:
+        history["unpaid_trial_previous_ends_at"] = updated.get("trial_ends_at")
+    updated["history"] = history
+    updated["trial_granted"] = True
+    updated["trial_available"] = True
+    updated["status"] = "payment_required"
+    updated["trial_started_at"] = None
+    updated["trial_ends_at"] = None
+    updated["subscription_started_at"] = None
+    updated["subscription_ends_at"] = None
+    updated["grace_ends_at"] = None
+    updated["payment_required_since"] = now
+    return updated
+
+
+async def _repair_unpaid_trial_subscription(bot: dict, subscription: dict, *, created_at: datetime) -> dict:
+    status = str((subscription or {}).get("status") or "").strip().lower()
+    if status not in {"trial_active", "grace_period"}:
+        return subscription
+    if not bool((subscription or {}).get("trial_granted")):
+        return subscription
+    if _as_utc((subscription or {}).get("subscription_started_at")) is not None:
+        return subscription
+
+    bot_id = int((bot or {}).get("bot_id") or 0)
+    owner_id = int((bot or {}).get("owner_id") or 0)
+    if await _trial_payment_recorded(bot_id, owner_id, subscription):
+        return subscription
+
+    now = _utc_now()
+    logger.warning(
+        "unpaid trial subscription reset bot_id=%s owner_id=%s status=%s created_at=%s",
+        bot_id,
+        owner_id,
+        status,
+        created_at,
+    )
+    return _reset_unpaid_trial_subscription(subscription, now=now)
+
+
 async def build_initial_subscription_for_owner(owner_id: int, *, now: datetime | None = None) -> dict:
     created_at = _as_utc(now) or _utc_now()
     had_trial = await _owner_has_trial_history(int(owner_id))
@@ -399,6 +467,8 @@ async def sync_bot_subscription(bot_id: int, *, collect_due: bool = False) -> di
         current = _normalize_subscription_state(current, created_at=created_at)
     else:
         current = _normalize_subscription_state(raw_subscription, created_at=created_at)
+
+    current = await _repair_unpaid_trial_subscription(bot, current, created_at=created_at)
 
     if collect_due:
         current = await _attempt_subscription_auto_renew(bot, current, created_at=created_at)

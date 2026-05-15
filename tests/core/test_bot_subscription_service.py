@@ -61,9 +61,21 @@ class _BotsCollection:
         return _AsyncCursor(rows)
 
 
+class _LedgerCollection:
+    def __init__(self, docs=None):
+        self.docs = list(docs or [])
+
+    async def find_one(self, query, _projection=None):
+        for doc in self.docs:
+            if all(doc.get(key) == value for key, value in query.items()):
+                return dict(doc)
+        return None
+
+
 class _DB:
-    def __init__(self, docs):
+    def __init__(self, docs, ledger_docs=None):
         self.bots = _BotsCollection(docs)
+        self.ledger_entries = _LedgerCollection(ledger_docs)
 
 
 @pytest.fixture
@@ -114,6 +126,10 @@ async def test_trial_transitions_to_grace(monkeypatch, pricing, fixed_now):
             "trial_started_at": fixed_now - timedelta(days=30),
             "trial_ends_at": trial_end,
             "renewal_plan_months": 1,
+            "history": {
+                "trial_paid_at": fixed_now - timedelta(days=30),
+                "trial_paid_amount": 1.0,
+            },
         },
     }
     monkeypatch.setattr(svc, "db", _DB([bot]))
@@ -160,6 +176,82 @@ async def test_first_bot_collects_paid_trial_from_main_balance(monkeypatch, pric
 
 
 @pytest.mark.asyncio
+async def test_unpaid_legacy_trial_is_reset_to_payment_required(monkeypatch, pricing, fixed_now):
+    async def _balance(_owner_id, wallet_type="main"):
+        assert wallet_type == "main"
+        return 0.0
+
+    bot = {
+        "bot_id": 106,
+        "owner_id": 12,
+        "active": True,
+        "created_at": fixed_now,
+        "subscription": {
+            "trial_granted": True,
+            "trial_available": False,
+            "status": "trial_active",
+            "trial_started_at": fixed_now - timedelta(days=1),
+            "trial_ends_at": fixed_now + timedelta(days=29),
+            "renewal_plan_months": 1,
+            "renewal_charge_usd": 10.0,
+            "history": {},
+        },
+    }
+    fake_db = _DB([bot])
+    monkeypatch.setattr(svc, "db", fake_db)
+    monkeypatch.setattr(svc, "get_reseller_wallet_balance", _balance)
+
+    refreshed = await svc.get_bot_subscription(106)
+
+    assert refreshed["status"] == "payment_required"
+    assert refreshed["trial_available"] is True
+    assert refreshed["trial_started_at"] is None
+    assert refreshed["trial_ends_at"] is None
+    assert refreshed["history"]["unpaid_trial_reset_at"] == fixed_now
+    assert fake_db.bots.docs[106]["subscription"]["status"] == "payment_required"
+
+
+@pytest.mark.asyncio
+async def test_unpaid_legacy_trial_starts_after_topup(monkeypatch, pricing, fixed_now):
+    charges = []
+
+    async def _balance(_owner_id, wallet_type="main"):
+        assert wallet_type == "main"
+        return 1.0
+
+    async def _credit(**kwargs):
+        charges.append(kwargs)
+
+    bot = {
+        "bot_id": 107,
+        "owner_id": 13,
+        "active": True,
+        "created_at": fixed_now,
+        "subscription": {
+            "trial_granted": True,
+            "trial_available": False,
+            "status": "trial_active",
+            "trial_started_at": fixed_now - timedelta(days=1),
+            "trial_ends_at": fixed_now + timedelta(days=29),
+            "renewal_plan_months": 1,
+            "renewal_charge_usd": 10.0,
+            "history": {},
+        },
+    }
+    monkeypatch.setattr(svc, "db", _DB([bot]))
+    monkeypatch.setattr(svc, "get_reseller_wallet_balance", _balance)
+    monkeypatch.setattr(svc, "credit_reseller_main_wallet", _credit)
+
+    refreshed = await svc.sync_bot_subscription(107, collect_due=True)
+
+    assert refreshed["status"] == "trial_active"
+    assert refreshed["trial_started_at"] == fixed_now
+    assert refreshed["trial_ends_at"] == fixed_now + timedelta(days=30)
+    assert refreshed["history"]["trial_paid_amount"] == 1.0
+    assert charges[0]["amount"] == -1.0
+
+
+@pytest.mark.asyncio
 async def test_grace_auto_renew_anchors_from_previous_end(monkeypatch, pricing, fixed_now):
     trial_end = fixed_now - timedelta(days=1)
     charges = []
@@ -184,6 +276,10 @@ async def test_grace_auto_renew_anchors_from_previous_end(monkeypatch, pricing, 
             "grace_ends_at": trial_end + timedelta(days=3),
             "renewal_plan_months": 6,
             "renewal_charge_usd": 54.0,
+            "history": {
+                "trial_paid_at": fixed_now - timedelta(days=31),
+                "trial_paid_amount": 1.0,
+            },
         },
     }
     monkeypatch.setattr(svc, "db", _DB([bot]))
@@ -305,6 +401,10 @@ async def test_grace_auto_renew_is_idempotent_when_charge_already_exists(monkeyp
             "grace_ends_at": trial_end + timedelta(days=3),
             "renewal_plan_months": 6,
             "renewal_charge_usd": 54.0,
+            "history": {
+                "trial_paid_at": fixed_now - timedelta(days=31),
+                "trial_paid_amount": 1.0,
+            },
         },
     }
     monkeypatch.setattr(svc, "db", _DB([bot]))
