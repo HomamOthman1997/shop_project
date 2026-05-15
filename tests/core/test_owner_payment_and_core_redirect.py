@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0, os.getcwd())
 
 from database.owner_payment_settings_repo import _default_owner_payment_methods, render_owner_method_instructions
-from handlers.reseller_recharge import _owner_topup_methods_kb
+from handlers.reseller_recharge import _format_payment_methods_text, _parse_payment_currency, _settings_method_kb, _owner_topup_methods_kb
 
 
 def test_default_owner_payment_methods_shape():
@@ -41,6 +41,24 @@ def test_owner_topup_methods_keyboard():
     assert "rs_core_topup:method:owner_manual_usd" in callbacks
     assert "rs_core_topup:method:owner_crypto_usdt" in callbacks
     assert "rs_core_topup:cancel" in callbacks
+
+
+def test_reseller_payment_method_helpers_are_first_bot_friendly():
+    assert _parse_payment_currency("💲") == "USD"
+    assert _parse_payment_currency("local") == "SYP"
+    assert _parse_payment_currency("ليرة") == "SYP"
+
+    text = _format_payment_methods_text(
+        [
+            {"code": "cash", "title": "Cash", "enabled": True, "target": "SET_ACCOUNT", "currency": "SYP", "per_credit": 12000},
+            {"code": "usdt", "title": "USDT", "enabled": True, "target": "TXYZ", "currency": "USD", "per_credit": 1},
+        ]
+    )
+    assert "NEEDS NUMBER/WALLET" in text
+    assert "READY" in text
+
+    callbacks = [btn.callback_data for row in _settings_method_kb("usdt").inline_keyboard for btn in row]
+    assert "rs:mset:only:usdt" in callbacks
 
 
 def test_main_reseller_bot_link_helper(monkeypatch):

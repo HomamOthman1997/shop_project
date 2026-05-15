@@ -23,6 +23,10 @@ class _FakeState:
     async def get_data(self):
         return dict(self.data)
 
+    async def clear(self):
+        self.data.clear()
+        self.state = None
+
 
 class _FakeMessage:
     def __init__(self, text: str):
@@ -69,6 +73,9 @@ async def test_save_token_accepts_valid_token_when_no_pending_or_registered(monk
     async def _fake_registered(_bot_id):
         return False
 
+    async def _fake_registered_bot(_bot_id):
+        return None
+
     async def _fake_pending(_bot_id):
         return False
 
@@ -78,6 +85,7 @@ async def test_save_token_accepts_valid_token_when_no_pending_or_registered(monk
     monkeypatch.setattr(vr, "_set_or_edit_prompt", _fake_prompt)
     monkeypatch.setattr(vr, "_delete_intro_message", _fake_intro_delete)
     monkeypatch.setattr(vr, "_show_channel_picker_prompt", _fake_show_channel)
+    monkeypatch.setattr(vr, "_get_registered_bot_for_token_update", _fake_registered_bot)
     monkeypatch.setattr(vr, "_is_bot_id_already_registered", _fake_registered)
     monkeypatch.setattr(vr, "_has_pending_bot_request_for_bot_id", _fake_pending)
 
@@ -90,7 +98,7 @@ async def test_save_token_accepts_valid_token_when_no_pending_or_registered(monk
 
 
 @pytest.mark.asyncio
-async def test_save_token_explains_registered_bot_and_stays_on_token_step(monkeypatch):
+async def test_save_token_explains_registered_bot_for_other_owner_and_stays_on_token_step(monkeypatch):
     state = _FakeState()
     message = _FakeMessage("8791141203:AAE3lSGuFNNtWvSjL5mgk9VRNAhxIknW1x0")
     prompts = []
@@ -120,6 +128,9 @@ async def test_save_token_explains_registered_bot_and_stays_on_token_step(monkey
     async def _fake_registered(_bot_id):
         return True
 
+    async def _fake_registered_bot(_bot_id):
+        return {"bot_id": 8791141203, "owner_id": 999}
+
     async def _fake_pending(_bot_id):
         return False
 
@@ -127,6 +138,7 @@ async def test_save_token_explains_registered_bot_and_stays_on_token_step(monkey
     monkeypatch.setattr(vr, "get_user", _fake_user)
     monkeypatch.setattr(vr, "_safe_delete_user_message", _fake_delete)
     monkeypatch.setattr(vr, "_set_or_edit_prompt", _fake_prompt)
+    monkeypatch.setattr(vr, "_get_registered_bot_for_token_update", _fake_registered_bot)
     monkeypatch.setattr(vr, "_is_bot_id_already_registered", _fake_registered)
     monkeypatch.setattr(vr, "_has_pending_bot_request_for_bot_id", _fake_pending)
 
@@ -139,6 +151,72 @@ async def test_save_token_explains_registered_bot_and_stays_on_token_step(monkey
     assert "token you sent belongs to a bot" in text
     buttons = prompts[-1]["reply_markup"].inline_keyboard
     assert buttons[0][0].text == "🔁 I Have a New Token"
+
+
+@pytest.mark.asyncio
+async def test_save_token_updates_existing_bot_token_for_same_owner(monkeypatch):
+    state = _FakeState()
+    state.data["verify_intro_msg_id"] = 10
+    message = _FakeMessage("8791141203:NEWTokenValue_abcdefghijklmnopqrstuvwxyz")
+    prompts = []
+    updates = []
+
+    class _TempSession:
+        async def close(self):
+            return None
+
+    class _TempBot:
+        def __init__(self, token):
+            self.token = token
+            self.session = _TempSession()
+
+        async def get_me(self):
+            return SimpleNamespace(id=8791141203, username="same_owner_bot", first_name="Same Owner")
+
+    async def _fake_user(_uid):
+        return {"language": "en"}
+
+    async def _fake_delete(*_args, **_kwargs):
+        return None
+
+    async def _fake_prompt(**kwargs):
+        prompts.append(kwargs)
+        return None
+
+    async def _fake_intro_delete(*_args, **_kwargs):
+        return None
+
+    async def _fake_registered_bot(_bot_id):
+        return {"bot_id": 8791141203, "owner_id": 123, "token": "old"}
+
+    async def _fake_update(bot_id, owner_id, token, **kwargs):
+        updates.append((bot_id, owner_id, token, kwargs.get("reactivate")))
+        return True
+
+    async def _fail_registered(_bot_id):
+        raise AssertionError("_is_bot_id_already_registered should not run for same-owner token updates")
+
+    async def _fail_pending(_bot_id):
+        raise AssertionError("pending check should not run for same-owner token updates")
+
+    monkeypatch.setattr(vr, "Bot", _TempBot)
+    monkeypatch.setattr(vr, "get_user", _fake_user)
+    monkeypatch.setattr(vr, "_safe_delete_user_message", _fake_delete)
+    monkeypatch.setattr(vr, "_set_or_edit_prompt", _fake_prompt)
+    monkeypatch.setattr(vr, "_delete_intro_message", _fake_intro_delete)
+    monkeypatch.setattr(vr, "_get_registered_bot_for_token_update", _fake_registered_bot)
+    monkeypatch.setattr(vr, "update_bot_token", _fake_update)
+    monkeypatch.setattr(vr, "_is_bot_id_already_registered", _fail_registered)
+    monkeypatch.setattr(vr, "_has_pending_bot_request_for_bot_id", _fail_pending)
+
+    await vr.save_token(message, state)
+
+    assert updates == [(8791141203, 123, "8791141203:NEWTokenValue_abcdefghijklmnopqrstuvwxyz", False)]
+    assert state.data == {}
+    assert state.state is None
+    assert prompts
+    assert "Bot token updated successfully" in prompts[-1]["text"]
+    assert "same bot already registered" in prompts[-1]["text"]
 
 
 @pytest.mark.asyncio

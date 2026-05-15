@@ -21,6 +21,7 @@ from database.bots_repo import (
     BotAlreadyRegisteredError,
     add_bot,
     mark_bot_provisioning_status,
+    update_bot_token,
     update_bot_channel,
     update_reseller_info,
     verify_bot,
@@ -242,6 +243,22 @@ def _summary_prompt_html(lang: str, summary_text: str) -> str:
 
 def _bot_already_registered_text(lang: str) -> str:
     return t(lang, "bot_already_registered_detail")
+
+
+def _bot_token_updated_text(lang: str, bot_username: str | None = None) -> str:
+    username = _clean_bot_username(bot_username)
+    suffix = f" @{username}" if username else ""
+    if _is_ar(lang):
+        return (
+            f"✅ تم تحديث توكن البوت{suffix} بنجاح.\n\n"
+            "استخدمت توكن جديد لنفس البوت الموجود عندنا، لذلك حدّثت التوكن بدل إنشاء بوت جديد.\n"
+            "هذا مناسب إذا عملت Revoke للتوكن من BotFather."
+        )
+    return (
+        f"✅ Bot token updated successfully{suffix}.\n\n"
+        "You sent a new token for the same bot already registered here, so I updated the stored token instead of creating a new bot.\n"
+        "Use this when you revoke/regenerate the token in BotFather."
+    )
 
 
 def _add_to_channel_url(bot_username: str) -> str:
@@ -1035,6 +1052,13 @@ async def _is_bot_id_already_registered(bot_id: int) -> bool:
     return doc is not None
 
 
+async def _get_registered_bot_for_token_update(bot_id: int) -> dict | None:
+    return await db.bots.find_one(
+        {"bot_id": int(bot_id)},
+        {"_id": 1, "bot_id": 1, "owner_id": 1, "token": 1, "active": 1, "provisioning": 1, "settings": 1},
+    )
+
+
 async def _has_pending_bot_request_for_bot_id(bot_id: int) -> bool:
     doc = await db.bot_creation_requests.find_one(
         {
@@ -1619,9 +1643,53 @@ async def save_token(message: types.Message, state: FSMContext):
         bot = Bot(token=token)
         me = await bot.get_me()
 
-        if await _is_bot_id_already_registered(me.id):
+        registered_bot = await _get_registered_bot_for_token_update(me.id)
+        if registered_bot:
+            if int(registered_bot.get("owner_id") or 0) == int(message.from_user.id):
+                provisioning = registered_bot.get("provisioning") or {}
+                reactivate = (
+                    not bool(registered_bot.get("active", True))
+                    and str(provisioning.get("status") or "").strip().lower() == "token_unauthorized"
+                )
+                updated = await update_bot_token(int(me.id), int(message.from_user.id), token, reactivate=reactivate)
+                logger.info(
+                    "create_bot_token_updated_existing user_id=%s bot_id=%s bot_username=%s updated=%s reactivated=%s",
+                    message.from_user.id,
+                    me.id,
+                    me.username or "",
+                    updated,
+                    reactivate,
+                )
+                await _delete_intro_message(message.bot, message.chat.id, state)
+                await state.clear()
+                await _set_or_edit_prompt(
+                    bot=message.bot,
+                    chat_id=message.chat.id,
+                    state=state,
+                    text=_bot_token_updated_text(lang, getattr(me, "username", "")),
+                    reply_markup=reseller_main_menu(lang),
+                )
+                return
+
             logger.info(
                 "create_bot_token_registered user_id=%s bot_id=%s bot_username=%s",
+                message.from_user.id,
+                me.id,
+                me.username or "",
+            )
+            await _set_or_edit_prompt(
+                bot=message.bot,
+                chat_id=message.chat.id,
+                state=state,
+                text=_token_prompt_html(lang, _bot_already_registered_text(lang)),
+                reply_markup=_verify_token_kb(lang, include_back=False, retry=True),
+                parse_mode="HTML",
+            )
+            return
+
+        if await _is_bot_id_already_registered(me.id):
+            logger.info(
+                "create_bot_token_registered_inactive_or_unknown_owner user_id=%s bot_id=%s bot_username=%s",
                 message.from_user.id,
                 me.id,
                 me.username or "",

@@ -125,6 +125,31 @@ async def get_bot_by_id(bot_id: int):
     return await db.bots.find_one({"bot_id": bot_id, "active": True})
 
 
+async def update_bot_token(bot_id: int, owner_id: int, token: str, *, reactivate: bool = False) -> bool:
+    now = _utc_now()
+    set_fields = {
+        "token": str(token),
+        "token_updated_at": now,
+        "provisioning.updated_at": now,
+        "polling.disabled_reason": "",
+        "polling.disabled_group": "",
+    }
+    if reactivate:
+        set_fields.update(
+            {
+                "active": True,
+                "provisioning.status": "token_updated",
+                "provisioning.error": "",
+                "polling.disabled_at": None,
+            }
+        )
+    result = await db.bots.update_one(
+        {"bot_id": int(bot_id), "owner_id": int(owner_id)},
+        {"$set": set_fields},
+    )
+    return bool(getattr(result, "modified_count", 0) or getattr(result, "matched_count", 0))
+
+
 async def get_reseller_id_for_bot(bot_id: int):
     bot = await get_bot_by_id(bot_id)
     if not bot:

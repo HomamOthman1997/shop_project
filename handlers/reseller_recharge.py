@@ -41,6 +41,7 @@ from database.reseller_settings_repo import (
     set_support_routing,
     set_exchange_routing,
     get_all_support_routing,
+    render_method_instructions,
     update_payment_method,
 )
 from database.user_repo import get_user, get_user_by_username, get_user_reseller_for_bot
@@ -323,12 +324,14 @@ def _dashboard_next_step(
     if _is_ar(lang):
         if not enabled_methods:
             return "فعّل وسيلة دفع من الإعدادات."
-        if not payment_methods_ready or configured_methods < enabled_methods:
-            return "أكمل بيانات وسائل الدفع أو عطّل الوسائل غير المستخدمة."
+        if not payment_methods_ready:
+            return "اكتب رقم أو عنوان محفظة لوسيلة دفع واحدة على الأقل."
+        if configured_methods < enabled_methods:
+            return "البوت قابل للاستخدام الآن. عطّل أو أكمل وسائل الدفع الزائدة لاحقًا."
         if not payment_routing_ok:
-            return "اربط توبيك الدفع من الإعدادات."
+            return "البوت يعمل عبر رسائلك الخاصة. اربط توبيك دفع لاحقًا إذا أردت تنظيم الطلبات في غروب."
         if support_ready < support_total:
-            return "جهّز تبويبات دعم الخدمات الخاصة والرصيد من الإعدادات."
+            return "إعدادات الدعم اختيارية ويمكن إكمالها لاحقًا."
         if pending_recharge > 0:
             return "راجع طلبات الشحن المعلقة."
         if ready:
@@ -337,12 +340,14 @@ def _dashboard_next_step(
 
     if not enabled_methods:
         return "Enable at least one payment method in Settings."
-    if not payment_methods_ready or configured_methods < enabled_methods:
-        return "Finish payment method details or disable unused methods."
+    if not payment_methods_ready:
+        return "Set a real number or wallet for at least one payment method."
+    if configured_methods < enabled_methods:
+        return "The bot can run now. Disable or finish the extra enabled methods later."
     if not payment_routing_ok:
-        return "Bind the payment topic from Settings."
+        return "DM fallback is active. Bind a payment topic later if you want group review."
     if support_ready < support_total:
-        return "Set up Custom Services and Balance support topics from Settings."
+        return "Support topics are optional and can be finished later."
     if pending_recharge > 0:
         return "Review pending recharge requests."
     if ready:
@@ -492,6 +497,11 @@ async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int, lang: st
 
     if is_ar:
         recharge_line = f"{pending_recharge} معلقة" if pending_recharge else "لا يوجد طلبات معلقة"
+        payment_route_line = (
+            f"{_ready_mark(True)} رسائل خاصة (جاهز)"
+            if not setup.get("payment_routing_ok")
+            else f"{_ready_mark(True)} توبيك/غروب"
+        )
         return (
             "📊 لوحة الريسيلر\n\n"
             f"• حالة البوت: {_ready_mark(ready)} {_ready_word(lang, ready)}\n"
@@ -499,13 +509,14 @@ async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int, lang: st
             f"• ينتهي: {format_subscription_dt(sub_end)}\n"
             f"• رصيد البوت الرئيسي: {format_usd(main_balance)}\n"
             f"• وسائل الدفع: {payment_line} جاهزة\n"
-            f"• توبيك الدفع: {_ready_mark(setup.get('payment_routing_ok'))} {_ready_word(lang, setup.get('payment_routing_ok'))}\n"
-            f"• دعم الزبائن: {support_line} جاهز (الخدمات الخاصة + الرصيد)\n"
+            f"• استلام طلبات الدفع: {payment_route_line}\n"
+            f"• دعم الزبائن: {support_line} جاهز (اختياري)\n"
             f"• طلبات الشحن: {recharge_line}\n\n"
             f"المطلوب الآن: {next_step}"
         )
 
     recharge_line = f"{pending_recharge} pending" if pending_recharge else "none pending"
+    payment_route_line = "✅ DM fallback (ready)" if not setup.get("payment_routing_ok") else "✅ Topic/group"
     return (
         "📊 Reseller Dashboard\n\n"
         f"• Bot status: {_ready_mark(ready)} {_ready_word(lang, ready)}\n"
@@ -513,8 +524,8 @@ async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int, lang: st
         f"• Ends at: {format_subscription_dt(sub_end)}\n\n"
         f"• Main Bot balance: {format_usd(main_balance)}\n"
         f"• Payment methods: {payment_line} ready\n"
-        f"• Payment topic: {_ready_mark(setup.get('payment_routing_ok'))} {_ready_word(lang, setup.get('payment_routing_ok'))}\n"
-        f"• Customer support: {support_line} ready (Custom Services + Balance)\n"
+        f"• Payment request delivery: {payment_route_line}\n"
+        f"• Customer support: {support_line} ready (optional)\n"
         f"• Recharge requests: {recharge_line}\n\n"
         f"Next: {next_step}"
     )
@@ -921,7 +932,12 @@ async def _settings_main_kb(reseller_id: int) -> types.InlineKeyboardMarkup:
     ex_label = f"Exchange Topic {'✅' if ex_ok else 'DM (Easy)'}"
     support_label = f"Support Topics {'✅' if support_ok else '⚠️'}"
     rate_label = f"Exchange Rate: {rate:.2f}"
-    methods_label = f"Payment Methods ({enabled_count}/{total_count} ON)"
+    ready_count = sum(
+        1
+        for m in methods
+        if bool(m.get("enabled", True)) and not _payment_method_needs_target(m)
+    )
+    methods_label = f"Payment Methods ({ready_count}/{enabled_count} ready)"
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -962,6 +978,11 @@ async def _settings_overview_text(reseller_id: int) -> str:
     support_routes = await get_all_support_routing(int(reseller_id))
     methods = await get_payment_methods(int(reseller_id))
     enabled_count = sum(1 for m in methods if bool(m.get("enabled", True)))
+    ready_count = sum(
+        1
+        for m in methods
+        if bool(m.get("enabled", True)) and not _payment_method_needs_target(m)
+    )
     total_count = len(methods)
     rate = await get_exchange_rate(int(reseller_id))
 
@@ -972,13 +993,13 @@ async def _settings_overview_text(reseller_id: int) -> str:
 
     return (
         "Reseller Settings\n\n"
+        "Minimum to start: one enabled payment method with your real number or wallet.\n"
+        "Groups/topics are optional; without them, recharge requests go to your DM.\n\n"
         f"• Payment routing: {pay_status}\n"
         f"• Exchange routing: {ex_status}\n"
         f"• Support topics: {support_ready}/{support_total} ready\n"
         f"• Exchange rate: {rate:.2f} local per 1 💲\n"
-        f"• Payment methods: {enabled_count}/{total_count} enabled\n\n"
-        "Optional advanced mode: enable Topics in a private group, then add your reseller bot as admin with Manage Topics.\n"
-        "Easy mode works without group (requests go to DM fallback).\n\n"
+        f"• Payment methods: {ready_count}/{enabled_count} ready, {enabled_count}/{total_count} enabled\n\n"
         "Choose what you want to update:"
     )
 
@@ -1022,16 +1043,25 @@ def _settings_methods_kb(methods: list[dict]) -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _payment_method_needs_target(method: dict) -> bool:
+    raw = str(method.get("target") or "").strip()
+    if not raw:
+        return True
+    upper = raw.upper()
+    return upper.startswith("SET_") or "YOUR_" in upper
+
+
 def _settings_method_kb(code: str) -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="Set Title", callback_data=f"rs:mset:title:{code}")],
-            [types.InlineKeyboardButton(text="Set Payment Address/Target", callback_data=f"rs:mset:target:{code}")],
-            [types.InlineKeyboardButton(text="Set Currency (💲/local)", callback_data=f"rs:mset:currency:{code}")],
-            [types.InlineKeyboardButton(text="Enable/Disable Method", callback_data=f"rs:mset:enabled:{code}")],
+            [types.InlineKeyboardButton(text="Use This Method Only", callback_data=f"rs:mset:only:{code}")],
+            [types.InlineKeyboardButton(text="Set Payment Number/Wallet", callback_data=f"rs:mset:target:{code}")],
+            [types.InlineKeyboardButton(text="Turn Method ON/OFF", callback_data=f"rs:mset:enabled:{code}")],
+            [types.InlineKeyboardButton(text="Set Currency (USD/SYP)", callback_data=f"rs:mset:currency:{code}")],
+            [types.InlineKeyboardButton(text="Set Rate per Credit", callback_data=f"rs:mset:rate:{code}")],
+            [types.InlineKeyboardButton(text="Set Display Name", callback_data=f"rs:mset:title:{code}")],
             [types.InlineKeyboardButton(text="Set Support Username", callback_data=f"rs:mset:support:{code}")],
             [types.InlineKeyboardButton(text="Set Instructions Text", callback_data=f"rs:mset:text:{code}")],
-            [types.InlineKeyboardButton(text="Set Rate per Credit", callback_data=f"rs:mset:rate:{code}")],
             [types.InlineKeyboardButton(text="Back to Methods", callback_data="rs:methods")],
             [types.InlineKeyboardButton(text="Back to Settings", callback_data="rs:open")],
         ]
@@ -1042,9 +1072,11 @@ def _payment_setup_help_text() -> str:
     return (
         "Reseller setup guide:\n\n"
         "Easy mode:\n"
-        "- You can keep routing on DM fallback (no group required).\n"
-        "- In Settings, tap 'Use DM Routing (Easy)'.\n\n"
-        "Important first step:\n"
+        "- You only need one payment method with a real number or wallet.\n"
+        "- You can keep routing on DM fallback; no group is required for a first bot.\n"
+        "- Open Payment Methods, choose the method, tap Set Payment Number/Wallet, then paste your number/address.\n"
+        "- Tap Use This Method Only if you want to avoid configuring every default method.\n\n"
+        "Optional advanced group mode:\n"
         "- Enable Topics in your private group before adding the bot.\n"
         "- Add your reseller bot as Admin with all permissions, especially Manage Topics.\n\n"
         "1) For payment requests delivery:\n"
@@ -1065,33 +1097,60 @@ def _payment_setup_help_text() -> str:
 
 
 def _format_payment_methods_text(methods: list[dict]) -> str:
-    lines = ["Payment Methods\n"]
+    lines = [
+        "Payment Methods\n",
+        "Minimum setup: make one method ON and replace its placeholder target with your real payment number or wallet.\n",
+    ]
     for m in methods:
-        status = "ON" if bool(m.get("enabled", True)) else "OFF"
+        enabled = bool(m.get("enabled", True))
+        if not enabled:
+            status = "OFF"
+        elif _payment_method_needs_target(m):
+            status = "NEEDS NUMBER/WALLET"
+        else:
+            status = "READY"
         lines.append(
             f"- {m.get('code')}: {m.get('title')} | "
             f"{('local' if str(m.get('currency', 'USD')).upper() == 'SYP' else '💲')} | "
             f"per_credit={float(m.get('per_credit', 1.0)):.4f} | {status}"
         )
-    lines.append("\nSelect a method below to edit details.")
+    lines.append("\nSelect a method below. For a first bot, configure one method and use 'Use This Method Only'.")
     return "\n".join(lines)
 
 
 def _format_payment_method_details(method: dict) -> str:
     rendered = str(method.get("instructions") or "")
-    if len(rendered) > 600:
-        rendered = rendered[:600] + "..."
+    preview = render_method_instructions(method)
+    if len(rendered) > 500:
+        rendered = rendered[:500] + "..."
+    if len(preview) > 700:
+        preview = preview[:700] + "..."
+    setup_state = "Ready" if bool(method.get("enabled", True)) and not _payment_method_needs_target(method) else "Needs number/wallet"
+    if not bool(method.get("enabled", True)):
+        setup_state = "Off"
     return (
         "Payment Method Details\n\n"
         f"Code: {method.get('code')}\n"
         f"Title: {method.get('title')}\n"
+        f"Setup: {setup_state}\n"
         f"Currency: {('local' if str(method.get('currency', 'USD')).upper() == 'SYP' else '💲')}\n"
         f"Enabled: {bool(method.get('enabled', True))}\n"
         f"Per Credit: {float(method.get('per_credit', 1.0)):.4f}\n"
         f"Target: {method.get('target')}\n"
         f"Support: {method.get('support')}\n\n"
-        f"Instructions:\n{rendered}"
+        f"Text template:\n{rendered}\n\n"
+        f"User preview:\n{preview}"
     )
+
+
+def _parse_payment_currency(raw: str) -> str | None:
+    value = str(raw or "").strip().lower()
+    normalized = value.replace("$", "usd").replace("💲", "usd")
+    if normalized in {"usd", "dollar", "dollars", "usdt"}:
+        return "USD"
+    if normalized in {"syp", "local", "lira", "ليرة", "ليره", "ل.س", "محلي", "محلية"}:
+        return "SYP"
+    return None
 
 
 async def _find_payment_method(reseller_id: int, method_code: str) -> dict | None:
@@ -2323,12 +2382,26 @@ async def settings_method_edit_start(callback: types.CallbackQuery, state: FSMCo
     method = await _find_payment_method(callback.from_user.id, code)
     if not method:
         return await callback.answer("Method not found", show_alert=True)
+    if field == "only":
+        methods = await get_payment_methods(callback.from_user.id)
+        for row in methods:
+            row_code = str(row.get("code") or "")
+            await update_payment_method(callback.from_user.id, row_code, enabled=(row_code == code))
+        method = await _find_payment_method(callback.from_user.id, code)
+        await state.clear()
+        await callback.answer("This is now the only enabled payment method.")
+        if callback.message and method:
+            await callback.message.edit_text(
+                _format_payment_method_details(method),
+                reply_markup=_settings_method_kb(code),
+            )
+        return
 
     prompts = {
-        "title": "Send new method title (example: ShamCash Syria).",
-        "target": "Send new payment target/address text. You can send multiple lines (one target per line).",
-        "currency": "Send currency code: 💲 or local",
-        "enabled": "Send method status: on/off",
+        "title": "Send the display name customers will see. Example: Syriatel Cash",
+        "target": "Send your real payment number, account, or wallet address. Multiple lines are OK.",
+        "currency": "Send currency: USD, SYP, dollar, local, 💲, or ليرة",
+        "enabled": "Send method status: on/off, enable/disable, or تشغيل/إيقاف",
         "support": "Send support username (example: @support_user).",
         "text": (
             "Send full instructions text now.\n"
@@ -2371,18 +2444,18 @@ async def settings_method_edit_apply(message: types.Message, state: FSMContext):
     elif field == "support":
         kwargs["support"] = raw
     elif field == "currency":
-        cur = raw.upper().strip()
-        if cur not in {"USD", "SYP"}:
-            return await message.answer("Invalid currency. Send 💲 or local.")
+        cur = _parse_payment_currency(raw)
+        if cur is None:
+            return await message.answer("Invalid currency. Send USD, SYP, dollar, local, 💲, or ليرة.")
         kwargs["currency"] = cur
     elif field == "enabled":
         low = raw.lower().strip()
-        if low in {"on", "true", "1", "yes"}:
+        if low in {"on", "true", "1", "yes", "enable", "enabled", "تشغيل", "تفعيل", "مفعل", "مفعلة"}:
             kwargs["enabled"] = True
-        elif low in {"off", "false", "0", "no"}:
+        elif low in {"off", "false", "0", "no", "disable", "disabled", "إيقاف", "ايقاف", "تعطيل", "معطل", "معطلة"}:
             kwargs["enabled"] = False
         else:
-            return await message.answer("Invalid status. Send on/off.")
+            return await message.answer("Invalid status. Send on/off or تشغيل/إيقاف.")
     elif field == "text":
         kwargs["instructions"] = raw
     elif field == "rate":
