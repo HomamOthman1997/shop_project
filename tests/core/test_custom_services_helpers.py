@@ -150,6 +150,18 @@ Recovery: No Recovery
     ]
 
 
+def test_stock_preview_masks_sensitive_values():
+    preview = custom_services._stock_preview_text(
+        ["Email: first@example.com\nPassword: pass-1\nRecovery: recovery@example.com"],
+        [],
+    )
+
+    assert "Parsed stock items: 1" in preview
+    assert "fi***@example.com" in preview
+    assert "pass-1" not in preview
+    assert "recovery@example.com" not in preview
+
+
 def test_parse_inventory_payload_supports_html_and_arabic_labels():
     payload = (
         "الايميل: first@example.com<br>"
@@ -563,7 +575,7 @@ async def test_open_custom_user_goes_directly_to_catalog_for_regular_user(monkey
 
 
 @pytest.mark.asyncio
-async def test_open_custom_user_goes_directly_to_builder_for_admin(monkeypatch):
+async def test_open_custom_user_shows_landing_for_admin(monkeypatch):
     class _Bot:
         async def get_me(self):
             return SimpleNamespace(id=111)
@@ -592,8 +604,6 @@ async def test_open_custom_user_goes_directly_to_builder_for_admin(monkeypatch):
         async def get_data(self):
             return dict(self.data)
 
-    rendered = {}
-
     async def _fake_get_user(_user_id):
         return {"language": "en"}
 
@@ -615,16 +625,6 @@ async def test_open_custom_user_goes_directly_to_builder_for_admin(monkeypatch):
     async def _fake_children(*_args, **_kwargs):
         return []
 
-    async def _fake_render(message_or_cb, state, reseller_id, node_id, *, is_builder, catalog_type, **_kwargs):
-        rendered.update(
-            {
-                "reseller_id": reseller_id,
-                "node_id": node_id,
-                "is_builder": is_builder,
-                "catalog_type": catalog_type,
-            }
-        )
-
     monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
     monkeypatch.setattr(custom_services, "is_main_bot", _fake_main)
     monkeypatch.setattr(custom_services, "_can_open_builder_catalog", _fake_can_open_builder)
@@ -632,7 +632,6 @@ async def test_open_custom_user_goes_directly_to_builder_for_admin(monkeypatch):
     monkeypatch.setattr(custom_services, "_resolve_user_reseller", _fake_wallet)
     monkeypatch.setattr(custom_services, "ensure_root_node", _fake_root)
     monkeypatch.setattr(custom_services, "list_children", _fake_children)
-    monkeypatch.setattr(custom_services, "_render_node", _fake_render)
     monkeypatch.setattr(custom_services, "OWNER_ID", 9001)
 
     message = _Message()
@@ -640,10 +639,14 @@ async def test_open_custom_user_goes_directly_to_builder_for_admin(monkeypatch):
 
     await custom_services.open_custom_user(message, state)
 
-    assert rendered["is_builder"] is True
-    assert rendered["reseller_id"] == 9001
-    assert rendered["node_id"] == "root-owner"
-    assert len(message.answers) == 1
+    assert state.data["custom_mode"] == "builder"
+    assert state.data["custom_catalog_owner_id"] == 9001
+    assert state.data["custom_root_node_id"] == "root-owner"
+    assert len(message.answers) == 2
+    assert "Custom Services" in message.answers[-1]["text"]
+    markup = message.answers[-1]["kwargs"]["reply_markup"]
+    callbacks = [btn.callback_data for row in markup.inline_keyboard for btn in row]
+    assert callbacks == ["cstm:entry:catalog", "cstm:entry:builder", "cstm:cancel"]
 
 
 @pytest.mark.asyncio

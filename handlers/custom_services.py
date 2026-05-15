@@ -32,6 +32,7 @@ from database.custom_services_repo import (
     list_children,
     mark_preorder_fulfilling,
     mark_preorder_fulfilled,
+    mark_preorder_refunding,
     mark_preorder_rejected,
     move_node_in_parent,
     rename_node,
@@ -738,7 +739,7 @@ def _parse_inventory_submission(text: str, *, ssn_mode: bool) -> tuple[list[str]
 
 
 def _stock_preview_text(items: list[str], warnings: list[str]) -> str:
-    preview_items = [str(item or "").strip() for item in items[:2] if str(item or "").strip()]
+    preview_items = [_mask_stock_preview_item(item) for item in items[:2] if str(item or "").strip()]
     lines = [f"Parsed stock items: {len(items)}"]
     if warnings:
         lines.append(f"Warnings: {len(warnings)}")
@@ -754,6 +755,33 @@ def _stock_preview_text(items: list[str], warnings: list[str]) -> str:
             lines.append(f"- ... and {len(warnings) - 5} more")
     lines.extend(["", "Save this stock?"])
     return "\n".join(lines).strip()
+
+
+def _mask_stock_preview_item(item: str) -> str:
+    masked_lines: list[str] = []
+    for line in str(item or "").splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        if ":" in raw:
+            key, value = raw.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if "email" in key.lower() and "@" in value:
+                local, domain = value.split("@", 1)
+                shown = local[:2] if len(local) > 2 else local[:1]
+                masked_lines.append(f"{key}: {shown}***@{domain}")
+            elif value:
+                masked_lines.append(f"{key}: ***")
+            else:
+                masked_lines.append(f"{key}:")
+        elif "@" in raw:
+            local, domain = raw.split("@", 1)
+            shown = local[:2] if len(local) > 2 else local[:1]
+            masked_lines.append(f"{shown}***@{domain}")
+        else:
+            masked_lines.append("***")
+    return "\n".join(masked_lines).strip()
 
 
 async def _safe_edit_text(
@@ -1742,15 +1770,9 @@ async def open_custom_user(message: types.Message, state: FSMContext):
             custom_catalog_type=_CATALOG_CUSTOM,
             custom_financial_mode=_FINANCIAL_CUSTOM,
         )
-        return await _render_node(
-            message,
-            state,
-            int(OWNER_ID),
-            owner_root["_id"],
-            is_builder=True,
-            catalog_type=_CATALOG_CUSTOM,
-            viewer_user_id=message.from_user.id,
-            edit_existing_message=False,
+        return await message.answer(
+            _services_landing_text(lang, owner_builder_available=True),
+            reply_markup=_services_landing_kb(lang, show_builder=True),
         )
 
     await state.update_data(
@@ -3869,6 +3891,9 @@ async def start_buy_endpoint(callback: types.CallbackQuery, state: FSMContext):
 
     bot_id = (await callback.bot.get_me()).id
     if await is_main_bot(bot_id):
+        owner_id = int(OWNER_ID or 0)
+        if owner_id <= 0 or int(endpoint.get("reseller_id") or 0) != owner_id:
+            return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
         wallet_scope_id = int(callback.from_user.id)
     else:
         user_reseller = await _resolve_user_reseller(callback.from_user.id, bot_id)
@@ -3920,6 +3945,9 @@ async def choose_buy_qty(callback: types.CallbackQuery, state: FSMContext):
     endpoint = await get_node(endpoint_id)
     if not endpoint:
         return await callback.answer(t(lang, "custom_service_unavailable"), show_alert=True)
+    catalog_owner_id = int(data.get("buy_catalog_owner_id") or data.get("buy_reseller_id") or 0)
+    if catalog_owner_id <= 0 or int(endpoint.get("reseller_id") or 0) != catalog_owner_id:
+        return await callback.answer(t(lang, "custom_session_mismatch_reopen"), show_alert=True)
     preorder_flow = bool(data.get("buy_is_preorder"))
     if not preorder_flow and not _endpoint_ready_for_sale(endpoint):
         return await callback.answer(t(lang, "custom_endpoint_not_ready_for_sale"), show_alert=True)
@@ -3947,6 +3975,9 @@ async def back_to_buy_qty(callback: types.CallbackQuery, state: FSMContext):
     endpoint = await get_node(endpoint_id)
     if not endpoint:
         return await callback.answer(t(lang, "custom_service_unavailable"), show_alert=True)
+    catalog_owner_id = int(data.get("buy_catalog_owner_id") or data.get("buy_reseller_id") or 0)
+    if catalog_owner_id <= 0 or int(endpoint.get("reseller_id") or 0) != catalog_owner_id:
+        return await callback.answer(t(lang, "custom_session_mismatch_reopen"), show_alert=True)
     preorder_flow = bool(data.get("buy_is_preorder"))
     if not preorder_flow and not _endpoint_ready_for_sale(endpoint):
         return await callback.answer(t(lang, "custom_endpoint_not_ready_for_sale"), show_alert=True)
@@ -3995,6 +4026,10 @@ async def handle_buy_qty(message: types.Message, state: FSMContext):
     if not endpoint or endpoint.get("node_type") != "endpoint":
         await state.clear()
         return await message.answer(t(lang, "order_not_found"))
+    catalog_owner_id = int(data.get("buy_catalog_owner_id") or data.get("buy_reseller_id") or 0)
+    if catalog_owner_id <= 0 or int(endpoint.get("reseller_id") or 0) != catalog_owner_id:
+        await state.clear()
+        return await message.answer(t(lang, "custom_session_mismatch_reopen"))
     preorder_flow = bool(data.get("buy_is_preorder"))
     if not preorder_flow and not _endpoint_ready_for_sale(endpoint):
         await state.clear()
@@ -4122,6 +4157,10 @@ async def reject_custom_preorder(callback: types.CallbackQuery):
     if not order_id or buyer_user_id <= 0 or wallet_scope_id <= 0:
         return await callback.answer("Refund data is incomplete.", show_alert=True)
 
+    refunding = await mark_preorder_refunding(preorder["_id"], actor_id=actor_id)
+    if not refunding:
+        return await callback.answer("Preorder is not pending.", show_alert=True)
+
     ok, reason = await FinancialManager.refund_custom_purchase(
         buyer_user_id,
         str(order_id),
@@ -4129,6 +4168,7 @@ async def reject_custom_preorder(callback: types.CallbackQuery):
         reseller_id=wallet_scope_id,
     )
     if not ok:
+        await reset_preorder_to_pending(preorder["_id"])
         return await callback.answer(f"Refund failed: {reason}", show_alert=True)
 
     rejected = await mark_preorder_rejected(preorder["_id"], actor_id=actor_id, reason="admin_rejected")

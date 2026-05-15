@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Optional
 
 from bson import ObjectId
+from bson.errors import InvalidId
 from pymongo import ReturnDocument
 
 from database.mongo import db
@@ -16,7 +17,10 @@ def _to_oid(value) -> Optional[ObjectId]:
         return None
     if isinstance(value, ObjectId):
         return value
-    return ObjectId(str(value))
+    try:
+        return ObjectId(str(value))
+    except (InvalidId, TypeError, ValueError):
+        return None
 
 
 def _norm_catalog_type(catalog_type: str | None) -> str:
@@ -72,7 +76,7 @@ async def bootstrap_custom_services_indexes() -> None:
     await db.custom_service_stock_events.create_index([("catalog_owner_id", 1), ("created_at", -1)], background=True)
 
 
-async def ensure_root_node(reseller_id: int, *, catalog_type: str = "custom") -> dict:
+async def ensure_root_node(reseller_id: int, *, catalog_type: str = "custom", seed_defaults: bool = True) -> dict:
     catalog = _norm_catalog_type(catalog_type)
     now = datetime.now(UTC)
     root = await db.custom_services.find_one(
@@ -85,7 +89,7 @@ async def ensure_root_node(reseller_id: int, *, catalog_type: str = "custom") ->
         }
     )
     if root:
-        if catalog == "custom":
+        if catalog == "custom" and seed_defaults:
             child_count = await db.custom_services.count_documents(
                 {
                     "reseller_id": int(reseller_id),
@@ -111,7 +115,7 @@ async def ensure_root_node(reseller_id: int, *, catalog_type: str = "custom") ->
     }
     res = await db.custom_services.insert_one(doc)
     doc["_id"] = res.inserted_id
-    if catalog == "custom":
+    if catalog == "custom" and seed_defaults:
         await _seed_default_custom_root_folders(reseller_id, doc["_id"], now=now)
     return doc
 
@@ -838,7 +842,7 @@ async def clone_catalog_from_reseller_template(
         return {"success": False, "reason": "same_reseller"}
 
     source_root = await ensure_root_node(source_reseller_id, catalog_type=catalog)
-    target_root = await ensure_root_node(target_reseller_id, catalog_type=catalog)
+    target_root = await ensure_root_node(target_reseller_id, catalog_type=catalog, seed_defaults=False)
 
     # Do not overwrite existing reseller custom structure.
     target_children = await list_children(target_reseller_id, target_root["_id"], catalog_type=catalog)
@@ -874,18 +878,18 @@ async def clone_catalog_from_reseller_template(
             }
             if str(src.get("node_type") or "") == "endpoint":
                 clone_doc["price"] = float(src.get("price") or 0.0)
-                clone_doc["available_qty"] = int(src.get("available_qty") or 0)
+                clone_doc["available_qty"] = 0
                 clone_doc["min_qty"] = max(1, int(src.get("min_qty") or 1))
                 clone_doc["preorder_enabled"] = False
-                clone_doc["inventory_items"] = list(src.get("inventory_items") or [])
-                clone_doc["inventory_raw_payload"] = str(src.get("inventory_raw_payload") or "").strip()
-                clone_doc["inventory_parse_warnings"] = [str(x or "").strip() for x in list(src.get("inventory_parse_warnings") or []) if str(x or "").strip()]
+                clone_doc["inventory_items"] = []
+                clone_doc["inventory_raw_payload"] = ""
+                clone_doc["inventory_parse_warnings"] = []
                 clone_doc["product_info_text"] = str(src.get("product_info_text") or "").strip()
-                clone_doc["delivery_type"] = str(src.get("delivery_type") or "").strip().lower()
-                clone_doc["delivery_text"] = str(src.get("delivery_text") or "").strip()
-                clone_doc["delivery_file_id"] = str(src.get("delivery_file_id") or "").strip()
-                clone_doc["delivery_caption"] = str(src.get("delivery_caption") or "").strip()
-                clone_doc["delivery_filename"] = str(src.get("delivery_filename") or "").strip()
+                clone_doc["delivery_type"] = ""
+                clone_doc["delivery_text"] = ""
+                clone_doc["delivery_file_id"] = ""
+                clone_doc["delivery_caption"] = ""
+                clone_doc["delivery_filename"] = ""
             display_text = str(src.get("display_text") or "").strip()
             if display_text:
                 clone_doc["display_text"] = display_text
@@ -991,9 +995,23 @@ async def mark_preorder_fulfilling(preorder_id, *, actor_id: int) -> Optional[di
     )
 
 
+async def mark_preorder_refunding(preorder_id, *, actor_id: int) -> Optional[dict]:
+    return await db.custom_service_preorders.find_one_and_update(
+        {"_id": _to_oid(preorder_id), "status": {"$in": ["pending", "fulfilling"]}},
+        {
+            "$set": {
+                "status": "refunding",
+                "updated_at": datetime.now(UTC),
+                "refunding_by": int(actor_id),
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
 async def reset_preorder_to_pending(preorder_id) -> Optional[dict]:
     return await db.custom_service_preorders.find_one_and_update(
-        {"_id": _to_oid(preorder_id), "status": "fulfilling"},
+        {"_id": _to_oid(preorder_id), "status": {"$in": ["fulfilling", "refunding"]}},
         {
             "$set": {
                 "status": "pending",
@@ -1001,6 +1019,7 @@ async def reset_preorder_to_pending(preorder_id) -> Optional[dict]:
             },
             "$unset": {
                 "fulfilling_by": "",
+                "refunding_by": "",
             },
         },
         return_document=ReturnDocument.AFTER,
@@ -1025,7 +1044,7 @@ async def mark_preorder_fulfilled(preorder_id, *, actor_id: int) -> Optional[dic
 async def mark_preorder_rejected(preorder_id, *, actor_id: int, reason: str = "") -> Optional[dict]:
     now = datetime.now(UTC)
     return await db.custom_service_preorders.find_one_and_update(
-        {"_id": _to_oid(preorder_id), "status": {"$in": ["pending", "fulfilling"]}},
+        {"_id": _to_oid(preorder_id), "status": {"$in": ["pending", "fulfilling", "refunding"]}},
         {
             "$set": {
                 "status": "rejected",
@@ -1033,7 +1052,10 @@ async def mark_preorder_rejected(preorder_id, *, actor_id: int, reason: str = ""
                 "rejected_at": now,
                 "rejected_by": int(actor_id),
                 "reject_reason": str(reason or "").strip(),
-            }
+            },
+            "$unset": {
+                "refunding_by": "",
+            },
         },
         return_document=ReturnDocument.AFTER,
     )

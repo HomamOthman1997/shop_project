@@ -283,6 +283,55 @@ async def test_reseller_bot_cannot_start_custom_service_preorder(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_main_bot_rejects_buy_for_non_owner_catalog(monkeypatch):
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=111)
+
+    class _Callback:
+        data = "cstm:buy:ep1"
+        from_user = SimpleNamespace(id=77)
+        message = None
+
+        def __init__(self):
+            self.bot = _Bot()
+            self.answers = []
+
+        async def answer(self, text=None, **kwargs):
+            self.answers.append({"text": str(text or ""), "kwargs": kwargs})
+
+    async def _fake_get_user(_user_id):
+        return {"language": "en"}
+
+    async def _fake_get_node(_node_id, **_kwargs):
+        return {
+            "_id": "ep1",
+            "node_type": "endpoint",
+            "reseller_id": 500,
+            "delivery_type": "text",
+            "delivery_text": "payload",
+            "available_qty": 1,
+            "price": 2.0,
+            "name": "Foreign Catalog Item",
+        }
+
+    async def _fake_main(_bot_id):
+        return True
+
+    monkeypatch.setattr(custom_services, "OWNER_ID", 9001)
+    monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
+    monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
+    monkeypatch.setattr(custom_services, "is_main_bot", _fake_main)
+
+    callback = _Callback()
+    await custom_services.start_buy_endpoint(callback, _FakeState({}))
+
+    assert callback.answers
+    assert callback.answers[-1]["kwargs"].get("show_alert") is True
+    assert "access" in callback.answers[-1]["text"].lower()
+
+
+@pytest.mark.asyncio
 async def test_fulfill_custom_preorder_completes_order_and_notifies(monkeypatch):
     calls = {"details": [], "statuses": [], "notified": []}
     preorder = {
@@ -399,6 +448,9 @@ async def test_reject_custom_preorder_refunds_and_notifies(monkeypatch):
         calls["refunds"].append((args, kwargs))
         return True, "Refund Success"
 
+    async def _fake_mark_refunding(_preorder_id, *, actor_id):
+        return {**preorder, "status": "refunding", "refunding_by": actor_id}
+
     async def _fake_mark_rejected(_preorder_id, *, actor_id, reason=""):
         return {**preorder, "status": "rejected", "rejected_by": actor_id, "reject_reason": reason}
 
@@ -418,6 +470,7 @@ async def test_reject_custom_preorder_refunds_and_notifies(monkeypatch):
     monkeypatch.setattr(custom_services, "OWNER_ID", 9001)
     monkeypatch.setattr(custom_services, "get_preorder_request", _fake_get_preorder)
     monkeypatch.setattr(custom_services.FinancialManager, "refund_custom_purchase", _fake_refund)
+    monkeypatch.setattr(custom_services, "mark_preorder_refunding", _fake_mark_refunding)
     monkeypatch.setattr(custom_services, "mark_preorder_rejected", _fake_mark_rejected)
     monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
     monkeypatch.setattr(custom_services, "update_order_details", _fake_update_order_details)
