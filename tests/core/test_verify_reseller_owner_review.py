@@ -37,6 +37,9 @@ class _FakeBotsCollection:
     async def update_one(self, *_args, **_kwargs):
         return SimpleNamespace(modified_count=1)
 
+    async def delete_one(self, *_args, **_kwargs):
+        return SimpleNamespace(deleted_count=1)
+
 
 class _FakeMessage:
     def __init__(self):
@@ -108,7 +111,15 @@ async def test_owner_review_approve_branch(monkeypatch):
     async def _ok(*_a, **_k):
         return None
 
+    async def _balance(*_a, **_k):
+        return 1.0
+
+    async def _sync(*_a, **_k):
+        return {"status": "trial_active"}
+
     monkeypatch.setattr(owner_requests, "add_bot", _ok)
+    monkeypatch.setattr(owner_requests, "get_reseller_wallet_balance", _balance)
+    monkeypatch.setattr(owner_requests, "sync_bot_subscription", _sync)
     monkeypatch.setattr(owner_requests, "update_bot_channel", _ok)
     monkeypatch.setattr(owner_requests, "update_reseller_info", _ok)
     monkeypatch.setattr(owner_requests, "verify_bot", _ok)
@@ -120,6 +131,40 @@ async def test_owner_review_approve_branch(monkeypatch):
     assert req["status"] == "approved"
     assert callback.answers
     assert callback.message.edited is True
+
+
+@pytest.mark.asyncio
+async def test_owner_review_approve_requires_trial_balance(monkeypatch):
+    req = _build_req()
+    fake_db = SimpleNamespace(
+        bot_creation_requests=_FakeCollection(req),
+        bots=_FakeBotsCollection(),
+    )
+    monkeypatch.setattr(owner_requests, "db", fake_db)
+    monkeypatch.setattr(owner_requests, "OWNER_ID", 999)
+
+    called = {"add_bot": False, "notified": ""}
+
+    async def _add_bot(*_a, **_k):
+        called["add_bot"] = True
+
+    async def _balance(*_a, **_k):
+        return 0.0
+
+    async def _notify(_req, text):
+        called["notified"] = str(text)
+
+    monkeypatch.setattr(owner_requests, "add_bot", _add_bot)
+    monkeypatch.setattr(owner_requests, "get_reseller_wallet_balance", _balance)
+    monkeypatch.setattr(owner_requests, "_notify_requester", _notify)
+
+    callback = _FakeCallback(f"verify_owner:approve:{str(req['_id'])}", user_id=999)
+
+    await owner_requests.owner_review_callback(callback)
+
+    assert req["status"] == "failed"
+    assert called["add_bot"] is False
+    assert "not enough" in called["notified"].lower()
 
 
 @pytest.mark.asyncio

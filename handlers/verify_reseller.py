@@ -26,7 +26,7 @@ from database.bots_repo import (
     verify_bot,
 )
 from database.bot_logs_repo import get_bot_logs_target
-from services.subscriptions.bot_subscription_service import get_bot_subscription
+from services.subscriptions.bot_subscription_service import sync_bot_subscription
 from database.custom_services_repo import clone_catalog_from_reseller_template
 from database.financial_ledger import get_reseller_wallet_balance
 from database.mongo import db
@@ -348,6 +348,11 @@ def _subscription_notice_text(lang: str, subscription: dict) -> str:
             "- The amount is collected from the reseller balance in the main bot.\n"
         f"- Renewal after that: {format_usd(price)} per month."
     )
+
+
+def _subscription_activation_collected(subscription: dict) -> bool:
+    status = str((subscription or {}).get("status") or "").strip().lower()
+    return status in {"trial_active", "active"}
 
 
 def _phone_request_kb(lang: str) -> ReplyKeyboardMarkup:
@@ -2338,8 +2343,8 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
             payload.get("bot_username") or "",
         )
 
-        subscription = await get_bot_subscription(int(payload["bot_id"]))
-        if str(subscription.get("status") or "").strip().lower() == "payment_required":
+        subscription = await sync_bot_subscription(int(payload["bot_id"]), collect_due=True)
+        if not _subscription_activation_collected(subscription):
             await db.bots.delete_one({"bot_id": payload["bot_id"], "owner_id": int(callback.from_user.id)})
             created_new_bot = False
             retry_balance = await get_reseller_wallet_balance(int(callback.from_user.id), wallet_type="main")

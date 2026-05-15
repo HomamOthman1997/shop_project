@@ -626,6 +626,94 @@ async def test_create_bot_insufficient_balance_stays_in_flow(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_create_bot_collects_paid_trial_before_activation(monkeypatch):
+    callback = _FakeCallback(user_id=77, data="verify:confirm_create", bot_id=222)
+    callback.message.chat = SimpleNamespace(id=999)
+    callback.message.message_id = 444
+    state = _FakeState(
+        {
+            "bot_token": "123:ABC",
+            "bot_id": 555001,
+            "bot_title": "Trial Bot",
+            "bot_username": "trial_bot",
+            "channel": "@chan",
+            "fullname": "User Name",
+            "phone": "+963944000000",
+            "phone_region": "SY",
+            "address": "Telegram live location: 34.9, 35.9",
+            "location_country_code": "SY",
+            "preflight_ok": True,
+            "preflight_checks": {"token": True, "channel": True, "admin": True, "reseller_group": True},
+        }
+    )
+    calls = []
+
+    class _Bots:
+        async def find_one(self, *_args, **_kwargs):
+            return None
+
+        async def update_one(self, *_args, **_kwargs):
+            calls.append("db_update")
+            return None
+
+        async def delete_one(self, *_args, **_kwargs):
+            calls.append("db_delete")
+            return None
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    async def _false(*_args, **_kwargs):
+        return False
+
+    async def _balance(*_args, **_kwargs):
+        return 1.0
+
+    async def _add_bot(*_args, **_kwargs):
+        calls.append("add_bot")
+
+    async def _sync(bot_id, *, collect_due=False):
+        calls.append(("sync", bot_id, collect_due))
+        return {"status": "trial_active", "trial_price_usd": 1.0}
+
+    async def _update_channel(*_args, **_kwargs):
+        calls.append("channel")
+
+    async def _update_info(*_args, **_kwargs):
+        calls.append("info")
+
+    async def _verify(*_args, **_kwargs):
+        calls.append("verify")
+
+    async def _mark(*_args, **_kwargs):
+        calls.append("active")
+
+    async def _return_menu(*_args, **_kwargs):
+        calls.append("menu")
+
+    monkeypatch.setattr(verify_reseller, "db", SimpleNamespace(bots=_Bots()))
+    monkeypatch.setattr(verify_reseller, "get_user", _get_user)
+    monkeypatch.setattr(verify_reseller, "_is_bot_id_already_registered", _false)
+    monkeypatch.setattr(verify_reseller, "get_reseller_wallet_balance", _balance)
+    monkeypatch.setattr(verify_reseller, "add_bot", _add_bot)
+    monkeypatch.setattr(verify_reseller, "sync_bot_subscription", _sync)
+    monkeypatch.setattr(verify_reseller, "update_bot_channel", _update_channel)
+    monkeypatch.setattr(verify_reseller, "update_reseller_info", _update_info)
+    monkeypatch.setattr(verify_reseller, "verify_bot", _verify)
+    monkeypatch.setattr(verify_reseller, "mark_bot_provisioning_status", _mark)
+    monkeypatch.setattr(verify_reseller, "_resolve_template_reseller_id", lambda: __import__("asyncio").sleep(0, result=None))
+    monkeypatch.setattr(verify_reseller, "_return_to_main_menu", _return_menu)
+
+    await verify_reseller.confirm_create_flow(callback, state)
+
+    assert "add_bot" in calls
+    assert ("sync", 555001, True) in calls
+    assert "verify" in calls
+    assert "db_delete" not in calls
+    assert any("trial month was activated" in text for text, _markup in callback.message.answers)
+
+
+@pytest.mark.asyncio
 async def test_receive_replacement_proof_uses_review_queue_for_main_bot(monkeypatch):
     message = _FakeMessage(user_id=90, bot_id=8147766487)
     message.photo = [SimpleNamespace(file_id="proof-1")]

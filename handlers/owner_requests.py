@@ -5,10 +5,13 @@ from aiogram import Bot, Router, types
 from aiogram.exceptions import TelegramNetworkError
 from bson import ObjectId
 
-from config import OWNER_ID
+from config import OWNER_ID, settings
 from database.bots_repo import add_bot, update_bot_channel, update_reseller_info, verify_bot
+from database.financial_ledger import get_reseller_wallet_balance
 from database.mongo import db
+from services.subscriptions.bot_subscription_service import sync_bot_subscription
 from utils.translations import t
+from utils.user_money import format_usd
 
 router = Router()
 logger = logging.getLogger("owner_requests")
@@ -20,6 +23,35 @@ def _approval_packet_text(lang: str, payload: dict) -> str:
         bot_username=(f"@{payload.get('bot_username')}" if payload.get("bot_username") else "-"),
         bot_id=payload.get("bot_id") or "-",
         channel=payload.get("channel") or "-",
+    )
+
+
+def _trial_price() -> float:
+    try:
+        value = float(getattr(settings, "reseller_bot_trial_price_usd", 1.0) or 1.0)
+    except Exception:
+        value = 1.0
+    return value if value > 0 else 1.0
+
+
+def _subscription_activation_collected(subscription: dict) -> bool:
+    status = str((subscription or {}).get("status") or "").strip().lower()
+    return status in {"trial_active", "active"}
+
+
+def _insufficient_trial_balance_error(lang: str, required: float, current: float) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        return (
+            "الرصيد غير كافٍ لتفعيل أول شهر تجريبي مدفوع.\n"
+            f"المطلوب: {format_usd(required)}\n"
+            f"الرصيد الحالي: {format_usd(current)}\n\n"
+            "اشحن رصيدك في البوت المركزي ثم أعد المحاولة."
+        )
+    return (
+        "Your balance is not enough to activate the paid trial month.\n"
+        f"Required: {format_usd(required)}\n"
+        f"Current balance: {format_usd(current)}\n\n"
+        "Top up your balance in the main bot and try again."
     )
 
 
@@ -78,7 +110,19 @@ async def owner_review_callback(callback: types.CallbackQuery):
             if exists:
                 raise RuntimeError("Bot ID already registered")
 
+            requester_id = int(req.get("requester_id") or 0)
+            trial_price = _trial_price()
+            current_balance = await get_reseller_wallet_balance(requester_id, wallet_type="main")
+            if current_balance + 1e-9 < trial_price:
+                raise RuntimeError(_insufficient_trial_balance_error(requester_lang, trial_price, current_balance))
+
             await add_bot(payload["bot_token"], req.get("requester_id"), payload["bot_id"])
+            subscription = await sync_bot_subscription(int(payload["bot_id"]), collect_due=True)
+            if not _subscription_activation_collected(subscription):
+                await db.bots.delete_one({"bot_id": payload["bot_id"], "owner_id": requester_id})
+                retry_balance = await get_reseller_wallet_balance(requester_id, wallet_type="main")
+                raise RuntimeError(_insufficient_trial_balance_error(requester_lang, trial_price, retry_balance))
+
             await update_bot_channel(payload["bot_id"], payload["channel"])
             await update_reseller_info(payload["bot_id"], payload["fullname"], payload["phone"], payload["address"])
             await verify_bot(payload["bot_id"])
