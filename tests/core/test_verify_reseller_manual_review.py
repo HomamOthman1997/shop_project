@@ -80,7 +80,7 @@ async def test_confirm_routes_non_syrian_phone_or_location_to_manual_review(monk
 
     monkeypatch.setattr(vr, "get_user", _get_user)
     monkeypatch.setattr(vr, "_is_bot_id_already_registered", _false)
-    monkeypatch.setattr(vr, "get_reseller_wallet_balance", lambda *_args, **_kwargs: __import__("asyncio").sleep(0, result=10.0))
+    monkeypatch.setattr(vr, "get_user_wallet_balance", lambda *_args, **_kwargs: __import__("asyncio").sleep(0, result=10.0))
     monkeypatch.setattr(vr, "_submit_manual_bot_creation_review", _manual_review)
     monkeypatch.setattr(vr, "add_bot", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not auto-create")))
 

@@ -641,7 +641,7 @@ async def test_create_bot_insufficient_balance_stays_in_flow(monkeypatch):
 
     monkeypatch.setattr(verify_reseller, "get_user", _get_user)
     monkeypatch.setattr(verify_reseller, "_is_bot_id_already_registered", _false)
-    monkeypatch.setattr(verify_reseller, "get_reseller_wallet_balance", lambda *_args, **_kwargs: __import__("asyncio").sleep(0, result=0.0))
+    monkeypatch.setattr(verify_reseller, "get_user_wallet_balance", lambda *_args, **_kwargs: __import__("asyncio").sleep(0, result=0.0))
     monkeypatch.setattr(verify_reseller, "_set_or_edit_prompt", _set_or_edit_prompt)
 
     await verify_reseller.confirm_create_flow(callback, state)
@@ -719,7 +719,7 @@ async def test_create_bot_collects_paid_trial_before_activation(monkeypatch):
     monkeypatch.setattr(verify_reseller, "db", SimpleNamespace(bots=_Bots()))
     monkeypatch.setattr(verify_reseller, "get_user", _get_user)
     monkeypatch.setattr(verify_reseller, "_is_bot_id_already_registered", _false)
-    monkeypatch.setattr(verify_reseller, "get_reseller_wallet_balance", _balance)
+    monkeypatch.setattr(verify_reseller, "get_user_wallet_balance", _balance)
     monkeypatch.setattr(verify_reseller, "add_bot", _add_bot)
     monkeypatch.setattr(verify_reseller, "sync_bot_subscription", _sync)
     monkeypatch.setattr(verify_reseller, "update_bot_channel", _update_channel)

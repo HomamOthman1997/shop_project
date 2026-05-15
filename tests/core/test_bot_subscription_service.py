@@ -142,12 +142,11 @@ async def test_trial_transitions_to_grace(monkeypatch, pricing, fixed_now):
 async def test_first_bot_collects_paid_trial_from_main_balance(monkeypatch, pricing, fixed_now):
     charges = []
 
-    async def _balance(_owner_id, wallet_type="main"):
-        assert wallet_type == "main"
+    async def _balance(_owner_id):
         return 10.0
 
-    async def _credit(**kwargs):
-        charges.append(kwargs)
+    async def _credit(owner_id, amount, *, reason, order_id):
+        charges.append({"owner_id": owner_id, "amount": -amount, "reason": reason, "order_id": order_id})
 
     bot = {
         "bot_id": 105,
@@ -165,8 +164,8 @@ async def test_first_bot_collects_paid_trial_from_main_balance(monkeypatch, pric
         },
     }
     monkeypatch.setattr(svc, "db", _DB([bot]))
-    monkeypatch.setattr(svc, "get_reseller_wallet_balance", _balance)
-    monkeypatch.setattr(svc, "credit_reseller_main_wallet", _credit)
+    monkeypatch.setattr(svc, "_get_platform_balance", _balance)
+    monkeypatch.setattr(svc, "_debit_platform_balance", _credit)
     refreshed = await svc.sync_bot_subscription(105, collect_due=True)
     assert refreshed["status"] == "trial_active"
     assert refreshed["trial_available"] is False
@@ -177,8 +176,7 @@ async def test_first_bot_collects_paid_trial_from_main_balance(monkeypatch, pric
 
 @pytest.mark.asyncio
 async def test_unpaid_legacy_trial_is_reset_to_payment_required(monkeypatch, pricing, fixed_now):
-    async def _balance(_owner_id, wallet_type="main"):
-        assert wallet_type == "main"
+    async def _balance(_owner_id):
         return 0.0
 
     bot = {
@@ -199,7 +197,7 @@ async def test_unpaid_legacy_trial_is_reset_to_payment_required(monkeypatch, pri
     }
     fake_db = _DB([bot])
     monkeypatch.setattr(svc, "db", fake_db)
-    monkeypatch.setattr(svc, "get_reseller_wallet_balance", _balance)
+    monkeypatch.setattr(svc, "_get_platform_balance", _balance)
 
     refreshed = await svc.get_bot_subscription(106)
 
@@ -215,12 +213,11 @@ async def test_unpaid_legacy_trial_is_reset_to_payment_required(monkeypatch, pri
 async def test_unpaid_legacy_trial_starts_after_topup(monkeypatch, pricing, fixed_now):
     charges = []
 
-    async def _balance(_owner_id, wallet_type="main"):
-        assert wallet_type == "main"
+    async def _balance(_owner_id):
         return 1.0
 
-    async def _credit(**kwargs):
-        charges.append(kwargs)
+    async def _credit(owner_id, amount, *, reason, order_id):
+        charges.append({"owner_id": owner_id, "amount": -amount, "reason": reason, "order_id": order_id})
 
     bot = {
         "bot_id": 107,
@@ -239,8 +236,8 @@ async def test_unpaid_legacy_trial_starts_after_topup(monkeypatch, pricing, fixe
         },
     }
     monkeypatch.setattr(svc, "db", _DB([bot]))
-    monkeypatch.setattr(svc, "get_reseller_wallet_balance", _balance)
-    monkeypatch.setattr(svc, "credit_reseller_main_wallet", _credit)
+    monkeypatch.setattr(svc, "_get_platform_balance", _balance)
+    monkeypatch.setattr(svc, "_debit_platform_balance", _credit)
 
     refreshed = await svc.sync_bot_subscription(107, collect_due=True)
 
@@ -256,12 +253,11 @@ async def test_grace_auto_renew_anchors_from_previous_end(monkeypatch, pricing, 
     trial_end = fixed_now - timedelta(days=1)
     charges = []
 
-    async def _balance(_owner_id, wallet_type="main"):
-        assert wallet_type == "main"
+    async def _balance(_owner_id):
         return 100.0
 
-    async def _credit(**kwargs):
-        charges.append(kwargs)
+    async def _credit(owner_id, amount, *, reason, order_id):
+        charges.append({"owner_id": owner_id, "amount": -amount, "reason": reason, "order_id": order_id})
 
     bot = {
         "bot_id": 101,
@@ -283,8 +279,8 @@ async def test_grace_auto_renew_anchors_from_previous_end(monkeypatch, pricing, 
         },
     }
     monkeypatch.setattr(svc, "db", _DB([bot]))
-    monkeypatch.setattr(svc, "get_reseller_wallet_balance", _balance)
-    monkeypatch.setattr(svc, "credit_reseller_main_wallet", _credit)
+    monkeypatch.setattr(svc, "_get_platform_balance", _balance)
+    monkeypatch.setattr(svc, "_debit_platform_balance", _credit)
     sub = await svc.run_bot_subscription_sweep(limit=10)
     assert sub["renewed"] == 1
     refreshed = await svc.sync_bot_subscription(101, collect_due=False)
@@ -298,7 +294,7 @@ async def test_grace_auto_renew_anchors_from_previous_end(monkeypatch, pricing, 
 async def test_expired_grace_becomes_suspended_without_balance(monkeypatch, pricing, fixed_now):
     ended = fixed_now - timedelta(days=5)
 
-    async def _balance(_owner_id, wallet_type="main"):
+    async def _balance(_owner_id):
         return 0.0
 
     bot = {
@@ -316,7 +312,7 @@ async def test_expired_grace_becomes_suspended_without_balance(monkeypatch, pric
         },
     }
     monkeypatch.setattr(svc, "db", _DB([bot]))
-    monkeypatch.setattr(svc, "get_reseller_wallet_balance", _balance)
+    monkeypatch.setattr(svc, "_get_platform_balance", _balance)
     refreshed = await svc.sync_bot_subscription(102, collect_due=True)
     assert refreshed["status"] == "suspended"
 
@@ -373,11 +369,11 @@ async def test_grace_auto_renew_is_idempotent_when_charge_already_exists(monkeyp
     trial_end = fixed_now - timedelta(days=1)
     charges = []
 
-    async def _balance(_owner_id, wallet_type="main"):
+    async def _balance(_owner_id):
         return 100.0
 
-    async def _credit(**kwargs):
-        charges.append(kwargs)
+    async def _credit(owner_id, amount, *, reason, order_id):
+        charges.append({"owner_id": owner_id, "amount": -amount, "reason": reason, "order_id": order_id})
 
     async def _acquire(_lock_key):
         return True
@@ -408,8 +404,8 @@ async def test_grace_auto_renew_is_idempotent_when_charge_already_exists(monkeyp
         },
     }
     monkeypatch.setattr(svc, "db", _DB([bot]))
-    monkeypatch.setattr(svc, "get_reseller_wallet_balance", _balance)
-    monkeypatch.setattr(svc, "credit_reseller_main_wallet", _credit)
+    monkeypatch.setattr(svc, "_get_platform_balance", _balance)
+    monkeypatch.setattr(svc, "_debit_platform_balance", _credit)
     monkeypatch.setattr(svc, "acquire_session_lock", _acquire)
     monkeypatch.setattr(svc, "release_session_lock", _release)
     monkeypatch.setattr(svc, "_subscription_charge_already_applied", _already_applied)

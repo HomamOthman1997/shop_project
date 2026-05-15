@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 from config import settings
 from database.financial_ledger import (
     acquire_session_lock,
-    credit_reseller_main_wallet,
-    get_reseller_wallet_balance,
+    credit_user_wallet,
+    get_user_wallet_balance,
     release_session_lock,
 )
 from database.mongo import db
@@ -82,6 +82,21 @@ def _grace_days() -> int:
     except Exception:
         value = 3
     return value if value > 0 else 3
+
+
+async def _get_platform_balance(owner_id: int) -> float:
+    return await get_user_wallet_balance(int(owner_id), int(owner_id))
+
+
+async def _debit_platform_balance(owner_id: int, amount: float, *, reason: str, order_id: str) -> None:
+    await credit_user_wallet(
+        user_id=int(owner_id),
+        reseller_id=int(owner_id),
+        amount=-float(amount),
+        reason=reason,
+        actor_id=int(owner_id),
+        order_id=order_id,
+    )
 
 
 def _seed_plan_fields(subscription: dict) -> dict:
@@ -352,7 +367,7 @@ async def _attempt_subscription_auto_renew(bot: dict, subscription: dict, *, cre
     if charge_amount <= 0:
         charge_amount = _trial_price() if trial_available else _plan_total_price(plan_months)
 
-    current_balance = await get_reseller_wallet_balance(owner_id, wallet_type="main")
+    current_balance = await _get_platform_balance(owner_id)
     if current_balance + 1e-9 < charge_amount:
         return sub
 
@@ -391,13 +406,7 @@ async def _attempt_subscription_auto_renew(bot: dict, subscription: dict, *, cre
                 charge_key,
             )
         else:
-            await credit_reseller_main_wallet(
-                reseller_id=owner_id,
-                amount=-charge_amount,
-                reason=debit_reason,
-                actor_id=owner_id,
-                order_id=charge_key,
-            )
+            await _debit_platform_balance(owner_id, charge_amount, reason=debit_reason, order_id=charge_key)
     except Exception as exc:
         logger.warning(
             "bot subscription auto-renew failed owner_id=%s bot_id=%s: %s",

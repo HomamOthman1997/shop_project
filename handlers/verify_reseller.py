@@ -28,7 +28,7 @@ from database.bots_repo import (
 from database.bot_logs_repo import get_bot_logs_target
 from services.subscriptions.bot_subscription_service import sync_bot_subscription
 from database.custom_services_repo import clone_catalog_from_reseller_template
-from database.financial_ledger import get_reseller_wallet_balance
+from database.financial_ledger import get_user_wallet_balance
 from database.mongo import db
 from database.reseller_settings_repo import (
     get_exchange_routing,
@@ -2248,7 +2248,7 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
         return
 
     trial_price = float(getattr(settings, "reseller_bot_trial_price_usd", 1.0) or 1.0)
-    current_balance = await get_reseller_wallet_balance(int(callback.from_user.id), wallet_type="main")
+    current_balance = await get_user_wallet_balance(int(callback.from_user.id), int(callback.from_user.id))
     if current_balance + 1e-9 < trial_price:
         logger.info(
             "create_bot_insufficient_balance user_id=%s bot_id=%s required=%.4f balance=%.4f",
@@ -2347,7 +2347,7 @@ async def confirm_create_flow(callback: types.CallbackQuery, state: FSMContext):
         if not _subscription_activation_collected(subscription):
             await db.bots.delete_one({"bot_id": payload["bot_id"], "owner_id": int(callback.from_user.id)})
             created_new_bot = False
-            retry_balance = await get_reseller_wallet_balance(int(callback.from_user.id), wallet_type="main")
+            retry_balance = await get_user_wallet_balance(int(callback.from_user.id), int(callback.from_user.id))
             logger.info(
                 "create_bot_subscription_payment_required user_id=%s bot_id=%s required=%.4f balance=%.4f",
                 callback.from_user.id,
