@@ -15,6 +15,8 @@ class _FakeMessage:
         self.sent_texts: list[str] = []
         self.chat = SimpleNamespace(id=123)
         self.message_id = 44
+        self.from_user = SimpleNamespace(id=555)
+        self.bot = SimpleNamespace(get_me=self._get_me)
         self.text = text
         self.caption = None
         self.photo = None
@@ -24,6 +26,9 @@ class _FakeMessage:
         self.audio = None
         self.voice = None
         self.video_note = None
+
+    async def _get_me(self):
+        return SimpleNamespace(id=777)
 
     async def answer(self, text, **_kwargs):
         self.sent_texts.append(str(text))
@@ -248,6 +253,36 @@ async def test_reseller_broadcast_copy_send_can_pin(monkeypatch):
         "pin",
         {"chat_id": "@mychannel", "message_id": 808, "disable_notification": True},
     )
+
+
+@pytest.mark.asyncio
+async def test_reseller_broadcast_photo_payload_reaches_confirmation(monkeypatch):
+    message = _FakeMessage()
+    message.photo = [SimpleNamespace(file_id="photo-small"), SimpleNamespace(file_id="photo-large")]
+    message.caption = "كيفك"
+    state = _FakeState()
+    state.data["rs_broadcast_kind"] = "photo"
+
+    async def _fake_is_reseller(_uid, _bot):
+        return True
+
+    async def _fake_lang(_uid):
+        return "ar"
+
+    monkeypatch.setattr(reseller_recharge, "_is_current_bot_reseller", _fake_is_reseller)
+    monkeypatch.setattr(reseller_recharge, "_reseller_lang", _fake_lang)
+
+    await reseller_recharge.reseller_broadcast_payload_submit(message, state)
+
+    assert state.state == reseller_recharge.ResellerBroadcastFSM.waiting_confirm
+    assert state.data["rs_broadcast_source_chat_id"] == 123
+    assert state.data["rs_broadcast_source_message_id"] == 44
+    assert state.data["rs_broadcast_fallback_payload"] == {
+        "kind": "photo",
+        "file_id": "photo-large",
+        "caption": "كيفك",
+    }
+    assert any("تم تجهيز الإذاعة" in text for text in message.sent_texts)
 
 
 @pytest.mark.asyncio

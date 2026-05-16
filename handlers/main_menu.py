@@ -5,6 +5,7 @@ import logging
 
 from aiogram import Bot, Router, types
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
@@ -1296,11 +1297,9 @@ async def resend_proof_shortcut(message: types.Message, state: FSMContext):
     )
 
 
-@router.message(lambda msg: bool(msg.photo) and bool(getattr(msg, "chat", None)) and msg.chat.type == "private")
+@router.message(StateFilter(None), lambda msg: bool(msg.photo) and bool(getattr(msg, "chat", None)) and msg.chat.type == "private")
 async def receive_replacement_proof(message: types.Message, state: FSMContext):
-    # Keep this catch-all narrow: only private chat and only when no active FSM state.
-    if await state.get_state():
-        return
+    # Keep this catch-all narrow so active FSM flows, including reseller broadcast photos, can handle media.
     req = await db.recharge_requests.find_one(
         {
             "user_id": int(message.from_user.id),
