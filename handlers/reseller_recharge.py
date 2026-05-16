@@ -532,24 +532,13 @@ def _dashboard_next_step(
 
 
 def _reseller_dashboard_kb(lang: str) -> types.InlineKeyboardMarkup:
-    rows = [
-        [
-            types.InlineKeyboardButton(text=_txt(lang, "⚙️ إعداد التشغيل", "⚙️ Setup"), callback_data="rsmenu:settings"),
-            types.InlineKeyboardButton(text=_txt(lang, "🧩 كتالوج البوت", "🧩 Bot Catalog"), callback_data="rsmenu:custom_services"),
-        ],
-        [
-            types.InlineKeyboardButton(text=_txt(lang, "🧾 طلبات الشحن", "🧾 Recharge Requests"), callback_data="rsmenu:recharge_requests"),
-            types.InlineKeyboardButton(text=_txt(lang, "📈 المبيعات والأرباح", "📈 Sales & Profit"), callback_data="rsmenu:stats"),
-        ],
-        [
-            types.InlineKeyboardButton(text=_txt(lang, "💳 الرصيد والاشتراك", "💳 Balance & Subscription"), callback_data="rsmenu:balance"),
-            types.InlineKeyboardButton(text=_txt(lang, "💰 شحن رصيد البوت", "💰 Top Up Bot"), callback_data="rsmenu:core_topup"),
-        ],
-    ]
-    url = main_bot_url("hub")
-    if url:
-        rows.append([types.InlineKeyboardButton(text=_txt(lang, "🚀 فتح البوت الرئيسي", "🚀 Open Main Bot"), url=url)])
-    return types.InlineKeyboardMarkup(inline_keyboard=rows)
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text=_txt(lang, "🔄 تحديث لوحة التحكم", "🔄 Refresh Control Center"), callback_data="rsmenu:dashboard")],
+            [types.InlineKeyboardButton(text=_txt(lang, "⚙️ إعداد التشغيل", "⚙️ Setup"), callback_data="rsmenu:settings")],
+            [types.InlineKeyboardButton(text=_txt(lang, "⬅️ رجوع لقائمة الريسيلر", "⬅️ Back to Reseller Menu"), callback_data="rsmenu:menu")],
+        ]
+    )
 
 
 def _reseller_stats_kb(lang: str) -> types.InlineKeyboardMarkup:

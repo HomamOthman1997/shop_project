@@ -82,7 +82,8 @@ def test_main_menus_do_not_show_custom_services_button():
     assert "rsmenu:dashboard" in inline_callbacks
     assert "rsmenu:recharge_requests" in inline_callbacks
     assert "rsmenu:adjust_user_balance" in inline_callbacks
-    assert "rsmenu:core_topup" in inline_callbacks
+    assert "rsmenu:balance" in inline_callbacks
+    assert "rsmenu:core_topup" not in inline_callbacks
     assert "rsmenu:stats" in inline_callbacks
 
 

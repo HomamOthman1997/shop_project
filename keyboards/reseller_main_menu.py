@@ -26,10 +26,7 @@ def reseller_main_menu(lang: str = "en") -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=_label(lang, "🧩 كتالوج البوت", "🧩 Bot Catalog"), callback_data="rsmenu:custom_services"),
                 InlineKeyboardButton(text=_label(lang, "⚙️ إعداد التشغيل", "⚙️ Setup"), callback_data="rsmenu:settings"),
             ],
-            [
-                InlineKeyboardButton(text=_label(lang, "💳 الرصيد والاشتراك", "💳 Balance & Subscription"), callback_data="rsmenu:balance"),
-                InlineKeyboardButton(text=_label(lang, "💰 شحن رصيد البوت", "💰 Top Up Bot"), callback_data="rsmenu:core_topup"),
-            ],
+            [InlineKeyboardButton(text=_label(lang, "💳 الرصيد والاشتراك", "💳 Balance & Subscription"), callback_data="rsmenu:balance")],
             [
                 InlineKeyboardButton(text=_label(lang, "🧾 طلبات الشحن", "🧾 Recharge Requests"), callback_data="rsmenu:recharge_requests"),
                 InlineKeyboardButton(text=_label(lang, "📈 المبيعات والأرباح", "📈 Sales & Profit"), callback_data="rsmenu:stats"),
