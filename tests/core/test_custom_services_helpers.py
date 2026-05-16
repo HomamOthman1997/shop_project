@@ -752,6 +752,217 @@ async def test_preview_endpoint_as_customer_uses_public_view(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_render_root_builder_hides_root_rename(monkeypatch):
+    root = {
+        "_id": "root1",
+        "reseller_id": 9001,
+        "catalog_type": "custom",
+        "node_type": "folder",
+        "name": "Services",
+        "parent_id": None,
+        "is_root": True,
+    }
+
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=111)
+
+    class _Message:
+        def __init__(self):
+            self.from_user = SimpleNamespace(id=9001)
+            self.bot = _Bot()
+            self.answers = []
+
+        async def answer(self, text, **kwargs):
+            self.answers.append({"text": text, "kwargs": kwargs})
+
+    class _State:
+        def __init__(self):
+            self.data = {}
+
+        async def get_data(self):
+            return dict(self.data)
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+    async def _fake_get_node(_node_id, **_kwargs):
+        return dict(root)
+
+    async def _fake_children(*_args, **_kwargs):
+        return []
+
+    async def _fake_lang(_user_id):
+        return "en"
+
+    async def _fake_access(_user_id, _bot):
+        return "full"
+
+    async def _fake_toggle(_user_id, _bot):
+        return False
+
+    monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
+    monkeypatch.setattr(custom_services, "list_children", _fake_children)
+    monkeypatch.setattr(custom_services, "_user_lang", _fake_lang)
+    monkeypatch.setattr(custom_services, "_custom_services_access_level", _fake_access)
+    monkeypatch.setattr(custom_services, "_can_toggle_preorder", _fake_toggle)
+
+    message = _Message()
+    await custom_services._render_node(
+        message,
+        _State(),
+        reseller_id=9001,
+        node_id=root["_id"],
+        is_builder=True,
+        catalog_type="custom",
+    )
+
+    markup = message.answers[-1]["kwargs"]["reply_markup"]
+    callbacks = [btn.callback_data for row in markup.inline_keyboard for btn in row if btn.callback_data]
+
+    assert f"cstm:rename:{root['_id']}" not in callbacks
+    assert f"cstm:edittxt:{root['_id']}" in callbacks
+
+
+@pytest.mark.asyncio
+async def test_rename_root_node_start_is_blocked(monkeypatch):
+    root = {"_id": "root1", "catalog_type": "custom", "node_type": "folder", "name": "Services", "is_root": True}
+
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=111)
+
+    class _Message:
+        def __init__(self):
+            self.answers = []
+
+        async def answer(self, text, **kwargs):
+            self.answers.append({"text": text, "kwargs": kwargs})
+
+    class _Callback:
+        def __init__(self):
+            self.data = "cstm:rename:root1"
+            self.from_user = SimpleNamespace(id=9001)
+            self.bot = _Bot()
+            self.message = _Message()
+            self.answers = []
+
+        async def answer(self, text=None, **kwargs):
+            self.answers.append({"text": str(text or ""), "kwargs": kwargs})
+
+    class _State:
+        def __init__(self):
+            self.state = None
+            self.data = {}
+
+        async def get_data(self):
+            return dict(self.data)
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def set_state(self, state):
+            self.state = state
+
+    async def _fake_lang(_user_id):
+        return "en"
+
+    async def _fake_can_structure(_user_id, _bot):
+        return True
+
+    async def _fake_owner(_user_id, _bot, _data):
+        return 9001
+
+    async def _fake_get_node(_node_id, **_kwargs):
+        return dict(root)
+
+    monkeypatch.setattr(custom_services, "_user_lang", _fake_lang)
+    monkeypatch.setattr(custom_services, "_can_manage_builder_structure", _fake_can_structure)
+    monkeypatch.setattr(custom_services, "_builder_catalog_owner_id", _fake_owner)
+    monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
+
+    callback = _Callback()
+    state = _State()
+    await custom_services.rename_node_start(callback, state)
+
+    assert callback.answers[-1]["kwargs"].get("show_alert") is True
+    assert "main catalog" in callback.answers[-1]["text"]
+    assert state.state is None
+    assert callback.message.answers == []
+
+
+@pytest.mark.asyncio
+async def test_rename_root_node_submit_from_stale_state_is_blocked(monkeypatch):
+    root = {"_id": "root1", "catalog_type": "custom", "node_type": "folder", "name": "Services", "is_root": True}
+    rendered = {}
+
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=111)
+
+    class _Message:
+        def __init__(self):
+            self.text = "New Name"
+            self.from_user = SimpleNamespace(id=9001)
+            self.bot = _Bot()
+            self.answers = []
+
+        async def answer(self, text, **kwargs):
+            self.answers.append({"text": text, "kwargs": kwargs})
+
+    class _State:
+        def __init__(self):
+            self.cleared = False
+            self.data = {
+                "custom_mode": "builder",
+                "custom_catalog_owner_id": 9001,
+                "custom_catalog_type": "custom",
+                "rename_node_id": root["_id"],
+            }
+
+        async def get_data(self):
+            return dict(self.data)
+
+        async def clear(self):
+            self.cleared = True
+            self.data.clear()
+
+    async def _fake_lang(_user_id):
+        return "en"
+
+    async def _fake_can_structure(_user_id, _bot):
+        return True
+
+    async def _fake_owner(_user_id, _bot, _data):
+        return 9001
+
+    async def _fake_get_node(_node_id, **_kwargs):
+        return dict(root)
+
+    async def _fake_rename_node(*_args, **_kwargs):
+        raise AssertionError("root rename should not reach repository update")
+
+    async def _fake_render(_message, _state, reseller_id, node_id, **kwargs):
+        rendered.update({"reseller_id": reseller_id, "node_id": node_id, **kwargs})
+
+    monkeypatch.setattr(custom_services, "_user_lang", _fake_lang)
+    monkeypatch.setattr(custom_services, "_can_manage_builder_structure", _fake_can_structure)
+    monkeypatch.setattr(custom_services, "_builder_catalog_owner_id", _fake_owner)
+    monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
+    monkeypatch.setattr(custom_services, "rename_node", _fake_rename_node)
+    monkeypatch.setattr(custom_services, "_render_node", _fake_render)
+
+    message = _Message()
+    state = _State()
+    await custom_services.rename_node_submit(message, state)
+
+    assert state.cleared is True
+    assert "main catalog" in message.answers[-1]["text"]
+    assert rendered["node_id"] == root["_id"]
+    assert rendered["is_builder"] is True
+
+
+@pytest.mark.asyncio
 async def test_delete_endpoint_blocks_pending_custom_work(monkeypatch):
     node = {"_id": ObjectId(), "reseller_id": 9001, "node_type": "endpoint", "name": "Gmail"}
 

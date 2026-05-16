@@ -91,6 +91,41 @@ async def test_ensure_root_node_seeds_existing_empty_root(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_ensure_root_node_repairs_custom_root_name(monkeypatch):
+    root_id = ObjectId()
+    captured = {}
+    root_doc = {
+        "_id": root_id,
+        "reseller_id": 77,
+        "catalog_type": "custom",
+        "name": "Wrong Root Name",
+        "node_type": "folder",
+        "parent_id": None,
+        "is_root": True,
+        "is_active": True,
+        "position": 0,
+    }
+
+    class _Collection:
+        async def find_one(self, query):
+            return dict(root_doc)
+
+        async def find_one_and_update(self, query, update, return_document=None):
+            captured["query"] = query
+            captured["update"] = update
+            repaired = dict(root_doc)
+            repaired.update(update["$set"])
+            return repaired
+
+    monkeypatch.setattr(repo, "db", SimpleNamespace(custom_services=_Collection()))
+
+    root = await repo.ensure_root_node(77, catalog_type="custom", seed_defaults=False)
+
+    assert root["name"] == "Services"
+    assert captured["update"]["$set"]["name"] == "Services"
+
+
+@pytest.mark.asyncio
 async def test_set_endpoint_inventory_persists_raw_payload_and_warnings(monkeypatch):
     captured = {}
 
@@ -116,6 +151,25 @@ async def test_set_endpoint_inventory_persists_raw_payload_and_warnings(monkeypa
     assert payload["inventory_raw_payload"] == "RAW INPUT"
     assert payload["inventory_parse_warnings"] == ["warn-1", "warn-2"]
     assert payload["available_qty"] == 2
+
+
+@pytest.mark.asyncio
+async def test_rename_node_excludes_root_catalog(monkeypatch):
+    captured = {}
+    node_id = ObjectId()
+
+    class _Collection:
+        async def find_one_and_update(self, query, update, return_document=None):
+            captured["query"] = query
+            captured["update"] = update
+            return {"_id": query["_id"], "name": update["$set"]["name"]}
+
+    monkeypatch.setattr(repo, "db", SimpleNamespace(custom_services=_Collection()))
+
+    updated = await repo.rename_node(node_id, 77, "Email", catalog_type="custom")
+
+    assert updated["name"] == "Email"
+    assert captured["query"]["is_root"] == {"$ne": True}
 
 
 @pytest.mark.asyncio

@@ -90,6 +90,14 @@ def _builder_add_item_text(lang: str) -> str:
     return _ui_label(lang, "Add Item", "إضافة عنصر")
 
 
+def _root_catalog_rename_blocked_text(lang: str) -> str:
+    return _ui_label(
+        lang,
+        "This is the main catalog folder. Its name is fixed; rename folders or items inside it instead.",
+        "هذا هو مجلد الكتالوج الرئيسي. اسمه ثابت؛ غيّر أسماء المجلدات أو العناصر داخله.",
+    )
+
+
 def _is_services_trigger(text: str | None) -> bool:
     raw = (text or "").strip()
     if not raw:
@@ -1762,12 +1770,10 @@ async def _render_node(
                 kb_rows.append([InlineKeyboardButton(text=_builder_add_button_text(viewer_lang, is_root=bool(node.get("is_root"))), callback_data=f"cstm:add:{node['_id']}")])
                 if bool(node.get("is_root")) and can_toggle_preorder:
                     kb_rows.append([InlineKeyboardButton(text=_ui_label(viewer_lang, "Pending Preorders", "طلبات الحجز المعلقة"), callback_data=f"cstm:preorders:{node['_id']}")])
-                kb_rows.append(
-                    [
-                        InlineKeyboardButton(text=t(viewer_lang, "rename_plain"), callback_data=f"cstm:rename:{node['_id']}"),
-                        InlineKeyboardButton(text=t(viewer_lang, "custom_edit_text"), callback_data=f"cstm:edittxt:{node['_id']}"),
-                    ]
-                )
+                folder_edit_buttons = [InlineKeyboardButton(text=t(viewer_lang, "custom_edit_text"), callback_data=f"cstm:edittxt:{node['_id']}")]
+                if not bool(node.get("is_root")):
+                    folder_edit_buttons.insert(0, InlineKeyboardButton(text=t(viewer_lang, "rename_plain"), callback_data=f"cstm:rename:{node['_id']}"))
+                kb_rows.append(folder_edit_buttons)
                 kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "custom_move_folder"), callback_data=f"cstm:layout:{node['_id']}")])
                 if not bool(node.get("is_root")):
                     folder_move = await _move_controls_for_node(
@@ -2401,6 +2407,8 @@ async def rename_node_start(callback: types.CallbackQuery, state: FSMContext):
     node = await get_node(node_id, reseller_id=catalog_owner_id)
     if not node:
         return await callback.answer(t(lang, "node_not_found_plain"), show_alert=True)
+    if bool(node.get("is_root")):
+        return await callback.answer(_root_catalog_rename_blocked_text(lang), show_alert=True)
 
     catalog_type = _catalog_type_from_node(node)
     await state.update_data(
@@ -2459,6 +2467,20 @@ async def rename_node_submit(message: types.Message, state: FSMContext):
 
     node_id = data.get("rename_node_id")
     catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
+    current_node = await get_node(node_id, reseller_id=catalog_owner_id, catalog_type=catalog_type)
+    if current_node and bool(current_node.get("is_root")):
+        await state.clear()
+        lang = await _user_lang(message.from_user.id)
+        await message.answer(_root_catalog_rename_blocked_text(lang))
+        return await _render_node(
+            message,
+            state,
+            catalog_owner_id,
+            current_node["_id"],
+            is_builder=True,
+            catalog_type=catalog_type,
+        )
+
     updated = await rename_node(node_id, catalog_owner_id, new_name, catalog_type=catalog_type)
     await state.clear()
     if not updated:

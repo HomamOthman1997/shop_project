@@ -42,6 +42,10 @@ def _default_custom_root_folders() -> list[str]:
     ]
 
 
+def _root_name_for_catalog(catalog: str) -> str:
+    return "ID INFO" if catalog == "id_info" else "Services"
+
+
 async def _seed_default_custom_root_folders(reseller_id: int, root_id, *, now: datetime | None = None) -> None:
     timestamp = now or datetime.now(UTC)
     await db.custom_services.insert_many(
@@ -89,6 +93,13 @@ async def ensure_root_node(reseller_id: int, *, catalog_type: str = "custom", se
         }
     )
     if root:
+        expected_name = _root_name_for_catalog(catalog)
+        if str(root.get("name") or "") != expected_name:
+            root = await db.custom_services.find_one_and_update(
+                {"_id": root["_id"], "reseller_id": int(reseller_id), "is_root": True},
+                {"$set": {"name": expected_name, "updated_at": now}},
+                return_document=ReturnDocument.AFTER,
+            ) or {**root, "name": expected_name, "updated_at": now}
         if catalog == "custom" and seed_defaults:
             child_count = await db.custom_services.count_documents(
                 {
@@ -104,7 +115,7 @@ async def ensure_root_node(reseller_id: int, *, catalog_type: str = "custom", se
     doc = {
         "reseller_id": reseller_id,
         "catalog_type": catalog,
-        "name": "ID INFO" if catalog == "id_info" else "Services",
+        "name": _root_name_for_catalog(catalog),
         "node_type": "folder",
         "parent_id": None,
         "is_root": True,
@@ -505,6 +516,7 @@ async def rename_node(
         "_id": _to_oid(node_id),
         "reseller_id": int(reseller_id),
         "is_active": True,
+        "is_root": {"$ne": True},
     }
     if catalog_type is not None:
         query["catalog_type"] = _norm_catalog_type(catalog_type)
