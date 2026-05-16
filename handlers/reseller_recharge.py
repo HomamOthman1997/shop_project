@@ -214,6 +214,7 @@ def _reseller_broadcast_confirm_kb(lang: str = "en") -> types.InlineKeyboardMark
                 types.InlineKeyboardButton(text=_txt(lang, "🔕 إرسال صامت", "🔕 Send Silent"), callback_data="rs_broadcast:silent"),
                 types.InlineKeyboardButton(text=_txt(lang, "📌 إرسال وتثبيت", "📌 Send & Pin"), callback_data="rs_broadcast:pin"),
             ],
+            [types.InlineKeyboardButton(text=_txt(lang, "🔒 إرسال محمي", "🔒 Send Protected"), callback_data="rs_broadcast:protect")],
             [
                 types.InlineKeyboardButton(text=_txt(lang, "↩️ تعديل/إعادة إرسال", "↩️ Edit / Resend"), callback_data="rs_broadcast:restart"),
                 types.InlineKeyboardButton(text=_txt(lang, "❌ إلغاء", "❌ Cancel"), callback_data="rs_broadcast:cancel"),
@@ -277,6 +278,24 @@ def _broadcast_payload_summary(message: types.Message, lang: str, kind: str) -> 
     return f"Broadcast type: {label}\n{extra}"
 
 
+def _broadcast_fallback_payload(message: types.Message, kind: str) -> dict:
+    caption = str(getattr(message, "caption", "") or "").strip()
+    if kind == "text":
+        return {"kind": "text", "text": str(getattr(message, "text", "") or "").strip()}
+    if kind == "photo" and getattr(message, "photo", None):
+        return {"kind": "photo", "file_id": getattr(message.photo[-1], "file_id", ""), "caption": caption}
+    if kind == "video" and getattr(message, "video", None):
+        return {"kind": "video", "file_id": getattr(message.video, "file_id", ""), "caption": caption}
+    if kind == "document" and getattr(message, "document", None):
+        return {"kind": "document", "file_id": getattr(message.document, "file_id", ""), "caption": caption}
+    if kind == "copy":
+        for fallback_kind in ("text", "photo", "video", "document"):
+            payload = _broadcast_fallback_payload(message, fallback_kind)
+            if payload.get("text") or payload.get("file_id"):
+                return payload
+    return {"kind": kind}
+
+
 async def _current_bot_broadcast_channel(bot: Bot) -> str | None:
     me = await bot.get_me()
     settings_doc = await get_bot_settings(int(me.id))
@@ -321,8 +340,10 @@ async def _send_broadcast_copy(
     *,
     source_chat_id: int,
     source_message_id: int,
+    fallback_payload: dict | None = None,
     silent: bool = False,
     pin: bool = False,
+    protect: bool = False,
 ) -> tuple[bool, str]:
     ok, channel, error_text = await _broadcast_channel_status(bot)
     if not ok or not channel:
@@ -333,9 +354,18 @@ async def _send_broadcast_copy(
             from_chat_id=int(source_chat_id),
             message_id=int(source_message_id),
             disable_notification=bool(silent or pin),
+            protect_content=bool(protect),
         )
     except Exception as exc:
-        return False, f"Broadcast failed: {exc}"
+        copied = await _send_broadcast_fallback(
+            bot,
+            channel=channel,
+            payload=fallback_payload,
+            silent=silent or pin,
+            protect=protect,
+        )
+        if copied is None:
+            return False, f"Broadcast failed: {exc}"
 
     copied_message_id = int(getattr(copied, "message_id", 0) or 0)
     if pin:
@@ -347,6 +377,28 @@ async def _send_broadcast_copy(
             return True, f"Broadcast sent to {channel}, but pin failed: {exc}"
         return True, f"Broadcast sent and pinned in {channel}."
     return True, f"Broadcast sent to {channel}."
+
+
+async def _send_broadcast_fallback(
+    bot: Bot,
+    *,
+    channel: str,
+    payload: dict | None,
+    silent: bool = False,
+    protect: bool = False,
+):
+    payload = dict(payload or {})
+    kind = str(payload.get("kind") or "")
+    common = {"chat_id": channel, "disable_notification": bool(silent), "protect_content": bool(protect)}
+    if kind == "text" and str(payload.get("text") or "").strip():
+        return await bot.send_message(text=str(payload["text"]), **common)
+    if kind == "photo" and str(payload.get("file_id") or "").strip():
+        return await bot.send_photo(photo=str(payload["file_id"]), caption=str(payload.get("caption") or "") or None, **common)
+    if kind == "video" and str(payload.get("file_id") or "").strip():
+        return await bot.send_video(video=str(payload["file_id"]), caption=str(payload.get("caption") or "") or None, **common)
+    if kind == "document" and str(payload.get("file_id") or "").strip():
+        return await bot.send_document(document=str(payload["file_id"]), caption=str(payload.get("caption") or "") or None, **common)
+    return None
 
 
 async def _is_current_bot_reseller(user_id: int, bot) -> bool:
@@ -932,7 +984,7 @@ async def reseller_broadcast_restart_or_cancel(callback: types.CallbackQuery, st
     )
 
 
-@router.callback_query(lambda c: c.data in {"rs_broadcast:send", "rs_broadcast:silent", "rs_broadcast:pin"})
+@router.callback_query(lambda c: c.data in {"rs_broadcast:send", "rs_broadcast:silent", "rs_broadcast:pin", "rs_broadcast:protect"})
 async def reseller_broadcast_confirm_send(callback: types.CallbackQuery, state: FSMContext):
     if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
         return await callback.answer("Reseller only", show_alert=True)
@@ -946,8 +998,10 @@ async def reseller_broadcast_confirm_send(callback: types.CallbackQuery, state: 
         callback.bot,
         source_chat_id=source_chat_id,
         source_message_id=source_message_id,
+        fallback_payload=data.get("rs_broadcast_fallback_payload"),
         silent=(mode == "silent"),
         pin=(mode == "pin"),
+        protect=(mode == "protect"),
     )
     await state.clear()
     lang = await _reseller_lang(callback.from_user.id)
@@ -1185,6 +1239,7 @@ async def reseller_broadcast_payload_submit(message: types.Message, state: FSMCo
     await state.update_data(
         rs_broadcast_source_chat_id=int(message.chat.id),
         rs_broadcast_source_message_id=int(message.message_id),
+        rs_broadcast_fallback_payload=_broadcast_fallback_payload(message, kind),
     )
     await state.set_state(ResellerBroadcastFSM.waiting_confirm)
     await message.answer(

@@ -242,11 +242,47 @@ async def test_reseller_broadcast_copy_send_can_pin(monkeypatch):
     assert "pinned" in text
     assert calls[0] == (
         "copy",
-        {"chat_id": "@mychannel", "from_chat_id": 123, "message_id": 44, "disable_notification": True},
+        {"chat_id": "@mychannel", "from_chat_id": 123, "message_id": 44, "disable_notification": True, "protect_content": False},
     )
     assert calls[1] == (
         "pin",
         {"chat_id": "@mychannel", "message_id": 808, "disable_notification": True},
+    )
+
+
+@pytest.mark.asyncio
+async def test_reseller_broadcast_text_fallback_preserves_send_when_copy_fails(monkeypatch):
+    calls = []
+
+    class _Bot:
+        async def copy_message(self, **kwargs):
+            calls.append(("copy", kwargs))
+            raise RuntimeError("copy blocked")
+
+        async def send_message(self, **kwargs):
+            calls.append(("send_message", kwargs))
+            return SimpleNamespace(message_id=909)
+
+    async def _fake_status(_bot):
+        return True, "@mychannel", ""
+
+    monkeypatch.setattr(reseller_recharge, "_broadcast_channel_status", _fake_status)
+
+    ok, text = await reseller_recharge._send_broadcast_copy(
+        _Bot(),
+        source_chat_id=123,
+        source_message_id=44,
+        fallback_payload={"kind": "text", "text": "hello"},
+        protect=True,
+    )
+
+    assert ok is True
+    assert "Broadcast sent" in text
+    assert calls[0][0] == "copy"
+    assert calls[0][1]["protect_content"] is True
+    assert calls[1] == (
+        "send_message",
+        {"chat_id": "@mychannel", "disable_notification": False, "protect_content": True, "text": "hello"},
     )
 
 
