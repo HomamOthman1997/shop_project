@@ -170,20 +170,111 @@ class OwnerResellerTopupFSM(StatesGroup):
 
 
 class ResellerBroadcastFSM(StatesGroup):
+    waiting_payload = State()
+    waiting_confirm = State()
     waiting_text = State()
+
 
 def _text_eq(text: str | None, *candidates: str) -> bool:
     raw = (text or "").strip().lower()
     return raw in {x.strip().lower() for x in candidates}
 
 
-def _reseller_broadcast_kb() -> types.InlineKeyboardMarkup:
+def _reseller_broadcast_kb(lang: str = "en") -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="نص فقط", callback_data="rs_broadcast:text")],
-            [types.InlineKeyboardButton(text="⬅️ Back to Reseller Menu", callback_data="rsmenu:menu")],
+            [
+                types.InlineKeyboardButton(text=_txt(lang, "✍️ نص", "✍️ Text"), callback_data="rs_broadcast:text"),
+                types.InlineKeyboardButton(text=_txt(lang, "🖼 صورة", "🖼 Photo"), callback_data="rs_broadcast:photo"),
+            ],
+            [
+                types.InlineKeyboardButton(text=_txt(lang, "🎬 فيديو", "🎬 Video"), callback_data="rs_broadcast:video"),
+                types.InlineKeyboardButton(text=_txt(lang, "📎 ملف", "📎 File"), callback_data="rs_broadcast:document"),
+            ],
+            [types.InlineKeyboardButton(text=_txt(lang, "🔁 نسخ رسالة جاهزة", "🔁 Copy Ready Message"), callback_data="rs_broadcast:copy")],
+            [types.InlineKeyboardButton(text=_txt(lang, "⬅️ رجوع للوحة الريسيلر", "⬅️ Back to Reseller Menu"), callback_data="rsmenu:menu")],
         ]
     )
+
+
+def _reseller_broadcast_wait_kb(lang: str = "en") -> types.InlineKeyboardMarkup:
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text=_txt(lang, "❌ إلغاء", "❌ Cancel"), callback_data="rs_broadcast:cancel")],
+            [types.InlineKeyboardButton(text=_txt(lang, "↩️ اختيار نوع آخر", "↩️ Choose Another Type"), callback_data="rs_broadcast:restart")],
+        ]
+    )
+
+
+def _reseller_broadcast_confirm_kb(lang: str = "en") -> types.InlineKeyboardMarkup:
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text=_txt(lang, "✅ إرسال الآن", "✅ Send Now"), callback_data="rs_broadcast:send")],
+            [
+                types.InlineKeyboardButton(text=_txt(lang, "🔕 إرسال صامت", "🔕 Send Silent"), callback_data="rs_broadcast:silent"),
+                types.InlineKeyboardButton(text=_txt(lang, "📌 إرسال وتثبيت", "📌 Send & Pin"), callback_data="rs_broadcast:pin"),
+            ],
+            [
+                types.InlineKeyboardButton(text=_txt(lang, "↩️ تعديل/إعادة إرسال", "↩️ Edit / Resend"), callback_data="rs_broadcast:restart"),
+                types.InlineKeyboardButton(text=_txt(lang, "❌ إلغاء", "❌ Cancel"), callback_data="rs_broadcast:cancel"),
+            ],
+        ]
+    )
+
+
+def _broadcast_type_label(lang: str, kind: str) -> str:
+    labels = {
+        "text": ("نص", "Text"),
+        "photo": ("صورة", "Photo"),
+        "video": ("فيديو", "Video"),
+        "document": ("ملف", "File"),
+        "copy": ("رسالة جاهزة", "Ready message"),
+    }
+    ar, en = labels.get(str(kind or ""), labels["copy"])
+    return _txt(lang, ar, en)
+
+
+def _broadcast_prompt_text(lang: str, kind: str) -> str:
+    if _is_ar(lang):
+        prompts = {
+            "text": "أرسل نص الإذاعة الآن كما يجب أن يظهر في القناة.",
+            "photo": "أرسل الصورة الآن. يمكنك إضافة كابشن إذا احتجت.",
+            "video": "أرسل الفيديو الآن. يمكنك إضافة كابشن إذا احتجت.",
+            "document": "أرسل الملف الآن. يمكنك إضافة كابشن إذا احتجت.",
+            "copy": "أرسل أي رسالة جاهزة تريد نسخها للقناة كما هي: نص، صورة، فيديو، ملف، صوت، أو رسالة بكابشن.",
+        }
+        return f"{prompts.get(kind, prompts['copy'])}\n\nللإلغاء أرسل /cancel أو استخدم الأزرار."
+    prompts = {
+        "text": "Send the broadcast text exactly as it should appear in the channel.",
+        "photo": "Send the photo now. You can include a caption.",
+        "video": "Send the video now. You can include a caption.",
+        "document": "Send the file now. You can include a caption.",
+        "copy": "Send any ready message to copy into the channel as-is: text, photo, video, file, audio, or a captioned message.",
+    }
+    return f"{prompts.get(kind, prompts['copy'])}\n\nSend /cancel or use the buttons to cancel."
+
+
+def _message_matches_broadcast_kind(message: types.Message, kind: str) -> bool:
+    if kind == "text":
+        return bool((message.text or "").strip())
+    if kind == "photo":
+        return bool(getattr(message, "photo", None))
+    if kind == "video":
+        return bool(getattr(message, "video", None))
+    if kind == "document":
+        return bool(getattr(message, "document", None))
+    return any(bool(getattr(message, attr, None)) for attr in ("text", "photo", "video", "document", "animation", "audio", "voice", "video_note"))
+
+
+def _broadcast_payload_summary(message: types.Message, lang: str, kind: str) -> str:
+    label = _broadcast_type_label(lang, kind)
+    caption = str(getattr(message, "caption", "") or "").strip()
+    text = str(getattr(message, "text", "") or "").strip()
+    if _is_ar(lang):
+        extra = f"طول النص: {len(text)} حرف" if kind == "text" else ("مع كابشن" if caption else "بدون كابشن")
+        return f"نوع الإذاعة: {label}\n{extra}"
+    extra = f"Text length: {len(text)} chars" if kind == "text" else ("with caption" if caption else "without caption")
+    return f"Broadcast type: {label}\n{extra}"
 
 
 async def _current_bot_broadcast_channel(bot: Bot) -> str | None:
@@ -222,6 +313,39 @@ async def _send_broadcast_post(bot: Bot, text: str) -> tuple[bool, str]:
         await bot.send_message(chat_id=channel, text=text)
     except Exception as exc:
         return False, f"Broadcast failed: {exc}"
+    return True, f"Broadcast sent to {channel}."
+
+
+async def _send_broadcast_copy(
+    bot: Bot,
+    *,
+    source_chat_id: int,
+    source_message_id: int,
+    silent: bool = False,
+    pin: bool = False,
+) -> tuple[bool, str]:
+    ok, channel, error_text = await _broadcast_channel_status(bot)
+    if not ok or not channel:
+        return False, error_text
+    try:
+        copied = await bot.copy_message(
+            chat_id=channel,
+            from_chat_id=int(source_chat_id),
+            message_id=int(source_message_id),
+            disable_notification=bool(silent or pin),
+        )
+    except Exception as exc:
+        return False, f"Broadcast failed: {exc}"
+
+    copied_message_id = int(getattr(copied, "message_id", 0) or 0)
+    if pin:
+        if copied_message_id <= 0:
+            return True, f"Broadcast sent to {channel}, but pin status could not be verified."
+        try:
+            await bot.pin_chat_message(chat_id=channel, message_id=copied_message_id, disable_notification=True)
+        except Exception as exc:
+            return True, f"Broadcast sent to {channel}, but pin failed: {exc}"
+        return True, f"Broadcast sent and pinned in {channel}."
     return True, f"Broadcast sent to {channel}."
 
 
@@ -765,24 +889,71 @@ async def reseller_menu_broadcast(callback: types.CallbackQuery, state: FSMConte
         lang = await _reseller_lang(callback.from_user.id)
         await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
         await callback.message.answer(
-            "إذاعة\n\n"
-            "هذه الرسالة ستُنشر في قناة هذا البوت الحالية.\n"
-            "اختر نوع الإرسال.",
-            reply_markup=_reseller_broadcast_kb(),
+            _txt(
+                lang,
+                "📣 الإذاعة\n\nهذه الرسالة ستُنشر في قناة هذا البوت الحالية.\nاختر نوع الإرسال، وبعدها ستراجع المحتوى قبل النشر.",
+                "📣 Broadcast\n\nThis post will be published to this bot's current channel.\nChoose a content type, then confirm before publishing.",
+            ),
+            reply_markup=_reseller_broadcast_kb(lang),
         )
 
 
-@router.callback_query(lambda c: c.data == "rs_broadcast:text")
-async def reseller_broadcast_text_start(callback: types.CallbackQuery, state: FSMContext):
+@router.callback_query(lambda c: c.data in {"rs_broadcast:text", "rs_broadcast:photo", "rs_broadcast:video", "rs_broadcast:document", "rs_broadcast:copy"})
+async def reseller_broadcast_payload_start(callback: types.CallbackQuery, state: FSMContext):
     if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
         return await callback.answer("Reseller only", show_alert=True)
-    await state.set_state(ResellerBroadcastFSM.waiting_text)
+    kind = str(callback.data or "").split(":")[-1]
+    await state.set_state(ResellerBroadcastFSM.waiting_payload)
+    await state.update_data(rs_broadcast_kind=kind)
     await callback.answer()
     if callback.message:
+        lang = await _reseller_lang(callback.from_user.id)
         await callback.message.answer(
-            "أرسل الآن نص الإذاعة كما يجب أن يظهر في القناة.\n"
-            "للإلغاء أرسل /cancel"
+            _broadcast_prompt_text(lang, kind),
+            reply_markup=_reseller_broadcast_wait_kb(lang),
         )
+
+
+@router.callback_query(lambda c: c.data in {"rs_broadcast:restart", "rs_broadcast:cancel"})
+async def reseller_broadcast_restart_or_cancel(callback: types.CallbackQuery, state: FSMContext):
+    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
+        return await callback.answer("Reseller only", show_alert=True)
+    await state.clear()
+    lang = await _reseller_lang(callback.from_user.id)
+    await callback.answer(_txt(lang, "تم الإلغاء", "Canceled") if callback.data == "rs_broadcast:cancel" else None)
+    if not callback.message:
+        return
+    if callback.data == "rs_broadcast:cancel":
+        await callback.message.answer(_txt(lang, "تم إلغاء الإذاعة.", "Broadcast canceled."), reply_markup=reseller_main_menu(lang))
+        return
+    await callback.message.answer(
+        _txt(lang, "اختر نوع الإذاعة من جديد.", "Choose the broadcast type again."),
+        reply_markup=_reseller_broadcast_kb(lang),
+    )
+
+
+@router.callback_query(lambda c: c.data in {"rs_broadcast:send", "rs_broadcast:silent", "rs_broadcast:pin"})
+async def reseller_broadcast_confirm_send(callback: types.CallbackQuery, state: FSMContext):
+    if not await _is_current_bot_reseller(callback.from_user.id, callback.bot):
+        return await callback.answer("Reseller only", show_alert=True)
+    data = await state.get_data()
+    source_chat_id = int(data.get("rs_broadcast_source_chat_id") or 0)
+    source_message_id = int(data.get("rs_broadcast_source_message_id") or 0)
+    if source_chat_id == 0 or source_message_id <= 0:
+        return await callback.answer("Broadcast draft expired. Start again.", show_alert=True)
+    mode = str(callback.data or "").split(":")[-1]
+    ok, result_text = await _send_broadcast_copy(
+        callback.bot,
+        source_chat_id=source_chat_id,
+        source_message_id=source_message_id,
+        silent=(mode == "silent"),
+        pin=(mode == "pin"),
+    )
+    await state.clear()
+    lang = await _reseller_lang(callback.from_user.id)
+    if callback.message:
+        await callback.message.answer(result_text, reply_markup=reseller_main_menu(lang))
+    await callback.answer(_txt(lang, "تم الإرسال", "Sent") if ok else _txt(lang, "فشل الإرسال", "Send failed"), show_alert=not ok)
 
 
 @router.callback_query(lambda c: c.data == "rsmenu:recharge_requests")
@@ -994,7 +1165,8 @@ async def reseller_core_topup_proof_text(message: types.Message, state: FSMConte
 
 
 @router.message(ResellerBroadcastFSM.waiting_text)
-async def reseller_broadcast_text_submit(message: types.Message, state: FSMContext):
+@router.message(ResellerBroadcastFSM.waiting_payload)
+async def reseller_broadcast_payload_submit(message: types.Message, state: FSMContext):
     if not await _is_current_bot_reseller(message.from_user.id, message.bot):
         await state.clear()
         return await message.answer("Reseller only.")
@@ -1003,12 +1175,26 @@ async def reseller_broadcast_text_submit(message: types.Message, state: FSMConte
         await state.clear()
         lang = await _reseller_lang(message.from_user.id)
         return await message.answer("Canceled.", reply_markup=reseller_main_menu(lang))
-    if not raw:
-        return await message.answer("أرسل نصًا فقط.")
-    ok, result_text = await _send_broadcast_post(message.bot, raw)
-    await state.clear()
+
+    data = await state.get_data()
+    kind = str(data.get("rs_broadcast_kind") or "text")
     lang = await _reseller_lang(message.from_user.id)
-    await message.answer(result_text, reply_markup=reseller_main_menu(lang))
+    if not _message_matches_broadcast_kind(message, kind):
+        return await message.answer(_broadcast_prompt_text(lang, kind), reply_markup=_reseller_broadcast_wait_kb(lang))
+
+    await state.update_data(
+        rs_broadcast_source_chat_id=int(message.chat.id),
+        rs_broadcast_source_message_id=int(message.message_id),
+    )
+    await state.set_state(ResellerBroadcastFSM.waiting_confirm)
+    await message.answer(
+        _txt(
+            lang,
+            f"تم تجهيز الإذاعة للمراجعة.\n{_broadcast_payload_summary(message, lang, kind)}\n\nراجع الرسالة التي أرسلتها فوق، ثم اختر طريقة النشر.",
+            f"Broadcast draft is ready.\n{_broadcast_payload_summary(message, lang, kind)}\n\nReview the message you sent above, then choose how to publish.",
+        ),
+        reply_markup=_reseller_broadcast_confirm_kb(lang),
+    )
 
 
 async def _settings_main_kb(reseller_id: int, lang: str = "en") -> types.InlineKeyboardMarkup:
@@ -1042,7 +1228,6 @@ async def _settings_main_kb(reseller_id: int, lang: str = "en") -> types.InlineK
             [types.InlineKeyboardButton(text=support_label, callback_data="rs:auto:support_topics")],
             [types.InlineKeyboardButton(text=pay_label, callback_data="rs:bind:pay:link")],
             [types.InlineKeyboardButton(text=ex_label, callback_data="rs:bind:ex:link")],
-            [types.InlineKeyboardButton(text=_txt(lang, "استخدم الرسائل الخاصة (الأسهل)", "Use DM Routing (Easy)"), callback_data="rs:routing:dm")],
             [types.InlineKeyboardButton(text=rate_label, callback_data="rs:rate")],
             [types.InlineKeyboardButton(text=_txt(lang, "⬅️ رجوع للوحة الريسيلر", "⬅️ Back to Reseller Menu"), callback_data="rs:close")],
         ]

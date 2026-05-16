@@ -11,9 +11,19 @@ import handlers.reseller_recharge as reseller_recharge
 
 
 class _FakeMessage:
-    def __init__(self):
+    def __init__(self, text=None):
         self.sent_texts: list[str] = []
         self.chat = SimpleNamespace(id=123)
+        self.message_id = 44
+        self.text = text
+        self.caption = None
+        self.photo = None
+        self.video = None
+        self.document = None
+        self.animation = None
+        self.audio = None
+        self.voice = None
+        self.video_note = None
 
     async def answer(self, text, **_kwargs):
         self.sent_texts.append(str(text))
@@ -41,14 +51,25 @@ class _FakeCallback:
 
 
 class _FakeState:
+    def __init__(self):
+        self.data = {}
+        self.state = None
+
     async def clear(self):
+        self.data.clear()
+        self.state = None
         return None
 
-    async def set_state(self, _s):
+    async def set_state(self, value):
+        self.state = value
         return None
 
-    async def update_data(self, **_kwargs):
+    async def update_data(self, **kwargs):
+        self.data.update(kwargs)
         return None
+
+    async def get_data(self):
+        return dict(self.data)
 
 
 @pytest.mark.asyncio
@@ -185,8 +206,48 @@ async def test_reseller_broadcast_callback(monkeypatch):
 
     await reseller_recharge.reseller_menu_broadcast(callback, state)
 
-    assert any("إذاعة" in x for x in fake_message.sent_texts)
+    assert any("Broadcast" in x for x in fake_message.sent_texts)
+    callbacks = [btn.callback_data for row in reseller_recharge._reseller_broadcast_kb("en").inline_keyboard for btn in row]
+    assert "rs_broadcast:photo" in callbacks
+    assert "rs_broadcast:copy" in callbacks
+    assert "rs:routing:dm" not in callbacks
     assert callback.answers
+
+
+@pytest.mark.asyncio
+async def test_reseller_broadcast_copy_send_can_pin(monkeypatch):
+    calls = []
+
+    class _Bot:
+        async def copy_message(self, **kwargs):
+            calls.append(("copy", kwargs))
+            return SimpleNamespace(message_id=808)
+
+        async def pin_chat_message(self, **kwargs):
+            calls.append(("pin", kwargs))
+
+    async def _fake_status(_bot):
+        return True, "@mychannel", ""
+
+    monkeypatch.setattr(reseller_recharge, "_broadcast_channel_status", _fake_status)
+
+    ok, text = await reseller_recharge._send_broadcast_copy(
+        _Bot(),
+        source_chat_id=123,
+        source_message_id=44,
+        pin=True,
+    )
+
+    assert ok is True
+    assert "pinned" in text
+    assert calls[0] == (
+        "copy",
+        {"chat_id": "@mychannel", "from_chat_id": 123, "message_id": 44, "disable_notification": True},
+    )
+    assert calls[1] == (
+        "pin",
+        {"chat_id": "@mychannel", "message_id": 808, "disable_notification": True},
+    )
 
 
 @pytest.mark.asyncio
