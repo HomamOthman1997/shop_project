@@ -11,7 +11,7 @@ from config import settings
 from database.financial_ledger import _cycle_bounds
 from handlers.admin_services import _parse_owner_target_payload
 from handlers.main_menu import _as_utc as main_menu_as_utc
-from handlers.reseller_recharge import _build_reseller_dashboard_text, _build_reseller_stats_text
+from handlers.reseller_recharge import _build_reseller_dashboard_text, _build_reseller_stats_text, _reseller_stats_kb
 from middlewares.version_check import _as_utc as version_check_as_utc, _allow_owner_panel_callback
 
 
@@ -112,6 +112,17 @@ async def test_reseller_stats_text_renders(monkeypatch):
     assert "Linked users: 18" in text
     assert "Sales last 24h" in text
     assert "Payment methods configured: 2" in text
+
+
+def test_reseller_stats_keyboard_is_report_scoped():
+    callbacks = [btn.callback_data for row in _reseller_stats_kb("en").inline_keyboard for btn in row]
+    labels = [btn.text for row in _reseller_stats_kb("en").inline_keyboard for btn in row]
+
+    assert callbacks == ["rsmenu:stats", "rsmenu:dashboard"]
+    assert any("Refresh" in label for label in labels)
+    assert "rsmenu:settings" not in callbacks
+    assert "rsmenu:custom_services" not in callbacks
+    assert "rsmenu:core_topup" not in callbacks
 
 
 @pytest.mark.asyncio

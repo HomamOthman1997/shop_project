@@ -552,6 +552,15 @@ def _reseller_dashboard_kb(lang: str) -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _reseller_stats_kb(lang: str) -> types.InlineKeyboardMarkup:
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text=_txt(lang, "🔄 تحديث التقرير", "🔄 Refresh Report"), callback_data="rsmenu:stats")],
+            [types.InlineKeyboardButton(text=_txt(lang, "⬅️ رجوع للوحة التحكم", "⬅️ Back to Control Center"), callback_data="rsmenu:dashboard")],
+        ]
+    )
+
+
 async def _guard_reseller_setup(callback: types.CallbackQuery, *, allow_settings: bool = False) -> bool:
     if not callback.message:
         return False
@@ -1064,7 +1073,7 @@ async def reseller_menu_stats(callback: types.CallbackQuery):
         await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
         await callback.message.answer(
             await _build_reseller_stats_text(callback.from_user.id, (await callback.bot.get_me()).id, lang),
-            reply_markup=_reseller_dashboard_kb(lang),
+            reply_markup=_reseller_stats_kb(lang),
         )
 
 
