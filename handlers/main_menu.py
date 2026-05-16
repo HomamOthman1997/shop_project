@@ -950,9 +950,9 @@ async def _return_main_menu(message: types.Message, user_id: int) -> None:
     lang = user.get("language", "en") if user else "en"
     if await is_reseller(user_id, bot_id=bot_id):
         await _hide_reply_keyboard(message, lang)
-        await message.answer(t(lang, "main_menu"), reply_markup=reseller_main_menu(lang))
+        await message.answer(t(lang, "reseller_menu_title"), reply_markup=reseller_main_menu(lang))
     else:
-        await message.answer(t(lang, "main_menu"), reply_markup=await menu_for_current_bot(lang, bot_id))
+        await message.answer(t(lang, "main_menu"), reply_markup=await menu_for_current_bot(lang, bot_id, user_id=user_id))
 
 
 @router.message(lambda msg: _is_btn(msg.text, "btn_balance") or _is_btn(msg.text, "btn_reseller_balance") or ((msg.text or "").startswith("/balance")))

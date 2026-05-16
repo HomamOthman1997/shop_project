@@ -156,6 +156,41 @@ async def test_reseller_dashboard_callback(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_reseller_menu_root_uses_reseller_title(monkeypatch):
+    fake_message = _FakeMessage()
+
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=777)
+
+    callback = _FakeCallback(
+        user_id=555,
+        data="rsmenu:menu",
+        message=fake_message,
+        bot=_Bot(),
+    )
+
+    async def _fake_is_reseller(_uid, _bot):
+        return True
+
+    async def _fake_lang(_uid):
+        return "en"
+
+    async def _fake_hide(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(reseller_recharge, "_is_current_bot_reseller", _fake_is_reseller)
+    monkeypatch.setattr(reseller_recharge, "_reseller_lang", _fake_lang)
+    monkeypatch.setattr(reseller_recharge, "_hide_reply_keyboard", _fake_hide)
+
+    await reseller_recharge.reseller_menu_root(callback)
+
+    assert any("reseller" in x.lower() for x in fake_message.sent_texts)
+    assert not any(x == "Main Menu" for x in fake_message.sent_texts)
+    assert callback.answers
+
+
+@pytest.mark.asyncio
 async def test_owner_panel_broadcast_callback(monkeypatch):
     fake_message = _FakeMessage()
     callback = _FakeCallback(

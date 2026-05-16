@@ -912,7 +912,7 @@ async def reseller_menu_root(callback: types.CallbackQuery):
     if callback.message:
         lang = await _reseller_lang(callback.from_user.id)
         await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
-        await callback.message.answer(t(lang, "main_menu"), reply_markup=reseller_main_menu(lang))
+        await callback.message.answer(t(lang, "reseller_menu_title"), reply_markup=reseller_main_menu(lang))
 
 
 @router.callback_query(lambda c: c.data == "rsmenu:main_bot_services")

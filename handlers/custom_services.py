@@ -51,6 +51,7 @@ from database.financial_ledger import create_order_v3
 from database.mongo import db
 from database.orders_repo import update_order_details, update_order_status
 from database.user_repo import get_user, get_user_reseller_for_bot, set_user_reseller_for_bot
+from keyboards.reseller_main_menu import reseller_main_menu
 from utils.bot_menu_context import is_main_bot, menu_for_current_bot
 from utils.financial_manager import FinancialManager
 from utils.loading_sticker import send_loading_sticker
@@ -67,6 +68,8 @@ _CATALOG_CUSTOM = "custom"
 _CATALOG_ID_INFO = "id_info"
 _FINANCIAL_CUSTOM = "custom"
 _FINANCIAL_CORE = "core"
+_CUSTOM_RETURN_BOT_MENU = "bot_menu"
+_CUSTOM_RETURN_RESELLER_MENU = "reseller_menu"
 _CUSTOM_GRID_COLUMNS = 3
 _MAX_FOLDER_CHILDREN = 9
 _MAX_STOCK_ITEMS_PER_SAVE = 500
@@ -837,6 +840,14 @@ async def _user_lang(user_id: int) -> str:
 async def _is_current_bot_reseller(user_id: int, bot: Bot) -> bool:
     bot_id = (await bot.get_me()).id
     return await is_reseller(user_id, bot_id=bot_id)
+
+
+async def _custom_return_to_reseller_menu(user_id: int, bot: Bot, data: dict | None) -> bool:
+    if str((data or {}).get("custom_return_to") or "") == _CUSTOM_RETURN_RESELLER_MENU:
+        return True
+    if str((data or {}).get("custom_mode") or "") == "builder" and await _is_current_bot_reseller(user_id, bot):
+        return True
+    return False
 
 
 async def _resolve_user_reseller(user_id: int, bot_id: int) -> int | None:
@@ -1617,6 +1628,13 @@ async def _render_node(
         return
 
     ui_state = await state.get_data()
+    custom_return_to = str(ui_state.get("custom_return_to") or "").strip()
+    if not custom_return_to:
+        custom_return_to = (
+            _CUSTOM_RETURN_RESELLER_MENU
+            if is_builder and await _is_current_bot_reseller(viewer_id, message_or_cb.bot)
+            else _CUSTOM_RETURN_BOT_MENU
+        )
     children = await list_children(reseller_id, node["_id"], catalog_type=normalized_catalog)
     is_root_folder = bool(node.get("is_root")) and str(node.get("node_type") or "") == "folder"
     if is_root_folder:
@@ -1753,7 +1771,12 @@ async def _render_node(
                 kb_rows.append([InlineKeyboardButton(text=_ui_label(viewer_lang, "Reserve Preorder", "حجز مسبق"), callback_data=f"cstm:buy:{node['_id']}")])
 
         back_cb = f"cstm:open:{parent_id}" if parent_id else "cstm:cancel"
-        kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "back"), callback_data=back_cb)])
+        back_text = (
+            _ui_label(viewer_lang, "Back to Reseller Menu", "رجوع للوحة الريسيلر")
+            if not parent_id and is_builder and custom_return_to == _CUSTOM_RETURN_RESELLER_MENU
+            else t(viewer_lang, "back")
+        )
+        kb_rows.append([InlineKeyboardButton(text=back_text, callback_data=back_cb)])
 
     else:
         name = str(node.get("name") or ("ID INFO" if normalized_catalog == _CATALOG_ID_INFO else t(viewer_lang, "services_plain")))
@@ -1785,7 +1808,12 @@ async def _render_node(
                         kb_rows.append(folder_move)
                     kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "delete_plain"), callback_data=f"cstm:del:{node['_id']}")])
         back_cb = f"cstm:open:{parent_id}" if parent_id else "cstm:cancel"
-        kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "back"), callback_data=back_cb)])
+        back_text = (
+            _ui_label(viewer_lang, "Back to Reseller Menu", "رجوع للوحة الريسيلر")
+            if not parent_id and is_builder and custom_return_to == _CUSTOM_RETURN_RESELLER_MENU
+            else t(viewer_lang, "back")
+        )
+        kb_rows.append([InlineKeyboardButton(text=back_text, callback_data=back_cb)])
 
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows) if kb_rows else None
 
@@ -1801,6 +1829,7 @@ async def _render_node(
     await state.update_data(
         custom_current_node=str(node["_id"]),
         custom_mode="builder" if is_builder else "user",
+        custom_return_to=custom_return_to,
         custom_catalog_type=normalized_catalog,
         custom_financial_mode=_catalog_financial_mode(normalized_catalog),
     )
@@ -1832,6 +1861,7 @@ async def open_custom_user(message: types.Message, state: FSMContext):
             custom_wallet_scope_id=int(wallet_scope_id),
             custom_root_node_id=str(owner_root["_id"]),
             custom_mode="builder",
+            custom_return_to=_CUSTOM_RETURN_BOT_MENU,
             custom_catalog_type=_CATALOG_CUSTOM,
             custom_financial_mode=_FINANCIAL_CUSTOM,
         )
@@ -1846,6 +1876,7 @@ async def open_custom_user(message: types.Message, state: FSMContext):
         custom_wallet_scope_id=int(wallet_scope_id),
         custom_root_node_id=str(root["_id"]),
         custom_mode="user",
+        custom_return_to=_CUSTOM_RETURN_BOT_MENU,
         custom_catalog_type=_CATALOG_CUSTOM,
         custom_financial_mode=_FINANCIAL_CUSTOM,
     )
@@ -1891,6 +1922,7 @@ async def open_services_builder_entry(callback: types.CallbackQuery, state: FSMC
     await state.update_data(
         custom_catalog_owner_id=int(OWNER_ID),
         custom_mode="builder",
+        custom_return_to=_CUSTOM_RETURN_BOT_MENU,
         custom_catalog_type=_CATALOG_CUSTOM,
         custom_financial_mode=_FINANCIAL_CUSTOM,
     )
@@ -1930,6 +1962,7 @@ async def open_id_info_user(message: types.Message, state: FSMContext):
     await state.update_data(
         custom_bot_id=bot_id,
         custom_mode="user",
+        custom_return_to=_CUSTOM_RETURN_BOT_MENU,
         custom_catalog_type=_CATALOG_ID_INFO,
         custom_financial_mode=_FINANCIAL_CUSTOM,
     )
@@ -1955,9 +1988,11 @@ async def open_custom_builder(message: types.Message, state: FSMContext):
     await state.clear()
     catalog_owner_id = int(OWNER_ID) if await is_main_bot(bot_id) else int(message.from_user.id)
     root = await ensure_root_node(catalog_owner_id, catalog_type=_CATALOG_CUSTOM)
+    return_to = _CUSTOM_RETURN_RESELLER_MENU if await _is_current_bot_reseller(message.from_user.id, message.bot) else _CUSTOM_RETURN_BOT_MENU
     await state.update_data(
         custom_catalog_owner_id=catalog_owner_id,
         custom_mode="builder",
+        custom_return_to=return_to,
         custom_catalog_type=_CATALOG_CUSTOM,
         custom_financial_mode=_FINANCIAL_CUSTOM,
     )
@@ -1987,8 +2022,10 @@ async def open_id_info_builder(message: types.Message, state: FSMContext):
         return await message.answer(render_reseller_setup_notice(lang, setup_status))
     await state.clear()
     root = await ensure_root_node(message.from_user.id, catalog_type=_CATALOG_ID_INFO)
+    return_to = _CUSTOM_RETURN_RESELLER_MENU if await _is_current_bot_reseller(message.from_user.id, message.bot) else _CUSTOM_RETURN_BOT_MENU
     await state.update_data(
         custom_mode="builder",
+        custom_return_to=return_to,
         custom_catalog_type=_CATALOG_ID_INFO,
         custom_financial_mode=_FINANCIAL_CUSTOM,
     )
@@ -2022,6 +2059,7 @@ async def open_custom_builder_from_menu(callback: types.CallbackQuery, state: FS
     await state.update_data(
         custom_catalog_owner_id=catalog_owner_id,
         custom_mode="builder",
+        custom_return_to=_CUSTOM_RETURN_RESELLER_MENU,
         custom_catalog_type=_CATALOG_CUSTOM,
         custom_financial_mode=_FINANCIAL_CUSTOM,
     )
@@ -2058,6 +2096,7 @@ async def open_id_info_builder_from_menu(callback: types.CallbackQuery, state: F
     root = await ensure_root_node(callback.from_user.id, catalog_type=_CATALOG_ID_INFO)
     await state.update_data(
         custom_mode="builder",
+        custom_return_to=_CUSTOM_RETURN_RESELLER_MENU,
         custom_catalog_type=_CATALOG_ID_INFO,
         custom_financial_mode=_FINANCIAL_CUSTOM,
     )
@@ -3640,6 +3679,7 @@ async def move_noop_cb(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data == "cstm:cancel")
 async def custom_panel_cancel(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
     await state.clear()
     await callback.answer(t(await _user_lang(callback.from_user.id), "closed_plain"))
     if callback.message:
@@ -3650,9 +3690,15 @@ async def custom_panel_cancel(callback: types.CallbackQuery, state: FSMContext):
                 raise
         user = await get_user(callback.from_user.id)
         lang = str((user or {}).get("language") or "en")
+        if await _custom_return_to_reseller_menu(callback.from_user.id, callback.bot, data):
+            await callback.message.answer(
+                t(lang, "reseller_menu_title"),
+                reply_markup=reseller_main_menu(lang),
+            )
+            return
         await callback.message.answer(
             t(lang, "main_menu"),
-            reply_markup=await menu_for_current_bot(lang, (await callback.bot.get_me()).id),
+            reply_markup=await menu_for_current_bot(lang, (await callback.bot.get_me()).id, user_id=callback.from_user.id),
         )
 
 
