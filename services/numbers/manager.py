@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 import time
 from typing import Any
@@ -65,6 +66,30 @@ PROVIDERS: dict[str, Any] = {
     # Virtual second lane for the same backend provider (second-best offer).
     "smsman_s6": _SMSMAN_PROVIDER,
 }
+
+
+def _provider_buy_kwargs(provider: Any, opts: dict[str, Any]) -> dict[str, Any]:
+    """Return only purchase options accepted by this provider's buy method."""
+    clean_opts = {k: v for k, v in opts.items() if not str(k).startswith("_audit_")}
+    if not clean_opts:
+        return {}
+
+    try:
+        signature = inspect.signature(provider.buy_number)
+    except (TypeError, ValueError):
+        return clean_opts
+
+    params = signature.parameters
+    if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values()):
+        return clean_opts
+
+    accepted = {
+        name
+        for name, param in params.items()
+        if param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    return {key: value for key, value in clean_opts.items() if key in accepted}
+
 
 RENTAL_PROVIDER_CODES: tuple[str, ...] = ("smspool", "herosms", "textverified", "pvadeals")
 RENTAL_UNLIMITED_SERVICE_KEY = "rental_unlimited"
@@ -1159,68 +1184,34 @@ async def buy_number_from_provider(
 
     opts = purchase_options if isinstance(purchase_options, dict) else {}
     audit_requested_service = str(opts.get("_audit_requested_service") or "").strip()
-    try:
-        result = await provider.buy_number(api_service_name, country, state, **opts)
-        if isinstance(result, dict) and not bool(result.get("success")):
-            raw = result.get("raw")
-            result.setdefault("normalized_error", normalize_provider_error(raw))
-            _log_provider_attempt_event(
-                phase="purchase",
-                provider_code=provider_code,
-                requested_service=audit_requested_service,
-                api_service_name=api_service_name,
-                country=country,
-                state=state,
-                success=False,
-                reason=str((result.get("normalized_error") or {}).get("code") or ""),
-                raw=raw,
-            )
-        else:
-            _log_provider_attempt_event(
-                phase="purchase",
-                provider_code=provider_code,
-                requested_service=audit_requested_service,
-                api_service_name=api_service_name,
-                country=country,
-                state=state,
-                success=True,
-                raw=result.get("raw") if isinstance(result, dict) else result,
-            )
-        return result
-
-    except TypeError:
-        # Backward compatibility for providers that do not accept extra kwargs.
-        legacy_opts = {k: v for k, v in opts.items() if not str(k).startswith("_audit_")}
-        if legacy_opts:
-            result = await provider.buy_number(api_service_name, country, state, **legacy_opts)
-        else:
-            result = await provider.buy_number(api_service_name, country, state)
-        if isinstance(result, dict) and not bool(result.get("success")):
-            raw = result.get("raw")
-            result.setdefault("normalized_error", normalize_provider_error(raw))
-            _log_provider_attempt_event(
-                phase="purchase",
-                provider_code=provider_code,
-                requested_service=audit_requested_service,
-                api_service_name=api_service_name,
-                country=country,
-                state=state,
-                success=False,
-                reason=str((result.get("normalized_error") or {}).get("code") or ""),
-                raw=raw,
-            )
-        else:
-            _log_provider_attempt_event(
-                phase="purchase",
-                provider_code=provider_code,
-                requested_service=audit_requested_service,
-                api_service_name=api_service_name,
-                country=country,
-                state=state,
-                success=True,
-                raw=result.get("raw") if isinstance(result, dict) else result,
-            )
-        return result
+    provider_opts = _provider_buy_kwargs(provider, opts)
+    result = await provider.buy_number(api_service_name, country, state, **provider_opts)
+    if isinstance(result, dict) and not bool(result.get("success")):
+        raw = result.get("raw")
+        result.setdefault("normalized_error", normalize_provider_error(raw))
+        _log_provider_attempt_event(
+            phase="purchase",
+            provider_code=provider_code,
+            requested_service=audit_requested_service,
+            api_service_name=api_service_name,
+            country=country,
+            state=state,
+            success=False,
+            reason=str((result.get("normalized_error") or {}).get("code") or ""),
+            raw=raw,
+        )
+    else:
+        _log_provider_attempt_event(
+            phase="purchase",
+            provider_code=provider_code,
+            requested_service=audit_requested_service,
+            api_service_name=api_service_name,
+            country=country,
+            state=state,
+            success=True,
+            raw=result.get("raw") if isinstance(result, dict) else result,
+        )
+    return result
 
 
 async def get_calls_from_provider(provider_code: str, provider_order_id: str, to_number: str | None = None) -> dict[str, Any]:

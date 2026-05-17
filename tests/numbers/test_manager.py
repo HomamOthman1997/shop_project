@@ -653,6 +653,56 @@ async def test_buy_number_real():
     assert data["success"] is True
 
 
+@pytest.mark.asyncio
+async def test_buy_number_filters_purchase_options_for_legacy_provider(monkeypatch):
+    class _LegacyProvider:
+        def __init__(self):
+            self.calls = []
+
+        async def buy_number(self, service, country=None, state=None):
+            self.calls.append((service, country, state))
+            return {"success": True, "order_id": "legacy-1"}
+
+    provider = _LegacyProvider()
+    monkeypatch.setitem(manager.PROVIDERS, "herosms", provider)
+
+    data = await manager.buy_number_from_provider(
+        "herosms",
+        "telegram",
+        "US",
+        None,
+        purchase_options={"reuse_mode": True, "_audit_requested_service": "telegram"},
+    )
+
+    assert data["success"] is True
+    assert provider.calls == [("telegram", "US", None)]
+
+
+@pytest.mark.asyncio
+async def test_buy_number_keeps_purchase_options_for_kwargs_provider(monkeypatch):
+    class _KwargsProvider:
+        def __init__(self):
+            self.kwargs = None
+
+        async def buy_number(self, service, country=None, state=None, **kwargs):
+            self.kwargs = kwargs
+            return {"success": True, "order_id": "kwargs-1"}
+
+    provider = _KwargsProvider()
+    monkeypatch.setitem(manager.PROVIDERS, "textverified", provider)
+
+    data = await manager.buy_number_from_provider(
+        "textverified",
+        "telegram",
+        "US",
+        None,
+        purchase_options={"reuse_mode": True, "_audit_requested_service": "telegram"},
+    )
+
+    assert data["success"] is True
+    assert provider.kwargs == {"reuse_mode": True}
+
+
 
 
 
