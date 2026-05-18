@@ -52,6 +52,14 @@ const quoteBox = document.getElementById("quoteBox");
 const withdrawModal = document.getElementById("withdrawModal");
 const withdrawForm = document.getElementById("withdrawForm");
 const closeWithdrawModal = document.getElementById("closeWithdrawModal");
+const adminFormModal = document.getElementById("adminFormModal");
+const adminForm = document.getElementById("adminForm");
+const adminFormTitle = document.getElementById("adminFormTitle");
+const adminFormSubtitle = document.getElementById("adminFormSubtitle");
+const adminFormFields = document.getElementById("adminFormFields");
+const adminFormSubmit = document.getElementById("adminFormSubmit");
+const closeAdminFormModal = document.getElementById("closeAdminFormModal");
+let adminFormHandler = null;
 
 function initData() {
   return tg?.initData || new URLSearchParams(location.search).get("tgWebAppData") || "";
@@ -94,6 +102,42 @@ function button(cls, text, fn) {
   el.textContent = text;
   el.addEventListener("click", fn);
   return el;
+}
+
+function fieldLabel(field) {
+  const label = document.createElement("label");
+  label.textContent = field.label;
+  let input;
+  if (field.type === "textarea") {
+    input = document.createElement("textarea");
+    input.rows = field.rows || 4;
+  } else {
+    input = document.createElement("input");
+    input.type = field.type || "text";
+  }
+  input.name = field.name;
+  input.value = field.value || "";
+  input.placeholder = field.placeholder || "";
+  input.required = Boolean(field.required);
+  if (field.inputmode) input.inputMode = field.inputmode;
+  label.append(input);
+  return label;
+}
+
+function openAdminForm({ title, subtitle = "", submitText = "Save", fields = [], onSubmit }) {
+  adminForm.reset();
+  adminFormTitle.textContent = title;
+  adminFormSubtitle.textContent = subtitle;
+  adminFormSubtitle.classList.toggle("hidden", !subtitle);
+  adminFormSubmit.textContent = submitText;
+  adminFormFields.replaceChildren(...fields.map(fieldLabel));
+  adminFormHandler = onSubmit;
+  adminFormModal.classList.remove("hidden");
+}
+
+function closeAdminForm() {
+  adminFormModal.classList.add("hidden");
+  adminFormHandler = null;
 }
 
 function heading(title, subtitle = "") {
@@ -684,66 +728,81 @@ async function updateAdminWithdrawal(id, action) {
 }
 
 async function setMissingPricing(row) {
-  const customerRate = prompt(`Customer rate % for ${row.brand} ${row.denomination} ${row.currency}`, "");
-  if (!customerRate) return;
-  const traderRate = prompt("Trader rate %", customerRate) || customerRate;
-  const note = prompt("Public note (optional)", "") || "";
-  try {
-    await api(`/mini/cardex/api/admin/missing-pricing/${encodeURIComponent(row.id)}`, {
-      method: "POST",
-      body: JSON.stringify({ customer_rate: customerRate, trader_rate: traderRate, note }),
-    });
-    await loadPrices();
-    await renderAdmin();
-  } catch (err) {
-    alert("Could not save this missing price.");
-  }
+  openAdminForm({
+    title: "Set missing price",
+    subtitle: `${row.brand} ${row.denomination} ${row.currency} - ${row.region}`,
+    submitText: "Save price",
+    fields: [
+      { name: "customer_rate", label: "Customer rate %", required: true, inputmode: "decimal", placeholder: "80" },
+      { name: "trader_rate", label: "Trader rate %", inputmode: "decimal", placeholder: "78" },
+      { name: "note", label: "Public note", placeholder: "Optional" },
+    ],
+    onSubmit: async (body) => {
+      await api(`/mini/cardex/api/admin/missing-pricing/${encodeURIComponent(row.id)}`, {
+        method: "POST",
+        body: JSON.stringify({ ...body, trader_rate: body.trader_rate || body.customer_rate }),
+      });
+      await loadPrices();
+      await renderAdmin();
+    },
+  });
 }
 
 async function createTrader() {
-  const name = prompt("Trader name", "");
-  if (!name) return;
-  const notes = prompt("Notes (optional)", "") || "";
-  try {
-    await api("/mini/cardex/api/admin/traders", { method: "POST", body: JSON.stringify({ name, notes }) });
-    await renderAdmin();
-  } catch (err) {
-    alert("Could not create trader.");
-  }
+  openAdminForm({
+    title: "Add trader",
+    submitText: "Create trader",
+    fields: [
+      { name: "name", label: "Trader name", required: true, placeholder: "Trader name" },
+      { name: "notes", label: "Notes", type: "textarea", placeholder: "Optional" },
+    ],
+    onSubmit: async (body) => {
+      await api("/mini/cardex/api/admin/traders", { method: "POST", body: JSON.stringify(body) });
+      await renderAdmin();
+    },
+  });
 }
 
 async function recordTraderPayment(row) {
-  const amount = prompt(`Payment amount USD from ${row.name}`, "");
-  if (!amount) return;
-  const method = prompt("Method (optional)", "") || "";
-  const referenceNo = prompt("Reference (optional)", "") || "";
-  const notes = prompt("Notes (optional)", "") || "";
-  try {
-    await api(`/mini/cardex/api/admin/traders/${encodeURIComponent(row.id)}/payments`, {
-      method: "POST",
-      body: JSON.stringify({ amount_usd: amount, method, reference_no: referenceNo, notes }),
-    });
-    await showTraderStatement(row);
-  } catch (err) {
-    alert("Could not record trader payment.");
-  }
+  openAdminForm({
+    title: "Record trader payment",
+    subtitle: row.name,
+    submitText: "Record payment",
+    fields: [
+      { name: "amount_usd", label: "Amount USD", required: true, inputmode: "decimal", placeholder: "100" },
+      { name: "method", label: "Method", placeholder: "Cash / USDT / bank" },
+      { name: "reference_no", label: "Reference", placeholder: "Optional" },
+      { name: "notes", label: "Notes", type: "textarea", placeholder: "Optional" },
+    ],
+    onSubmit: async (body) => {
+      await api(`/mini/cardex/api/admin/traders/${encodeURIComponent(row.id)}/payments`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      await showTraderStatement(row);
+    },
+  });
 }
 
 async function createTraderBatch(row) {
-  const cardIds = prompt(`Card IDs for ${row.name}. Separate multiple IDs with commas.`, "");
-  if (!cardIds) return;
-  const notes = prompt("Batch notes (optional)", "") || "";
-  try {
-    const data = await api(`/mini/cardex/api/admin/traders/${encodeURIComponent(row.id)}/batches`, {
-      method: "POST",
-      body: JSON.stringify({ card_ids: cardIds, notes, mark_sent: true }),
-    });
-    const batch = data.batch || {};
-    alert(`Batch created: ${batch.id}\nCards: ${batch.total_count}\nExpected: ${money(batch.total_expected_from_trader_usd)}\nProfit: ${money(batch.gross_profit_usd)}`);
-    await renderAdmin();
-  } catch (err) {
-    alert("Could not create trader batch. Check card IDs and statuses.");
-  }
+  openAdminForm({
+    title: "Batch cards",
+    subtitle: row.name,
+    submitText: "Create batch",
+    fields: [
+      { name: "card_ids", label: "Card IDs", type: "textarea", required: true, placeholder: "Paste IDs separated by commas or new lines" },
+      { name: "notes", label: "Batch notes", type: "textarea", placeholder: "Optional" },
+    ],
+    onSubmit: async (body) => {
+      const data = await api(`/mini/cardex/api/admin/traders/${encodeURIComponent(row.id)}/batches`, {
+        method: "POST",
+        body: JSON.stringify({ ...body, mark_sent: true }),
+      });
+      const batch = data.batch || {};
+      alert(`Batch created: ${batch.id}\nCards: ${batch.total_count}\nExpected: ${money(batch.total_expected_from_trader_usd)}\nProfit: ${money(batch.gross_profit_usd)}`);
+      await renderAdmin();
+    },
+  });
 }
 
 async function showTraderStatement(row) {
@@ -817,6 +876,21 @@ sellModal.addEventListener("click", (event) => {
 closeWithdrawModal.addEventListener("click", closeWithdrawalModal);
 withdrawModal.addEventListener("click", (event) => {
   if (event.target?.dataset?.closeWithdraw) closeWithdrawalModal();
+});
+closeAdminFormModal.addEventListener("click", closeAdminForm);
+adminFormModal.addEventListener("click", (event) => {
+  if (event.target?.dataset?.closeAdminForm) closeAdminForm();
+});
+adminForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!adminFormHandler) return;
+  const body = Object.fromEntries(new FormData(adminForm).entries());
+  try {
+    await adminFormHandler(body);
+    closeAdminForm();
+  } catch (err) {
+    alert("Could not complete this admin action.");
+  }
 });
 refreshBtn.addEventListener("click", () => {
   if (state.view === "mycards") renderMyCards();

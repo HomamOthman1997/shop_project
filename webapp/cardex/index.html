@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <meta name="theme-color" content="#0a0e1a" />
     <title>CardEX Prices</title>
-    <link rel="stylesheet" href="/mini/cardex/static/styles.css?v=20260518h" />
+    <link rel="stylesheet" href="/mini/cardex/static/styles.css?v=20260518i" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -87,6 +87,19 @@
       </form>
     </div>
 
-    <script src="/mini/cardex/static/app.js?v=20260518h"></script>
+    <div id="adminFormModal" class="modal hidden">
+      <div class="modal-backdrop" data-close-admin-form="1"></div>
+      <form id="adminForm" class="modal-panel">
+        <header class="modal-header">
+          <h2 id="adminFormTitle">Admin action</h2>
+          <button id="closeAdminFormModal" class="icon-btn" type="button">x</button>
+        </header>
+        <p id="adminFormSubtitle" class="modal-subtitle"></p>
+        <div id="adminFormFields" class="form-fields"></div>
+        <button id="adminFormSubmit" class="primary" type="submit">Save</button>
+      </form>
+    </div>
+
+    <script src="/mini/cardex/static/app.js?v=20260518i"></script>
   </body>
 </html>
