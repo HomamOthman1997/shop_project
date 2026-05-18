@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <meta name="theme-color" content="#0a0e1a" />
     <title>CardEX Prices</title>
-    <link rel="stylesheet" href="/mini/cardex/static/styles.css?v=20260518a" />
+    <link rel="stylesheet" href="/mini/cardex/static/styles.css?v=20260518b" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -24,6 +24,7 @@
         <button id="pricesTab" class="tab active" type="button">Prices</button>
         <button id="cardsTab" class="tab" type="button">My Cards</button>
         <button id="walletTab" class="tab" type="button">Wallet</button>
+        <button id="withdrawTab" class="tab" type="button">Withdraw</button>
       </nav>
       <section id="status" class="status">Loading prices...</section>
       <section id="content" class="content" aria-live="polite"></section>
@@ -66,6 +67,25 @@
       </form>
     </div>
 
-    <script src="/mini/cardex/static/app.js?v=20260518a"></script>
+    <div id="withdrawModal" class="modal hidden">
+      <div class="modal-backdrop" data-close-withdraw="1"></div>
+      <form id="withdrawForm" class="modal-panel">
+        <header class="modal-header">
+          <h2>Request withdrawal</h2>
+          <button id="closeWithdrawModal" class="icon-btn" type="button">x</button>
+        </header>
+        <label>Amount USD<input name="amount_usd" required inputmode="decimal" placeholder="50" /></label>
+        <label>Payout currency
+          <select name="payout_currency" required>
+            <option value="USD">USD</option>
+            <option value="SYP">SYP</option>
+          </select>
+        </label>
+        <label>Payout details<textarea name="notes" required rows="4" placeholder="Wallet, account, or pickup details"></textarea></label>
+        <button class="primary" type="submit">Send request</button>
+      </form>
+    </div>
+
+    <script src="/mini/cardex/static/app.js?v=20260518b"></script>
   </body>
 </html>

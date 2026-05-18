@@ -39,6 +39,7 @@ const refreshBtn = document.getElementById("refreshBtn");
 const pricesTab = document.getElementById("pricesTab");
 const cardsTab = document.getElementById("cardsTab");
 const walletTab = document.getElementById("walletTab");
+const withdrawTab = document.getElementById("withdrawTab");
 const modal = document.getElementById("modal");
 const priceForm = document.getElementById("priceForm");
 const closeModal = document.getElementById("closeModal");
@@ -47,6 +48,9 @@ const sellForm = document.getElementById("sellForm");
 const closeSellModal = document.getElementById("closeSellModal");
 const sellSummary = document.getElementById("sellSummary");
 const quoteBox = document.getElementById("quoteBox");
+const withdrawModal = document.getElementById("withdrawModal");
+const withdrawForm = document.getElementById("withdrawForm");
+const closeWithdrawModal = document.getElementById("closeWithdrawModal");
 
 function initData() {
   return tg?.initData || new URLSearchParams(location.search).get("tgWebAppData") || "";
@@ -71,7 +75,7 @@ function clear() {
 }
 
 function setActiveTab(tab) {
-  for (const item of [pricesTab, cardsTab, walletTab]) item.classList.remove("active");
+  for (const item of [pricesTab, cardsTab, walletTab, withdrawTab]) item.classList.remove("active");
   tab.classList.add("active");
   searchInput.value = "";
   state.search = "";
@@ -303,9 +307,48 @@ async function renderWallet() {
       grid.append(tile);
     }
     content.append(grid);
+    const actions = document.createElement("div");
+    actions.className = "wallet-actions";
+    actions.append(button("primary", "Request withdrawal", openWithdrawModal));
+    actions.append(button("ghost", "Withdrawal history", renderWithdrawals));
+    content.append(actions);
   } catch (err) {
     clear();
     setError("Could not load wallet.");
+  }
+}
+
+async function renderWithdrawals() {
+  setActiveTab(withdrawTab);
+  state.view = "withdrawals";
+  clear();
+  const title = heading("Withdrawals", "Request payout and follow status");
+  title.append(button("primary", "Request", openWithdrawModal));
+  content.append(title);
+  statusEl.textContent = "Loading withdrawals...";
+  try {
+    const data = await api("/mini/cardex/api/withdrawals");
+    clear();
+    const refreshedTitle = heading("Withdrawals", "Request payout and follow status");
+    refreshedTitle.append(button("primary", "Request", openWithdrawModal));
+    content.append(refreshedTitle);
+    const list = document.createElement("div");
+    list.className = "list";
+    for (const row of data.withdrawals || []) {
+      const item = document.createElement("article");
+      item.className = "rule";
+      item.innerHTML = `
+        <div class="rule-top"><span class="value">${money(row.amount_usd)}</span><span class="rate">${statusLabel(row.status)}</span></div>
+        <div class="muted">${row.payout_currency} payout - ${row.id}</div>
+        ${row.notes ? `<div class="note">${row.notes}</div>` : ""}
+      `;
+      list.append(item);
+    }
+    if (!list.children.length) statusEl.textContent = "No withdrawal requests yet.";
+    content.append(list);
+  } catch (err) {
+    clear();
+    setError("Could not load withdrawals.");
   }
 }
 
@@ -367,6 +410,15 @@ function closeCardSellModal() {
   sellModal.classList.add("hidden");
 }
 
+function openWithdrawModal() {
+  withdrawForm.reset();
+  withdrawModal.classList.remove("hidden");
+}
+
+function closeWithdrawalModal() {
+  withdrawModal.classList.add("hidden");
+}
+
 async function deleteRule(id) {
   if (!confirm("Delete this price category?")) return;
   await api(`/mini/cardex/api/prices/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -409,6 +461,19 @@ sellForm.addEventListener("submit", async (event) => {
   }
 });
 
+withdrawForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const body = Object.fromEntries(new FormData(withdrawForm).entries());
+  try {
+    const data = await api("/mini/cardex/api/withdrawals", { method: "POST", body: JSON.stringify(body) });
+    closeWithdrawalModal();
+    alert(`Withdrawal request created: ${data.withdrawal?.id || ""}`);
+    await renderWithdrawals();
+  } catch (err) {
+    alert("Could not create withdrawal. Check available balance and payout details.");
+  }
+});
+
 closeModal.addEventListener("click", closePriceModal);
 modal.addEventListener("click", (event) => {
   if (event.target?.dataset?.close) closePriceModal();
@@ -417,14 +482,20 @@ closeSellModal.addEventListener("click", closeCardSellModal);
 sellModal.addEventListener("click", (event) => {
   if (event.target?.dataset?.closeSell) closeCardSellModal();
 });
+closeWithdrawModal.addEventListener("click", closeWithdrawalModal);
+withdrawModal.addEventListener("click", (event) => {
+  if (event.target?.dataset?.closeWithdraw) closeWithdrawalModal();
+});
 refreshBtn.addEventListener("click", () => {
   if (state.view === "mycards") renderMyCards();
   else if (state.view === "wallet") renderWallet();
+  else if (state.view === "withdrawals") renderWithdrawals();
   else loadPrices();
 });
 pricesTab.addEventListener("click", loadPrices);
 cardsTab.addEventListener("click", renderMyCards);
 walletTab.addEventListener("click", renderWallet);
+withdrawTab.addEventListener("click", renderWithdrawals);
 searchInput.addEventListener("input", () => {
   state.search = searchInput.value || "";
   if (state.view === "brands") renderBrands();

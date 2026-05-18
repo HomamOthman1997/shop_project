@@ -13,8 +13,15 @@ from aiohttp import web
 from config import settings
 from database.cardex_repo import create_pricing_rule, deactivate_pricing_rule, get_or_create_cardex_user, list_active_pricing_rules
 from services.cards_bot.handlers import _fmt_rate
-from services.cards_bot.service import parse_decimal, quote_card_submission, submit_card
-from services.cards_bot.service import get_wallet_snapshot, list_cards_for_user
+from services.cards_bot.service import (
+    create_withdrawal,
+    get_wallet_snapshot,
+    list_cards_for_user,
+    list_withdrawals_for_user,
+    parse_decimal,
+    quote_card_submission,
+    submit_card,
+)
 
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "webapp" / "cardex"
@@ -124,6 +131,18 @@ def _card_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _withdrawal_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("_id") or ""),
+        "amount_usd": _money(row.get("requested_usd_amount")),
+        "payout_currency": str(row.get("payout_currency") or "USD").upper(),
+        "status": str(row.get("status") or ""),
+        "notes": str(row.get("notes") or ""),
+        "created_at": str(row.get("created_at") or ""),
+        "updated_at": str(row.get("updated_at") or ""),
+    }
+
+
 def _auth_full_name(user: dict[str, Any]) -> str | None:
     return " ".join(str(user.get(part) or "").strip() for part in ("first_name", "last_name")).strip() or None
 
@@ -178,6 +197,36 @@ async def cardex_my_cards(request: web.Request) -> web.Response:
     card_user = await _card_user_from_auth(auth)
     rows = await list_cards_for_user(str(card_user.get("_id")), limit=50)
     return web.json_response({"cards": [_card_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def cardex_withdrawals(request: web.Request) -> web.Response:
+    auth = _auth(request)
+    card_user = await _card_user_from_auth(auth)
+    rows = await list_withdrawals_for_user(str(card_user.get("_id")), limit=50)
+    return web.json_response({"withdrawals": [_withdrawal_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def cardex_create_withdrawal(request: web.Request) -> web.Response:
+    auth = _auth(request)
+    card_user = await _card_user_from_auth(auth)
+    body = await request.json()
+    try:
+        amount = parse_decimal(str(body.get("amount_usd") or ""))
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid withdrawal amount")
+    notes = str(body.get("notes") or "").strip()
+    if len(notes) < 3:
+        raise web.HTTPBadRequest(text="payout details are too short")
+    try:
+        row = await create_withdrawal(
+            user_id=str(card_user.get("_id")),
+            requested_usd_amount=amount,
+            payout_currency=str(body.get("payout_currency") or "USD"),
+            notes=notes,
+        )
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc) or "withdrawal rejected")
+    return web.json_response({"withdrawal": _withdrawal_payload(row)}, headers=dict(_NO_STORE_HEADERS))
 
 
 def _parse_values(raw: str) -> tuple[list[Decimal], str, Decimal | None, Decimal | None]:
@@ -294,7 +343,9 @@ def register_cardex_routes(app: web.Application) -> None:
     app.router.add_get("/mini/cardex/api/prices", cardex_prices)
     app.router.add_get("/mini/cardex/api/wallet", cardex_wallet)
     app.router.add_get("/mini/cardex/api/cards", cardex_my_cards)
+    app.router.add_get("/mini/cardex/api/withdrawals", cardex_withdrawals)
     app.router.add_post("/mini/cardex/api/prices", cardex_price_create)
     app.router.add_delete("/mini/cardex/api/prices/{rule_id}", cardex_price_delete)
     app.router.add_post("/mini/cardex/api/quote", cardex_quote_submission)
     app.router.add_post("/mini/cardex/api/submit", cardex_submit_card)
+    app.router.add_post("/mini/cardex/api/withdrawals", cardex_create_withdrawal)

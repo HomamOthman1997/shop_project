@@ -62,7 +62,7 @@ p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 }
 .tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin: 0 0 12px;
 }
@@ -91,6 +91,26 @@ input {
   outline: none;
 }
 input:focus { border-color: var(--accent); }
+select,
+textarea {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  padding: 10px 12px;
+  outline: none;
+  font: inherit;
+}
+select {
+  min-height: 46px;
+}
+textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+select:focus,
+textarea:focus { border-color: var(--accent); }
 .status {
   color: var(--muted);
   text-align: center;
@@ -267,6 +287,10 @@ input:focus { border-color: var(--accent); }
   display: block;
   margin-top: 4px;
   font-size: 24px;
+}
+.wallet-actions {
+  display: grid;
+  gap: 8px;
 }
 .muted { color: var(--muted); font-size: 12px; }
 .list { display: grid; gap: 8px; }
