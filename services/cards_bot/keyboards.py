@@ -16,6 +16,13 @@ def cardex_miniapp_url() -> str:
     return f"{raw}/mini/cardex"
 
 
+def cardex_miniapp_ready() -> bool:
+    return bool(cardex_miniapp_url()) and (
+        bool(getattr(settings, "cardex_miniapp_enabled", False))
+        or bool(getattr(settings, "digital_products_miniapp_enabled", False))
+    )
+
+
 def cards_main_menu(lang: str | None = None, *, is_admin: bool = False) -> ReplyKeyboardMarkup:
     is_ar = str(lang or "").lower().startswith("ar")
     sell = "بيع كرت" if is_ar else "Sell Card"
@@ -23,14 +30,14 @@ def cards_main_menu(lang: str | None = None, *, is_admin: bool = False) -> Reply
     my_cards = "بطاقاتي" if is_ar else "My Cards"
     withdraw = "طلب سحب" if is_ar else "Withdraw"
     my_withdrawals = "سحوباتي" if is_ar else "My Withdrawals"
-    price_sheet = "نشرة الأسعار" if is_ar else "Price Sheet"
+    price_sheet = "نشرة الأسعار (Mini App)" if is_ar and cardex_miniapp_ready() else "نشرة الأسعار" if is_ar else "Price Sheet (Mini App)" if cardex_miniapp_ready() else "Price Sheet"
     support = "الدعم" if is_ar else "Support"
     admin_panel = "لوحة الإدارة" if is_ar else "Admin Panel"
 
     miniapp_url = cardex_miniapp_url()
     price_sheet_button = (
         KeyboardButton(text=price_sheet, web_app=WebAppInfo(url=miniapp_url))
-        if bool(getattr(settings, "cardex_miniapp_enabled", False)) and miniapp_url
+        if cardex_miniapp_ready()
         else KeyboardButton(text=price_sheet)
     )
 

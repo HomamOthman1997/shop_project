@@ -45,7 +45,7 @@ from handlers.admin_services import router as admin_services_router
 from handlers.owner_requests import router as owner_requests_router
 from handlers.store_sections import router as store_sections_router
 from keyboards.main_menu_kb import _digital_store_webapp_url
-from services.cards_bot.keyboards import cardex_miniapp_url
+from services.cards_bot.keyboards import cardex_miniapp_ready, cardex_miniapp_url
 from services.cards_bot.handlers import router as card_ex_bot_router
 from handlers.language import router as language_base
 from handlers.main_menu import router as main_menu_base
@@ -1072,7 +1072,7 @@ async def _ensure_digital_store_menu_button(bot: Bot) -> None:
 
 
 async def _ensure_cardex_menu_button(bot: Bot) -> None:
-    if not bool(getattr(settings, "cardex_miniapp_enabled", False)):
+    if not cardex_miniapp_ready():
         return
     miniapp_url = cardex_miniapp_url()
     if not miniapp_url:

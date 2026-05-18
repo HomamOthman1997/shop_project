@@ -59,7 +59,22 @@ def test_cards_main_menu_uses_cardex_miniapp_when_enabled(monkeypatch):
     monkeypatch.setattr(card_keyboards.settings, "cardex_miniapp_public_url", "https://store.example.com", raising=False)
 
     kb = cards_main_menu("en")
-    price_button = next(button for row in kb.keyboard for button in row if button.text == "Price Sheet")
+    price_button = next(button for row in kb.keyboard for button in row if button.text == "Price Sheet (Mini App)")
+
+    assert price_button.web_app is not None
+    assert price_button.web_app.url == "https://store.example.com/mini/cardex"
+
+
+def test_cards_main_menu_uses_digital_miniapp_url_as_cardex_fallback(monkeypatch):
+    from services.cards_bot import keyboards as card_keyboards
+
+    monkeypatch.setattr(card_keyboards.settings, "cardex_miniapp_enabled", False, raising=False)
+    monkeypatch.setattr(card_keyboards.settings, "cardex_miniapp_public_url", "", raising=False)
+    monkeypatch.setattr(card_keyboards.settings, "digital_products_miniapp_enabled", True, raising=False)
+    monkeypatch.setattr(card_keyboards.settings, "digital_products_miniapp_public_url", "https://store.example.com", raising=False)
+
+    kb = cards_main_menu("en")
+    price_button = next(button for row in kb.keyboard for button in row if button.text == "Price Sheet (Mini App)")
 
     assert price_button.web_app is not None
     assert price_button.web_app.url == "https://store.example.com/mini/cardex"

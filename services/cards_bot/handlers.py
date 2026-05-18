@@ -104,7 +104,7 @@ _CARD_MENU_ALIASES: dict[str, tuple[str, ...]] = {
     "My Cards": ("My Cards", "بطاقاتي"),
     "Withdraw": ("Withdraw", "طلب سحب"),
     "My Withdrawals": ("My Withdrawals", "سحوباتي"),
-    "Price Sheet": ("Price Sheet", "نشرة الأسعار"),
+    "Price Sheet": ("Price Sheet", "Price Sheet (Mini App)", "نشرة الأسعار", "نشرة الأسعار (Mini App)"),
     "Support": ("Support", "الدعم"),
 }
 
