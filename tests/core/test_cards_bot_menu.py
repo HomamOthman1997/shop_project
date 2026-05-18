@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +22,34 @@ from services.cards_bot.handlers import (
     _split_message_text,
 )
 from services.cards_bot.keyboards import cards_admin_panel_kb, cards_main_menu
+
+
+def test_cardex_miniapp_quote_payload_is_json_serializable():
+    from bson import ObjectId
+    from services.cards_bot.miniapp import _quote_payload
+
+    payload = _quote_payload(
+        {
+            "configured": True,
+            "rule": {
+                "_id": ObjectId(),
+                "brand": "amazon",
+                "currency": "usd",
+                "region": "usa",
+                "denomination": 25,
+                "customer_buy_rate_percent": 80,
+                "trader_rate_percent": 78,
+            },
+            "customer_buy_rate_percent": 80,
+            "trader_rate_percent": 78,
+            "customer_value_usd": 20,
+            "trader_value_usd": 19.5,
+        }
+    )
+
+    json.dumps(payload)
+    assert payload["rule"]["id"]
+    assert payload["rule"]["brand"] == "AMAZON"
 
 
 def test_cards_main_menu_uses_arabic_labels_for_ar():

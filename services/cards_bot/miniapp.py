@@ -125,6 +125,19 @@ def _rule_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _quote_payload(quote: dict[str, Any]) -> dict[str, Any]:
+    rule = quote.get("rule")
+    return {
+        "configured": bool(quote.get("configured")),
+        "rule": _rule_payload(rule) if isinstance(rule, dict) else None,
+        "customer_buy_rate_percent": _fmt_rate(quote.get("customer_buy_rate_percent")),
+        "trader_rate_percent": _fmt_rate(quote.get("trader_rate_percent")),
+        "customer_value_usd": _money(quote.get("customer_value_usd")),
+        "trader_value_usd": _money(quote.get("trader_value_usd")),
+        "public_note": str(quote.get("public_note") or ""),
+    }
+
+
 def _money(value: Any) -> float:
     try:
         return float(Decimal(str(value or 0)).quantize(Decimal("0.01")))
@@ -615,7 +628,7 @@ async def cardex_quote_submission(request: web.Request) -> web.Response:
         currency=str(body.get("currency") or "USD"),
         region=str(body.get("region") or "GLOBAL"),
     )
-    return web.json_response({"quote": quote}, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"quote": _quote_payload(quote)}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def cardex_submit_card(request: web.Request) -> web.Response:
@@ -652,7 +665,7 @@ async def cardex_submit_card(request: web.Request) -> web.Response:
             "ok": True,
             "card_id": str((card or {}).get("_id") or ""),
             "status": str((card or {}).get("status") or ""),
-            "quote": quote,
+            "quote": _quote_payload(quote),
         },
         headers=dict(_NO_STORE_HEADERS),
     )
