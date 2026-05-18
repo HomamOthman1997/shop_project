@@ -10,21 +10,19 @@ def cards_main_menu(lang: str | None = None, *, is_admin: bool = False) -> Reply
     my_cards = "بطاقاتي" if is_ar else "My Cards"
     withdraw = "طلب سحب" if is_ar else "Withdraw"
     my_withdrawals = "سحوباتي" if is_ar else "My Withdrawals"
+    price_sheet = "نشرة الأسعار" if is_ar else "Price Sheet"
     support = "الدعم" if is_ar else "Support"
     admin_panel = "لوحة الإدارة" if is_ar else "Admin Panel"
 
-    if is_admin:
-        return ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text=admin_panel)]],
-            resize_keyboard=True,
-        )
-
     keyboard = [
         [KeyboardButton(text=sell)],
+        [KeyboardButton(text=price_sheet)],
         [KeyboardButton(text=wallet), KeyboardButton(text=my_cards)],
         [KeyboardButton(text=withdraw), KeyboardButton(text=my_withdrawals)],
         [KeyboardButton(text=support)],
     ]
+    if is_admin:
+        keyboard.insert(0, [KeyboardButton(text=admin_panel)])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
@@ -219,6 +217,16 @@ def cards_admin_panel_kb(lang: str | None = None) -> InlineKeyboardMarkup:
                     callback_data="cardx:panel:missing_pricing",
                 ),
                 InlineKeyboardButton(
+                    text="إضافة/تعديل تسعير" if is_ar else "Set Pricing",
+                    callback_data="cardx:panel:set_pricing",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="نشرة الأسعار" if is_ar else "Price Sheet",
+                    callback_data="cardx:panel:price_sheet",
+                ),
+                InlineKeyboardButton(
                     text="بطاقات للمراجعة" if is_ar else "Cards Review",
                     callback_data="cardx:panel:reviews",
                 ),
@@ -227,6 +235,16 @@ def cards_admin_panel_kb(lang: str | None = None) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="طلبات السحب" if is_ar else "Withdrawals",
                     callback_data="cardx:panel:withdrawals",
+                ),
+                InlineKeyboardButton(
+                    text="التجار" if is_ar else "Traders",
+                    callback_data="cardx:panel:traders",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="سجل التدقيق" if is_ar else "Audit Logs",
+                    callback_data="cardx:panel:audit",
                 ),
             ],
         ]

@@ -11,10 +11,12 @@ from datetime import UTC, datetime
 
 from services.cards_bot.handlers import (
     _cards_today_report_text,
+    _card_summary_text,
     _group_cards_export_files,
     _is_cards_admin,
     _is_menu_btn,
     _operation_failed_text,
+    _price_sheet_text,
 )
 from services.cards_bot.keyboards import cards_admin_panel_kb, cards_main_menu
 
@@ -40,10 +42,12 @@ def test_cards_menu_button_aliases_accept_arabic_and_english():
     assert _is_menu_btn("سحوباتي", "My Withdrawals")
 
 
-def test_cards_main_menu_shows_only_admin_panel_for_admins():
-    kb = cards_main_menu("ar", is_admin=True)
+def test_cards_main_menu_shows_admin_panel_and_card_actions_for_admins():
+    kb = cards_main_menu("en", is_admin=True)
     labels = [button.text for row in kb.keyboard for button in row]
-    assert labels == ["لوحة الإدارة"]
+    assert "Admin Panel" in labels
+    assert "Sell Card" in labels
+    assert "Price Sheet" in labels
 
 
 def test_cards_admin_panel_has_daily_export_button():
@@ -51,6 +55,8 @@ def test_cards_admin_panel_has_daily_export_button():
     callbacks = [button.callback_data for row in kb.inline_keyboard for button in row]
     assert "cardx:panel:today_report" in callbacks
     assert "cardx:panel:export_today" in callbacks
+    assert "cardx:panel:set_pricing" in callbacks
+    assert "cardx:panel:price_sheet" in callbacks
 
 
 def test_card_daily_report_summarizes_counts():
@@ -111,6 +117,66 @@ def test_cardex_operation_failed_text_does_not_expose_exception_details():
     assert "connection failed" not in text.lower()
     assert "neon.tech" not in text.lower()
     assert "try again later" in text.lower()
+
+
+def test_card_summary_includes_configured_price():
+    text = _card_summary_text(
+        "en",
+        {
+            "brand": "APPLE",
+            "denomination": "6",
+            "currency": "USD",
+            "region": "USA",
+            "code": "abc",
+            "pin": None,
+            "price_configured": True,
+            "quoted_customer_value_usd": 4.8,
+            "quoted_customer_rate_percent": 80,
+            "quoted_public_note": "Physical card only",
+        },
+    )
+
+    assert "Card price:" in text
+    assert "4.80" in text
+    assert "(80%)" in text
+    assert "Physical card only" in text
+
+
+def test_card_summary_shows_missing_price_before_confirm():
+    text = _card_summary_text(
+        "en",
+        {
+            "brand": "APPLE",
+            "denomination": "6",
+            "currency": "USD",
+            "region": "USA",
+            "code": "abc",
+            "pin": None,
+            "price_configured": False,
+        },
+    )
+
+    assert "Card price: not configured yet" in text
+
+
+def test_price_sheet_lists_rates_and_public_notes():
+    text = _price_sheet_text(
+        "en",
+        [
+            {
+                "brand": "APPLE",
+                "denomination": 6,
+                "currency": "USD",
+                "region": "USA",
+                "customer_buy_rate_percent": 80,
+                "public_note": "Physical card only",
+            }
+        ],
+    )
+
+    assert "Today's Card Prices" in text
+    assert "APPLE | 6.00 USD | USA | 80%" in text
+    assert "Physical card only" in text
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,8 @@ from services.cards_bot.keyboards import (
 from services.cards_bot.service import (
     accept_card,
     create_pricing_rule,
+    create_trader,
+    create_trader_batch,
     create_withdrawal,
     ensure_user_from_telegram,
     get_missing_pricing,
@@ -40,14 +42,20 @@ from services.cards_bot.service import (
     list_cards_for_daily_export,
     list_cards_for_review,
     list_cards_for_user,
+    list_active_pricing_rules,
+    list_audit_logs,
     list_missing_pricing,
     list_open_withdrawals,
     list_top_card_brands,
+    list_traders,
     list_withdrawals_for_user,
     parse_decimal,
+    post_trader_payment,
+    quote_card_submission,
     reject_card,
     search_card_brands,
     submit_card,
+    trader_statement,
     update_withdrawal_status,
 )
 from services.cards_bot.states import CardsAdminFlow, CardsSubmitFlow, CardsWithdrawFlow
@@ -93,6 +101,7 @@ _CARD_MENU_ALIASES: dict[str, tuple[str, ...]] = {
     "My Cards": ("My Cards", "بطاقاتي"),
     "Withdraw": ("Withdraw", "طلب سحب"),
     "My Withdrawals": ("My Withdrawals", "سحوباتي"),
+    "Price Sheet": ("Price Sheet", "نشرة الأسعار"),
     "Support": ("Support", "الدعم"),
 }
 
@@ -153,6 +162,40 @@ def _fmt_card_line(row: dict) -> str:
     )
 
 
+def _fmt_rate(value) -> str:
+    try:
+        dec = Decimal(str(value))
+    except Exception:
+        dec = Decimal("0")
+    text = format(dec.normalize(), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def _pricing_rule_public_line(row: dict) -> str:
+    brand = str(row.get("brand") or "-").upper()
+    value = f"{float(row.get('denomination') or 0):.2f} {row.get('currency') or 'USD'}"
+    region = str(row.get("region") or "GLOBAL").upper()
+    rate = _fmt_rate(row.get("customer_buy_rate_percent"))
+    note = str(row.get("public_note") or "").strip()
+    line = f"{brand} | {value} | {region} | {rate}%"
+    if note:
+        line = f"{line} | {note}"
+    return line
+
+
+def _price_sheet_text(lang: str, rows: list[dict]) -> str:
+    if not rows:
+        return _t(lang, "No card prices configured yet.", "لا توجد أسعار بطاقات مضبوطة بعد.")
+    body = "\n".join(f"- {_pricing_rule_public_line(row)}" for row in rows)
+    return _t(
+        lang,
+        f"Today's Card Prices\n\n{body}",
+        f"نشرة أسعار البطاقات اليوم\n\n{body}",
+    )
+
+
 def _decimal_label(value: Decimal) -> str:
     text = format(value.normalize(), "f")
     if "." in text:
@@ -186,7 +229,7 @@ def _remember_custom_den(data: dict, value: Decimal) -> None:
     data[CUSTOM_DEN_KEY] = values[-20:]
 
 
-def _card_summary_text(lang: str, data: dict) -> str:
+def _legacy_card_summary_text_without_price(lang: str, data: dict) -> str:
     return _t(
         lang,
         (
@@ -201,6 +244,49 @@ def _card_summary_text(lang: str, data: dict) -> str:
             "تأكيد إرسال البطاقة\n\n"
             f"النوع: {data.get('brand')}\n"
             f"القيمة: {data.get('denomination')} {data.get('currency')}\n"
+            f"المنطقة: {data.get('region')}\n"
+            f"الكود: {data.get('code')}\n"
+            f"الـ PIN: {data.get('pin') or '-'}"
+        ),
+    )
+
+
+def _card_summary_text(lang: str, data: dict) -> str:
+    price_configured = data.get("price_configured")
+    if price_configured is True:
+        price_line_en = f"Card price: {_fmt_money(data.get('quoted_customer_value_usd') or 0)}"
+        price_line_ar = f"سعر البطاقة: {_fmt_money(data.get('quoted_customer_value_usd') or 0)}"
+        rate = data.get("quoted_customer_rate_percent")
+        if rate not in (None, ""):
+            price_line_en = f"{price_line_en} ({rate}%)"
+            price_line_ar = f"{price_line_ar} ({rate}%)"
+        public_note = str(data.get("quoted_public_note") or "").strip()
+        if public_note:
+            price_line_en = f"{price_line_en}\nNote: {public_note}"
+            price_line_ar = f"{price_line_ar}\nتنويه: {public_note}"
+    elif price_configured is False:
+        price_line_en = "Card price: not configured yet"
+        price_line_ar = "سعر البطاقة: غير مضبوط بعد"
+    else:
+        price_line_en = "Card price: checking on confirm"
+        price_line_ar = "سعر البطاقة: سيتم التحقق عند التأكيد"
+
+    return _t(
+        lang,
+        (
+            "Confirm card submission\n\n"
+            f"Brand: {data.get('brand')}\n"
+            f"Value: {data.get('denomination')} {data.get('currency')}\n"
+            f"{price_line_en}\n"
+            f"Region: {data.get('region')}\n"
+            f"Code: {data.get('code')}\n"
+            f"PIN: {data.get('pin') or '-'}"
+        ),
+        (
+            "تأكيد إرسال البطاقة\n\n"
+            f"النوع: {data.get('brand')}\n"
+            f"القيمة: {data.get('denomination')} {data.get('currency')}\n"
+            f"{price_line_ar}\n"
             f"المنطقة: {data.get('region')}\n"
             f"الكود: {data.get('code')}\n"
             f"الـ PIN: {data.get('pin') or '-'}"
@@ -444,6 +530,28 @@ async def handle_card_pin(message: types.Message, state: FSMContext) -> None:
     pin = None if pin_raw in {"-", "skip", "SKIP"} else pin_raw
     await state.update_data(pin=pin)
     data = await state.get_data()
+    try:
+        denomination = parse_decimal(str(data.get("denomination") or ""))
+        quote = await quote_card_submission(
+            brand=str(data.get("brand") or ""),
+            denomination=denomination,
+            currency=str(data.get("currency") or "USD"),
+            region=str(data.get("region") or "GLOBAL"),
+        )
+        data.update(
+            {
+                "price_configured": bool(quote.get("configured")),
+                "quoted_customer_value_usd": quote.get("customer_value_usd"),
+                "quoted_customer_rate_percent": quote.get("customer_buy_rate_percent"),
+                "quoted_trader_value_usd": quote.get("trader_value_usd"),
+                "quoted_trader_rate_percent": quote.get("trader_rate_percent"),
+                "quoted_public_note": quote.get("public_note"),
+            }
+        )
+        await state.update_data(**data)
+    except Exception as exc:
+        logger.warning("Failed to quote card price before confirmation: %s", exc)
+        data["price_configured"] = None
     await message.answer(_card_summary_text(lang, data), reply_markup=confirm_submit_kb())
 
 
@@ -535,6 +643,14 @@ async def open_my_cards(message: types.Message) -> None:
     await message.answer(
         _t(lang, f"My Cards\n\n{text}", f"بطاقاتي\n\n{text}")
     )
+
+
+@router.message(F.text.func(lambda text: _is_menu_btn(text, "Price Sheet")))
+async def open_price_sheet(message: types.Message) -> None:
+    user_doc = await _ensure_global_user(message)
+    lang = _lang(user_doc)
+    rows = await list_active_pricing_rules(limit=200)
+    await message.answer(_price_sheet_text(lang, rows))
 
 
 @router.message(F.text.func(lambda text: _is_menu_btn(text, "Withdraw")))
@@ -813,6 +929,46 @@ async def open_missing_pricing_panel(callback: types.CallbackQuery, state: FSMCo
     await callback.answer()
 
 
+@router.callback_query(F.data == "cardx:panel:price_sheet")
+async def open_admin_price_sheet(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not _is_cards_admin(callback.from_user.id):
+        await callback.answer("No permission", show_alert=True)
+        return
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    lang = _lang(user_doc)
+    rows = await list_active_pricing_rules(limit=200)
+    if callback.message:
+        await callback.message.answer(_price_sheet_text(lang, rows), reply_markup=cards_admin_panel_kb(lang))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:panel:set_pricing")
+async def start_manual_pricing_entry(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not _is_cards_admin(callback.from_user.id):
+        await callback.answer("No permission", show_alert=True)
+        return
+    user_doc, _ = await _ensure_card_user(callback.from_user)
+    lang = _lang(user_doc)
+    await state.clear()
+    await state.set_state(CardsAdminFlow.waiting_pricing_entry)
+    prompt = _t(
+        lang,
+        (
+            "Send pricing as:\n"
+            "BRAND|VALUE|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE\n\n"
+            "Example:\nAPPLE|6|USD|USA|80|78|Physical card only"
+        ),
+        (
+            "أرسل التسعير بهذا الشكل:\n"
+            "BRAND|VALUE|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE\n\n"
+            "مثال:\nAPPLE|6|USD|USA|80|78|بطاقة فعلية فقط"
+        ),
+    )
+    if callback.message:
+        await callback.message.answer(prompt)
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("cardx:pricepick:"))
 async def pick_missing_pricing_row(callback: types.CallbackQuery, state: FSMContext) -> None:
     if not _is_cards_admin(callback.from_user.id):
@@ -829,8 +985,8 @@ async def pick_missing_pricing_row(callback: types.CallbackQuery, state: FSMCont
     await state.update_data(cardx_missing_pricing_id=missing_id)
     prompt = _t(
         lang,
-        f"Set rates for:\n{_missing_pricing_line(row)}\n\nSend:\nCUSTOMER|TRADER\nExample: 80|78\nOr send a single value like 80 to use it for both.",
-        f"ضبط التسعير لـ:\n{_missing_pricing_line(row)}\n\nأرسل:\nCUSTOMER|TRADER\nمثال: 80|78\nأو أرسل قيمة واحدة مثل 80 ليتم اعتمادها لكلا النسبتين.",
+        f"Set rates for:\n{_missing_pricing_line(row)}\n\nSend:\nCUSTOMER|TRADER|NOTE\nExample: 80|78|Physical card only\nOr send a single value like 80.",
+        f"ضبط التسعير لـ:\n{_missing_pricing_line(row)}\n\nأرسل:\nCUSTOMER|TRADER|NOTE\nمثال: 80|78|بطاقة فعلية فقط\nأو أرسل قيمة واحدة مثل 80.",
     )
     if callback.message:
         await callback.message.answer(prompt)
@@ -845,13 +1001,16 @@ async def save_missing_pricing_rates(message: types.Message, state: FSMContext) 
     lang = _lang(user_doc)
     payload = str(message.text or "").strip()
     parts = [part.strip() for part in payload.split("|") if part.strip()]
+    public_note = None
     try:
         if len(parts) == 1:
             customer_rate = parse_decimal(parts[0])
             trader_rate = customer_rate
-        elif len(parts) == 2:
+        elif len(parts) >= 2:
             customer_rate = parse_decimal(parts[0])
             trader_rate = parse_decimal(parts[1])
+            if len(parts) >= 3:
+                public_note = " | ".join(parts[2:]).strip() or None
         else:
             raise ValueError("invalid pricing format")
     except Exception:
@@ -878,6 +1037,7 @@ async def save_missing_pricing_rates(message: types.Message, state: FSMContext) 
         region=str(row.get("region") or "GLOBAL"),
         customer_buy_rate_percent=customer_rate,
         trader_rate_percent=trader_rate,
+        public_note=public_note,
     )
     await state.clear()
     await message.answer(
@@ -885,6 +1045,53 @@ async def save_missing_pricing_rates(message: types.Message, state: FSMContext) 
             lang,
             f"Pricing saved:\n{_missing_pricing_line(created)}\nCustomer: {created.get('customer_buy_rate_percent')}\nTrader: {created.get('trader_rate_percent')}",
             f"تم حفظ التسعير:\n{_missing_pricing_line(created)}\nالعميل: {created.get('customer_buy_rate_percent')}\nالتاجر: {created.get('trader_rate_percent')}",
+        ),
+        reply_markup=cards_admin_panel_kb(lang),
+    )
+
+
+@router.message(CardsAdminFlow.waiting_pricing_entry)
+async def save_manual_pricing_entry(message: types.Message, state: FSMContext) -> None:
+    if not _is_cards_admin(message.from_user.id):
+        return
+    user_doc = await _ensure_global_user(message)
+    lang = _lang(user_doc)
+    raw_parts = [part.strip() for part in str(message.text or "").split("|")]
+    if len(raw_parts) < 6:
+        await message.answer(
+            _t(
+                lang,
+                "Invalid format. Send BRAND|VALUE|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE",
+                "تنسيق غير صالح. أرسل BRAND|VALUE|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE",
+            )
+        )
+        return
+
+    brand, denomination_raw, currency, region, customer_raw, trader_raw, *note_parts = raw_parts
+    try:
+        denomination = parse_decimal(denomination_raw)
+        customer_rate = parse_decimal(customer_raw)
+        trader_rate = parse_decimal(trader_raw)
+    except Exception:
+        await message.answer(_t(lang, "Invalid numeric value.", "قيمة رقمية غير صالحة."))
+        return
+
+    created = await create_pricing_rule(
+        actor_user_id=str(message.from_user.id),
+        brand=brand,
+        denomination=denomination,
+        currency=currency or "USD",
+        region=region or "GLOBAL",
+        customer_buy_rate_percent=customer_rate,
+        trader_rate_percent=trader_rate,
+        public_note=" | ".join(part for part in note_parts if part).strip() or None,
+    )
+    await state.clear()
+    await message.answer(
+        _t(
+            lang,
+            f"Pricing saved:\n{_pricing_rule_public_line(created)}\nTrader: {created.get('trader_rate_percent')}%",
+            f"تم حفظ التسعير:\n{_pricing_rule_public_line(created)}\nالتاجر: {created.get('trader_rate_percent')}%",
         ),
         reply_markup=cards_admin_panel_kb(lang),
     )
@@ -922,6 +1129,137 @@ async def open_cards_withdrawals_panel(callback: types.CallbackQuery) -> None:
         if callback.message:
             await callback.message.answer(text, reply_markup=admin_withdraw_actions_kb(str(row.get("_id"))))
     await callback.answer()
+
+
+def _fmt_trader_line(row: dict) -> str:
+    return f"{row.get('_id')} | {row.get('name')} | {row.get('status')} | {row.get('notes') or '-'}"
+
+
+@router.callback_query(F.data == "cardx:panel:traders")
+async def open_cards_traders_panel(callback: types.CallbackQuery) -> None:
+    if not _is_cards_admin(callback.from_user.id):
+        await callback.answer("No permission", show_alert=True)
+        return
+    rows = await list_traders(limit=20)
+    text = "Traders\n\n" + ("\n".join(_fmt_trader_line(row) for row in rows) if rows else "No traders yet.")
+    text += (
+        "\n\nCommands:\n"
+        "/cardx_trader_create <name> | <notes>\n"
+        "/cardx_batch <trader_id> <card_id1,card_id2,...> [nosend] [notes]\n"
+        "/cardx_trader_payment <trader_id> <amount_usd> [method] [reference] [notes]\n"
+        "/cardx_trader_statement <trader_id>"
+    )
+    if callback.message:
+        await callback.message.answer(text, reply_markup=cards_admin_panel_kb("en"))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:panel:audit")
+async def open_cards_audit_panel(callback: types.CallbackQuery) -> None:
+    if not _is_cards_admin(callback.from_user.id):
+        await callback.answer("No permission", show_alert=True)
+        return
+    rows = await list_audit_logs(limit=20)
+    if not rows:
+        await callback.answer("No audit logs yet.", show_alert=True)
+        return
+    text = "Audit logs\n\n" + "\n".join(
+        f"- {row.get('created_at')} | {row.get('actor_user_id')} | {row.get('action')} | {row.get('entity_type')}:{row.get('entity_id')}"
+        for row in rows
+    )
+    if callback.message:
+        await callback.message.answer(text[:4000], reply_markup=cards_admin_panel_kb("en"))
+    await callback.answer()
+
+
+@router.message(Command("cardx_trader_create"))
+async def admin_create_card_trader(message: types.Message) -> None:
+    if not _is_cards_admin(message.from_user.id):
+        return
+    payload = str(message.text or "").partition(" ")[2].strip()
+    if not payload:
+        await message.answer("Usage: /cardx_trader_create <name> | <notes>")
+        return
+    name, sep, notes = payload.partition("|")
+    try:
+        trader = await create_trader(actor_user_id=str(message.from_user.id), name=name.strip(), notes=notes.strip() if sep else None)
+        await message.answer(f"Trader created:\n{_fmt_trader_line(trader)}", reply_markup=cards_admin_panel_kb("en"))
+    except Exception:
+        logger.exception("card-ex create trader failed actor_id=%s", message.from_user.id)
+        await message.answer("Could not create trader. Check logs.")
+
+
+@router.message(Command("cardx_batch"))
+async def admin_create_card_batch(message: types.Message) -> None:
+    if not _is_cards_admin(message.from_user.id):
+        return
+    args = str(message.text or "").split(maxsplit=3)
+    if len(args) < 3:
+        await message.answer("Usage: /cardx_batch <trader_id> <card_id1,card_id2,...> [nosend] [notes]")
+        return
+    trader_id = args[1]
+    card_ids = [part.strip() for part in args[2].split(",") if part.strip()]
+    tail = args[3] if len(args) > 3 else ""
+    mark_sent = not tail.lower().startswith("nosend")
+    notes = tail[6:].strip() if tail.lower().startswith("nosend") else tail.strip()
+    try:
+        batch = await create_trader_batch(
+            actor_user_id=str(message.from_user.id),
+            trader_id=trader_id,
+            card_ids=card_ids,
+            notes=notes or None,
+            mark_sent=mark_sent,
+        )
+        await message.answer(
+            f"Batch created: {batch.get('_id')}\nCards: {batch.get('total_count')}\nExpected: {_fmt_money(batch.get('total_expected_from_trader_usd'))}\nProfit: {_fmt_money(batch.get('gross_profit_usd'))}",
+            reply_markup=cards_admin_panel_kb("en"),
+        )
+    except Exception:
+        logger.exception("card-ex create trader batch failed actor_id=%s", message.from_user.id)
+        await message.answer("Could not create batch. Check logs.")
+
+
+@router.message(Command("cardx_trader_payment"))
+async def admin_post_card_trader_payment(message: types.Message) -> None:
+    if not _is_cards_admin(message.from_user.id):
+        return
+    args = str(message.text or "").split(maxsplit=5)
+    if len(args) < 3:
+        await message.answer("Usage: /cardx_trader_payment <trader_id> <amount_usd> [method] [reference] [notes]")
+        return
+    try:
+        payment = await post_trader_payment(
+            actor_user_id=str(message.from_user.id),
+            trader_id=args[1],
+            amount_usd=parse_decimal(args[2]),
+            method=args[3] if len(args) > 3 else None,
+            reference_no=args[4] if len(args) > 4 else None,
+            notes=args[5] if len(args) > 5 else None,
+        )
+        await message.answer(f"Trader payment recorded: {payment.get('_id')} | {_fmt_money(payment.get('amount_usd'))}")
+    except Exception:
+        logger.exception("card-ex trader payment failed actor_id=%s", message.from_user.id)
+        await message.answer("Could not record payment. Check logs.")
+
+
+@router.message(Command("cardx_trader_statement"))
+async def admin_card_trader_statement(message: types.Message) -> None:
+    if not _is_cards_admin(message.from_user.id):
+        return
+    args = str(message.text or "").split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("Usage: /cardx_trader_statement <trader_id>")
+        return
+    rows = await trader_statement(args[1].strip(), limit=50)
+    text = "Trader statement\n\n" + (
+        "\n".join(
+            f"- {row.get('created_at')} | {row.get('entry_type')} | debit={_fmt_money(row.get('debit_usd'))} credit={_fmt_money(row.get('credit_usd'))} balance={_fmt_money(row.get('running_balance_usd'))}"
+            for row in rows
+        )
+        if rows
+        else "No statement entries."
+    )
+    await message.answer(text[:4000])
 
 
 @router.callback_query(F.data == "cardx:panel:today_report")

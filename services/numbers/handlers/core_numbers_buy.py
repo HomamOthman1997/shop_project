@@ -473,6 +473,25 @@ async def _show_main_menu_message(message: types.Message, lang: str) -> None:
     await message.answer(t(lang, "main_menu"), reply_markup=await menu_for_current_bot(lang, bot_id))
 
 
+async def _show_purchase_failed_then_main_menu(
+    message: types.Message,
+    state: FSMContext,
+    lang: str,
+) -> None:
+    await _best_effort_edit_text(
+        message,
+        t(lang, "purchase_failed").format(error=provider_generic_error(lang)),
+    )
+    try:
+        await state.clear()
+    except Exception as exc:
+        logger.warning("Failed to clear number purchase state after provider failure: %s", exc)
+    try:
+        await _show_main_menu_message(message, lang)
+    except Exception as exc:
+        logger.warning("Failed to show main menu after provider failure: %s", exc)
+
+
 async def _return_after_rental_exit_message(
     message: types.Message,
     state: FSMContext,
@@ -2959,10 +2978,9 @@ async def rent_confirm_process(callback: types.CallbackQuery, state: FSMContext)
             logger.warning("Provider rental failed for user %s: %s", user_id, err_text)
         else:
             logger.exception("Provider rental failed for user %s: %s", user_id, err_text)
-        await _best_effort_edit_text(
-            callback.message,
-            t(lang, "purchase_failed").format(error=provider_generic_error(lang)),
-        )
+        await _show_purchase_failed_then_main_menu(callback.message, state, lang)
+        state_cleared = True
+        inflight_locked = False
     finally:
         if inflight_locked and not state_cleared:
             await state.update_data(rent_confirm_inflight=False)
@@ -3548,10 +3566,9 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
             logger.warning("Provider buy failed for user %s: %s", user_id, err_text)
         else:
             logger.exception("Provider buy failed for user %s: %s", user_id, err_text)
-        await _best_effort_edit_text(
-            callback.message,
-            t(lang, "purchase_failed").format(error=provider_generic_error(lang)),
-        )
+        await _show_purchase_failed_then_main_menu(callback.message, state, lang)
+        state_cleared = True
+        inflight_locked = False
     finally:
         if inflight_locked and not state_cleared:
             await state.update_data(buy_confirm_inflight=False)

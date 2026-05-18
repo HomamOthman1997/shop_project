@@ -173,8 +173,10 @@ async def test_confirm_buy_does_not_retry_without_state(monkeypatch):
             self.bot = _DummyBot()
             self.chat = type("Chat", (), {"id": 10})()
             self.message_id = 20
+            self.answers = []
 
         async def answer(self, *args, **kwargs):
+            self.answers.append((args, kwargs))
             return None
 
         async def edit_text(self, *args, **kwargs):
@@ -219,12 +221,17 @@ async def test_confirm_buy_does_not_retry_without_state(monkeypatch):
     monkeypatch.setattr(hb, "get_user_wallet_balance", _fake_balance)
     monkeypatch.setattr(hb, "_best_effort_edit_text", _fake_best_effort)
     monkeypatch.setattr(hb, "buy_number_from_provider", _fake_buy_number_from_provider)
+    monkeypatch.setattr(hb, "menu_for_current_bot", lambda *args, **kwargs: __import__("asyncio").sleep(0, result="MENU_KB"))
 
-    await hb.confirm_buy_process(_DummyCallback(), _DummyState())
+    callback = _DummyCallback()
+    state = _DummyState()
+    await hb.confirm_buy_process(callback, state)
 
     assert len(calls["buy"]) == 1
     assert calls["buy"][0]["state"] == "CA"
     assert calls["status"] == ("oid-temp", "refunded")
+    assert state.data == {}
+    assert callback.message.answers[-1][1]["reply_markup"] == "MENU_KB"
 
 
 @pytest.mark.asyncio

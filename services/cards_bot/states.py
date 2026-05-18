@@ -19,3 +19,4 @@ class CardsWithdrawFlow(StatesGroup):
 
 class CardsAdminFlow(StatesGroup):
     waiting_pricing_rates = State()
+    waiting_pricing_entry = State()

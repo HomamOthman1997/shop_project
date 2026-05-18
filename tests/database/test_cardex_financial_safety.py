@@ -18,6 +18,12 @@ class _AsyncCursor:
         self.rows = self.rows[: int(n)]
         return self
 
+    def sort(self, *args, **kwargs):
+        return self
+
+    async def to_list(self, length=None):
+        return [dict(row) for row in self.rows[:length]]
+
     def __aiter__(self):
         self._idx = 0
         return self
@@ -108,6 +114,12 @@ class _FakeDb:
         self.cardex_cards = _FakeCollection()
         self.cardex_ledger = _FakeCollection(unique_idempotency=True)
         self.cardex_withdrawals = _FakeCollection()
+        self.cardex_card_status_history = _FakeCollection()
+        self.cardex_audit_logs = _FakeCollection()
+        self.cardex_traders = _FakeCollection()
+        self.cardex_trader_batches = _FakeCollection()
+        self.cardex_trader_ledger = _FakeCollection()
+        self.cardex_trader_payments = _FakeCollection()
 
 
 @pytest.fixture
@@ -206,3 +218,30 @@ async def test_create_withdrawal_locks_available_balance_once(fake_cardex_db):
     assert wallet["available_usd"] == 2.0
     assert wallet["locked_usd"] == 8.0
     assert len(fake_cardex_db.cardex_withdrawals.rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_trader_batch_marks_cards_and_records_statement(fake_cardex_db):
+    trader = await cardex_repo.create_trader(actor_user_id="admin", name="Trader One")
+    fake_cardex_db.cardex_cards.rows.append(
+        {
+            "_id": "card-batch-1",
+            "seller_user_id": "seller-1",
+            "status": "customer_available_credit",
+            "denomination": 10.0,
+            "customer_value_usd": 8.0,
+            "trader_value_usd": 8.5,
+        }
+    )
+
+    batch = await cardex_repo.create_trader_batch(
+        actor_user_id="admin",
+        trader_id=str(trader["_id"]),
+        card_ids=["card-batch-1"],
+    )
+    statement = await cardex_repo.trader_statement(str(trader["_id"]))
+
+    assert batch["total_count"] == 1
+    assert fake_cardex_db.cardex_cards.rows[0]["status"] == "sent_to_trader"
+    assert statement[0]["entry_type"] == "cards_sent"
+    assert statement[0]["running_balance_usd"] == 8.5
