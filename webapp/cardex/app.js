@@ -140,6 +140,20 @@ function closeAdminForm() {
   adminFormHandler = null;
 }
 
+function openAdminInfo({ title, subtitle = "", text = "" }) {
+  adminForm.reset();
+  adminFormTitle.textContent = title;
+  adminFormSubtitle.textContent = subtitle;
+  adminFormSubtitle.classList.toggle("hidden", !subtitle);
+  adminFormSubmit.textContent = "Close";
+  const pre = document.createElement("pre");
+  pre.className = "info-box";
+  pre.textContent = text;
+  adminFormFields.replaceChildren(pre);
+  adminFormHandler = async () => {};
+  adminFormModal.classList.remove("hidden");
+}
+
 function heading(title, subtitle = "") {
   const box = document.createElement("div");
   box.className = "section-title";
@@ -494,9 +508,9 @@ async function renderAdmin() {
       item.append(button("primary", "Copy", async () => {
         try {
           await copyText(row.content || "");
-          alert("Export copied.");
+          statusEl.textContent = "Export copied.";
         } catch (err) {
-          alert(row.content || "No export content.");
+          openAdminInfo({ title: row.filename, text: row.content || "No export content." });
         }
       }));
       exportsList.append(item);
@@ -708,23 +722,29 @@ async function deleteRule(id) {
 }
 
 async function updateAdminCard(id, action) {
-  const notes = prompt("Notes (optional)") || "";
-  try {
-    await api(`/mini/cardex/api/admin/cards/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action, notes }) });
-    await renderAdmin();
-  } catch (err) {
-    alert("Could not update this card.");
-  }
+  openAdminForm({
+    title: `${statusLabel(action)} card`,
+    subtitle: id,
+    submitText: statusLabel(action),
+    fields: [{ name: "notes", label: "Notes", type: "textarea", placeholder: "Optional" }],
+    onSubmit: async (body) => {
+      await api(`/mini/cardex/api/admin/cards/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action, notes: body.notes || "" }) });
+      await renderAdmin();
+    },
+  });
 }
 
 async function updateAdminWithdrawal(id, action) {
-  const notes = prompt("Notes (optional)") || "";
-  try {
-    await api(`/mini/cardex/api/admin/withdrawals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action, notes }) });
-    await renderAdmin();
-  } catch (err) {
-    alert("Could not update this withdrawal.");
-  }
+  openAdminForm({
+    title: `${statusLabel(action)} withdrawal`,
+    subtitle: id,
+    submitText: statusLabel(action),
+    fields: [{ name: "notes", label: "Notes", type: "textarea", placeholder: "Optional" }],
+    onSubmit: async (body) => {
+      await api(`/mini/cardex/api/admin/withdrawals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action, notes: body.notes || "" }) });
+      await renderAdmin();
+    },
+  });
 }
 
 async function setMissingPricing(row) {
@@ -779,7 +799,7 @@ async function recordTraderPayment(row) {
         method: "POST",
         body: JSON.stringify(body),
       });
-      await showTraderStatement(row);
+      window.setTimeout(() => showTraderStatement(row), 0);
     },
   });
 }
@@ -799,8 +819,14 @@ async function createTraderBatch(row) {
         body: JSON.stringify({ ...body, mark_sent: true }),
       });
       const batch = data.batch || {};
-      alert(`Batch created: ${batch.id}\nCards: ${batch.total_count}\nExpected: ${money(batch.total_expected_from_trader_usd)}\nProfit: ${money(batch.gross_profit_usd)}`);
       await renderAdmin();
+      window.setTimeout(() => {
+        openAdminInfo({
+          title: "Batch created",
+          subtitle: row.name,
+          text: `Reference: ${batch.id}\nCards: ${batch.total_count}\nExpected: ${money(batch.total_expected_from_trader_usd)}\nProfit: ${money(batch.gross_profit_usd)}`,
+        });
+      }, 0);
     },
   });
 }
@@ -811,9 +837,9 @@ async function showTraderStatement(row) {
     const lines = (data.statement || []).map((item) => {
       return `${statusLabel(item.entry_type)} | debit ${money(item.debit_usd)} | credit ${money(item.credit_usd)} | balance ${money(item.running_balance_usd)}`;
     });
-    alert(`${row.name} statement\n\n${lines.length ? lines.join("\n") : "No statement entries."}`);
+    openAdminInfo({ title: "Trader statement", subtitle: row.name, text: lines.length ? lines.join("\n") : "No statement entries." });
   } catch (err) {
-    alert("Could not load trader statement.");
+    openAdminInfo({ title: "Trader statement", subtitle: row.name, text: "Could not load trader statement." });
   }
 }
 

@@ -339,6 +339,17 @@ textarea:focus { border-color: var(--accent); }
   display: grid;
   gap: 10px;
 }
+.info-box {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 .actions {
   display: flex;
   flex-wrap: wrap;
