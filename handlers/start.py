@@ -362,6 +362,8 @@ async def start_cmd(
             await _open_numbers_start_menu(message, state, lang=lang)
             _log_start_perf(started_at=started_at, user_id=user_id, bot_id=bot_id, outcome="numbers_start_menu", stage_ms=stage_ms)
             return
+        if is_card_ex_runtime_bot:
+            await _hide_reply_keyboard(message, lang)
         stage_started = monotonic()
         await message.answer(
             t(lang, "main_menu"),
@@ -468,6 +470,7 @@ async def _forced_start_flow(message: types.Message, state: FSMContext):
             await set_user_reseller_for_bot(message.from_user.id, bot_id, inferred_reseller_id)
 
     main_bot_id = await _resolve_main_bot_id()
+    is_card_ex_runtime_bot = await is_card_ex_bot(bot_id)
     inferred_reseller_id = bot_context.get("reseller_id")
     if inferred_reseller_id and user.get("reseller_id") != inferred_reseller_id:
         await set_user_reseller_for_bot(message.from_user.id, bot_id, inferred_reseller_id)
@@ -481,7 +484,9 @@ async def _forced_start_flow(message: types.Message, state: FSMContext):
         await _open_numbers_start_menu(message, state, lang=lang)
         return
 
-    if (isinstance(main_bot_id, int) and bot_id == main_bot_id) or is_digital_products_runtime_bot:
+    if (isinstance(main_bot_id, int) and bot_id == main_bot_id) or is_digital_products_runtime_bot or is_card_ex_runtime_bot:
+        if is_card_ex_runtime_bot:
+            await _hide_reply_keyboard(message, lang)
         await message.answer(
             t(lang, "main_menu"),
             reply_markup=await menu_for_current_bot(lang, bot_id, user_id=message.from_user.id)

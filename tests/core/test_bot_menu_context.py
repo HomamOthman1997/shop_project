@@ -184,9 +184,9 @@ async def test_menu_for_current_bot_uses_cards_menu_before_reseller_menu(monkeyp
     monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _true)
 
     kb = await bot_menu_context.menu_for_current_bot("ar", 123)
-    labels = [btn.text for row in kb.keyboard for btn in row]
+    labels = [btn.text for row in kb.inline_keyboard for btn in row]
 
-    assert labels == [btn.text for row in cards_main_menu("ar").keyboard for btn in row]
+    assert labels == [btn.text for row in cards_main_menu("ar").inline_keyboard for btn in row]
 
 
 @pytest.mark.asyncio
@@ -205,9 +205,9 @@ async def test_menu_for_current_bot_shows_card_admin_button_for_admin_user(monke
     monkeypatch.setattr(bot_menu_context, "_cardex_admin_ids", lambda: {10})
 
     kb = await bot_menu_context.menu_for_current_bot("ar", 123, user_id=10)
-    labels = [btn.text for row in kb.keyboard for btn in row]
+    labels = [btn.text for row in kb.inline_keyboard for btn in row]
 
-    assert labels == [btn.text for row in cards_main_menu("ar", is_admin=True).keyboard for btn in row]
+    assert labels == [btn.text for row in cards_main_menu("ar", is_admin=True).inline_keyboard for btn in row]
     assert labels[0] == "لوحة الإدارة"
 
 

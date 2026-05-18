@@ -179,6 +179,19 @@ def _cards_menu(lang: str, user_id: int):
     return cards_main_menu(lang, is_admin=_is_cards_admin(user_id), user_id=int(user_id))
 
 
+class _CallbackMessageProxy:
+    def __init__(self, callback: types.CallbackQuery) -> None:
+        self.from_user = callback.from_user
+        self.chat = getattr(callback.message, "chat", None)
+        self.bot = callback.bot
+        self._message = callback.message
+
+    async def answer(self, *args, **kwargs):
+        if not self._message:
+            return None
+        return await self._message.answer(*args, **kwargs)
+
+
 def _fmt_money(value) -> str:
     return format_usd(value)
 
@@ -427,13 +440,15 @@ async def _open_brand_picker(message: types.Message, *, lang: str) -> None:
     )
 
 
-@router.message(F.text.func(lambda text: _is_menu_btn(text, "Sell Card")))
-async def open_sell_card(message: types.Message, state: FSMContext) -> None:
-    user_doc = await _ensure_global_user(message)
+@router.callback_query(F.data == "cardx:menu:sell")
+async def open_sell_card(callback: types.CallbackQuery, state: FSMContext) -> None:
+    user_doc, _ = await _ensure_card_user(callback.from_user)
     lang = _lang(user_doc)
     await state.clear()
     await state.set_state(CardsSubmitFlow.waiting_brand)
-    await _open_brand_picker(message, lang=lang)
+    if callback.message:
+        await _open_brand_picker(callback.message, lang=lang)
+    await callback.answer()
 
 
 @router.callback_query(F.data == "cardx:brandtop")
@@ -732,7 +747,6 @@ async def cancel_card_flow(callback: types.CallbackQuery, state: FSMContext) -> 
     await callback.answer()
 
 
-@router.message(F.text.func(lambda text: _is_menu_btn(text, "Wallet")))
 async def open_wallet(message: types.Message) -> None:
     user_doc, card_user = await _ensure_card_user(message.from_user)
     lang = _lang(user_doc)
@@ -756,7 +770,6 @@ async def open_wallet(message: types.Message) -> None:
     )
 
 
-@router.message(F.text.func(lambda text: _is_menu_btn(text, "My Cards")))
 async def open_my_cards(message: types.Message) -> None:
     user_doc, card_user = await _ensure_card_user(message.from_user)
     lang = _lang(user_doc)
@@ -768,7 +781,6 @@ async def open_my_cards(message: types.Message) -> None:
     await _answer_long_text(message, _t(lang, f"My Cards\n\n{text}", f"بطاقاتي\n\n{text}"))
 
 
-@router.message(F.text.func(lambda text: _is_menu_btn(text, "Price Sheet")))
 async def open_price_sheet(message: types.Message) -> None:
     user_doc = await _ensure_global_user(message)
     lang = _lang(user_doc)
@@ -786,7 +798,6 @@ async def open_price_sheet(message: types.Message) -> None:
     await _answer_long_text(message, _price_sheet_text(lang, rows))
 
 
-@router.message(F.text.func(lambda text: _is_menu_btn(text, "Withdraw")))
 async def start_withdraw(message: types.Message, state: FSMContext) -> None:
     user_doc = await _ensure_global_user(message)
     lang = _lang(user_doc)
@@ -881,7 +892,6 @@ async def confirm_withdraw(callback: types.CallbackQuery, state: FSMContext) -> 
     await callback.answer()
 
 
-@router.message(F.text.func(lambda text: _is_menu_btn(text, "My Withdrawals")))
 async def open_my_withdrawals(message: types.Message) -> None:
     user_doc, card_user = await _ensure_card_user(message.from_user)
     lang = _lang(user_doc)
@@ -896,7 +906,6 @@ async def open_my_withdrawals(message: types.Message) -> None:
     await _answer_long_text(message, _t(lang, "My Withdrawals\n\n" + "\n".join(lines), "طلبات السحب\n\n" + "\n".join(lines)))
 
 
-@router.message(F.text.func(lambda text: _is_menu_btn(text, "Support")))
 async def open_support(message: types.Message) -> None:
     user_doc = await _ensure_global_user(message)
     lang = _lang(user_doc)
@@ -907,6 +916,48 @@ async def open_support(message: types.Message) -> None:
             "الدعم\n\nلمشاكل البطاقات أو التسعير أو السحب، أرسل رسالة مفصلة إلى الدعم.",
         )
     )
+
+
+@router.callback_query(F.data == "cardx:menu:wallet")
+async def open_wallet_callback(callback: types.CallbackQuery) -> None:
+    if callback.message:
+        await open_wallet(_CallbackMessageProxy(callback))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:menu:mycards")
+async def open_my_cards_callback(callback: types.CallbackQuery) -> None:
+    if callback.message:
+        await open_my_cards(_CallbackMessageProxy(callback))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:menu:prices")
+async def open_price_sheet_callback(callback: types.CallbackQuery) -> None:
+    if callback.message:
+        await open_price_sheet(_CallbackMessageProxy(callback))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:menu:withdraw")
+async def start_withdraw_callback(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if callback.message:
+        await start_withdraw(_CallbackMessageProxy(callback), state)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:menu:mywithdrawals")
+async def open_my_withdrawals_callback(callback: types.CallbackQuery) -> None:
+    if callback.message:
+        await open_my_withdrawals(_CallbackMessageProxy(callback))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cardx:menu:support")
+async def open_support_callback(callback: types.CallbackQuery) -> None:
+    if callback.message:
+        await open_support(_CallbackMessageProxy(callback))
+    await callback.answer()
 
 
 def _admin_panel_text(lang: str) -> str:
@@ -1023,7 +1074,6 @@ async def _open_cards_admin_panel(target, *, lang: str) -> None:
 
 
 @router.message(Command("cards_admin"))
-@router.message(F.text.func(lambda text: _is_btn(text, "Admin Panel") or _is_btn(text, "لوحة الإدارة")))
 async def open_cards_admin_panel_message(message: types.Message, state: FSMContext) -> None:
     if not _is_cards_admin(message.from_user.id):
         return

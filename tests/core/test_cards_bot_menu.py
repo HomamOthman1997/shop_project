@@ -24,7 +24,7 @@ from services.cards_bot.handlers import (
     _parse_denomination_group,
     _split_message_text,
 )
-from services.cards_bot.keyboards import cardex_miniapp_kb, cards_admin_panel_kb, cards_main_menu
+from services.cards_bot.keyboards import cards_admin_panel_kb, cards_main_menu
 
 
 def test_cardex_miniapp_quote_payload_is_json_serializable():
@@ -89,7 +89,7 @@ def test_cardex_miniapp_optional_auth_allows_public_prices_without_init_data(mon
 
 def test_cards_main_menu_uses_arabic_labels_for_ar():
     kb = cards_main_menu("ar")
-    labels = [button.text for row in kb.keyboard for button in row]
+    labels = [button.text for row in kb.inline_keyboard for button in row]
     assert "بيع كرت" in labels
     assert "بطاقات وقسائم" not in labels
     assert "المحفظة" in labels
@@ -110,7 +110,7 @@ def test_cards_menu_button_aliases_accept_arabic_and_english():
 
 def test_cards_main_menu_shows_admin_panel_and_card_actions_for_admins():
     kb = cards_main_menu("en", is_admin=True)
-    labels = [button.text for row in kb.keyboard for button in row]
+    labels = [button.text for row in kb.inline_keyboard for button in row]
     assert "Admin Panel" in labels
     assert "Sell Card" in labels
     assert "Price Sheet" in labels
@@ -123,12 +123,10 @@ def test_cards_main_menu_uses_cardex_miniapp_when_enabled(monkeypatch):
     monkeypatch.setattr(card_keyboards.settings, "cardex_miniapp_public_url", "https://store.example.com", raising=False)
 
     kb = cards_main_menu("en")
-    price_button = next(button for row in kb.keyboard for button in row if button.text == "Price Sheet (Mini App)")
+    price_button = next(button for row in kb.inline_keyboard for button in row if button.text == "Price Sheet (Mini App)")
 
-    assert price_button.web_app is None
-    inline_button = cardex_miniapp_kb("en").inline_keyboard[0][0]
-    assert inline_button.web_app is not None
-    assert inline_button.web_app.url == "https://store.example.com/mini/cardex"
+    assert price_button.web_app is not None
+    assert price_button.web_app.url == "https://store.example.com/mini/cardex"
 
 
 def test_cards_main_menu_uses_digital_miniapp_url_as_cardex_fallback(monkeypatch):
@@ -140,12 +138,10 @@ def test_cards_main_menu_uses_digital_miniapp_url_as_cardex_fallback(monkeypatch
     monkeypatch.setattr(card_keyboards.settings, "digital_products_miniapp_public_url", "https://store.example.com", raising=False)
 
     kb = cards_main_menu("en")
-    price_button = next(button for row in kb.keyboard for button in row if button.text == "Price Sheet (Mini App)")
+    price_button = next(button for row in kb.inline_keyboard for button in row if button.text == "Price Sheet (Mini App)")
 
-    assert price_button.web_app is None
-    inline_button = cardex_miniapp_kb("en").inline_keyboard[0][0]
-    assert inline_button.web_app is not None
-    assert inline_button.web_app.url == "https://store.example.com/mini/cardex"
+    assert price_button.web_app is not None
+    assert price_button.web_app.url == "https://store.example.com/mini/cardex"
 
 
 def test_cards_admin_panel_has_daily_export_button():

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from config import settings
 
@@ -33,7 +33,7 @@ def cardex_miniapp_kb(lang: str | None = None) -> InlineKeyboardMarkup:
     )
 
 
-def cards_main_menu(lang: str | None = None, *, is_admin: bool = False, user_id: int | None = None) -> ReplyKeyboardMarkup:
+def cards_main_menu(lang: str | None = None, *, is_admin: bool = False, user_id: int | None = None) -> InlineKeyboardMarkup:
     is_ar = str(lang or "").lower().startswith("ar")
     sell = "بيع كرت" if is_ar else "Sell Card"
     wallet = "المحفظة" if is_ar else "Wallet"
@@ -44,16 +44,27 @@ def cards_main_menu(lang: str | None = None, *, is_admin: bool = False, user_id:
     support = "الدعم" if is_ar else "Support"
     admin_panel = "لوحة الإدارة" if is_ar else "Admin Panel"
 
+    price_button = (
+        InlineKeyboardButton(text=price_sheet, web_app=WebAppInfo(url=cardex_miniapp_url()))
+        if cardex_miniapp_ready()
+        else InlineKeyboardButton(text=price_sheet, callback_data="cardx:menu:prices")
+    )
     keyboard = [
-        [KeyboardButton(text=sell)],
-        [KeyboardButton(text=price_sheet)],
-        [KeyboardButton(text=wallet), KeyboardButton(text=my_cards)],
-        [KeyboardButton(text=withdraw), KeyboardButton(text=my_withdrawals)],
-        [KeyboardButton(text=support)],
+        [InlineKeyboardButton(text=sell, callback_data="cardx:menu:sell")],
+        [price_button],
+        [
+            InlineKeyboardButton(text=wallet, callback_data="cardx:menu:wallet"),
+            InlineKeyboardButton(text=my_cards, callback_data="cardx:menu:mycards"),
+        ],
+        [
+            InlineKeyboardButton(text=withdraw, callback_data="cardx:menu:withdraw"),
+            InlineKeyboardButton(text=my_withdrawals, callback_data="cardx:menu:mywithdrawals"),
+        ],
+        [InlineKeyboardButton(text=support, callback_data="cardx:menu:support")],
     ]
     if is_admin:
-        keyboard.insert(0, [KeyboardButton(text=admin_panel)])
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+        keyboard.insert(0, [InlineKeyboardButton(text=admin_panel, callback_data="cardx:panel:open")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def submit_brand_kb(top_brands: list[str]) -> InlineKeyboardMarkup:
