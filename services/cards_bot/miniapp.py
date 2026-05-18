@@ -24,6 +24,7 @@ from services.cards_bot.service import (
     list_cards_for_review,
     list_cards_for_daily_export,
     list_cards_for_user,
+    list_audit_logs,
     list_missing_pricing,
     list_open_withdrawals,
     list_traders,
@@ -221,6 +222,31 @@ def _trader_statement_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _audit_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("_id") or ""),
+        "actor_user_id": str(row.get("actor_user_id") or ""),
+        "action": str(row.get("action") or ""),
+        "entity_type": str(row.get("entity_type") or ""),
+        "entity_id": str(row.get("entity_id") or ""),
+        "created_at": str(row.get("created_at") or ""),
+    }
+
+
+def _count_by(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        label = str(row.get(key) or "UNKNOWN").upper().strip() or "UNKNOWN"
+        counts[label] = counts.get(label, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _today_window() -> tuple[datetime, datetime]:
+    now = datetime.now(timezone.utc)
+    start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+    return start, start + timedelta(days=1)
+
+
 def _auth_full_name(user: dict[str, Any]) -> str | None:
     return " ".join(str(user.get(part) or "").strip() for part in ("first_name", "last_name")).strip() or None
 
@@ -287,6 +313,8 @@ async def cardex_withdrawals(request: web.Request) -> web.Response:
 async def cardex_admin_queue(request: web.Request) -> web.Response:
     _auth(request, require_admin=True)
     cards = await list_cards_for_review(limit=50)
+    today_since, today_until = _today_window()
+    today_cards = await list_cards_for_daily_export(since=today_since, until=today_until, limit=2000)
     batchable_cards = await list_cards_for_daily_export(
         since=datetime(2020, 1, 1, tzinfo=timezone.utc),
         until=datetime.now(timezone.utc) + timedelta(days=1),
@@ -300,13 +328,26 @@ async def cardex_admin_queue(request: web.Request) -> web.Response:
     withdrawals = await list_open_withdrawals(limit=50)
     missing = await list_missing_pricing(limit=50)
     traders = await list_traders(limit=50)
+    audit_logs = await list_audit_logs(limit=20)
     return web.json_response(
         {
+            "today_report": {
+                "date": today_since.strftime("%Y-%m-%d"),
+                "cards_total": len(today_cards),
+                "pending_reviews": len(cards),
+                "missing_pricing": len(missing),
+                "open_withdrawals": len(withdrawals),
+                "by_status": _count_by(today_cards, "status"),
+                "by_brand": _count_by(today_cards, "brand"),
+                "customer_value_usd": _money(sum(Decimal(str(row.get("customer_value_usd") or 0)) for row in today_cards)),
+                "trader_value_usd": _money(sum(Decimal(str(row.get("trader_value_usd") or 0)) for row in today_cards)),
+            },
             "cards": [_admin_card_payload(row) for row in cards],
             "batchable_cards": [_admin_card_payload(row) for row in batchable_cards],
             "withdrawals": [_withdrawal_payload(row) for row in withdrawals],
             "missing_pricing": [_missing_pricing_payload(row) for row in missing],
             "traders": [_trader_payload(row) for row in traders],
+            "audit_logs": [_audit_payload(row) for row in audit_logs],
         },
         headers=dict(_NO_STORE_HEADERS),
     )

@@ -387,6 +387,10 @@ function adminTraderActions(row) {
   return actions;
 }
 
+function miniList(items) {
+  return Object.entries(items || {}).map(([key, value]) => `${key}: ${value}`).join(" - ") || "none";
+}
+
 async function renderAdmin() {
   if (!state.isAdmin) return loadPrices();
   setActiveTab(adminTab);
@@ -398,6 +402,22 @@ async function renderAdmin() {
     const data = await api("/mini/cardex/api/admin/queue");
     clear();
     content.append(heading("Admin Queue", "Review submitted cards and open withdrawals"));
+
+    const report = data.today_report || {};
+    const reportTitle = document.createElement("div");
+    reportTitle.className = "section-title";
+    reportTitle.innerHTML = "<h2>Today Report</h2>";
+    content.append(reportTitle);
+    const reportBox = document.createElement("article");
+    reportBox.className = "rule";
+    reportBox.innerHTML = `
+      <div class="rule-top"><span class="value">${report.date || ""}</span><span class="rate">${report.cards_total || 0} cards</span></div>
+      <div class="muted">Pending ${report.pending_reviews || 0} - Missing ${report.missing_pricing || 0} - Withdrawals ${report.open_withdrawals || 0}</div>
+      <div class="note">Customer value ${money(report.customer_value_usd)} - Trader value ${money(report.trader_value_usd)}</div>
+      <div class="note">Status: ${miniList(report.by_status)}</div>
+      <div class="note">Brands: ${miniList(report.by_brand)}</div>
+    `;
+    content.append(reportBox);
 
     const cardTitle = document.createElement("div");
     cardTitle.className = "section-title";
@@ -497,6 +517,24 @@ async function renderAdmin() {
     }
     if (!traders.children.length) traders.append(emptyLine("No traders yet."));
     content.append(traders);
+
+    const auditTitle = document.createElement("div");
+    auditTitle.className = "section-title";
+    auditTitle.innerHTML = "<h2>Audit Logs</h2>";
+    content.append(auditTitle);
+    const audit = document.createElement("div");
+    audit.className = "list";
+    for (const row of data.audit_logs || []) {
+      const item = document.createElement("article");
+      item.className = "rule";
+      item.innerHTML = `
+        <div class="rule-top"><span class="value">${statusLabel(row.action)}</span><span class="rate">${row.actor_user_id}</span></div>
+        <div class="muted">${row.entity_type}:${row.entity_id}</div>
+      `;
+      audit.append(item);
+    }
+    if (!audit.children.length) audit.append(emptyLine("No audit logs yet."));
+    content.append(audit);
   } catch (err) {
     clear();
     setError("Could not load admin queue.");
