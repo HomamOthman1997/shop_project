@@ -45,6 +45,7 @@ from handlers.admin_services import router as admin_services_router
 from handlers.owner_requests import router as owner_requests_router
 from handlers.store_sections import router as store_sections_router
 from keyboards.main_menu_kb import _digital_store_webapp_url
+from services.cards_bot.keyboards import cardex_miniapp_url
 from services.cards_bot.handlers import router as card_ex_bot_router
 from handlers.language import router as language_base
 from handlers.main_menu import router as main_menu_base
@@ -1070,6 +1071,21 @@ async def _ensure_digital_store_menu_button(bot: Bot) -> None:
         )
 
 
+async def _ensure_cardex_menu_button(bot: Bot) -> None:
+    if not bool(getattr(settings, "cardex_miniapp_enabled", False)):
+        return
+    miniapp_url = cardex_miniapp_url()
+    if not miniapp_url:
+        return
+    with suppress(Exception):
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="CardEX",
+                web_app=WebAppInfo(url=miniapp_url),
+            )
+        )
+
+
 def _mask_bot_id_from_token(token: str) -> str:
     prefix = str(token or "").split(":", 1)[0].strip()
     return prefix if prefix else "unknown"
@@ -1137,6 +1153,9 @@ async def _start_polling_group(name: str, dp: Dispatcher, token_map: dict[int, s
     if name == "digital-products":
         for bot in bots:
             await _ensure_digital_store_menu_button(bot)
+    if name == "card-ex":
+        for bot in bots:
+            await _ensure_cardex_menu_button(bot)
 
     async def _runner() -> None:
         await dp.start_polling(*bots)

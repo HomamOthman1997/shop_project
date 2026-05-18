@@ -210,10 +210,12 @@ def _fmt_rate(value) -> str:
 def _pricing_rule_public_line(row: dict) -> str:
     brand = str(row.get("brand") or "-").upper()
     value_label = str(row.get("denomination_label") or "").strip()
+    if not value_label and row.get("range_min") is not None and row.get("range_max") is not None:
+        value_label = f"{_fmt_rate(row.get('range_min'))} --> {_fmt_rate(row.get('range_max'))}"
     if not value_label:
         values = row.get("denominations")
         if isinstance(values, list) and values:
-            value_label = "-".join(_fmt_rate(item) for item in values)
+            value_label = _denomination_label_from_values(values)
     if not value_label:
         value_label = f"{float(row.get('denomination') or 0):.2f}"
     value = f"{value_label} {row.get('currency') or 'USD'}"
@@ -270,7 +272,7 @@ def _pricing_sheet_rows(rows: list[dict], *, admin: bool = False) -> list[str]:
         except Exception:
             values = []
         if values:
-            row["denomination_label"] = "-".join(_fmt_rate(item) for item in values)
+            row["denomination_label"] = _denomination_label_from_values(values)
             row["denomination"] = float(values[0])
         if admin:
             ids = ",".join(row.get("_ids") or [])
@@ -291,14 +293,30 @@ def _admin_price_sheet_text(lang: str, rows: list[dict]) -> str:
     )
 
 
-def _parse_denomination_group(text: str) -> tuple[list[Decimal], str]:
-    label = str(text or "").strip().replace(",", "-").replace("/", "-")
+def _denomination_label_from_values(values: list | tuple | set) -> str:
+    decimals = sorted({Decimal(str(item)) for item in values})
+    if len(decimals) >= 3 and all(decimals[idx] - decimals[idx - 1] == Decimal("1") for idx in range(1, len(decimals))):
+        return f"{_fmt_rate(decimals[0])} --> {_fmt_rate(decimals[-1])}"
+    return "-".join(_fmt_rate(value) for value in decimals)
+
+
+def _parse_denomination_group(text: str) -> tuple[list[Decimal], str, Decimal | None, Decimal | None]:
+    label = str(text or "").strip()
+    range_match = re.match(r"^\s*(\d+(?:\.\d+)?)\s*(?:-->|->|=>|to|الى|إلى)\s*(\d+(?:\.\d+)?)\s*$", label, re.IGNORECASE)
+    if range_match:
+        start = parse_decimal(range_match.group(1))
+        end = parse_decimal(range_match.group(2))
+        if start > end:
+            start, end = end, start
+        return [start], f"{_fmt_rate(start)} --> {_fmt_rate(end)}", start, end
+
+    label = label.replace(",", "-").replace("/", "-")
     parts = [part.strip() for part in re.split(r"[-\s]+", label) if part.strip()]
     if not parts:
         raise ValueError("missing denomination")
     values = sorted({parse_decimal(part) for part in parts})
-    clean_label = "-".join(_fmt_rate(value) for value in values)
-    return values, clean_label
+    clean_label = _denomination_label_from_values(values)
+    return values, clean_label, None, None
 
 
 def _decimal_label(value: Decimal) -> str:
@@ -1176,7 +1194,7 @@ async def save_manual_pricing_entry(message: types.Message, state: FSMContext) -
 
     brand, denomination_raw, currency, region, customer_raw, trader_raw, *note_parts = raw_parts
     try:
-        denominations, denomination_label = _parse_denomination_group(denomination_raw)
+        denominations, denomination_label, range_min, range_max = _parse_denomination_group(denomination_raw)
         customer_rate = parse_decimal(customer_raw)
         trader_rate = parse_decimal(trader_raw)
     except Exception:
@@ -1194,6 +1212,8 @@ async def save_manual_pricing_entry(message: types.Message, state: FSMContext) -
         public_note=" | ".join(part for part in note_parts if part).strip() or None,
         denominations=denominations,
         denomination_label=denomination_label,
+        range_min=range_min,
+        range_max=range_max,
     )
     await state.clear()
     await message.answer(

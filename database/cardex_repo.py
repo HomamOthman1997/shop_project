@@ -247,6 +247,7 @@ async def search_card_brands(query: str | None, limit: int = 20) -> list[str]:
 
 
 async def find_active_pricing_rule(brand: str, denomination: Decimal, currency: str, region: str | None) -> dict[str, Any] | None:
+    denomination_value = _float6(denomination)
     common = {
         "brand": str(brand).upper().strip(),
         "currency": str(currency).upper().strip(),
@@ -256,16 +257,26 @@ async def find_active_pricing_rule(brand: str, denomination: Decimal, currency: 
     exact = await db.cardex_pricing_rules.find_one(
         {
             **common,
-            "denomination": _float6(denomination),
+            "denomination": denomination_value,
         },
         sort=[("updated_at", -1)],
     )
     if exact:
         return exact
+    grouped = await db.cardex_pricing_rules.find_one(
+        {
+            **common,
+            "denominations": denomination_value,
+        },
+        sort=[("updated_at", -1)],
+    )
+    if grouped:
+        return grouped
     return await db.cardex_pricing_rules.find_one(
         {
             **common,
-            "denominations": _float6(denomination),
+            "range_min": {"$lte": denomination_value},
+            "range_max": {"$gte": denomination_value},
         },
         sort=[("updated_at", -1)],
     )
@@ -332,22 +343,34 @@ async def create_pricing_rule(
     public_note: str | None = None,
     denominations: list[Decimal] | None = None,
     denomination_label: str | None = None,
+    range_min: Decimal | None = None,
+    range_max: Decimal | None = None,
 ) -> dict[str, Any]:
     region_value = str(region or "").upper().strip() or "GLOBAL"
     denomination_values = sorted({_float6(item) for item in (denominations or [denomination])})
     primary_denomination = denomination_values[0] if denomination_values else _float6(denomination)
+    range_min_value = _float6(range_min) if range_min is not None else None
+    range_max_value = _float6(range_max) if range_max is not None else None
+    if range_min_value is not None and range_max_value is not None and range_min_value > range_max_value:
+        range_min_value, range_max_value = range_max_value, range_min_value
     label = str(denomination_label or "").strip() or "-".join(_decimal_label(item) for item in denomination_values)
+    overlap_filters: list[dict[str, Any]] = [{"denomination_label": label}]
+    if range_min_value is not None and range_max_value is not None:
+        overlap_filters.append({"range_min": {"$lte": range_max_value}, "range_max": {"$gte": range_min_value}})
+    else:
+        overlap_filters.extend(
+            [
+                {"denomination": {"$in": denomination_values}, "range_min": None, "range_max": None},
+                {"denominations": {"$in": denomination_values}, "range_min": None, "range_max": None},
+            ]
+        )
     await db.cardex_pricing_rules.update_many(
         {
             "brand": str(brand).upper().strip(),
             "currency": str(currency).upper().strip(),
             "region": region_value,
             "active": True,
-            "$or": [
-                {"denomination": {"$in": denomination_values}},
-                {"denominations": {"$in": denomination_values}},
-                {"denomination_label": label},
-            ],
+            "$or": overlap_filters,
         },
         {"$set": {"active": False, "updated_at": _now()}},
     )
@@ -356,6 +379,8 @@ async def create_pricing_rule(
         "denomination": primary_denomination,
         "denominations": denomination_values,
         "denomination_label": label,
+        "range_min": range_min_value,
+        "range_max": range_max_value,
         "currency": str(currency).upper().strip(),
         "region": region_value,
         "customer_buy_rate_percent": _float6(customer_buy_rate_percent),
@@ -368,14 +393,18 @@ async def create_pricing_rule(
     }
     result = await db.cardex_pricing_rules.insert_one(doc)
     doc["_id"] = result.inserted_id
+    missing_filter: dict[str, Any] = {
+        "brand": doc["brand"],
+        "currency": doc["currency"],
+        "region": doc["region"],
+        "status": "open",
+    }
+    if range_min_value is not None and range_max_value is not None:
+        missing_filter["denomination"] = {"$gte": range_min_value, "$lte": range_max_value}
+    else:
+        missing_filter["denomination"] = {"$in": denomination_values}
     await db.cardex_missing_pricing.update_many(
-        {
-            "brand": doc["brand"],
-            "denomination": {"$in": denomination_values},
-            "currency": doc["currency"],
-            "region": doc["region"],
-            "status": "open",
-        },
+        missing_filter,
         {"$set": {"status": "resolved", "resolved_at": _now(), "resolved_by_user_id": str(actor_user_id)}},
     )
     await write_audit_log(

@@ -1,0 +1,232 @@
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready();
+  tg.expand();
+}
+
+const state = {
+  rules: [],
+  isAdmin: false,
+  view: "brands",
+  brand: "",
+  regionKey: "",
+  search: "",
+};
+
+const content = document.getElementById("content");
+const statusEl = document.getElementById("status");
+const searchInput = document.getElementById("searchInput");
+const refreshBtn = document.getElementById("refreshBtn");
+const modal = document.getElementById("modal");
+const priceForm = document.getElementById("priceForm");
+const closeModal = document.getElementById("closeModal");
+
+function initData() {
+  return tg?.initData || new URLSearchParams(location.search).get("tgWebAppData") || "";
+}
+
+async function api(path, options = {}) {
+  const headers = { ...(options.headers || {}), "X-Telegram-Init-Data": initData() };
+  if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+  const res = await fetch(path, { ...options, headers, cache: "no-store" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function norm(text) {
+  return String(text || "").trim().toLowerCase();
+}
+
+function clear() {
+  content.replaceChildren();
+  statusEl.textContent = "";
+  statusEl.classList.remove("error");
+}
+
+function setError(text) {
+  statusEl.textContent = text;
+  statusEl.classList.add("error");
+}
+
+function button(cls, text, fn) {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = cls;
+  el.textContent = text;
+  el.addEventListener("click", fn);
+  return el;
+}
+
+function heading(title, subtitle = "") {
+  const box = document.createElement("div");
+  box.className = "section-title";
+  const wrap = document.createElement("div");
+  const h = document.createElement("h2");
+  h.textContent = title;
+  wrap.append(h);
+  if (subtitle) {
+    const p = document.createElement("p");
+    p.textContent = subtitle;
+    wrap.append(p);
+  }
+  box.append(wrap);
+  if (state.isAdmin) box.append(button("primary", "Add", openModal));
+  return box;
+}
+
+function brandRows() {
+  const map = new Map();
+  for (const row of state.rules) {
+    const brand = String(row.brand || "-").toUpperCase();
+    if (!map.has(brand)) map.set(brand, { brand, count: 0, regions: new Set() });
+    map.get(brand).count += 1;
+    map.get(brand).regions.add(`${row.region || "GLOBAL"}|${row.currency || "USD"}`);
+  }
+  return Array.from(map.values()).sort((a, b) => a.brand.localeCompare(b.brand));
+}
+
+function regionRows(brand) {
+  const map = new Map();
+  for (const row of state.rules.filter((item) => item.brand === brand)) {
+    const key = `${row.region || "GLOBAL"}|${row.currency || "USD"}`;
+    if (!map.has(key)) map.set(key, { key, region: row.region || "GLOBAL", currency: row.currency || "USD", count: 0 });
+    map.get(key).count += 1;
+  }
+  return Array.from(map.values()).sort((a, b) => a.region.localeCompare(b.region) || a.currency.localeCompare(b.currency));
+}
+
+function filtered(items, fields) {
+  const q = norm(state.search);
+  if (!q) return items;
+  return items.filter((item) => fields.some((field) => norm(item[field]).includes(q)));
+}
+
+function renderBrands() {
+  state.view = "brands";
+  state.brand = "";
+  state.regionKey = "";
+  clear();
+  content.append(heading("Card Brands", "Choose Amazon, iTunes, Walmart, and other card types"));
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  for (const row of filtered(brandRows(), ["brand"])) {
+    const tile = button("tile", "", () => renderRegions(row.brand));
+    tile.innerHTML = `<strong>${row.brand}</strong><span class="muted">${row.regions.size} regions • ${row.count} categories</span>`;
+    grid.append(tile);
+  }
+  if (!grid.children.length) statusEl.textContent = "No brands found.";
+  content.append(grid);
+}
+
+function renderRegions(brand) {
+  state.view = "regions";
+  state.brand = brand;
+  state.regionKey = "";
+  clear();
+  content.append(button("ghost", "Back", renderBrands));
+  content.append(heading(brand, "Choose country or region"));
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  for (const row of filtered(regionRows(brand), ["region", "currency"])) {
+    const tile = button("tile", "", () => renderRules(brand, row.key));
+    tile.innerHTML = `<strong>${row.region}</strong><span class="muted">${row.currency} • ${row.count} categories</span>`;
+    grid.append(tile);
+  }
+  if (!grid.children.length) statusEl.textContent = "No regions found.";
+  content.append(grid);
+}
+
+function renderRules(brand, regionKey) {
+  state.view = "rules";
+  state.brand = brand;
+  state.regionKey = regionKey;
+  const [region, currency] = String(regionKey).split("|");
+  clear();
+  content.append(button("ghost", "Back", () => renderRegions(brand)));
+  content.append(heading(`${brand} • ${region}`, `${currency} price categories`));
+  const list = document.createElement("div");
+  list.className = "list";
+  const rows = state.rules
+    .filter((row) => row.brand === brand && `${row.region}|${row.currency}` === regionKey)
+    .filter((row) => !state.search || norm(`${row.label} ${row.note} ${row.customer_rate}`).includes(norm(state.search)));
+  for (const row of rows) {
+    const item = document.createElement("article");
+    item.className = "rule";
+    item.innerHTML = `
+      <div class="rule-top"><span class="value">${row.label}</span><span class="rate">${row.customer_rate}%</span></div>
+      <div class="muted">${row.currency} • trader ${row.trader_rate || row.customer_rate}%</div>
+      ${row.note ? `<div class="note">${row.note}</div>` : ""}
+    `;
+    if (state.isAdmin) {
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.append(button("ghost danger", "Delete", () => deleteRule(row.id)));
+      item.append(actions);
+    }
+    list.append(item);
+  }
+  if (!list.children.length) statusEl.textContent = "No categories found.";
+  content.append(list);
+}
+
+async function loadPrices() {
+  statusEl.textContent = "Loading prices...";
+  try {
+    const data = await api("/mini/cardex/api/prices");
+    state.rules = Array.isArray(data.rules) ? data.rules : [];
+    state.isAdmin = Boolean(data.is_admin);
+    renderBrands();
+  } catch (err) {
+    clear();
+    setError("Could not load CardEX prices.");
+  }
+}
+
+function openModal() {
+  priceForm.reset();
+  if (state.brand) priceForm.elements.brand.value = state.brand;
+  if (state.regionKey) {
+    const [region, currency] = state.regionKey.split("|");
+    priceForm.elements.region.value = region || "";
+    priceForm.elements.currency.value = currency || "USD";
+  }
+  modal.classList.remove("hidden");
+}
+
+function closePriceModal() {
+  modal.classList.add("hidden");
+}
+
+async function deleteRule(id) {
+  if (!confirm("Delete this price category?")) return;
+  await api(`/mini/cardex/api/prices/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await loadPrices();
+  if (state.brand && state.regionKey) renderRules(state.brand, state.regionKey);
+}
+
+priceForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(priceForm);
+  const body = Object.fromEntries(form.entries());
+  try {
+    await api("/mini/cardex/api/prices", { method: "POST", body: JSON.stringify(body) });
+    closePriceModal();
+    await loadPrices();
+  } catch (err) {
+    alert("Could not save category. Check values.");
+  }
+});
+
+closeModal.addEventListener("click", closePriceModal);
+modal.addEventListener("click", (event) => {
+  if (event.target?.dataset?.close) closePriceModal();
+});
+refreshBtn.addEventListener("click", loadPrices);
+searchInput.addEventListener("input", () => {
+  state.search = searchInput.value || "";
+  if (state.view === "brands") renderBrands();
+  else if (state.view === "regions") renderRegions(state.brand);
+  else if (state.view === "rules") renderRules(state.brand, state.regionKey);
+});
+
+loadPrices();

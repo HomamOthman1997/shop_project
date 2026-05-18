@@ -1,6 +1,19 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
+
+from config import settings
+
+
+def cardex_miniapp_url() -> str:
+    raw = str(getattr(settings, "cardex_miniapp_public_url", "") or "").strip().rstrip("/")
+    if not raw:
+        raw = str(getattr(settings, "digital_products_miniapp_public_url", "") or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    if raw.endswith("/mini/cardex"):
+        return raw
+    return f"{raw}/mini/cardex"
 
 
 def cards_main_menu(lang: str | None = None, *, is_admin: bool = False) -> ReplyKeyboardMarkup:
@@ -14,9 +27,16 @@ def cards_main_menu(lang: str | None = None, *, is_admin: bool = False) -> Reply
     support = "الدعم" if is_ar else "Support"
     admin_panel = "لوحة الإدارة" if is_ar else "Admin Panel"
 
+    miniapp_url = cardex_miniapp_url()
+    price_sheet_button = (
+        KeyboardButton(text=price_sheet, web_app=WebAppInfo(url=miniapp_url))
+        if bool(getattr(settings, "cardex_miniapp_enabled", False)) and miniapp_url
+        else KeyboardButton(text=price_sheet)
+    )
+
     keyboard = [
         [KeyboardButton(text=sell)],
-        [KeyboardButton(text=price_sheet)],
+        [price_sheet_button],
         [KeyboardButton(text=wallet), KeyboardButton(text=my_cards)],
         [KeyboardButton(text=withdraw), KeyboardButton(text=my_withdrawals)],
         [KeyboardButton(text=support)],

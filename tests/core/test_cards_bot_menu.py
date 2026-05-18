@@ -52,6 +52,19 @@ def test_cards_main_menu_shows_admin_panel_and_card_actions_for_admins():
     assert "Price Sheet" in labels
 
 
+def test_cards_main_menu_uses_cardex_miniapp_when_enabled(monkeypatch):
+    from services.cards_bot import keyboards as card_keyboards
+
+    monkeypatch.setattr(card_keyboards.settings, "cardex_miniapp_enabled", True, raising=False)
+    monkeypatch.setattr(card_keyboards.settings, "cardex_miniapp_public_url", "https://store.example.com", raising=False)
+
+    kb = cards_main_menu("en")
+    price_button = next(button for row in kb.keyboard for button in row if button.text == "Price Sheet")
+
+    assert price_button.web_app is not None
+    assert price_button.web_app.url == "https://store.example.com/mini/cardex"
+
+
 def test_cards_admin_panel_has_daily_export_button():
     kb = cards_admin_panel_kb("ar")
     callbacks = [button.callback_data for row in kb.inline_keyboard for button in row]
@@ -224,10 +237,21 @@ def test_price_sheet_groups_same_category_denominations():
 
 
 def test_parse_denomination_group_accepts_price_category_values():
-    values, label = _parse_denomination_group("5-10-15")
+    values, label, range_min, range_max = _parse_denomination_group("5-10-15")
 
     assert [str(value) for value in values] == ["5", "10", "15"]
     assert label == "5-10-15"
+    assert range_min is None
+    assert range_max is None
+
+
+def test_parse_denomination_group_marks_ranges_visibly():
+    values, label, range_min, range_max = _parse_denomination_group("1 --> 75")
+
+    assert [str(value) for value in values] == ["1"]
+    assert label == "1 --> 75"
+    assert str(range_min) == "1"
+    assert str(range_max) == "75"
 
 
 def test_long_card_messages_are_split_under_telegram_limit():

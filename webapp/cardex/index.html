@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#0a0e1a" />
+    <title>CardEX Prices</title>
+    <link rel="stylesheet" href="/mini/cardex/static/styles.css?v=20260518a" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>CardEX Prices</h1>
+          <p id="subtitle">Browse card brands, regions, and price categories</p>
+        </div>
+        <button id="refreshBtn" class="icon-btn" type="button">R</button>
+      </header>
+      <section class="searchbar">
+        <input id="searchInput" type="search" placeholder="Search brand or region" autocomplete="off" />
+      </section>
+      <section id="status" class="status">Loading prices...</section>
+      <section id="content" class="content" aria-live="polite"></section>
+    </main>
+
+    <div id="modal" class="modal hidden">
+      <div class="modal-backdrop" data-close="1"></div>
+      <form id="priceForm" class="modal-panel">
+        <header class="modal-header">
+          <h2>Add price category</h2>
+          <button id="closeModal" class="icon-btn" type="button">x</button>
+        </header>
+        <label>Brand<input name="brand" required placeholder="AMAZON" /></label>
+        <label>Region<input name="region" required placeholder="USA" /></label>
+        <label>Currency<input name="currency" required value="USD" /></label>
+        <label>Values<input name="values" required placeholder="1 --> 75 or 10-15-20" /></label>
+        <label>Customer rate %<input name="customer_rate" required inputmode="decimal" placeholder="80" /></label>
+        <label>Trader rate %<input name="trader_rate" inputmode="decimal" placeholder="78" /></label>
+        <label>Note<input name="note" placeholder="Optional public note" /></label>
+        <button class="primary" type="submit">Save category</button>
+      </form>
+    </div>
+
+    <script src="/mini/cardex/static/app.js?v=20260518a"></script>
+  </body>
+</html>
