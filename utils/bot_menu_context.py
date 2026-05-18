@@ -237,7 +237,11 @@ async def menu_for_current_bot(lang: str, bot_or_id, user_id: int | None = None)
     if kind == BOT_KIND_NUMBERS:
         return numbers_main_menu(lang)
     if kind == BOT_KIND_CARD:
-        return cards_main_menu(lang, is_admin=isinstance(user_id, int) and int(user_id) in _cardex_admin_ids())
+        return cards_main_menu(
+            lang,
+            is_admin=isinstance(user_id, int) and int(user_id) in _cardex_admin_ids(),
+            user_id=int(user_id) if isinstance(user_id, int) else None,
+        )
     if kind == BOT_KIND_RESELLER:
         return reseller_user_main_menu(lang)
     return main_menu(lang)

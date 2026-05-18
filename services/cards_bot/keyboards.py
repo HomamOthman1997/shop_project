@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import time
+from urllib.parse import urlencode, urlsplit, urlunsplit
+
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
 
 from config import settings
@@ -16,6 +21,32 @@ def cardex_miniapp_url() -> str:
     return f"{raw}/mini/cardex"
 
 
+def _cardex_session_secret() -> str:
+    return (
+        str(getattr(settings, "bot_card_ex_token", "") or "").strip()
+        or str(getattr(settings, "bot_main_token", "") or "").strip()
+        or str(getattr(settings, "bot_digital_products_token", "") or "").strip()
+    )
+
+
+def create_cardex_session_token(user_id: int, *, ttl_sec: int = 86400) -> str:
+    expires = int(time.time()) + max(60, int(ttl_sec))
+    payload = f"{int(user_id)}:{expires}"
+    secret = _cardex_session_secret()
+    signature = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload}:{signature}"
+
+
+def cardex_miniapp_url_for_user(user_id: int | None = None) -> str:
+    url = cardex_miniapp_url()
+    if not url or not isinstance(user_id, int):
+        return url
+    token = create_cardex_session_token(user_id)
+    parts = urlsplit(url)
+    query = f"{parts.query}&{urlencode({'cx_session': token})}" if parts.query else urlencode({"cx_session": token})
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+
 def cardex_miniapp_ready() -> bool:
     return bool(cardex_miniapp_url()) and (
         bool(getattr(settings, "cardex_miniapp_enabled", False))
@@ -23,7 +54,7 @@ def cardex_miniapp_ready() -> bool:
     )
 
 
-def cards_main_menu(lang: str | None = None, *, is_admin: bool = False) -> ReplyKeyboardMarkup:
+def cards_main_menu(lang: str | None = None, *, is_admin: bool = False, user_id: int | None = None) -> ReplyKeyboardMarkup:
     is_ar = str(lang or "").lower().startswith("ar")
     sell = "بيع كرت" if is_ar else "Sell Card"
     wallet = "المحفظة" if is_ar else "Wallet"
@@ -34,7 +65,7 @@ def cards_main_menu(lang: str | None = None, *, is_admin: bool = False) -> Reply
     support = "الدعم" if is_ar else "Support"
     admin_panel = "لوحة الإدارة" if is_ar else "Admin Panel"
 
-    miniapp_url = cardex_miniapp_url()
+    miniapp_url = cardex_miniapp_url_for_user(user_id)
     price_sheet_button = (
         KeyboardButton(text=price_sheet, web_app=WebAppInfo(url=miniapp_url))
         if cardex_miniapp_ready()

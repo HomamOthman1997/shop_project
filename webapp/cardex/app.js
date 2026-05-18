@@ -66,12 +66,18 @@ function initData() {
   return tg?.initData || new URLSearchParams(location.search).get("tgWebAppData") || "";
 }
 
+function sessionToken() {
+  return new URLSearchParams(location.search).get("cx_session") || "";
+}
+
 function hasInitData() {
-  return Boolean(initData());
+  return Boolean(initData() || sessionToken());
 }
 
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}), "X-Telegram-Init-Data": initData() };
+  const session = sessionToken();
+  if (session) headers["X-CardEX-Session"] = session;
   if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
   const res = await fetch(path, { ...options, headers, cache: "no-store" });
   if (!res.ok) throw new Error(await res.text());

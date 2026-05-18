@@ -174,7 +174,7 @@ async def _ensure_card_user(actor) -> tuple[dict, dict]:
 
 
 def _cards_menu(lang: str, user_id: int):
-    return cards_main_menu(lang, is_admin=_is_cards_admin(user_id))
+    return cards_main_menu(lang, is_admin=_is_cards_admin(user_id), user_id=int(user_id))
 
 
 def _fmt_money(value) -> str:
