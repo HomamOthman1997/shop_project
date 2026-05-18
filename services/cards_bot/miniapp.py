@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import json
 import re
-import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -58,27 +57,6 @@ def _cardex_init_tokens() -> list[str]:
     return tokens
 
 
-def _verify_cardex_session_token(token: str) -> dict[str, Any]:
-    raw = str(token or "").strip()
-    parts = raw.split(":")
-    if len(parts) != 3:
-        raise web.HTTPUnauthorized(text="bad cardex session")
-    user_id_raw, expires_raw, received = parts
-    try:
-        user_id = int(user_id_raw)
-        expires = int(expires_raw)
-    except Exception:
-        raise web.HTTPUnauthorized(text="bad cardex session")
-    if user_id <= 0 or expires < int(time.time()):
-        raise web.HTTPUnauthorized(text="expired cardex session")
-    payload = f"{user_id}:{expires}"
-    for token_secret in _cardex_init_tokens():
-        calculated = hmac.new(token_secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
-        if hmac.compare_digest(calculated, received):
-            return {"user_id": user_id, "user": {"id": user_id}}
-    raise web.HTTPUnauthorized(text="bad cardex session")
-
-
 def _verify_cardex_init_data(init_data: str) -> dict[str, Any]:
     raw = str(init_data or "").strip()
     if not raw:
@@ -126,8 +104,7 @@ def _cardex_admin_ids() -> set[int]:
 
 def _auth(request: web.Request, *, require_admin: bool = False) -> dict[str, Any]:
     init_data = request.headers.get("X-Telegram-Init-Data", "")
-    session = request.headers.get("X-CardEX-Session", "") or request.query.get("cx_session", "")
-    auth = _verify_cardex_init_data(init_data) if str(init_data or "").strip() else _verify_cardex_session_token(session)
+    auth = _verify_cardex_init_data(init_data)
     if require_admin and int(auth["user_id"]) not in _cardex_admin_ids():
         raise web.HTTPForbidden(text="admin only")
     return auth

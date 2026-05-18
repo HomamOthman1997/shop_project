@@ -87,19 +87,6 @@ def test_cardex_miniapp_optional_auth_allows_public_prices_without_init_data(mon
     assert miniapp._optional_auth(Request()) is None
 
 
-def test_cardex_miniapp_accepts_signed_session_token(monkeypatch):
-    from services.cards_bot import keyboards, miniapp
-
-    monkeypatch.setattr(keyboards.settings, "bot_card_ex_token", "cardex-token", raising=False)
-    monkeypatch.setattr(miniapp.settings, "bot_card_ex_token", "cardex-token", raising=False)
-    monkeypatch.setattr(miniapp.settings, "bot_main_token", "", raising=False)
-    token = keyboards.create_cardex_session_token(456, ttl_sec=300)
-
-    auth = miniapp._verify_cardex_session_token(token)
-
-    assert auth["user_id"] == 456
-
-
 def test_cards_main_menu_uses_arabic_labels_for_ar():
     kb = cards_main_menu("ar")
     labels = [button.text for row in kb.keyboard for button in row]
@@ -140,20 +127,6 @@ def test_cards_main_menu_uses_cardex_miniapp_when_enabled(monkeypatch):
 
     assert price_button.web_app is not None
     assert price_button.web_app.url == "https://store.example.com/mini/cardex"
-
-
-def test_cards_main_menu_adds_signed_session_for_known_user(monkeypatch):
-    from services.cards_bot import keyboards as card_keyboards
-
-    monkeypatch.setattr(card_keyboards.settings, "cardex_miniapp_enabled", True, raising=False)
-    monkeypatch.setattr(card_keyboards.settings, "cardex_miniapp_public_url", "https://store.example.com", raising=False)
-    monkeypatch.setattr(card_keyboards.settings, "bot_card_ex_token", "cardex-token", raising=False)
-
-    kb = cards_main_menu("en", user_id=456)
-    price_button = next(button for row in kb.keyboard for button in row if button.text == "Price Sheet (Mini App)")
-
-    assert price_button.web_app is not None
-    assert price_button.web_app.url.startswith("https://store.example.com/mini/cardex?cx_session=")
 
 
 def test_cards_main_menu_uses_digital_miniapp_url_as_cardex_fallback(monkeypatch):

@@ -66,18 +66,12 @@ function initData() {
   return tg?.initData || new URLSearchParams(location.search).get("tgWebAppData") || "";
 }
 
-function sessionToken() {
-  return new URLSearchParams(location.search).get("cx_session") || "";
-}
-
 function hasInitData() {
-  return Boolean(initData() || sessionToken());
+  return Boolean(initData());
 }
 
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}), "X-Telegram-Init-Data": initData() };
-  const session = sessionToken();
-  if (session) headers["X-CardEX-Session"] = session;
   if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
   const res = await fetch(path, { ...options, headers, cache: "no-store" });
   if (!res.ok) throw new Error(await res.text());
@@ -113,7 +107,7 @@ function renderAuthRequired(title) {
   state.view = "brands";
   clear();
   content.append(heading(title, "This section needs Telegram login"));
-  setNotice("Open CardEX from the bot mini app button to access your cards, wallet, and withdrawals.");
+  setNotice("Telegram did not send initData. Reopen CardEX from the bot WebApp button after refreshing /start.");
   renderBrands();
 }
 
