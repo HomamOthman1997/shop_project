@@ -378,6 +378,14 @@ function adminMissingPricingActions(row) {
   return actions;
 }
 
+function adminTraderActions(row) {
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.append(button("primary", "Statement", () => showTraderStatement(row)));
+  actions.append(button("ghost", "Payment", () => recordTraderPayment(row)));
+  return actions;
+}
+
 async function renderAdmin() {
   if (!state.isAdmin) return loadPrices();
   setActiveTab(adminTab);
@@ -448,6 +456,27 @@ async function renderAdmin() {
     }
     if (!missing.children.length) missing.append(emptyLine("No missing pricing rows."));
     content.append(missing);
+
+    const traderTitle = document.createElement("div");
+    traderTitle.className = "section-title";
+    traderTitle.innerHTML = "<h2>Traders</h2>";
+    traderTitle.append(button("primary", "Add trader", createTrader));
+    content.append(traderTitle);
+    const traders = document.createElement("div");
+    traders.className = "list";
+    for (const row of data.traders || []) {
+      const item = document.createElement("article");
+      item.className = "rule";
+      item.innerHTML = `
+        <div class="rule-top"><span class="value">${row.name}</span><span class="rate">${statusLabel(row.status)}</span></div>
+        <div class="muted">${row.default_currency} - ${row.id}</div>
+        ${row.notes ? `<div class="note">${row.notes}</div>` : ""}
+      `;
+      item.append(adminTraderActions(row));
+      traders.append(item);
+    }
+    if (!traders.children.length) traders.append(emptyLine("No traders yet."));
+    content.append(traders);
   } catch (err) {
     clear();
     setError("Could not load admin queue.");
@@ -569,6 +598,47 @@ async function setMissingPricing(row) {
     await renderAdmin();
   } catch (err) {
     alert("Could not save this missing price.");
+  }
+}
+
+async function createTrader() {
+  const name = prompt("Trader name", "");
+  if (!name) return;
+  const notes = prompt("Notes (optional)", "") || "";
+  try {
+    await api("/mini/cardex/api/admin/traders", { method: "POST", body: JSON.stringify({ name, notes }) });
+    await renderAdmin();
+  } catch (err) {
+    alert("Could not create trader.");
+  }
+}
+
+async function recordTraderPayment(row) {
+  const amount = prompt(`Payment amount USD from ${row.name}`, "");
+  if (!amount) return;
+  const method = prompt("Method (optional)", "") || "";
+  const referenceNo = prompt("Reference (optional)", "") || "";
+  const notes = prompt("Notes (optional)", "") || "";
+  try {
+    await api(`/mini/cardex/api/admin/traders/${encodeURIComponent(row.id)}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ amount_usd: amount, method, reference_no: referenceNo, notes }),
+    });
+    await showTraderStatement(row);
+  } catch (err) {
+    alert("Could not record trader payment.");
+  }
+}
+
+async function showTraderStatement(row) {
+  try {
+    const data = await api(`/mini/cardex/api/admin/traders/${encodeURIComponent(row.id)}/statement`);
+    const lines = (data.statement || []).map((item) => {
+      return `${statusLabel(item.entry_type)} | debit ${money(item.debit_usd)} | credit ${money(item.credit_usd)} | balance ${money(item.running_balance_usd)}`;
+    });
+    alert(`${row.name} statement\n\n${lines.length ? lines.join("\n") : "No statement entries."}`);
+  } catch (err) {
+    alert("Could not load trader statement.");
   }
 }
 

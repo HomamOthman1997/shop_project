@@ -15,6 +15,7 @@ from database.cardex_repo import create_pricing_rule, deactivate_pricing_rule, g
 from services.cards_bot.handlers import _fmt_rate
 from services.cards_bot.service import (
     accept_card,
+    create_trader,
     create_withdrawal,
     get_missing_pricing,
     get_wallet_snapshot,
@@ -22,11 +23,14 @@ from services.cards_bot.service import (
     list_cards_for_user,
     list_missing_pricing,
     list_open_withdrawals,
+    list_traders,
     list_withdrawals_for_user,
     parse_decimal,
+    post_trader_payment,
     quote_card_submission,
     reject_card,
     submit_card,
+    trader_statement,
     update_withdrawal_status,
 )
 
@@ -177,6 +181,31 @@ def _missing_pricing_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _trader_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("_id") or ""),
+        "name": str(row.get("name") or ""),
+        "status": str(row.get("status") or ""),
+        "default_currency": str(row.get("default_currency") or "USD").upper(),
+        "notes": str(row.get("notes") or ""),
+        "created_at": str(row.get("created_at") or ""),
+    }
+
+
+def _trader_statement_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("_id") or ""),
+        "entry_type": str(row.get("entry_type") or ""),
+        "debit_usd": _money(row.get("debit_usd")),
+        "credit_usd": _money(row.get("credit_usd")),
+        "running_balance_usd": _money(row.get("running_balance_usd")),
+        "reference_type": str(row.get("reference_type") or ""),
+        "reference_id": str(row.get("reference_id") or ""),
+        "description": str(row.get("description") or ""),
+        "created_at": str(row.get("created_at") or ""),
+    }
+
+
 def _auth_full_name(user: dict[str, Any]) -> str | None:
     return " ".join(str(user.get(part) or "").strip() for part in ("first_name", "last_name")).strip() or None
 
@@ -245,11 +274,13 @@ async def cardex_admin_queue(request: web.Request) -> web.Response:
     cards = await list_cards_for_review(limit=50)
     withdrawals = await list_open_withdrawals(limit=50)
     missing = await list_missing_pricing(limit=50)
+    traders = await list_traders(limit=50)
     return web.json_response(
         {
             "cards": [_admin_card_payload(row) for row in cards],
             "withdrawals": [_withdrawal_payload(row) for row in withdrawals],
             "missing_pricing": [_missing_pricing_payload(row) for row in missing],
+            "traders": [_trader_payload(row) for row in traders],
         },
         headers=dict(_NO_STORE_HEADERS),
     )
@@ -317,6 +348,45 @@ async def cardex_admin_missing_pricing_action(request: web.Request) -> web.Respo
         public_note=str(body.get("note") or "").strip() or None,
     )
     return web.json_response({"rule": _rule_payload(created)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def cardex_admin_create_trader(request: web.Request) -> web.Response:
+    auth = _auth(request, require_admin=True)
+    body = await request.json()
+    try:
+        row = await create_trader(
+            actor_user_id=str(auth["user_id"]),
+            name=str(body.get("name") or "").strip(),
+            notes=str(body.get("notes") or "").strip() or None,
+        )
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc) or "trader creation failed")
+    return web.json_response({"trader": _trader_payload(row)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def cardex_admin_trader_statement(request: web.Request) -> web.Response:
+    _auth(request, require_admin=True)
+    trader_id = str(request.match_info.get("trader_id") or "").strip()
+    rows = await trader_statement(trader_id, limit=50)
+    return web.json_response({"statement": [_trader_statement_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def cardex_admin_trader_payment(request: web.Request) -> web.Response:
+    auth = _auth(request, require_admin=True)
+    trader_id = str(request.match_info.get("trader_id") or "").strip()
+    body = await request.json()
+    try:
+        row = await post_trader_payment(
+            actor_user_id=str(auth["user_id"]),
+            trader_id=trader_id,
+            amount_usd=parse_decimal(str(body.get("amount_usd") or "")),
+            method=str(body.get("method") or "").strip() or None,
+            reference_no=str(body.get("reference_no") or "").strip() or None,
+            notes=str(body.get("notes") or "").strip() or None,
+        )
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc) or "payment failed")
+    return web.json_response({"payment": {"id": str(row.get("_id") or ""), "amount_usd": _money(row.get("amount_usd"))}}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def cardex_create_withdrawal(request: web.Request) -> web.Response:
@@ -466,3 +536,6 @@ def register_cardex_routes(app: web.Application) -> None:
     app.router.add_post("/mini/cardex/api/admin/cards/{card_id}", cardex_admin_card_action)
     app.router.add_post("/mini/cardex/api/admin/withdrawals/{withdrawal_id}", cardex_admin_withdrawal_action)
     app.router.add_post("/mini/cardex/api/admin/missing-pricing/{missing_id}", cardex_admin_missing_pricing_action)
+    app.router.add_post("/mini/cardex/api/admin/traders", cardex_admin_create_trader)
+    app.router.add_get("/mini/cardex/api/admin/traders/{trader_id}/statement", cardex_admin_trader_statement)
+    app.router.add_post("/mini/cardex/api/admin/traders/{trader_id}/payments", cardex_admin_trader_payment)
