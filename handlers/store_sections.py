@@ -44,6 +44,18 @@ from services.digital_products.catalog_service import (
     get_game_topups,
 )
 from services.digital_products.fulfillment_rules import MANUAL_TOPUP_MODE, manual_feature_info
+from services.digital_products.lona_cards import (
+    MANUAL_FULFILLMENT_PROVIDER as LONA_CARD_PROVIDER,
+    find_lona_product,
+    is_lona_category_id,
+    is_lona_managed_category_name,
+    lona_categories,
+    lona_products_for_category,
+    lona_validation_message,
+    parse_face_value,
+    quote_lona_product,
+    validate_lona_amount,
+)
 from services.digital_products.esim_access_client import EsimAccessClient
 from services.digital_products.miniapp import consume_selection
 from services.digital_products.za3em_client import Za3emClient
@@ -205,6 +217,7 @@ class GameStoreFlow(StatesGroup):
 
 
 class GiftStoreFlow(StatesGroup):
+    waiting_lona_amount = State()
     waiting_quantity = State()
     waiting_param = State()
 
@@ -1168,6 +1181,93 @@ def _build_gift_categories_rows(categories: list[dict[str, Any]]) -> list[list[I
     return rows
 
 
+def _gift_categories_for_ui(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    provider_categories: list[dict[str, Any]] = []
+    if bool((snapshot or {}).get("enabled")):
+        provider_categories = _prepare_gift_categories(list((snapshot or {}).get("gift_categories") or []))
+    provider_categories = [
+        cat
+        for cat in provider_categories
+        if not is_lona_managed_category_name(str(cat.get("clean_name") or cat.get("name") or ""))
+    ]
+    return lona_categories() + provider_categories
+
+
+def _percent_label(value: Any) -> str:
+    pct = _to_decimal(value).normalize()
+    text = format(pct, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return f"{text}%"
+
+
+def _lona_warranty_line(lang: str, months: int = 2) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        return f"الكفالة: {months} شهر"
+    return f"Warranty: {months} months"
+
+
+def _lona_quote_summary_text(lang: str, quote: dict[str, Any]) -> str:
+    face = float(_to_decimal(quote.get("face_value") or 0))
+    price = float(_to_decimal(quote.get("price") or 0))
+    rate = _percent_label(quote.get("rate_percent") or 0)
+    warranty_months = int(quote.get("warranty_months") or 2)
+    if str(lang or "").lower().startswith("ar"):
+        return "\n".join(
+            [
+                str(quote.get("product_name") or quote.get("category_name") or "-"),
+                "",
+                f"قيمة البطاقة: {format_usd(face)}",
+                f"النسبة: {rate}",
+                f"السعر النهائي: {format_usd(price)}",
+                _lona_warranty_line(lang, warranty_months),
+                "",
+                "هل تريد تأكيد الشراء؟",
+            ]
+        )
+    return "\n".join(
+        [
+            str(quote.get("product_name") or quote.get("category_name") or "-"),
+            "",
+            f"Card value: {format_usd(face)}",
+            f"Rate: {rate}",
+            f"Final price: {format_usd(price)}",
+            _lona_warranty_line(lang, warranty_months),
+            "",
+            "Confirm purchase?",
+        ]
+    )
+
+
+def _lona_amount_prompt_text(lang: str, product: dict[str, Any]) -> str:
+    meta = dict(product.get("manual_card") or {})
+    rate = _percent_label(meta.get("rate_percent") or 0)
+    kind = str(meta.get("kind") or "")
+    name = str(product.get("name") or "-")
+    warranty = _lona_warranty_line(lang, int(meta.get("warranty_months") or 2))
+    if str(lang or "").lower().startswith("ar"):
+        if kind == "mixed":
+            rule = "المكسر يقبل القيم غير الموجودة كفئة جاهزة وغير المضاعفة للعدد 5."
+        else:
+            rule = "أرسل قيمة البطاقة المطلوبة ليتم حساب السعر حسب النسبة."
+        return f"{name}\n\nالنسبة: {rate}\n{warranty}\n\n{rule}\n\nأرسل قيمة البطاقة الآن، أو /cancel."
+    if kind == "mixed":
+        rule = "Mixed accepts values that are not listed as direct options and are not divisible by 5."
+    else:
+        rule = "Send the card value and the bot will calculate the final price from the rate."
+    return f"{name}\n\nRate: {rate}\n{warranty}\n\n{rule}\n\nSend the card value now, or /cancel."
+
+
+def _lona_manual_confirm_kb(lang: str, *, back_to: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data="gst:giftmanualconfirm")],
+            [InlineKeyboardButton(text=t(lang, "back"), callback_data=back_to)],
+            [InlineKeyboardButton(text=t(lang, "cancel"), callback_data="gst:giftparam:cancel")],
+        ]
+    )
+
+
 async def _resolve_user_reseller(user_id: int, bot_id: int) -> int | None:
     if await is_main_bot(bot_id) or await is_digital_products_bot(bot_id):
         return int(user_id)
@@ -1819,6 +1919,105 @@ async def _execute_gift_purchase(
         "kind": "success",
         "text": "\n".join(body),
     }
+
+
+async def _execute_lona_card_purchase(
+    *,
+    bot: Any,
+    user_id: int,
+    lang: str,
+    reseller_id: int,
+    quote: dict[str, Any],
+) -> dict[str, Any]:
+    sale_price = float(_to_decimal(quote.get("price") or 0))
+    if sale_price <= 0:
+        return {"kind": "charge_error", "alert": t(lang, "store_invalid_product")}
+    face_value = float(_to_decimal(quote.get("face_value") or 0))
+    service_ref_id = (
+        f"lona_card:{str(quote.get('category_id') or '')}:"
+        f"{str(quote.get('product_id') or '')}:{face_value:.2f}"
+    )
+    order, err = await _core_charge(
+        user_id=int(user_id),
+        reseller_id=int(reseller_id),
+        service_ref_id=service_ref_id,
+        sale_price=float(sale_price),
+        cost_price=float(sale_price),
+    )
+    if not order or err:
+        return {"kind": "charge_error", "alert": err or t(lang, "purchase_failed_plain")}
+
+    item_name = str(quote.get("product_name") or quote.get("category_name") or "LONA Card")
+    rate = _percent_label(quote.get("rate_percent") or 0)
+    warranty_months = int(quote.get("warranty_months") or 2)
+    order_id = str(order.get("_id") or "")
+    await update_order_details(
+        order["_id"],
+        {
+            "provider_code": LONA_CARD_PROVIDER,
+            "fulfillment_mode": MANUAL_TOPUP_MODE,
+            "manual_fulfillment_required": True,
+            "manual_fulfillment_status": "pending",
+            "manual_item_name": item_name,
+            "manual_card": {
+                "category_id": str(quote.get("category_id") or ""),
+                "product_id": str(quote.get("product_id") or ""),
+                "category_name": str(quote.get("category_name") or ""),
+                "product_name": item_name,
+                "face_value": face_value,
+                "rate_percent": float(_to_decimal(quote.get("rate_percent") or 0)),
+                "sale_price": sale_price,
+                "warranty_months": warranty_months,
+                "source": LONA_CARD_PROVIDER,
+            },
+            "number_mode": "digital_products",
+        },
+    )
+    await _notify_owner_manual_topup(
+        bot=bot,
+        order=order,
+        item_name=item_name,
+        provider_code=LONA_CARD_PROVIDER,
+        external_order_id="",
+        player_data={
+            "card_value": format_usd(face_value),
+            "rate": rate,
+            "charged": format_usd(sale_price),
+            "warranty": f"{warranty_months} months",
+        },
+        delivery_lines=[],
+    )
+    if str(lang or "").lower().startswith("ar"):
+        text = "\n".join(
+            [
+                "✅ تم تثبيت طلب البطاقة.",
+                "",
+                f"رقم الطلب: {order_id}",
+                f"البطاقة: {item_name}",
+                f"قيمة البطاقة: {format_usd(face_value)}",
+                f"النسبة: {rate}",
+                f"السعر المخصوم: {format_usd(sale_price)}",
+                _lona_warranty_line(lang, warranty_months),
+                "",
+                "سيتم تسليم الكود بعد المراجعة اليدوية.",
+            ]
+        )
+    else:
+        text = "\n".join(
+            [
+                "✅ Card order created.",
+                "",
+                f"Order: {order_id}",
+                f"Card: {item_name}",
+                f"Card value: {format_usd(face_value)}",
+                f"Rate: {rate}",
+                f"Debited: {format_usd(sale_price)}",
+                _lona_warranty_line(lang, warranty_months),
+                "",
+                "The code will be delivered after manual review.",
+            ]
+        )
+    return {"kind": "pending", "text": text}
 
 
 async def _create_provider_game_order(
@@ -2625,8 +2824,17 @@ def _gift_products_rows(
         if not item_id:
             continue
         raw_name = str(item.get("name") or "-").strip()
-        price = float(_apply_markup_decimal(item.get("price"), markup_percent))
-        label = f"{raw_name} | {_store_price_line('en', price, usd_to_syp_rate)}"[:62]
+        manual_card = dict(item.get("manual_card") or {}) if bool(item.get("lona_manual")) else {}
+        if manual_card:
+            rate = _percent_label(manual_card.get("rate_percent") or 0)
+            if str(manual_card.get("kind") or "") == "fixed":
+                price = float(_to_decimal(item.get("price") or 0))
+                label = f"{raw_name} | {rate} | {_fmt_dual_price(price, usd_to_syp_rate)}"[:62]
+            else:
+                label = f"{raw_name} | {rate}"[:62]
+        else:
+            price = float(_apply_markup_decimal(item.get("price"), markup_percent))
+            label = f"{raw_name} | {_store_price_line('en', price, usd_to_syp_rate)}"[:62]
         cb = f"gst:giftitem:{category_id}:{item_id}"
         rows.append(
             [
@@ -2998,10 +3206,8 @@ async def open_giftcards_section(message: types.Message, state):
 
     # Primary source: G2Bulk API catalogue.
     snapshot = await get_catalog_snapshot(force=False)
-    if bool(snapshot.get("enabled")):
-        categories = _prepare_gift_categories(list(snapshot.get("gift_categories") or []))
-        if not categories:
-            return await message.answer(t(lang, "store_no_gift_categories"), reply_markup=ReplyKeyboardRemove())
+    categories = _gift_categories_for_ui(snapshot)
+    if categories:
         rows = _build_gift_categories_rows(categories[:60])
         rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:menu")])
         await message.answer(
@@ -4260,11 +4466,8 @@ async def open_store_hub_gift(callback: types.CallbackQuery, state: FSMContext):
     if not await guard_core_service_callback(callback, lang):
         return
     snapshot = await get_catalog_snapshot(force=False)
-    if bool(snapshot.get("enabled")):
-        categories = _prepare_gift_categories(list(snapshot.get("gift_categories") or []))
-        if not categories:
-            await callback.answer(t(lang, "store_no_gift_categories"), show_alert=True)
-            return
+    categories = _gift_categories_for_ui(snapshot)
+    if categories:
         rows = _build_gift_categories_rows(categories[:60])
         rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="gst:hub:back", style="danger")])
         if callback.message:
@@ -4378,10 +4581,11 @@ async def inline_games_search(iq: types.InlineQuery):
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("gst:giftcat:"))
-async def open_g2bulk_gift_category(callback: types.CallbackQuery):
+async def open_g2bulk_gift_category(callback: types.CallbackQuery, state: FSMContext):
     if not callback.message:
         await callback.answer()
         return
+    await state.clear()
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
     parts = str(callback.data or "").split(":")
@@ -4395,7 +4599,10 @@ async def open_g2bulk_gift_category(callback: types.CallbackQuery):
     if not cat_id:
         return await callback.answer(t(lang, "store_category_not_found"), show_alert=True)
     snapshot = await get_catalog_snapshot(force=False)
-    products = list((snapshot.get("products_by_category") or {}).get(cat_id) or [])
+    if is_lona_category_id(cat_id):
+        products = lona_products_for_category(cat_id)
+    else:
+        products = list((snapshot.get("products_by_category") or {}).get(cat_id) or [])
     if not products:
         return await callback.answer(t(lang, "store_no_gift_categories"), show_alert=True)
     products.sort(key=lambda x: _natural_sort_key(str(x.get("name") or x.get("clean_name") or "")))
@@ -4426,14 +4633,15 @@ async def open_g2bulk_gift_category(callback: types.CallbackQuery):
 
 
 @router.callback_query(lambda c: c.data == "gst:giftroot")
-async def open_g2bulk_gift_root(callback: types.CallbackQuery):
+async def open_g2bulk_gift_root(callback: types.CallbackQuery, state: FSMContext):
     if not callback.message:
         await callback.answer()
         return
+    await state.clear()
     user = await get_user(callback.from_user.id)
     lang = (user or {}).get("language", "en")
     snapshot = await get_catalog_snapshot(force=False)
-    categories = _prepare_gift_categories(list(snapshot.get("gift_categories") or []))
+    categories = _gift_categories_for_ui(snapshot)
     if not categories:
         return await callback.answer(t(lang, "store_no_gift_categories"), show_alert=True)
     rows = _build_gift_categories_rows(categories[:60])
@@ -4443,7 +4651,7 @@ async def open_g2bulk_gift_root(callback: types.CallbackQuery):
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("gst:giftitem:"))
-async def open_g2bulk_gift_item(callback: types.CallbackQuery):
+async def open_g2bulk_gift_item(callback: types.CallbackQuery, state: FSMContext):
     if not callback.message:
         await callback.answer()
         return
@@ -4457,15 +4665,50 @@ async def open_g2bulk_gift_item(callback: types.CallbackQuery):
     cat_id = str(parts[2]).strip()
     product_id = str(parts[3]).strip()
     snapshot = await get_catalog_snapshot(force=False)
-    found: dict[str, Any] | None = None
-    for item in ((snapshot.get("products_by_category") or {}).get(cat_id) or []):
-        if str(item.get("id") or "").strip() == product_id:
-            found = item
-            break
+    if is_lona_category_id(cat_id):
+        found = find_lona_product(cat_id, product_id)
+    else:
+        found: dict[str, Any] | None = None
+        for item in ((snapshot.get("products_by_category") or {}).get(cat_id) or []):
+            if str(item.get("id") or "").strip() == product_id:
+                found = item
+                break
     if not found:
         return await callback.answer(t(lang, "store_product_not_found"), show_alert=True)
+    await state.clear()
     usd_to_syp_rate = await _resolve_usd_to_syp_rate(callback.bot.id)
     name = str(found.get("name") or "-")
+    if bool(found.get("lona_manual")):
+        manual_card = dict(found.get("manual_card") or {})
+        kind = str(manual_card.get("kind") or "")
+        if kind != "fixed":
+            await state.clear()
+            await state.set_state(GiftStoreFlow.waiting_lona_amount)
+            await state.update_data(
+                lona_card_pending={
+                    "cat_id": cat_id,
+                    "product_id": product_id,
+                    "back_to": f"gst:giftitem:{cat_id}:{product_id}",
+                }
+            )
+            await callback.message.edit_text(
+                _lona_amount_prompt_text(lang, found),
+                reply_markup=_gift_param_cancel_keyboard(lang, back_to=f"gst:giftcat:{cat_id}:0"),
+            )
+            await callback.answer()
+            return
+        quote = quote_lona_product(cat_id, product_id)
+        if not quote:
+            return await callback.answer(t(lang, "store_invalid_product"), show_alert=True)
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "confirm_purchase"), callback_data=f"gst:giftconfirm:{cat_id}:{product_id}")],
+                [InlineKeyboardButton(text=t(lang, "back"), callback_data=f"gst:giftcat:{cat_id}:0")],
+            ]
+        )
+        await callback.message.edit_text(_lona_quote_summary_text(lang, quote), reply_markup=kb)
+        await callback.answer()
+        return
     markup_percent = await _resolve_digital_products_markup_percent()
     price = float(_apply_markup_decimal(found.get("price"), markup_percent))
     offers = _provider_offers_for_row(
@@ -4674,6 +4917,43 @@ async def confirm_g2bulk_gift_purchase(callback: types.CallbackQuery, state: FSM
     product_id = str(parts[3]).strip()
 
     snapshot = await get_catalog_snapshot(force=False)
+    if is_lona_category_id(cat_id):
+        selected = find_lona_product(cat_id, product_id)
+        if not selected:
+            return await callback.answer(t(lang, "store_product_not_found"), show_alert=True)
+        quote = quote_lona_product(cat_id, product_id)
+        if not quote:
+            return await callback.answer(
+                "افتح هذا الخيار وأرسل قيمة البطاقة أولاً."
+                if str(lang or "").lower().startswith("ar")
+                else "Open this item and enter the card value first.",
+                show_alert=True,
+            )
+        reseller_id = await _resolve_user_reseller(callback.from_user.id, callback.bot.id)
+        if not reseller_id:
+            return await callback.answer(t(lang, "store_reseller_not_linked"), show_alert=True)
+        await callback.answer(t(lang, "processing_order"), show_alert=False)
+        result = await _execute_lona_card_purchase(
+            bot=callback.bot,
+            user_id=int(callback.from_user.id),
+            lang=lang,
+            reseller_id=int(reseller_id),
+            quote=quote,
+        )
+        kind = str(result.get("kind") or "")
+        if kind == "charge_error":
+            return await callback.answer(str(result.get("alert") or t(lang, "purchase_failed_plain")), show_alert=True)
+        if callback.message:
+            await callback.message.edit_text(
+                str(result.get("text") or t(lang, "purchase_failed_plain")),
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")]
+                    ]
+                ),
+            )
+        return
+
     selected: dict[str, Any] | None = None
     for item in ((snapshot.get("products_by_category") or {}).get(cat_id) or []):
         if str(item.get("id") or "").strip() == product_id:
@@ -4837,6 +5117,82 @@ async def cancel_gift_param_flow(callback: types.CallbackQuery, state: FSMContex
             ),
         )
     await callback.answer()
+
+
+@router.message(GiftStoreFlow.waiting_lona_amount)
+async def collect_lona_card_amount(message: types.Message, state: FSMContext):
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_message(message, lang):
+        return
+    raw = str(message.text or "").strip()
+    if raw.lower() in {"/cancel", "cancel"}:
+        await state.clear()
+        return await message.answer(t(lang, "purchase_cancelled_plain"))
+    data = await state.get_data()
+    pending = dict(data.get("lona_card_pending") or {})
+    cat_id = str(pending.get("cat_id") or "").strip()
+    product_id = str(pending.get("product_id") or "").strip()
+    product = find_lona_product(cat_id, product_id)
+    if not product:
+        await state.clear()
+        return await message.answer(t(lang, "store_product_not_found"))
+    amount = parse_face_value(raw)
+    if amount is None:
+        return await message.answer(
+            lona_validation_message("invalid_amount", category_id=cat_id, product_id=product_id, lang=lang),
+            reply_markup=_gift_param_cancel_keyboard(lang, back_to=f"gst:giftitem:{cat_id}:{product_id}"),
+        )
+    ok, reason = validate_lona_amount(cat_id, product_id, amount)
+    if not ok:
+        return await message.answer(
+            lona_validation_message(reason, category_id=cat_id, product_id=product_id, lang=lang),
+            reply_markup=_gift_param_cancel_keyboard(lang, back_to=f"gst:giftitem:{cat_id}:{product_id}"),
+        )
+    quote = quote_lona_product(cat_id, product_id, amount)
+    if not quote:
+        return await message.answer(t(lang, "store_invalid_product"))
+    await state.update_data(lona_card_quote=quote)
+    await message.answer(
+        _lona_quote_summary_text(lang, quote),
+        reply_markup=_lona_manual_confirm_kb(lang, back_to=f"gst:giftitem:{cat_id}:{product_id}"),
+    )
+
+
+@router.callback_query(lambda c: c.data == "gst:giftmanualconfirm")
+async def confirm_lona_card_amount_purchase(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    if not await guard_core_service_callback(callback, lang):
+        return
+    data = await state.get_data()
+    quote = dict(data.get("lona_card_quote") or {})
+    if not quote:
+        return await callback.answer(t(lang, "store_invalid_product"), show_alert=True)
+    reseller_id = await _resolve_user_reseller(callback.from_user.id, callback.bot.id)
+    if not reseller_id:
+        return await callback.answer(t(lang, "store_reseller_not_linked"), show_alert=True)
+    await state.clear()
+    await callback.answer(t(lang, "processing_order"), show_alert=False)
+    result = await _execute_lona_card_purchase(
+        bot=callback.bot,
+        user_id=int(callback.from_user.id),
+        lang=lang,
+        reseller_id=int(reseller_id),
+        quote=quote,
+    )
+    kind = str(result.get("kind") or "")
+    if kind == "charge_error":
+        return await callback.answer(str(result.get("alert") or t(lang, "purchase_failed_plain")), show_alert=True)
+    if callback.message:
+        await callback.message.edit_text(
+            str(result.get("text") or t(lang, "purchase_failed_plain")),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=t(lang, "btn_back_main"), callback_data="gst:menu")]
+                ]
+            ),
+        )
 
 
 @router.message(GiftStoreFlow.waiting_quantity)
