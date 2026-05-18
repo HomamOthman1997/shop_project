@@ -23,6 +23,16 @@ def cardex_miniapp_ready() -> bool:
     )
 
 
+def cardex_miniapp_kb(lang: str | None = None) -> InlineKeyboardMarkup:
+    is_ar = str(lang or "").lower().startswith("ar")
+    text = "فتح الميني أب" if is_ar else "Open Mini App"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=text, web_app=WebAppInfo(url=cardex_miniapp_url()))],
+        ]
+    )
+
+
 def cards_main_menu(lang: str | None = None, *, is_admin: bool = False, user_id: int | None = None) -> ReplyKeyboardMarkup:
     is_ar = str(lang or "").lower().startswith("ar")
     sell = "بيع كرت" if is_ar else "Sell Card"
@@ -34,16 +44,9 @@ def cards_main_menu(lang: str | None = None, *, is_admin: bool = False, user_id:
     support = "الدعم" if is_ar else "Support"
     admin_panel = "لوحة الإدارة" if is_ar else "Admin Panel"
 
-    miniapp_url = cardex_miniapp_url()
-    price_sheet_button = (
-        KeyboardButton(text=price_sheet, web_app=WebAppInfo(url=miniapp_url))
-        if cardex_miniapp_ready()
-        else KeyboardButton(text=price_sheet)
-    )
-
     keyboard = [
         [KeyboardButton(text=sell)],
-        [price_sheet_button],
+        [KeyboardButton(text=price_sheet)],
         [KeyboardButton(text=wallet), KeyboardButton(text=my_cards)],
         [KeyboardButton(text=withdraw), KeyboardButton(text=my_withdrawals)],
         [KeyboardButton(text=support)],

@@ -18,6 +18,8 @@ from services.cards_bot.keyboards import (
     cards_admin_panel_kb,
     admin_review_actions_kb,
     admin_withdraw_actions_kb,
+    cardex_miniapp_kb,
+    cardex_miniapp_ready,
     cards_main_menu,
     confirm_submit_kb,
     currency_kb,
@@ -770,6 +772,16 @@ async def open_my_cards(message: types.Message) -> None:
 async def open_price_sheet(message: types.Message) -> None:
     user_doc = await _ensure_global_user(message)
     lang = _lang(user_doc)
+    if cardex_miniapp_ready():
+        await message.answer(
+            _t(
+                lang,
+                "Open CardEX from the button below.",
+                "افتح CardEX من الزر بالأسفل.",
+            ),
+            reply_markup=cardex_miniapp_kb(lang),
+        )
+        return
     rows = await list_active_pricing_rules(limit=200)
     await _answer_long_text(message, _price_sheet_text(lang, rows))
 
