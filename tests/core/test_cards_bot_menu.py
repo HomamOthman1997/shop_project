@@ -3,6 +3,7 @@ import sys
 import json
 import hashlib
 import hmac
+from decimal import Decimal
 from urllib.parse import urlencode
 from types import SimpleNamespace
 
@@ -53,6 +54,64 @@ def test_cardex_miniapp_quote_payload_is_json_serializable():
     json.dumps(payload)
     assert payload["rule"]["id"]
     assert payload["rule"]["brand"] == "AMAZON"
+
+
+def test_cardex_lona_rules_collapse_mixed_denominations():
+    from services.cards_bot.lona_pricebook import merge_lona_cardex_rules
+
+    rows = merge_lona_cardex_rules(
+        [
+            {
+                "_id": "old-87",
+                "brand": "ITUNES",
+                "region": "USA",
+                "currency": "USD",
+                "denomination": 87,
+                "denominations": [87],
+                "denomination_label": "87",
+                "customer_buy_rate_percent": 76,
+                "trader_rate_percent": 76,
+                "active": True,
+            },
+            {
+                "_id": "discord-10",
+                "brand": "DISCORD",
+                "region": "GLOBAL",
+                "currency": "USD",
+                "denomination": 10,
+                "denominations": [10],
+                "denomination_label": "10",
+                "customer_buy_rate_percent": 70,
+                "trader_rate_percent": 70,
+                "active": True,
+            },
+        ]
+    )
+    labels = [str(row.get("denomination_label") or "") for row in rows if row.get("brand") == "ITUNES"]
+
+    assert "Mixed" in labels
+    assert "87" not in labels
+    assert any(row.get("_id") == "discord-10" for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_cardex_lona_quote_uses_mixed_rule_before_database():
+    from services.cards_bot.service import quote_card_submission
+
+    quote = await quote_card_submission(brand="ITUNES", denomination=Decimal("87"), currency="USD", region="USA")
+
+    assert quote["configured"] is True
+    assert quote["customer_buy_rate_percent"] == 80.0
+    assert quote["rule"]["denomination_label"] == "Mixed"
+
+
+@pytest.mark.asyncio
+async def test_cardex_lona_rejects_unlisted_multiple_of_five():
+    from services.cards_bot.service import quote_card_submission
+
+    quote = await quote_card_submission(brand="ITUNES", denomination=Decimal("90"), currency="USD", region="USA")
+
+    assert quote["configured"] is False
 
 
 def test_cardex_miniapp_accepts_main_bot_signed_init_data(monkeypatch):

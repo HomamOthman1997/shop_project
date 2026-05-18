@@ -33,6 +33,7 @@ from database.cardex_repo import (
     trader_statement,
     update_withdrawal_status,
 )
+from services.cards_bot.lona_pricebook import is_lona_cardex_managed, quote_lona_cardex_submission
 
 
 def parse_decimal(text: str) -> Decimal:
@@ -66,6 +67,17 @@ async def quote_card_submission(
     currency: str,
     region: str | None,
 ) -> dict[str, Any]:
+    lona_quote = quote_lona_cardex_submission(
+        brand=brand,
+        denomination=denomination,
+        currency=currency,
+        region=region,
+    )
+    if lona_quote is not None:
+        return lona_quote
+    if is_lona_cardex_managed(brand, region, currency):
+        return {"configured": False, "rule": None}
+
     rule = await find_active_pricing_rule(brand, denomination, currency, region)
     if rule is None:
         return {"configured": False, "rule": None}
@@ -94,7 +106,18 @@ async def submit_card(
     code: str,
     pin: str | None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    rule = await find_active_pricing_rule(brand, denomination, currency, region)
+    lona_quote = quote_lona_cardex_submission(
+        brand=brand,
+        denomination=denomination,
+        currency=currency,
+        region=region,
+    )
+    if lona_quote is not None:
+        rule = dict(lona_quote.get("rule") or {})
+    elif is_lona_cardex_managed(brand, region, currency):
+        rule = None
+    else:
+        rule = await find_active_pricing_rule(brand, denomination, currency, region)
     if rule is None:
         queued = await queue_missing_pricing(
             actor_user_id=actor_user_id,

@@ -686,7 +686,7 @@ function renderRules(brand, regionKey) {
       const actions = document.createElement("div");
       actions.className = "actions";
       actions.append(button("primary", t("sell"), () => openSellModal(row)));
-      actions.append(button("ghost danger", t("delete"), () => deleteRule(row.id)));
+      if (!row.readonly) actions.append(button("ghost danger", t("delete"), () => deleteRule(row.id)));
       item.append(actions);
     } else {
       const actions = document.createElement("div");
@@ -1078,6 +1078,7 @@ function closePriceModal() {
 }
 
 function firstRuleValue(row) {
+  if (row.requires_custom_value) return "";
   if (row.range_min) return row.range_min;
   if (Array.isArray(row.denominations) && row.denominations.length) return row.denominations[0];
   const match = String(row.label || "").match(/\d+(?:\.\d+)?/);
@@ -1109,7 +1110,9 @@ function openSellModal(row) {
   sellForm.elements.brand.value = row.brand || state.brand || "";
   sellForm.elements.region.value = row.region || "";
   sellForm.elements.currency.value = row.currency || "USD";
-  sellForm.elements.denomination.value = firstRuleValue(row);
+  const denominationInput = sellForm.elements.denomination;
+  denominationInput.value = firstRuleValue(row);
+  denominationInput.placeholder = row.requires_custom_value ? "87" : "25";
   sellSummary.textContent = `${row.brand} - ${row.region} - ${row.label} ${row.currency}`;
   quoteBox.classList.add("hidden");
   sellModal.classList.remove("hidden");

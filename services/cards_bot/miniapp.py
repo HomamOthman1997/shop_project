@@ -15,6 +15,7 @@ from aiohttp import web
 from config import settings
 from database.cardex_repo import create_pricing_rule, deactivate_pricing_rule, get_or_create_cardex_user, list_active_pricing_rules
 from services.cards_bot.handlers import _fmt_rate
+from services.cards_bot.lona_pricebook import merge_lona_cardex_rules
 from services.cards_bot.service import (
     accept_card,
     create_trader,
@@ -143,6 +144,10 @@ def _rule_payload(row: dict[str, Any]) -> dict[str, Any]:
         "range_min": row.get("range_min"),
         "range_max": row.get("range_max"),
         "denominations": list(row.get("denominations") or []),
+        "requires_custom_value": bool(row.get("requires_custom_value")),
+        "readonly": bool(row.get("readonly")),
+        "lona_cardex": bool(row.get("lona_cardex")),
+        "lona_kind": str(row.get("lona_kind") or ""),
     }
 
 
@@ -358,7 +363,7 @@ async def cardex_static(request: web.Request) -> web.Response:
 
 async def cardex_prices(request: web.Request) -> web.Response:
     auth = _optional_auth(request)
-    rows = [_rule_payload(row) for row in await list_active_pricing_rules(limit=1000)]
+    rows = [_rule_payload(row) for row in merge_lona_cardex_rules(await list_active_pricing_rules(limit=1000))]
     is_admin = bool(auth and int(auth["user_id"]) in _cardex_admin_ids())
     return web.json_response({"is_admin": is_admin, "rules": rows}, headers=dict(_NO_STORE_HEADERS))
 
@@ -631,6 +636,8 @@ async def cardex_price_create(request: web.Request) -> web.Response:
 async def cardex_price_delete(request: web.Request) -> web.Response:
     auth = _auth(request, require_admin=True)
     rule_id = str(request.match_info.get("rule_id") or "").strip()
+    if rule_id.startswith("lona-cardex:"):
+        return web.json_response({"ok": True, "readonly": True}, headers=dict(_NO_STORE_HEADERS))
     deleted = await deactivate_pricing_rule(actor_user_id=str(auth["user_id"]), pricing_rule_id=rule_id)
     if not deleted:
         raise web.HTTPNotFound(text="pricing not found")
