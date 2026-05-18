@@ -17,6 +17,7 @@ from services.cards_bot.handlers import (
     _is_menu_btn,
     _operation_failed_text,
     _price_sheet_text,
+    _split_message_text,
 )
 from services.cards_bot.keyboards import cards_admin_panel_kb, cards_main_menu
 
@@ -177,6 +178,15 @@ def test_price_sheet_lists_rates_and_public_notes():
     assert "Today's Card Prices" in text
     assert "APPLE | 6.00 USD | USA | 80%" in text
     assert "Physical card only" in text
+
+
+def test_long_card_messages_are_split_under_telegram_limit():
+    text = "Header\n\n" + "\n".join(f"- APPLE | {idx}.00 USD | USA | 80% | note" for idx in range(300))
+    chunks = _split_message_text(text, limit=500)
+
+    assert len(chunks) > 1
+    assert all(len(chunk) <= 500 for chunk in chunks)
+    assert "".join(chunks).replace("\n", "") == text.replace("\n", "")
 
 
 @pytest.mark.asyncio

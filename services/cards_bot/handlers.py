@@ -64,6 +64,8 @@ from utils.user_money import format_usd
 router = Router()
 CUSTOM_DEN_KEY = "cardx_custom_denominations"
 logger = logging.getLogger(__name__)
+TELEGRAM_TEXT_LIMIT = 4096
+SAFE_TEXT_LIMIT = TELEGRAM_TEXT_LIMIT - 196
 
 
 def _is_owner(user_id: int) -> bool:
@@ -118,6 +120,37 @@ def _lang(user_doc: dict | None) -> str:
 
 def _t(lang: str, en: str, ar: str) -> str:
     return ar if str(lang).lower().startswith("ar") else en
+
+
+def _split_message_text(text: str, *, limit: int = SAFE_TEXT_LIMIT) -> list[str]:
+    raw = str(text or "")
+    if len(raw) <= limit:
+        return [raw]
+
+    chunks: list[str] = []
+    current = ""
+    for line in raw.splitlines(keepends=True):
+        if len(line) > limit:
+            if current:
+                chunks.append(current.rstrip("\n"))
+                current = ""
+            for idx in range(0, len(line), limit):
+                chunks.append(line[idx : idx + limit].rstrip("\n"))
+            continue
+        if current and len(current) + len(line) > limit:
+            chunks.append(current.rstrip("\n"))
+            current = line
+        else:
+            current += line
+    if current:
+        chunks.append(current.rstrip("\n"))
+    return chunks or [raw[:limit]]
+
+
+async def _answer_long_text(message: types.Message, text: str, *, reply_markup=None) -> None:
+    chunks = _split_message_text(text)
+    for idx, chunk in enumerate(chunks):
+        await message.answer(chunk, reply_markup=reply_markup if idx == len(chunks) - 1 else None)
 
 
 async def _ensure_global_user(message: types.Message) -> dict:
@@ -640,9 +673,7 @@ async def open_my_cards(message: types.Message) -> None:
         await message.answer(_t(lang, "No cards submitted yet.", "لا توجد بطاقات مرسلة بعد."))
         return
     text = "\n".join(_fmt_card_line(row) for row in rows)
-    await message.answer(
-        _t(lang, f"My Cards\n\n{text}", f"بطاقاتي\n\n{text}")
-    )
+    await _answer_long_text(message, _t(lang, f"My Cards\n\n{text}", f"بطاقاتي\n\n{text}"))
 
 
 @router.message(F.text.func(lambda text: _is_menu_btn(text, "Price Sheet")))
@@ -650,7 +681,7 @@ async def open_price_sheet(message: types.Message) -> None:
     user_doc = await _ensure_global_user(message)
     lang = _lang(user_doc)
     rows = await list_active_pricing_rules(limit=200)
-    await message.answer(_price_sheet_text(lang, rows))
+    await _answer_long_text(message, _price_sheet_text(lang, rows))
 
 
 @router.message(F.text.func(lambda text: _is_menu_btn(text, "Withdraw")))
@@ -760,7 +791,7 @@ async def open_my_withdrawals(message: types.Message) -> None:
         f"{row.get('_id')} | {_fmt_money(row.get('requested_usd_amount'))} | {row.get('payout_currency')} | {row.get('status')}"
         for row in rows
     ]
-    await message.answer(_t(lang, "My Withdrawals\n\n" + "\n".join(lines), "طلبات السحب\n\n" + "\n".join(lines)))
+    await _answer_long_text(message, _t(lang, "My Withdrawals\n\n" + "\n".join(lines), "طلبات السحب\n\n" + "\n".join(lines)))
 
 
 @router.message(F.text.func(lambda text: _is_menu_btn(text, "Support")))
@@ -938,7 +969,7 @@ async def open_admin_price_sheet(callback: types.CallbackQuery, state: FSMContex
     lang = _lang(user_doc)
     rows = await list_active_pricing_rules(limit=200)
     if callback.message:
-        await callback.message.answer(_price_sheet_text(lang, rows), reply_markup=cards_admin_panel_kb(lang))
+        await _answer_long_text(callback.message, _price_sheet_text(lang, rows), reply_markup=cards_admin_panel_kb(lang))
     await callback.answer()
 
 
@@ -1150,7 +1181,7 @@ async def open_cards_traders_panel(callback: types.CallbackQuery) -> None:
         "/cardx_trader_statement <trader_id>"
     )
     if callback.message:
-        await callback.message.answer(text, reply_markup=cards_admin_panel_kb("en"))
+        await _answer_long_text(callback.message, text, reply_markup=cards_admin_panel_kb("en"))
     await callback.answer()
 
 
@@ -1168,7 +1199,7 @@ async def open_cards_audit_panel(callback: types.CallbackQuery) -> None:
         for row in rows
     )
     if callback.message:
-        await callback.message.answer(text[:4000], reply_markup=cards_admin_panel_kb("en"))
+        await _answer_long_text(callback.message, text, reply_markup=cards_admin_panel_kb("en"))
     await callback.answer()
 
 
@@ -1259,7 +1290,7 @@ async def admin_card_trader_statement(message: types.Message) -> None:
         if rows
         else "No statement entries."
     )
-    await message.answer(text[:4000])
+    await _answer_long_text(message, text)
 
 
 @router.callback_query(F.data == "cardx:panel:today_report")
@@ -1275,7 +1306,8 @@ async def open_cards_today_report(callback: types.CallbackQuery) -> None:
     missing_pricing = len(await list_missing_pricing(limit=200))
     open_withdrawals = len(await list_open_withdrawals(limit=200))
     if callback.message:
-        await callback.message.answer(
+        await _answer_long_text(
+            callback.message,
             _cards_today_report_text(
                 lang,
                 day=since,
