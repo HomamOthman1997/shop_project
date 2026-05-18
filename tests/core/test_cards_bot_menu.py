@@ -17,6 +17,7 @@ from services.cards_bot.handlers import (
     _is_menu_btn,
     _operation_failed_text,
     _price_sheet_text,
+    _parse_denomination_group,
     _split_message_text,
 )
 from services.cards_bot.keyboards import cards_admin_panel_kb, cards_main_menu
@@ -176,8 +177,57 @@ def test_price_sheet_lists_rates_and_public_notes():
     )
 
     assert "Today's Card Prices" in text
-    assert "APPLE | 6.00 USD | USA | 80%" in text
+    assert "APPLE | 6 USD | USA | 80%" in text
     assert "Physical card only" in text
+
+
+def test_price_sheet_groups_same_category_denominations():
+    text = _price_sheet_text(
+        "en",
+        [
+            {
+                "_id": "r1",
+                "brand": "AMAZON",
+                "denomination": 5,
+                "currency": "USD",
+                "region": "USA",
+                "customer_buy_rate_percent": 75,
+                "trader_rate_percent": 72,
+                "public_note": "USA low values",
+            },
+            {
+                "_id": "r2",
+                "brand": "AMAZON",
+                "denomination": 10,
+                "currency": "USD",
+                "region": "USA",
+                "customer_buy_rate_percent": 75,
+                "trader_rate_percent": 72,
+                "public_note": "USA low values",
+            },
+            {
+                "_id": "r3",
+                "brand": "AMAZON",
+                "denominations": [25, 30],
+                "denomination_label": "25-30",
+                "currency": "USD",
+                "region": "USA",
+                "customer_buy_rate_percent": 80,
+                "trader_rate_percent": 77,
+            },
+        ],
+    )
+
+    assert "AMAZON | 5-10 USD | USA | 75% | USA low values" in text
+    assert "AMAZON | 25-30 USD | USA | 80%" in text
+    assert text.count("AMAZON |") == 2
+
+
+def test_parse_denomination_group_accepts_price_category_values():
+    values, label = _parse_denomination_group("5-10-15")
+
+    assert [str(value) for value in values] == ["5", "10", "15"]
+    assert label == "5-10-15"
 
 
 def test_long_card_messages_are_split_under_telegram_limit():

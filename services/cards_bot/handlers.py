@@ -36,6 +36,7 @@ from services.cards_bot.service import (
     create_trader,
     create_trader_batch,
     create_withdrawal,
+    deactivate_pricing_rule,
     ensure_user_from_telegram,
     get_missing_pricing,
     get_wallet_snapshot,
@@ -208,7 +209,14 @@ def _fmt_rate(value) -> str:
 
 def _pricing_rule_public_line(row: dict) -> str:
     brand = str(row.get("brand") or "-").upper()
-    value = f"{float(row.get('denomination') or 0):.2f} {row.get('currency') or 'USD'}"
+    value_label = str(row.get("denomination_label") or "").strip()
+    if not value_label:
+        values = row.get("denominations")
+        if isinstance(values, list) and values:
+            value_label = "-".join(_fmt_rate(item) for item in values)
+    if not value_label:
+        value_label = f"{float(row.get('denomination') or 0):.2f}"
+    value = f"{value_label} {row.get('currency') or 'USD'}"
     region = str(row.get("region") or "GLOBAL").upper()
     rate = _fmt_rate(row.get("customer_buy_rate_percent"))
     note = str(row.get("public_note") or "").strip()
@@ -221,12 +229,76 @@ def _pricing_rule_public_line(row: dict) -> str:
 def _price_sheet_text(lang: str, rows: list[dict]) -> str:
     if not rows:
         return _t(lang, "No card prices configured yet.", "لا توجد أسعار بطاقات مضبوطة بعد.")
-    body = "\n".join(f"- {_pricing_rule_public_line(row)}" for row in rows)
+    body = "\n".join(_pricing_sheet_rows(rows))
     return _t(
         lang,
         f"Today's Card Prices\n\n{body}",
         f"نشرة أسعار البطاقات اليوم\n\n{body}",
     )
+
+
+def _pricing_rule_admin_line(row: dict) -> str:
+    return f"{row.get('_id')} | {_pricing_rule_public_line(row)} | trader={_fmt_rate(row.get('trader_rate_percent'))}%"
+
+
+def _pricing_sheet_rows(rows: list[dict], *, admin: bool = False) -> list[str]:
+    grouped: dict[tuple[str, str, str, str, str, str], dict] = {}
+    order: list[tuple[str, str, str, str, str, str]] = []
+    for row in rows:
+        values = row.get("denominations")
+        if not isinstance(values, list) or not values:
+            values = [row.get("denomination")]
+        key = (
+            str(row.get("brand") or "-").upper(),
+            str(row.get("currency") or "USD").upper(),
+            str(row.get("region") or "GLOBAL").upper(),
+            _fmt_rate(row.get("customer_buy_rate_percent")),
+            _fmt_rate(row.get("trader_rate_percent")),
+            str(row.get("public_note") or "").strip(),
+        )
+        if key not in grouped:
+            grouped[key] = {**row, "denominations": [], "_ids": []}
+            order.append(key)
+        grouped[key]["denominations"].extend(values)
+        grouped[key]["_ids"].append(str(row.get("_id") or "-"))
+
+    lines: list[str] = []
+    for key in order:
+        row = grouped[key]
+        try:
+            values = sorted({Decimal(str(item)) for item in row.get("denominations") or []})
+        except Exception:
+            values = []
+        if values:
+            row["denomination_label"] = "-".join(_fmt_rate(item) for item in values)
+            row["denomination"] = float(values[0])
+        if admin:
+            ids = ",".join(row.get("_ids") or [])
+            lines.append(f"- {ids} | {_pricing_rule_public_line(row)} | trader={_fmt_rate(row.get('trader_rate_percent'))}%")
+        else:
+            lines.append(f"- {_pricing_rule_public_line(row)}")
+    return lines
+
+
+def _admin_price_sheet_text(lang: str, rows: list[dict]) -> str:
+    if not rows:
+        return _t(lang, "No card prices configured yet.", "لا توجد أسعار بطاقات مضبوطة بعد.")
+    body = "\n".join(_pricing_sheet_rows(rows, admin=True))
+    return _t(
+        lang,
+        f"Card Price Categories\n\n{body}\n\nDelete: /cardx_price_delete <pricing_id>",
+        f"فئات أسعار البطاقات\n\n{body}\n\nالحذف: /cardx_price_delete <pricing_id>",
+    )
+
+
+def _parse_denomination_group(text: str) -> tuple[list[Decimal], str]:
+    label = str(text or "").strip().replace(",", "-").replace("/", "-")
+    parts = [part.strip() for part in re.split(r"[-\s]+", label) if part.strip()]
+    if not parts:
+        raise ValueError("missing denomination")
+    values = sorted({parse_decimal(part) for part in parts})
+    clean_label = "-".join(_fmt_rate(value) for value in values)
+    return values, clean_label
 
 
 def _decimal_label(value: Decimal) -> str:
@@ -969,7 +1041,7 @@ async def open_admin_price_sheet(callback: types.CallbackQuery, state: FSMContex
     lang = _lang(user_doc)
     rows = await list_active_pricing_rules(limit=200)
     if callback.message:
-        await _answer_long_text(callback.message, _price_sheet_text(lang, rows), reply_markup=cards_admin_panel_kb(lang))
+        await _answer_long_text(callback.message, _admin_price_sheet_text(lang, rows), reply_markup=cards_admin_panel_kb(lang))
     await callback.answer()
 
 
@@ -986,13 +1058,17 @@ async def start_manual_pricing_entry(callback: types.CallbackQuery, state: FSMCo
         lang,
         (
             "Send pricing as:\n"
-            "BRAND|VALUE|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE\n\n"
-            "Example:\nAPPLE|6|USD|USA|80|78|Physical card only"
+            "BRAND|VALUES|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE\n\n"
+            "Example:\nAPPLE|6|USD|USA|80|78|Physical card only\n"
+            "Grouped example:\nAMAZON|5-10-15|USD|USA|75|72|USA low values\n\n"
+            "Delete a category:\n/cardx_price_delete <pricing_id>"
         ),
         (
             "أرسل التسعير بهذا الشكل:\n"
-            "BRAND|VALUE|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE\n\n"
-            "مثال:\nAPPLE|6|USD|USA|80|78|بطاقة فعلية فقط"
+            "BRAND|VALUES|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE\n\n"
+            "مثال:\nAPPLE|6|USD|USA|80|78|بطاقة فعلية فقط\n"
+            "مثال فئة:\nAMAZON|5-10-15|USD|USA|75|72|فئات صغيرة\n\n"
+            "حذف فئة:\n/cardx_price_delete <pricing_id>"
         ),
     )
     if callback.message:
@@ -1092,15 +1168,15 @@ async def save_manual_pricing_entry(message: types.Message, state: FSMContext) -
         await message.answer(
             _t(
                 lang,
-                "Invalid format. Send BRAND|VALUE|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE",
-                "تنسيق غير صالح. أرسل BRAND|VALUE|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE",
+                "Invalid format. Send BRAND|VALUES|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE",
+                "تنسيق غير صالح. أرسل BRAND|VALUES|CURRENCY|REGION|CUSTOMER_RATE|TRADER_RATE|NOTE",
             )
         )
         return
 
     brand, denomination_raw, currency, region, customer_raw, trader_raw, *note_parts = raw_parts
     try:
-        denomination = parse_decimal(denomination_raw)
+        denominations, denomination_label = _parse_denomination_group(denomination_raw)
         customer_rate = parse_decimal(customer_raw)
         trader_rate = parse_decimal(trader_raw)
     except Exception:
@@ -1110,12 +1186,14 @@ async def save_manual_pricing_entry(message: types.Message, state: FSMContext) -
     created = await create_pricing_rule(
         actor_user_id=str(message.from_user.id),
         brand=brand,
-        denomination=denomination,
+        denomination=denominations[0],
         currency=currency or "USD",
         region=region or "GLOBAL",
         customer_buy_rate_percent=customer_rate,
         trader_rate_percent=trader_rate,
         public_note=" | ".join(part for part in note_parts if part).strip() or None,
+        denominations=denominations,
+        denomination_label=denomination_label,
     )
     await state.clear()
     await message.answer(
@@ -1123,6 +1201,41 @@ async def save_manual_pricing_entry(message: types.Message, state: FSMContext) -
             lang,
             f"Pricing saved:\n{_pricing_rule_public_line(created)}\nTrader: {created.get('trader_rate_percent')}%",
             f"تم حفظ التسعير:\n{_pricing_rule_public_line(created)}\nالتاجر: {created.get('trader_rate_percent')}%",
+        ),
+        reply_markup=cards_admin_panel_kb(lang),
+    )
+
+
+@router.message(Command("cardx_price_delete"))
+async def admin_delete_card_price_category(message: types.Message) -> None:
+    if not _is_cards_admin(message.from_user.id):
+        return
+    user_doc = await _ensure_global_user(message)
+    lang = _lang(user_doc)
+    pricing_id = str(message.text or "").partition(" ")[2].strip()
+    if not pricing_id:
+        await message.answer(
+            _t(
+                lang,
+                "Usage: /cardx_price_delete <pricing_id>",
+                "الاستخدام: /cardx_price_delete <pricing_id>",
+            )
+        )
+        return
+    deleted_rows = []
+    for item in [part.strip() for part in pricing_id.split(",") if part.strip()]:
+        deleted = await deactivate_pricing_rule(actor_user_id=str(message.from_user.id), pricing_rule_id=item)
+        if deleted:
+            deleted_rows.append(deleted)
+    if not deleted_rows:
+        await message.answer(_t(lang, "Pricing category not found.", "لم يتم العثور على فئة التسعير."))
+        return
+    deleted_text = "\n".join(_pricing_rule_public_line(row) for row in deleted_rows)
+    await message.answer(
+        _t(
+            lang,
+            f"Pricing category deleted:\n{deleted_text}",
+            f"تم حذف فئة التسعير:\n{deleted_text}",
         ),
         reply_markup=cards_admin_panel_kb(lang),
     )

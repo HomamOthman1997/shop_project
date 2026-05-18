@@ -30,6 +30,13 @@ def _float6(value: Any) -> float:
     return float(_money6(value))
 
 
+def _decimal_label(value: Any) -> str:
+    text = format(Decimal(str(value)).normalize(), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
 async def bootstrap_cardex_indexes() -> None:
     await db.cardex_users.create_index("telegram_user_id", unique=True)
     await db.cardex_wallets.create_index("user_id", unique=True)
@@ -240,13 +247,25 @@ async def search_card_brands(query: str | None, limit: int = 20) -> list[str]:
 
 
 async def find_active_pricing_rule(brand: str, denomination: Decimal, currency: str, region: str | None) -> dict[str, Any] | None:
+    common = {
+        "brand": str(brand).upper().strip(),
+        "currency": str(currency).upper().strip(),
+        "region": (str(region or "").upper().strip() or "GLOBAL"),
+        "active": True,
+    }
+    exact = await db.cardex_pricing_rules.find_one(
+        {
+            **common,
+            "denomination": _float6(denomination),
+        },
+        sort=[("updated_at", -1)],
+    )
+    if exact:
+        return exact
     return await db.cardex_pricing_rules.find_one(
         {
-            "brand": str(brand).upper().strip(),
-            "denomination": _float6(denomination),
-            "currency": str(currency).upper().strip(),
-            "region": (str(region or "").upper().strip() or "GLOBAL"),
-            "active": True,
+            **common,
+            "denominations": _float6(denomination),
         },
         sort=[("updated_at", -1)],
     )
@@ -311,21 +330,32 @@ async def create_pricing_rule(
     customer_buy_rate_percent: Decimal,
     trader_rate_percent: Decimal,
     public_note: str | None = None,
+    denominations: list[Decimal] | None = None,
+    denomination_label: str | None = None,
 ) -> dict[str, Any]:
     region_value = str(region or "").upper().strip() or "GLOBAL"
+    denomination_values = sorted({_float6(item) for item in (denominations or [denomination])})
+    primary_denomination = denomination_values[0] if denomination_values else _float6(denomination)
+    label = str(denomination_label or "").strip() or "-".join(_decimal_label(item) for item in denomination_values)
     await db.cardex_pricing_rules.update_many(
         {
             "brand": str(brand).upper().strip(),
-            "denomination": _float6(denomination),
             "currency": str(currency).upper().strip(),
             "region": region_value,
             "active": True,
+            "$or": [
+                {"denomination": {"$in": denomination_values}},
+                {"denominations": {"$in": denomination_values}},
+                {"denomination_label": label},
+            ],
         },
         {"$set": {"active": False, "updated_at": _now()}},
     )
     doc = {
         "brand": str(brand).upper().strip(),
-        "denomination": _float6(denomination),
+        "denomination": primary_denomination,
+        "denominations": denomination_values,
+        "denomination_label": label,
         "currency": str(currency).upper().strip(),
         "region": region_value,
         "customer_buy_rate_percent": _float6(customer_buy_rate_percent),
@@ -341,7 +371,7 @@ async def create_pricing_rule(
     await db.cardex_missing_pricing.update_many(
         {
             "brand": doc["brand"],
-            "denomination": doc["denomination"],
+            "denomination": {"$in": denomination_values},
             "currency": doc["currency"],
             "region": doc["region"],
             "status": "open",
@@ -356,6 +386,30 @@ async def create_pricing_rule(
         after_data=doc,
     )
     return doc
+
+
+async def deactivate_pricing_rule(*, actor_user_id: str, pricing_rule_id: str) -> dict[str, Any] | None:
+    rule_id = str(pricing_rule_id).strip()
+    candidates: list[Any] = [rule_id]
+    with suppress(Exception):
+        candidates.append(ObjectId(rule_id))
+    before = await db.cardex_pricing_rules.find_one({"_id": {"$in": candidates}, "active": True})
+    if not before:
+        return None
+    await db.cardex_pricing_rules.update_one(
+        {"_id": before["_id"]},
+        {"$set": {"active": False, "updated_at": _now(), "deleted_by_user_id": str(actor_user_id), "deleted_at": _now()}},
+    )
+    after = {**before, "active": False, "deleted_by_user_id": str(actor_user_id)}
+    await write_audit_log(
+        actor_user_id=str(actor_user_id),
+        action="pricing.delete",
+        entity_type="cardex_pricing_rule",
+        entity_id=str(before.get("_id")),
+        before_data=before,
+        after_data=after,
+    )
+    return before
 
 
 async def create_card_submission(
