@@ -62,13 +62,39 @@ const adminFormSubmit = document.getElementById("adminFormSubmit");
 const closeAdminFormModal = document.getElementById("closeAdminFormModal");
 let adminFormHandler = null;
 
+function telegramStoredParams() {
+  const webViewParams = window.Telegram?.WebView?.initParams;
+  if (webViewParams && typeof webViewParams === "object") return webViewParams;
+
+  try {
+    const utilsParams = window.Telegram?.Utils?.sessionStorageGet?.("initParams");
+    if (utilsParams && typeof utilsParams === "object") return utilsParams;
+  } catch (err) {
+    // Ignore unavailable Telegram storage helpers.
+  }
+
+  try {
+    const raw = window.sessionStorage?.getItem("__telegram__initParams");
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch (err) {
+    // Ignore private-mode or malformed storage.
+  }
+
+  return {};
+}
+
 function telegramLaunchParam(name) {
+  const storedValue = telegramStoredParams()[name];
+  if (storedValue) return storedValue;
+
   const searchValue = new URLSearchParams(location.search).get(name);
   if (searchValue) return searchValue;
 
   const hash = location.hash.startsWith("#") ? location.hash.slice(1) : location.hash;
   if (!hash) return "";
-  return new URLSearchParams(hash).get(name) || "";
+  const hashQuery = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : hash;
+  return new URLSearchParams(hashQuery).get(name) || "";
 }
 
 function initData() {
@@ -106,9 +132,7 @@ function setActiveTab(tab) {
 
 function updateAuthTabs() {
   state.hasAuth = hasInitData();
-  for (const tab of [cardsTab, walletTab, withdrawTab]) {
-    tab.classList.toggle("hidden", !state.hasAuth);
-  }
+  for (const tab of [cardsTab, walletTab, withdrawTab]) tab.classList.remove("hidden");
 }
 
 function renderAuthRequired(title) {
