@@ -41,7 +41,7 @@ h1 {
   color: #fff;
 }
 p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-.icon-btn, .primary, .ghost, .tile, .rule {
+.icon-btn, .primary, .ghost, .tile, .brand-card, .region-card, .rule {
   border: 0;
   font: inherit;
 }
@@ -88,9 +88,15 @@ input:focus { border-color: var(--accent); }
   margin: 0;
   font-size: 18px;
 }
-.grid {
+.grid,
+.region-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.brand-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 .tile {
@@ -106,6 +112,120 @@ input:focus { border-color: var(--accent); }
   display: block;
   font-size: 17px;
   margin-bottom: 4px;
+}
+.brand-card {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: center;
+}
+.brand-poster {
+  position: relative;
+  min-height: 94px;
+  overflow: hidden;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,.16);
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255,255,255,.28), transparent 15px),
+    radial-gradient(circle at 78% 28%, rgba(255,255,255,.18), transparent 18px),
+    linear-gradient(135deg, #321061 0%, #6d39d8 48%, #1c1760 100%);
+  box-shadow: 0 8px 18px rgba(0,0,0,.28);
+  padding: 10px 6px 8px;
+}
+.brand-poster::after {
+  content: "";
+  position: absolute;
+  inset: auto -12px -24px -12px;
+  height: 52px;
+  background: rgba(255,255,255,.12);
+  transform: rotate(-7deg);
+}
+.brand-orb {
+  position: relative;
+  z-index: 1;
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 7px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff;
+  color: #1b123c;
+  font-weight: 900;
+  font-size: 16px;
+  box-shadow: 0 5px 12px rgba(0,0,0,.3);
+}
+.brand-poster strong {
+  position: relative;
+  z-index: 1;
+  display: block;
+  font-size: 13px;
+  line-height: 1.1;
+  text-transform: uppercase;
+  text-shadow: 0 2px 4px rgba(0,0,0,.45);
+  overflow-wrap: anywhere;
+}
+.brand-poster span:last-child {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin-top: 4px;
+  color: rgba(255,255,255,.78);
+  font-size: 10px;
+  line-height: 1.1;
+  min-height: 12px;
+  overflow: hidden;
+}
+.brand-caption {
+  min-height: 18px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 18px;
+  padding: 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tone-amazon .brand-poster { background: linear-gradient(135deg, #18223a, #4568f0 52%, #23125f); }
+.tone-itunes .brand-poster { background: linear-gradient(135deg, #321061, #8b3ffc 52%, #1d174f); }
+.tone-razer .brand-poster { background: linear-gradient(135deg, #291900, #d5a329 52%, #3b2600); }
+.tone-steam .brand-poster { background: linear-gradient(135deg, #101d2d, #2c78d8 52%, #111827); }
+.tone-walmart .brand-poster { background: linear-gradient(135deg, #093356, #21a7d8 52%, #0f4a7a); }
+.tone-target .brand-poster { background: linear-gradient(135deg, #4d0b13, #e3263b 52%, #2f0710); }
+.tone-mastercard .brand-poster { background: linear-gradient(135deg, #49120d, #f0883e 52%, #21111d); }
+.tone-visa .brand-poster { background: linear-gradient(135deg, #061a51, #316bff 52%, #111827); }
+.tone-paypal, .tone-payeer .brand-poster { background: linear-gradient(135deg, #043d66, #29a8ff 52%, #09223d); }
+.tone-usdt .brand-poster { background: linear-gradient(135deg, #063a33, #21c69a 52%, #09221f); }
+.tone-uber .brand-poster { background: linear-gradient(135deg, #05070c, #364152 52%, #05070c); }
+.tone-starbucks .brand-poster { background: linear-gradient(135deg, #063222, #00a862 52%, #061f18); }
+.tone-playstation .brand-poster { background: linear-gradient(135deg, #082778, #2766f6 52%, #090f3b); }
+.region-card {
+  min-height: 82px;
+  display: grid;
+  gap: 3px;
+  align-content: center;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  color: var(--text);
+  text-align: start;
+  padding: 12px;
+}
+.region-card strong {
+  font-size: 18px;
+}
+.region-card span {
+  color: var(--success);
+  font-weight: 800;
+}
+.region-card small {
+  color: var(--muted);
 }
 .muted { color: var(--muted); font-size: 12px; }
 .list { display: grid; gap: 8px; }
@@ -197,5 +317,6 @@ label {
   font-size: 12px;
 }
 @media (max-width: 360px) {
-  .grid { grid-template-columns: 1fr; }
+  .brand-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid, .region-grid { grid-template-columns: 1fr; }
 }

@@ -13,6 +13,25 @@ const state = {
   search: "",
 };
 
+const BRAND_META = {
+  AMAZON: { mark: "a", tone: "tone-amazon" },
+  ITUNES: { mark: "IT", tone: "tone-itunes" },
+  APPLE: { mark: "A", tone: "tone-itunes" },
+  RAZER: { mark: "Z", tone: "tone-razer" },
+  "RAZER GOLD": { mark: "Z", tone: "tone-razer" },
+  STEAM: { mark: "S", tone: "tone-steam" },
+  WALMART: { mark: "W", tone: "tone-walmart" },
+  TARGET: { mark: "TG", tone: "tone-target" },
+  MASTERCARD: { mark: "MC", tone: "tone-mastercard" },
+  VISA: { mark: "V", tone: "tone-visa" },
+  PAYPAL: { mark: "P", tone: "tone-paypal" },
+  PAYEER: { mark: "P", tone: "tone-payeer" },
+  USDT: { mark: "T", tone: "tone-usdt" },
+  UBER: { mark: "U", tone: "tone-uber" },
+  STARBUCKS: { mark: "SB", tone: "tone-starbucks" },
+  PLAYSTATION: { mark: "PS", tone: "tone-playstation" },
+};
+
 const content = document.getElementById("content");
 const statusEl = document.getElementById("status");
 const searchInput = document.getElementById("searchInput");
@@ -101,17 +120,34 @@ function filtered(items, fields) {
   return items.filter((item) => fields.some((field) => norm(item[field]).includes(q)));
 }
 
+function brandMeta(brand) {
+  const key = String(brand || "").toUpperCase();
+  return BRAND_META[key] || { mark: key.slice(0, 2) || "CX", tone: "tone-generic" };
+}
+
+function regionPreview(row) {
+  return Array.from(row.regions).slice(0, 3).map((item) => item.split("|")[0]).join(" / ");
+}
+
 function renderBrands() {
   state.view = "brands";
   state.brand = "";
   state.regionKey = "";
   clear();
-  content.append(heading("Card Brands", "Choose Amazon, iTunes, Walmart, and other card types"));
+  content.append(heading("Card Brands", "Choose a card type, then country, then price category"));
   const grid = document.createElement("div");
-  grid.className = "grid";
+  grid.className = "brand-grid";
   for (const row of filtered(brandRows(), ["brand"])) {
-    const tile = button("tile", "", () => renderRegions(row.brand));
-    tile.innerHTML = `<strong>${row.brand}</strong><span class="muted">${row.regions.size} regions • ${row.count} categories</span>`;
+    const meta = brandMeta(row.brand);
+    const tile = button(`brand-card ${meta.tone}`, "", () => renderRegions(row.brand));
+    tile.innerHTML = `
+      <div class="brand-poster">
+        <span class="brand-orb">${meta.mark}</span>
+        <strong>${row.brand}</strong>
+        <span>${regionPreview(row) || "GLOBAL"}</span>
+      </div>
+      <div class="brand-caption">${row.regions.size} regions - ${row.count} categories</div>
+    `;
     grid.append(tile);
   }
   if (!grid.children.length) statusEl.textContent = "No brands found.";
@@ -126,10 +162,10 @@ function renderRegions(brand) {
   content.append(button("ghost", "Back", renderBrands));
   content.append(heading(brand, "Choose country or region"));
   const grid = document.createElement("div");
-  grid.className = "grid";
+  grid.className = "region-grid";
   for (const row of filtered(regionRows(brand), ["region", "currency"])) {
-    const tile = button("tile", "", () => renderRules(brand, row.key));
-    tile.innerHTML = `<strong>${row.region}</strong><span class="muted">${row.currency} • ${row.count} categories</span>`;
+    const tile = button("region-card", "", () => renderRules(brand, row.key));
+    tile.innerHTML = `<strong>${row.region}</strong><span>${row.currency}</span><small>${row.count} categories</small>`;
     grid.append(tile);
   }
   if (!grid.children.length) statusEl.textContent = "No regions found.";
@@ -143,7 +179,7 @@ function renderRules(brand, regionKey) {
   const [region, currency] = String(regionKey).split("|");
   clear();
   content.append(button("ghost", "Back", () => renderRegions(brand)));
-  content.append(heading(`${brand} • ${region}`, `${currency} price categories`));
+  content.append(heading(`${brand} - ${region}`, `${currency} price categories`));
   const list = document.createElement("div");
   list.className = "list";
   const rows = state.rules
@@ -154,7 +190,7 @@ function renderRules(brand, regionKey) {
     item.className = "rule";
     item.innerHTML = `
       <div class="rule-top"><span class="value">${row.label}</span><span class="rate">${row.customer_rate}%</span></div>
-      <div class="muted">${row.currency} • trader ${row.trader_rate || row.customer_rate}%</div>
+      <div class="muted">${row.currency} - trader ${row.trader_rate || row.customer_rate}%</div>
       ${row.note ? `<div class="note">${row.note}</div>` : ""}
     `;
     if (state.isAdmin) {
