@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <meta name="theme-color" content="#0a0e1a" />
     <title>CardEX Prices</title>
-    <link rel="stylesheet" href="/mini/cardex/static/styles.css?v=20260518l" />
+    <link rel="stylesheet" href="/mini/cardex/static/styles.css?v=20260518m" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -38,13 +38,13 @@
           <h2>Add price category</h2>
           <button id="closeModal" class="icon-btn" type="button">x</button>
         </header>
-        <label>Brand<input name="brand" required placeholder="AMAZON" /></label>
-        <label>Region<input name="region" required placeholder="USA" /></label>
-        <label>Currency<input name="currency" required value="USD" /></label>
-        <label>Values<input name="values" required placeholder="1 --> 75 or 10-15-20" /></label>
-        <label>Customer rate %<input name="customer_rate" required inputmode="decimal" placeholder="80" /></label>
-        <label>Trader rate %<input name="trader_rate" inputmode="decimal" placeholder="78" /></label>
-        <label>Note<input name="note" placeholder="Optional public note" /></label>
+        <label><span data-i18n="brand">Brand</span><input name="brand" required placeholder="AMAZON" /></label>
+        <label><span data-i18n="region">Region</span><input name="region" required placeholder="USA" /></label>
+        <label><span data-i18n="currency">Currency</span><input name="currency" required value="USD" /></label>
+        <label><span data-i18n="values">Values</span><input name="values" required placeholder="1 --> 75 or 10-15-20" /></label>
+        <label><span data-i18n="customerRate">Customer rate %</span><input name="customer_rate" required inputmode="decimal" placeholder="80" /></label>
+        <label><span data-i18n="traderRate">Trader rate %</span><input name="trader_rate" inputmode="decimal" placeholder="78" /></label>
+        <label><span data-i18n="note">Note</span><input name="note" data-i18n-placeholder="publicNotePlaceholder" placeholder="Optional public note" /></label>
         <button class="primary" type="submit">Save category</button>
       </form>
     </div>
@@ -60,9 +60,9 @@
         <input name="brand" type="hidden" />
         <input name="region" type="hidden" />
         <input name="currency" type="hidden" />
-        <label>Value<input name="denomination" required inputmode="decimal" placeholder="25" /></label>
-        <label>Card code<input name="code" required autocomplete="off" placeholder="Enter card code" /></label>
-        <label>PIN (optional)<input name="pin" autocomplete="off" placeholder="Enter PIN if available" /></label>
+        <label><span data-i18n="value">Value</span><input name="denomination" required inputmode="decimal" placeholder="25" /></label>
+        <label><span data-i18n="cardCode">Card code</span><input name="code" required autocomplete="off" data-i18n-placeholder="cardCodePlaceholder" placeholder="Enter card code" /></label>
+        <label><span data-i18n="pinOptional">PIN (optional)</span><input name="pin" autocomplete="off" data-i18n-placeholder="pinPlaceholder" placeholder="Enter PIN if available" /></label>
         <div id="quoteBox" class="quote-box hidden"></div>
         <button class="primary" type="submit">Submit card</button>
       </form>
@@ -75,14 +75,14 @@
           <h2>Request withdrawal</h2>
           <button id="closeWithdrawModal" class="icon-btn" type="button">x</button>
         </header>
-        <label>Amount USD<input name="amount_usd" required inputmode="decimal" placeholder="50" /></label>
-        <label>Payout currency
+        <label><span data-i18n="amountUsd">Amount USD</span><input name="amount_usd" required inputmode="decimal" placeholder="50" /></label>
+        <label><span data-i18n="payoutCurrency">Payout currency</span>
           <select name="payout_currency" required>
             <option value="USD">USD</option>
             <option value="SYP">SYP</option>
           </select>
         </label>
-        <label>Payout details<textarea name="notes" required rows="4" placeholder="Wallet, account, or pickup details"></textarea></label>
+        <label><span data-i18n="payoutDetails">Payout details</span><textarea name="notes" required rows="4" data-i18n-placeholder="payoutDetailsPlaceholder" placeholder="Wallet, account, or pickup details"></textarea></label>
         <button class="primary" type="submit">Send request</button>
       </form>
     </div>
@@ -100,6 +100,6 @@
       </form>
     </div>
 
-    <script src="/mini/cardex/static/app.js?v=20260518l"></script>
+    <script src="/mini/cardex/static/app.js?v=20260518m"></script>
   </body>
 </html>

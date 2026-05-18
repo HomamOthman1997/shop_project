@@ -20,6 +20,10 @@ body {
   color: var(--text);
   font: 15px/1.5 Inter, Tajawal, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
+html[dir="rtl"] body {
+  direction: rtl;
+  text-align: right;
+}
 .shell {
   width: 100%;
   max-width: 460px;
@@ -52,6 +56,9 @@ p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
   background: var(--panel);
   color: var(--text);
   border: 1px solid var(--line);
+}
+html[dir="rtl"] .icon-btn {
+  font-family: inherit;
 }
 .searchbar {
   position: sticky;
@@ -89,6 +96,12 @@ input {
   color: var(--text);
   padding: 0 12px;
   outline: none;
+}
+html[dir="rtl"] input,
+html[dir="rtl"] textarea,
+html[dir="rtl"] select {
+  direction: rtl;
+  text-align: right;
 }
 input:focus { border-color: var(--accent); }
 select,

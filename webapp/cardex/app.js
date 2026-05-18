@@ -14,6 +14,310 @@ const state = {
   search: "",
 };
 
+const lang = String(tg?.initDataUnsafe?.user?.language_code || navigator.language || "en").toLowerCase().startsWith("ar") ? "ar" : "en";
+const rtl = lang === "ar";
+const I18N = {
+  en: {
+    title: "CardEX Prices",
+    subtitle: "Browse card brands, regions, and price categories",
+    search: "Search brand or region",
+    prices: "Prices",
+    myCards: "My Cards",
+    wallet: "Wallet",
+    withdraw: "Withdraw",
+    admin: "Admin",
+    add: "Add",
+    back: "Back",
+    sell: "Sell",
+    delete: "Delete",
+    loadingPrices: "Loading prices...",
+    brandsTitle: "Card Brands",
+    brandsHint: "Choose a card type, then country, then price category",
+    regionsHint: "Choose country or region",
+    categories: "categories",
+    regions: "regions",
+    noBrands: "No brands found.",
+    noRegions: "No regions found.",
+    noCategories: "No categories found.",
+    priceCategories: "price categories",
+    trader: "trader",
+    loginNeeded: "This section needs Telegram login",
+    reopen: "Telegram did not send initData. Reopen CardEX from the inline bot button.",
+    loadPricesFailed: "Could not load CardEX prices.",
+    cardsHint: "Submitted cards and review status",
+    loadingCards: "Loading cards...",
+    noCards: "No cards submitted yet.",
+    loadCardsFailed: "Could not load your cards.",
+    walletHint: "CardEX balance summary",
+    loadingWallet: "Loading wallet...",
+    available: "Available",
+    pending: "Pending",
+    locked: "Locked",
+    requestWithdrawal: "Request withdrawal",
+    withdrawalHistory: "Withdrawal history",
+    loadWalletFailed: "Could not load wallet.",
+    withdrawals: "Withdrawals",
+    withdrawalsHint: "Request payout and follow status",
+    request: "Request",
+    loadingWithdrawals: "Loading withdrawals...",
+    noWithdrawals: "No withdrawal requests yet.",
+    loadWithdrawalsFailed: "Could not load withdrawals.",
+    payout: "payout",
+    close: "Close",
+    confirmDelete: "Delete this price category?",
+    noPrice: "No price is configured for this value.",
+    expectedPayout: "Expected payout",
+    quoteFailed: "Could not quote this value.",
+    missingPriceNotice: "This value has no price yet. Admin was notified.",
+    submitted: "Card submitted. Expected payout",
+    submitFailed: "Could not submit card. Check the value and code.",
+    withdrawalCreated: "Withdrawal request created",
+    withdrawalFailed: "Could not create withdrawal. Check available balance and payout details.",
+    saving: "Saving...",
+    submitting: "Submitting...",
+    sending: "Sending...",
+    saveCategory: "Save category",
+    submitCard: "Submit card",
+    sendRequest: "Send request",
+    addPriceCategory: "Add price category",
+    sellCard: "Sell card",
+    requestWithdrawalTitle: "Request withdrawal",
+    brand: "Brand",
+    region: "Region",
+    currency: "Currency",
+    values: "Values",
+    customerRate: "Customer rate %",
+    traderRate: "Trader rate %",
+    note: "Note",
+    publicNotePlaceholder: "Optional public note",
+    value: "Value",
+    cardCode: "Card code",
+    cardCodePlaceholder: "Enter card code",
+    pinOptional: "PIN (optional)",
+    pinPlaceholder: "Enter PIN if available",
+    amountUsd: "Amount USD",
+    payoutCurrency: "Payout currency",
+    payoutDetails: "Payout details",
+    payoutDetailsPlaceholder: "Wallet, account, or pickup details",
+    adminAction: "Admin action",
+    save: "Save",
+    adminQueue: "Admin Queue",
+    adminQueueHint: "Review submitted cards and open withdrawals",
+    loadingAdmin: "Loading admin queue...",
+    loadAdminFailed: "Could not load admin queue.",
+    accept: "Accept",
+    approve: "Approve",
+    paid: "Paid",
+    reject: "Reject",
+    setPrice: "Set price",
+    statement: "Statement",
+    batchCards: "Batch cards",
+    payment: "Payment",
+    none: "none",
+    todayReport: "Today Report",
+    todayExports: "Today Exports",
+    copy: "Copy",
+    copied: "Export copied.",
+    noExportContent: "No export content.",
+    noCardsExport: "No cards to export today.",
+    cards: "Cards",
+    seller: "seller",
+    code: "Code",
+    noCardsReview: "No cards waiting for review.",
+    missingPricing: "Missing Pricing",
+    requested: "Requested",
+    times: "time(s)",
+    user: "user",
+    noMissingPricingRows: "No missing pricing rows.",
+    batchableCards: "Batchable Cards",
+    noBatchableCards: "No cards ready for trader batching.",
+    traders: "Traders",
+    addTrader: "Add trader",
+    noTraders: "No traders yet.",
+    auditLogs: "Audit Logs",
+    noAuditLogs: "No audit logs yet.",
+    notes: "Notes",
+    optional: "Optional",
+    setMissingPrice: "Set missing price",
+    savePrice: "Save price",
+    publicNote: "Public note",
+    createTrader: "Create trader",
+    traderName: "Trader name",
+    recordTraderPayment: "Record trader payment",
+    recordPayment: "Record payment",
+    amount: "Amount USD",
+    method: "Method",
+    methodPlaceholder: "Cash / USDT / bank",
+    reference: "Reference",
+    createBatch: "Create batch",
+    cardIds: "Card IDs",
+    cardIdsPlaceholder: "Paste IDs separated by commas or new lines",
+    batchNotes: "Batch notes",
+    batchCreated: "Batch created",
+    referenceLabel: "Reference",
+    expected: "Expected",
+    profit: "Profit",
+    traderStatement: "Trader statement",
+    noStatement: "No statement entries.",
+    loadStatementFailed: "Could not load trader statement.",
+    saveCategoryFailed: "Could not save category. Check values.",
+    adminActionFailed: "Could not complete this admin action.",
+  },
+  ar: {
+    title: "أسعار CardEX",
+    subtitle: "تصفح أنواع البطاقات والدول وفئات الأسعار",
+    search: "ابحث عن نوع بطاقة أو دولة",
+    prices: "الأسعار",
+    myCards: "بطاقاتي",
+    wallet: "المحفظة",
+    withdraw: "السحب",
+    admin: "الإدارة",
+    add: "إضافة",
+    back: "رجوع",
+    sell: "بيع",
+    delete: "حذف",
+    loadingPrices: "جار تحميل الأسعار...",
+    brandsTitle: "أنواع البطاقات",
+    brandsHint: "اختر النوع ثم الدولة ثم فئة السعر",
+    regionsHint: "اختر الدولة أو المنطقة",
+    categories: "فئات",
+    regions: "دول",
+    noBrands: "لا توجد أنواع مطابقة.",
+    noRegions: "لا توجد دول مطابقة.",
+    noCategories: "لا توجد فئات مطابقة.",
+    priceCategories: "فئات سعر",
+    trader: "التاجر",
+    loginNeeded: "هذا القسم يحتاج فتح من زر Telegram",
+    reopen: "Telegram لم يرسل بيانات الدخول. افتح CardEX من زر البوت inline.",
+    loadPricesFailed: "تعذر تحميل أسعار CardEX.",
+    cardsHint: "البطاقات المرسلة وحالة المراجعة",
+    loadingCards: "جار تحميل البطاقات...",
+    noCards: "لا توجد بطاقات مرسلة بعد.",
+    loadCardsFailed: "تعذر تحميل بطاقاتك.",
+    walletHint: "ملخص رصيد CardEX",
+    loadingWallet: "جار تحميل المحفظة...",
+    available: "المتاح",
+    pending: "المعلق",
+    locked: "المقفل",
+    requestWithdrawal: "طلب سحب",
+    withdrawalHistory: "سجل السحوبات",
+    loadWalletFailed: "تعذر تحميل المحفظة.",
+    withdrawals: "السحوبات",
+    withdrawalsHint: "اطلب السحب وتابع الحالة",
+    request: "طلب",
+    loadingWithdrawals: "جار تحميل السحوبات...",
+    noWithdrawals: "لا توجد طلبات سحب بعد.",
+    loadWithdrawalsFailed: "تعذر تحميل السحوبات.",
+    payout: "سحب",
+    close: "إغلاق",
+    confirmDelete: "حذف فئة السعر هذه؟",
+    noPrice: "لا يوجد سعر مضبوط لهذه القيمة.",
+    expectedPayout: "المبلغ المتوقع",
+    quoteFailed: "تعذر تسعير هذه القيمة.",
+    missingPriceNotice: "هذه القيمة لا يوجد لها سعر بعد. تم تنبيه الإدارة.",
+    submitted: "تم إرسال البطاقة. المبلغ المتوقع",
+    submitFailed: "تعذر إرسال البطاقة. تحقق من القيمة والكود.",
+    withdrawalCreated: "تم إنشاء طلب السحب",
+    withdrawalFailed: "تعذر إنشاء طلب السحب. تحقق من الرصيد وتفاصيل السحب.",
+    saving: "جار الحفظ...",
+    submitting: "جار الإرسال...",
+    sending: "جار الإرسال...",
+    saveCategory: "حفظ الفئة",
+    submitCard: "إرسال البطاقة",
+    sendRequest: "إرسال الطلب",
+    addPriceCategory: "إضافة فئة سعر",
+    sellCard: "بيع بطاقة",
+    requestWithdrawalTitle: "طلب سحب",
+    brand: "النوع",
+    region: "الدولة",
+    currency: "العملة",
+    values: "القيم",
+    customerRate: "نسبة المستخدم %",
+    traderRate: "نسبة التاجر %",
+    note: "تنويه",
+    publicNotePlaceholder: "تنويه يظهر للمستخدم",
+    value: "القيمة",
+    cardCode: "كود البطاقة",
+    cardCodePlaceholder: "أدخل كود البطاقة",
+    pinOptional: "PIN (اختياري)",
+    pinPlaceholder: "أدخل PIN إن وجد",
+    amountUsd: "المبلغ بالدولار",
+    payoutCurrency: "عملة السحب",
+    payoutDetails: "تفاصيل السحب",
+    payoutDetailsPlaceholder: "محفظة، حساب، أو تفاصيل الاستلام",
+    adminAction: "إجراء إداري",
+    save: "حفظ",
+    adminQueue: "قائمة الإدارة",
+    adminQueueHint: "مراجعة البطاقات المرسلة والسحوبات المفتوحة",
+    loadingAdmin: "جار تحميل قائمة الإدارة...",
+    loadAdminFailed: "تعذر تحميل قائمة الإدارة.",
+    accept: "قبول",
+    approve: "موافقة",
+    paid: "مدفوع",
+    reject: "رفض",
+    setPrice: "تسعير",
+    statement: "كشف حساب",
+    batchCards: "تجميع بطاقات",
+    payment: "دفعة",
+    none: "لا يوجد",
+    todayReport: "تقرير اليوم",
+    todayExports: "تصديرات اليوم",
+    copy: "نسخ",
+    copied: "تم نسخ التصدير.",
+    noExportContent: "لا يوجد محتوى للتصدير.",
+    noCardsExport: "لا توجد بطاقات للتصدير اليوم.",
+    cards: "البطاقات",
+    seller: "البائع",
+    code: "الكود",
+    noCardsReview: "لا توجد بطاقات بانتظار المراجعة.",
+    missingPricing: "تسعير ناقص",
+    requested: "طُلبت",
+    times: "مرة",
+    user: "المستخدم",
+    noMissingPricingRows: "لا توجد قيم ناقصة التسعير.",
+    batchableCards: "بطاقات جاهزة للتاجر",
+    noBatchableCards: "لا توجد بطاقات جاهزة للتجميع.",
+    traders: "التجار",
+    addTrader: "إضافة تاجر",
+    noTraders: "لا يوجد تجار بعد.",
+    auditLogs: "سجل العمليات",
+    noAuditLogs: "لا توجد عمليات بعد.",
+    notes: "ملاحظات",
+    optional: "اختياري",
+    setMissingPrice: "تسعير قيمة ناقصة",
+    savePrice: "حفظ السعر",
+    publicNote: "تنويه للمستخدم",
+    createTrader: "إنشاء تاجر",
+    traderName: "اسم التاجر",
+    recordTraderPayment: "تسجيل دفعة للتاجر",
+    recordPayment: "تسجيل الدفعة",
+    amount: "المبلغ بالدولار",
+    method: "الطريقة",
+    methodPlaceholder: "كاش / USDT / بنك",
+    reference: "المرجع",
+    createBatch: "إنشاء تجميعة",
+    cardIds: "معرفات البطاقات",
+    cardIdsPlaceholder: "الصق المعرفات مفصولة بفواصل أو أسطر",
+    batchNotes: "ملاحظات التجميعة",
+    batchCreated: "تم إنشاء التجميعة",
+    referenceLabel: "المرجع",
+    expected: "المتوقع",
+    profit: "الربح",
+    traderStatement: "كشف حساب التاجر",
+    noStatement: "لا توجد حركات في الكشف.",
+    loadStatementFailed: "تعذر تحميل كشف حساب التاجر.",
+    saveCategoryFailed: "تعذر حفظ الفئة. تحقق من القيم.",
+    adminActionFailed: "تعذر تنفيذ الإجراء الإداري.",
+  },
+};
+
+function t(key) {
+  return I18N[lang]?.[key] || I18N.en[key] || key;
+}
+
+document.documentElement.lang = lang;
+document.documentElement.dir = rtl ? "rtl" : "ltr";
+
 const BRAND_META = {
   AMAZON: { mark: "a", tone: "tone-amazon" },
   ITUNES: { mark: "IT", tone: "tone-itunes" },
@@ -61,6 +365,34 @@ const adminFormFields = document.getElementById("adminFormFields");
 const adminFormSubmit = document.getElementById("adminFormSubmit");
 const closeAdminFormModal = document.getElementById("closeAdminFormModal");
 let adminFormHandler = null;
+
+function localizeStaticUi() {
+  document.title = t("title");
+  document.querySelector("h1").textContent = t("title");
+  document.getElementById("subtitle").textContent = t("subtitle");
+  searchInput.placeholder = t("search");
+  refreshBtn.textContent = "↻";
+  pricesTab.textContent = t("prices");
+  cardsTab.textContent = t("myCards");
+  walletTab.textContent = t("wallet");
+  withdrawTab.textContent = t("withdraw");
+  adminTab.textContent = t("admin");
+  statusEl.textContent = t("loadingPrices");
+  document.querySelector("#priceForm h2").textContent = t("addPriceCategory");
+  document.querySelector("#sellForm h2").textContent = t("sellCard");
+  document.querySelector("#withdrawForm h2").textContent = t("requestWithdrawalTitle");
+  document.getElementById("adminFormTitle").textContent = t("adminAction");
+  priceForm.querySelector("button[type='submit']").textContent = t("saveCategory");
+  sellForm.querySelector("button[type='submit']").textContent = t("submitCard");
+  withdrawForm.querySelector("button[type='submit']").textContent = t("sendRequest");
+  adminFormSubmit.textContent = t("save");
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    node.textContent = t(node.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
+    node.placeholder = t(node.dataset.i18nPlaceholder);
+  });
+}
 
 function telegramStoredParams() {
   const webViewParams = window.Telegram?.WebView?.initParams;
@@ -139,8 +471,8 @@ function renderAuthRequired(title) {
   setActiveTab(pricesTab);
   state.view = "brands";
   clear();
-  content.append(heading(title, "This section needs Telegram login"));
-  setNotice("Telegram did not send initData. Reopen CardEX from the bot WebApp button after refreshing /start.");
+  content.append(heading(title, t("loginNeeded")));
+  setNotice(t("reopen"));
   renderBrands();
 }
 
@@ -224,7 +556,7 @@ function openAdminInfo({ title, subtitle = "", text = "" }) {
   adminFormTitle.textContent = title;
   adminFormSubtitle.textContent = subtitle;
   adminFormSubtitle.classList.toggle("hidden", !subtitle);
-  adminFormSubmit.textContent = "Close";
+  adminFormSubmit.textContent = t("close");
   const pre = document.createElement("pre");
   pre.className = "info-box";
   pre.textContent = text;
@@ -246,7 +578,7 @@ function heading(title, subtitle = "") {
     wrap.append(p);
   }
   box.append(wrap);
-  if (state.isAdmin && ["brands", "regions", "rules"].includes(state.view)) box.append(button("primary", "Add", openModal));
+  if (state.isAdmin && ["brands", "regions", "rules"].includes(state.view)) box.append(button("primary", t("add"), openModal));
   return box;
 }
 
@@ -291,7 +623,7 @@ function renderBrands() {
   state.brand = "";
   state.regionKey = "";
   clear();
-  content.append(heading("Card Brands", "Choose a card type, then country, then price category"));
+  content.append(heading(t("brandsTitle"), t("brandsHint")));
   const grid = document.createElement("div");
   grid.className = "brand-grid";
   for (const row of filtered(brandRows(), ["brand"])) {
@@ -303,11 +635,11 @@ function renderBrands() {
         <strong>${row.brand}</strong>
         <span>${regionPreview(row) || "GLOBAL"}</span>
       </div>
-      <div class="brand-caption">${row.regions.size} regions - ${row.count} categories</div>
+      <div class="brand-caption">${row.regions.size} ${t("regions")} - ${row.count} ${t("categories")}</div>
     `;
     grid.append(tile);
   }
-  if (!grid.children.length) statusEl.textContent = "No brands found.";
+  if (!grid.children.length) statusEl.textContent = t("noBrands");
   content.append(grid);
 }
 
@@ -316,16 +648,16 @@ function renderRegions(brand) {
   state.brand = brand;
   state.regionKey = "";
   clear();
-  content.append(button("ghost", "Back", renderBrands));
-  content.append(heading(brand, "Choose country or region"));
+  content.append(button("ghost", t("back"), renderBrands));
+  content.append(heading(brand, t("regionsHint")));
   const grid = document.createElement("div");
   grid.className = "region-grid";
   for (const row of filtered(regionRows(brand), ["region", "currency"])) {
     const tile = button("region-card", "", () => renderRules(brand, row.key));
-    tile.innerHTML = `<strong>${row.region}</strong><span>${row.currency}</span><small>${row.count} categories</small>`;
+    tile.innerHTML = `<strong>${row.region}</strong><span>${row.currency}</span><small>${row.count} ${t("categories")}</small>`;
     grid.append(tile);
   }
-  if (!grid.children.length) statusEl.textContent = "No regions found.";
+  if (!grid.children.length) statusEl.textContent = t("noRegions");
   content.append(grid);
 }
 
@@ -335,8 +667,8 @@ function renderRules(brand, regionKey) {
   state.regionKey = regionKey;
   const [region, currency] = String(regionKey).split("|");
   clear();
-  content.append(button("ghost", "Back", () => renderRegions(brand)));
-  content.append(heading(`${brand} - ${region}`, `${currency} price categories`));
+  content.append(button("ghost", t("back"), () => renderRegions(brand)));
+  content.append(heading(`${brand} - ${region}`, `${currency} ${t("priceCategories")}`));
   const list = document.createElement("div");
   list.className = "list";
   const rows = state.rules
@@ -347,31 +679,31 @@ function renderRules(brand, regionKey) {
     item.className = "rule";
     item.innerHTML = `
       <div class="rule-top"><span class="value">${row.label}</span><span class="rate">${row.customer_rate}%</span></div>
-      <div class="muted">${row.currency} - trader ${row.trader_rate || row.customer_rate}%</div>
+      <div class="muted">${row.currency} - ${t("trader")} ${row.trader_rate || row.customer_rate}%</div>
       ${row.note ? `<div class="note">${row.note}</div>` : ""}
     `;
     if (state.isAdmin) {
       const actions = document.createElement("div");
       actions.className = "actions";
-      actions.append(button("primary", "Sell", () => openSellModal(row)));
-      actions.append(button("ghost danger", "Delete", () => deleteRule(row.id)));
+      actions.append(button("primary", t("sell"), () => openSellModal(row)));
+      actions.append(button("ghost danger", t("delete"), () => deleteRule(row.id)));
       item.append(actions);
     } else {
       const actions = document.createElement("div");
       actions.className = "actions";
-      actions.append(button("primary", "Sell", () => openSellModal(row)));
+      actions.append(button("primary", t("sell"), () => openSellModal(row)));
       item.append(actions);
     }
     list.append(item);
   }
-  if (!list.children.length) statusEl.textContent = "No categories found.";
+  if (!list.children.length) statusEl.textContent = t("noCategories");
   content.append(list);
 }
 
 async function loadPrices() {
   updateAuthTabs();
   setActiveTab(pricesTab);
-  statusEl.textContent = "Loading prices...";
+  statusEl.textContent = t("loadingPrices");
   try {
     const data = await api("/mini/cardex/api/prices");
     state.rules = Array.isArray(data.rules) ? data.rules : [];
@@ -380,7 +712,7 @@ async function loadPrices() {
     renderBrands();
   } catch (err) {
     clear();
-    setError("Could not load CardEX prices.");
+    setError(t("loadPricesFailed"));
   }
 }
 
@@ -394,16 +726,16 @@ function statusLabel(value) {
 }
 
 async function renderMyCards() {
-  if (!hasInitData()) return renderAuthRequired("My Cards");
+  if (!hasInitData()) return renderAuthRequired(t("myCards"));
   setActiveTab(cardsTab);
   state.view = "mycards";
   clear();
-  content.append(heading("My Cards", "Submitted cards and review status"));
-  statusEl.textContent = "Loading cards...";
+  content.append(heading(t("myCards"), t("cardsHint")));
+  statusEl.textContent = t("loadingCards");
   try {
     const data = await api("/mini/cardex/api/cards");
     clear();
-    content.append(heading("My Cards", "Submitted cards and review status"));
+    content.append(heading(t("myCards"), t("cardsHint")));
     const list = document.createElement("div");
     list.className = "list";
     for (const row of data.cards || []) {
@@ -416,32 +748,32 @@ async function renderMyCards() {
       `;
       list.append(item);
     }
-    if (!list.children.length) statusEl.textContent = "No cards submitted yet.";
+    if (!list.children.length) statusEl.textContent = t("noCards");
     content.append(list);
   } catch (err) {
     clear();
-    setError("Could not load your cards. Open CardEX from the bot mini app button.");
+    setError(t("loadCardsFailed"));
   }
 }
 
 async function renderWallet() {
-  if (!hasInitData()) return renderAuthRequired("Wallet");
+  if (!hasInitData()) return renderAuthRequired(t("wallet"));
   setActiveTab(walletTab);
   state.view = "wallet";
   clear();
-  content.append(heading("Wallet", "CardEX balance summary"));
-  statusEl.textContent = "Loading wallet...";
+  content.append(heading(t("wallet"), t("walletHint")));
+  statusEl.textContent = t("loadingWallet");
   try {
     const data = await api("/mini/cardex/api/wallet");
     clear();
-    content.append(heading("Wallet", "CardEX balance summary"));
+    content.append(heading(t("wallet"), t("walletHint")));
     const wallet = data.wallet || {};
     const grid = document.createElement("div");
     grid.className = "wallet-grid";
     for (const row of [
-      ["Available", wallet.available_usd],
-      ["Pending", wallet.pending_usd],
-      ["Locked", wallet.locked_usd],
+      [t("available"), wallet.available_usd],
+      [t("pending"), wallet.pending_usd],
+      [t("locked"), wallet.locked_usd],
     ]) {
       const tile = document.createElement("article");
       tile.className = "wallet-card";
@@ -451,29 +783,29 @@ async function renderWallet() {
     content.append(grid);
     const actions = document.createElement("div");
     actions.className = "wallet-actions";
-    actions.append(button("primary", "Request withdrawal", openWithdrawModal));
-    actions.append(button("ghost", "Withdrawal history", renderWithdrawals));
+    actions.append(button("primary", t("requestWithdrawal"), openWithdrawModal));
+    actions.append(button("ghost", t("withdrawalHistory"), renderWithdrawals));
     content.append(actions);
   } catch (err) {
     clear();
-    setError("Could not load wallet. Open CardEX from the bot mini app button.");
+    setError(t("loadWalletFailed"));
   }
 }
 
 async function renderWithdrawals() {
-  if (!hasInitData()) return renderAuthRequired("Withdrawals");
+  if (!hasInitData()) return renderAuthRequired(t("withdrawals"));
   setActiveTab(withdrawTab);
   state.view = "withdrawals";
   clear();
-  const title = heading("Withdrawals", "Request payout and follow status");
-  title.append(button("primary", "Request", openWithdrawModal));
+  const title = heading(t("withdrawals"), t("withdrawalsHint"));
+  title.append(button("primary", t("request"), openWithdrawModal));
   content.append(title);
-  statusEl.textContent = "Loading withdrawals...";
+  statusEl.textContent = t("loadingWithdrawals");
   try {
     const data = await api("/mini/cardex/api/withdrawals");
     clear();
-    const refreshedTitle = heading("Withdrawals", "Request payout and follow status");
-    refreshedTitle.append(button("primary", "Request", openWithdrawModal));
+    const refreshedTitle = heading(t("withdrawals"), t("withdrawalsHint"));
+    refreshedTitle.append(button("primary", t("request"), openWithdrawModal));
     content.append(refreshedTitle);
     const list = document.createElement("div");
     list.className = "list";
@@ -482,54 +814,54 @@ async function renderWithdrawals() {
       item.className = "rule";
       item.innerHTML = `
         <div class="rule-top"><span class="value">${money(row.amount_usd)}</span><span class="rate">${statusLabel(row.status)}</span></div>
-        <div class="muted">${row.payout_currency} payout - ${row.id}</div>
+        <div class="muted">${row.payout_currency} ${t("payout")} - ${row.id}</div>
         ${row.notes ? `<div class="note">${row.notes}</div>` : ""}
       `;
       list.append(item);
     }
-    if (!list.children.length) statusEl.textContent = "No withdrawal requests yet.";
+    if (!list.children.length) statusEl.textContent = t("noWithdrawals");
     content.append(list);
   } catch (err) {
     clear();
-    setError("Could not load withdrawals. Open CardEX from the bot mini app button.");
+    setError(t("loadWithdrawalsFailed"));
   }
 }
 
 function adminCardActions(row) {
   const actions = document.createElement("div");
   actions.className = "actions";
-  actions.append(button("primary", "Accept", () => updateAdminCard(row.id, "accept")));
-  actions.append(button("ghost danger", "Reject", () => updateAdminCard(row.id, "reject")));
+  actions.append(button("primary", t("accept"), () => updateAdminCard(row.id, "accept")));
+  actions.append(button("ghost danger", t("reject"), () => updateAdminCard(row.id, "reject")));
   return actions;
 }
 
 function adminWithdrawalActions(row) {
   const actions = document.createElement("div");
   actions.className = "actions";
-  if (row.status !== "approved") actions.append(button("primary", "Approve", () => updateAdminWithdrawal(row.id, "approve")));
-  actions.append(button("ghost", "Paid", () => updateAdminWithdrawal(row.id, "paid")));
-  actions.append(button("ghost danger", "Reject", () => updateAdminWithdrawal(row.id, "reject")));
+  if (row.status !== "approved") actions.append(button("primary", t("approve"), () => updateAdminWithdrawal(row.id, "approve")));
+  actions.append(button("ghost", t("paid"), () => updateAdminWithdrawal(row.id, "paid")));
+  actions.append(button("ghost danger", t("reject"), () => updateAdminWithdrawal(row.id, "reject")));
   return actions;
 }
 
 function adminMissingPricingActions(row) {
   const actions = document.createElement("div");
   actions.className = "actions";
-  actions.append(button("primary", "Set price", () => setMissingPricing(row)));
+  actions.append(button("primary", t("setPrice"), () => setMissingPricing(row)));
   return actions;
 }
 
 function adminTraderActions(row) {
   const actions = document.createElement("div");
   actions.className = "actions";
-  actions.append(button("primary", "Statement", () => showTraderStatement(row)));
-  actions.append(button("ghost", "Batch cards", () => createTraderBatch(row)));
-  actions.append(button("ghost", "Payment", () => recordTraderPayment(row)));
+  actions.append(button("primary", t("statement"), () => showTraderStatement(row)));
+  actions.append(button("ghost", t("batchCards"), () => createTraderBatch(row)));
+  actions.append(button("ghost", t("payment"), () => recordTraderPayment(row)));
   return actions;
 }
 
 function miniList(items) {
-  return Object.entries(items || {}).map(([key, value]) => `${key}: ${value}`).join(" - ") || "none";
+  return Object.entries(items || {}).map(([key, value]) => `${key}: ${value}`).join(" - ") || t("none");
 }
 
 async function copyText(text) {
@@ -552,17 +884,17 @@ async function renderAdmin() {
   setActiveTab(adminTab);
   state.view = "admin";
   clear();
-  content.append(heading("Admin Queue", "Review submitted cards and open withdrawals"));
-  statusEl.textContent = "Loading admin queue...";
+  content.append(heading(t("adminQueue"), t("adminQueueHint")));
+  statusEl.textContent = t("loadingAdmin");
   try {
     const data = await api("/mini/cardex/api/admin/queue");
     clear();
-    content.append(heading("Admin Queue", "Review submitted cards and open withdrawals"));
+    content.append(heading(t("adminQueue"), t("adminQueueHint")));
 
     const report = data.today_report || {};
     const reportTitle = document.createElement("div");
     reportTitle.className = "section-title";
-    reportTitle.innerHTML = "<h2>Today Report</h2>";
+    reportTitle.innerHTML = `<h2>${t("todayReport")}</h2>`;
     content.append(reportTitle);
     const reportBox = document.createElement("article");
     reportBox.className = "rule";
@@ -577,7 +909,7 @@ async function renderAdmin() {
 
     const exportTitle = document.createElement("div");
     exportTitle.className = "section-title";
-    exportTitle.innerHTML = "<h2>Today Exports</h2>";
+    exportTitle.innerHTML = `<h2>${t("todayExports")}</h2>`;
     content.append(exportTitle);
     const exportsList = document.createElement("div");
     exportsList.className = "list";
@@ -588,22 +920,22 @@ async function renderAdmin() {
         <div class="rule-top"><span class="value">${row.brand}</span><span class="rate">${row.count} cards</span></div>
         <div class="muted">${row.filename}</div>
       `;
-      item.append(button("primary", "Copy", async () => {
+      item.append(button("primary", t("copy"), async () => {
         try {
           await copyText(row.content || "");
-          statusEl.textContent = "Export copied.";
+          statusEl.textContent = t("copied");
         } catch (err) {
-          openAdminInfo({ title: row.filename, text: row.content || "No export content." });
+          openAdminInfo({ title: row.filename, text: row.content || t("noExportContent") });
         }
       }));
       exportsList.append(item);
     }
-    if (!exportsList.children.length) exportsList.append(emptyLine("No cards to export today."));
+    if (!exportsList.children.length) exportsList.append(emptyLine(t("noCardsExport")));
     content.append(exportsList);
 
     const cardTitle = document.createElement("div");
     cardTitle.className = "section-title";
-    cardTitle.innerHTML = "<h2>Cards</h2>";
+    cardTitle.innerHTML = `<h2>${t("cards")}</h2>`;
     content.append(cardTitle);
     const cards = document.createElement("div");
     cards.className = "list";
@@ -612,18 +944,18 @@ async function renderAdmin() {
       item.className = "rule";
       item.innerHTML = `
         <div class="rule-top"><span class="value">${row.brand} ${row.denomination} ${row.currency}</span><span class="rate">${money(row.customer_value_usd)}</span></div>
-        <div class="muted">${row.region} - ${statusLabel(row.status)} - seller ${row.seller_user_id}</div>
-        <div class="note">Code: ${row.code}${row.pin ? ` | PIN: ${row.pin}` : ""}</div>
+        <div class="muted">${row.region} - ${statusLabel(row.status)} - ${t("seller")} ${row.seller_user_id}</div>
+        <div class="note">${t("code")}: ${row.code}${row.pin ? ` | PIN: ${row.pin}` : ""}</div>
       `;
       item.append(adminCardActions(row));
       cards.append(item);
     }
-    if (!cards.children.length) cards.append(emptyLine("No cards waiting for review."));
+    if (!cards.children.length) cards.append(emptyLine(t("noCardsReview")));
     content.append(cards);
 
     const withdrawalTitle = document.createElement("div");
     withdrawalTitle.className = "section-title";
-    withdrawalTitle.innerHTML = "<h2>Withdrawals</h2>";
+    withdrawalTitle.innerHTML = `<h2>${t("withdrawals")}</h2>`;
     content.append(withdrawalTitle);
     const withdrawals = document.createElement("div");
     withdrawals.className = "list";
@@ -632,18 +964,18 @@ async function renderAdmin() {
       item.className = "rule";
       item.innerHTML = `
         <div class="rule-top"><span class="value">${money(row.amount_usd)}</span><span class="rate">${statusLabel(row.status)}</span></div>
-        <div class="muted">${row.payout_currency} payout - ${row.id}</div>
+        <div class="muted">${row.payout_currency} ${t("payout")} - ${row.id}</div>
         ${row.notes ? `<div class="note">${row.notes}</div>` : ""}
       `;
       item.append(adminWithdrawalActions(row));
       withdrawals.append(item);
     }
-    if (!withdrawals.children.length) withdrawals.append(emptyLine("No open withdrawals."));
+    if (!withdrawals.children.length) withdrawals.append(emptyLine(t("noWithdrawals")));
     content.append(withdrawals);
 
     const missingTitle = document.createElement("div");
     missingTitle.className = "section-title";
-    missingTitle.innerHTML = "<h2>Missing Pricing</h2>";
+    missingTitle.innerHTML = `<h2>${t("missingPricing")}</h2>`;
     content.append(missingTitle);
     const missing = document.createElement("div");
     missing.className = "list";
@@ -652,17 +984,17 @@ async function renderAdmin() {
       item.className = "rule";
       item.innerHTML = `
         <div class="rule-top"><span class="value">${row.brand} ${row.denomination} ${row.currency}</span><span class="rate">${row.region}</span></div>
-        <div class="muted">Requested ${row.seen_count} time(s) - user ${row.created_by_user_id}</div>
+        <div class="muted">${t("requested")} ${row.seen_count} ${t("times")} - ${t("user")} ${row.created_by_user_id}</div>
       `;
       item.append(adminMissingPricingActions(row));
       missing.append(item);
     }
-    if (!missing.children.length) missing.append(emptyLine("No missing pricing rows."));
+    if (!missing.children.length) missing.append(emptyLine(t("noMissingPricingRows")));
     content.append(missing);
 
     const batchableTitle = document.createElement("div");
     batchableTitle.className = "section-title";
-    batchableTitle.innerHTML = "<h2>Batchable Cards</h2>";
+    batchableTitle.innerHTML = `<h2>${t("batchableCards")}</h2>`;
     content.append(batchableTitle);
     const batchable = document.createElement("div");
     batchable.className = "list";
@@ -672,17 +1004,17 @@ async function renderAdmin() {
       item.innerHTML = `
         <div class="rule-top"><span class="value">${row.brand} ${row.denomination} ${row.currency}</span><span class="rate">${money(row.trader_value_usd)}</span></div>
         <div class="muted">${row.region} - ${statusLabel(row.status)} - ${row.id}</div>
-        <div class="note">Code: ${row.code}${row.pin ? ` | PIN: ${row.pin}` : ""}</div>
+        <div class="note">${t("code")}: ${row.code}${row.pin ? ` | PIN: ${row.pin}` : ""}</div>
       `;
       batchable.append(item);
     }
-    if (!batchable.children.length) batchable.append(emptyLine("No cards ready for trader batching."));
+    if (!batchable.children.length) batchable.append(emptyLine(t("noBatchableCards")));
     content.append(batchable);
 
     const traderTitle = document.createElement("div");
     traderTitle.className = "section-title";
-    traderTitle.innerHTML = "<h2>Traders</h2>";
-    traderTitle.append(button("primary", "Add trader", createTrader));
+    traderTitle.innerHTML = `<h2>${t("traders")}</h2>`;
+    traderTitle.append(button("primary", t("addTrader"), createTrader));
     content.append(traderTitle);
     const traders = document.createElement("div");
     traders.className = "list";
@@ -697,12 +1029,12 @@ async function renderAdmin() {
       item.append(adminTraderActions(row));
       traders.append(item);
     }
-    if (!traders.children.length) traders.append(emptyLine("No traders yet."));
+    if (!traders.children.length) traders.append(emptyLine(t("noTraders")));
     content.append(traders);
 
     const auditTitle = document.createElement("div");
     auditTitle.className = "section-title";
-    auditTitle.innerHTML = "<h2>Audit Logs</h2>";
+    auditTitle.innerHTML = `<h2>${t("auditLogs")}</h2>`;
     content.append(auditTitle);
     const audit = document.createElement("div");
     audit.className = "list";
@@ -715,11 +1047,11 @@ async function renderAdmin() {
       `;
       audit.append(item);
     }
-    if (!audit.children.length) audit.append(emptyLine("No audit logs yet."));
+    if (!audit.children.length) audit.append(emptyLine(t("noAuditLogs")));
     content.append(audit);
   } catch (err) {
     clear();
-    setError("Could not load admin queue.");
+    setError(t("loadAdminFailed"));
   }
 }
 
@@ -759,15 +1091,15 @@ async function refreshQuote() {
     const data = await api("/mini/cardex/api/quote", { method: "POST", body: JSON.stringify(body) });
     const quote = data.quote || {};
     if (!quote.configured) {
-      quoteBox.textContent = "No price is configured for this value.";
+      quoteBox.textContent = t("noPrice");
       quoteBox.classList.remove("hidden");
       return;
     }
     const amount = Number(quote.customer_value_usd || 0).toFixed(2);
-    quoteBox.textContent = `Expected payout: $${amount} (${quote.customer_buy_rate_percent}%)`;
+    quoteBox.textContent = `${t("expectedPayout")}: $${amount} (${quote.customer_buy_rate_percent}%)`;
     quoteBox.classList.remove("hidden");
   } catch (err) {
-    quoteBox.textContent = "Could not quote this value.";
+    quoteBox.textContent = t("quoteFailed");
     quoteBox.classList.remove("hidden");
   }
 }
@@ -798,7 +1130,7 @@ function closeWithdrawalModal() {
 }
 
 async function deleteRule(id) {
-  if (!confirm("Delete this price category?")) return;
+  if (!confirm(t("confirmDelete"))) return;
   await api(`/mini/cardex/api/prices/${encodeURIComponent(id)}`, { method: "DELETE" });
   await loadPrices();
   if (state.brand && state.regionKey) renderRules(state.brand, state.regionKey);
@@ -809,7 +1141,7 @@ async function updateAdminCard(id, action) {
     title: `${statusLabel(action)} card`,
     subtitle: id,
     submitText: statusLabel(action),
-    fields: [{ name: "notes", label: "Notes", type: "textarea", placeholder: "Optional" }],
+    fields: [{ name: "notes", label: t("notes"), type: "textarea", placeholder: t("optional") }],
     onSubmit: async (body) => {
       await api(`/mini/cardex/api/admin/cards/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action, notes: body.notes || "" }) });
       await renderAdmin();
@@ -822,7 +1154,7 @@ async function updateAdminWithdrawal(id, action) {
     title: `${statusLabel(action)} withdrawal`,
     subtitle: id,
     submitText: statusLabel(action),
-    fields: [{ name: "notes", label: "Notes", type: "textarea", placeholder: "Optional" }],
+    fields: [{ name: "notes", label: t("notes"), type: "textarea", placeholder: t("optional") }],
     onSubmit: async (body) => {
       await api(`/mini/cardex/api/admin/withdrawals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action, notes: body.notes || "" }) });
       await renderAdmin();
@@ -832,13 +1164,13 @@ async function updateAdminWithdrawal(id, action) {
 
 async function setMissingPricing(row) {
   openAdminForm({
-    title: "Set missing price",
+    title: t("setMissingPrice"),
     subtitle: `${row.brand} ${row.denomination} ${row.currency} - ${row.region}`,
-    submitText: "Save price",
+    submitText: t("savePrice"),
     fields: [
-      { name: "customer_rate", label: "Customer rate %", required: true, inputmode: "decimal", placeholder: "80" },
-      { name: "trader_rate", label: "Trader rate %", inputmode: "decimal", placeholder: "78" },
-      { name: "note", label: "Public note", placeholder: "Optional" },
+      { name: "customer_rate", label: t("customerRate"), required: true, inputmode: "decimal", placeholder: "80" },
+      { name: "trader_rate", label: t("traderRate"), inputmode: "decimal", placeholder: "78" },
+      { name: "note", label: t("publicNote"), placeholder: t("optional") },
     ],
     onSubmit: async (body) => {
       await api(`/mini/cardex/api/admin/missing-pricing/${encodeURIComponent(row.id)}`, {
@@ -853,11 +1185,11 @@ async function setMissingPricing(row) {
 
 async function createTrader() {
   openAdminForm({
-    title: "Add trader",
-    submitText: "Create trader",
+    title: t("addTrader"),
+    submitText: t("createTrader"),
     fields: [
-      { name: "name", label: "Trader name", required: true, placeholder: "Trader name" },
-      { name: "notes", label: "Notes", type: "textarea", placeholder: "Optional" },
+      { name: "name", label: t("traderName"), required: true, placeholder: t("traderName") },
+      { name: "notes", label: t("notes"), type: "textarea", placeholder: t("optional") },
     ],
     onSubmit: async (body) => {
       await api("/mini/cardex/api/admin/traders", { method: "POST", body: JSON.stringify(body) });
@@ -868,14 +1200,14 @@ async function createTrader() {
 
 async function recordTraderPayment(row) {
   openAdminForm({
-    title: "Record trader payment",
+    title: t("recordTraderPayment"),
     subtitle: row.name,
-    submitText: "Record payment",
+    submitText: t("recordPayment"),
     fields: [
-      { name: "amount_usd", label: "Amount USD", required: true, inputmode: "decimal", placeholder: "100" },
-      { name: "method", label: "Method", placeholder: "Cash / USDT / bank" },
-      { name: "reference_no", label: "Reference", placeholder: "Optional" },
-      { name: "notes", label: "Notes", type: "textarea", placeholder: "Optional" },
+      { name: "amount_usd", label: t("amount"), required: true, inputmode: "decimal", placeholder: "100" },
+      { name: "method", label: t("method"), placeholder: t("methodPlaceholder") },
+      { name: "reference_no", label: t("reference"), placeholder: t("optional") },
+      { name: "notes", label: t("notes"), type: "textarea", placeholder: t("optional") },
     ],
     onSubmit: async (body) => {
       await api(`/mini/cardex/api/admin/traders/${encodeURIComponent(row.id)}/payments`, {
@@ -889,12 +1221,12 @@ async function recordTraderPayment(row) {
 
 async function createTraderBatch(row) {
   openAdminForm({
-    title: "Batch cards",
+    title: t("batchCards"),
     subtitle: row.name,
-    submitText: "Create batch",
+    submitText: t("createBatch"),
     fields: [
-      { name: "card_ids", label: "Card IDs", type: "textarea", required: true, placeholder: "Paste IDs separated by commas or new lines" },
-      { name: "notes", label: "Batch notes", type: "textarea", placeholder: "Optional" },
+      { name: "card_ids", label: t("cardIds"), type: "textarea", required: true, placeholder: t("cardIdsPlaceholder") },
+      { name: "notes", label: t("batchNotes"), type: "textarea", placeholder: t("optional") },
     ],
     onSubmit: async (body) => {
       const data = await api(`/mini/cardex/api/admin/traders/${encodeURIComponent(row.id)}/batches`, {
@@ -905,9 +1237,9 @@ async function createTraderBatch(row) {
       await renderAdmin();
       window.setTimeout(() => {
         openAdminInfo({
-          title: "Batch created",
+          title: t("batchCreated"),
           subtitle: row.name,
-          text: `Reference: ${batch.id}\nCards: ${batch.total_count}\nExpected: ${money(batch.total_expected_from_trader_usd)}\nProfit: ${money(batch.gross_profit_usd)}`,
+          text: `${t("referenceLabel")}: ${batch.id}\n${t("cards")}: ${batch.total_count}\n${t("expected")}: ${money(batch.total_expected_from_trader_usd)}\n${t("profit")}: ${money(batch.gross_profit_usd)}`,
         });
       }, 0);
     },
@@ -920,15 +1252,15 @@ async function showTraderStatement(row) {
     const lines = (data.statement || []).map((item) => {
       return `${statusLabel(item.entry_type)} | debit ${money(item.debit_usd)} | credit ${money(item.credit_usd)} | balance ${money(item.running_balance_usd)}`;
     });
-    openAdminInfo({ title: "Trader statement", subtitle: row.name, text: lines.length ? lines.join("\n") : "No statement entries." });
+    openAdminInfo({ title: t("traderStatement"), subtitle: row.name, text: lines.length ? lines.join("\n") : t("noStatement") });
   } catch (err) {
-    openAdminInfo({ title: "Trader statement", subtitle: row.name, text: "Could not load trader statement." });
+    openAdminInfo({ title: t("traderStatement"), subtitle: row.name, text: t("loadStatementFailed") });
   }
 }
 
 priceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await withSubmitLock(priceForm, "Saving...", async () => {
+  await withSubmitLock(priceForm, t("saving"), async () => {
     const form = new FormData(priceForm);
     const body = Object.fromEntries(form.entries());
     try {
@@ -936,7 +1268,7 @@ priceForm.addEventListener("submit", async (event) => {
       closePriceModal();
       await loadPrices();
     } catch (err) {
-      setError("Could not save category. Check values.");
+      setError(t("saveCategoryFailed"));
     }
   });
 });
@@ -948,35 +1280,35 @@ sellForm.elements.denomination.addEventListener("input", () => {
 
 sellForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await withSubmitLock(sellForm, "Submitting...", async () => {
+  await withSubmitLock(sellForm, t("submitting"), async () => {
     const body = Object.fromEntries(new FormData(sellForm).entries());
     try {
       const data = await api("/mini/cardex/api/submit", { method: "POST", body: JSON.stringify(body) });
       if (data.missing_pricing) {
         closeCardSellModal();
-        setNotice("This value has no price yet. Admin was notified.");
+        setNotice(t("missingPriceNotice"));
         return;
       }
       const amount = Number(data.quote?.customer_value_usd || 0).toFixed(2);
       closeCardSellModal();
-      setNotice(`Card submitted. Expected payout: $${amount}`);
+      setNotice(`${t("submitted")}: $${amount}`);
     } catch (err) {
-      setError("Could not submit card. Check the value and code.");
+      setError(t("submitFailed"));
     }
   });
 });
 
 withdrawForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await withSubmitLock(withdrawForm, "Sending...", async () => {
+  await withSubmitLock(withdrawForm, t("sending"), async () => {
     const body = Object.fromEntries(new FormData(withdrawForm).entries());
     try {
       const data = await api("/mini/cardex/api/withdrawals", { method: "POST", body: JSON.stringify(body) });
       closeWithdrawalModal();
       await renderWithdrawals();
-      setNotice(`Withdrawal request created: ${data.withdrawal?.id || ""}`);
+      setNotice(`${t("withdrawalCreated")}: ${data.withdrawal?.id || ""}`);
     } catch (err) {
-      setError("Could not create withdrawal. Check available balance and payout details.");
+      setError(t("withdrawalFailed"));
     }
   });
 });
@@ -1006,7 +1338,7 @@ adminForm.addEventListener("submit", async (event) => {
       await adminFormHandler(body);
       closeAdminForm();
     } catch (err) {
-      setError("Could not complete this admin action.");
+      setError(t("adminActionFailed"));
     }
   });
 });
@@ -1029,4 +1361,5 @@ searchInput.addEventListener("input", () => {
   else if (state.view === "rules") renderRules(state.brand, state.regionKey);
 });
 
+localizeStaticUi();
 loadPrices();
