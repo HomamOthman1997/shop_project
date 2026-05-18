@@ -110,6 +110,13 @@ def _auth(request: web.Request, *, require_admin: bool = False) -> dict[str, Any
     return auth
 
 
+def _optional_auth(request: web.Request) -> dict[str, Any] | None:
+    try:
+        return _auth(request)
+    except web.HTTPUnauthorized:
+        return None
+
+
 def _pricing_label(row: dict[str, Any]) -> str:
     label = str(row.get("denomination_label") or "").strip()
     if not label and row.get("range_min") is not None and row.get("range_max") is not None:
@@ -350,9 +357,10 @@ async def cardex_static(request: web.Request) -> web.Response:
 
 
 async def cardex_prices(request: web.Request) -> web.Response:
-    auth = _auth(request)
+    auth = _optional_auth(request)
     rows = [_rule_payload(row) for row in await list_active_pricing_rules(limit=1000)]
-    return web.json_response({"is_admin": int(auth["user_id"]) in _cardex_admin_ids(), "rules": rows}, headers=dict(_NO_STORE_HEADERS))
+    is_admin = bool(auth and int(auth["user_id"]) in _cardex_admin_ids())
+    return web.json_response({"is_admin": is_admin, "rules": rows}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def cardex_wallet(request: web.Request) -> web.Response:
@@ -630,7 +638,6 @@ async def cardex_price_delete(request: web.Request) -> web.Response:
 
 
 async def cardex_quote_submission(request: web.Request) -> web.Response:
-    _auth(request)
     body = await request.json()
     try:
         denomination = parse_decimal(str(body.get("denomination") or ""))

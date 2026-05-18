@@ -75,6 +75,18 @@ def test_cardex_miniapp_accepts_main_bot_signed_init_data(monkeypatch):
     assert auth["user_id"] == 123
 
 
+def test_cardex_miniapp_optional_auth_allows_public_prices_without_init_data(monkeypatch):
+    from aiohttp import web
+    from services.cards_bot import miniapp
+
+    class Request:
+        headers = {}
+
+    monkeypatch.setattr(miniapp, "_auth", lambda request: (_ for _ in ()).throw(web.HTTPUnauthorized()))
+
+    assert miniapp._optional_auth(Request()) is None
+
+
 def test_cards_main_menu_uses_arabic_labels_for_ar():
     kb = cards_main_menu("ar")
     labels = [button.text for row in kb.keyboard for button in row]
