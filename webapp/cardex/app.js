@@ -95,6 +95,11 @@ function setError(text) {
   statusEl.classList.add("error");
 }
 
+function setNotice(text) {
+  statusEl.textContent = text;
+  statusEl.classList.remove("error");
+}
+
 function button(cls, text, fn) {
   const el = document.createElement("button");
   el.type = "button";
@@ -852,7 +857,7 @@ priceForm.addEventListener("submit", async (event) => {
     closePriceModal();
     await loadPrices();
   } catch (err) {
-    alert("Could not save category. Check values.");
+    setError("Could not save category. Check values.");
   }
 });
 
@@ -867,14 +872,15 @@ sellForm.addEventListener("submit", async (event) => {
   try {
     const data = await api("/mini/cardex/api/submit", { method: "POST", body: JSON.stringify(body) });
     if (data.missing_pricing) {
-      alert("This value has no price yet. Admin was notified.");
+      closeCardSellModal();
+      setNotice("This value has no price yet. Admin was notified.");
       return;
     }
     const amount = Number(data.quote?.customer_value_usd || 0).toFixed(2);
     closeCardSellModal();
-    alert(`Card submitted. Expected payout: $${amount}`);
+    setNotice(`Card submitted. Expected payout: $${amount}`);
   } catch (err) {
-    alert("Could not submit card. Check the value and code.");
+    setError("Could not submit card. Check the value and code.");
   }
 });
 
@@ -884,10 +890,10 @@ withdrawForm.addEventListener("submit", async (event) => {
   try {
     const data = await api("/mini/cardex/api/withdrawals", { method: "POST", body: JSON.stringify(body) });
     closeWithdrawalModal();
-    alert(`Withdrawal request created: ${data.withdrawal?.id || ""}`);
     await renderWithdrawals();
+    setNotice(`Withdrawal request created: ${data.withdrawal?.id || ""}`);
   } catch (err) {
-    alert("Could not create withdrawal. Check available balance and payout details.");
+    setError("Could not create withdrawal. Check available balance and payout details.");
   }
 });
 
@@ -915,7 +921,7 @@ adminForm.addEventListener("submit", async (event) => {
     await adminFormHandler(body);
     closeAdminForm();
   } catch (err) {
-    alert("Could not complete this admin action.");
+    setError("Could not complete this admin action.");
   }
 });
 refreshBtn.addEventListener("click", () => {
