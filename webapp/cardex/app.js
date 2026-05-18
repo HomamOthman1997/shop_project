@@ -100,6 +100,26 @@ function setNotice(text) {
   statusEl.classList.remove("error");
 }
 
+async function withSubmitLock(form, label, fn) {
+  if (form.dataset.busy === "1") return;
+  const submit = form.querySelector('button[type="submit"]');
+  const oldText = submit?.textContent || "";
+  form.dataset.busy = "1";
+  if (submit) {
+    submit.disabled = true;
+    submit.textContent = label;
+  }
+  try {
+    await fn();
+  } finally {
+    form.dataset.busy = "0";
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = oldText;
+    }
+  }
+}
+
 function button(cls, text, fn) {
   const el = document.createElement("button");
   el.type = "button";
@@ -850,15 +870,17 @@ async function showTraderStatement(row) {
 
 priceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const form = new FormData(priceForm);
-  const body = Object.fromEntries(form.entries());
-  try {
-    await api("/mini/cardex/api/prices", { method: "POST", body: JSON.stringify(body) });
-    closePriceModal();
-    await loadPrices();
-  } catch (err) {
-    setError("Could not save category. Check values.");
-  }
+  await withSubmitLock(priceForm, "Saving...", async () => {
+    const form = new FormData(priceForm);
+    const body = Object.fromEntries(form.entries());
+    try {
+      await api("/mini/cardex/api/prices", { method: "POST", body: JSON.stringify(body) });
+      closePriceModal();
+      await loadPrices();
+    } catch (err) {
+      setError("Could not save category. Check values.");
+    }
+  });
 });
 
 sellForm.elements.denomination.addEventListener("input", () => {
@@ -868,33 +890,37 @@ sellForm.elements.denomination.addEventListener("input", () => {
 
 sellForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const body = Object.fromEntries(new FormData(sellForm).entries());
-  try {
-    const data = await api("/mini/cardex/api/submit", { method: "POST", body: JSON.stringify(body) });
-    if (data.missing_pricing) {
+  await withSubmitLock(sellForm, "Submitting...", async () => {
+    const body = Object.fromEntries(new FormData(sellForm).entries());
+    try {
+      const data = await api("/mini/cardex/api/submit", { method: "POST", body: JSON.stringify(body) });
+      if (data.missing_pricing) {
+        closeCardSellModal();
+        setNotice("This value has no price yet. Admin was notified.");
+        return;
+      }
+      const amount = Number(data.quote?.customer_value_usd || 0).toFixed(2);
       closeCardSellModal();
-      setNotice("This value has no price yet. Admin was notified.");
-      return;
+      setNotice(`Card submitted. Expected payout: $${amount}`);
+    } catch (err) {
+      setError("Could not submit card. Check the value and code.");
     }
-    const amount = Number(data.quote?.customer_value_usd || 0).toFixed(2);
-    closeCardSellModal();
-    setNotice(`Card submitted. Expected payout: $${amount}`);
-  } catch (err) {
-    setError("Could not submit card. Check the value and code.");
-  }
+  });
 });
 
 withdrawForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const body = Object.fromEntries(new FormData(withdrawForm).entries());
-  try {
-    const data = await api("/mini/cardex/api/withdrawals", { method: "POST", body: JSON.stringify(body) });
-    closeWithdrawalModal();
-    await renderWithdrawals();
-    setNotice(`Withdrawal request created: ${data.withdrawal?.id || ""}`);
-  } catch (err) {
-    setError("Could not create withdrawal. Check available balance and payout details.");
-  }
+  await withSubmitLock(withdrawForm, "Sending...", async () => {
+    const body = Object.fromEntries(new FormData(withdrawForm).entries());
+    try {
+      const data = await api("/mini/cardex/api/withdrawals", { method: "POST", body: JSON.stringify(body) });
+      closeWithdrawalModal();
+      await renderWithdrawals();
+      setNotice(`Withdrawal request created: ${data.withdrawal?.id || ""}`);
+    } catch (err) {
+      setError("Could not create withdrawal. Check available balance and payout details.");
+    }
+  });
 });
 
 closeModal.addEventListener("click", closePriceModal);
@@ -916,13 +942,15 @@ adminFormModal.addEventListener("click", (event) => {
 adminForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!adminFormHandler) return;
-  const body = Object.fromEntries(new FormData(adminForm).entries());
-  try {
-    await adminFormHandler(body);
-    closeAdminForm();
-  } catch (err) {
-    setError("Could not complete this admin action.");
-  }
+  await withSubmitLock(adminForm, "Saving...", async () => {
+    const body = Object.fromEntries(new FormData(adminForm).entries());
+    try {
+      await adminFormHandler(body);
+      closeAdminForm();
+    } catch (err) {
+      setError("Could not complete this admin action.");
+    }
+  });
 });
 refreshBtn.addEventListener("click", () => {
   if (state.view === "mycards") renderMyCards();

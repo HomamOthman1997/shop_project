@@ -365,6 +365,10 @@ textarea:focus { border-color: var(--accent); }
   color: #fff;
   font-weight: 800;
 }
+.primary:disabled,
+.ghost:disabled {
+  opacity: .58;
+}
 .ghost {
   background: var(--panel-2);
   color: var(--text);
