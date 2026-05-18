@@ -536,6 +536,61 @@ def test_user_settings_main_keyboard_hides_redundant_balance_button():
 
 
 @pytest.mark.asyncio
+async def test_user_settings_reseller_account_hides_internal_wallet_scope(monkeypatch):
+    async def _false(*_args, **_kwargs):
+        return False
+
+    async def _balance(_user_id, _reseller_id):
+        return 0.0
+
+    async def _scope(_user_doc, *, bot_id, user_id):
+        return 7460601505
+
+    monkeypatch.setattr(main_menu, "_uses_platform_wallet", _false)
+    monkeypatch.setattr(main_menu, "_resolve_user_reseller", _scope)
+    monkeypatch.setattr(main_menu, "get_user_wallet_balance", _balance)
+
+    text = await main_menu._user_settings_main_text(
+        {"language": "en", "username": "HOMAM_CYBERZONE"},
+        lang="en",
+        bot_id=123,
+        user_id=741729062,
+    )
+
+    assert "Wallet:" not in text
+    assert "Reseller #" not in text
+    assert "available wallet balance" not in text
+
+
+@pytest.mark.asyncio
+async def test_reseller_balance_message_omits_wallet_note(monkeypatch):
+    message = _FakeMessage()
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    async def _false(*_args, **_kwargs):
+        return False
+
+    async def _scope(_user_doc, *, bot_id, user_id):
+        return 7460601505
+
+    async def _balance(_user_id, _reseller_id):
+        return 12.5
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "is_reseller", _false)
+    monkeypatch.setattr(main_menu, "_uses_platform_wallet", _false)
+    monkeypatch.setattr(main_menu, "_resolve_user_reseller", _scope)
+    monkeypatch.setattr(main_menu, "get_user_wallet_balance", _balance)
+
+    await main_menu.balance_handler(message)
+
+    assert "Balance:" in message.answers[-1][0]
+    assert "available wallet balance" not in message.answers[-1][0]
+
+
+@pytest.mark.asyncio
 async def test_language_change_refreshes_reply_keyboard(monkeypatch):
     callback = _FakeCallback(data="uset:langset:en", bot_id=222)
     updated = {}

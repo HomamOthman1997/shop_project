@@ -11,7 +11,13 @@ from config import settings
 from database.financial_ledger import _cycle_bounds
 from handlers.admin_services import _parse_owner_target_payload
 from handlers.main_menu import _as_utc as main_menu_as_utc
-from handlers.reseller_recharge import _build_reseller_dashboard_text, _build_reseller_stats_text, _reseller_dashboard_kb, _reseller_stats_kb
+from handlers.reseller_recharge import (
+    _build_reseller_dashboard_text,
+    _build_reseller_stats_text,
+    _format_owner_topup_method_details,
+    _reseller_dashboard_kb,
+    _reseller_stats_kb,
+)
 from middlewares.version_check import _as_utc as version_check_as_utc, _allow_owner_panel_callback
 
 
@@ -134,6 +140,23 @@ def test_reseller_dashboard_keyboard_is_control_scoped():
     assert "rsmenu:core_topup" not in callbacks
     assert "rsmenu:custom_services" not in callbacks
     assert "rsmenu:stats" not in callbacks
+
+
+def test_owner_topup_payment_target_is_not_split_by_line():
+    text = _format_owner_topup_method_details(
+        {
+            "title": "PayPal",
+            "code": "paypal",
+            "currency": "USD",
+            "per_credit": 1.0,
+            "target": "paypal@example.com\nmemo line",
+            "instructions": "Send to {target}",
+        }
+    )
+
+    assert "copy each line separately" not in text
+    assert "Payment target:" in text
+    assert "<code>paypal@example.com\nmemo line</code>" in text
 
 
 @pytest.mark.asyncio

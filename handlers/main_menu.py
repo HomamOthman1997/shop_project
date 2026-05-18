@@ -510,22 +510,24 @@ def _format_joined_date(value) -> str:
 
 async def _user_profile_settings_text(user_doc: dict | None, *, lang: str, bot_id: int, user_id: int) -> str:
     user_doc = user_doc or {}
-    if await _uses_platform_wallet(bot_id):
-        wallet_scope = t(lang, "platform_wallet_scope_label")
-    else:
-        reseller_id = await get_user_reseller_for_bot(user_id, bot_id)
-        if not reseller_id:
-            reseller_id = user_doc.get("reseller_id")
-        wallet_scope = t(lang, "reseller_wallet_scope_label").format(reseller_id=str(reseller_id or "-"))
     username_raw = str(user_doc.get("username") or "").strip()
     username_display = f"@{username_raw}" if username_raw else "-"
-    return t(lang, "user_settings_profile_text").format(
-        user_id=int(user_id),
-        username=username_display,
-        language=_language_label(str(user_doc.get("language") or "en")),
-        wallet_scope=wallet_scope,
-        reseller_id=wallet_scope,
-        joined_at=_format_joined_date(user_doc.get("created_at")),
+    language = _language_label(str(user_doc.get("language") or "en"))
+    joined_at = _format_joined_date(user_doc.get("created_at"))
+    if str(lang or "").lower().startswith("ar"):
+        return (
+            "تفاصيل الحساب\n"
+            f"User ID: {int(user_id)}\n"
+            f"Username: {username_display}\n"
+            f"اللغة: {language}\n"
+            f"تاريخ الانضمام: {joined_at}"
+        )
+    return (
+        "Account details\n"
+        f"User ID: {int(user_id)}\n"
+        f"Username: {username_display}\n"
+        f"Language: {language}\n"
+        f"Joined: {joined_at}"
     )
 
 
@@ -534,8 +536,10 @@ async def _account_balance_text(user_doc: dict | None, *, lang: str, bot_id: int
     if not wallet_scope_id:
         return await _wallet_scope_error_text(lang=lang, bot_id=bot_id)
     balance = await get_user_wallet_balance(user_id, int(wallet_scope_id))
-    note = t(lang, "available_wallet_balance_note_platform_shared" if await _uses_platform_wallet(bot_id) else "available_wallet_balance_note")
-    return f"{t(lang, 'balance_info').format(balance=balance)}\n{note}"
+    if await _uses_platform_wallet(bot_id):
+        note = t(lang, "available_wallet_balance_note_platform_shared")
+        return f"{t(lang, 'balance_info').format(balance=balance)}\n{note}"
+    return t(lang, "balance_info").format(balance=balance)
 
 
 async def _open_user_settings_message(message: types.Message, user_doc: dict | None, lang: str):
@@ -971,7 +975,8 @@ async def balance_handler(message: types.Message):
         return await message.answer(await _wallet_scope_error_text(lang=lang, bot_id=bot_id))
     balance = await get_user_wallet_balance(message.from_user.id, int(wallet_scope_id))
     text = t(lang, "balance_info").format(balance=balance)
-    text += "\n" + t(lang, "available_wallet_balance_note_platform_shared" if platform_wallet_flow else "available_wallet_balance_note")
+    if platform_wallet_flow:
+        text += "\n" + t(lang, "available_wallet_balance_note_platform_shared")
     await message.answer(text, reply_markup=_account_balance_kb(lang))
 
 
@@ -1052,10 +1057,7 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
         return await message.answer(t(data.get("recharge_lang", "en"), "choose_payment_method_from_keyboard"))
 
     raw_target = str(selected.get("target") or "").strip()
-    target_lines = [line.strip() for line in raw_target.replace("\r", "\n").split("\n") if line.strip()]
-    if not target_lines and raw_target:
-        target_lines = [raw_target]
-    targets_block = "\n".join(f"<code>{escape(line)}</code>" for line in target_lines) if target_lines else "<code>-</code>"
+    targets_block = f"<code>{escape(raw_target or '-')}</code>"
 
     rendered_instructions = str(selected.get("instructions") or "")
     currency_code = str(selected.get("currency", "USD")).upper()
@@ -1076,12 +1078,17 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
     method_title = escape(str(selected.get("title") or selected.get("code") or t(flow_lang, "payment_plain")))
     currency = escape(currency_code)
     rate = effective_rate
-    instructions = t(flow_lang, "recharge_method_instructions_card").format(
-        method_title=method_title,
-        currency=currency,
-        rate=rate,
-        targets_block=targets_block,
-        instructions=escape(rendered_instructions),
+    is_ar_flow = str(flow_lang or "").lower().startswith("ar")
+    target_label = "بيانات الدفع" if is_ar_flow else "Payment target"
+    currency_label = "العملة" if is_ar_flow else "Currency"
+    rate_label = "السعر" if is_ar_flow else "Rate"
+    instructions = (
+        f"<b>{method_title}</b>\n"
+        f"{currency_label}: <b>{currency}</b>\n"
+        f"{rate_label}: <b>{rate:.4f} {currency}</b> = 1 credit\n\n"
+        f"{target_label}:\n"
+        f"{targets_block}\n\n"
+        f"{escape(rendered_instructions)}"
     ).strip()
 
     await state.update_data(recharge_method=selected)

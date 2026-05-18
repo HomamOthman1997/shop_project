@@ -393,8 +393,24 @@ SHERVON  ADAMS  859 WILLIAM ST  POMONA  CA  91768  11/13/1976  626868571
     parsed = _parse_inventory_payload(payload, ssn_mode=False)
 
     assert parsed == [
-        "first  last  address  city  st  zip  dob  ssn",
+        "first  last  address  city  st  zip  dob  ssn\n"
         "SHERVON  ADAMS  859 WILLIAM ST  POMONA  CA  91768  11/13/1976  626868571",
+    ]
+
+
+def test_parse_inventory_payload_keeps_non_email_accounts_as_one_item():
+    payload = """PayPal: seller@example.com
+Password: pass-1
+2FA: backup-code
+"""
+
+    assert _parse_inventory_payload(payload, ssn_mode=False) == [
+        "PayPal: seller@example.com\nPassword: pass-1\n2FA: backup-code"
+    ]
+    assert _parse_inventory_payload(payload, ssn_mode=False, split_plain_lines=True) == [
+        "PayPal: seller@example.com",
+        "Password: pass-1",
+        "2FA: backup-code",
     ]
 
 

@@ -1564,13 +1564,7 @@ def _owner_topup_review_kb(request_id) -> types.InlineKeyboardMarkup:
 
 def _format_owner_topup_method_details(method: dict) -> str:
     raw_target = str(method.get("target") or "").strip()
-    target_lines = [line.strip() for line in raw_target.replace("\r", "\n").split("\n") if line.strip()]
-    if not target_lines and raw_target:
-        target_lines = [raw_target]
-    if not target_lines:
-        target_block = "<code>-</code>"
-    else:
-        target_block = "\n".join(f"<code>{escape(line)}</code>" for line in target_lines)
+    target_block = f"<code>{escape(raw_target or '-')}</code>"
 
     instructions = str(render_owner_method_instructions(method) or "")
     if raw_target:
@@ -1581,7 +1575,7 @@ def _format_owner_topup_method_details(method: dict) -> str:
         f"Method: <b>{escape(str(method.get('title') or '-'))}</b> ({escape(str(method.get('code') or '-'))})\n"
         f"Currency: <b>{escape('local' if str(method.get('currency', 'USD')).upper() == 'SYP' else '💲')}</b>\n"
         f"Per Credit: <b>{float(method.get('per_credit', 1.0)):.4f}</b>\n\n"
-        "Targets (copy each line separately):\n"
+        "Payment target:\n"
         f"{target_block}\n\n"
         f"{escape(instructions)}"
     )

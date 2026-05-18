@@ -635,7 +635,11 @@ def _parse_labeled_inventory_groups(text: str) -> list[str]:
     return [block.strip() for block in labeled_groups if block.strip()]
 
 
-def _parse_generic_inventory_payload(text: str) -> list[str]:
+def _has_email_stock_label(block: str) -> bool:
+    return any(line.strip().lower().startswith("email:") for line in str(block or "").splitlines())
+
+
+def _parse_generic_inventory_payload(text: str, *, split_plain_lines: bool = False) -> list[str]:
     raw = html.unescape(str(text or "").strip())
     if not raw:
         return []
@@ -657,30 +661,32 @@ def _parse_generic_inventory_payload(text: str) -> list[str]:
                 continue
         blocks.append(item)
     if blocks:
-        labeled_blocks = sum(
+        email_labeled_blocks = sum(
             1
             for block in blocks
-            if any(line.startswith(("Email:", "Password:", "Recovery:")) for line in block.splitlines())
+            if _has_email_stock_label(block)
         )
         single_email_blocks = all(
             sum(1 for line in block.splitlines() if line.lower().startswith("email:")) <= 1
             for block in blocks
         )
-        if labeled_blocks == len(blocks) and single_email_blocks:
+        if email_labeled_blocks == len(blocks) and single_email_blocks:
             return blocks
 
     labeled_groups = _parse_labeled_inventory_groups(normalized)
-    if labeled_groups and all(any(item.startswith(prefix) for prefix in ("Email:", "Password:", "Recovery:")) for block in labeled_groups for item in block.splitlines()):
+    if labeled_groups and all(_has_email_stock_label(block) for block in labeled_groups):
         return [block.strip() for block in labeled_groups if block.strip()]
 
-    return [line.strip() for line in normalized.splitlines() if line.strip()]
+    if split_plain_lines:
+        return [line.strip() for line in normalized.splitlines() if line.strip()]
+    return [normalized] if normalized else []
 
 
 def _split_claimed_inventory_items(stock_items: list[str] | None, qty: int) -> tuple[list[str], list[str]]:
     expanded: list[str] = []
     for item in [str(row or "").strip() for row in list(stock_items or []) if str(row or "").strip()]:
         if sum(1 for line in item.splitlines() if line.strip().lower().startswith("email:")) > 1:
-            split_items = _parse_generic_inventory_payload(item)
+            split_items = _parse_generic_inventory_payload(item, split_plain_lines=True)
             if len(split_items) > 1:
                 expanded.extend(split_items)
                 continue
@@ -694,7 +700,7 @@ def _format_stock_items_payload(stock_items: list[str] | None) -> str:
     return "\n\n=================\n\n".join(items)
 
 
-def _parse_inventory_payload(text: str, *, ssn_mode: bool = True) -> list[str]:
+def _parse_inventory_payload(text: str, *, ssn_mode: bool = True, split_plain_lines: bool = False) -> list[str]:
     raw = html.unescape(str(text or "").strip())
     if not raw:
         return []
@@ -719,7 +725,7 @@ def _parse_inventory_payload(text: str, *, ssn_mode: bool = True) -> list[str]:
         if parsed_blocks:
             return parsed_blocks
 
-    return _parse_generic_inventory_payload(raw)
+    return _parse_generic_inventory_payload(raw, split_plain_lines=split_plain_lines)
 
 
 def _is_ssn_stock_context(endpoint: dict | None, parent_node: dict | None = None) -> bool:
@@ -759,11 +765,11 @@ def _ssn_missing_field_warnings(items: list[str]) -> list[str]:
     return warnings
 
 
-def _parse_inventory_submission(text: str, *, ssn_mode: bool) -> tuple[list[str], str, list[str]]:
+def _parse_inventory_submission(text: str, *, ssn_mode: bool, split_plain_lines: bool = False) -> tuple[list[str], str, list[str]]:
     raw_payload = html.unescape(str(text or "").strip())
     if not raw_payload:
         return [], "", []
-    items = _parse_inventory_payload(raw_payload, ssn_mode=ssn_mode)
+    items = _parse_inventory_payload(raw_payload, ssn_mode=ssn_mode, split_plain_lines=split_plain_lines)
     warnings = _ssn_missing_field_warnings(items) if ssn_mode else []
     return items, raw_payload, warnings
 
@@ -3068,7 +3074,12 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
             )
         )
     ssn_mode = await _is_ssn_stock_endpoint(endpoint, catalog_owner_id)
-    items, raw_payload, warnings = _parse_inventory_submission(text, ssn_mode=ssn_mode)
+    split_plain_lines = _service_supports_multi_qty(endpoint)
+    items, raw_payload, warnings = _parse_inventory_submission(
+        text,
+        ssn_mode=ssn_mode,
+        split_plain_lines=split_plain_lines,
+    )
     if not items:
         return await message.answer(t(await _user_lang(message.from_user.id), "custom_no_valid_stock_lines"))
     if len(items) > _MAX_STOCK_ITEMS_PER_SAVE:
