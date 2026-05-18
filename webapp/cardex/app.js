@@ -371,6 +371,13 @@ function adminWithdrawalActions(row) {
   return actions;
 }
 
+function adminMissingPricingActions(row) {
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.append(button("primary", "Set price", () => setMissingPricing(row)));
+  return actions;
+}
+
 async function renderAdmin() {
   if (!state.isAdmin) return loadPrices();
   setActiveTab(adminTab);
@@ -422,6 +429,25 @@ async function renderAdmin() {
     }
     if (!withdrawals.children.length) withdrawals.append(emptyLine("No open withdrawals."));
     content.append(withdrawals);
+
+    const missingTitle = document.createElement("div");
+    missingTitle.className = "section-title";
+    missingTitle.innerHTML = "<h2>Missing Pricing</h2>";
+    content.append(missingTitle);
+    const missing = document.createElement("div");
+    missing.className = "list";
+    for (const row of data.missing_pricing || []) {
+      const item = document.createElement("article");
+      item.className = "rule";
+      item.innerHTML = `
+        <div class="rule-top"><span class="value">${row.brand} ${row.denomination} ${row.currency}</span><span class="rate">${row.region}</span></div>
+        <div class="muted">Requested ${row.seen_count} time(s) - user ${row.created_by_user_id}</div>
+      `;
+      item.append(adminMissingPricingActions(row));
+      missing.append(item);
+    }
+    if (!missing.children.length) missing.append(emptyLine("No missing pricing rows."));
+    content.append(missing);
   } catch (err) {
     clear();
     setError("Could not load admin queue.");
@@ -526,6 +552,23 @@ async function updateAdminWithdrawal(id, action) {
     await renderAdmin();
   } catch (err) {
     alert("Could not update this withdrawal.");
+  }
+}
+
+async function setMissingPricing(row) {
+  const customerRate = prompt(`Customer rate % for ${row.brand} ${row.denomination} ${row.currency}`, "");
+  if (!customerRate) return;
+  const traderRate = prompt("Trader rate %", customerRate) || customerRate;
+  const note = prompt("Public note (optional)", "") || "";
+  try {
+    await api(`/mini/cardex/api/admin/missing-pricing/${encodeURIComponent(row.id)}`, {
+      method: "POST",
+      body: JSON.stringify({ customer_rate: customerRate, trader_rate: traderRate, note }),
+    });
+    await loadPrices();
+    await renderAdmin();
+  } catch (err) {
+    alert("Could not save this missing price.");
   }
 }
 
