@@ -391,6 +391,21 @@ function miniList(items) {
   return Object.entries(items || {}).map(([key, value]) => `${key}: ${value}`).join(" - ") || "none";
 }
 
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.append(area);
+  area.select();
+  document.execCommand("copy");
+  area.remove();
+}
+
 async function renderAdmin() {
   if (!state.isAdmin) return loadPrices();
   setActiveTab(adminTab);
@@ -418,6 +433,32 @@ async function renderAdmin() {
       <div class="note">Brands: ${miniList(report.by_brand)}</div>
     `;
     content.append(reportBox);
+
+    const exportTitle = document.createElement("div");
+    exportTitle.className = "section-title";
+    exportTitle.innerHTML = "<h2>Today Exports</h2>";
+    content.append(exportTitle);
+    const exportsList = document.createElement("div");
+    exportsList.className = "list";
+    for (const row of data.today_exports || []) {
+      const item = document.createElement("article");
+      item.className = "rule";
+      item.innerHTML = `
+        <div class="rule-top"><span class="value">${row.brand}</span><span class="rate">${row.count} cards</span></div>
+        <div class="muted">${row.filename}</div>
+      `;
+      item.append(button("primary", "Copy", async () => {
+        try {
+          await copyText(row.content || "");
+          alert("Export copied.");
+        } catch (err) {
+          alert(row.content || "No export content.");
+        }
+      }));
+      exportsList.append(item);
+    }
+    if (!exportsList.children.length) exportsList.append(emptyLine("No cards to export today."));
+    content.append(exportsList);
 
     const cardTitle = document.createElement("div");
     cardTitle.className = "section-title";

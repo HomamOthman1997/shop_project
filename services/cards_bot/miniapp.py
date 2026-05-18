@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -247,6 +248,53 @@ def _today_window() -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
+def _card_export_filename(brand: str, day: datetime) -> str:
+    safe_brand = re.sub(r"[^A-Za-z0-9_-]+", "_", str(brand or "cards").strip().upper()).strip("_") or "CARDS"
+    return f"cardex_{day.strftime('%Y-%m-%d')}_{safe_brand}.txt"
+
+
+def _card_export_line(row: dict[str, Any]) -> str:
+    return " | ".join(
+        [
+            str(row.get("code") or "").strip(),
+            str(row.get("pin") or "").strip() or "-",
+            f"{_fmt_rate(row.get('denomination'))} {row.get('currency')}",
+            str(row.get("region") or "GLOBAL"),
+            str(row.get("status") or "-"),
+            str(row.get("_id") or "-"),
+        ]
+    )
+
+
+def _export_files_payload(rows: list[dict[str, Any]], *, day: datetime) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        brand = str(row.get("brand") or "UNKNOWN").upper().strip() or "UNKNOWN"
+        grouped.setdefault(brand, []).append(row)
+
+    files: list[dict[str, Any]] = []
+    for brand in sorted(grouped):
+        brand_rows = grouped[brand]
+        lines = [
+            "Card-EX daily export",
+            f"Date: {day.strftime('%Y-%m-%d')}",
+            f"Brand: {brand}",
+            f"Count: {len(brand_rows)}",
+            "",
+            "CODE | PIN | VALUE | REGION | STATUS | REF",
+        ]
+        lines.extend(_card_export_line(row) for row in brand_rows)
+        files.append(
+            {
+                "filename": _card_export_filename(brand, day),
+                "brand": brand,
+                "count": len(brand_rows),
+                "content": "\n".join(lines) + "\n",
+            }
+        )
+    return files
+
+
 def _auth_full_name(user: dict[str, Any]) -> str | None:
     return " ".join(str(user.get(part) or "").strip() for part in ("first_name", "last_name")).strip() or None
 
@@ -342,6 +390,7 @@ async def cardex_admin_queue(request: web.Request) -> web.Response:
                 "customer_value_usd": _money(sum(Decimal(str(row.get("customer_value_usd") or 0)) for row in today_cards)),
                 "trader_value_usd": _money(sum(Decimal(str(row.get("trader_value_usd") or 0)) for row in today_cards)),
             },
+            "today_exports": _export_files_payload(today_cards, day=today_since),
             "cards": [_admin_card_payload(row) for row in cards],
             "batchable_cards": [_admin_card_payload(row) for row in batchable_cards],
             "withdrawals": [_withdrawal_payload(row) for row in withdrawals],
