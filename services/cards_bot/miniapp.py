@@ -48,6 +48,15 @@ _NO_STORE_HEADERS = {
 }
 
 
+def _cardex_init_tokens() -> list[str]:
+    tokens: list[str] = []
+    for key in ("bot_card_ex_token", "bot_main_token", "bot_digital_products_token"):
+        token = str(getattr(settings, key, "") or "").strip()
+        if token and token not in tokens:
+            tokens.append(token)
+    return tokens
+
+
 def _verify_cardex_init_data(init_data: str) -> dict[str, Any]:
     raw = str(init_data or "").strip()
     if not raw:
@@ -56,13 +65,18 @@ def _verify_cardex_init_data(init_data: str) -> dict[str, Any]:
     received_hash = str(pairs.pop("hash", "") or "")
     if not received_hash:
         raise web.HTTPUnauthorized(text="missing hash")
-    token = str(getattr(settings, "bot_card_ex_token", "") or "").strip()
-    if not token:
-        raise web.HTTPUnauthorized(text="cardex bot token not configured")
     check_string = "\n".join(f"{key}={pairs[key]}" for key in sorted(pairs))
-    secret = hmac.new(b"WebAppData", token.encode("utf-8"), hashlib.sha256).digest()
-    calculated = hmac.new(secret, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(calculated, received_hash):
+    tokens = _cardex_init_tokens()
+    if not tokens:
+        raise web.HTTPUnauthorized(text="cardex bot token not configured")
+    verified = False
+    for token in tokens:
+        secret = hmac.new(b"WebAppData", token.encode("utf-8"), hashlib.sha256).digest()
+        calculated = hmac.new(secret, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(calculated, received_hash):
+            verified = True
+            break
+    if not verified:
         raise web.HTTPUnauthorized(text="bad initData")
     user = json.loads(pairs.get("user") or "{}")
     user_id = int(user.get("id") or 0)

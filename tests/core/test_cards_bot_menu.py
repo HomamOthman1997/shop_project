@@ -1,6 +1,9 @@
 import os
 import sys
 import json
+import hashlib
+import hmac
+from urllib.parse import urlencode
 from types import SimpleNamespace
 
 import pytest
@@ -50,6 +53,26 @@ def test_cardex_miniapp_quote_payload_is_json_serializable():
     json.dumps(payload)
     assert payload["rule"]["id"]
     assert payload["rule"]["brand"] == "AMAZON"
+
+
+def test_cardex_miniapp_accepts_main_bot_signed_init_data(monkeypatch):
+    from services.cards_bot import miniapp
+
+    monkeypatch.setattr(miniapp.settings, "bot_card_ex_token", "cardex-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "bot_digital_products_token", "", raising=False)
+    pairs = {
+        "auth_date": "1760000000",
+        "query_id": "q1",
+        "user": json.dumps({"id": 123, "first_name": "Test"}, separators=(",", ":")),
+    }
+    check_string = "\n".join(f"{key}={pairs[key]}" for key in sorted(pairs))
+    secret = hmac.new(b"WebAppData", b"main-token", hashlib.sha256).digest()
+    pairs["hash"] = hmac.new(secret, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    auth = miniapp._verify_cardex_init_data(urlencode(pairs))
+
+    assert auth["user_id"] == 123
 
 
 def test_cards_main_menu_uses_arabic_labels_for_ar():
