@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -16,10 +17,12 @@ from services.cards_bot.handlers import _fmt_rate
 from services.cards_bot.service import (
     accept_card,
     create_trader,
+    create_trader_batch,
     create_withdrawal,
     get_missing_pricing,
     get_wallet_snapshot,
     list_cards_for_review,
+    list_cards_for_daily_export,
     list_cards_for_user,
     list_missing_pricing,
     list_open_withdrawals,
@@ -156,6 +159,18 @@ def _admin_card_payload(row: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _batch_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("_id") or ""),
+        "trader_id": str(row.get("trader_id") or ""),
+        "status": str(row.get("status") or ""),
+        "total_count": int(row.get("total_count") or 0),
+        "total_expected_from_trader_usd": _money(row.get("total_expected_from_trader_usd")),
+        "gross_profit_usd": _money(row.get("gross_profit_usd")),
+        "notes": str(row.get("notes") or ""),
+    }
+
+
 def _withdrawal_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row.get("_id") or ""),
@@ -272,12 +287,23 @@ async def cardex_withdrawals(request: web.Request) -> web.Response:
 async def cardex_admin_queue(request: web.Request) -> web.Response:
     _auth(request, require_admin=True)
     cards = await list_cards_for_review(limit=50)
+    batchable_cards = await list_cards_for_daily_export(
+        since=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        until=datetime.now(timezone.utc) + timedelta(days=1),
+        limit=200,
+    )
+    batchable_cards = [
+        row
+        for row in batchable_cards
+        if str(row.get("status") or "") in {"customer_pending_credit", "customer_available_credit"}
+    ][:50]
     withdrawals = await list_open_withdrawals(limit=50)
     missing = await list_missing_pricing(limit=50)
     traders = await list_traders(limit=50)
     return web.json_response(
         {
             "cards": [_admin_card_payload(row) for row in cards],
+            "batchable_cards": [_admin_card_payload(row) for row in batchable_cards],
             "withdrawals": [_withdrawal_payload(row) for row in withdrawals],
             "missing_pricing": [_missing_pricing_payload(row) for row in missing],
             "traders": [_trader_payload(row) for row in traders],
@@ -387,6 +413,28 @@ async def cardex_admin_trader_payment(request: web.Request) -> web.Response:
     except ValueError as exc:
         raise web.HTTPBadRequest(text=str(exc) or "payment failed")
     return web.json_response({"payment": {"id": str(row.get("_id") or ""), "amount_usd": _money(row.get("amount_usd"))}}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def cardex_admin_trader_batch(request: web.Request) -> web.Response:
+    auth = _auth(request, require_admin=True)
+    trader_id = str(request.match_info.get("trader_id") or "").strip()
+    body = await request.json()
+    raw_card_ids = body.get("card_ids") or []
+    if isinstance(raw_card_ids, str):
+        card_ids = [part.strip() for part in raw_card_ids.replace("\n", ",").split(",") if part.strip()]
+    else:
+        card_ids = [str(part).strip() for part in raw_card_ids if str(part).strip()]
+    try:
+        row = await create_trader_batch(
+            actor_user_id=str(auth["user_id"]),
+            trader_id=trader_id,
+            card_ids=card_ids,
+            notes=str(body.get("notes") or "").strip() or None,
+            mark_sent=bool(body.get("mark_sent", True)),
+        )
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc) or "batch creation failed")
+    return web.json_response({"batch": _batch_payload(row)}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def cardex_create_withdrawal(request: web.Request) -> web.Response:
@@ -539,3 +587,4 @@ def register_cardex_routes(app: web.Application) -> None:
     app.router.add_post("/mini/cardex/api/admin/traders", cardex_admin_create_trader)
     app.router.add_get("/mini/cardex/api/admin/traders/{trader_id}/statement", cardex_admin_trader_statement)
     app.router.add_post("/mini/cardex/api/admin/traders/{trader_id}/payments", cardex_admin_trader_payment)
+    app.router.add_post("/mini/cardex/api/admin/traders/{trader_id}/batches", cardex_admin_trader_batch)

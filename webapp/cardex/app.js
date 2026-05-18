@@ -382,6 +382,7 @@ function adminTraderActions(row) {
   const actions = document.createElement("div");
   actions.className = "actions";
   actions.append(button("primary", "Statement", () => showTraderStatement(row)));
+  actions.append(button("ghost", "Batch cards", () => createTraderBatch(row)));
   actions.append(button("ghost", "Payment", () => recordTraderPayment(row)));
   return actions;
 }
@@ -456,6 +457,25 @@ async function renderAdmin() {
     }
     if (!missing.children.length) missing.append(emptyLine("No missing pricing rows."));
     content.append(missing);
+
+    const batchableTitle = document.createElement("div");
+    batchableTitle.className = "section-title";
+    batchableTitle.innerHTML = "<h2>Batchable Cards</h2>";
+    content.append(batchableTitle);
+    const batchable = document.createElement("div");
+    batchable.className = "list";
+    for (const row of data.batchable_cards || []) {
+      const item = document.createElement("article");
+      item.className = "rule";
+      item.innerHTML = `
+        <div class="rule-top"><span class="value">${row.brand} ${row.denomination} ${row.currency}</span><span class="rate">${money(row.trader_value_usd)}</span></div>
+        <div class="muted">${row.region} - ${statusLabel(row.status)} - ${row.id}</div>
+        <div class="note">Code: ${row.code}${row.pin ? ` | PIN: ${row.pin}` : ""}</div>
+      `;
+      batchable.append(item);
+    }
+    if (!batchable.children.length) batchable.append(emptyLine("No cards ready for trader batching."));
+    content.append(batchable);
 
     const traderTitle = document.createElement("div");
     traderTitle.className = "section-title";
@@ -627,6 +647,23 @@ async function recordTraderPayment(row) {
     await showTraderStatement(row);
   } catch (err) {
     alert("Could not record trader payment.");
+  }
+}
+
+async function createTraderBatch(row) {
+  const cardIds = prompt(`Card IDs for ${row.name}. Separate multiple IDs with commas.`, "");
+  if (!cardIds) return;
+  const notes = prompt("Batch notes (optional)", "") || "";
+  try {
+    const data = await api(`/mini/cardex/api/admin/traders/${encodeURIComponent(row.id)}/batches`, {
+      method: "POST",
+      body: JSON.stringify({ card_ids: cardIds, notes, mark_sent: true }),
+    });
+    const batch = data.batch || {};
+    alert(`Batch created: ${batch.id}\nCards: ${batch.total_count}\nExpected: ${money(batch.total_expected_from_trader_usd)}\nProfit: ${money(batch.gross_profit_usd)}`);
+    await renderAdmin();
+  } catch (err) {
+    alert("Could not create trader batch. Check card IDs and statuses.");
   }
 }
 
