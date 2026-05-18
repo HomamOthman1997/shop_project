@@ -14,13 +14,18 @@ from config import settings
 from database.cardex_repo import create_pricing_rule, deactivate_pricing_rule, get_or_create_cardex_user, list_active_pricing_rules
 from services.cards_bot.handlers import _fmt_rate
 from services.cards_bot.service import (
+    accept_card,
     create_withdrawal,
     get_wallet_snapshot,
+    list_cards_for_review,
     list_cards_for_user,
+    list_open_withdrawals,
     list_withdrawals_for_user,
     parse_decimal,
     quote_card_submission,
+    reject_card,
     submit_card,
+    update_withdrawal_status,
 )
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -131,6 +136,20 @@ def _card_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _admin_card_payload(row: dict[str, Any]) -> dict[str, Any]:
+    payload = _card_payload(row)
+    payload.update(
+        {
+            "code": str(row.get("code") or ""),
+            "pin": str(row.get("pin") or ""),
+            "seller_user_id": str(row.get("seller_user_id") or ""),
+            "trader_value_usd": _money(row.get("trader_value_usd")),
+            "trader_rate": _fmt_rate(row.get("trader_rate_percent")),
+        }
+    )
+    return payload
+
+
 def _withdrawal_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row.get("_id") or ""),
@@ -204,6 +223,58 @@ async def cardex_withdrawals(request: web.Request) -> web.Response:
     card_user = await _card_user_from_auth(auth)
     rows = await list_withdrawals_for_user(str(card_user.get("_id")), limit=50)
     return web.json_response({"withdrawals": [_withdrawal_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def cardex_admin_queue(request: web.Request) -> web.Response:
+    _auth(request, require_admin=True)
+    cards = await list_cards_for_review(limit=50)
+    withdrawals = await list_open_withdrawals(limit=50)
+    return web.json_response(
+        {
+            "cards": [_admin_card_payload(row) for row in cards],
+            "withdrawals": [_withdrawal_payload(row) for row in withdrawals],
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def cardex_admin_card_action(request: web.Request) -> web.Response:
+    auth = _auth(request, require_admin=True)
+    card_id = str(request.match_info.get("card_id") or "").strip()
+    body = await request.json()
+    action = str(body.get("action") or "").strip().lower()
+    notes = str(body.get("notes") or "").strip() or None
+    try:
+        if action == "accept":
+            row = await accept_card(card_id, actor_user_id=str(auth["user_id"]), notes=notes)
+        elif action == "reject":
+            row = await reject_card(card_id, actor_user_id=str(auth["user_id"]), notes=notes)
+        else:
+            raise web.HTTPBadRequest(text="unsupported card action")
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc) or "card action failed")
+    return web.json_response({"card": _admin_card_payload(row)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def cardex_admin_withdrawal_action(request: web.Request) -> web.Response:
+    auth = _auth(request, require_admin=True)
+    withdrawal_id = str(request.match_info.get("withdrawal_id") or "").strip()
+    body = await request.json()
+    action = str(body.get("action") or "").strip().lower()
+    status_by_action = {"approve": "approved", "reject": "rejected", "paid": "paid"}
+    status = status_by_action.get(action)
+    if not status:
+        raise web.HTTPBadRequest(text="unsupported withdrawal action")
+    try:
+        row = await update_withdrawal_status(
+            withdrawal_id,
+            status=status,
+            actor_user_id=str(auth["user_id"]),
+            reason=str(body.get("notes") or "").strip() or None,
+        )
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc) or "withdrawal action failed")
+    return web.json_response({"withdrawal": _withdrawal_payload(row)}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def cardex_create_withdrawal(request: web.Request) -> web.Response:
@@ -344,8 +415,11 @@ def register_cardex_routes(app: web.Application) -> None:
     app.router.add_get("/mini/cardex/api/wallet", cardex_wallet)
     app.router.add_get("/mini/cardex/api/cards", cardex_my_cards)
     app.router.add_get("/mini/cardex/api/withdrawals", cardex_withdrawals)
+    app.router.add_get("/mini/cardex/api/admin/queue", cardex_admin_queue)
     app.router.add_post("/mini/cardex/api/prices", cardex_price_create)
     app.router.add_delete("/mini/cardex/api/prices/{rule_id}", cardex_price_delete)
     app.router.add_post("/mini/cardex/api/quote", cardex_quote_submission)
     app.router.add_post("/mini/cardex/api/submit", cardex_submit_card)
     app.router.add_post("/mini/cardex/api/withdrawals", cardex_create_withdrawal)
+    app.router.add_post("/mini/cardex/api/admin/cards/{card_id}", cardex_admin_card_action)
+    app.router.add_post("/mini/cardex/api/admin/withdrawals/{withdrawal_id}", cardex_admin_withdrawal_action)

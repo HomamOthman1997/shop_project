@@ -40,6 +40,7 @@ const pricesTab = document.getElementById("pricesTab");
 const cardsTab = document.getElementById("cardsTab");
 const walletTab = document.getElementById("walletTab");
 const withdrawTab = document.getElementById("withdrawTab");
+const adminTab = document.getElementById("adminTab");
 const modal = document.getElementById("modal");
 const priceForm = document.getElementById("priceForm");
 const closeModal = document.getElementById("closeModal");
@@ -75,7 +76,7 @@ function clear() {
 }
 
 function setActiveTab(tab) {
-  for (const item of [pricesTab, cardsTab, walletTab, withdrawTab]) item.classList.remove("active");
+  for (const item of [pricesTab, cardsTab, walletTab, withdrawTab, adminTab]) item.classList.remove("active");
   tab.classList.add("active");
   searchInput.value = "";
   state.search = "";
@@ -237,6 +238,7 @@ async function loadPrices() {
     const data = await api("/mini/cardex/api/prices");
     state.rules = Array.isArray(data.rules) ? data.rules : [];
     state.isAdmin = Boolean(data.is_admin);
+    adminTab.classList.toggle("hidden", !state.isAdmin);
     renderBrands();
   } catch (err) {
     clear();
@@ -352,6 +354,87 @@ async function renderWithdrawals() {
   }
 }
 
+function adminCardActions(row) {
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.append(button("primary", "Accept", () => updateAdminCard(row.id, "accept")));
+  actions.append(button("ghost danger", "Reject", () => updateAdminCard(row.id, "reject")));
+  return actions;
+}
+
+function adminWithdrawalActions(row) {
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  if (row.status !== "approved") actions.append(button("primary", "Approve", () => updateAdminWithdrawal(row.id, "approve")));
+  actions.append(button("ghost", "Paid", () => updateAdminWithdrawal(row.id, "paid")));
+  actions.append(button("ghost danger", "Reject", () => updateAdminWithdrawal(row.id, "reject")));
+  return actions;
+}
+
+async function renderAdmin() {
+  if (!state.isAdmin) return loadPrices();
+  setActiveTab(adminTab);
+  state.view = "admin";
+  clear();
+  content.append(heading("Admin Queue", "Review submitted cards and open withdrawals"));
+  statusEl.textContent = "Loading admin queue...";
+  try {
+    const data = await api("/mini/cardex/api/admin/queue");
+    clear();
+    content.append(heading("Admin Queue", "Review submitted cards and open withdrawals"));
+
+    const cardTitle = document.createElement("div");
+    cardTitle.className = "section-title";
+    cardTitle.innerHTML = "<h2>Cards</h2>";
+    content.append(cardTitle);
+    const cards = document.createElement("div");
+    cards.className = "list";
+    for (const row of data.cards || []) {
+      const item = document.createElement("article");
+      item.className = "rule";
+      item.innerHTML = `
+        <div class="rule-top"><span class="value">${row.brand} ${row.denomination} ${row.currency}</span><span class="rate">${money(row.customer_value_usd)}</span></div>
+        <div class="muted">${row.region} - ${statusLabel(row.status)} - seller ${row.seller_user_id}</div>
+        <div class="note">Code: ${row.code}${row.pin ? ` | PIN: ${row.pin}` : ""}</div>
+      `;
+      item.append(adminCardActions(row));
+      cards.append(item);
+    }
+    if (!cards.children.length) cards.append(emptyLine("No cards waiting for review."));
+    content.append(cards);
+
+    const withdrawalTitle = document.createElement("div");
+    withdrawalTitle.className = "section-title";
+    withdrawalTitle.innerHTML = "<h2>Withdrawals</h2>";
+    content.append(withdrawalTitle);
+    const withdrawals = document.createElement("div");
+    withdrawals.className = "list";
+    for (const row of data.withdrawals || []) {
+      const item = document.createElement("article");
+      item.className = "rule";
+      item.innerHTML = `
+        <div class="rule-top"><span class="value">${money(row.amount_usd)}</span><span class="rate">${statusLabel(row.status)}</span></div>
+        <div class="muted">${row.payout_currency} payout - ${row.id}</div>
+        ${row.notes ? `<div class="note">${row.notes}</div>` : ""}
+      `;
+      item.append(adminWithdrawalActions(row));
+      withdrawals.append(item);
+    }
+    if (!withdrawals.children.length) withdrawals.append(emptyLine("No open withdrawals."));
+    content.append(withdrawals);
+  } catch (err) {
+    clear();
+    setError("Could not load admin queue.");
+  }
+}
+
+function emptyLine(text) {
+  const item = document.createElement("article");
+  item.className = "rule";
+  item.textContent = text;
+  return item;
+}
+
 function openModal() {
   priceForm.reset();
   if (state.brand) priceForm.elements.brand.value = state.brand;
@@ -426,6 +509,26 @@ async function deleteRule(id) {
   if (state.brand && state.regionKey) renderRules(state.brand, state.regionKey);
 }
 
+async function updateAdminCard(id, action) {
+  const notes = prompt("Notes (optional)") || "";
+  try {
+    await api(`/mini/cardex/api/admin/cards/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action, notes }) });
+    await renderAdmin();
+  } catch (err) {
+    alert("Could not update this card.");
+  }
+}
+
+async function updateAdminWithdrawal(id, action) {
+  const notes = prompt("Notes (optional)") || "";
+  try {
+    await api(`/mini/cardex/api/admin/withdrawals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action, notes }) });
+    await renderAdmin();
+  } catch (err) {
+    alert("Could not update this withdrawal.");
+  }
+}
+
 priceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(priceForm);
@@ -490,12 +593,14 @@ refreshBtn.addEventListener("click", () => {
   if (state.view === "mycards") renderMyCards();
   else if (state.view === "wallet") renderWallet();
   else if (state.view === "withdrawals") renderWithdrawals();
+  else if (state.view === "admin") renderAdmin();
   else loadPrices();
 });
 pricesTab.addEventListener("click", loadPrices);
 cardsTab.addEventListener("click", renderMyCards);
 walletTab.addEventListener("click", renderWallet);
 withdrawTab.addEventListener("click", renderWithdrawals);
+adminTab.addEventListener("click", renderAdmin);
 searchInput.addEventListener("input", () => {
   state.search = searchInput.value || "";
   if (state.view === "brands") renderBrands();

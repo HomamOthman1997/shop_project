@@ -62,7 +62,7 @@ p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 }
 .tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
   gap: 8px;
   margin: 0 0 12px;
 }
@@ -337,6 +337,7 @@ textarea:focus { border-color: var(--accent); }
 }
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .primary, .ghost {
