@@ -62,8 +62,17 @@ const adminFormSubmit = document.getElementById("adminFormSubmit");
 const closeAdminFormModal = document.getElementById("closeAdminFormModal");
 let adminFormHandler = null;
 
+function telegramLaunchParam(name) {
+  const searchValue = new URLSearchParams(location.search).get(name);
+  if (searchValue) return searchValue;
+
+  const hash = location.hash.startsWith("#") ? location.hash.slice(1) : location.hash;
+  if (!hash) return "";
+  return new URLSearchParams(hash).get(name) || "";
+}
+
 function initData() {
-  return tg?.initData || new URLSearchParams(location.search).get("tgWebAppData") || "";
+  return tg?.initData || telegramLaunchParam("tgWebAppData") || "";
 }
 
 function hasInitData() {
