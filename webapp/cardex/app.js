@@ -36,6 +36,9 @@ const content = document.getElementById("content");
 const statusEl = document.getElementById("status");
 const searchInput = document.getElementById("searchInput");
 const refreshBtn = document.getElementById("refreshBtn");
+const pricesTab = document.getElementById("pricesTab");
+const cardsTab = document.getElementById("cardsTab");
+const walletTab = document.getElementById("walletTab");
 const modal = document.getElementById("modal");
 const priceForm = document.getElementById("priceForm");
 const closeModal = document.getElementById("closeModal");
@@ -67,6 +70,13 @@ function clear() {
   statusEl.classList.remove("error");
 }
 
+function setActiveTab(tab) {
+  for (const item of [pricesTab, cardsTab, walletTab]) item.classList.remove("active");
+  tab.classList.add("active");
+  searchInput.value = "";
+  state.search = "";
+}
+
 function setError(text) {
   statusEl.textContent = text;
   statusEl.classList.add("error");
@@ -94,7 +104,7 @@ function heading(title, subtitle = "") {
     wrap.append(p);
   }
   box.append(wrap);
-  if (state.isAdmin) box.append(button("primary", "Add", openModal));
+  if (state.isAdmin && ["brands", "regions", "rules"].includes(state.view)) box.append(button("primary", "Add", openModal));
   return box;
 }
 
@@ -217,6 +227,7 @@ function renderRules(brand, regionKey) {
 }
 
 async function loadPrices() {
+  setActiveTab(pricesTab);
   statusEl.textContent = "Loading prices...";
   try {
     const data = await api("/mini/cardex/api/prices");
@@ -226,6 +237,75 @@ async function loadPrices() {
   } catch (err) {
     clear();
     setError("Could not load CardEX prices.");
+  }
+}
+
+function money(value) {
+  const amount = Number(value || 0);
+  return `$${amount.toFixed(2)}`;
+}
+
+function statusLabel(value) {
+  return String(value || "-").replaceAll("_", " ");
+}
+
+async function renderMyCards() {
+  setActiveTab(cardsTab);
+  state.view = "mycards";
+  clear();
+  content.append(heading("My Cards", "Submitted cards and review status"));
+  statusEl.textContent = "Loading cards...";
+  try {
+    const data = await api("/mini/cardex/api/cards");
+    clear();
+    content.append(heading("My Cards", "Submitted cards and review status"));
+    const list = document.createElement("div");
+    list.className = "list";
+    for (const row of data.cards || []) {
+      const item = document.createElement("article");
+      item.className = "rule";
+      item.innerHTML = `
+        <div class="rule-top"><span class="value">${row.brand} ${row.denomination} ${row.currency}</span><span class="rate">${money(row.customer_value_usd)}</span></div>
+        <div class="muted">${row.region} - ${statusLabel(row.status)} - ${row.customer_rate}%</div>
+        ${row.review_notes ? `<div class="note">${row.review_notes}</div>` : ""}
+      `;
+      list.append(item);
+    }
+    if (!list.children.length) statusEl.textContent = "No cards submitted yet.";
+    content.append(list);
+  } catch (err) {
+    clear();
+    setError("Could not load your cards.");
+  }
+}
+
+async function renderWallet() {
+  setActiveTab(walletTab);
+  state.view = "wallet";
+  clear();
+  content.append(heading("Wallet", "CardEX balance summary"));
+  statusEl.textContent = "Loading wallet...";
+  try {
+    const data = await api("/mini/cardex/api/wallet");
+    clear();
+    content.append(heading("Wallet", "CardEX balance summary"));
+    const wallet = data.wallet || {};
+    const grid = document.createElement("div");
+    grid.className = "wallet-grid";
+    for (const row of [
+      ["Available", wallet.available_usd],
+      ["Pending", wallet.pending_usd],
+      ["Locked", wallet.locked_usd],
+    ]) {
+      const tile = document.createElement("article");
+      tile.className = "wallet-card";
+      tile.innerHTML = `<span>${row[0]}</span><strong>${money(row[1])}</strong>`;
+      grid.append(tile);
+    }
+    content.append(grid);
+  } catch (err) {
+    clear();
+    setError("Could not load wallet.");
   }
 }
 
@@ -337,7 +417,14 @@ closeSellModal.addEventListener("click", closeCardSellModal);
 sellModal.addEventListener("click", (event) => {
   if (event.target?.dataset?.closeSell) closeCardSellModal();
 });
-refreshBtn.addEventListener("click", loadPrices);
+refreshBtn.addEventListener("click", () => {
+  if (state.view === "mycards") renderMyCards();
+  else if (state.view === "wallet") renderWallet();
+  else loadPrices();
+});
+pricesTab.addEventListener("click", loadPrices);
+cardsTab.addEventListener("click", renderMyCards);
+walletTab.addEventListener("click", renderWallet);
 searchInput.addEventListener("input", () => {
   state.search = searchInput.value || "";
   if (state.view === "brands") renderBrands();

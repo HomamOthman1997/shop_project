@@ -14,6 +14,7 @@ from config import settings
 from database.cardex_repo import create_pricing_rule, deactivate_pricing_rule, get_or_create_cardex_user, list_active_pricing_rules
 from services.cards_bot.handlers import _fmt_rate
 from services.cards_bot.service import parse_decimal, quote_card_submission, submit_card
+from services.cards_bot.service import get_wallet_snapshot, list_cards_for_user
 
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "webapp" / "cardex"
@@ -101,6 +102,28 @@ def _rule_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _money(value: Any) -> float:
+    try:
+        return float(Decimal(str(value or 0)).quantize(Decimal("0.01")))
+    except Exception:
+        return 0.0
+
+
+def _card_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("_id") or ""),
+        "brand": str(row.get("brand") or "").upper(),
+        "denomination": _fmt_rate(row.get("denomination")),
+        "currency": str(row.get("currency") or "USD").upper(),
+        "region": str(row.get("region") or "GLOBAL").upper(),
+        "status": str(row.get("status") or ""),
+        "customer_value_usd": _money(row.get("customer_value_usd")),
+        "customer_rate": _fmt_rate(row.get("customer_buy_rate_percent")),
+        "created_at": str(row.get("created_at") or ""),
+        "review_notes": str(row.get("review_notes") or ""),
+    }
+
+
 def _auth_full_name(user: dict[str, Any]) -> str | None:
     return " ".join(str(user.get(part) or "").strip() for part in ("first_name", "last_name")).strip() or None
 
@@ -132,6 +155,29 @@ async def cardex_prices(request: web.Request) -> web.Response:
     auth = _auth(request)
     rows = [_rule_payload(row) for row in await list_active_pricing_rules(limit=1000)]
     return web.json_response({"is_admin": int(auth["user_id"]) in _cardex_admin_ids(), "rules": rows}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def cardex_wallet(request: web.Request) -> web.Response:
+    auth = _auth(request)
+    card_user = await _card_user_from_auth(auth)
+    wallet = await get_wallet_snapshot(str(card_user.get("_id")))
+    return web.json_response(
+        {
+            "wallet": {
+                "available_usd": _money(wallet.get("available_usd")),
+                "pending_usd": _money(wallet.get("pending_usd")),
+                "locked_usd": _money(wallet.get("locked_usd")),
+            }
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def cardex_my_cards(request: web.Request) -> web.Response:
+    auth = _auth(request)
+    card_user = await _card_user_from_auth(auth)
+    rows = await list_cards_for_user(str(card_user.get("_id")), limit=50)
+    return web.json_response({"cards": [_card_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
 
 
 def _parse_values(raw: str) -> tuple[list[Decimal], str, Decimal | None, Decimal | None]:
@@ -246,6 +292,8 @@ def register_cardex_routes(app: web.Application) -> None:
     app.router.add_get("/mini/cardex", cardex_index)
     app.router.add_get("/mini/cardex/static/{name}", cardex_static)
     app.router.add_get("/mini/cardex/api/prices", cardex_prices)
+    app.router.add_get("/mini/cardex/api/wallet", cardex_wallet)
+    app.router.add_get("/mini/cardex/api/cards", cardex_my_cards)
     app.router.add_post("/mini/cardex/api/prices", cardex_price_create)
     app.router.add_delete("/mini/cardex/api/prices/{rule_id}", cardex_price_delete)
     app.router.add_post("/mini/cardex/api/quote", cardex_quote_submission)

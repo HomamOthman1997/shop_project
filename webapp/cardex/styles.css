@@ -60,6 +60,26 @@ p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
   padding-bottom: 10px;
   background: linear-gradient(180deg, rgba(10,14,26,.98), rgba(10,14,26,.86), rgba(10,14,26,0));
 }
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.tab {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-weight: 800;
+}
+.tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
 input {
   width: 100%;
   min-height: 46px;
@@ -226,6 +246,27 @@ input:focus { border-color: var(--accent); }
 }
 .region-card small {
   color: var(--muted);
+}
+.wallet-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.wallet-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  padding: 14px;
+}
+.wallet-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+.wallet-card strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 24px;
 }
 .muted { color: var(--muted); font-size: 12px; }
 .list { display: grid; gap: 8px; }
