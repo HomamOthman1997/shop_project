@@ -7,6 +7,7 @@ if (tg) {
 const state = {
   rules: [],
   isAdmin: false,
+  hasAuth: false,
   view: "brands",
   brand: "",
   regionKey: "",
@@ -65,6 +66,10 @@ function initData() {
   return tg?.initData || new URLSearchParams(location.search).get("tgWebAppData") || "";
 }
 
+function hasInitData() {
+  return Boolean(initData());
+}
+
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}), "X-Telegram-Init-Data": initData() };
   if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
@@ -88,6 +93,22 @@ function setActiveTab(tab) {
   tab.classList.add("active");
   searchInput.value = "";
   state.search = "";
+}
+
+function updateAuthTabs() {
+  state.hasAuth = hasInitData();
+  for (const tab of [cardsTab, walletTab, withdrawTab]) {
+    tab.classList.toggle("hidden", !state.hasAuth);
+  }
+}
+
+function renderAuthRequired(title) {
+  setActiveTab(pricesTab);
+  state.view = "brands";
+  clear();
+  content.append(heading(title, "This section needs Telegram login"));
+  setNotice("Open CardEX from the bot mini app button to access your cards, wallet, and withdrawals.");
+  renderBrands();
 }
 
 function setError(text) {
@@ -315,6 +336,7 @@ function renderRules(brand, regionKey) {
 }
 
 async function loadPrices() {
+  updateAuthTabs();
   setActiveTab(pricesTab);
   statusEl.textContent = "Loading prices...";
   try {
@@ -339,6 +361,7 @@ function statusLabel(value) {
 }
 
 async function renderMyCards() {
+  if (!hasInitData()) return renderAuthRequired("My Cards");
   setActiveTab(cardsTab);
   state.view = "mycards";
   clear();
@@ -364,11 +387,12 @@ async function renderMyCards() {
     content.append(list);
   } catch (err) {
     clear();
-    setError("Could not load your cards.");
+    setError("Could not load your cards. Open CardEX from the bot mini app button.");
   }
 }
 
 async function renderWallet() {
+  if (!hasInitData()) return renderAuthRequired("Wallet");
   setActiveTab(walletTab);
   state.view = "wallet";
   clear();
@@ -399,11 +423,12 @@ async function renderWallet() {
     content.append(actions);
   } catch (err) {
     clear();
-    setError("Could not load wallet.");
+    setError("Could not load wallet. Open CardEX from the bot mini app button.");
   }
 }
 
 async function renderWithdrawals() {
+  if (!hasInitData()) return renderAuthRequired("Withdrawals");
   setActiveTab(withdrawTab);
   state.view = "withdrawals";
   clear();
@@ -433,7 +458,7 @@ async function renderWithdrawals() {
     content.append(list);
   } catch (err) {
     clear();
-    setError("Could not load withdrawals.");
+    setError("Could not load withdrawals. Open CardEX from the bot mini app button.");
   }
 }
 
