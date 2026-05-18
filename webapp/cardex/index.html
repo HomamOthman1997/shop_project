@@ -42,6 +42,25 @@
       </form>
     </div>
 
+    <div id="sellModal" class="modal hidden">
+      <div class="modal-backdrop" data-close-sell="1"></div>
+      <form id="sellForm" class="modal-panel">
+        <header class="modal-header">
+          <h2>Sell card</h2>
+          <button id="closeSellModal" class="icon-btn" type="button">x</button>
+        </header>
+        <p id="sellSummary" class="modal-subtitle"></p>
+        <input name="brand" type="hidden" />
+        <input name="region" type="hidden" />
+        <input name="currency" type="hidden" />
+        <label>Value<input name="denomination" required inputmode="decimal" placeholder="25" /></label>
+        <label>Card code<input name="code" required autocomplete="off" placeholder="Enter card code" /></label>
+        <label>PIN (optional)<input name="pin" autocomplete="off" placeholder="Enter PIN if available" /></label>
+        <div id="quoteBox" class="quote-box hidden"></div>
+        <button class="primary" type="submit">Submit card</button>
+      </form>
+    </div>
+
     <script src="/mini/cardex/static/app.js?v=20260518a"></script>
   </body>
 </html>

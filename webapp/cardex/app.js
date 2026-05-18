@@ -39,6 +39,11 @@ const refreshBtn = document.getElementById("refreshBtn");
 const modal = document.getElementById("modal");
 const priceForm = document.getElementById("priceForm");
 const closeModal = document.getElementById("closeModal");
+const sellModal = document.getElementById("sellModal");
+const sellForm = document.getElementById("sellForm");
+const closeSellModal = document.getElementById("closeSellModal");
+const sellSummary = document.getElementById("sellSummary");
+const quoteBox = document.getElementById("quoteBox");
 
 function initData() {
   return tg?.initData || new URLSearchParams(location.search).get("tgWebAppData") || "";
@@ -196,7 +201,13 @@ function renderRules(brand, regionKey) {
     if (state.isAdmin) {
       const actions = document.createElement("div");
       actions.className = "actions";
+      actions.append(button("primary", "Sell", () => openSellModal(row)));
       actions.append(button("ghost danger", "Delete", () => deleteRule(row.id)));
+      item.append(actions);
+    } else {
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.append(button("primary", "Sell", () => openSellModal(row)));
       item.append(actions);
     }
     list.append(item);
@@ -233,6 +244,49 @@ function closePriceModal() {
   modal.classList.add("hidden");
 }
 
+function firstRuleValue(row) {
+  if (row.range_min) return row.range_min;
+  if (Array.isArray(row.denominations) && row.denominations.length) return row.denominations[0];
+  const match = String(row.label || "").match(/\d+(?:\.\d+)?/);
+  return match ? match[0] : "";
+}
+
+async function refreshQuote() {
+  const body = Object.fromEntries(new FormData(sellForm).entries());
+  if (!body.brand || !body.denomination) return;
+  try {
+    const data = await api("/mini/cardex/api/quote", { method: "POST", body: JSON.stringify(body) });
+    const quote = data.quote || {};
+    if (!quote.configured) {
+      quoteBox.textContent = "No price is configured for this value.";
+      quoteBox.classList.remove("hidden");
+      return;
+    }
+    const amount = Number(quote.customer_value_usd || 0).toFixed(2);
+    quoteBox.textContent = `Expected payout: $${amount} (${quote.customer_buy_rate_percent}%)`;
+    quoteBox.classList.remove("hidden");
+  } catch (err) {
+    quoteBox.textContent = "Could not quote this value.";
+    quoteBox.classList.remove("hidden");
+  }
+}
+
+function openSellModal(row) {
+  sellForm.reset();
+  sellForm.elements.brand.value = row.brand || state.brand || "";
+  sellForm.elements.region.value = row.region || "";
+  sellForm.elements.currency.value = row.currency || "USD";
+  sellForm.elements.denomination.value = firstRuleValue(row);
+  sellSummary.textContent = `${row.brand} - ${row.region} - ${row.label} ${row.currency}`;
+  quoteBox.classList.add("hidden");
+  sellModal.classList.remove("hidden");
+  refreshQuote();
+}
+
+function closeCardSellModal() {
+  sellModal.classList.add("hidden");
+}
+
 async function deleteRule(id) {
   if (!confirm("Delete this price category?")) return;
   await api(`/mini/cardex/api/prices/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -253,9 +307,35 @@ priceForm.addEventListener("submit", async (event) => {
   }
 });
 
+sellForm.elements.denomination.addEventListener("input", () => {
+  window.clearTimeout(sellForm._quoteTimer);
+  sellForm._quoteTimer = window.setTimeout(refreshQuote, 250);
+});
+
+sellForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const body = Object.fromEntries(new FormData(sellForm).entries());
+  try {
+    const data = await api("/mini/cardex/api/submit", { method: "POST", body: JSON.stringify(body) });
+    if (data.missing_pricing) {
+      alert("This value has no price yet. Admin was notified.");
+      return;
+    }
+    const amount = Number(data.quote?.customer_value_usd || 0).toFixed(2);
+    closeCardSellModal();
+    alert(`Card submitted. Expected payout: $${amount}`);
+  } catch (err) {
+    alert("Could not submit card. Check the value and code.");
+  }
+});
+
 closeModal.addEventListener("click", closePriceModal);
 modal.addEventListener("click", (event) => {
   if (event.target?.dataset?.close) closePriceModal();
+});
+closeSellModal.addEventListener("click", closeCardSellModal);
+sellModal.addEventListener("click", (event) => {
+  if (event.target?.dataset?.closeSell) closeCardSellModal();
 });
 refreshBtn.addEventListener("click", loadPrices);
 searchInput.addEventListener("input", () => {

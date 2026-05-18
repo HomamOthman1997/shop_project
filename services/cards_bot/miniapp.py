@@ -11,9 +11,9 @@ from urllib.parse import parse_qsl
 from aiohttp import web
 
 from config import settings
-from database.cardex_repo import create_pricing_rule, deactivate_pricing_rule, list_active_pricing_rules
+from database.cardex_repo import create_pricing_rule, deactivate_pricing_rule, get_or_create_cardex_user, list_active_pricing_rules
 from services.cards_bot.handlers import _fmt_rate
-from services.cards_bot.service import parse_decimal
+from services.cards_bot.service import parse_decimal, quote_card_submission, submit_card
 
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "webapp" / "cardex"
@@ -101,6 +101,20 @@ def _rule_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _auth_full_name(user: dict[str, Any]) -> str | None:
+    return " ".join(str(user.get(part) or "").strip() for part in ("first_name", "last_name")).strip() or None
+
+
+async def _card_user_from_auth(auth: dict[str, Any]) -> dict[str, Any]:
+    user = dict(auth.get("user") or {})
+    return await get_or_create_cardex_user(
+        telegram_user_id=int(auth["user_id"]),
+        telegram_username=str(user.get("username") or "").strip() or None,
+        full_name=_auth_full_name(user),
+        owner_telegram_user_id=int(getattr(settings, "owner_id", 0) or 0),
+    )
+
+
 async def cardex_index(_request: web.Request) -> web.Response:
     return web.Response(text=(_STATIC / "index.html").read_text(encoding="utf-8"), content_type="text/html", headers=dict(_NO_STORE_HEADERS))
 
@@ -172,9 +186,67 @@ async def cardex_price_delete(request: web.Request) -> web.Response:
     return web.json_response({"ok": True}, headers=dict(_NO_STORE_HEADERS))
 
 
+async def cardex_quote_submission(request: web.Request) -> web.Response:
+    _auth(request)
+    body = await request.json()
+    try:
+        denomination = parse_decimal(str(body.get("denomination") or ""))
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid denomination")
+    quote = await quote_card_submission(
+        brand=str(body.get("brand") or ""),
+        denomination=denomination,
+        currency=str(body.get("currency") or "USD"),
+        region=str(body.get("region") or "GLOBAL"),
+    )
+    return web.json_response({"quote": quote}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def cardex_submit_card(request: web.Request) -> web.Response:
+    auth = _auth(request)
+    card_user = await _card_user_from_auth(auth)
+    body = await request.json()
+    code = str(body.get("code") or "").strip()
+    pin = str(body.get("pin") or "").strip() or None
+    if len(code) < 3:
+        raise web.HTTPBadRequest(text="card code is too short")
+    try:
+        denomination = parse_decimal(str(body.get("denomination") or ""))
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid denomination")
+    card, missing = await submit_card(
+        actor_user_id=str(card_user.get("_id")),
+        brand=str(body.get("brand") or ""),
+        denomination=denomination,
+        currency=str(body.get("currency") or "USD"),
+        region=str(body.get("region") or "GLOBAL"),
+        code=code,
+        pin=pin,
+    )
+    if missing:
+        return web.json_response({"ok": False, "missing_pricing": True, "missing_id": str(missing.get("_id") or "")}, headers=dict(_NO_STORE_HEADERS))
+    quote = await quote_card_submission(
+        brand=str(body.get("brand") or ""),
+        denomination=denomination,
+        currency=str(body.get("currency") or "USD"),
+        region=str(body.get("region") or "GLOBAL"),
+    )
+    return web.json_response(
+        {
+            "ok": True,
+            "card_id": str((card or {}).get("_id") or ""),
+            "status": str((card or {}).get("status") or ""),
+            "quote": quote,
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
 def register_cardex_routes(app: web.Application) -> None:
     app.router.add_get("/mini/cardex", cardex_index)
     app.router.add_get("/mini/cardex/static/{name}", cardex_static)
     app.router.add_get("/mini/cardex/api/prices", cardex_prices)
     app.router.add_post("/mini/cardex/api/prices", cardex_price_create)
     app.router.add_delete("/mini/cardex/api/prices/{rule_id}", cardex_price_delete)
+    app.router.add_post("/mini/cardex/api/quote", cardex_quote_submission)
+    app.router.add_post("/mini/cardex/api/submit", cardex_submit_card)
