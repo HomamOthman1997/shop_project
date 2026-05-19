@@ -24,6 +24,9 @@ class _FakeState:
     async def set_state(self, value):
         self.state = value
 
+    async def update_data(self, **kwargs):
+        self._data.update(kwargs)
+
 
 class _FakeMessage:
     def __init__(self):
@@ -39,6 +42,106 @@ class _FakeMessage:
     async def edit_text(self, text, **kwargs):
         self.edits.append({"text": str(text), "kwargs": kwargs})
         return SimpleNamespace(message_id=1)
+
+
+@pytest.mark.asyncio
+async def test_show_buy_confirm_edits_message_and_omits_repeated_product_info(monkeypatch):
+    state = _FakeState(
+        {
+            "buy_service_name": "PayPal",
+            "buy_unit_price": 2.0,
+            "buy_is_preorder": False,
+        }
+    )
+    message = _FakeMessage()
+    endpoint = {
+        "_id": "ep1",
+        "name": "PayPal",
+        "price": 2.0,
+        "available_qty": 5,
+        "product_info_text": "Customer-facing description",
+    }
+
+    async def _fake_get_user(_user_id):
+        return {"language": "en"}
+
+    monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
+
+    await custom_services._show_buy_confirm(message, state, endpoint, 1)
+
+    assert not message.answers
+    assert message.edits
+    text = message.edits[-1]["text"]
+    assert "Confirm purchase" in text
+    assert "Product: PayPal" in text
+    assert "Total: 2.00" in text
+    assert "Available Qty" not in text
+    assert "Customer-facing description" not in text
+    assert "Quantity:" not in text
+
+
+@pytest.mark.asyncio
+async def test_start_buy_endpoint_skips_quantity_screen_for_single_item_services(monkeypatch):
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=222)
+
+    class _Callback:
+        data = "cstm:buy:ep1"
+        from_user = SimpleNamespace(id=77)
+
+        def __init__(self):
+            self.bot = _Bot()
+            self.message = _FakeMessage()
+            self.answers = []
+
+        async def answer(self, text=None, **kwargs):
+            self.answers.append({"text": str(text or ""), "kwargs": kwargs})
+
+    async def _fake_get_user(_user_id):
+        return {"language": "en"}
+
+    async def _fake_get_node(_node_id, **_kwargs):
+        return {
+            "_id": "ep1",
+            "node_type": "endpoint",
+            "reseller_id": 500,
+            "delivery_type": "inventory",
+            "available_qty": 5,
+            "inventory_items": [
+                "account1",
+                "account2",
+                "account3",
+                "account4",
+                "account5",
+            ],
+            "price": 2.0,
+            "name": "PayPal",
+            "parent_id": "folder1",
+            "min_qty": 1,
+        }
+
+    async def _fake_main(_bot_id):
+        return False
+
+    async def _fake_resolve_reseller(_user_id, _bot_id):
+        return 500
+
+    monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
+    monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
+    monkeypatch.setattr(custom_services, "is_main_bot", _fake_main)
+    monkeypatch.setattr(custom_services, "_resolve_user_reseller", _fake_resolve_reseller)
+
+    state = _FakeState({})
+    callback = _Callback()
+    await custom_services.start_buy_endpoint(callback, state)
+
+    assert state._data["buy_pending_qty"] == 1
+    assert callback.message.edits
+    text = callback.message.edits[-1]["text"]
+    assert "Confirm purchase" in text
+    assert "Choose quantity" not in text
+    assert "Quantity:" not in text
 
 
 @pytest.mark.asyncio

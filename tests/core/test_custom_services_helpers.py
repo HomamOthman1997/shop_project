@@ -14,6 +14,7 @@ from handlers.custom_services import (
     _can_manage_builder,
     _can_manage_builder_structure,
     _allowed_buy_quantities,
+    _buy_qty_options,
     _buy_qty_kb,
     _delivery_preview_text,
     _is_ssn_stock_context,
@@ -100,9 +101,19 @@ def test_email_services_allow_multi_quantity_presets():
     assert _allowed_buy_quantities(endpoint, {"buy_service_name": "GMAIL Fresh"}) == [1, 5, 10]
 
 
+def test_ssn_services_allow_multi_quantity_presets():
+    endpoint = {"name": "SSN Fullz"}
+    assert _allowed_buy_quantities(endpoint, {"buy_service_name": "SSN Fullz"}) == [1, 5, 10]
+
+
 def test_non_email_services_allow_only_single_quantity():
     endpoint = {"name": "Netflix"}
     assert _allowed_buy_quantities(endpoint, {"buy_service_name": "Netflix"}) == [1]
+
+
+def test_non_email_services_force_single_quantity_option_even_with_stock():
+    endpoint = {"name": "PayPal with Bank", "available_qty": 20, "min_qty": 5}
+    assert _buy_qty_options(endpoint, {"buy_service_name": "PayPal with Bank", "buy_min_qty": 5}) == [1]
 
 
 def test_buy_qty_keyboard_filters_to_supported_quantities():

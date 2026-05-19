@@ -3916,13 +3916,81 @@ def _service_supports_multi_qty(endpoint: dict | None, data: dict | None = None)
     haystack = " ".join(part for part in parts if part)
     if not haystack:
         return False
-    return any(token in haystack for token in ("email", "gmail", "icloud"))
+    multi_qty_tokens = ("email", "gmail", "icloud", "ssn", "social security", "اس اس ان")
+    return any(token in haystack for token in multi_qty_tokens)
 
 
 def _allowed_buy_quantities(endpoint: dict | None, data: dict | None = None) -> list[int]:
     if _service_supports_multi_qty(endpoint, data):
         return [1, 5, 10]
     return [1]
+
+
+def _effective_buy_min_qty(endpoint: dict | None, data: dict | None = None) -> int:
+    if not _service_supports_multi_qty(endpoint, data):
+        return 1
+    try:
+        return max(1, int((data or {}).get("buy_min_qty") or (endpoint or {}).get("min_qty") or 1))
+    except Exception:
+        return 1
+
+
+def _buy_qty_options(endpoint: dict | None, data: dict | None = None) -> list[int]:
+    endpoint = endpoint or {}
+    data = data or {}
+    min_qty = _effective_buy_min_qty(endpoint, data)
+    available_qty = int(endpoint.get("available_qty", 0) or 0)
+    preorder = bool(data.get("buy_is_preorder"))
+    allowed_quantities = _allowed_buy_quantities(endpoint, data)
+    if preorder:
+        options = [q for q in allowed_quantities if q >= int(min_qty)]
+    else:
+        options = [q for q in allowed_quantities if q >= int(min_qty) and q <= int(available_qty)]
+    if not options:
+        options = [1]
+    return options
+
+
+def _buy_confirm_text(
+    lang: str,
+    *,
+    service_name: str,
+    qty: int,
+    total: float,
+    preorder: bool = False,
+    customer_note: str = "",
+) -> str:
+    qty_i = max(1, int(qty or 1))
+    if str(lang or "").lower().startswith("ar"):
+        lines = ["تأكيد الشراء"]
+        if service_name:
+            lines.append(f"المنتج: {service_name}")
+        if qty_i > 1:
+            lines.append(f"الكمية: {qty_i}")
+        lines.append(f"الإجمالي: {format_usd(total)}")
+        if preorder and customer_note:
+            lines.extend(["", "تفاصيل الطلب:", customer_note])
+        question = (
+            "أرسل تفاصيل الطلب للأدمن، أو اضغط تأكيد إذا لا توجد تفاصيل إضافية."
+            if preorder and not customer_note
+            else ("تأكيد الحجز؟" if preorder else t(lang, "confirm_purchase_question"))
+        )
+    else:
+        lines = ["Confirm purchase"]
+        if service_name:
+            lines.append(f"Product: {service_name}")
+        if qty_i > 1:
+            lines.append(f"Quantity: {qty_i}")
+        lines.append(f"Total: {format_usd(total)}")
+        if preorder and customer_note:
+            lines.extend(["", "Order details:", customer_note])
+        question = (
+            "Reply with order details for the admin, or press Confirm if no details are needed."
+            if preorder and not customer_note
+            else ("Confirm reservation?" if preorder else t(lang, "confirm_purchase_question"))
+        )
+    lines.extend(["", question])
+    return "\n".join(lines).strip()
 
 
 def _buy_confirm_kb(lang: str) -> InlineKeyboardMarkup:
@@ -3959,17 +4027,12 @@ def _stock_preview_kb(lang: str) -> InlineKeyboardMarkup:
 
 async def _ask_buy_qty(message: types.Message, endpoint: dict, data: dict) -> None:
     lang = await _user_lang(message.from_user.id)
-    min_qty = int(data.get("buy_min_qty", 1))
+    min_qty = _effective_buy_min_qty(endpoint, data)
     available_qty = int(endpoint.get("available_qty", 0))
     preorder = bool(data.get("buy_is_preorder"))
-    allowed_quantities = _allowed_buy_quantities(endpoint, data)
-    if preorder:
-        options = [q for q in allowed_quantities if q >= int(min_qty)]
-    else:
-        options = [q for q in allowed_quantities if q >= int(min_qty) and q <= int(available_qty)]
-    if not options:
-        options = [1]
-    await message.answer(
+    options = _buy_qty_options(endpoint, data)
+    await _safe_edit_text(
+        message,
         _ui_label(lang, "Choose reservation quantity", "اختر كمية الحجز") if preorder else t(lang, "choose_quantity_plain"),
         reply_markup=_buy_qty_kb(
             lang=lang,
@@ -3989,30 +4052,21 @@ async def _show_buy_confirm(message: types.Message, state: FSMContext, endpoint:
     service_name = str(data.get("buy_service_name") or endpoint.get("name") or t(lang, "product_plain"))
     unit_price = float(data.get("buy_unit_price") or endpoint.get("price", 0))
     total = unit_price * int(qty)
-    available_qty = int(endpoint.get("available_qty", 0))
-    product_info = str(endpoint.get("product_info_text") or "").strip()
     preorder = bool(data.get("buy_is_preorder"))
     customer_note = str(data.get("buy_customer_note") or "").strip()
 
     await state.update_data(buy_pending_qty=int(qty))
     await state.set_state(CustomBuilderStates.waiting_buy_confirm)
-    summary = (
-        f"{t(lang, 'product_plain')}: {service_name}\n"
-        f"{t(lang, 'requested_qty_plain')}: {int(qty)}\n"
-        f"{t(lang, 'available_qty_plain')}: {'-' if preorder else available_qty}\n"
-        f"{t(lang, 'price_label')}: {format_usd(total)}"
-    )
-    if product_info:
-        summary = f"{summary}\n\n{product_info}"
-    if preorder and customer_note:
-        summary = f"{summary}\n\nOrder details:\n{customer_note}"
-    preorder_hint = (
-        _ui_label(lang, "Reply with order details for the admin, or press Confirm if no details are needed.", "أرسل تفاصيل الطلب للأدمن، أو اضغط تأكيد إذا لا توجد تفاصيل إضافية.")
-        if preorder and not customer_note
-        else _ui_label(lang, "Confirm reservation?", "تأكيد الحجز؟")
-    )
-    await message.answer(
-        f"{summary}\n\n{preorder_hint if preorder else t(lang, 'confirm_purchase_question')}",
+    await _safe_edit_text(
+        message,
+        _buy_confirm_text(
+            lang,
+            service_name=service_name,
+            qty=int(qty),
+            total=total,
+            preorder=preorder,
+            customer_note=customer_note,
+        ),
         reply_markup=_buy_confirm_kb(lang),
     )
 
@@ -4053,7 +4107,7 @@ async def _execute_buy(
         return
 
     qty = int(data.get("buy_pending_qty") or 0)
-    min_qty = int(data.get("buy_min_qty", 1))
+    min_qty = _effective_buy_min_qty(endpoint, data)
     if qty < min_qty:
         await state.set_state(CustomBuilderStates.waiting_buy_qty)
         await message.answer(t(lang, "custom_minimum_quantity_is").format(min_qty=min_qty))
@@ -4206,7 +4260,7 @@ async def _execute_buy(
         if preorder_flow:
             queue_position = await get_pending_preorder_position(preorder["_id"])
             await state.clear()
-            await message.answer(
+            reservation_text = (
                 "Reservation created successfully\n"
                 f"Service: {data.get('buy_service_name') or endpoint.get('name')}\n"
                 f"Qty: {qty}\n"
@@ -4214,6 +4268,10 @@ async def _execute_buy(
                 f"Queue position: {queue_position}\n"
                 "Delivery will be sent later by the admin."
             )
+            if result_message is not None:
+                await _safe_edit_text(result_message, reservation_text, reply_markup=_purchase_complete_kb(lang))
+            else:
+                await message.answer(reservation_text, reply_markup=_purchase_complete_kb(lang))
             return
 
         delivery_ok = False
@@ -4251,7 +4309,7 @@ async def _execute_buy(
             total=total,
             delivery_text=delivery_preview,
         )
-        if delivery_preview is not None and result_message is not None:
+        if result_message is not None:
             try:
                 await _safe_edit_text(
                     result_message,
@@ -4320,14 +4378,23 @@ async def start_buy_endpoint(callback: types.CallbackQuery, state: FSMContext):
     catalog_type = _catalog_type_from_node(endpoint)
     financial_mode = _catalog_financial_mode(catalog_type)
     service_name_default = "ID INFO" if catalog_type == _CATALOG_ID_INFO else t(lang, "custom_service_plain")
+    service_name = str(endpoint.get("name") or service_name_default)
+    buy_min_qty = _effective_buy_min_qty(
+        endpoint,
+        {
+            "buy_service_name": service_name,
+            "buy_min_qty": int(endpoint.get("min_qty", 1) or 1),
+            "buy_is_preorder": preorder_flow,
+        },
+    )
     await state.update_data(
         buy_endpoint_id=str(endpoint["_id"]),
         buy_reseller_id=int(endpoint["reseller_id"]),
         buy_catalog_owner_id=int(endpoint["reseller_id"]),
         buy_wallet_scope_id=int(wallet_scope_id),
-        buy_service_name=str(endpoint.get("name") or service_name_default),
+        buy_service_name=service_name,
         buy_unit_price=float(endpoint.get("price", 0)),
-        buy_min_qty=int(endpoint.get("min_qty", 1)),
+        buy_min_qty=buy_min_qty,
         buy_return_node_id=str(endpoint.get("parent_id") or endpoint["_id"]),
         buy_catalog_type=catalog_type,
         buy_financial_mode=financial_mode,
@@ -4339,7 +4406,12 @@ async def start_buy_endpoint(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(CustomBuilderStates.waiting_buy_qty)
 
     if callback.message:
-        await _ask_buy_qty(callback.message, endpoint, await state.get_data())
+        state_data = await state.get_data()
+        options = _buy_qty_options(endpoint, state_data)
+        if options == [1]:
+            await _show_buy_confirm(callback.message, state, endpoint, 1)
+        else:
+            await _ask_buy_qty(callback.message, endpoint, state_data)
     await callback.answer()
 
 
@@ -4371,7 +4443,7 @@ async def choose_buy_qty(callback: types.CallbackQuery, state: FSMContext):
     allowed_quantities = _allowed_buy_quantities(endpoint, data)
     if qty not in allowed_quantities:
         return await callback.answer(t(lang, "custom_invalid_quantity"), show_alert=True)
-    min_qty = int(data.get("buy_min_qty", 1))
+    min_qty = _effective_buy_min_qty(endpoint, data)
     if qty < min_qty:
         return await callback.answer(t(lang, "custom_minimum_quantity_is").format(min_qty=min_qty), show_alert=True)
     if not preorder_flow and int(endpoint.get("available_qty", 0)) < qty:
@@ -4395,9 +4467,22 @@ async def back_to_buy_qty(callback: types.CallbackQuery, state: FSMContext):
     catalog_owner_id = int(data.get("buy_catalog_owner_id") or data.get("buy_reseller_id") or 0)
     if catalog_owner_id <= 0 or int(endpoint.get("reseller_id") or 0) != catalog_owner_id:
         return await callback.answer(t(lang, "custom_session_mismatch_reopen"), show_alert=True)
+    catalog_type = str(data.get("buy_catalog_type") or data.get("custom_catalog_type") or _CATALOG_CUSTOM)
     preorder_flow = bool(data.get("buy_is_preorder"))
     if not preorder_flow and not _endpoint_ready_for_sale(endpoint):
         return await callback.answer(t(lang, "custom_endpoint_not_ready_for_sale"), show_alert=True)
+    if _buy_qty_options(endpoint, data) == [1]:
+        await state.clear()
+        await _render_node(
+            callback,
+            state,
+            catalog_owner_id,
+            endpoint["_id"],
+            is_builder=False,
+            catalog_type=catalog_type,
+            viewer_user_id=callback.from_user.id,
+        )
+        return await callback.answer()
     await state.set_state(CustomBuilderStates.waiting_buy_qty)
     if callback.message:
         await _ask_buy_qty(callback.message, endpoint, data)
@@ -4460,7 +4545,7 @@ async def handle_buy_qty(message: types.Message, state: FSMContext):
     allowed_quantities = _allowed_buy_quantities(endpoint, data)
     if qty not in allowed_quantities:
         return await message.answer(t(lang, "custom_invalid_quantity"))
-    min_qty = int(data.get("buy_min_qty", 1))
+    min_qty = _effective_buy_min_qty(endpoint, data)
     if qty < min_qty:
         return await message.answer(t(lang, "custom_minimum_quantity_is").format(min_qty=min_qty))
     if not preorder_flow and int(endpoint.get("available_qty", 0)) < qty:
