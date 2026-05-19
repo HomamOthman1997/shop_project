@@ -615,10 +615,6 @@ function brandMeta(brand) {
   return BRAND_META[key] || { mark: key.slice(0, 2) || "CX", tone: "tone-generic" };
 }
 
-function regionPreview(row) {
-  return Array.from(row.regions).slice(0, 3).map((item) => item.split("|")[0]).join(" / ");
-}
-
 function currenciesForRegion(brand, region) {
   return Array.from(
     new Set(
@@ -660,9 +656,7 @@ function renderBrands() {
       <div class="brand-poster">
         <span class="brand-orb">${meta.mark}</span>
         <strong>${row.brand}</strong>
-        <span>${regionPreview(row) || "GLOBAL"}</span>
       </div>
-      <div class="brand-caption">${row.regions.size} ${t("regions")} - ${row.count} ${t("categories")}</div>
     `;
     grid.append(tile);
   }

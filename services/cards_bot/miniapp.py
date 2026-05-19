@@ -131,15 +131,14 @@ def _pricing_label(row: dict[str, Any]) -> str:
     return label
 
 
-def _rule_payload(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+def _rule_payload(row: dict[str, Any], *, include_private: bool = False) -> dict[str, Any]:
+    payload = {
         "id": str(row.get("_id") or ""),
         "brand": str(row.get("brand") or "").upper(),
         "currency": str(row.get("currency") or "USD").upper(),
         "region": str(row.get("region") or "GLOBAL").upper(),
         "label": _pricing_label(row),
         "customer_rate": _fmt_rate(row.get("customer_buy_rate_percent")),
-        "trader_rate": _fmt_rate(row.get("trader_rate_percent")),
         "note": str(row.get("public_note") or ""),
         "range_min": row.get("range_min"),
         "range_max": row.get("range_max"),
@@ -149,19 +148,24 @@ def _rule_payload(row: dict[str, Any]) -> dict[str, Any]:
         "lona_cardex": bool(row.get("lona_cardex")),
         "lona_kind": str(row.get("lona_kind") or ""),
     }
+    if include_private:
+        payload["trader_rate"] = _fmt_rate(row.get("trader_rate_percent"))
+    return payload
 
 
-def _quote_payload(quote: dict[str, Any]) -> dict[str, Any]:
+def _quote_payload(quote: dict[str, Any], *, include_private: bool = False) -> dict[str, Any]:
     rule = quote.get("rule")
-    return {
+    payload = {
         "configured": bool(quote.get("configured")),
-        "rule": _rule_payload(rule) if isinstance(rule, dict) else None,
+        "rule": _rule_payload(rule, include_private=include_private) if isinstance(rule, dict) else None,
         "customer_buy_rate_percent": _fmt_rate(quote.get("customer_buy_rate_percent")),
-        "trader_rate_percent": _fmt_rate(quote.get("trader_rate_percent")),
         "customer_value_usd": _money(quote.get("customer_value_usd")),
-        "trader_value_usd": _money(quote.get("trader_value_usd")),
         "public_note": str(quote.get("public_note") or ""),
     }
+    if include_private:
+        payload["trader_rate_percent"] = _fmt_rate(quote.get("trader_rate_percent"))
+        payload["trader_value_usd"] = _money(quote.get("trader_value_usd"))
+    return payload
 
 
 def _money(value: Any) -> float:
@@ -363,8 +367,11 @@ async def cardex_static(request: web.Request) -> web.Response:
 
 async def cardex_prices(request: web.Request) -> web.Response:
     auth = _optional_auth(request)
-    rows = [_rule_payload(row) for row in merge_lona_cardex_rules(await list_active_pricing_rules(limit=1000))]
     is_admin = bool(auth and int(auth["user_id"]) in _cardex_admin_ids())
+    rows = [
+        _rule_payload(row, include_private=is_admin)
+        for row in merge_lona_cardex_rules(await list_active_pricing_rules(limit=1000))
+    ]
     return web.json_response({"is_admin": is_admin, "rules": rows}, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -503,7 +510,7 @@ async def cardex_admin_missing_pricing_action(request: web.Request) -> web.Respo
         trader_rate_percent=trader_rate,
         public_note=str(body.get("note") or "").strip() or None,
     )
-    return web.json_response({"rule": _rule_payload(created)}, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"rule": _rule_payload(created, include_private=True)}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def cardex_admin_create_trader(request: web.Request) -> web.Response:
@@ -630,7 +637,7 @@ async def cardex_price_create(request: web.Request) -> web.Response:
         range_min=range_min,
         range_max=range_max,
     )
-    return web.json_response({"rule": _rule_payload(row)}, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"rule": _rule_payload(row, include_private=True)}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def cardex_price_delete(request: web.Request) -> web.Response:

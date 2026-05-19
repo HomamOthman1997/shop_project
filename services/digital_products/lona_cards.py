@@ -203,6 +203,24 @@ def fixed_values_for_rule(rule: dict[str, Any]) -> set[Decimal]:
     return {value for value, _rate in _fixed_entries(rule)}
 
 
+def _collapsed_fixed_amount_meta(rule: dict[str, Any]) -> dict[str, Any] | None:
+    entries = _fixed_entries(rule)
+    if len(entries) < 2:
+        return None
+    if _dec(rule.get("mixed_rate")) > 0 or _dec(rule.get("amount_rate")) > 0:
+        return None
+    rates = {rate for _value, rate in entries}
+    if len(rates) != 1:
+        return None
+    values = [value for value, _rate in entries]
+    return {
+        "rate": next(iter(rates)),
+        "min": min(values),
+        "max": max(values),
+        "multiple_of_5": all(_is_multiple_of_five(value) for value in values),
+    }
+
+
 def lona_categories() -> list[dict[str, Any]]:
     categories: list[dict[str, Any]] = []
     for rule in PRICEBOOK:
@@ -225,25 +243,50 @@ def lona_products_for_category(category_id: str) -> list[dict[str, Any]]:
     if not rule:
         return []
     products: list[dict[str, Any]] = []
-    for value, rate in _fixed_entries(rule):
-        name = f"{rule['name']} ${_fmt_amount(value)}"
+    collapsed = _collapsed_fixed_amount_meta(rule)
+    if collapsed:
+        rate = _dec(collapsed.get("rate"))
+        name = f"{rule['name']} Custom Amount"
         products.append(
             {
-                "id": _product_id(str(rule["id"]), _fmt_amount(value)),
+                "id": _product_id(str(rule["id"]), "amount"),
                 "name": name,
                 "clean_name": name,
-                "price": float(_money(value * rate / Decimal("100"))),
+                "price": 0.0,
                 "stock": 1,
                 "lona_manual": True,
                 "manual_card": {
-                    "kind": "fixed",
+                    "kind": "amount",
                     "category_id": str(rule["id"]),
-                    "face_value": float(value),
                     "rate_percent": float(rate),
                     "warranty_months": WARRANTY_MONTHS,
+                    "amount_min": float(_money(collapsed.get("min"))),
+                    "amount_max": float(_money(collapsed.get("max"))),
+                    "amount_multiple_of_5": bool(collapsed.get("multiple_of_5")),
+                    "collapse_fixed_values": True,
                 },
             }
         )
+    else:
+        for value, rate in _fixed_entries(rule):
+            name = f"{rule['name']} ${_fmt_amount(value)}"
+            products.append(
+                {
+                    "id": _product_id(str(rule["id"]), _fmt_amount(value)),
+                    "name": name,
+                    "clean_name": name,
+                    "price": float(_money(value * rate / Decimal("100"))),
+                    "stock": 1,
+                    "lona_manual": True,
+                    "manual_card": {
+                        "kind": "fixed",
+                        "category_id": str(rule["id"]),
+                        "face_value": float(value),
+                        "rate_percent": float(rate),
+                        "warranty_months": WARRANTY_MONTHS,
+                    },
+                }
+            )
     if _dec(rule.get("mixed_rate")) > 0:
         rate = _dec(rule.get("mixed_rate"))
         name = f"{rule['name']} Mixed"
@@ -279,6 +322,9 @@ def lona_products_for_category(category_id: str) -> list[dict[str, Any]]:
                     "category_id": str(rule["id"]),
                     "rate_percent": float(rate),
                     "warranty_months": WARRANTY_MONTHS,
+                    "amount_min": float(_money(rule.get("amount_min") or 1)),
+                    "amount_max": float(_money(rule.get("amount_max") or 0)),
+                    "amount_multiple_of_5": bool(rule.get("amount_multiple_of_5")),
                 },
             }
         )
@@ -333,7 +379,8 @@ def validate_lona_amount(category_id: str, product_id: str, amount: Decimal) -> 
     product = find_lona_product(category_id, product_id)
     if not rule or not product:
         return False, "not_found"
-    kind = str((product.get("manual_card") or {}).get("kind") or "")
+    meta = dict(product.get("manual_card") or {})
+    kind = str(meta.get("kind") or "")
     amount = _money(amount)
     if amount <= 0:
         return False, "invalid_amount"
@@ -350,12 +397,15 @@ def validate_lona_amount(category_id: str, product_id: str, amount: Decimal) -> 
         if _is_multiple_of_five(amount):
             return False, "multiple_of_five"
     elif kind == "amount":
-        min_value = _dec(rule.get("amount_min")) or Decimal("1")
+        min_value = _dec(meta.get("amount_min") or rule.get("amount_min")) or Decimal("1")
+        max_value = _dec(meta.get("amount_max") or rule.get("amount_max"))
         if amount < min_value:
             return False, "below_min"
-        if bool(rule.get("amount_multiple_of_5")) and not _is_multiple_of_five(amount):
+        if max_value > 0 and amount > max_value:
+            return False, "above_max"
+        if bool(meta.get("amount_multiple_of_5") or rule.get("amount_multiple_of_5")) and not _is_multiple_of_five(amount):
             return False, "not_multiple_of_five"
-        if amount in fixed_values:
+        if amount in fixed_values and not bool(meta.get("collapse_fixed_values")):
             return False, "fixed_value"
     elif kind == "fixed":
         expected = _money((product.get("manual_card") or {}).get("face_value"))
@@ -422,10 +472,10 @@ def lona_validation_message(reason: str, *, category_id: str, product_id: str, l
     if reason == "stopped":
         return "هذه الفئة متوقفة حالياً." if is_ar else "This denomination is currently stopped."
     if reason == "below_min":
-        minimum = _fmt_amount(rule.get("amount_min") or 1)
+        minimum = _fmt_amount(meta.get("amount_min") or rule.get("amount_min") or 1)
         return (f"أقل قيمة مسموحة هي ${minimum}." if is_ar else f"Minimum allowed value is ${minimum}.")
     if reason == "above_max":
-        maximum = _fmt_amount(rule.get("mixed_max") or 0)
+        maximum = _fmt_amount(meta.get("amount_max") or rule.get("amount_max") or rule.get("mixed_max") or 0)
         return (f"أعلى قيمة مسموحة هنا هي ${maximum}." if is_ar else f"Maximum allowed value here is ${maximum}.")
     if str(meta.get("kind") or "") == "mixed":
         return (

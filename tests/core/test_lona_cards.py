@@ -59,6 +59,17 @@ def test_amazon_us_mixed_uses_newsletter_cap_and_rate():
     assert validate_lona_amount("lona_amazon_us", str(mixed["id"]), Decimal("101")) == (False, "above_max")
 
 
+def test_same_rate_fixed_values_collapse_to_custom_amount():
+    products = lona_products_for_category("lona_steam_usa")
+    amount = _product_by_kind("lona_steam_usa", "amount")
+
+    assert all(str((product.get("manual_card") or {}).get("kind") or "") != "fixed" for product in products)
+    assert quote_lona_product("lona_steam_usa", str(amount["id"]), Decimal("25"))["price"] == 22.00
+    assert validate_lona_amount("lona_steam_usa", str(amount["id"]), Decimal("25")) == (True, "")
+    assert validate_lona_amount("lona_steam_usa", str(amount["id"]), Decimal("12")) == (False, "not_multiple_of_five")
+    assert validate_lona_amount("lona_steam_usa", str(amount["id"]), Decimal("105")) == (False, "above_max")
+
+
 def test_walmart_standard_and_stopped_values():
     amount = _product_by_kind("lona_walmart", "amount")
     fixed_55 = _fixed_product("lona_walmart", 55)

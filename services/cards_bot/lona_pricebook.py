@@ -83,23 +83,23 @@ def _market(
 
 
 LONA_CARDEX_MARKETS: tuple[dict[str, Any], ...] = (
-    _market("itunes_usa", "lona_itunes", "ITUNES", "USA", brand_aliases=("APPLE",), region_aliases=("US",)),
-    _market("amazon_us", "lona_amazon_us", "AMAZON", "USA", region_aliases=("US",)),
-    _market("amazon_uk", "lona_amazon_uk", "AMAZON", "UNITED KINGDOM", region_aliases=("UK", "GB")),
-    _market("amazon_de", "lona_amazon_de", "AMAZON", "GERMANY", region_aliases=("DE", "GERMAN")),
-    _market("amazon_fr", "lona_amazon_fr_it_es", "AMAZON", "FRANCE", region_aliases=("FR",)),
-    _market("amazon_it", "lona_amazon_fr_it_es", "AMAZON", "ITALY", region_aliases=("IT",)),
-    _market("amazon_es", "lona_amazon_fr_it_es", "AMAZON", "SPAIN", region_aliases=("ES",)),
+    _market("itunes_usa", "lona_itunes", "ITUNES", "USA", brand_aliases=("APPLE", "ITUNES USA", "APPLE USA"), region_aliases=("US",)),
+    _market("amazon_us", "lona_amazon_us", "AMAZON", "USA", brand_aliases=("AMAZON USA", "AMAZON US"), region_aliases=("US",)),
+    _market("amazon_uk", "lona_amazon_uk", "AMAZON", "UNITED KINGDOM", brand_aliases=("AMAZON UK", "AMAZON UNITED KINGDOM"), region_aliases=("UK", "GB")),
+    _market("amazon_de", "lona_amazon_de", "AMAZON", "GERMANY", brand_aliases=("AMAZON DE", "AMAZON GERMANY", "AMAZON GERMAN"), region_aliases=("DE", "GERMAN")),
+    _market("amazon_fr", "lona_amazon_fr_it_es", "AMAZON", "FRANCE", brand_aliases=("AMAZON FR", "AMAZON FRANCE"), region_aliases=("FR",)),
+    _market("amazon_it", "lona_amazon_fr_it_es", "AMAZON", "ITALY", brand_aliases=("AMAZON IT", "AMAZON ITALY"), region_aliases=("IT",)),
+    _market("amazon_es", "lona_amazon_fr_it_es", "AMAZON", "SPAIN", brand_aliases=("AMAZON ES", "AMAZON SPAIN"), region_aliases=("ES",)),
     _market("amazon_ca", "lona_canada", "AMAZON", "CANADA", brand_aliases=("AMAZON CANADA", "CANADA", "CANADA CARDS"), region_aliases=("CA",)),
-    _market("uber_uk", "lona_uber_uk", "UBER", "UNITED KINGDOM", region_aliases=("UK", "GB")),
-    _market("uber_us", "lona_uber_us", "UBER", "USA", region_aliases=("US",)),
-    _market("walmart_usa", "lona_walmart", "WALMART", "USA", region_aliases=("US",)),
+    _market("uber_uk", "lona_uber_uk", "UBER", "UNITED KINGDOM", brand_aliases=("UBER UK", "UBER UNITED KINGDOM"), region_aliases=("UK", "GB")),
+    _market("uber_us", "lona_uber_us", "UBER", "USA", brand_aliases=("UBER US", "UBER USA"), region_aliases=("US",)),
+    _market("walmart_usa", "lona_walmart", "WALMART", "USA", brand_aliases=("WALMART USA", "WALMART US"), region_aliases=("US",)),
     _market("nintendo_global", "lona_nintendo", "NINTENDO", "GLOBAL", brand_aliases=("NETENDU",)),
-    _market("razer_us", "lona_razer_us", "RAZER", "USA", brand_aliases=("RAYZER",), region_aliases=("US",)),
+    _market("razer_us", "lona_razer_us", "RAZER", "USA", brand_aliases=("RAYZER", "RAZER US", "RAZER USA"), region_aliases=("US",)),
     _market("razer_global", "lona_razer_global", "RAZER", "GLOBAL", brand_aliases=("RAYZER",)),
-    _market("steam_usa", "lona_steam_usa", "STEAM", "USA", region_aliases=("US",)),
-    _market("playstation_usa", "lona_playstation", "PLAYSTATION", "USA", brand_aliases=("PSN",), region_aliases=("US",)),
-    _market("starbucks_usa", "lona_starbucks", "STARBUCKS", "USA", region_aliases=("US",)),
+    _market("steam_usa", "lona_steam_usa", "STEAM", "USA", brand_aliases=("STEAM US", "STEAM USA"), region_aliases=("US",)),
+    _market("playstation_usa", "lona_playstation", "PLAYSTATION", "USA", brand_aliases=("PSN", "PLAYSTATION US", "PLAYSTATION USA"), region_aliases=("US",)),
+    _market("starbucks_usa", "lona_starbucks", "STARBUCKS", "USA", brand_aliases=("STARBUCKS US", "STARBUCKS USA"), region_aliases=("US",)),
     _market(
         "visa_tremendous",
         "lona_visa_tremendous",
@@ -157,6 +157,8 @@ def _base_rule(market: dict[str, Any], product: dict[str, Any], *, label: str, d
     meta = dict(product.get("manual_card") or {})
     rate = float(_money(meta.get("rate_percent") or 0))
     product_id = str(product.get("id") or "")
+    range_min = meta.get("amount_min") if str(meta.get("kind") or "") == "amount" else None
+    range_max = meta.get("amount_max") if str(meta.get("kind") or "") == "amount" else None
     return {
         "_id": f"lona-cardex:{market['id']}:{product_id}",
         "brand": str(market["brand"]),
@@ -165,8 +167,8 @@ def _base_rule(market: dict[str, Any], product: dict[str, Any], *, label: str, d
         "denomination": float(_money(denomination)),
         "denominations": [float(_money(denomination))] if denomination > 0 else [],
         "denomination_label": label,
-        "range_min": None,
-        "range_max": None,
+        "range_min": float(_money(range_min)) if range_min not in (None, "", 0, 0.0) else None,
+        "range_max": float(_money(range_max)) if range_max not in (None, "", 0, 0.0) else None,
         "customer_buy_rate_percent": rate,
         "trader_rate_percent": rate,
         "public_note": "Warranty: 2 months.",

@@ -4,6 +4,7 @@ import json
 import hashlib
 import hmac
 from decimal import Decimal
+from pathlib import Path
 from urllib.parse import urlencode
 from types import SimpleNamespace
 
@@ -28,32 +29,50 @@ from services.cards_bot.handlers import (
 from services.cards_bot.keyboards import cards_admin_panel_kb, cards_main_menu
 
 
+def test_cardex_brand_tiles_do_not_render_region_or_footer_caption():
+    app_js = Path("webapp/cardex/app.js").read_text(encoding="utf-8")
+    styles_css = Path("webapp/cardex/styles.css").read_text(encoding="utf-8")
+
+    assert "brand-caption" not in app_js
+    assert "brand-caption" not in styles_css
+    assert "regionPreview" not in app_js
+    assert "row.regions.size" not in app_js
+
+
 def test_cardex_miniapp_quote_payload_is_json_serializable():
     from bson import ObjectId
     from services.cards_bot.miniapp import _quote_payload
 
-    payload = _quote_payload(
-        {
-            "configured": True,
-            "rule": {
-                "_id": ObjectId(),
-                "brand": "amazon",
-                "currency": "usd",
-                "region": "usa",
-                "denomination": 25,
-                "customer_buy_rate_percent": 80,
-                "trader_rate_percent": 78,
-            },
+    quote = {
+        "configured": True,
+        "rule": {
+            "_id": ObjectId(),
+            "brand": "amazon",
+            "currency": "usd",
+            "region": "usa",
+            "denomination": 25,
             "customer_buy_rate_percent": 80,
             "trader_rate_percent": 78,
-            "customer_value_usd": 20,
-            "trader_value_usd": 19.5,
-        }
-    )
+        },
+        "customer_buy_rate_percent": 80,
+        "trader_rate_percent": 78,
+        "customer_value_usd": 20,
+        "trader_value_usd": 19.5,
+    }
+
+    payload = _quote_payload(quote)
 
     json.dumps(payload)
     assert payload["rule"]["id"]
     assert payload["rule"]["brand"] == "AMAZON"
+    assert "trader_rate_percent" not in payload
+    assert "trader_value_usd" not in payload
+    assert "trader_rate" not in payload["rule"]
+
+    admin_payload = _quote_payload(quote, include_private=True)
+    assert admin_payload["trader_rate_percent"] == "78"
+    assert admin_payload["trader_value_usd"] == 19.5
+    assert admin_payload["rule"]["trader_rate"] == "78"
 
 
 def test_cardex_lona_rules_collapse_mixed_denominations():
@@ -94,6 +113,19 @@ def test_cardex_lona_rules_collapse_mixed_denominations():
     assert any(row.get("_id") == "discord-10" for row in rows)
 
 
+def test_cardex_lona_rules_collapse_same_rate_values_to_custom_amount():
+    from services.cards_bot.lona_pricebook import merge_lona_cardex_rules
+
+    rows = merge_lona_cardex_rules([])
+    steam_rows = [row for row in rows if row.get("brand") == "STEAM" and row.get("region") == "USA"]
+
+    assert [row.get("denomination_label") for row in steam_rows] == ["Custom Amount"]
+    assert steam_rows[0]["customer_buy_rate_percent"] == 88.0
+    assert steam_rows[0]["requires_custom_value"] is True
+    assert steam_rows[0]["range_min"] == 10.0
+    assert steam_rows[0]["range_max"] == 100.0
+
+
 def test_cardex_lona_rules_filter_legacy_brand_region_names():
     from services.cards_bot.lona_pricebook import merge_lona_cardex_rules
 
@@ -130,6 +162,23 @@ def test_cardex_lona_rules_filter_legacy_brand_region_names():
     assert all(row.get("_id") != "old-amazon-uk-11" for row in rows)
     assert any(row.get("brand") == "ITUNES" and row.get("denomination_label") == "Mixed" for row in rows)
     assert any(row.get("brand") == "AMAZON" and row.get("region") == "UNITED KINGDOM" for row in rows)
+
+
+def test_cardex_lona_rules_use_country_markets_and_hide_provider_name():
+    from services.cards_bot.lona_pricebook import merge_lona_cardex_rules
+
+    rows = merge_lona_cardex_rules([])
+    amazon_regions = {str(row.get("region") or "") for row in rows if row.get("brand") == "AMAZON"}
+    amazon_usa_labels = [
+        str(row.get("denomination_label") or "")
+        for row in rows
+        if row.get("brand") == "AMAZON" and row.get("region") == "USA"
+    ]
+
+    assert {"USA", "UNITED KINGDOM", "GERMANY", "FRANCE", "ITALY", "SPAIN", "CANADA"} <= amazon_regions
+    assert not any(row.get("brand") == "CANADA" for row in rows)
+    assert amazon_usa_labels[0] == "Mixed"
+    assert not any("LONA" in str(row.get("public_note") or "").upper() for row in rows)
 
 
 @pytest.mark.asyncio
