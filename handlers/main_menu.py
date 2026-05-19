@@ -48,7 +48,6 @@ from utils.bot_menu_context import (
     menu_for_current_bot,
     resolve_runtime_bot_id,
     send_digital_products_message,
-    send_main_bot_message,
 )
 from services.subscriptions.presentation import subscription_summary_lines
 from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_message_guard
@@ -1414,10 +1413,10 @@ async def back_to_main_menu_handler(message: types.Message, state: FSMContext):
 
 
 @router.message(lambda msg: _is_btn(msg.text, "btn_cyberzone_services"))
-async def open_main_bot_services_from_user_menu(message: types.Message):
+async def open_other_services_from_reseller_user_menu(message: types.Message):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
-    await send_main_bot_message(message, lang=lang)
+    await _open_more_services_message(message, lang)
 
 
 @router.message(lambda msg: _is_btn(msg.text, "btn_store"))

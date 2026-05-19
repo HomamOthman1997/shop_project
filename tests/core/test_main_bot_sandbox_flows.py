@@ -488,6 +488,37 @@ async def test_more_services_button_opens_other_bot_links(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_reseller_other_services_button_does_not_open_custom_services_bot(monkeypatch):
+    message = _FakeMessage(text=main_menu.t("en", "btn_cyberzone_services"))
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "numbers_bot_url", lambda start="numbers": "https://t.me/numbers?start=numbers")
+    monkeypatch.setattr(main_menu, "digital_products_bot_url", lambda start="hub": "https://t.me/digital?start=hub")
+    monkeypatch.setattr(main_menu, "card_ex_bot_url", lambda start="cards": "https://t.me/cards?start=cards")
+
+    await main_menu.open_other_services_from_reseller_user_menu(message)
+
+    assert message.answers[-1][0] == main_menu.t("en", "more_services_text")
+    markup = message.answers[-1][1]
+    labels = [button.text for row in markup.inline_keyboard for button in row]
+    urls = [button.url for row in markup.inline_keyboard for button in row]
+    assert labels == [
+        main_menu.t("en", "open_numbers_bot_button"),
+        main_menu.t("en", "open_digital_products_button"),
+        main_menu.t("en", "open_card_ex_bot_button"),
+    ]
+    assert urls == [
+        "https://t.me/numbers?start=numbers",
+        "https://t.me/digital?start=hub",
+        "https://t.me/cards?start=cards",
+    ]
+    assert all("custom" not in str(url).lower() for url in urls)
+
+
+@pytest.mark.asyncio
 async def test_user_settings_close_returns_main_menu(monkeypatch):
     callback = _FakeCallback()
     called = {}
