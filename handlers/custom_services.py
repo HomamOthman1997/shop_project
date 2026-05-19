@@ -46,6 +46,7 @@ from database.custom_services_repo import (
     update_node_display_text,
     update_endpoint,
     update_endpoint_product_info,
+    update_endpoint_usage_policy,
 )
 from database.financial_ledger import create_order_v3
 from database.mongo import db
@@ -922,15 +923,16 @@ async def _safe_edit_text(
     text: str,
     *,
     reply_markup: types.InlineKeyboardMarkup | None = None,
+    parse_mode: str | None = None,
 ) -> None:
     try:
-        await message.edit_text(text, reply_markup=reply_markup)
+        await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     except TelegramBadRequest as exc:
         error_text = str(exc).lower()
         if "message is not modified" in error_text:
             return
         if "message can't be edited" in error_text or "message cant be edited" in error_text:
-            await message.answer(text, reply_markup=reply_markup)
+            await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
             return
         raise
 
@@ -1376,6 +1378,7 @@ class CustomBuilderStates(StatesGroup):
     waiting_delivery_payload = State()
     waiting_delivery_preview = State()
     waiting_product_info = State()
+    waiting_usage_policy = State()
     waiting_low_stock_threshold = State()
     waiting_buy_qty = State()
     waiting_buy_confirm = State()
@@ -1825,6 +1828,7 @@ async def _render_node(
         inventory_count = len(list(node.get("inventory_items") or []))
         delivery_status = t(viewer_lang, "configured_plain") if delivery_type in {"text", "photo", "document", "inventory"} else t(viewer_lang, "not_configured_plain")
         has_product_info = bool(str(node.get("product_info_text") or "").strip())
+        has_usage_policy = bool(str(node.get("usage_policy_text") or "").strip())
         preorder_enabled = _endpoint_preorder_enabled(node)
         preorder_available = await _can_use_preorder(node, message_or_cb.bot)
         low_stock_threshold = int(node.get("low_stock_threshold") or 0)
@@ -1839,6 +1843,7 @@ async def _render_node(
                 f"{t(viewer_lang, 'delivery_plain')}: {delivery_status}",
                 f"{t(viewer_lang, 'stock_items_plain')}: {inventory_count}",
                 f"{t(viewer_lang, 'product_info_plain')}: {t(viewer_lang, 'set_plain') if has_product_info else t(viewer_lang, 'not_set_plain')}",
+                f"{_ui_label(viewer_lang, 'Usage Policy', 'سياسة الاستخدام')}: {t(viewer_lang, 'set_plain') if has_usage_policy else t(viewer_lang, 'not_set_plain')}",
             ]
             if can_toggle_preorder:
                 text_lines.append(f"Preorder: {'Enabled' if preorder_enabled else 'Disabled'}")
@@ -1882,7 +1887,12 @@ async def _render_node(
                 ]
             )
             kb_rows.append([InlineKeyboardButton(text=_ui_label(viewer_lang, "Low Stock Alert", "تنبيه نقص الستوك"), callback_data=f"cstm:lowstock:{node['_id']}")])
-            kb_rows.append([InlineKeyboardButton(text=t(viewer_lang, "product_info_plain"), callback_data=f"cstm:pinfo:{node['_id']}")])
+            kb_rows.append(
+                [
+                    InlineKeyboardButton(text=t(viewer_lang, "product_info_plain"), callback_data=f"cstm:pinfo:{node['_id']}"),
+                    InlineKeyboardButton(text=_ui_label(viewer_lang, "Usage Policy", "سياسة الاستخدام"), callback_data=f"cstm:policy:{node['_id']}"),
+                ]
+            )
             if can_toggle_preorder:
                 kb_rows.append(
                     [
@@ -3774,6 +3784,101 @@ async def set_product_info_submit(message: types.Message, state: FSMContext):
     )
 
 
+@router.callback_query(lambda c: c.data and c.data.startswith("cstm:policy:"))
+async def set_usage_policy_start(callback: types.CallbackQuery, state: FSMContext):
+    lang = await _user_lang(callback.from_user.id)
+    if not await _can_manage_builder(callback.from_user.id, callback.bot):
+        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+    state_data = await state.get_data()
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, state_data)
+    if not catalog_owner_id:
+        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+
+    node_id = callback.data.split(":", 2)[2]
+    endpoint = await get_node(node_id, reseller_id=catalog_owner_id)
+    if not endpoint or endpoint.get("node_type") != "endpoint":
+        return await callback.answer(t(lang, "custom_endpoint_not_found"), show_alert=True)
+
+    catalog_type = _catalog_type_from_node(endpoint)
+    await state.update_data(
+        usage_policy_endpoint_id=str(endpoint["_id"]),
+        usage_policy_return_node_id=str(endpoint["_id"]),
+        custom_mode="builder",
+        custom_catalog_type=catalog_type,
+        custom_financial_mode=_catalog_financial_mode(catalog_type),
+    )
+    await state.set_state(CustomBuilderStates.waiting_usage_policy)
+
+    if callback.message:
+        await callback.message.answer(
+            _ui_label(
+                lang,
+                "Send the usage policy for this item now. Send - to clear it, or /cancel to abort.",
+                "أرسل سياسة الاستخدام لهذا العنصر الآن. أرسل - لمسحها، أو /cancel للإلغاء.",
+            )
+        )
+    await callback.answer()
+
+
+@router.message(CustomBuilderStates.waiting_usage_policy)
+async def set_usage_policy_submit(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    if not await _can_manage_builder(message.from_user.id, message.bot):
+        await state.clear()
+        return
+    catalog_owner_id = await _builder_catalog_owner_id(message.from_user.id, message.bot, data)
+    if not catalog_owner_id:
+        await state.clear()
+        return
+    catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
+    endpoint_id = data.get("usage_policy_endpoint_id")
+    return_node_id = data.get("usage_policy_return_node_id")
+
+    if _is_cancel_input(message.text):
+        await state.clear()
+        if return_node_id:
+            return await _render_node(
+                message,
+                state,
+                catalog_owner_id,
+                return_node_id,
+                is_builder=True,
+                catalog_type=catalog_type,
+            )
+        return
+
+    raw = str(message.text or "").strip()
+    text = "" if raw == "-" else raw
+    updated = await update_endpoint_usage_policy(
+        endpoint_id,
+        catalog_owner_id,
+        text,
+        catalog_type=catalog_type,
+    )
+    await state.clear()
+    lang = await _user_lang(message.from_user.id)
+    if not updated:
+        return await message.answer(_ui_label(lang, "Failed to save usage policy.", "فشل حفظ سياسة الاستخدام."))
+
+    await _record_builder_audit(
+        action="usage_policy_updated",
+        actor_id=message.from_user.id,
+        catalog_owner_id=catalog_owner_id,
+        node=updated,
+        catalog_type=catalog_type,
+        details={"has_usage_policy": bool(text)},
+    )
+    await message.answer(_ui_label(lang, "Usage policy saved.", "تم حفظ سياسة الاستخدام."))
+    return await _render_node(
+        message,
+        state,
+        catalog_owner_id,
+        updated["_id"],
+        is_builder=True,
+        catalog_type=catalog_type,
+    )
+
+
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:del:"))
 async def delete_node_cb(callback: types.CallbackQuery, state: FSMContext):
     lang = await _user_lang(callback.from_user.id)
@@ -4062,6 +4167,17 @@ def _buy_qty_options(endpoint: dict | None, data: dict | None = None) -> list[in
     return options
 
 
+def _usage_policy_quote_html(lang: str, policy_text: str) -> str:
+    policy = str(policy_text or "").strip()
+    if not policy:
+        return ""
+    title = _ui_label(lang, "Usage Policy", "سياسة الاستخدام")
+    return (
+        f"<b>{html.escape(title)}</b>\n"
+        f"<blockquote expandable>{html.escape(policy)}</blockquote>"
+    )
+
+
 def _buy_confirm_text(
     lang: str,
     *,
@@ -4070,17 +4186,18 @@ def _buy_confirm_text(
     total: float,
     preorder: bool = False,
     customer_note: str = "",
+    usage_policy_text: str = "",
 ) -> str:
     qty_i = max(1, int(qty or 1))
     if str(lang or "").lower().startswith("ar"):
         lines = ["تأكيد الشراء"]
         if service_name:
-            lines.append(f"المنتج: {service_name}")
+            lines.append(f"المنتج: {html.escape(service_name)}")
         if qty_i > 1:
             lines.append(f"الكمية: {qty_i}")
         lines.append(f"الإجمالي: {format_usd(total)}")
         if preorder and customer_note:
-            lines.extend(["", "تفاصيل الطلب:", customer_note])
+            lines.extend(["", "تفاصيل الطلب:", html.escape(customer_note)])
         question = (
             "أرسل تفاصيل الطلب للأدمن، أو اضغط تأكيد إذا لا توجد تفاصيل إضافية."
             if preorder and not customer_note
@@ -4089,17 +4206,20 @@ def _buy_confirm_text(
     else:
         lines = ["Confirm purchase"]
         if service_name:
-            lines.append(f"Product: {service_name}")
+            lines.append(f"Product: {html.escape(service_name)}")
         if qty_i > 1:
             lines.append(f"Quantity: {qty_i}")
         lines.append(f"Total: {format_usd(total)}")
         if preorder and customer_note:
-            lines.extend(["", "Order details:", customer_note])
+            lines.extend(["", "Order details:", html.escape(customer_note)])
         question = (
             "Reply with order details for the admin, or press Confirm if no details are needed."
             if preorder and not customer_note
             else ("Confirm reservation?" if preorder else t(lang, "confirm_purchase_question"))
         )
+    policy_quote = _usage_policy_quote_html(lang, usage_policy_text)
+    if policy_quote:
+        lines.extend(["", policy_quote])
     lines.extend(["", question])
     return "\n".join(lines).strip()
 
@@ -4179,6 +4299,7 @@ async def _show_buy_confirm(message: types.Message, state: FSMContext, endpoint:
     total = unit_price * int(qty)
     preorder = bool(data.get("buy_is_preorder"))
     customer_note = str(data.get("buy_customer_note") or "").strip()
+    usage_policy_text = str(endpoint.get("usage_policy_text") or "").strip()
 
     await state.update_data(buy_pending_qty=int(qty))
     await state.set_state(CustomBuilderStates.waiting_buy_confirm)
@@ -4191,8 +4312,10 @@ async def _show_buy_confirm(message: types.Message, state: FSMContext, endpoint:
             total=total,
             preorder=preorder,
             customer_note=customer_note,
+            usage_policy_text=usage_policy_text,
         ),
         reply_markup=_buy_confirm_kb(lang),
+        parse_mode="HTML",
     )
 
 

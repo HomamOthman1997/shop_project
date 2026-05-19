@@ -60,6 +60,7 @@ async def test_show_buy_confirm_edits_message_and_omits_repeated_product_info(mo
         "price": 2.0,
         "available_qty": 5,
         "product_info_text": "Customer-facing description",
+        "usage_policy_text": "",
     }
 
     async def _fake_get_user(_user_id):
@@ -78,6 +79,40 @@ async def test_show_buy_confirm_edits_message_and_omits_repeated_product_info(mo
     assert "Available Qty" not in text
     assert "Customer-facing description" not in text
     assert "Quantity:" not in text
+    assert message.edits[-1]["kwargs"].get("parse_mode") == "HTML"
+
+
+@pytest.mark.asyncio
+async def test_show_buy_confirm_includes_expandable_usage_policy(monkeypatch):
+    state = _FakeState(
+        {
+            "buy_service_name": "PAYPAL BANK",
+            "buy_unit_price": 6.0,
+            "buy_is_preorder": False,
+        }
+    )
+    message = _FakeMessage()
+    endpoint = {
+        "_id": "ep1",
+        "name": "PAYPAL BANK",
+        "price": 6.0,
+        "available_qty": 9,
+        "usage_policy_text": "Read before buying <must>",
+    }
+
+    async def _fake_get_user(_user_id):
+        return {"language": "en"}
+
+    monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
+
+    await custom_services._show_buy_confirm(message, state, endpoint, 1)
+
+    text = message.edits[-1]["text"]
+    assert "<b>Usage Policy</b>" in text
+    assert "<blockquote expandable>" in text
+    assert "Read before buying &lt;must&gt;" in text
+    assert "Confirm purchase?" in text
+    assert message.edits[-1]["kwargs"].get("parse_mode") == "HTML"
 
 
 @pytest.mark.asyncio

@@ -211,6 +211,7 @@ async def create_endpoint(
         "inventory_raw_payload": "",
         "inventory_parse_warnings": [],
         "product_info_text": "",
+        "usage_policy_text": "",
         "min_qty": max(1, int(min_qty)),
         "preorder_enabled": False,
         "low_stock_threshold": 0,
@@ -415,6 +416,34 @@ async def update_endpoint_product_info(
         {
             "$set": {
                 "product_info_text": str(product_info_text or "").strip(),
+                "updated_at": datetime.now(UTC),
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def update_endpoint_usage_policy(
+    node_id,
+    reseller_id: int,
+    usage_policy_text: str | None,
+    *,
+    catalog_type: Optional[str] = None,
+) -> Optional[dict]:
+    query = {
+        "_id": _to_oid(node_id),
+        "reseller_id": int(reseller_id),
+        "node_type": "endpoint",
+        "is_active": True,
+    }
+    if catalog_type is not None:
+        query["catalog_type"] = _norm_catalog_type(catalog_type)
+
+    return await db.custom_services.find_one_and_update(
+        query,
+        {
+            "$set": {
+                "usage_policy_text": str(usage_policy_text or "").strip(),
                 "updated_at": datetime.now(UTC),
             }
         },
@@ -897,6 +926,7 @@ async def clone_catalog_from_reseller_template(
                 clone_doc["inventory_raw_payload"] = ""
                 clone_doc["inventory_parse_warnings"] = []
                 clone_doc["product_info_text"] = str(src.get("product_info_text") or "").strip()
+                clone_doc["usage_policy_text"] = str(src.get("usage_policy_text") or "").strip()
                 clone_doc["delivery_type"] = ""
                 clone_doc["delivery_text"] = ""
                 clone_doc["delivery_file_id"] = ""

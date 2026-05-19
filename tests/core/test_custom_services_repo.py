@@ -220,6 +220,7 @@ async def test_clone_catalog_copies_structure_without_sensitive_stock(monkeypatc
             "inventory_raw_payload": "Email: real@example.com\nPassword: secret",
             "inventory_parse_warnings": ["warn"],
             "product_info_text": "Fresh account",
+            "usage_policy_text": "Use safely",
             "delivery_type": "inventory",
             "delivery_text": "secret text",
             "delivery_file_id": "file-id",
@@ -277,6 +278,7 @@ async def test_clone_catalog_copies_structure_without_sensitive_stock(monkeypatc
     cloned_endpoint = next(row for row in inserted if row.get("node_type") == "endpoint")
     assert cloned_endpoint["price"] == 3.0
     assert cloned_endpoint["product_info_text"] == "Fresh account"
+    assert cloned_endpoint["usage_policy_text"] == "Use safely"
     assert cloned_endpoint["available_qty"] == 0
     assert cloned_endpoint["inventory_items"] == []
     assert cloned_endpoint["inventory_raw_payload"] == ""
