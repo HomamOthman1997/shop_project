@@ -160,6 +160,11 @@ def _base_rule(market: dict[str, Any], product: dict[str, Any], *, label: str, d
     kind = str(meta.get("kind") or "")
     range_min = meta.get("amount_min") if kind == "amount" else None
     range_max = meta.get("amount_max") if kind == "amount" else None
+    if kind == "amount":
+        if range_min not in (None, "", 0, 0.0) and range_max not in (None, "", 0, 0.0):
+            label = f"{_fmt_amount(range_min)} --> {_fmt_amount(range_max)}"
+        elif range_min not in (None, "", 0, 0.0):
+            label = f"{_fmt_amount(range_min)}+"
     return {
         "_id": f"lona-cardex:{market['id']}:{product_id}",
         "brand": str(market["brand"]),

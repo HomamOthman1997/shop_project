@@ -72,6 +72,8 @@ def test_cardex_miniapp_quote_payload_is_json_serializable():
     json.dumps(payload)
     assert payload["rule"]["id"]
     assert payload["rule"]["brand"] == "AMAZON"
+    assert "lona_cardex" not in payload["rule"]
+    assert "lona_kind" not in payload["rule"]
     assert "trader_rate_percent" not in payload
     assert "trader_value_usd" not in payload
     assert "trader_rate" not in payload["rule"]
@@ -129,7 +131,7 @@ def test_cardex_lona_rules_collapse_same_rate_values_to_custom_amount():
     rows = merge_lona_cardex_rules([])
     steam_rows = [row for row in rows if row.get("brand") == "STEAM" and row.get("region") == "USA"]
 
-    assert [row.get("denomination_label") for row in steam_rows] == ["Custom Amount"]
+    assert [row.get("denomination_label") for row in steam_rows] == ["10 --> 100"]
     assert steam_rows[0]["customer_buy_rate_percent"] == 88.0
     assert steam_rows[0]["requires_custom_value"] is True
     assert steam_rows[0]["range_min"] == 10.0
