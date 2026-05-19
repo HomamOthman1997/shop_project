@@ -216,7 +216,10 @@ def test_stock_input_prompt_keeps_line_mode_for_email_items():
 
 
 def test_stock_preview_keyboard_is_localized():
-    ar_labels = [btn.text for row in custom_services._stock_preview_kb("ar").inline_keyboard for btn in row]
+    ar_buttons = [btn for row in custom_services._stock_preview_kb("ar").inline_keyboard for btn in row]
+    ar_labels = [btn.text for btn in ar_buttons]
+    ar_callbacks = [btn.callback_data for btn in ar_buttons]
+    assert "cstm:stocksaveadd" in ar_callbacks
     assert "✅ حفظ الستوك" in ar_labels
     assert "✏️ إرسال من جديد" in ar_labels
 

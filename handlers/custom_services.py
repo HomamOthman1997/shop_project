@@ -808,6 +808,35 @@ def _stock_input_prompt(lang: str, endpoint: dict | None, *, mode: str = "replac
     return prompt
 
 
+def _stock_saved_text(
+    lang: str,
+    *,
+    count: int,
+    stock_mode: str,
+    warnings: list[str] | None = None,
+    fulfilled_preorders: list[str] | None = None,
+) -> str:
+    count = max(0, int(count or 0))
+    warnings = list(warnings or [])
+    fulfilled_preorders = list(fulfilled_preorders or [])
+    if str(stock_mode or "").strip().lower() == "append":
+        text = _ui_label(lang, f"Added {count} stock items.", f"تمت إضافة {count} عنصر ستوك.")
+    else:
+        text = t(lang, "custom_stock_saved").format(count=count)
+    if warnings:
+        text = f"{text}\n{_ui_label(lang, 'Warnings', 'تنبيهات')}: {len(warnings)}"
+    if fulfilled_preorders:
+        text = f"{text}\n{_ui_label(lang, 'Preorders fulfilled', 'طلبات حجز تم تسليمها')}: {len(fulfilled_preorders)}"
+    return text
+
+
+def _stock_continue_prompt(lang: str, endpoint: dict | None) -> str:
+    return (
+        f"{_ui_label(lang, 'Send the next stock item, or press Done.', 'أرسل الحساب التالي، أو اضغط انتهاء.')}\n\n"
+        f"{_stock_input_prompt(lang, endpoint, mode='append')}"
+    ).strip()
+
+
 def _stock_preview_text(items: list[str], warnings: list[str]) -> str:
     preview_items = [_mask_stock_preview_item(item) for item in items[:2] if str(item or "").strip()]
     lines = [f"Parsed stock items: {len(items)}"]
@@ -3123,7 +3152,7 @@ async def set_delivery_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(CustomBuilderStates.waiting_delivery_payload)
 
     if callback.message:
-        await callback.message.answer(_stock_input_prompt(lang, endpoint, mode=mode))
+        await callback.message.answer(_stock_input_prompt(lang, endpoint, mode=mode), reply_markup=_stock_entry_kb(lang))
     await callback.answer()
 
 
@@ -3167,7 +3196,11 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
 
     text = str(message.text or "").strip()
     if not text:
-        return await message.answer(_stock_input_prompt(await _user_lang(message.from_user.id), endpoint))
+        lang = await _user_lang(message.from_user.id)
+        return await message.answer(
+            _stock_input_prompt(lang, endpoint, mode=str(data.get("delivery_stock_mode") or "replace")),
+            reply_markup=_stock_entry_kb(lang),
+        )
     if len(text) > _MAX_STOCK_PAYLOAD_CHARS:
         return await message.answer(
             _ui_label(
@@ -3217,7 +3250,10 @@ async def retry_delivery_stock_preview(callback: types.CallbackQuery, state: FSM
     if callback.message:
         catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, data)
         endpoint = await get_node(data.get("delivery_endpoint_id"), reseller_id=catalog_owner_id) if catalog_owner_id else None
-        await callback.message.answer(_stock_input_prompt(lang, endpoint, mode=str(data.get("delivery_stock_mode") or "replace")))
+        await callback.message.answer(
+            _stock_input_prompt(lang, endpoint, mode=str(data.get("delivery_stock_mode") or "replace")),
+            reply_markup=_stock_entry_kb(lang),
+        )
     await callback.answer()
 
 
@@ -3247,17 +3283,56 @@ async def cancel_delivery_stock_preview(callback: types.CallbackQuery, state: FS
     await callback.answer()
 
 
-@router.callback_query(lambda c: c.data == "cstm:stocksave")
-async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMContext):
+@router.callback_query(lambda c: c.data == "cstm:stockdone")
+async def finish_delivery_stock_sequence(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    pending_items = [
+        str(item or "").strip()
+        for item in list(data.get("delivery_preview_items") or [])
+        if str(item or "").strip()
+    ]
+    if pending_items:
+        await _save_delivery_stock_preview(callback, state, add_another=False)
+        return
+    catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, data)
+    return_node_id = data.get("delivery_return_node_id")
+    catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
+    await state.clear()
+    if not catalog_owner_id:
+        return await callback.answer()
+    target_node = return_node_id
+    if not target_node:
+        root = await ensure_root_node(catalog_owner_id, catalog_type=catalog_type)
+        target_node = root["_id"]
+    if callback.message and target_node:
+        await _render_node(
+            callback,
+            state,
+            catalog_owner_id,
+            target_node,
+            is_builder=True,
+            catalog_type=catalog_type,
+        )
+    await callback.answer()
+
+
+async def _save_delivery_stock_preview(
+    callback: types.CallbackQuery,
+    state: FSMContext,
+    *,
+    add_another: bool,
+) -> None:
     data = await state.get_data()
     lang = await _user_lang(callback.from_user.id)
     if not await _can_manage_builder(callback.from_user.id, callback.bot):
         await state.clear()
-        return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+        await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
+        return
     catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, data)
     if not catalog_owner_id:
         await state.clear()
-        return await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+        await callback.answer(t(lang, "access_denied_plain"), show_alert=True)
+        return
 
     endpoint_id = data.get("delivery_endpoint_id")
     catalog_type = str(data.get("custom_catalog_type") or _CATALOG_CUSTOM)
@@ -3268,8 +3343,12 @@ async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMC
         await state.set_state(CustomBuilderStates.waiting_delivery_payload)
         if callback.message:
             endpoint = await get_node(endpoint_id, reseller_id=catalog_owner_id) if endpoint_id else None
-            await callback.message.answer(_stock_input_prompt(lang, endpoint, mode=str(data.get("delivery_stock_mode") or "replace")))
-        return await callback.answer()
+            await callback.message.answer(
+                _stock_input_prompt(lang, endpoint, mode=str(data.get("delivery_stock_mode") or "replace")),
+                reply_markup=_stock_entry_kb(lang),
+            )
+        await callback.answer()
+        return
 
     stock_mode = str(data.get("delivery_stock_mode") or "replace").strip().lower()
     if stock_mode == "append":
@@ -3290,9 +3369,9 @@ async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMC
             parse_warnings=warnings,
             catalog_type=catalog_type,
         )
-    await state.clear()
     if not updated:
-        return await callback.answer(t(lang, "custom_failed_save_delivery_payload"), show_alert=True)
+        await callback.answer(t(lang, "custom_failed_save_delivery_payload"), show_alert=True)
+        return
     await _record_stock_event_safe(
         endpoint_id=updated["_id"],
         catalog_owner_id=catalog_owner_id,
@@ -3317,15 +3396,38 @@ async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMC
         catalog_type=catalog_type,
     )
     refreshed = await get_node(updated["_id"], reseller_id=catalog_owner_id, catalog_type=catalog_type) or updated
+    saved_text = _stock_saved_text(
+        lang,
+        count=len(items),
+        stock_mode=stock_mode,
+        warnings=warnings,
+        fulfilled_preorders=fulfilled_preorders,
+    )
+    if add_another:
+        await state.update_data(
+            delivery_endpoint_id=str(refreshed["_id"]),
+            delivery_return_node_id=str(refreshed["_id"]),
+            delivery_stock_mode="append",
+            custom_mode="builder",
+            custom_catalog_type=catalog_type,
+            custom_financial_mode=_catalog_financial_mode(catalog_type),
+            delivery_preview_raw_payload="",
+            delivery_preview_items=[],
+            delivery_preview_warnings=[],
+            delivery_preview_ssn_mode=False,
+        )
+        await state.set_state(CustomBuilderStates.waiting_delivery_payload)
+        if callback.message:
+            await _safe_edit_text(
+                callback.message,
+                f"{saved_text}\n\n{_stock_continue_prompt(lang, refreshed)}",
+                reply_markup=_stock_entry_kb(lang),
+            )
+        await callback.answer()
+        return
+
+    await state.clear()
     if callback.message:
-        if stock_mode == "append":
-            saved_text = f"Added {len(items)} stock items."
-        else:
-            saved_text = t(lang, "custom_stock_saved").format(count=len(items))
-        if warnings:
-            saved_text = f"{saved_text}\nWarnings: {len(warnings)}"
-        if fulfilled_preorders:
-            saved_text = f"{saved_text}\nPreorders fulfilled: {len(fulfilled_preorders)}"
         await callback.message.answer(saved_text)
         await _render_node(
             callback,
@@ -3336,6 +3438,15 @@ async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMC
             catalog_type=catalog_type,
         )
     await callback.answer()
+
+
+@router.callback_query(lambda c: c.data in {"cstm:stocksave", "cstm:stocksaveadd"})
+async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMContext):
+    await _save_delivery_stock_preview(
+        callback,
+        state,
+        add_another=str(callback.data or "") == "cstm:stocksaveadd",
+    )
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cstm:stockexport:"))
@@ -4018,9 +4129,23 @@ def _stock_preview_kb(lang: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=_ui_label(lang, "✅ Save Stock", "✅ حفظ الستوك"), callback_data="cstm:stocksave")],
             [
+                InlineKeyboardButton(
+                    text=_ui_label(lang, "✅ Save and Add Another", "✅ حفظ وإضافة آخر"),
+                    callback_data="cstm:stocksaveadd",
+                )
+            ],
+            [
                 InlineKeyboardButton(text=_ui_label(lang, "✏️ Send Again", "✏️ إرسال من جديد"), callback_data="cstm:stockretry"),
                 InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data="cstm:stockcancel"),
             ],
+        ]
+    )
+
+
+def _stock_entry_kb(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=_ui_label(lang, "✅ Done", "✅ انتهاء"), callback_data="cstm:stockdone")],
         ]
     )
 

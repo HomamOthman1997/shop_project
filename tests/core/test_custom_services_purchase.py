@@ -145,6 +145,93 @@ async def test_start_buy_endpoint_skips_quantity_screen_for_single_item_services
 
 
 @pytest.mark.asyncio
+async def test_stock_save_and_add_another_keeps_append_entry_open(monkeypatch):
+    class _Callback:
+        data = "cstm:stocksaveadd"
+        from_user = SimpleNamespace(id=77)
+
+        def __init__(self):
+            self.bot = SimpleNamespace()
+            self.message = _FakeMessage()
+            self.answers = []
+
+        async def answer(self, text=None, **kwargs):
+            self.answers.append({"text": str(text or ""), "kwargs": kwargs})
+
+    state = _FakeState(
+        {
+            "delivery_endpoint_id": "ep1",
+            "delivery_return_node_id": "ep1",
+            "delivery_stock_mode": "append",
+            "custom_catalog_type": "custom",
+            "delivery_preview_items": ["PayPal: seller@example.com\nPassword: pass-1"],
+            "delivery_preview_raw_payload": "PayPal: seller@example.com\nPassword: pass-1",
+            "delivery_preview_warnings": [],
+        }
+    )
+    endpoint = {
+        "_id": "ep1",
+        "node_type": "endpoint",
+        "reseller_id": 500,
+        "name": "PayPal",
+        "available_qty": 1,
+        "delivery_type": "inventory",
+    }
+    appended = []
+
+    async def _fake_get_user(_user_id):
+        return {"language": "en"}
+
+    async def _fake_can_manage_builder(_user_id, _bot):
+        return True
+
+    async def _fake_builder_catalog_owner_id(_user_id, _bot, _data):
+        return 500
+
+    async def _fake_append_endpoint_inventory(*_args, **kwargs):
+        appended.extend(kwargs["inventory_items"])
+        return endpoint
+
+    async def _fake_record_stock_event_safe(*_args, **_kwargs):
+        return None
+
+    async def _fake_record_builder_audit(*_args, **_kwargs):
+        return None
+
+    async def _fake_auto_fulfill_inventory_preorders(**_kwargs):
+        return []
+
+    async def _fake_get_node(_node_id, **_kwargs):
+        return endpoint
+
+    monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
+    monkeypatch.setattr(custom_services, "_can_manage_builder", _fake_can_manage_builder)
+    monkeypatch.setattr(custom_services, "_builder_catalog_owner_id", _fake_builder_catalog_owner_id)
+    monkeypatch.setattr(custom_services, "append_endpoint_inventory", _fake_append_endpoint_inventory)
+    monkeypatch.setattr(custom_services, "_record_stock_event_safe", _fake_record_stock_event_safe)
+    monkeypatch.setattr(custom_services, "_record_builder_audit", _fake_record_builder_audit)
+    monkeypatch.setattr(custom_services, "_auto_fulfill_inventory_preorders", _fake_auto_fulfill_inventory_preorders)
+    monkeypatch.setattr(custom_services, "get_node", _fake_get_node)
+
+    callback = _Callback()
+    await custom_services.save_delivery_stock_preview(callback, state)
+
+    assert appended == ["PayPal: seller@example.com\nPassword: pass-1"]
+    assert state.cleared is False
+    assert state.state == custom_services.CustomBuilderStates.waiting_delivery_payload
+    assert state._data["delivery_stock_mode"] == "append"
+    assert state._data["delivery_preview_items"] == []
+    assert callback.message.edits
+    assert "Send the next stock item" in callback.message.edits[-1]["text"]
+    callbacks = [
+        btn.callback_data
+        for row in callback.message.edits[-1]["kwargs"]["reply_markup"].inline_keyboard
+        for btn in row
+    ]
+    assert "cstm:stockdone" in callbacks
+
+
+@pytest.mark.asyncio
 async def test_execute_buy_blocks_unconfigured_endpoint(monkeypatch):
     state = _FakeState(
         {
