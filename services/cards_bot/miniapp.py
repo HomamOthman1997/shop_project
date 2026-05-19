@@ -145,8 +145,7 @@ def _rule_payload(row: dict[str, Any], *, include_private: bool = False) -> dict
         "denominations": list(row.get("denominations") or []),
         "requires_custom_value": bool(row.get("requires_custom_value")),
         "readonly": bool(row.get("readonly")),
-        "lona_cardex": bool(row.get("lona_cardex")),
-        "lona_kind": str(row.get("lona_kind") or ""),
+        "price_kind": str(row.get("lona_kind") or ""),
     }
     if include_private:
         payload["trader_rate"] = _fmt_rate(row.get("trader_rate_percent"))

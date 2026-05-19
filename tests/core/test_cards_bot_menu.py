@@ -37,6 +37,12 @@ def test_cardex_brand_tiles_do_not_render_region_or_footer_caption():
     assert "brand-caption" not in styles_css
     assert "regionPreview" not in app_js
     assert "row.regions.size" not in app_js
+    assert "brand-orb" not in app_js
+    assert "brand-logo" in app_js
+    assert "logo-amazon" in app_js
+    assert "logo-nintendo" in app_js
+    assert ".brand-logo" in styles_css
+    assert ".tone-nintendo .brand-poster" in styles_css
 
 
 def test_cardex_miniapp_quote_payload_is_json_serializable():
@@ -51,6 +57,7 @@ def test_cardex_miniapp_quote_payload_is_json_serializable():
             "currency": "usd",
             "region": "usa",
             "denomination": 25,
+            "lona_kind": "amount",
             "customer_buy_rate_percent": 80,
             "trader_rate_percent": 78,
         },
@@ -68,6 +75,9 @@ def test_cardex_miniapp_quote_payload_is_json_serializable():
     assert "trader_rate_percent" not in payload
     assert "trader_value_usd" not in payload
     assert "trader_rate" not in payload["rule"]
+    assert payload["rule"]["price_kind"] == "amount"
+    assert "lona_kind" not in payload["rule"]
+    assert "lona_cardex" not in payload["rule"]
 
     admin_payload = _quote_payload(quote, include_private=True)
     assert admin_payload["trader_rate_percent"] == "78"

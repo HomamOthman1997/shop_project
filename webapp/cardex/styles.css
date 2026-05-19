@@ -175,65 +175,233 @@ textarea:focus { border-color: var(--accent); }
   color: var(--text);
   text-align: center;
 }
+.brand-card:active .brand-poster {
+  transform: translateY(1px) scale(.99);
+}
 .brand-poster {
+  --brand-a: #172033;
+  --brand-b: #4058f4;
+  --brand-c: #161b3a;
+  --brand-glow: rgba(255,255,255,.24);
+  --logo-bg: rgba(255,255,255,.96);
+  --logo-ink: #171b34;
   position: relative;
-  min-height: 94px;
+  isolation: isolate;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  min-height: 118px;
   overflow: hidden;
   border-radius: var(--radius);
   border: 1px solid rgba(255,255,255,.16);
   background:
-    radial-gradient(circle at 20% 18%, rgba(255,255,255,.28), transparent 15px),
-    radial-gradient(circle at 78% 28%, rgba(255,255,255,.18), transparent 18px),
-    linear-gradient(135deg, #321061 0%, #6d39d8 48%, #1c1760 100%);
-  box-shadow: 0 8px 18px rgba(0,0,0,.28);
-  padding: 10px 6px 8px;
+    radial-gradient(circle at 18% 16%, var(--brand-glow), transparent 22px),
+    radial-gradient(circle at 86% 20%, rgba(255,255,255,.2), transparent 26px),
+    linear-gradient(135deg, var(--brand-a) 0%, var(--brand-b) 54%, var(--brand-c) 100%);
+  box-shadow: 0 10px 22px rgba(0,0,0,.32);
+  padding: 12px 8px 10px;
+  transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease;
+}
+.brand-card:hover .brand-poster {
+  border-color: rgba(255,255,255,.28);
+  box-shadow: 0 14px 26px rgba(0,0,0,.38);
+}
+.brand-poster::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(116deg, transparent 0 42%, rgba(255,255,255,.16) 43% 52%, transparent 53%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.055) 0 1px, transparent 1px 14px);
+  opacity: .9;
 }
 .brand-poster::after {
   content: "";
   position: absolute;
+  z-index: -1;
   inset: auto -12px -24px -12px;
-  height: 52px;
-  background: rgba(255,255,255,.12);
-  transform: rotate(-7deg);
+  height: 58px;
+  background: rgba(255,255,255,.14);
+  transform: rotate(-8deg);
 }
-.brand-orb {
+.brand-logo {
   position: relative;
-  z-index: 1;
-  width: 42px;
-  height: 42px;
-  margin: 0 auto 7px;
+  width: 54px;
+  height: 54px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  background: #fff;
-  color: #1b123c;
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--logo-bg);
+  color: var(--logo-ink);
   font-weight: 900;
-  font-size: 16px;
-  box-shadow: 0 5px 12px rgba(0,0,0,.3);
+  font-size: 17px;
+  letter-spacing: .01em;
+  box-shadow: 0 8px 18px rgba(0,0,0,.34), inset 0 -10px 18px rgba(0,0,0,.07);
+}
+.brand-logo::before,
+.brand-logo::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+.brand-logo > span {
+  position: relative;
+  z-index: 2;
 }
 .brand-poster strong {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: block;
-  font-size: 13px;
+  max-width: 100%;
+  font-size: 14px;
   line-height: 1.1;
   text-transform: uppercase;
   text-shadow: 0 2px 4px rgba(0,0,0,.45);
   overflow-wrap: anywhere;
 }
-.tone-amazon .brand-poster { background: linear-gradient(135deg, #18223a, #4568f0 52%, #23125f); }
-.tone-itunes .brand-poster { background: linear-gradient(135deg, #321061, #8b3ffc 52%, #1d174f); }
-.tone-razer .brand-poster { background: linear-gradient(135deg, #291900, #d5a329 52%, #3b2600); }
-.tone-steam .brand-poster { background: linear-gradient(135deg, #101d2d, #2c78d8 52%, #111827); }
-.tone-walmart .brand-poster { background: linear-gradient(135deg, #093356, #21a7d8 52%, #0f4a7a); }
-.tone-target .brand-poster { background: linear-gradient(135deg, #4d0b13, #e3263b 52%, #2f0710); }
-.tone-mastercard .brand-poster { background: linear-gradient(135deg, #49120d, #f0883e 52%, #21111d); }
-.tone-visa .brand-poster { background: linear-gradient(135deg, #061a51, #316bff 52%, #111827); }
-.tone-paypal, .tone-payeer .brand-poster { background: linear-gradient(135deg, #043d66, #29a8ff 52%, #09223d); }
-.tone-usdt .brand-poster { background: linear-gradient(135deg, #063a33, #21c69a 52%, #09221f); }
-.tone-uber .brand-poster { background: linear-gradient(135deg, #05070c, #364152 52%, #05070c); }
-.tone-starbucks .brand-poster { background: linear-gradient(135deg, #063222, #00a862 52%, #061f18); }
-.tone-playstation .brand-poster { background: linear-gradient(135deg, #082778, #2766f6 52%, #090f3b); }
+.logo-amazon::after {
+  width: 25px;
+  height: 12px;
+  left: 15px;
+  bottom: 10px;
+  border-bottom: 3px solid #ff9900;
+  border-radius: 0 0 26px 26px;
+  transform: rotate(-8deg);
+}
+.logo-itunes::before {
+  width: 17px;
+  height: 22px;
+  right: 13px;
+  top: 13px;
+  border-top: 4px solid currentColor;
+  border-right: 4px solid currentColor;
+  transform: skewY(-10deg);
+}
+.logo-itunes::after {
+  width: 13px;
+  height: 10px;
+  left: 15px;
+  bottom: 13px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.logo-steam::before {
+  width: 25px;
+  height: 25px;
+  left: 9px;
+  top: 14px;
+  border: 5px solid currentColor;
+  border-radius: 50%;
+  opacity: .9;
+}
+.logo-steam::after {
+  width: 22px;
+  height: 5px;
+  right: 8px;
+  top: 25px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: rotate(-28deg);
+}
+.logo-mastercard > span,
+.logo-target > span {
+  display: none;
+}
+.logo-mastercard::before,
+.logo-mastercard::after {
+  width: 29px;
+  height: 29px;
+  top: 13px;
+  border-radius: 50%;
+  opacity: .9;
+}
+.logo-mastercard::before {
+  left: 10px;
+  background: #eb001b;
+}
+.logo-mastercard::after {
+  right: 10px;
+  background: #f79e1b;
+  mix-blend-mode: multiply;
+}
+.logo-target::before {
+  inset: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #d71920 0 7px, #fff 8px 13px, #d71920 14px 100%);
+}
+.logo-walmart::after {
+  width: 18px;
+  height: 18px;
+  right: 8px;
+  top: 8px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 0, currentColor 0 2px, transparent 3px),
+    radial-gradient(circle at 100% 50%, currentColor 0 2px, transparent 3px),
+    radial-gradient(circle at 50% 100%, currentColor 0 2px, transparent 3px),
+    radial-gradient(circle at 0 50%, currentColor 0 2px, transparent 3px);
+  opacity: .55;
+}
+.logo-usdt::before {
+  width: 30px;
+  height: 4px;
+  top: 16px;
+  left: 12px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.logo-usdt::after,
+.logo-visa::after,
+.logo-playstation::after {
+  width: 30px;
+  height: 3px;
+  left: 12px;
+  bottom: 13px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: .45;
+}
+.logo-masterswag::before {
+  width: 30px;
+  height: 17px;
+  left: 12px;
+  top: 13px;
+  clip-path: polygon(0 100%, 0 32%, 27% 58%, 50% 10%, 73% 58%, 100% 32%, 100% 100%);
+  background: currentColor;
+  opacity: .2;
+}
+.logo-razer::after,
+.logo-nintendo::after,
+.logo-starbucks::after,
+.logo-paypal::after,
+.logo-payeer::after,
+.logo-uber::after,
+.logo-generic::after {
+  inset: 8px;
+  border: 2px solid currentColor;
+  border-radius: 16px;
+  opacity: .12;
+}
+.tone-amazon .brand-poster { --brand-a: #111827; --brand-b: #2f6fed; --brand-c: #241044; --brand-glow: rgba(255,176,66,.26); --logo-ink: #151827; }
+.tone-itunes .brand-poster { --brand-a: #29124f; --brand-b: #8c4cff; --brand-c: #11225b; --brand-glow: rgba(255,255,255,.24); --logo-ink: #5b22d6; }
+.tone-razer .brand-poster { --brand-a: #141807; --brand-b: #d7a927; --brand-c: #12260c; --brand-glow: rgba(255,231,118,.24); --logo-ink: #5f4300; }
+.tone-steam .brand-poster { --brand-a: #0c1726; --brand-b: #2777dc; --brand-c: #0d1019; --brand-glow: rgba(86,170,255,.24); --logo-ink: #173b68; }
+.tone-walmart .brand-poster { --brand-a: #06375e; --brand-b: #1aa5dd; --brand-c: #0f4f82; --brand-glow: rgba(255,214,86,.24); --logo-ink: #0d5b91; }
+.tone-target .brand-poster { --brand-a: #500a12; --brand-b: #e3263b; --brand-c: #28070c; --brand-glow: rgba(255,255,255,.22); --logo-ink: #c71424; }
+.tone-mastercard .brand-poster { --brand-a: #321320; --brand-b: #f08b31; --brand-c: #151124; --brand-glow: rgba(255,208,104,.24); --logo-ink: #201624; }
+.tone-masterswag .brand-poster { --brand-a: #24103d; --brand-b: #7b3bec; --brand-c: #111827; --brand-glow: rgba(255,255,255,.24); --logo-ink: #5a26c8; }
+.tone-visa .brand-poster { --brand-a: #061a51; --brand-b: #316bff; --brand-c: #111827; --brand-glow: rgba(255,221,100,.22); --logo-ink: #173ca6; }
+.tone-paypal .brand-poster,
+.tone-payeer .brand-poster { --brand-a: #043d66; --brand-b: #29a8ff; --brand-c: #09223d; --brand-glow: rgba(255,255,255,.2); --logo-ink: #075e9a; }
+.tone-usdt .brand-poster { --brand-a: #063a33; --brand-b: #21c69a; --brand-c: #09221f; --brand-glow: rgba(115,255,214,.2); --logo-ink: #078264; }
+.tone-uber .brand-poster { --brand-a: #05070c; --brand-b: #3e4656; --brand-c: #05070c; --brand-glow: rgba(255,255,255,.18); --logo-ink: #161b22; }
+.tone-starbucks .brand-poster { --brand-a: #063222; --brand-b: #00a862; --brand-c: #061f18; --brand-glow: rgba(151,255,211,.2); --logo-ink: #007047; }
+.tone-playstation .brand-poster { --brand-a: #082778; --brand-b: #2766f6; --brand-c: #090f3b; --brand-glow: rgba(255,255,255,.22); --logo-ink: #1649b7; }
+.tone-nintendo .brand-poster { --brand-a: #4c0b11; --brand-b: #e60012; --brand-c: #1b0b10; --brand-glow: rgba(255,255,255,.22); --logo-ink: #d90416; }
+.tone-generic .brand-poster { --brand-a: #172033; --brand-b: #4656c8; --brand-c: #121827; --brand-glow: rgba(255,255,255,.18); --logo-ink: #263184; }
 .region-card {
   min-height: 82px;
   display: grid;

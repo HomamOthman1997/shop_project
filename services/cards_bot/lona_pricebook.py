@@ -157,8 +157,9 @@ def _base_rule(market: dict[str, Any], product: dict[str, Any], *, label: str, d
     meta = dict(product.get("manual_card") or {})
     rate = float(_money(meta.get("rate_percent") or 0))
     product_id = str(product.get("id") or "")
-    range_min = meta.get("amount_min") if str(meta.get("kind") or "") == "amount" else None
-    range_max = meta.get("amount_max") if str(meta.get("kind") or "") == "amount" else None
+    kind = str(meta.get("kind") or "")
+    range_min = meta.get("amount_min") if kind == "amount" else None
+    range_max = meta.get("amount_max") if kind == "amount" else None
     return {
         "_id": f"lona-cardex:{market['id']}:{product_id}",
         "brand": str(market["brand"]),
@@ -174,8 +175,8 @@ def _base_rule(market: dict[str, Any], product: dict[str, Any], *, label: str, d
         "public_note": "Warranty: 2 months.",
         "active": True,
         "lona_cardex": True,
-        "lona_kind": str(meta.get("kind") or ""),
-        "requires_custom_value": str(meta.get("kind") or "") in {"mixed", "amount"},
+        "lona_kind": kind,
+        "requires_custom_value": kind in {"mixed", "amount"},
         "readonly": True,
     }
 

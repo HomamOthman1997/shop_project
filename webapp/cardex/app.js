@@ -319,22 +319,26 @@ document.documentElement.lang = lang;
 document.documentElement.dir = rtl ? "rtl" : "ltr";
 
 const BRAND_META = {
-  AMAZON: { mark: "a", tone: "tone-amazon" },
-  ITUNES: { mark: "IT", tone: "tone-itunes" },
-  APPLE: { mark: "A", tone: "tone-itunes" },
-  RAZER: { mark: "Z", tone: "tone-razer" },
-  "RAZER GOLD": { mark: "Z", tone: "tone-razer" },
-  STEAM: { mark: "S", tone: "tone-steam" },
-  WALMART: { mark: "W", tone: "tone-walmart" },
-  TARGET: { mark: "TG", tone: "tone-target" },
-  MASTERCARD: { mark: "MC", tone: "tone-mastercard" },
-  VISA: { mark: "V", tone: "tone-visa" },
-  PAYPAL: { mark: "P", tone: "tone-paypal" },
-  PAYEER: { mark: "P", tone: "tone-payeer" },
-  USDT: { mark: "T", tone: "tone-usdt" },
-  UBER: { mark: "U", tone: "tone-uber" },
-  STARBUCKS: { mark: "SB", tone: "tone-starbucks" },
-  PLAYSTATION: { mark: "PS", tone: "tone-playstation" },
+  AMAZON: { mark: "a", tone: "tone-amazon", logo: "logo-amazon" },
+  ITUNES: { mark: "IT", tone: "tone-itunes", logo: "logo-itunes" },
+  APPLE: { mark: "A", tone: "tone-itunes", logo: "logo-itunes" },
+  RAZER: { mark: "Z", tone: "tone-razer", logo: "logo-razer" },
+  "RAZER GOLD": { mark: "Z", tone: "tone-razer", logo: "logo-razer" },
+  STEAM: { mark: "S", tone: "tone-steam", logo: "logo-steam" },
+  WALMART: { mark: "W", tone: "tone-walmart", logo: "logo-walmart" },
+  TARGET: { mark: "TG", tone: "tone-target", logo: "logo-target" },
+  MASTERCARD: { mark: "MC", tone: "tone-mastercard", logo: "logo-mastercard" },
+  MASTERSWAG: { mark: "MS", tone: "tone-masterswag", logo: "logo-masterswag" },
+  "MASTER SWAG": { mark: "MS", tone: "tone-masterswag", logo: "logo-masterswag" },
+  VISA: { mark: "V", tone: "tone-visa", logo: "logo-visa" },
+  TREMENDOUS: { mark: "TR", tone: "tone-visa", logo: "logo-visa" },
+  PAYPAL: { mark: "P", tone: "tone-paypal", logo: "logo-paypal" },
+  PAYEER: { mark: "P", tone: "tone-payeer", logo: "logo-payeer" },
+  USDT: { mark: "T", tone: "tone-usdt", logo: "logo-usdt" },
+  UBER: { mark: "U", tone: "tone-uber", logo: "logo-uber" },
+  STARBUCKS: { mark: "SB", tone: "tone-starbucks", logo: "logo-starbucks" },
+  PLAYSTATION: { mark: "PS", tone: "tone-playstation", logo: "logo-playstation" },
+  NINTENDO: { mark: "NI", tone: "tone-nintendo", logo: "logo-nintendo" },
 };
 
 const content = document.getElementById("content");
@@ -612,7 +616,13 @@ function filtered(items, fields) {
 
 function brandMeta(brand) {
   const key = String(brand || "").toUpperCase();
-  return BRAND_META[key] || { mark: key.slice(0, 2) || "CX", tone: "tone-generic" };
+  const fallbackMark = key
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("") || key.slice(0, 2) || "CX";
+  return BRAND_META[key] || { mark: fallbackMark, tone: "tone-generic", logo: "logo-generic" };
 }
 
 function currenciesForRegion(brand, region) {
@@ -637,7 +647,8 @@ function displayRuleLabel(row) {
 }
 
 function ruleSortKey(row) {
-  if (row.requires_custom_value || ["mixed", "amount"].includes(String(row.lona_kind || "").toLowerCase())) return 0;
+  const kind = String(row.price_kind || row.lona_kind || "").toLowerCase();
+  if (row.requires_custom_value || ["mixed", "amount"].includes(kind)) return 0;
   return 1;
 }
 
@@ -654,7 +665,7 @@ function renderBrands() {
     const tile = button(`brand-card ${meta.tone}`, "", () => renderRegions(row.brand));
     tile.innerHTML = `
       <div class="brand-poster">
-        <span class="brand-orb">${meta.mark}</span>
+        <span class="brand-logo ${meta.logo}" aria-hidden="true"><span>${meta.mark}</span></span>
         <strong>${row.brand}</strong>
       </div>
     `;
