@@ -165,6 +165,45 @@ def test_stock_preview_masks_sensitive_values():
     assert "recovery@example.com" not in preview
 
 
+def test_stock_preview_keeps_generic_blocks_understandable():
+    preview = custom_services._stock_preview_text(
+        ["PayPal: seller@example.com\nPassword: pass-1\nBank: Wise\n2FA: backup-code"],
+        [],
+    )
+
+    assert "PayPal: se***@example.com" in preview
+    assert "Bank: Wise" in preview
+    assert "pass-1" not in preview
+    assert "backup-code" not in preview
+
+
+def test_stock_preview_abbreviates_unlabeled_plain_lines():
+    preview = custom_services._stock_preview_text(
+        ["dfgbdfmbn,ds\ndfdsfsdfsd\nsdfdsfsdfsds"],
+        [],
+    )
+
+    assert "dfg***ds" in preview
+    assert "dfd***sd" in preview
+    assert "\n***\n***\n***" not in preview
+
+
+def test_stock_input_prompt_uses_block_copy_for_non_email_items():
+    prompt = custom_services._stock_input_prompt("en", {"name": "Paypal"}, mode="append")
+
+    assert "Multi-line accounts stay one item." in prompt
+    assert "separate each item with =====" in prompt
+    assert "Mode: add to existing stock." in prompt
+    assert "one item per line" not in prompt
+
+
+def test_stock_input_prompt_keeps_line_mode_for_email_items():
+    prompt = custom_services._stock_input_prompt("en", {"name": "Gmail"}, mode="replace")
+
+    assert "one item per line" in prompt
+    assert "email1@gmail.com:pass1" in prompt
+
+
 def test_stock_preview_keyboard_is_localized():
     ar_labels = [btn.text for row in custom_services._stock_preview_kb("ar").inline_keyboard for btn in row]
     assert "✅ حفظ الستوك" in ar_labels

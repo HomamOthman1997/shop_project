@@ -774,6 +774,40 @@ def _parse_inventory_submission(text: str, *, ssn_mode: bool, split_plain_lines:
     return items, raw_payload, warnings
 
 
+def _stock_input_prompt(lang: str, endpoint: dict | None, *, mode: str = "replace") -> str:
+    if _service_supports_multi_qty(endpoint):
+        prompt = t(lang, "custom_send_stock_lines")
+    else:
+        prompt = _ui_label(
+            lang,
+            (
+                "Send one full stock item now.\n"
+                "Multi-line accounts stay one item.\n"
+                "To add multiple items, separate each item with =====.\n\n"
+                "Example:\n"
+                "PayPal: seller@example.com\n"
+                "Password: pass1\n"
+                "Bank: Wise\n"
+                "2FA: backup-code\n\n"
+                "Use Back or /cancel to abort."
+            ),
+            (
+                "أرسل عنصر الستوك كامل الآن.\n"
+                "الحساب متعدد الأسطر سيُحفظ كعنصر واحد.\n"
+                "إذا عندك أكثر من عنصر افصل بينهم بسطر =====.\n\n"
+                "مثال:\n"
+                "PayPal: seller@example.com\n"
+                "Password: pass1\n"
+                "Bank: Wise\n"
+                "2FA: backup-code\n\n"
+                "استخدم رجوع أو /cancel للإلغاء."
+            ),
+        )
+    if str(mode or "").strip().lower() == "append":
+        prompt = f"{prompt}\n\n{_ui_label(lang, 'Mode: add to existing stock.', 'الوضع: إضافة إلى الستوك الموجود.')}"
+    return prompt
+
+
 def _stock_preview_text(items: list[str], warnings: list[str]) -> str:
     preview_items = [_mask_stock_preview_item(item) for item in items[:2] if str(item or "").strip()]
     lines = [f"Parsed stock items: {len(items)}"]
@@ -793,6 +827,50 @@ def _stock_preview_text(items: list[str], warnings: list[str]) -> str:
     return "\n".join(lines).strip()
 
 
+_SENSITIVE_STOCK_PREVIEW_KEYS = (
+    "pass",
+    "password",
+    "pwd",
+    "secret",
+    "token",
+    "otp",
+    "2fa",
+    "pin",
+    "code",
+    "backup",
+    "recovery",
+)
+
+
+def _mask_email_preview(value: str) -> str:
+    local, domain = str(value or "").split("@", 1)
+    shown = local[:2] if len(local) > 2 else local[:1]
+    return f"{shown}***@{domain}"
+
+
+def _plain_stock_preview(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if "@" in raw and raw.count("@") == 1:
+        return _mask_email_preview(raw)
+    if len(raw) <= 8:
+        return raw
+    return f"{raw[:3]}***{raw[-2:]}"
+
+
+def _stock_preview_value(key: str, value: str) -> str:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return ""
+    if "@" in raw_value and raw_value.count("@") == 1:
+        return _mask_email_preview(raw_value)
+    key_lower = str(key or "").strip().lower()
+    if any(token in key_lower for token in _SENSITIVE_STOCK_PREVIEW_KEYS):
+        return "***"
+    return _plain_stock_preview(raw_value)
+
+
 def _mask_stock_preview_item(item: str) -> str:
     masked_lines: list[str] = []
     for line in str(item or "").splitlines():
@@ -803,20 +881,10 @@ def _mask_stock_preview_item(item: str) -> str:
             key, value = raw.split(":", 1)
             key = key.strip()
             value = value.strip()
-            if "email" in key.lower() and "@" in value:
-                local, domain = value.split("@", 1)
-                shown = local[:2] if len(local) > 2 else local[:1]
-                masked_lines.append(f"{key}: {shown}***@{domain}")
-            elif value:
-                masked_lines.append(f"{key}: ***")
-            else:
-                masked_lines.append(f"{key}:")
-        elif "@" in raw:
-            local, domain = raw.split("@", 1)
-            shown = local[:2] if len(local) > 2 else local[:1]
-            masked_lines.append(f"{shown}***@{domain}")
+            masked_value = _stock_preview_value(key, value)
+            masked_lines.append(f"{key}: {masked_value}" if masked_value else f"{key}:")
         else:
-            masked_lines.append("***")
+            masked_lines.append(_plain_stock_preview(raw))
     return "\n".join(masked_lines).strip()
 
 
@@ -3021,10 +3089,7 @@ async def set_delivery_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(CustomBuilderStates.waiting_delivery_payload)
 
     if callback.message:
-        prompt = t(lang, "custom_send_stock_lines")
-        if mode == "append":
-            prompt = f"{prompt}\n\nMode: add to existing stock."
-        await callback.message.answer(prompt)
+        await callback.message.answer(_stock_input_prompt(lang, endpoint, mode=mode))
     await callback.answer()
 
 
@@ -3068,7 +3133,7 @@ async def set_delivery_submit(message: types.Message, state: FSMContext):
 
     text = str(message.text or "").strip()
     if not text:
-        return await message.answer(t(await _user_lang(message.from_user.id), "custom_send_stock_lines_plain_text"))
+        return await message.answer(_stock_input_prompt(await _user_lang(message.from_user.id), endpoint))
     if len(text) > _MAX_STOCK_PAYLOAD_CHARS:
         return await message.answer(
             _ui_label(
@@ -3116,7 +3181,9 @@ async def retry_delivery_stock_preview(callback: types.CallbackQuery, state: FSM
         return await callback.answer(t(lang, "reseller_only_command"), show_alert=True)
     await state.set_state(CustomBuilderStates.waiting_delivery_payload)
     if callback.message:
-        await callback.message.answer(t(lang, "custom_send_stock_lines"))
+        catalog_owner_id = await _builder_catalog_owner_id(callback.from_user.id, callback.bot, data)
+        endpoint = await get_node(data.get("delivery_endpoint_id"), reseller_id=catalog_owner_id) if catalog_owner_id else None
+        await callback.message.answer(_stock_input_prompt(lang, endpoint, mode=str(data.get("delivery_stock_mode") or "replace")))
     await callback.answer()
 
 
@@ -3166,7 +3233,8 @@ async def save_delivery_stock_preview(callback: types.CallbackQuery, state: FSMC
     if not items:
         await state.set_state(CustomBuilderStates.waiting_delivery_payload)
         if callback.message:
-            await callback.message.answer(t(lang, "custom_send_stock_lines"))
+            endpoint = await get_node(endpoint_id, reseller_id=catalog_owner_id) if endpoint_id else None
+            await callback.message.answer(_stock_input_prompt(lang, endpoint, mode=str(data.get("delivery_stock_mode") or "replace")))
         return await callback.answer()
 
     stock_mode = str(data.get("delivery_stock_mode") or "replace").strip().lower()
