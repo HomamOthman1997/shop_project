@@ -414,6 +414,20 @@ Password: pass-1
     ]
 
 
+def test_paypal_bank_stock_block_stays_one_item_in_builder_flow():
+    payload = """PayPal: seller@example.com
+Password: pass-1
+Bank: Wise
+2FA: backup-code
+"""
+    split_plain_lines = custom_services._service_supports_multi_qty({"name": "PayPal with Bank"})
+
+    assert split_plain_lines is False
+    assert _parse_inventory_payload(payload, ssn_mode=False, split_plain_lines=split_plain_lines) == [
+        "PayPal: seller@example.com\nPassword: pass-1\nBank: Wise\n2FA: backup-code"
+    ]
+
+
 def test_parse_inventory_submission_adds_incomplete_ssn_warnings():
     payload = """{"ssn": "063460145", "first_name": "ROSANNE", "last_name": "HANTON"}"""
     items, raw_payload, warnings = _parse_inventory_submission(payload, ssn_mode=True)
