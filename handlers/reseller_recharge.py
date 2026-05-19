@@ -125,6 +125,55 @@ async def _clear_reply_markup_safely(message: types.Message | None) -> None:
         raise
     except Exception:
         return
+
+
+async def _replace_inline_message(
+    message: types.Message | None,
+    text: str,
+    *,
+    reply_markup: types.InlineKeyboardMarkup | None = None,
+) -> types.Message | None:
+    if not message:
+        return None
+    try:
+        await message.edit_text(text, reply_markup=reply_markup)
+        return message
+    except TelegramBadRequest as exc:
+        error_text = str(exc).lower()
+        if "message is not modified" in error_text:
+            return message
+        fallback_errors = ("message can't be edited", "message cant be edited", "there is no text in the message to edit")
+        if not any(item in error_text for item in fallback_errors):
+            raise
+    return await message.answer(text, reply_markup=reply_markup)
+
+
+async def _edit_bot_message_text(
+    bot: Bot,
+    *,
+    chat_id: int,
+    message_id: int,
+    text: str,
+    reply_markup: types.InlineKeyboardMarkup | None = None,
+) -> bool:
+    if int(chat_id or 0) == 0 or int(message_id or 0) <= 0:
+        return False
+    try:
+        await bot.edit_message_text(
+            chat_id=int(chat_id),
+            message_id=int(message_id),
+            text=text,
+            reply_markup=reply_markup,
+        )
+        return True
+    except AttributeError:
+        return False
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return True
+        return False
+
+
 _SUPPORT_TOPIC_CATEGORIES = (
     ("services", "Support - Custom Services"),
     ("user_balance", "Support - User Balance"),
@@ -938,7 +987,8 @@ async def reseller_menu_broadcast(callback: types.CallbackQuery, state: FSMConte
     if callback.message:
         lang = await _reseller_lang(callback.from_user.id)
         await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
-        await callback.message.answer(
+        await _replace_inline_message(
+            callback.message,
             _txt(
                 lang,
                 "📣 الإذاعة\n\nهذه الرسالة ستُنشر في قناة هذا البوت الحالية.\nاختر نوع الإرسال، وبعدها ستراجع المحتوى قبل النشر.",
@@ -958,10 +1008,21 @@ async def reseller_broadcast_payload_start(callback: types.CallbackQuery, state:
     await callback.answer()
     if callback.message:
         lang = await _reseller_lang(callback.from_user.id)
-        await callback.message.answer(
+        prompt_message = await _replace_inline_message(
+            callback.message,
             _broadcast_prompt_text(lang, kind),
             reply_markup=_reseller_broadcast_wait_kb(lang),
         )
+        if prompt_message:
+            prompt_chat = getattr(prompt_message, "chat", None) or getattr(callback.message, "chat", None)
+            prompt_message_id = int(getattr(prompt_message, "message_id", 0) or 0)
+            prompt_chat_id = int(getattr(prompt_chat, "id", 0) or 0)
+            if prompt_chat_id <= 0 or prompt_message_id <= 0:
+                return
+            await state.update_data(
+                rs_broadcast_prompt_chat_id=prompt_chat_id,
+                rs_broadcast_prompt_message_id=prompt_message_id,
+            )
 
 
 @router.callback_query(lambda c: c.data in {"rs_broadcast:restart", "rs_broadcast:cancel"})
@@ -974,9 +1035,14 @@ async def reseller_broadcast_restart_or_cancel(callback: types.CallbackQuery, st
     if not callback.message:
         return
     if callback.data == "rs_broadcast:cancel":
-        await callback.message.answer(_txt(lang, "تم إلغاء الإذاعة.", "Broadcast canceled."), reply_markup=reseller_main_menu(lang))
+        await _replace_inline_message(
+            callback.message,
+            _txt(lang, "تم إلغاء الإذاعة.", "Broadcast canceled."),
+            reply_markup=reseller_main_menu(lang),
+        )
         return
-    await callback.message.answer(
+    await _replace_inline_message(
+        callback.message,
         _txt(lang, "اختر نوع الإذاعة من جديد.", "Choose the broadcast type again."),
         reply_markup=_reseller_broadcast_kb(lang),
     )
@@ -1004,7 +1070,7 @@ async def reseller_broadcast_confirm_send(callback: types.CallbackQuery, state: 
     await state.clear()
     lang = await _reseller_lang(callback.from_user.id)
     if callback.message:
-        await callback.message.answer(result_text, reply_markup=reseller_main_menu(lang))
+        await _replace_inline_message(callback.message, result_text, reply_markup=reseller_main_menu(lang))
     await callback.answer(_txt(lang, "تم الإرسال", "Sent") if ok else _txt(lang, "فشل الإرسال", "Send failed"), show_alert=not ok)
 
 
@@ -1240,14 +1306,22 @@ async def reseller_broadcast_payload_submit(message: types.Message, state: FSMCo
         rs_broadcast_fallback_payload=_broadcast_fallback_payload(message, kind),
     )
     await state.set_state(ResellerBroadcastFSM.waiting_confirm)
-    await message.answer(
-        _txt(
-            lang,
-            f"تم تجهيز الإذاعة للمراجعة.\n{_broadcast_payload_summary(message, lang, kind)}\n\nراجع الرسالة التي أرسلتها فوق، ثم اختر طريقة النشر.",
-            f"Broadcast draft is ready.\n{_broadcast_payload_summary(message, lang, kind)}\n\nReview the message you sent above, then choose how to publish.",
-        ),
+    confirm_text = _txt(
+        lang,
+        f"تم تجهيز الإذاعة للمراجعة.\n{_broadcast_payload_summary(message, lang, kind)}\n\nراجع الرسالة التي أرسلتها فوق، ثم اختر طريقة النشر.",
+        f"Broadcast draft is ready.\n{_broadcast_payload_summary(message, lang, kind)}\n\nReview the message you sent above, then choose how to publish.",
+    )
+    prompt_chat_id = int(data.get("rs_broadcast_prompt_chat_id") or 0)
+    prompt_message_id = int(data.get("rs_broadcast_prompt_message_id") or 0)
+    edited = await _edit_bot_message_text(
+        message.bot,
+        chat_id=prompt_chat_id,
+        message_id=prompt_message_id,
+        text=confirm_text,
         reply_markup=_reseller_broadcast_confirm_kb(lang),
     )
+    if not edited:
+        await message.answer(confirm_text, reply_markup=_reseller_broadcast_confirm_kb(lang))
 
 
 async def _settings_main_kb(reseller_id: int, lang: str = "en") -> types.InlineKeyboardMarkup:

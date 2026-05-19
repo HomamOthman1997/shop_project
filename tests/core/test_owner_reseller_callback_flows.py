@@ -321,6 +321,48 @@ async def test_reseller_broadcast_photo_payload_reaches_confirmation(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_reseller_broadcast_payload_edits_prompt_message(monkeypatch):
+    edits: list[dict] = []
+
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=777)
+
+        async def edit_message_text(self, **kwargs):
+            edits.append(kwargs)
+            return SimpleNamespace(message_id=99)
+
+    message = _FakeMessage()
+    message.bot = _Bot()
+    message.photo = [SimpleNamespace(file_id="photo-small"), SimpleNamespace(file_id="photo-large")]
+    message.caption = "hello"
+    state = _FakeState()
+    state.data["rs_broadcast_kind"] = "photo"
+    state.data["rs_broadcast_prompt_chat_id"] = 123
+    state.data["rs_broadcast_prompt_message_id"] = 99
+
+    async def _fake_is_reseller(_uid, _bot):
+        return True
+
+    async def _fake_lang(_uid):
+        return "en"
+
+    monkeypatch.setattr(reseller_recharge, "_is_current_bot_reseller", _fake_is_reseller)
+    monkeypatch.setattr(reseller_recharge, "_reseller_lang", _fake_lang)
+
+    await reseller_recharge.reseller_broadcast_payload_submit(message, state)
+
+    assert state.state == reseller_recharge.ResellerBroadcastFSM.waiting_confirm
+    assert edits
+    assert edits[-1]["chat_id"] == 123
+    assert edits[-1]["message_id"] == 99
+    assert "Broadcast draft is ready" in edits[-1]["text"]
+    callbacks = [btn.callback_data for row in edits[-1]["reply_markup"].inline_keyboard for btn in row]
+    assert "rs_broadcast:send" in callbacks
+    assert not message.sent_texts
+
+
+@pytest.mark.asyncio
 async def test_reseller_broadcast_text_fallback_preserves_send_when_copy_fails(monkeypatch):
     calls = []
 
