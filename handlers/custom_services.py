@@ -4171,7 +4171,7 @@ def _usage_policy_quote_html(lang: str, policy_text: str) -> str:
     policy = str(policy_text or "").strip()
     if not policy:
         return ""
-    title = _ui_label(lang, "Usage Policy", "سياسة الاستخدام")
+    title = "بشرائك المنتج فانت موافق على سياسة الاستخدام⏬"
     return (
         f"<b>{html.escape(title)}</b>\n"
         f"<blockquote expandable>{html.escape(policy)}</blockquote>"
@@ -4201,7 +4201,7 @@ def _buy_confirm_text(
         question = (
             "أرسل تفاصيل الطلب للأدمن، أو اضغط تأكيد إذا لا توجد تفاصيل إضافية."
             if preorder and not customer_note
-            else ("تأكيد الحجز؟" if preorder else t(lang, "confirm_purchase_question"))
+            else ("تأكيد الحجز؟" if preorder else "")
         )
     else:
         lines = ["Confirm purchase"]
@@ -4215,12 +4215,13 @@ def _buy_confirm_text(
         question = (
             "Reply with order details for the admin, or press Confirm if no details are needed."
             if preorder and not customer_note
-            else ("Confirm reservation?" if preorder else t(lang, "confirm_purchase_question"))
+            else ("Confirm reservation?" if preorder else "")
         )
     policy_quote = _usage_policy_quote_html(lang, usage_policy_text)
     if policy_quote:
         lines.extend(["", policy_quote])
-    lines.extend(["", question])
+    if question:
+        lines.extend(["", question])
     return "\n".join(lines).strip()
 
 

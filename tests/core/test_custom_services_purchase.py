@@ -108,10 +108,10 @@ async def test_show_buy_confirm_includes_expandable_usage_policy(monkeypatch):
     await custom_services._show_buy_confirm(message, state, endpoint, 1)
 
     text = message.edits[-1]["text"]
-    assert "<b>Usage Policy</b>" in text
+    assert "<b>بشرائك المنتج فانت موافق على سياسة الاستخدام⏬</b>" in text
     assert "<blockquote expandable>" in text
     assert "Read before buying &lt;must&gt;" in text
-    assert "Confirm purchase?" in text
+    assert "Confirm purchase?" not in text
     assert message.edits[-1]["kwargs"].get("parse_mode") == "HTML"
 
 
