@@ -32,6 +32,57 @@ class _FakeMessage:
 
 
 @pytest.mark.asyncio
+async def test_ask_recharge_amount_uses_method_rate_and_arabic_prompt(monkeypatch):
+    class _MethodState:
+        def __init__(self):
+            self.data = {
+                "recharge_lang": "ar",
+                "recharge_methods": [
+                    {
+                        "code": "shamcash_syp",
+                        "title": "ShamCash (SYP)",
+                        "currency": "SYP",
+                        "per_credit": 14500.0,
+                        "target": "4837013dbf3a68db82694dde3bc426d9",
+                        "instructions": "حوّل المبلغ ثم أرسل إثبات الدفع.",
+                    }
+                ],
+                "recharge_method_map": {"ShamCash (SYP)": "shamcash_syp"},
+            }
+            self.state = None
+
+        async def get_data(self):
+            return dict(self.data)
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def set_state(self, state):
+            self.state = state
+
+        async def clear(self):
+            return None
+
+    async def _fake_user(_user_id):
+        return {"language": "ar"}
+
+    async def _unexpected_rate():
+        raise AssertionError("selected method per_credit should be used")
+
+    message = _FakeMessage("ShamCash (SYP)")
+    state = _MethodState()
+    monkeypatch.setattr(main_menu, "get_user", _fake_user)
+    monkeypatch.setattr(main_menu, "get_owner_exchange_rate", _unexpected_rate)
+
+    await main_menu.ask_recharge_amount(message, state)
+
+    assert state.state == main_menu.RechargeFlow.waiting_amount
+    assert "1 كريدت = 14500.0000 SYP" in message.answers[0]["text"]
+    assert "1 credit" not in message.answers[0]["text"]
+    assert message.answers[-1]["text"] == t("ar", "send_amount_now")
+
+
+@pytest.mark.asyncio
 async def test_recharge_proof_text_uses_current_user_language(monkeypatch):
     message = _FakeMessage("not a screenshot")
     state = _FakeState()
@@ -74,6 +125,42 @@ async def test_receive_recharge_amount_uses_current_user_language(monkeypatch):
 
     assert message.answers
     assert message.answers[-1]["text"] == t("ar", "send_payment_proof_now")
+
+
+@pytest.mark.asyncio
+async def test_receive_recharge_amount_uses_selected_method_rate(monkeypatch):
+    captured = {}
+
+    class _AmountState:
+        async def get_data(self):
+            return {
+                "recharge_lang": "ar",
+                "recharge_method": {"currency": "SYP", "per_credit": 14500.0},
+            }
+
+        async def set_state(self, state):
+            captured["state"] = state
+
+        async def update_data(self, **kwargs):
+            captured.update(kwargs)
+
+    message = _FakeMessage("29000")
+    state = _AmountState()
+
+    async def _fake_user(_user_id):
+        return {"language": "ar"}
+
+    async def _unexpected_rate():
+        raise AssertionError("selected method per_credit should be used")
+
+    monkeypatch.setattr(main_menu, "get_user", _fake_user)
+    monkeypatch.setattr(main_menu, "get_owner_exchange_rate", _unexpected_rate)
+
+    await main_menu.receive_recharge_amount(message, state)
+
+    assert captured["state"] == main_menu.RechargeFlow.waiting_proof
+    assert captured["recharge_per_credit"] == 14500.0
+    assert captured["recharge_credits"] == 2.0
 
 
 @pytest.mark.asyncio

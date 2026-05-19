@@ -104,6 +104,26 @@ async def _wallet_scope_error_text(*, lang: str, bot_id: int) -> str:
     return t(lang, "no_reseller_link_found")
 
 
+async def _effective_recharge_per_credit(method: dict) -> float:
+    try:
+        per_credit = float(method.get("per_credit") or 0)
+    except Exception:
+        per_credit = 0.0
+    if per_credit > 0:
+        return per_credit
+    currency = str(method.get("currency", "USD")).upper()
+    if currency == "SYP":
+        return float(await get_owner_exchange_rate())
+    return 1.0
+
+
+def _recharge_rate_line(lang: str, rate: float, currency: str) -> str:
+    is_ar = str(lang or "").lower().startswith("ar")
+    if is_ar:
+        return f"السعر: <b>1 كريدت = {rate:.4f} {currency}</b>"
+    return f"Rate: <b>1 credit = {rate:.4f} {currency}</b>"
+
+
 async def _uses_platform_wallet(bot_id: int) -> bool:
     return await is_main_bot(bot_id) or await is_digital_products_bot(bot_id) or await is_numbers_bot(bot_id)
 
@@ -1061,8 +1081,7 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
 
     rendered_instructions = str(selected.get("instructions") or "")
     currency_code = str(selected.get("currency", "USD")).upper()
-    global_rate = await get_owner_exchange_rate()
-    effective_rate = float(global_rate) if currency_code == "SYP" else 1.0
+    effective_rate = await _effective_recharge_per_credit(selected)
     try:
         rendered_instructions = rendered_instructions.format(
             target=raw_target or "-",
@@ -1081,11 +1100,10 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
     is_ar_flow = str(flow_lang or "").lower().startswith("ar")
     target_label = "بيانات الدفع" if is_ar_flow else "Payment target"
     currency_label = "العملة" if is_ar_flow else "Currency"
-    rate_label = "السعر" if is_ar_flow else "Rate"
     instructions = (
         f"<b>{method_title}</b>\n"
         f"{currency_label}: <b>{currency}</b>\n"
-        f"{rate_label}: <b>{rate:.4f} {currency}</b> = 1 credit\n\n"
+        f"{_recharge_rate_line(flow_lang, rate, currency)}\n\n"
         f"{target_label}:\n"
         f"{targets_block}\n\n"
         f"{escape(rendered_instructions)}"
@@ -1139,11 +1157,7 @@ async def receive_recharge_amount(message: types.Message, state: FSMContext):
 
     data = await state.get_data()
     method = data.get("recharge_method") or {}
-    currency_code = str(method.get("currency", "USD")).upper()
-    per_credit = 1.0
-    if currency_code == "SYP":
-        global_rate = await get_owner_exchange_rate()
-        per_credit = float(global_rate)
+    per_credit = await _effective_recharge_per_credit(method)
     credits = paid_amount / per_credit
 
     await state.update_data(

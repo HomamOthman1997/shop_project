@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0, os.getcwd())
 
 from database.owner_payment_settings_repo import _default_owner_payment_methods, render_owner_method_instructions
-from handlers.reseller_recharge import _format_payment_methods_text, _parse_payment_currency, _settings_method_kb, _owner_topup_methods_kb
+from handlers.reseller_recharge import _format_payment_method_details, _format_payment_methods_text, _parse_payment_currency, _settings_method_kb, _owner_topup_methods_kb
 
 
 def test_default_owner_payment_methods_shape():
@@ -59,6 +59,26 @@ def test_reseller_payment_method_helpers_are_first_bot_friendly():
 
     callbacks = [btn.callback_data for row in _settings_method_kb("usdt").inline_keyboard for btn in row]
     assert "rs:mset:only:usdt" in callbacks
+
+
+def test_reseller_payment_method_details_show_customer_message_not_raw_template():
+    text = _format_payment_method_details(
+        {
+            "code": "cash",
+            "title": "Cash",
+            "enabled": True,
+            "target": "REAL_ACCOUNT",
+            "currency": "SYP",
+            "per_credit": 14500,
+            "support": "@help",
+            "instructions": "Pay to {target} then contact {support}",
+        },
+        "ar",
+    )
+
+    assert "{target}" not in text
+    assert "REAL_ACCOUNT" in text
+    assert "رسالة الدفع التي ستظهر للزبون" in text
 
 
 def test_main_reseller_bot_link_helper(monkeypatch):

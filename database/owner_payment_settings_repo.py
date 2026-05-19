@@ -14,14 +14,9 @@ def _method_per_credit(currency: str, exchange_rate: float) -> float:
 
 def _owner_syriatel_cash_instructions() -> str:
     return (
-        "خطوات شحن الرصيد عبر سيريتل كاش (تحويل يدوي) ✅\n"
-        "1. التحويل: أرسل المبلغ الذي تريد شحنه إلى الرقم التالي:\n"
-        "{target}\n\n"
-        "2. التوثيق: أدخل معرف العملية كما وصلك في رسالة التحويل.\n"
-        "3. التأكيد: أدخل قيمة المبلغ المحوّل بالليرة السورية ليتم إضافة الرصيد تلقائيًا.\n\n"
-        "📍 للدعم: إذا كانت الأرقام مشغولة أو واجهت أي مشكلة، تواصل معنا: {support}\n"
-        "سياسة الشحن: الرصيد المشحون غير قابل للاسترداد.\n"
-        "( {per_credit:.0f} {currency} = 1 Credit )"
+        "حوّل المبلغ إلى رقم سيريتل كاش الظاهر أعلاه.\n"
+        "بعد التحويل أرسل المبلغ الذي دفعته، ثم أرسل لقطة إثبات الدفع.\n"
+        "إذا واجهت أي مشكلة تواصل مع الدعم: {support}"
     )
 
 
@@ -49,9 +44,8 @@ def _default_owner_payment_methods(exchange_rate: float) -> list[dict]:
             "target": "SET_OWNER_SHAMCASH_SYP_ACCOUNT",
             "support": "@support",
             "instructions": (
-                "Send payment to:\n{target}\n\n"
-                "Then send proof screenshot.\n"
-                "Rate: {per_credit:.0f} {currency} = 1 credit"
+                "Send the payment to the ShamCash account shown above.\n"
+                "After sending, enter the amount you paid, then upload the payment proof screenshot."
             ),
         },
         {
@@ -64,9 +58,8 @@ def _default_owner_payment_methods(exchange_rate: float) -> list[dict]:
             "target": "SET_OWNER_SHAMCASH_USD_ACCOUNT",
             "support": "@support",
             "instructions": (
-                "Send payment to:\n{target}\n\n"
-                "Then send proof screenshot.\n"
-                "Rate: {per_credit:.2f} {currency} = 1 credit"
+                "Send the payment to the ShamCash account shown above.\n"
+                "After sending, enter the amount you paid, then upload the payment proof screenshot."
             ),
         },
         {
@@ -79,9 +72,8 @@ def _default_owner_payment_methods(exchange_rate: float) -> list[dict]:
             "target": "SET_OWNER_USDT_BEP20_ADDRESS",
             "support": "@support",
             "instructions": (
-                "Send USDT (BEP20) to:\n{target}\n\n"
-                "Then send proof screenshot.\n"
-                "Rate: {per_credit:.2f} {currency} = 1 credit"
+                "Send USDT over BEP20 to the wallet address shown above.\n"
+                "After sending, enter the amount you paid, then upload the payment proof screenshot or transaction hash."
             ),
         },
     ]
@@ -99,6 +91,9 @@ def _is_legacy_owner_syriatel_instructions(text: str | None) -> bool:
     if not s:
         return False
     legacy_markers = (
+        "خطوات شحن الرصيد عبر سيريتل كاش",
+        "أدخل معرف العملية",
+        "أدخل قيمة المبلغ المحوّل",
         "Transfer manually to:",
         "For support contact:",
         "أرسل المبلغ إلى حساب سيرياتيل كاش التالي (تحويل يدوي):",
@@ -106,6 +101,20 @@ def _is_legacy_owner_syriatel_instructions(text: str | None) -> bool:
         "ملاحظة: لا تُقبل عملية إرسال وحدات.",
     )
     return any(marker in s for marker in legacy_markers)
+
+
+def _is_legacy_owner_payment_instructions(code: str, text: str | None) -> bool:
+    s = str(text or "").strip()
+    if not s:
+        return False
+    if code == "owner_syriatel_cash" and _is_legacy_owner_syriatel_instructions(s):
+        return True
+    markers_by_code = {
+        "owner_shamcash_syp": ("Send payment to:", "Rate: {per_credit:.0f} {currency} = 1 credit"),
+        "owner_shamcash_usd": ("Send payment to:", "Rate: {per_credit:.2f} {currency} = 1 credit"),
+        "owner_crypto_usdt": ("Send USDT (BEP20) to:", "Rate: {per_credit:.2f} {currency} = 1 credit"),
+    }
+    return any(marker in s for marker in markers_by_code.get(code, ()))
 
 
 async def _get_doc() -> dict:
@@ -190,11 +199,8 @@ async def get_owner_payment_methods() -> list[dict]:
         if _looks_broken_text(item.get("title")):
             item["title"] = fallback.get("title", code)
             changed = True
-        if _looks_broken_text(item.get("instructions")):
+        if _looks_broken_text(item.get("instructions")) or _is_legacy_owner_payment_instructions(code, item.get("instructions")):
             item["instructions"] = fallback.get("instructions", "")
-            changed = True
-        if code == "owner_syriatel_cash" and _is_legacy_owner_syriatel_instructions(item.get("instructions")):
-            item["instructions"] = _owner_syriatel_cash_instructions()
             changed = True
         if "enabled" not in item:
             item["enabled"] = bool(fallback.get("enabled", True))

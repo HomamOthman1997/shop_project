@@ -1570,10 +1570,10 @@ def _format_payment_methods_text(methods: list[dict], lang: str = "en") -> str:
 
 def _format_payment_method_details(method: dict, lang: str = "en") -> str:
     is_ar = _is_ar(lang)
-    rendered = str(method.get("instructions") or "")
-    preview = render_method_instructions(method)
-    if len(rendered) > 500:
-        rendered = rendered[:500] + "..."
+    try:
+        preview = render_method_instructions(method)
+    except Exception:
+        preview = str(method.get("instructions") or "")
     if len(preview) > 700:
         preview = preview[:700] + "..."
     setup_state = _txt(lang, "جاهزة", "Ready") if bool(method.get("enabled", True)) and not _payment_method_needs_target(method) else _txt(lang, "تحتاج رقم/محفظة", "Needs number/wallet")
@@ -1590,8 +1590,8 @@ def _format_payment_method_details(method: dict, lang: str = "en") -> str:
             f"سعر كل كريدت: {float(method.get('per_credit', 1.0)):.4f}\n"
             f"الرقم/المحفظة: {method.get('target')}\n"
             f"الدعم: {method.get('support')}\n\n"
-            f"نص التعليمات:\n{rendered}\n\n"
-            f"المعاينة للزبون:\n{preview}"
+            f"رسالة الدفع التي ستظهر للزبون:\n{preview}\n\n"
+            "زر نص التعليمات يغيّر هذه الرسالة فقط."
         )
     return (
         "Payment Method Details\n\n"
@@ -1603,8 +1603,8 @@ def _format_payment_method_details(method: dict, lang: str = "en") -> str:
         f"Per Credit: {float(method.get('per_credit', 1.0)):.4f}\n"
         f"Target: {method.get('target')}\n"
         f"Support: {method.get('support')}\n\n"
-        f"Text template:\n{rendered}\n\n"
-        f"User preview:\n{preview}"
+        f"Customer payment message:\n{preview}\n\n"
+        "Use Set Instructions Text to edit this message."
     )
 
 
@@ -2926,8 +2926,8 @@ async def settings_method_edit_start(callback: types.CallbackQuery, state: FSMCo
             "enabled": "أرسل حالة الوسيلة: on/off أو تشغيل/إيقاف",
             "support": "أرسل يوزر الدعم. مثال: @support_user",
             "text": (
-                "أرسل نص التعليمات كاملًا الآن.\n"
-                "المتغيرات المسموحة: {target} {support} {per_credit} {currency}"
+                "أرسل رسالة الدفع التي ستظهر للزبون بعد اختياره لهذه الوسيلة.\n"
+                "بيانات الدفع والسعر تظهر تلقائيًا فوق الرسالة. المتغيرات المسموحة عند الحاجة: {target} {support} {per_credit} {currency}"
             ),
             "rate": "أرسل سعر الكريدت الجديد كرقم أكبر من صفر.",
         }
@@ -2939,8 +2939,8 @@ async def settings_method_edit_start(callback: types.CallbackQuery, state: FSMCo
             "enabled": "Send method status: on/off, enable/disable, or تشغيل/إيقاف",
             "support": "Send support username (example: @support_user).",
             "text": (
-                "Send full instructions text now.\n"
-                "Allowed placeholders: {target} {support} {per_credit} {currency}"
+                "Send the payment message customers will see after choosing this method.\n"
+                "The payment target and rate are shown automatically above it. Allowed placeholders when needed: {target} {support} {per_credit} {currency}"
             ),
             "rate": "Send new per-credit value (numeric, > 0).",
         }

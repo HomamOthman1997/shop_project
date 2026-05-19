@@ -11,14 +11,9 @@ DEFAULT_EXCHANGE_RATE = 10500.0
 
 def _syriatel_cash_instructions() -> str:
     return (
-        "خطوات شحن الرصيد عبر سيريتل كاش (تحويل يدوي) ✅\n"
-        "1. التحويل: أرسل المبلغ الذي تريد شحنه إلى الرقم التالي:\n"
-        "{target}\n\n"
-        "2. التوثيق: أدخل معرف العملية كما وصلك في رسالة التحويل.\n"
-        "3. التأكيد: أدخل قيمة المبلغ المحوّل بالليرة السورية ليتم إضافة الرصيد تلقائيًا.\n\n"
-        "📍 للدعم: إذا كانت الأرقام مشغولة أو واجهت أي مشكلة، تواصل معنا: {support}\n"
-        "سياسة الشحن: الرصيد المشحون غير قابل للاسترداد.\n"
-        "( {per_credit:.0f} {currency} = 1 Credit )"
+        "حوّل المبلغ إلى رقم سيريتل كاش الظاهر أعلاه.\n"
+        "بعد التحويل أرسل المبلغ الذي دفعته، ثم أرسل لقطة إثبات الدفع.\n"
+        "إذا واجهت أي مشكلة تواصل مع الدعم: {support}"
     )
 
 
@@ -46,10 +41,8 @@ def _default_payment_methods(exchange_rate: float) -> list[dict]:
             "target": "SET_SHAMCASH_SYP_ACCOUNT",
             "support": "@support",
             "instructions": (
-                "أرسل المبلغ إلى حساب شام كاش التالي:\n\n"
-                "{target}\n\n"
-                "ثم أرسل لقطة شاشة تأكيد العملية.\n"
-                "( {per_credit:.0f} {currency} = 1 Credit )"
+                "حوّل المبلغ إلى حساب شام كاش الظاهر أعلاه.\n"
+                "بعد التحويل أرسل المبلغ الذي دفعته، ثم أرسل لقطة إثبات الدفع."
             ),
         },
         {
@@ -62,10 +55,8 @@ def _default_payment_methods(exchange_rate: float) -> list[dict]:
             "target": "SET_SHAMCASH_USD_ACCOUNT",
             "support": "@support",
             "instructions": (
-                "أرسل المبلغ إلى حساب شام كاش التالي:\n\n"
-                "{target}\n\n"
-                "ثم أرسل لقطة شاشة تأكيد العملية.\n"
-                "( {per_credit:.0f} {currency} = 1 Credit )"
+                "حوّل المبلغ إلى حساب شام كاش الظاهر أعلاه.\n"
+                "بعد التحويل أرسل المبلغ الذي دفعته، ثم أرسل لقطة إثبات الدفع."
             ),
         },
         {
@@ -78,11 +69,8 @@ def _default_payment_methods(exchange_rate: float) -> list[dict]:
             "target": "SET_USDT_BEP20_ADDRESS",
             "support": "@support",
             "instructions": (
-                "أرسل المبلغ إلى عنوان المحفظة التالي:\n\n"
-                "{target}\n\n"
-                "ملاحظة: التعامل فقط بعملة USDT عبر Bep20.\n"
-                "( {per_credit:.2f} {currency} = 1 Credit )\n"
-                "قد تستغرق العملية من 10 إلى 20 دقيقة لتأكيد الشبكة."
+                "أرسل USDT عبر شبكة BEP20 إلى عنوان المحفظة الظاهر أعلاه.\n"
+                "بعد التحويل أرسل المبلغ الذي دفعته، ثم أرسل لقطة أو هاش إثبات الدفع."
             ),
         },
     ]
@@ -104,6 +92,9 @@ def _is_legacy_syriatel_instructions(text: str | None) -> bool:
     if not s:
         return False
     legacy_markers = (
+        "خطوات شحن الرصيد عبر سيريتل كاش",
+        "أدخل معرف العملية",
+        "أدخل قيمة المبلغ المحوّل",
         "أرسل المبلغ إلى حساب سيرياتيل كاش التالي (تحويل يدوي):",
         "إذا واجهت مشكلة في الحد تواصل مع الدعم:",
         "ملاحظة: لا تُقبل عملية إرسال وحدات.",
@@ -111,6 +102,32 @@ def _is_legacy_syriatel_instructions(text: str | None) -> bool:
         "For support contact:",
     )
     return any(marker in s for marker in legacy_markers)
+
+
+def _is_legacy_payment_instructions(code: str, text: str | None) -> bool:
+    s = str(text or "").strip()
+    if not s:
+        return False
+    if code == "syriatel_cash" and _is_legacy_syriatel_instructions(s):
+        return True
+    markers_by_code = {
+        "shamcash_syp": (
+            "أرسل المبلغ إلى حساب شام كاش التالي:",
+            "ثم أرسل لقطة شاشة تأكيد العملية.",
+            "( {per_credit:.0f} {currency} = 1 Credit )",
+        ),
+        "shamcash_usd": (
+            "أرسل المبلغ إلى حساب شام كاش التالي:",
+            "ثم أرسل لقطة شاشة تأكيد العملية.",
+            "( {per_credit:.0f} {currency} = 1 Credit )",
+        ),
+        "crypto_usdt": (
+            "أرسل المبلغ إلى عنوان المحفظة التالي:",
+            "ملاحظة: التعامل فقط بعملة USDT عبر Bep20.",
+            "( {per_credit:.2f} {currency} = 1 Credit )",
+        ),
+    }
+    return any(marker in s for marker in markers_by_code.get(code, ()))
 
 
 async def _get_settings_doc(reseller_id: int) -> dict:
@@ -362,11 +379,8 @@ async def get_payment_methods(reseller_id: int) -> list[dict]:
             continue
         fallback = defaults_by_code.get(code, {})
 
-        if _looks_broken_text(item.get("instructions")):
+        if _looks_broken_text(item.get("instructions")) or _is_legacy_payment_instructions(code, item.get("instructions")):
             item["instructions"] = fallback.get("instructions", item.get("instructions", ""))
-            changed = True
-        if code == "syriatel_cash" and _is_legacy_syriatel_instructions(item.get("instructions")):
-            item["instructions"] = _syriatel_cash_instructions()
             changed = True
         if _looks_broken_text(item.get("title")):
             item["title"] = fallback.get("title", item.get("title", code))
