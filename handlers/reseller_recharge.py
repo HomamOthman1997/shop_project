@@ -523,6 +523,10 @@ def _txt(lang: str, ar: str, en: str) -> str:
     return ar if _is_ar(lang) else en
 
 
+def _message_text_or_caption(message: types.Message) -> str:
+    return str(getattr(message, "text", None) or getattr(message, "caption", None) or "").strip()
+
+
 def _ready_mark(value: bool) -> str:
     return "✅" if bool(value) else "❌"
 
@@ -2964,7 +2968,7 @@ async def settings_method_edit_apply(message: types.Message, state: FSMContext):
         await state.clear()
         return await message.answer("Settings context lost. Open settings again.")
 
-    raw = (message.text or "").strip()
+    raw = _message_text_or_caption(message)
     if not raw:
         return await message.answer("Value cannot be empty.")
 

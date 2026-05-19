@@ -222,6 +222,67 @@ async def test_notify_recharge_request_user_uses_source_bot(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_payment_method_target_accepts_photo_caption(monkeypatch):
+    updates: list[tuple[int, str, dict]] = []
+
+    class FakeState:
+        def __init__(self):
+            self.cleared = False
+
+        async def get_data(self):
+            return {"rs_method_code": "paypal", "rs_method_field": "target"}
+
+        async def clear(self):
+            self.cleared = True
+
+    class FakeMessage:
+        def __init__(self):
+            self.text = None
+            self.caption = "4837013dbf3a68db82694dde3bc426d9"
+            self.from_user = SimpleNamespace(id=77)
+            self.bot = SimpleNamespace()
+            self.answers = []
+
+        async def answer(self, text, **kwargs):
+            self.answers.append({"text": str(text), "kwargs": kwargs})
+
+    async def fake_is_reseller(_user_id, _bot):
+        return True
+
+    async def fake_update_payment_method(reseller_id, code, **kwargs):
+        updates.append((reseller_id, code, kwargs))
+        return True
+
+    async def fake_find_payment_method(_reseller_id, code):
+        return {
+            "code": code,
+            "title": "Paypal",
+            "target": updates[-1][2]["target"],
+            "currency": "USD",
+            "per_credit": 1.0,
+            "enabled": True,
+            "instructions": "Send to {target}",
+        }
+
+    async def fake_lang(_user_id):
+        return "en"
+
+    monkeypatch.setattr(reseller_recharge, "_is_current_bot_reseller", fake_is_reseller)
+    monkeypatch.setattr(reseller_recharge, "update_payment_method", fake_update_payment_method)
+    monkeypatch.setattr(reseller_recharge, "_find_payment_method", fake_find_payment_method)
+    monkeypatch.setattr(reseller_recharge, "_reseller_lang", fake_lang)
+
+    state = FakeState()
+    message = FakeMessage()
+    await reseller_recharge.settings_method_edit_apply(message, state)
+
+    assert state.cleared is True
+    assert updates == [(77, "paypal", {"target": "4837013dbf3a68db82694dde3bc426d9"})]
+    assert not any("Value cannot be empty" in row["text"] for row in message.answers)
+    assert any("Payment Method Details" in row["text"] for row in message.answers)
+
+
+@pytest.mark.asyncio
 async def test_resolve_notification_bot_uses_configured_numbers_bot_token(monkeypatch):
     created: list[tuple[str, int | None]] = []
 
