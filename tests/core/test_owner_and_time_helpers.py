@@ -223,6 +223,8 @@ async def test_reseller_dashboard_text_is_actionable(monkeypatch):
     assert "Set a real number or wallet" in text
     assert "Customer support: 2/2 ready (optional)" in text
     assert "Payment methods: 0/1 ready" in text
+    assert "Use the buttons below" not in text
+    assert "DM fallback" not in text
     assert "Open numbers orders" not in text
     assert "Custom-services profit" not in text
     assert "Exchange routing" not in text

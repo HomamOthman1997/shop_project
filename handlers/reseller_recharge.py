@@ -554,13 +554,13 @@ def _dashboard_next_step(
         if configured_methods < enabled_methods:
             return "البوت قابل للاستخدام الآن. عطّل أو أكمل وسائل الدفع الزائدة لاحقًا."
         if not payment_routing_ok:
-            return "البوت يعمل عبر رسائلك الخاصة. اربط توبيك دفع لاحقًا إذا أردت تنظيم الطلبات في غروب."
+            return "طلبات الدفع ستصلك على الرسائل الخاصة. اربط توبيك لاحقًا إذا أردت تنظيمها في غروب."
         if support_ready < support_total:
             return "إعدادات الدعم اختيارية ويمكن إكمالها لاحقًا."
         if pending_recharge > 0:
             return "راجع طلبات الشحن المعلقة."
         if ready:
-            return "البوت جاهز. استخدم الأزرار بالأسفل فقط عند الحاجة."
+            return "البوت جاهز."
         return "أكمل الإعدادات الناقصة قبل نشر البوت."
 
     if not enabled_methods:
@@ -570,13 +570,13 @@ def _dashboard_next_step(
     if configured_methods < enabled_methods:
         return "The bot can run now. Disable or finish the extra enabled methods later."
     if not payment_routing_ok:
-        return "DM fallback is active. Bind a payment topic later if you want group review."
+        return "Payment requests will arrive by direct message. Bind a topic later if you want group review."
     if support_ready < support_total:
         return "Support topics are optional and can be finished later."
     if pending_recharge > 0:
         return "Review pending recharge requests."
     if ready:
-        return "Your bot is ready. Use the buttons below only when needed."
+        return "Your bot is ready."
     return "Finish the missing setup before publishing this bot."
 
 
@@ -814,7 +814,7 @@ async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int, lang: st
     if is_ar:
         recharge_line = f"{pending_recharge} معلقة" if pending_recharge else "لا يوجد طلبات معلقة"
         payment_route_line = (
-            f"{_ready_mark(True)} رسائل خاصة (جاهز)"
+            f"{_ready_mark(True)} رسائل خاصة"
             if not setup.get("payment_routing_ok")
             else f"{_ready_mark(True)} توبيك/غروب"
         )
@@ -832,7 +832,7 @@ async def _build_reseller_dashboard_text(reseller_id: int, bot_id: int, lang: st
         )
 
     recharge_line = f"{pending_recharge} pending" if pending_recharge else "none pending"
-    payment_route_line = "✅ DM fallback (ready)" if not setup.get("payment_routing_ok") else "✅ Topic/group"
+    payment_route_line = "✅ Direct messages" if not setup.get("payment_routing_ok") else "✅ Topic/group"
     return (
         "📊 Control Center\n\n"
         f"• Bot status: {_ready_mark(ready)} {_ready_word(lang, ready)}\n"
@@ -947,7 +947,8 @@ async def reseller_menu_dashboard(callback: types.CallbackQuery):
         lang = await _reseller_lang(callback.from_user.id)
         await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
         bot_id = (await callback.bot.get_me()).id
-        await callback.message.answer(
+        await _replace_inline_message(
+            callback.message,
             await _build_reseller_dashboard_text(callback.from_user.id, bot_id, lang),
             reply_markup=_reseller_dashboard_kb(lang),
         )
@@ -1126,7 +1127,8 @@ async def reseller_menu_stats(callback: types.CallbackQuery):
     if callback.message:
         lang = await _reseller_lang(callback.from_user.id)
         await _hide_reply_keyboard(callback.bot, callback.message.chat.id, lang)
-        await callback.message.answer(
+        await _replace_inline_message(
+            callback.message,
             await _build_reseller_stats_text(callback.from_user.id, (await callback.bot.get_me()).id, lang),
             reply_markup=_reseller_stats_kb(lang),
         )
@@ -1335,8 +1337,8 @@ async def _settings_main_kb(reseller_id: int, lang: str = "en") -> types.InlineK
     pay_ok = bool(pay_route and pay_route.get("chat_id"))
     ex_ok = bool(ex_route and ex_route.get("chat_id"))
     support_ok = all(bool((support_routes.get(cat) or {}).get("chat_id")) for cat, _ in _SUPPORT_TOPIC_CATEGORIES)
-    pay_label = _txt(lang, f"استلام الدفع {'✅' if pay_ok else 'رسائل خاصة'}", f"Payment Delivery {'✅ Topic' if pay_ok else 'DM Easy'}")
-    ex_label = _txt(lang, f"تنبيهات الصرف {'✅' if ex_ok else 'رسائل خاصة'}", f"Exchange Alerts {'✅ Topic' if ex_ok else 'DM Easy'}")
+    pay_label = _txt(lang, f"استلام الدفع {'✅ توبيك' if pay_ok else 'رسائل خاصة'}", f"Payment Delivery {'✅ Topic' if pay_ok else 'Direct Messages'}")
+    ex_label = _txt(lang, f"تنبيهات الصرف {'✅ توبيك' if ex_ok else 'رسائل خاصة'}", f"Exchange Alerts {'✅ Topic' if ex_ok else 'Direct Messages'}")
     support_label = _txt(lang, f"توبيكات الدعم {'✅' if support_ok else 'اختياري'}", f"Support Topics {'✅' if support_ok else 'Optional'}")
     rate_label = _txt(lang, f"سعر الصرف: {rate:.2f}", f"Exchange Rate: {rate:.2f}")
     ready_count = sum(
@@ -1392,8 +1394,8 @@ async def _settings_overview_text(reseller_id: int, lang: str = "en") -> str:
     total_count = len(methods)
     rate = await get_exchange_rate(int(reseller_id))
 
-    pay_status = _txt(lang, "✅ مربوط" if (pay_route and pay_route.get("chat_id")) else "رسائل خاصة (الوضع الأسهل)", "✅ Bound" if (pay_route and pay_route.get("chat_id")) else "DM fallback (easy mode)")
-    ex_status = _txt(lang, "✅ مربوط" if (ex_route and ex_route.get("chat_id")) else "رسائل خاصة (الوضع الأسهل)", "✅ Bound" if (ex_route and ex_route.get("chat_id")) else "DM fallback (easy mode)")
+    pay_status = _txt(lang, "✅ مربوط" if (pay_route and pay_route.get("chat_id")) else "رسائل خاصة", "✅ Bound" if (pay_route and pay_route.get("chat_id")) else "Direct messages")
+    ex_status = _txt(lang, "✅ مربوط" if (ex_route and ex_route.get("chat_id")) else "رسائل خاصة", "✅ Bound" if (ex_route and ex_route.get("chat_id")) else "Direct messages")
     support_ready = sum(1 for cat, _ in _SUPPORT_TOPIC_CATEGORIES if (support_routes.get(cat) or {}).get("chat_id"))
     support_total = len(_SUPPORT_TOPIC_CATEGORIES)
 
@@ -1491,7 +1493,7 @@ def _payment_setup_help_text(lang: str = "en") -> str:
     if _is_ar(lang):
         return (
             "دليل إعداد الريسيلر:\n\n"
-            "الوضع الأسهل لأول بوت:\n"
+            "الإعداد الأساسي لأول بوت:\n"
             "- تحتاج فقط وسيلة دفع واحدة عليها رقمك الحقيقي أو عنوان محفظتك.\n"
             "- يمكنك ترك الاستلام على الرسائل الخاصة؛ الغروب غير مطلوب لتشغيل أول بوت.\n"
             "- افتح وسائل الدفع، اختر الوسيلة، اضغط ضع رقم/محفظة الدفع، ثم أرسل الرقم أو العنوان.\n"
@@ -1510,9 +1512,9 @@ def _payment_setup_help_text(lang: str = "en") -> str:
         )
     return (
         "Reseller setup guide:\n\n"
-        "Easy mode:\n"
+        "Basic setup:\n"
         "- You only need one payment method with a real number or wallet.\n"
-        "- You can keep routing on DM fallback; no group is required for a first bot.\n"
+        "- You can receive payment requests by direct message; no group is required for a first bot.\n"
         "- Open Payment Methods, choose the method, tap Set Payment Number/Wallet, then paste your number/address.\n"
         "- Tap Use This Method Only if you want to avoid configuring every default method.\n\n"
         "Optional advanced group mode:\n"
