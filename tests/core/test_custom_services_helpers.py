@@ -1050,6 +1050,72 @@ async def test_custom_cancel_from_builder_returns_reseller_menu(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_custom_cancel_with_stale_state_returns_reseller_menu(monkeypatch):
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(id=111)
+
+    class _Message:
+        def __init__(self):
+            self.answers = []
+
+        async def edit_reply_markup(self, reply_markup=None, **_kwargs):
+            return None
+
+        async def answer(self, text, **kwargs):
+            self.answers.append({"text": text, "kwargs": kwargs})
+
+    class _Callback:
+        def __init__(self):
+            self.data = "cstm:cancel"
+            self.from_user = SimpleNamespace(id=9001)
+            self.bot = _Bot()
+            self.message = _Message()
+            self.answers = []
+
+        async def answer(self, text=None, **kwargs):
+            self.answers.append({"text": str(text or ""), "kwargs": kwargs})
+
+    class _State:
+        def __init__(self):
+            self.cleared = False
+
+        async def get_data(self):
+            return {}
+
+        async def clear(self):
+            self.cleared = True
+
+    async def _fake_lang(_user_id):
+        return "en"
+
+    async def _fake_get_user(_user_id):
+        return {"language": "en"}
+
+    async def _fake_is_reseller(_user_id, _bot):
+        return True
+
+    async def _fake_menu_for_current_bot(*_args, **_kwargs):
+        raise AssertionError("stale reseller cancel should not return the customer menu")
+
+    monkeypatch.setattr(custom_services, "_user_lang", _fake_lang)
+    monkeypatch.setattr(custom_services, "get_user", _fake_get_user)
+    monkeypatch.setattr(custom_services, "_is_current_bot_reseller", _fake_is_reseller)
+    monkeypatch.setattr(custom_services, "menu_for_current_bot", _fake_menu_for_current_bot)
+
+    callback = _Callback()
+    state = _State()
+    await custom_services.custom_panel_cancel(callback, state)
+
+    assert state.cleared is True
+    assert "reseller" in callback.message.answers[-1]["text"].lower()
+    markup = callback.message.answers[-1]["kwargs"]["reply_markup"]
+    callbacks = [btn.callback_data for row in markup.inline_keyboard for btn in row if btn.callback_data]
+    assert "rsmenu:dashboard" in callbacks
+    assert "rsmenu:custom_services" in callbacks
+
+
+@pytest.mark.asyncio
 async def test_custom_cancel_from_user_mode_keeps_customer_menu(monkeypatch):
     class _Bot:
         async def get_me(self):

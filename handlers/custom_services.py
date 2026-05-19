@@ -849,9 +849,13 @@ async def _is_current_bot_reseller(user_id: int, bot: Bot) -> bool:
 
 
 async def _custom_return_to_reseller_menu(user_id: int, bot: Bot, data: dict | None) -> bool:
-    if str((data or {}).get("custom_return_to") or "") == _CUSTOM_RETURN_RESELLER_MENU:
+    custom_return_to = str((data or {}).get("custom_return_to") or "").strip()
+    custom_mode = str((data or {}).get("custom_mode") or "").strip()
+    if custom_return_to == _CUSTOM_RETURN_RESELLER_MENU:
         return True
-    if str((data or {}).get("custom_mode") or "") == "builder" and await _is_current_bot_reseller(user_id, bot):
+    if custom_return_to == _CUSTOM_RETURN_BOT_MENU or custom_mode == "user":
+        return False
+    if await _is_current_bot_reseller(user_id, bot):
         return True
     return False
 
