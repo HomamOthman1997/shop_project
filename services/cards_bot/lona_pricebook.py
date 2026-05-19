@@ -35,6 +35,32 @@ def _norm(text: Any) -> str:
     return " ".join(raw.split())
 
 
+def _norm_tokens(text: Any) -> set[str]:
+    return set(_norm(text).split())
+
+
+def _norm_matches(value: Any, aliases: tuple[str, ...]) -> bool:
+    value_norm = _norm(value)
+    if not value_norm:
+        return False
+    for alias in aliases:
+        alias_norm = _norm(alias)
+        if alias_norm and (value_norm == alias_norm or alias_norm in value_norm or value_norm in alias_norm):
+            return True
+    return False
+
+
+def _alias_tokens_inside(value: Any, aliases: tuple[str, ...]) -> bool:
+    value_tokens = _norm_tokens(value)
+    if not value_tokens:
+        return False
+    for alias in aliases:
+        alias_tokens = _norm_tokens(alias)
+        if alias_tokens and alias_tokens.issubset(value_tokens):
+            return True
+    return False
+
+
 def _market(
     market_id: str,
     category_id: str,
@@ -59,19 +85,19 @@ def _market(
 LONA_CARDEX_MARKETS: tuple[dict[str, Any], ...] = (
     _market("itunes_usa", "lona_itunes", "ITUNES", "USA", brand_aliases=("APPLE",), region_aliases=("US",)),
     _market("amazon_us", "lona_amazon_us", "AMAZON", "USA", region_aliases=("US",)),
-    _market("amazon_uk", "lona_amazon_uk", "AMAZON", "UK", region_aliases=("UNITED KINGDOM", "GB")),
-    _market("amazon_de", "lona_amazon_de", "AMAZON", "DE", region_aliases=("GERMANY", "GERMAN")),
-    _market("amazon_fr", "lona_amazon_fr_it_es", "AMAZON", "FR", region_aliases=("FRANCE",)),
-    _market("amazon_it", "lona_amazon_fr_it_es", "AMAZON", "IT", region_aliases=("ITALY",)),
+    _market("amazon_uk", "lona_amazon_uk", "AMAZON", "UNITED KINGDOM", region_aliases=("UK", "GB")),
+    _market("amazon_de", "lona_amazon_de", "AMAZON", "GERMANY", region_aliases=("DE", "GERMAN")),
+    _market("amazon_fr", "lona_amazon_fr_it_es", "AMAZON", "FRANCE", region_aliases=("FR",)),
+    _market("amazon_it", "lona_amazon_fr_it_es", "AMAZON", "ITALY", region_aliases=("IT",)),
     _market("amazon_es", "lona_amazon_fr_it_es", "AMAZON", "SPAIN", region_aliases=("ES",)),
-    _market("uber_uk", "lona_uber_uk", "UBER", "UK", region_aliases=("UNITED KINGDOM", "GB")),
+    _market("amazon_ca", "lona_canada", "AMAZON", "CANADA", brand_aliases=("AMAZON CANADA", "CANADA", "CANADA CARDS"), region_aliases=("CA",)),
+    _market("uber_uk", "lona_uber_uk", "UBER", "UNITED KINGDOM", region_aliases=("UK", "GB")),
     _market("uber_us", "lona_uber_us", "UBER", "USA", region_aliases=("US",)),
     _market("walmart_usa", "lona_walmart", "WALMART", "USA", region_aliases=("US",)),
     _market("nintendo_global", "lona_nintendo", "NINTENDO", "GLOBAL", brand_aliases=("NETENDU",)),
     _market("razer_us", "lona_razer_us", "RAZER", "USA", brand_aliases=("RAYZER",), region_aliases=("US",)),
     _market("razer_global", "lona_razer_global", "RAZER", "GLOBAL", brand_aliases=("RAYZER",)),
     _market("steam_usa", "lona_steam_usa", "STEAM", "USA", region_aliases=("US",)),
-    _market("canada_global", "lona_canada", "CANADA", "GLOBAL", brand_aliases=("CANADA CARDS",)),
     _market("playstation_usa", "lona_playstation", "PLAYSTATION", "USA", brand_aliases=("PSN",), region_aliases=("US",)),
     _market("starbucks_usa", "lona_starbucks", "STARBUCKS", "USA", region_aliases=("US",)),
     _market(
@@ -88,13 +114,16 @@ LONA_CARDEX_MARKETS: tuple[dict[str, Any], ...] = (
 def _market_match_score(market: dict[str, Any], brand: str, region: str | None, currency: str | None) -> int:
     if _norm(currency or market.get("currency")) != _norm(market.get("currency")):
         return 0
-    brand_norm = _norm(brand)
-    if brand_norm not in {_norm(alias) for alias in market.get("brand_aliases") or ()}:
+    brand_aliases = tuple(market.get("brand_aliases") or ())
+    if not _norm_matches(brand, brand_aliases):
         return 0
     region_norm = _norm(region or "GLOBAL")
+    region_aliases = tuple(market.get("region_aliases") or ())
     if region_norm == _norm(market.get("region")):
         return 3
-    if region_norm in {_norm(alias) for alias in market.get("region_aliases") or ()}:
+    if region_norm in {_norm(alias) for alias in region_aliases}:
+        if region_norm == "GLOBAL" and _alias_tokens_inside(brand, tuple(alias for alias in region_aliases if _norm(alias) != "GLOBAL")):
+            return 3
         return 1 if region_norm == "GLOBAL" else 2
     return 0
 
@@ -140,7 +169,7 @@ def _base_rule(market: dict[str, Any], product: dict[str, Any], *, label: str, d
         "range_max": None,
         "customer_buy_rate_percent": rate,
         "trader_rate_percent": rate,
-        "public_note": "LONA rates. Warranty: 2 months.",
+        "public_note": "Warranty: 2 months.",
         "active": True,
         "lona_cardex": True,
         "lona_kind": str(meta.get("kind") or ""),
@@ -153,6 +182,12 @@ def lona_cardex_rules() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for market in LONA_CARDEX_MARKETS:
         products = lona_products_for_category(str(market["category_id"]))
+        products = sorted(
+            products,
+            key=lambda item: 0
+            if str((item.get("manual_card") or {}).get("kind") or "") in {"mixed", "amount"}
+            else 1,
+        )
         for product in products:
             meta = dict(product.get("manual_card") or {})
             kind = str(meta.get("kind") or "")

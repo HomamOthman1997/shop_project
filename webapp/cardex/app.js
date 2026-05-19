@@ -596,11 +596,12 @@ function brandRows() {
 function regionRows(brand) {
   const map = new Map();
   for (const row of state.rules.filter((item) => item.brand === brand)) {
-    const key = `${row.region || "GLOBAL"}|${row.currency || "USD"}`;
-    if (!map.has(key)) map.set(key, { key, region: row.region || "GLOBAL", currency: row.currency || "USD", count: 0 });
-    map.get(key).count += 1;
+    const region = row.region || "GLOBAL";
+    if (!map.has(region)) map.set(region, { key: region, region, currencies: new Set(), count: 0 });
+    map.get(region).count += 1;
+    map.get(region).currencies.add(row.currency || "USD");
   }
-  return Array.from(map.values()).sort((a, b) => a.region.localeCompare(b.region) || a.currency.localeCompare(b.currency));
+  return Array.from(map.values()).sort((a, b) => a.region.localeCompare(b.region));
 }
 
 function filtered(items, fields) {
@@ -616,6 +617,32 @@ function brandMeta(brand) {
 
 function regionPreview(row) {
   return Array.from(row.regions).slice(0, 3).map((item) => item.split("|")[0]).join(" / ");
+}
+
+function currenciesForRegion(brand, region) {
+  return Array.from(
+    new Set(
+      state.rules
+        .filter((row) => row.brand === brand && row.region === region)
+        .map((row) => row.currency || "USD"),
+    ),
+  ).sort();
+}
+
+function shouldShowCurrency(brand, region) {
+  return currenciesForRegion(brand, region).length > 1;
+}
+
+function displayRuleLabel(row) {
+  const label = String(row.label || "");
+  if (rtl && label.toLowerCase() === "mixed") return "ميكس";
+  if (rtl && label.toLowerCase() === "custom amount") return "قيمة حرة";
+  return label;
+}
+
+function ruleSortKey(row) {
+  if (row.requires_custom_value || ["mixed", "amount"].includes(String(row.lona_kind || "").toLowerCase())) return 0;
+  return 1;
 }
 
 function renderBrands() {
@@ -652,9 +679,9 @@ function renderRegions(brand) {
   content.append(heading(brand, t("regionsHint")));
   const grid = document.createElement("div");
   grid.className = "region-grid";
-  for (const row of filtered(regionRows(brand), ["region", "currency"])) {
+  for (const row of filtered(regionRows(brand), ["region"])) {
     const tile = button("region-card", "", () => renderRules(brand, row.key));
-    tile.innerHTML = `<strong>${row.region}</strong><span>${row.currency}</span><small>${row.count} ${t("categories")}</small>`;
+    tile.innerHTML = `<strong>${row.region}</strong><small>${row.count} ${t("categories")}</small>`;
     grid.append(tile);
   }
   if (!grid.children.length) statusEl.textContent = t("noRegions");
@@ -665,21 +692,25 @@ function renderRules(brand, regionKey) {
   state.view = "rules";
   state.brand = brand;
   state.regionKey = regionKey;
-  const [region, currency] = String(regionKey).split("|");
+  const region = String(regionKey);
   clear();
   content.append(button("ghost", t("back"), () => renderRegions(brand)));
-  content.append(heading(`${brand} - ${region}`, `${currency} ${t("priceCategories")}`));
+  const currencies = currenciesForRegion(brand, region);
+  const currencyText = currencies.length > 1 ? `${currencies.join(" / ")} - ` : "";
+  content.append(heading(`${brand} - ${region}`, `${currencyText}${t("priceCategories")}`));
   const list = document.createElement("div");
-  list.className = "list";
+  list.className = "list rules-list";
   const rows = state.rules
-    .filter((row) => row.brand === brand && `${row.region}|${row.currency}` === regionKey)
-    .filter((row) => !state.search || norm(`${row.label} ${row.note} ${row.customer_rate}`).includes(norm(state.search)));
+    .filter((row) => row.brand === brand && row.region === region)
+    .filter((row) => !state.search || norm(`${row.label} ${row.note} ${row.customer_rate}`).includes(norm(state.search)))
+    .sort((a, b) => ruleSortKey(a) - ruleSortKey(b) || Number(a.range_min || a.denominations?.[0] || a.label || 0) - Number(b.range_min || b.denominations?.[0] || b.label || 0));
   for (const row of rows) {
     const item = document.createElement("article");
     item.className = "rule";
+    const currencyBadge = shouldShowCurrency(brand, region) ? `<span class="currency-badge">${row.currency}</span>` : "";
     item.innerHTML = `
-      <div class="rule-top"><span class="value">${row.label}</span><span class="rate">${row.customer_rate}%</span></div>
-      <div class="muted">${row.currency} - ${t("trader")} ${row.trader_rate || row.customer_rate}%</div>
+      <div class="rule-top"><span class="value">${displayRuleLabel(row)} ${currencyBadge}</span><span class="rate">${row.customer_rate}%</span></div>
+      ${state.isAdmin ? `<div class="muted">${t("trader")} ${row.trader_rate || row.customer_rate}%</div>` : ""}
       ${row.note ? `<div class="note">${row.note}</div>` : ""}
     `;
     if (state.isAdmin) {
@@ -1066,9 +1097,9 @@ function openModal() {
   priceForm.reset();
   if (state.brand) priceForm.elements.brand.value = state.brand;
   if (state.regionKey) {
-    const [region, currency] = state.regionKey.split("|");
-    priceForm.elements.region.value = region || "";
-    priceForm.elements.currency.value = currency || "USD";
+    const currencies = currenciesForRegion(state.brand, state.regionKey);
+    priceForm.elements.region.value = state.regionKey || "";
+    priceForm.elements.currency.value = currencies[0] || "USD";
   }
   modal.classList.remove("hidden");
 }

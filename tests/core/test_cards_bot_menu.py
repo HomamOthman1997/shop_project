@@ -94,6 +94,44 @@ def test_cardex_lona_rules_collapse_mixed_denominations():
     assert any(row.get("_id") == "discord-10" for row in rows)
 
 
+def test_cardex_lona_rules_filter_legacy_brand_region_names():
+    from services.cards_bot.lona_pricebook import merge_lona_cardex_rules
+
+    rows = merge_lona_cardex_rules(
+        [
+            {
+                "_id": "old-itunes-us-87",
+                "brand": "iTunes US",
+                "region": "GLOBAL",
+                "currency": "USD",
+                "denomination": 87,
+                "denominations": [87],
+                "denomination_label": "87",
+                "customer_buy_rate_percent": 76,
+                "trader_rate_percent": 76,
+                "active": True,
+            },
+            {
+                "_id": "old-amazon-uk-11",
+                "brand": "Amazon UK",
+                "region": "GLOBAL",
+                "currency": "USD",
+                "denomination": 11,
+                "denominations": [11],
+                "denomination_label": "11",
+                "customer_buy_rate_percent": 77,
+                "trader_rate_percent": 77,
+                "active": True,
+            },
+        ]
+    )
+
+    assert all(row.get("_id") != "old-itunes-us-87" for row in rows)
+    assert all(row.get("_id") != "old-amazon-uk-11" for row in rows)
+    assert any(row.get("brand") == "ITUNES" and row.get("denomination_label") == "Mixed" for row in rows)
+    assert any(row.get("brand") == "AMAZON" and row.get("region") == "UNITED KINGDOM" for row in rows)
+
+
 @pytest.mark.asyncio
 async def test_cardex_lona_quote_uses_mixed_rule_before_database():
     from services.cards_bot.service import quote_card_submission
@@ -102,6 +140,18 @@ async def test_cardex_lona_quote_uses_mixed_rule_before_database():
 
     assert quote["configured"] is True
     assert quote["customer_buy_rate_percent"] == 80.0
+    assert quote["rule"]["denomination_label"] == "Mixed"
+
+
+@pytest.mark.asyncio
+async def test_cardex_lona_quote_uses_region_embedded_in_brand():
+    from services.cards_bot.service import quote_card_submission
+
+    quote = await quote_card_submission(brand="Amazon UK", denomination=Decimal("11"), currency="USD", region="GLOBAL")
+
+    assert quote["configured"] is True
+    assert quote["customer_buy_rate_percent"] == 86.0
+    assert quote["rule"]["region"] == "UNITED KINGDOM"
     assert quote["rule"]["denomination_label"] == "Mixed"
 
 
