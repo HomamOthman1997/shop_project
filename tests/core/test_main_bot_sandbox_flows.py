@@ -591,6 +591,38 @@ async def test_reseller_balance_message_omits_wallet_note(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_reseller_bot_account_balance_uses_reseller_wallet_scope(monkeypatch):
+    calls = {}
+
+    async def _false(*_args, **_kwargs):
+        return False
+
+    async def _scope(_user_doc, *, bot_id, user_id):
+        calls["resolved_scope_input"] = {"bot_id": bot_id, "user_id": user_id}
+        return 7460601505
+
+    async def _balance(user_id, reseller_id):
+        calls["wallet_balance_args"] = (user_id, reseller_id)
+        return 10.0
+
+    monkeypatch.setattr(main_menu, "_uses_platform_wallet", _false)
+    monkeypatch.setattr(main_menu, "_resolve_user_reseller", _scope)
+    monkeypatch.setattr(main_menu, "get_user_wallet_balance", _balance)
+
+    text = await main_menu._account_balance_text(
+        {"language": "ar"},
+        lang="ar",
+        bot_id=987654321,
+        user_id=7731488539,
+    )
+
+    assert calls["resolved_scope_input"] == {"bot_id": 987654321, "user_id": 7731488539}
+    assert calls["wallet_balance_args"] == (7731488539, 7460601505)
+    assert calls["wallet_balance_args"][1] != calls["wallet_balance_args"][0]
+    assert "10.00" in text
+
+
+@pytest.mark.asyncio
 async def test_language_change_refreshes_reply_keyboard(monkeypatch):
     callback = _FakeCallback(data="uset:langset:en", bot_id=222)
     updated = {}
