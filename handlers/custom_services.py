@@ -1361,7 +1361,6 @@ async def _send_endpoint_delivery(
     lang: str,
     stock_items: list[str] | None = None,
 ) -> bool:
-    qty_line = t(lang, "custom_qty_line").format(qty=int(qty))
     if stock_items:
         stock_items, _overflow_items = _split_claimed_inventory_items(stock_items, qty)
         payload = _format_stock_items_payload(stock_items)
@@ -1369,7 +1368,7 @@ async def _send_endpoint_delivery(
             return False
         await bot.send_message(
             chat_id=int(user_id),
-            text=t(lang, "custom_digital_delivery_block").format(payload=payload, qty_line=qty_line),
+            text=_customer_delivery_text(payload=payload, lang=lang),
         )
         return True
 
@@ -1378,29 +1377,27 @@ async def _send_endpoint_delivery(
         text = str(endpoint.get("delivery_text") or "").strip()
         if not text:
             return False
-        await bot.send_message(chat_id=int(user_id), text=t(lang, "custom_digital_delivery_block").format(payload=text, qty_line=qty_line))
+        await bot.send_message(chat_id=int(user_id), text=_customer_delivery_text(payload=text, lang=lang))
         return True
     if delivery_type == "photo":
         file_id = str(endpoint.get("delivery_file_id") or "").strip()
         if not file_id:
             return False
         caption = str(endpoint.get("delivery_caption") or "").strip()
+        kwargs = {"chat_id": int(user_id), "photo": file_id}
         if caption:
-            caption = f"{caption}\n\n{qty_line}"
-        else:
-            caption = qty_line
-        await bot.send_photo(chat_id=int(user_id), photo=file_id, caption=caption)
+            kwargs["caption"] = caption
+        await bot.send_photo(**kwargs)
         return True
     if delivery_type == "document":
         file_id = str(endpoint.get("delivery_file_id") or "").strip()
         if not file_id:
             return False
         caption = str(endpoint.get("delivery_caption") or "").strip()
+        kwargs = {"chat_id": int(user_id), "document": file_id}
         if caption:
-            caption = f"{caption}\n\n{qty_line}"
-        else:
-            caption = qty_line
-        await bot.send_document(chat_id=int(user_id), document=file_id, caption=caption)
+            kwargs["caption"] = caption
+        await bot.send_document(**kwargs)
         return True
     return False
 
@@ -1526,21 +1523,58 @@ def _delivery_preview_text(
     lang: str,
     stock_items: list[str] | None = None,
 ) -> str | None:
-    qty_line = t(lang, "custom_qty_line").format(qty=int(qty))
     if stock_items:
         stock_items, _overflow_items = _split_claimed_inventory_items(stock_items, qty)
         payload = _format_stock_items_payload(stock_items)
         if not payload:
             return None
-        return t(lang, "custom_digital_delivery_block").format(payload=payload, qty_line=qty_line)
+        return _customer_delivery_text(payload=payload, lang=lang)
 
     delivery_type = str(endpoint.get("delivery_type") or "").strip().lower()
     if delivery_type == "text":
         text = str(endpoint.get("delivery_text") or "").strip()
         if not text:
             return None
-        return t(lang, "custom_digital_delivery_block").format(payload=text, qty_line=qty_line)
+        return _customer_delivery_text(payload=text, lang=lang)
     return None
+
+
+def _customer_delivery_text(*, payload: str, lang: str) -> str:
+    payload = str(payload or "").strip()
+    if not payload:
+        return ""
+    title = _ui_label(lang, "Order details:", "بيانات الطلب:")
+    return f"{title}\n\n{payload}".strip()
+
+
+def _customer_purchase_success_text(
+    *,
+    lang: str,
+    service: str,
+    qty: int,
+    total: float,
+    delivery_text: str | None = None,
+) -> str:
+    qty_i = max(1, int(qty or 1))
+    if str(lang or "").lower().startswith("ar"):
+        lines = ["✅ تم الشراء بنجاح"]
+        if service:
+            lines.append(f"المنتج: {service}")
+        if qty_i > 1:
+            lines.append(f"الكمية: {qty_i}")
+        lines.append(f"الإجمالي: {format_usd(total)}")
+    else:
+        lines = ["✅ Purchase successful"]
+        if service:
+            lines.append(f"Product: {service}")
+        if qty_i > 1:
+            lines.append(f"Quantity: {qty_i}")
+        lines.append(f"Total: {format_usd(total)}")
+
+    delivery = str(delivery_text or "").strip()
+    if delivery:
+        lines.extend(["", delivery])
+    return "\n".join(lines).strip()
 
 
 def _node_btn(node: dict) -> InlineKeyboardButton:
@@ -4210,22 +4244,22 @@ async def _execute_buy(
             )
 
         await state.clear()
-        summary_text = t(lang, "custom_purchase_success_summary").format(
+        summary_text = _customer_purchase_success_text(
+            lang=lang,
             service=data.get("buy_service_name") or endpoint.get("name"),
             qty=qty,
             total=total,
-            remaining_qty=remaining_qty,
-            delivery=t(lang, "sent_plain") if delivery_ok else t(lang, "custom_delivery_not_configured_or_failed"),
+            delivery_text=delivery_preview,
         )
         if delivery_preview is not None and result_message is not None:
             try:
                 await _safe_edit_text(
                     result_message,
-                    f"{delivery_preview}\n\n{summary_text}",
+                    summary_text,
                     reply_markup=_purchase_complete_kb(lang),
                 )
             except Exception:
-                await message.answer(f"{delivery_preview}\n\n{summary_text}", reply_markup=_purchase_complete_kb(lang))
+                await message.answer(summary_text, reply_markup=_purchase_complete_kb(lang))
         else:
             await message.answer(
                 summary_text,

@@ -301,6 +301,27 @@ def test_delivery_preview_caps_malformed_inventory_to_requested_qty():
     assert "fifth@example.com" in text
     assert "sixth@example.com" not in text
     assert text.count("Email:") == 1
+    assert "Digital Delivery" not in text
+    assert "Qty:" not in text
+
+
+def test_customer_purchase_success_text_is_compact_for_single_item():
+    text = custom_services._customer_purchase_success_text(
+        lang="ar",
+        service="Paypal",
+        qty=1,
+        total=2.0,
+        delivery_text="بيانات الطلب:\n\naccount payload",
+    )
+
+    assert "تم الشراء بنجاح" in text
+    assert "المنتج: Paypal" in text
+    assert "الإجمالي: 2.00" in text
+    assert "account payload" in text
+    assert "تسليم رقمي" not in text
+    assert "الكمية:" not in text
+    assert "المتبقي" not in text
+    assert "==========" not in text
 
 
 def test_parse_inventory_payload_splits_repeated_arabic_email_blocks_without_separators():

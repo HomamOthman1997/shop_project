@@ -147,8 +147,14 @@ async def test_execute_buy_uses_reserve_for_text_delivery(monkeypatch):
     assert claim_calls == []
     assert delivery_calls == []
     assert message.edits
-    assert "Purchase Completed" in message.edits[-1]["text"]
+    assert "Purchase successful" in message.edits[-1]["text"]
+    assert "Product: Mailer" in message.edits[-1]["text"]
+    assert "Quantity: 2" in message.edits[-1]["text"]
+    assert "Total: 7.00" in message.edits[-1]["text"]
+    assert "Order details:" in message.edits[-1]["text"]
     assert "payload" in message.edits[-1]["text"]
+    assert "Digital Delivery" not in message.edits[-1]["text"]
+    assert "Remaining stock" not in message.edits[-1]["text"]
 
 
 @pytest.mark.asyncio
