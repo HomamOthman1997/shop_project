@@ -6,6 +6,18 @@ import pytest
 sys.path.insert(0, os.getcwd())
 
 
+def test_create_app_registers_health_routes():
+    from services.digital_products import miniapp
+
+    app = miniapp.create_app()
+
+    routes = {(route.method, route.resource.canonical) for route in app.router.routes()}
+    assert ("GET", "/") in routes
+    assert ("GET", "/health") in routes
+    assert ("GET", "/healthz") in routes
+    assert ("GET", "/ready") in routes
+
+
 class _DummyRequest:
     def __init__(self, body, headers=None):
         self._body = dict(body)

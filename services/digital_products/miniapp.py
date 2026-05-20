@@ -1995,9 +1995,24 @@ async def _cleanup_app(_app: web.Application) -> None:
     await SessionManager.close()
 
 
+async def health(_request: web.Request) -> web.Response:
+    return web.json_response(
+        {
+            "ok": True,
+            "status": "healthy",
+            "service": "shop_project",
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app.on_cleanup.append(_cleanup_app)
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+    app.router.add_get("/healthz", health)
+    app.router.add_get("/ready", health)
     app.router.add_get("/mini/digital", index)
     app.router.add_get("/mini/digital/static/{name}", static_file)
     app.router.add_get("/mini/digital/api/catalog", catalog)
