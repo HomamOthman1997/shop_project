@@ -12,59 +12,99 @@
       <header class="topbar">
         <div>
           <p class="eyebrow" data-i18n="eyebrow">CyberZone Numbers</p>
-          <h1 data-i18n="title">الأرقام</h1>
+          <h1 data-i18n="title">Numbers</h1>
         </div>
         <div class="balance-pill" id="sessionPill">Mini App</div>
       </header>
 
-      <section class="control-band" aria-label="Number order filters">
-        <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="Mode"></div>
+      <nav class="view-tabs" id="viewTabs" aria-label="Numbers sections"></nav>
 
-        <div class="field-grid">
-          <label class="field">
-            <span data-i18n="service">الخدمة</span>
-            <input id="serviceSearch" list="servicesList" autocomplete="off" />
-            <datalist id="servicesList"></datalist>
-          </label>
+      <section class="view-panel" id="buyView">
+        <section class="control-band" aria-label="Number order filters">
+          <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="Mode"></div>
 
-          <label class="field">
-            <span data-i18n="country">الدولة</span>
-            <select id="countrySelect"></select>
-          </label>
+          <div class="field-grid">
+            <label class="field">
+              <span data-i18n="service">Service</span>
+              <input id="serviceSearch" list="servicesList" autocomplete="off" />
+              <datalist id="servicesList"></datalist>
+            </label>
 
-          <label class="field state-field" id="stateField">
-            <span data-i18n="state">الولاية</span>
-            <select id="stateSelect"></select>
-          </label>
-        </div>
+            <label class="field">
+              <span data-i18n="country">Country</span>
+              <select id="countrySelect"></select>
+            </label>
 
-        <div class="quick-row" id="quickServices"></div>
+            <label class="field state-field" id="stateField">
+              <span data-i18n="state">State</span>
+              <select id="stateSelect"></select>
+            </label>
+          </div>
 
-        <button class="primary-action" id="quoteButton" type="button" data-i18n="check">
-          فحص الأسعار
-        </button>
+          <div class="quick-row" id="quickServices"></div>
+
+          <button class="primary-action" id="quoteButton" type="button" data-i18n="check">
+            Check prices
+          </button>
+        </section>
+
+        <section class="result-band" aria-live="polite">
+          <div class="result-header">
+            <div>
+              <p class="eyebrow" data-i18n="providers">Providers</p>
+              <h2 id="selectionTitle">Telegram</h2>
+            </div>
+            <span class="count-pill" id="resultCount">0</span>
+          </div>
+          <div id="statusLine" class="status-line"></div>
+          <div class="provider-list" id="providerList"></div>
+        </section>
       </section>
 
-      <section class="active-band hidden" id="activeBand" aria-live="polite">
+      <section class="active-band view-panel hidden" id="activeBand" aria-live="polite">
         <div class="result-header">
           <div>
-            <p class="eyebrow" data-i18n="active">الطلبات النشطة</p>
-            <h2 data-i18n="waiting">بانتظار الكود</h2>
+            <p class="eyebrow" data-i18n="active">Active orders</p>
+            <h2 data-i18n="waiting">Waiting for code</h2>
           </div>
         </div>
         <div class="active-list" id="activeOrders"></div>
       </section>
 
-      <section class="result-band" aria-live="polite">
+      <section class="account-band view-panel hidden" id="accountView" aria-live="polite">
         <div class="result-header">
           <div>
-            <p class="eyebrow" data-i18n="providers">المزودين</p>
-            <h2 id="selectionTitle">Telegram</h2>
+            <p class="eyebrow" data-i18n="account">Account</p>
+            <h2 data-i18n="accountTitle">My account</h2>
           </div>
-          <span class="count-pill" id="resultCount">0</span>
         </div>
-        <div id="statusLine" class="status-line"></div>
-        <div class="provider-list" id="providerList"></div>
+        <div class="info-grid" id="accountDetails"></div>
+        <div class="account-actions">
+          <button class="small-action" id="langArButton" type="button">AR</button>
+          <button class="small-action" id="langEnButton" type="button">EN</button>
+          <button class="secondary-action" id="rechargeButton" type="button" data-i18n="recharge">Recharge</button>
+        </div>
+      </section>
+
+      <section class="support-band view-panel hidden" id="supportView" aria-live="polite">
+        <div class="result-header">
+          <div>
+            <p class="eyebrow" data-i18n="support">Support</p>
+            <h2 data-i18n="supportTitle">Open support ticket</h2>
+          </div>
+        </div>
+        <div class="field support-field">
+          <span data-i18n="supportCategory">Category</span>
+          <select id="supportCategory"></select>
+        </div>
+        <label class="field support-field">
+          <span data-i18n="supportMessage">Message</span>
+          <textarea id="supportMessage" rows="4"></textarea>
+        </label>
+        <button class="primary-action" id="sendSupportButton" type="button" data-i18n="sendSupport">
+          Send support ticket
+        </button>
+        <div id="supportStatus" class="status-line"></div>
       </section>
     </main>
     <script src="/mini/numbers/static/app.js"></script>

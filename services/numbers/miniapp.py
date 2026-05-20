@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl
 
+from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiohttp import web
 from bson import ObjectId
 
@@ -28,7 +30,9 @@ from database.orders_repo import (
     update_order_details,
     update_order_status,
 )
-from database.user_repo import create_user, get_user
+from database.support_tickets_repo import create_support_ticket, has_open_support_ticket, set_ticket_delivery
+from database.support_topics_repo import get_support_target
+from database.user_repo import create_user, get_user, update_user_language
 from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.data.states_us import STATES_LIST
 from services.numbers.handlers.event_logging import (
@@ -75,6 +79,7 @@ from services.numbers.service_map import (
 )
 from utils.core_service_guard import finance_error_public_text
 from utils.financial_manager import FinancialManager
+from utils.bot_menu_context import extract_bot_id_from_token, numbers_bot_url
 from utils.provider_alias import provider_display_name, provider_public_id
 from utils.services_keyboard import DEFAULT_TOP_SERVICES, load_top_services
 
@@ -91,6 +96,7 @@ _PRICE_TIMEOUT_SEC = 18.0
 _MAX_PRICE_ROWS = 16
 _QUOTE_TTL_SEC = 300
 _HIDDEN_TEMP_PROVIDER_CODES = {"smsman", "smsman_s6"}
+_SUPPORT_CATEGORIES = ("numbers", "user_balance")
 _EXTRA_SERVICE_SEARCH_ALIASES: dict[str, tuple[str, ...]] = {
     "attapoll": ("اتابول", "اتا بول", "أتابول", "أتا بول"),
 }
@@ -171,6 +177,196 @@ def _json_error(message: str, *, status: int = 400, code: str = "bad_request", *
     payload = {"ok": False, "code": code, "message": message}
     payload.update(extra)
     return web.json_response(payload, status=status, headers=dict(_NO_STORE_HEADERS))
+
+
+def _format_joined_date(value: Any) -> str:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    return "-"
+
+
+def _language_label(language: str) -> str:
+    return "Arabic" if str(language or "").strip().lower().startswith("ar") else "English"
+
+
+def _support_category_label(lang: str, category: str) -> str:
+    key = str(category or "").strip().lower()
+    labels = {
+        "numbers": ("Numbers orders", "طلبات الأرقام"),
+        "user_balance": ("Balance and payments", "الرصيد والدفع"),
+    }
+    en, ar = labels.get(key, (key.replace("_", " ").title(), key.replace("_", " ")))
+    return _text(lang, en, ar)
+
+
+def _support_categories_payload(lang: str) -> list[dict[str, str]]:
+    return [{"key": key, "label": _support_category_label(lang, key)} for key in _SUPPORT_CATEGORIES]
+
+
+def _support_bridge_token() -> str:
+    return str(getattr(settings, "bot_admin_token", "") or "").strip()
+
+
+def _numbers_source_bot_id() -> int:
+    return int(extract_bot_id_from_token(getattr(settings, "bot_numbers_token", "")) or 0)
+
+
+def _auth_profile(auth: dict[str, Any], user_doc: dict[str, Any] | None = None) -> dict[str, str]:
+    tg_user = auth.get("user") if isinstance(auth.get("user"), dict) else {}
+    username = str((user_doc or {}).get("username") or tg_user.get("username") or "").strip()
+    first_name = str(tg_user.get("first_name") or "").strip()
+    last_name = str(tg_user.get("last_name") or "").strip()
+    full_name = " ".join(part for part in (first_name, last_name) if part).strip()
+    if not full_name:
+        full_name = str((user_doc or {}).get("full_name") or "").strip()
+    return {"username": username, "full_name": full_name}
+
+
+def _support_ticket_header_text(
+    *,
+    lang: str,
+    ticket_no: int,
+    category: str,
+    user_id: int,
+    username: str,
+    full_name: str,
+) -> str:
+    username_display = f"@{username}" if username else "-"
+    full_name_display = full_name or "-"
+    category_label = _support_category_label(lang, category)
+    if str(lang or "").lower().startswith("ar"):
+        return (
+            f"تذكرة دعم #{int(ticket_no or 0)}\n"
+            f"القسم: {category_label}\n"
+            f"المصدر: Numbers Mini App\n"
+            f"User ID: {int(user_id)}\n"
+            f"Username: {username_display}\n"
+            f"Name: {full_name_display}"
+        )
+    return (
+        f"Support ticket #{int(ticket_no or 0)}\n"
+        f"Category: {category_label}\n"
+        f"Source: Numbers Mini App\n"
+        f"User ID: {int(user_id)}\n"
+        f"Username: {username_display}\n"
+        f"Name: {full_name_display}"
+    )
+
+
+def _support_ticket_action_markup(ticket_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Reply", callback_data=f"support:reply_ticket:{ticket_id}"),
+                InlineKeyboardButton(text="Solved", callback_data=f"support:solve_ticket:{ticket_id}"),
+            ]
+        ]
+    )
+
+
+async def _account_payload(user_doc: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
+    user_id = int(auth["user_id"])
+    lang = _lang_from_user(user_doc, auth)
+    profile = _auth_profile(auth, user_doc)
+    balance = await get_user_wallet_balance(user_id, user_id)
+    language = str(user_doc.get("language") or lang or "en").strip().lower()
+    return {
+        "ok": True,
+        "user": {
+            "id": user_id,
+            "username": profile["username"],
+            "full_name": profile["full_name"],
+            "language": "ar" if language.startswith("ar") else "en",
+            "language_label": _language_label(language),
+            "joined_at": _format_joined_date(user_doc.get("created_at")),
+        },
+        "balance": float(balance),
+        "balance_label": _money(balance),
+        "links": {
+            "numbers_bot": numbers_bot_url("numbers"),
+            "recharge": numbers_bot_url("balance"),
+        },
+        "support_categories": _support_categories_payload(lang),
+    }
+
+
+async def _submit_support_ticket(
+    *,
+    auth: dict[str, Any],
+    user_doc: dict[str, Any],
+    lang: str,
+    category: str,
+    message: str,
+) -> dict[str, Any]:
+    category = str(category or "").strip().lower()
+    if category not in _SUPPORT_CATEGORIES:
+        return {"ok": False, "code": "invalid_category", "message": _text(lang, "Choose a valid support category.", "اختر قسم دعم صحيح.")}
+    message = " ".join(str(message or "").strip().split())
+    if len(message) < 3:
+        return {"ok": False, "code": "empty_message", "message": _text(lang, "Write a short message for support.", "اكتب رسالة قصيرة للدعم.")}
+    if len(message) > 3500:
+        message = message[:3500]
+
+    source_bot_id = _numbers_source_bot_id()
+    bridge_token = _support_bridge_token()
+    target = await get_support_target(category)
+    if source_bot_id <= 0 or not bridge_token or not target or not target.get("chat_id"):
+        return {"ok": False, "code": "support_not_configured", "message": _text(lang, "Support is not configured yet.", "الدعم غير مضبوط حالياً.")}
+
+    user_id = int(auth["user_id"])
+    if await has_open_support_ticket(scope="platform", owner_id=None, user_id=user_id, category=category):
+        return {"ok": False, "code": "open_ticket_exists", "message": _text(lang, "You already have an open support ticket in this category.", "عندك تذكرة دعم مفتوحة بهذا القسم.")}
+
+    profile = _auth_profile(auth, user_doc)
+    ticket = await create_support_ticket(
+        scope="platform",
+        owner_id=None,
+        source_bot_id=source_bot_id,
+        chat_id=user_id,
+        user_id=user_id,
+        username=profile["username"],
+        full_name=profile["full_name"],
+        category=category,
+        payload_count=1,
+    )
+
+    kwargs: dict[str, Any] = {"chat_id": int(target["chat_id"])}
+    if target.get("message_thread_id") is not None:
+        kwargs["message_thread_id"] = int(target["message_thread_id"])
+
+    ticket_id = str(ticket["_id"])
+    bridge_bot = Bot(token=bridge_token)
+    try:
+        header = await bridge_bot.send_message(
+            text=_support_ticket_header_text(
+                lang=lang,
+                ticket_no=int(ticket.get("ticket_no") or 0),
+                category=category,
+                user_id=user_id,
+                username=profile["username"],
+                full_name=profile["full_name"],
+            ),
+            reply_markup=_support_ticket_action_markup(ticket_id),
+            **kwargs,
+        )
+        await bridge_bot.send_message(text=message, **kwargs)
+        await set_ticket_delivery(
+            ticket_id,
+            target_chat_id=int(target["chat_id"]),
+            target_thread_id=int(target["message_thread_id"]) if target.get("message_thread_id") is not None else None,
+            header_message_id=int(header.message_id),
+        )
+    finally:
+        await bridge_bot.session.close()
+
+    return {
+        "ok": True,
+        "ticket_id": ticket_id,
+        "ticket_no": int(ticket.get("ticket_no") or 0),
+        "message": _text(lang, "Support ticket sent.", "تم إرسال تذكرة الدعم."),
+    }
 
 
 def _quote_secret() -> bytes:
@@ -1763,6 +1959,65 @@ async def bootstrap(request: web.Request) -> web.Response:
     return web.json_response(_bootstrap_payload(), headers=dict(_NO_STORE_HEADERS))
 
 
+async def account(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    return web.json_response(await _account_payload(user_doc, auth), headers=dict(_NO_STORE_HEADERS))
+
+
+async def account_language(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    lang = _lang_from_user(user_doc, auth)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    language = str((body or {}).get("language") or "").strip().lower()
+    if language not in {"ar", "en"}:
+        return _json_error(_text(lang, "Choose Arabic or English.", "اختر العربية أو الإنكليزية."), status=400, code="invalid_language")
+    await update_user_language(int(auth["user_id"]), language)
+    updated = await get_user(int(auth["user_id"])) or {**user_doc, "language": language}
+    return web.json_response(await _account_payload(updated, auth), headers=dict(_NO_STORE_HEADERS))
+
+
+async def support_info(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    lang = _lang_from_user(user_doc, auth)
+    return web.json_response(
+        {
+            "ok": True,
+            "categories": _support_categories_payload(lang),
+            "bot_url": numbers_bot_url("numbers"),
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def support_ticket(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    lang = _lang_from_user(user_doc, auth)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    result = await _submit_support_ticket(
+        auth=auth,
+        user_doc=user_doc,
+        lang=lang,
+        category=str((body or {}).get("category") or ""),
+        message=str((body or {}).get("message") or ""),
+    )
+    if not result.get("ok"):
+        status = 409 if str(result.get("code")) == "open_ticket_exists" else 400
+        if str(result.get("code")) == "support_not_configured":
+            status = 503
+        return _json_error(str(result.get("message") or ""), status=status, code=str(result.get("code") or "support_failed"))
+    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
+
+
 async def prices(request: web.Request) -> web.Response:
     _optional_auth(request)
     mode = str(request.query.get("mode") or "temp").strip().lower()
@@ -2039,6 +2294,10 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_get("/mini/numbers", index)
     app.router.add_get("/mini/numbers/static/{name}", static_file)
     app.router.add_get("/mini/numbers/api/bootstrap", bootstrap)
+    app.router.add_get("/mini/numbers/api/account", account)
+    app.router.add_post("/mini/numbers/api/account/language", account_language)
+    app.router.add_get("/mini/numbers/api/support", support_info)
+    app.router.add_post("/mini/numbers/api/support/ticket", support_ticket)
     app.router.add_get("/mini/numbers/api/prices", prices)
     app.router.add_get("/mini/numbers/api/orders", active_orders)
     app.router.add_post("/mini/numbers/api/purchase", purchase_temp)

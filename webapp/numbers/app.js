@@ -1,6 +1,8 @@
 const tg = window.Telegram?.WebApp;
+
 const state = {
   lang: "ar",
+  view: "buy",
   mode: "temp",
   services: [],
   countries: [],
@@ -10,10 +12,15 @@ const state = {
   selectedState: "none",
   loading: false,
   activeOrders: [],
+  account: null,
+  supportCategories: [],
+  supportBotUrl: null,
   orderPollTimer: null,
 };
 
 const els = {
+  viewTabs: document.getElementById("viewTabs"),
+  buyView: document.getElementById("buyView"),
   modeSwitch: document.getElementById("modeSwitch"),
   serviceSearch: document.getElementById("serviceSearch"),
   servicesList: document.getElementById("servicesList"),
@@ -29,12 +36,26 @@ const els = {
   sessionPill: document.getElementById("sessionPill"),
   activeBand: document.getElementById("activeBand"),
   activeOrders: document.getElementById("activeOrders"),
+  accountView: document.getElementById("accountView"),
+  accountDetails: document.getElementById("accountDetails"),
+  langArButton: document.getElementById("langArButton"),
+  langEnButton: document.getElementById("langEnButton"),
+  rechargeButton: document.getElementById("rechargeButton"),
+  supportView: document.getElementById("supportView"),
+  supportCategory: document.getElementById("supportCategory"),
+  supportMessage: document.getElementById("supportMessage"),
+  sendSupportButton: document.getElementById("sendSupportButton"),
+  supportStatus: document.getElementById("supportStatus"),
 };
 
 const copy = {
   ar: {
     eyebrow: "CyberZone Numbers",
     title: "الأرقام",
+    tabBuy: "شراء",
+    tabOrders: "طلباتي",
+    tabAccount: "حسابي",
+    tabSupport: "الدعم",
     service: "الخدمة",
     country: "الدولة",
     state: "الولاية",
@@ -43,9 +64,9 @@ const copy = {
     loading: "جاري فحص المزودين",
     ready: "اختر الخدمة والدولة ثم افحص السعر",
     empty: "لا توجد عروض متاحة لهذا الاختيار",
-    error: "تعذر تحميل الأسعار حاليا",
+    error: "تعذر تحميل البيانات حاليا",
     temp: "أرقام مؤقتة",
-    rental: "أرقام إيجار",
+    rental: "أرقام للإيجار",
     voice: "رقم اتصال",
     success: "نجاح",
     base: "التكلفة",
@@ -53,12 +74,13 @@ const copy = {
     unavailable: "غير متاح",
     active: "الطلبات النشطة",
     waiting: "بانتظار الكود",
+    noOrders: "لا توجد طلبات نشطة حاليا",
     buy: "شراء",
     refresh: "تحديث",
     cancel: "إلغاء واسترجاع",
     purchasing: "جاري تنفيذ الطلب",
     purchased: "تم حجز الرقم",
-    authRequired: "افتح التطبيق من تيليغرام للشراء",
+    authRequired: "افتح التطبيق من تيليغرام للمتابعة",
     confirmBuy: "تأكيد شراء الرقم؟",
     code: "الكود",
     number: "الرقم",
@@ -68,10 +90,31 @@ const copy = {
     left: "متبقي",
     finish: "إنهاء",
     finished: "منتهي",
+    account: "الحساب",
+    accountTitle: "حسابي",
+    balance: "الرصيد",
+    userId: "User ID",
+    username: "Username",
+    language: "اللغة",
+    joined: "تاريخ الانضمام",
+    recharge: "شحن الرصيد",
+    support: "الدعم",
+    supportTitle: "فتح تذكرة دعم",
+    supportCategory: "القسم",
+    supportMessage: "الرسالة",
+    supportPlaceholder: "اكتب المشكلة أو رقم الطلب إن وجد",
+    sendSupport: "إرسال تذكرة الدعم",
+    supportSent: "تم إرسال التذكرة",
+    loadingAccount: "جاري تحميل الحساب",
+    openBot: "فتح البوت",
   },
   en: {
     eyebrow: "CyberZone Numbers",
     title: "Numbers",
+    tabBuy: "Buy",
+    tabOrders: "My numbers",
+    tabAccount: "Account",
+    tabSupport: "Support",
     service: "Service",
     country: "Country",
     state: "State",
@@ -80,7 +123,7 @@ const copy = {
     loading: "Checking providers",
     ready: "Choose a service and country, then check prices",
     empty: "No offers are available for this selection",
-    error: "Could not load prices right now",
+    error: "Could not load data right now",
     temp: "Temporary SMS",
     rental: "Rental numbers",
     voice: "Call number",
@@ -90,12 +133,13 @@ const copy = {
     unavailable: "Unavailable",
     active: "Active orders",
     waiting: "Waiting for code",
+    noOrders: "No active orders right now",
     buy: "Buy",
     refresh: "Refresh",
     cancel: "Cancel & refund",
     purchasing: "Placing order",
     purchased: "Number reserved",
-    authRequired: "Open from Telegram to purchase",
+    authRequired: "Open from Telegram to continue",
     confirmBuy: "Confirm number purchase?",
     code: "Code",
     number: "Number",
@@ -105,6 +149,23 @@ const copy = {
     left: "left",
     finish: "Finish",
     finished: "Finished",
+    account: "Account",
+    accountTitle: "My account",
+    balance: "Balance",
+    userId: "User ID",
+    username: "Username",
+    language: "Language",
+    joined: "Joined",
+    recharge: "Recharge",
+    support: "Support",
+    supportTitle: "Open support ticket",
+    supportCategory: "Category",
+    supportMessage: "Message",
+    supportPlaceholder: "Describe the issue or include an order number",
+    sendSupport: "Send support ticket",
+    supportSent: "Support ticket sent",
+    loadingAccount: "Loading account",
+    openBot: "Open bot",
   },
 };
 
@@ -112,14 +173,21 @@ function t(key) {
   return (copy[state.lang] || copy.en)[key] || copy.en[key] || key;
 }
 
-function setLanguage() {
-  const languageCode = tg?.initDataUnsafe?.user?.language_code || navigator.language || "ar";
-  state.lang = String(languageCode).toLowerCase().startsWith("ar") ? "ar" : "en";
+function applyLanguage(languageCode) {
+  state.lang = String(languageCode || "ar").toLowerCase().startsWith("ar") ? "ar" : "en";
   document.documentElement.lang = state.lang;
   document.documentElement.dir = state.lang === "ar" ? "rtl" : "ltr";
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);
   });
+  if (els.supportMessage) {
+    els.supportMessage.placeholder = t("supportPlaceholder");
+  }
+}
+
+function setLanguage() {
+  const languageCode = tg?.initDataUnsafe?.user?.language_code || navigator.language || "ar";
+  applyLanguage(languageCode);
   els.statusLine.textContent = t("ready");
 }
 
@@ -150,6 +218,50 @@ async function api(path, options = {}) {
   return payload;
 }
 
+function canUseTelegramAuth() {
+  return Boolean(tg?.initData);
+}
+
+function openTelegramUrl(url) {
+  if (!url) return;
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(url);
+    return;
+  }
+  window.location.href = url;
+}
+
+function renderViewTabs() {
+  const tabs = [
+    ["buy", t("tabBuy")],
+    ["orders", t("tabOrders")],
+    ["account", t("tabAccount")],
+    ["support", t("tabSupport")],
+  ];
+  els.viewTabs.replaceChildren(
+    ...tabs.map(([key, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `view-tab${state.view === key ? " active" : ""}`;
+      button.textContent = label;
+      button.addEventListener("click", () => setView(key));
+      return button;
+    })
+  );
+}
+
+function setView(view) {
+  state.view = view;
+  els.buyView.classList.toggle("hidden", view !== "buy");
+  els.activeBand.classList.toggle("hidden", view !== "orders");
+  els.accountView.classList.toggle("hidden", view !== "account");
+  els.supportView.classList.toggle("hidden", view !== "support");
+  renderViewTabs();
+  if (view === "orders") refreshOrders({ quiet: true });
+  if (view === "account") loadAccount();
+  if (view === "support") loadSupportInfo();
+}
+
 function serviceLabel(key) {
   const found = state.services.find((item) => item.key === key);
   return found?.label || key;
@@ -161,8 +273,7 @@ function selectedServiceFromInput() {
   const lowered = raw.toLowerCase();
   const matches = (item) => {
     const aliases = Array.isArray(item.aliases) ? item.aliases : [];
-    const values = [item.label, item.key, ...aliases].map((value) => String(value || "").toLowerCase());
-    return values;
+    return [item.label, item.key, ...aliases].map((value) => String(value || "").toLowerCase());
   };
   const exact = state.services.find((item) => matches(item).some((value) => value === lowered));
   if (exact) return exact.key;
@@ -186,7 +297,9 @@ function renderModes() {
       button.setAttribute("aria-selected", state.mode === key ? "true" : "false");
       button.addEventListener("click", () => {
         state.mode = key;
+        updateStateVisibility();
         renderModes();
+        renderProviders([]);
       });
       return button;
     })
@@ -278,10 +391,6 @@ function statusLabel(order) {
   return t("waiting");
 }
 
-function canUsePurchasing() {
-  return Boolean(tg?.initData);
-}
-
 function askConfirm(message) {
   return new Promise((resolve) => {
     if (tg?.showConfirm) {
@@ -292,11 +401,17 @@ function askConfirm(message) {
   });
 }
 
+function emptyState(text) {
+  const div = document.createElement("div");
+  div.className = "empty-state";
+  div.textContent = text;
+  return div;
+}
+
 function renderActiveOrders(rows = state.activeOrders) {
   state.activeOrders = rows || [];
-  els.activeBand.classList.toggle("hidden", !state.activeOrders.length);
   if (!state.activeOrders.length) {
-    els.activeOrders.replaceChildren();
+    els.activeOrders.replaceChildren(emptyState(canUseTelegramAuth() ? t("noOrders") : t("authRequired")));
     return;
   }
   els.activeOrders.replaceChildren(
@@ -364,7 +479,10 @@ function renderActiveOrders(rows = state.activeOrders) {
 }
 
 async function refreshOrders({ quiet = false } = {}) {
-  if (!canUsePurchasing()) return;
+  if (!canUseTelegramAuth()) {
+    renderActiveOrders([]);
+    return;
+  }
   try {
     const payload = await api("/mini/numbers/api/orders");
     renderActiveOrders(payload.orders || []);
@@ -424,7 +542,7 @@ async function finishOrder(orderId, button) {
 }
 
 async function buyProvider(row, button) {
-  if (!canUsePurchasing()) {
+  if (!canUseTelegramAuth()) {
     els.statusLine.textContent = t("authRequired");
     return;
   }
@@ -521,11 +639,131 @@ function renderProviders(rows) {
   );
 }
 
-function emptyState(text) {
-  const div = document.createElement("div");
-  div.className = "empty-state";
-  div.textContent = text;
-  return div;
+function infoCard(label, value) {
+  const card = document.createElement("div");
+  card.className = "info-card";
+  const key = document.createElement("span");
+  key.className = "info-label";
+  key.textContent = label;
+  const val = document.createElement("strong");
+  val.className = "info-value";
+  val.textContent = value || "-";
+  card.append(key, val);
+  return card;
+}
+
+function renderAccount(payload) {
+  state.account = payload;
+  if (!payload?.user) {
+    els.accountDetails.replaceChildren(emptyState(t("authRequired")));
+    return;
+  }
+  const user = payload.user;
+  els.sessionPill.textContent = payload.balance_label || user.full_name || user.username || "Mini App";
+  state.supportCategories = payload.support_categories || state.supportCategories;
+  state.supportBotUrl = payload.links?.numbers_bot || state.supportBotUrl;
+  renderSupportCategories();
+  els.accountDetails.replaceChildren(
+    infoCard(t("balance"), payload.balance_label || "-"),
+    infoCard(t("userId"), String(user.id || "-")),
+    infoCard(t("username"), user.username ? `@${user.username}` : "-"),
+    infoCard(t("language"), user.language_label || user.language || "-"),
+    infoCard(t("joined"), user.joined_at || "-")
+  );
+}
+
+async function loadAccount() {
+  if (!canUseTelegramAuth()) {
+    renderAccount(null);
+    return;
+  }
+  els.accountDetails.replaceChildren(emptyState(t("loadingAccount")));
+  try {
+    const payload = await api("/mini/numbers/api/account");
+    if (payload.user?.language) {
+      applyLanguage(payload.user.language);
+      renderViewTabs();
+      renderModes();
+    }
+    renderAccount(payload);
+  } catch (error) {
+    els.accountDetails.replaceChildren(emptyState(error.message || t("error")));
+  }
+}
+
+async function changeLanguage(language, button) {
+  if (!canUseTelegramAuth()) {
+    els.accountDetails.replaceChildren(emptyState(t("authRequired")));
+    return;
+  }
+  button.disabled = true;
+  try {
+    const payload = await api("/mini/numbers/api/account/language", {
+      method: "POST",
+      body: { language },
+    });
+    applyLanguage(payload.user?.language || language);
+    renderViewTabs();
+    renderModes();
+    renderSelectors();
+    renderQuickServices();
+    renderActiveOrders();
+    renderAccount(payload);
+  } catch (error) {
+    els.accountDetails.replaceChildren(emptyState(error.message || t("error")));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderSupportCategories(categories = state.supportCategories) {
+  state.supportCategories = categories || [];
+  els.supportCategory.replaceChildren(
+    ...state.supportCategories.map((item) => {
+      const option = document.createElement("option");
+      option.value = item.key;
+      option.textContent = item.label;
+      return option;
+    })
+  );
+}
+
+async function loadSupportInfo() {
+  if (!canUseTelegramAuth()) {
+    els.supportStatus.textContent = t("authRequired");
+    renderSupportCategories([]);
+    return;
+  }
+  try {
+    const payload = await api("/mini/numbers/api/support");
+    state.supportBotUrl = payload.bot_url || state.supportBotUrl;
+    renderSupportCategories(payload.categories || []);
+    if (!els.supportStatus.textContent) els.supportStatus.textContent = "";
+  } catch (error) {
+    els.supportStatus.textContent = error.message || t("error");
+  }
+}
+
+async function sendSupportTicket() {
+  if (!canUseTelegramAuth()) {
+    els.supportStatus.textContent = t("authRequired");
+    return;
+  }
+  const category = els.supportCategory.value || "numbers";
+  const message = els.supportMessage.value.trim();
+  els.sendSupportButton.disabled = true;
+  try {
+    const payload = await api("/mini/numbers/api/support/ticket", {
+      method: "POST",
+      body: { category, message },
+    });
+    els.supportMessage.value = "";
+    els.supportStatus.textContent = payload.message || t("supportSent");
+  } catch (error) {
+    els.supportStatus.textContent = error.message || t("error");
+  } finally {
+    els.sendSupportButton.disabled = false;
+  }
 }
 
 async function checkPrices() {
@@ -547,7 +785,7 @@ async function checkPrices() {
     const payload = await api(`/mini/numbers/api/prices?${params.toString()}`);
     els.statusLine.textContent = payload.ok === false ? payload.message || t("error") : "";
     renderProviders(payload.providers || []);
-  } catch (error) {
+  } catch (_error) {
     els.statusLine.textContent = t("error");
     renderProviders([]);
   } finally {
@@ -567,12 +805,14 @@ async function boot() {
   state.selectedService = payload.defaults?.service || "telegram";
   state.selectedCountry = payload.defaults?.country || "none";
   state.selectedState = payload.defaults?.state || "none";
+  renderViewTabs();
   renderModes();
   renderSelectors();
   renderQuickServices();
   renderProviders([]);
   renderActiveOrders([]);
   refreshOrders({ quiet: true });
+  if (canUseTelegramAuth()) loadAccount();
   state.orderPollTimer = window.setInterval(() => refreshOrders({ quiet: true }), 8000);
   els.countrySelect.addEventListener("change", () => {
     state.selectedCountry = els.countrySelect.value || "none";
@@ -582,10 +822,16 @@ async function boot() {
     state.selectedState = els.stateSelect.value || "none";
   });
   els.quoteButton.addEventListener("click", checkPrices);
+  els.langArButton.addEventListener("click", () => changeLanguage("ar", els.langArButton));
+  els.langEnButton.addEventListener("click", () => changeLanguage("en", els.langEnButton));
+  els.rechargeButton.addEventListener("click", () => openTelegramUrl(state.account?.links?.recharge || state.supportBotUrl));
+  els.sendSupportButton.addEventListener("click", sendSupportTicket);
 }
 
 boot().catch(() => {
   setLanguage();
+  renderViewTabs();
   els.statusLine.textContent = t("error");
   renderProviders([]);
+  renderActiveOrders([]);
 });

@@ -105,9 +105,20 @@ def test_register_numbers_routes_adds_public_endpoints():
     assert ("GET", "/mini/numbers") in routes
     assert ("GET", "/mini/numbers/static/{name}") in routes
     assert ("GET", "/mini/numbers/api/bootstrap") in routes
+    assert ("GET", "/mini/numbers/api/account") in routes
+    assert ("POST", "/mini/numbers/api/account/language") in routes
+    assert ("GET", "/mini/numbers/api/support") in routes
+    assert ("POST", "/mini/numbers/api/support/ticket") in routes
     assert ("GET", "/mini/numbers/api/prices") in routes
     assert ("GET", "/mini/numbers/api/orders") in routes
     assert ("POST", "/mini/numbers/api/purchase") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/refresh") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/finish") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/cancel") in routes
+
+
+def test_numbers_support_categories_are_numbers_scoped():
+    rows = miniapp._support_categories_payload("en")
+
+    assert [row["key"] for row in rows] == ["numbers", "user_balance"]
+    assert rows[0]["label"] == "Numbers orders"
