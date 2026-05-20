@@ -80,6 +80,10 @@ async def bootstrap_financial_indexes() -> None:
         [("actor_id", 1), ("wallet_type", 1), ("created_at", -1)],
         background=True,
     )
+    await db.ledger_entries.create_index(
+        [("owner_type", 1), ("owner_id", 1), ("reseller_id", 1), ("wallet_type", 1), ("created_at", -1)],
+        background=True,
+    )
     await db.orders.create_index([("reseller_id", 1), ("created_at", -1)], background=True)
     await db.orders.create_index(
         [("user_id", 1), ("status", 1), ("number_mode", 1), ("created_at", -1)],
@@ -340,6 +344,33 @@ async def _run_in_transaction(coro):
 
 async def get_user_wallet_balance(user_id: int, reseller_id: int) -> float:
     return await _get_wallet_balance("user", user_id, "user", reseller_id)
+
+
+async def list_user_wallet_entries(user_id: int, reseller_id: int, limit: int = 8) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(int(limit or 8), 25))
+    cursor = (
+        db.ledger_entries.find(
+            {
+                "owner_type": "user",
+                "owner_id": int(user_id),
+                "reseller_id": int(reseller_id),
+                "wallet_type": "user",
+            },
+            {
+                "_id": 1,
+                "direction": 1,
+                "amount": 1,
+                "reason": 1,
+                "category": 1,
+                "balance_after": 1,
+                "created_at": 1,
+                "order_id": 1,
+            },
+        )
+        .sort("created_at", -1)
+        .limit(safe_limit)
+    )
+    return await cursor.to_list(length=safe_limit)
 
 
 async def get_reseller_wallet_balance(reseller_id: int, wallet_type: str = "main") -> float:

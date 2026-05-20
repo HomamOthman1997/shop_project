@@ -8,7 +8,7 @@ import json
 import logging
 import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl
@@ -20,13 +20,14 @@ from bson import ObjectId
 
 from config import settings
 from database import number_events_repo, temp_number_stats_repo
-from database.financial_ledger import get_user_wallet_balance
+from database.financial_ledger import get_user_wallet_balance, list_user_wallet_entries
 from database.orders_repo import (
     create_order,
     extract_order_amounts,
     get_order,
+    list_user_open_temp_and_voice_orders,
     list_user_rental_orders,
-    list_user_open_temp_orders,
+    list_user_recent_temp_and_voice_orders,
     update_order_details,
     update_order_status,
 )
@@ -49,6 +50,7 @@ from services.numbers.handlers.temp_order_utils import (
     _format_wait_time_short,
     _is_retryable_provider_cancel,
     _is_temp_order_active_for_trust_gate,
+    _order_reuse_warranty_sec,
     _order_temp_timeout_sec,
     _poll_interval_for_provider,
     _provider_default_reuse_warranty_sec,
@@ -60,7 +62,7 @@ from services.numbers.handlers.temp_order_utils import (
     _utc_now,
 )
 from services.numbers.handlers.rental_policy_utils import _rental_no_sms_yet, _rental_protection_policy
-from services.numbers.handlers.temp_provider_io import fetch_provider_sms
+from services.numbers.handlers.temp_provider_io import fetch_provider_sms, provider_resend
 from services.numbers.manager import (
     PROVIDERS,
     buy_number_from_provider,
@@ -68,8 +70,13 @@ from services.numbers.manager import (
     get_all_prices,
     get_all_rental_prices,
     get_all_voice_prices,
+    get_calls_from_provider,
+    get_recording_from_provider,
     get_rental_sms_from_provider,
+    notes_tags_from_provider,
     rent_number_from_provider,
+    renew_rental_from_provider,
+    wake_rental_from_provider,
 )
 from services.numbers.service_map import (
     get_service_aliases,
@@ -97,6 +104,7 @@ _MAX_PRICE_ROWS = 16
 _QUOTE_TTL_SEC = 300
 _HIDDEN_TEMP_PROVIDER_CODES = {"smsman", "smsman_s6"}
 _SUPPORT_CATEGORIES = ("numbers", "user_balance")
+_TEMP_MY_NUMBERS_RETENTION_DAYS = 5
 _EXTRA_SERVICE_SEARCH_ALIASES: dict[str, tuple[str, ...]] = {
     "attapoll": ("اتابول", "اتا بول", "أتابول", "أتا بول"),
 }
@@ -266,12 +274,54 @@ def _support_ticket_action_markup(ticket_id: str) -> InlineKeyboardMarkup:
     )
 
 
+def _ledger_reason_label(reason: Any, category: Any, lang: str) -> str:
+    reason_text = str(reason or "").strip().lower()
+    category_text = str(category or "").strip().lower()
+    if category_text == "core_purchase" or reason_text.startswith("purchase_core_"):
+        return _text(lang, "Numbers purchase", "شراء أرقام")
+    if category_text == "core_refund" or reason_text.startswith("refund_core_"):
+        return _text(lang, "Numbers refund", "استرجاع أرقام")
+    if category_text == "recharge_credit" or reason_text == "recharge_request_accepted":
+        return _text(lang, "Balance recharge", "شحن رصيد")
+    if category_text in {"manual_credit", "manual_adjustment"}:
+        return _text(lang, "Balance adjustment", "تعديل رصيد")
+    return _text(lang, "Wallet activity", "حركة رصيد")
+
+
+def _ledger_activity_payload(entries: list[dict[str, Any]], lang: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for entry in entries or []:
+        try:
+            amount = float(entry.get("amount") or 0.0)
+        except Exception:
+            amount = 0.0
+        sign = "+" if amount > 0 else "-" if amount < 0 else ""
+        rows.append(
+            {
+                "id": str(entry.get("_id") or ""),
+                "label": _ledger_reason_label(entry.get("reason"), entry.get("category"), lang),
+                "amount": amount,
+                "amount_label": f"{sign}{_money(abs(amount))}" if amount else _money(0),
+                "balance_label": _money(entry.get("balance_after")),
+                "created_at": _compact_datetime(entry.get("created_at")),
+                "direction": str(entry.get("direction") or ""),
+                "order_id": str(entry.get("order_id") or ""),
+            }
+        )
+    return rows
+
+
 async def _account_payload(user_doc: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
     user_id = int(auth["user_id"])
     lang = _lang_from_user(user_doc, auth)
     profile = _auth_profile(auth, user_doc)
     balance = await get_user_wallet_balance(user_id, user_id)
     language = str(user_doc.get("language") or lang or "en").strip().lower()
+    try:
+        activity = _ledger_activity_payload(await list_user_wallet_entries(user_id, user_id, limit=8), lang)
+    except Exception:
+        logger.exception("numbers miniapp account activity failed user=%s", user_id)
+        activity = []
     return {
         "ok": True,
         "user": {
@@ -288,6 +338,7 @@ async def _account_payload(user_doc: dict[str, Any], auth: dict[str, Any]) -> di
             "numbers_bot": numbers_bot_url("numbers"),
             "recharge": numbers_bot_url("balance"),
         },
+        "recent_activity": activity,
         "support_categories": _support_categories_payload(lang),
     }
 
@@ -482,7 +533,7 @@ async def _evaluate_temp_trust_gate(*, user_id: int, service_id: str, provider_c
     if not service or not provider:
         return {"allowed": True}
 
-    open_orders = await list_user_open_temp_orders(int(user_id), limit=5)
+    open_orders = await list_user_open_temp_and_voice_orders(int(user_id), limit=5)
     if any(_is_temp_order_active_for_trust_gate(item) for item in (open_orders or [])):
         return {"allowed": False, "mode": "active_order", "wait_sec": 0}
 
@@ -583,6 +634,85 @@ def _service_label(service_key: str) -> str:
     if label:
         return _clean_label(label)
     return _clean_label(str(service_key or "").replace("_", " ")).title()
+
+
+def _compact_datetime(value: Any) -> str:
+    dt = _coerce_utc_datetime(value)
+    if not dt:
+        return ""
+    return dt.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _country_name(code: Any, *, fallback: Any = "") -> str:
+    raw = str(code or "").strip()
+    if not raw or raw == "none":
+        return ""
+    for item in COUNTRIES_LIST:
+        if str(item.get("code") or "").strip() == raw:
+            return str(item.get("name") or raw)
+    return str(fallback or raw)
+
+
+def _state_name(code: Any) -> str:
+    raw = str(code or "").strip().upper()
+    if not raw or raw == "NONE":
+        return ""
+    for item in STATES_LIST:
+        if str(item.get("code") or "").strip().upper() == raw:
+            return str(item.get("name") or raw)
+    return raw
+
+
+def _detail_row(key: str, value: Any) -> dict[str, str] | None:
+    text = str(value or "").strip()
+    if not text or text == "-":
+        return None
+    return {"key": key, "value": text}
+
+
+def _order_detail_rows(order: dict[str, Any], *, mode: str, public_status: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    provider_code = str(order.get("provider") or order.get("provisioning_provider") or "").strip()
+    provider = provider_display_name(provider_code) if provider_code else ""
+    for item in (
+        _detail_row("provider", provider),
+        _detail_row("created", _compact_datetime(order.get("created_at"))),
+    ):
+        if item:
+            rows.append(item)
+
+    if mode == "rental":
+        country = _country_name(order.get("rental_country"), fallback=order.get("rental_country_name"))
+        state = _state_name(order.get("rental_state_code"))
+        extras = (
+            _detail_row("country", country),
+            _detail_row("state", state),
+            _detail_row("duration", order.get("rental_duration_label")),
+            _detail_row("ends", _compact_datetime(order.get("rental_end_date")) or str(order.get("rental_end_date") or "")),
+        )
+    else:
+        country = _country_name(order.get("temp_country") or order.get("provisioning_country"))
+        state = _state_name(order.get("temp_state") or order.get("provisioning_state_code"))
+        if mode == "voice":
+            calls_count = int(order.get("voice_calls_count") or len(order.get("voice_calls") or []) or 0)
+            extras = (
+                _detail_row("country", country),
+                _detail_row("calls", calls_count if calls_count > 0 else ""),
+                _detail_row("retry", order.get("temp_refund_retry_attempts") if public_status == "refund_pending" else ""),
+            )
+        else:
+            second_codes = int(order.get("temp_second_code_count") or 0)
+            extras = (
+                _detail_row("country", country),
+                _detail_row("state", state),
+                _detail_row("reuseUntil", _compact_datetime(order.get("temp_reuse_warranty_until"))),
+                _detail_row("secondCodes", second_codes if second_codes > 0 else ""),
+                _detail_row("retry", order.get("temp_refund_retry_attempts") if public_status == "refund_pending" else ""),
+            )
+    for item in extras:
+        if item:
+            rows.append(item)
+    return rows[:7]
 
 
 def _country_rows() -> list[dict[str, str]]:
@@ -734,6 +864,31 @@ def _can_quote_temp_offer(
         return False
 
 
+def _can_quote_voice_offer(
+    *,
+    mode: str,
+    service: str | None,
+    provider_code: str,
+    info: dict[str, Any],
+) -> bool:
+    if mode != "voice":
+        return False
+    if provider_code != "textverified":
+        return False
+    if not service:
+        return False
+    if not bool(info.get("available_for_buy", True)):
+        return False
+    if not bool(info.get("voice_capable", True)):
+        return False
+    if not str(info.get("api_service_name") or "").strip():
+        return False
+    try:
+        return float(info.get("price") or 0.0) > 0
+    except Exception:
+        return False
+
+
 def _rental_option_match_key(option: dict[str, Any]) -> tuple[str, str, str, str, str, str]:
     return (
         str(option.get("duration") or "").strip(),
@@ -837,6 +992,8 @@ async def _resolve_rental_offer_from_quote(token: str) -> dict[str, Any]:
 
 async def _resolve_temp_offer_from_quote(token: str) -> dict[str, Any]:
     quote = _verify_quote_token(token)
+    if str(quote.get("mode") or "temp").strip().lower() != "temp":
+        raise web.HTTPBadRequest(text="invalid quote")
     service = resolve_canonical_service_key(str(quote.get("service") or ""))
     provider_code = str(quote.get("provider") or "").strip().lower()
     country = str(quote.get("country") or "none").strip() or "none"
@@ -873,6 +1030,40 @@ async def _resolve_temp_offer_from_quote(token: str) -> dict[str, Any]:
     }
 
 
+async def _resolve_voice_offer_from_quote(token: str) -> dict[str, Any]:
+    quote = _verify_quote_token(token)
+    if str(quote.get("mode") or "").strip().lower() != "voice":
+        raise web.HTTPBadRequest(text="invalid quote")
+    service = resolve_canonical_service_key(str(quote.get("service") or ""))
+    provider_code = str(quote.get("provider") or "").strip().lower()
+    if not service or not provider_code:
+        raise web.HTTPBadRequest(text="invalid quote")
+
+    country = "1"
+    state = "none"
+    prices = await asyncio.wait_for(
+        get_all_voice_prices(service, country, state),
+        timeout=_PRICE_TIMEOUT_SEC,
+    )
+    info = prices.get(provider_code)
+    if not isinstance(info, dict):
+        raise web.HTTPBadRequest(text="provider unavailable")
+    if not _can_quote_voice_offer(
+        mode="voice",
+        service=service,
+        provider_code=provider_code,
+        info=info,
+    ):
+        raise web.HTTPBadRequest(text="provider unavailable")
+    return {
+        "service": service,
+        "country": country,
+        "state": state,
+        "provider_code": provider_code,
+        "info": info,
+    }
+
+
 def _order_public_status(order: dict[str, Any]) -> str:
     mode = str(order.get("number_mode") or "").strip().lower()
     status = str(order.get("status") or "").strip().lower()
@@ -887,10 +1078,22 @@ def _order_public_status(order: dict[str, Any]) -> str:
             return "code_received"
         return "waiting"
     wait_state = str(order.get("temp_wait_state") or "").strip().lower()
+    if mode == "voice":
+        if status in {"cancelled", "refunded"} or wait_state in {"refunded", "auto_refunded"}:
+            return "refunded"
+        if status in {"failed", "expired"}:
+            return status
+        if order.get("voice_recording_uri") or wait_state == "call_received":
+            return "call_received"
+        if wait_state == "refund_pending":
+            return "refund_pending"
+        return "waiting"
     if status in {"cancelled", "refunded"} or wait_state in {"refunded", "auto_refunded"}:
         return "refunded"
     if status in {"failed", "expired"}:
         return status
+    if _temp_second_code_waiting(order):
+        return "waiting"
     if _temp_order_has_received_code(order):
         return "code_received"
     if wait_state == "refund_pending":
@@ -898,11 +1101,70 @@ def _order_public_status(order: dict[str, Any]) -> str:
     return "waiting"
 
 
+def _temp_my_numbers_expires_at(order: dict[str, Any]) -> datetime | None:
+    created_at = _coerce_utc_datetime((order or {}).get("created_at"))
+    if not created_at:
+        return None
+    return created_at + timedelta(days=_TEMP_MY_NUMBERS_RETENTION_DAYS)
+
+
+def _temp_my_numbers_active(order: dict[str, Any]) -> bool:
+    if str((order or {}).get("number_mode") or "").strip().lower() != "temp":
+        return False
+    if str((order or {}).get("status") or "").strip().lower() != "success":
+        return False
+    if str((order or {}).get("provisioning_state") or "").strip().lower() != "provisioned":
+        return False
+    if not str((order or {}).get("provider_order_id") or "").strip():
+        return False
+    number = str((order or {}).get("provider_number") or "").strip()
+    if not number or number == "?":
+        return False
+    expires_at = _temp_my_numbers_expires_at(order)
+    return True if not expires_at else _seconds_left_until(expires_at) > 0
+
+
+def _temp_resend_available(order: dict[str, Any]) -> bool:
+    return _temp_my_numbers_active(order)
+
+
+def _temp_second_code_waiting(order: dict[str, Any]) -> bool:
+    if str((order or {}).get("number_mode") or "").strip().lower() != "temp":
+        return False
+    if str((order or {}).get("temp_wait_state") or "").strip().lower() != "waiting":
+        return False
+    second_requested_at = _coerce_utc_datetime((order or {}).get("temp_second_code_last_at"))
+    if not second_requested_at:
+        return False
+    last_sms_at = _coerce_utc_datetime((order or {}).get("temp_last_sms_at"))
+    return not last_sms_at or second_requested_at > last_sms_at
+
+
+def _temp_like_replace_available(order: dict[str, Any]) -> bool:
+    mode = str((order or {}).get("number_mode") or "").strip().lower()
+    if mode not in {"temp", "voice"}:
+        return False
+    status = str((order or {}).get("status") or "").strip().lower()
+    wait_state = str((order or {}).get("temp_wait_state") or "").strip().lower()
+    closed = status in {"cancelled", "refunded", "failed", "expired"} or wait_state in {"refunded", "auto_refunded"}
+    if not closed:
+        return False
+    if mode == "voice":
+        return not bool((order or {}).get("voice_recording_uri") or wait_state == "call_received")
+    return not _temp_order_has_received_code(order)
+
+
+def _second_code_price(order: dict[str, Any]) -> tuple[float, float]:
+    sale_price, cost_price = extract_order_amounts(order)
+    return round(max(0.0, float(sale_price)) / 2.0, 4), round(max(0.0, float(cost_price)) / 2.0, 4)
+
+
 def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
     sale_price, cost_price = extract_order_amounts(order)
     mode = str(order.get("number_mode") or "temp").strip().lower() or "temp"
     if mode == "rental":
         messages = [str(item) for item in (order.get("rental_sms_messages") or []) if str(item or "").strip()]
+        rental_tags = [str(item) for item in (order.get("rental_tags") or []) if str(item or "").strip()]
         public_status = _order_public_status(order)
         return {
             "id": str(order.get("_id") or ""),
@@ -919,6 +1181,9 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
             "code": messages[-1] if messages else "",
             "codes": messages,
             "messages": messages,
+            "notes": str(order.get("rental_notes") or ""),
+            "tags": rental_tags,
+            "details": _order_detail_rows(order, mode="rental", public_status=public_status),
             "price": float(sale_price),
             "price_label": _money(sale_price),
             "base_price_label": _money(cost_price),
@@ -926,6 +1191,9 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
             "end_date": str(order.get("rental_end_date") or ""),
             "can_refresh": public_status in {"waiting", "code_received"},
             "can_finish": public_status in {"waiting", "code_received"},
+            "can_renew": bool(order.get("rental_is_renewable")) and public_status in {"waiting", "code_received"},
+            "can_wake": public_status in {"waiting", "code_received"},
+            "can_notes": public_status in {"waiting", "code_received"},
             "can_cancel": False,
             "seconds_left": 0,
             "cancel_wait_sec": 0,
@@ -935,11 +1203,57 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
     timeout_sec = _order_temp_timeout_sec(order)
     cancel_left = max(0, TEMP_CANCEL_AFTER_SEC - elapsed)
     codes = [str(code) for code in (order.get("temp_codes") or []) if str(code or "").strip()]
+    if mode == "voice":
+        public_status = _order_public_status(order)
+        recording_uri = str(order.get("voice_recording_uri") or "").strip()
+        calls = [item for item in (order.get("voice_calls") or []) if isinstance(item, dict)]
+        order_id = str(order.get("_id") or "")
+        return {
+            "id": order_id,
+            "mode": "voice",
+            "status": str(order.get("status") or ""),
+            "public_status": public_status,
+            "wait_state": str(order.get("temp_wait_state") or ""),
+            "provider": provider_display_name(order.get("provider")),
+            "provider_id": provider_public_id(order.get("provider")),
+            "service": str(order.get("temp_service_key") or order.get("service_id") or ""),
+            "service_label": _service_label(str(order.get("temp_service_key") or order.get("service_id") or "")),
+            "country": str(order.get("temp_country") or "1"),
+            "state": str(order.get("temp_state") or "none"),
+            "number": str(order.get("provider_number") or ""),
+            "code": "",
+            "codes": [],
+            "calls_count": int(order.get("voice_calls_count") or len(calls) or 0),
+            "recording_available": bool(recording_uri),
+            "recording_url": f"/mini/numbers/api/orders/{order_id}/recording" if recording_uri and order_id else "",
+            "details": _order_detail_rows(order, mode="voice", public_status=public_status),
+            "price": float(sale_price),
+            "price_label": _money(sale_price),
+            "base_price_label": _money(cost_price),
+            "elapsed_sec": int(elapsed),
+            "timeout_sec": int(timeout_sec),
+            "seconds_left": max(0, int(timeout_sec) - int(elapsed)),
+            "can_refresh": public_status in {"waiting", "refund_pending"},
+            "can_cancel": cancel_left <= 0 and public_status == "waiting",
+            "can_replace": _temp_like_replace_available(order),
+            "cancel_wait_sec": int(cancel_left),
+        }
+    public_status = _order_public_status(order)
+    display_code = str(order.get("temp_last_code") or (codes[-1] if codes else "")) if public_status == "code_received" else ""
+    second_sale, _second_cost = _second_code_price(order)
+    can_second_code = bool(public_status == "code_received" and _temp_resend_available(order) and second_sale > 0)
+    replace_available = _temp_like_replace_available(order)
+    alternate_provider_code = str(order.get("temp_alternate_provider") or "").strip().lower()
+    current_provider_code = str(order.get("provider") or order.get("provisioning_provider") or "").strip().lower()
+    alternate_provider_enabled = bool(order.get("temp_alternate_enabled")) and bool(alternate_provider_code)
+    alternate_provider_available = bool(
+        replace_available and alternate_provider_enabled and alternate_provider_code != current_provider_code
+    )
     return {
         "id": str(order.get("_id") or ""),
         "mode": "temp",
         "status": str(order.get("status") or ""),
-        "public_status": _order_public_status(order),
+        "public_status": public_status,
         "wait_state": str(order.get("temp_wait_state") or ""),
         "provider": provider_display_name(order.get("provider")),
         "provider_id": provider_public_id(order.get("provider")),
@@ -948,15 +1262,26 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
         "country": str(order.get("temp_country") or ""),
         "state": str(order.get("temp_state") or "none"),
         "number": str(order.get("provider_number") or ""),
-        "code": str(order.get("temp_last_code") or (codes[-1] if codes else "")),
+        "code": display_code,
         "codes": codes,
+        "details": _order_detail_rows(order, mode="temp", public_status=public_status),
         "price": float(sale_price),
         "price_label": _money(sale_price),
         "base_price_label": _money(cost_price),
+        "can_second_code": can_second_code,
+        "second_code_price": float(second_sale),
+        "second_code_price_label": _money(second_sale),
+        "second_code_count": int(order.get("temp_second_code_count") or 0),
+        "can_replace": replace_available,
+        "can_alternate_provider": alternate_provider_available,
+        "alternate_provider": provider_display_name(alternate_provider_code) if alternate_provider_available else "",
+        "alternate_provider_id": provider_public_id(alternate_provider_code) if alternate_provider_available else "",
+        "alternate_provider_price_label": _money(order.get("temp_alternate_price")) if alternate_provider_available else "",
         "elapsed_sec": int(elapsed),
         "timeout_sec": int(timeout_sec),
         "seconds_left": max(0, int(timeout_sec) - int(elapsed)),
-        "can_cancel": cancel_left <= 0 and not _temp_order_has_received_code(order) and _order_public_status(order) == "waiting",
+        "can_refresh": public_status in {"waiting", "code_received", "refund_pending"},
+        "can_cancel": cancel_left <= 0 and not _temp_order_has_received_code(order) and public_status == "waiting",
         "cancel_wait_sec": int(cancel_left),
     }
 
@@ -976,6 +1301,10 @@ async def _cancel_and_refund_temp_order(
         return {"success": False, "reason": "already_closed"}
     if order.get("temp_refunded_at") or order.get("temp_cancelled_at"):
         return {"success": False, "reason": "already_closed"}
+    number_mode = "voice" if str(order.get("number_mode") or "").strip().lower() == "voice" else "temp"
+    if require_no_sms and number_mode == "voice":
+        if order.get("voice_recording_uri") or str(order.get("temp_wait_state") or "").strip().lower() == "call_received":
+            return {"success": False, "reason": "call_received"}
     if require_no_sms and _temp_order_has_received_code(order):
         return {"success": False, "reason": "sms_received"}
 
@@ -991,7 +1320,7 @@ async def _cancel_and_refund_temp_order(
         order,
         "cancel_requested",
         payload={"reason": str(reason or "cancelled"), "source": "numbers_miniapp"},
-        number_mode="temp",
+        number_mode=number_mode,
     )
 
     cancel_res: dict[str, Any] = {"success": False, "raw": "cancel_not_attempted"}
@@ -1010,7 +1339,7 @@ async def _cancel_and_refund_temp_order(
             order,
             "provider_cancel_failed",
             payload={"raw": (cancel_res or {}).get("raw"), "reason": str(reason or "cancelled")},
-            number_mode="temp",
+            number_mode=number_mode,
         )
         return {
             "success": False,
@@ -1032,7 +1361,7 @@ async def _cancel_and_refund_temp_order(
             order,
             "refund_failed",
             payload={"raw": msg, "reason": str(reason or "cancelled")},
-            number_mode="temp",
+            number_mode=number_mode,
         )
         return {"success": False, "reason": "financial_refund_failed", "raw": msg}
 
@@ -1062,9 +1391,71 @@ async def _cancel_and_refund_temp_order(
         "refund_success",
         payload={"reason": str(reason or "cancelled"), "source": "numbers_miniapp"},
         status_after="cancelled",
-        number_mode="temp",
+        number_mode=number_mode,
     )
     return {"success": True, "reason": "ok"}
+
+
+def _temp_refund_result_retryable(result: dict[str, Any]) -> bool:
+    reason = str((result or {}).get("reason") or "").strip().lower()
+    if reason == "financial_refund_failed":
+        return True
+    return reason == "provider_cancel_failed" and bool((result or {}).get("retryable"))
+
+
+async def _mark_temp_refund_pending(
+    *,
+    order_id: Any,
+    order: dict[str, Any],
+    result: dict[str, Any],
+    source: str,
+) -> dict[str, Any]:
+    now = _utc_now()
+    attempts = int((order or {}).get("temp_refund_retry_attempts") or 0) + 1
+    await update_order_details(
+        order_id,
+        {
+            "temp_wait_timeout_at": (order or {}).get("temp_wait_timeout_at") or now,
+            "temp_wait_state": "refund_pending",
+            "temp_replace_enabled": True,
+            "temp_refund_retry_attempts": attempts,
+            "temp_refund_retry_last_at": now,
+            "temp_refund_retry_reason": str((result or {}).get("reason") or "provider_cancel_failed"),
+        },
+    )
+    await _log_temp_event(
+        order,
+        "refund_pending",
+        {
+            "source": source,
+            "attempts": attempts,
+            "reason": str((result or {}).get("reason") or ""),
+            "raw": (result or {}).get("raw"),
+        },
+    )
+    return await get_order(order_id) or order
+
+
+async def _retry_pending_temp_refund(order: dict[str, Any], *, source: str) -> dict[str, Any]:
+    if not order or not order.get("_id"):
+        return order
+    result = await _cancel_and_refund_temp_order(
+        order_id=order["_id"],
+        order=order,
+        actor_user_id=int(order.get("user_id") or 0),
+        reason=source,
+        require_no_sms=True,
+    )
+    if result.get("success"):
+        return await get_order(order["_id"]) or order
+    if _temp_refund_result_retryable(result):
+        return await _mark_temp_refund_pending(
+            order_id=order["_id"],
+            order=order,
+            result=result,
+            source=source,
+        )
+    return await get_order(order["_id"]) or order
 
 
 async def _refresh_temp_order(order: dict[str, Any]) -> dict[str, Any]:
@@ -1081,7 +1472,9 @@ async def _refresh_temp_order(order: dict[str, Any]) -> dict[str, Any]:
     current = await get_order(order["_id"]) or order
     if str(current.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
         return current
-    if _temp_order_has_received_code(current):
+    if str(current.get("temp_wait_state") or "").strip().lower() == "refund_pending":
+        return await _retry_pending_temp_refund(current, source="miniapp_refund_retry")
+    if _temp_order_has_received_code(current) and not _temp_second_code_waiting(current):
         return current
 
     sms_data = await fetch_provider_sms(PROVIDERS, provider, provider_order_id)
@@ -1132,14 +1525,11 @@ async def _refresh_temp_order(order: dict[str, Any]) -> dict[str, Any]:
     if result.get("success"):
         return await get_order(current["_id"]) or current
 
-    await update_order_details(
-        current["_id"],
-        {
-            "temp_wait_timeout_at": now,
-            "temp_wait_state": "refund_pending",
-            "temp_refund_retry_last_at": now,
-            "temp_refund_retry_reason": str(result.get("reason") or "provider_cancel_failed"),
-        },
+    current = await _mark_temp_refund_pending(
+        order_id=current["_id"],
+        order=current,
+        result=result,
+        source="numbers_miniapp_timeout",
     )
     await _log_temp_event(
         current,
@@ -1151,7 +1541,493 @@ async def _refresh_temp_order(order: dict[str, Any]) -> dict[str, Any]:
             "source": "numbers_miniapp",
         },
     )
-    return await get_order(current["_id"]) or current
+    return current
+
+
+def _voice_recording_uri_from_calls(calls: Any) -> str:
+    if not isinstance(calls, list):
+        return ""
+    for call in calls:
+        if not isinstance(call, dict):
+            continue
+        recording_uri = str(call.get("recordingUri") or call.get("recordingUrl") or "").strip()
+        if recording_uri:
+            return recording_uri
+    return ""
+
+
+def _voice_recording_filename(content_type: str | None) -> str:
+    content_type = str(content_type or "").lower()
+    if "mpeg" in content_type or "mp3" in content_type:
+        return "call-recording.mp3"
+    if "wav" in content_type:
+        return "call-recording.wav"
+    if "ogg" in content_type:
+        return "call-recording.ogg"
+    if "mp4" in content_type or "m4a" in content_type:
+        return "call-recording.m4a"
+    return "call-recording.bin"
+
+
+async def _refresh_voice_order(order: dict[str, Any]) -> dict[str, Any]:
+    if not order or not order.get("_id"):
+        return order
+    if str(order.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
+        return order
+
+    provider = str(order.get("provider") or "").strip().lower()
+    provider_order_id = str(order.get("provider_order_id") or "").strip()
+    if not provider or not provider_order_id:
+        return order
+
+    current = await get_order(order["_id"]) or order
+    if str(current.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
+        return current
+    if str(current.get("temp_wait_state") or "").strip().lower() == "refund_pending":
+        return await _retry_pending_temp_refund(current, source="miniapp_voice_refund_retry")
+    if str(current.get("voice_recording_uri") or "").strip():
+        return current
+
+    now = _utc_now()
+    try:
+        calls_data = await get_calls_from_provider(
+            provider,
+            provider_order_id,
+            to_number=str(current.get("provider_number") or ""),
+        )
+    except Exception as exc:
+        await update_order_details(
+            current["_id"],
+            {
+                "temp_last_refresh_at": now,
+                "voice_last_check_failed_at": now,
+                "voice_last_check_error": str(exc),
+            },
+        )
+        return await get_order(current["_id"]) or current
+
+    calls = [dict(item) for item in (calls_data.get("calls") or []) if isinstance(item, dict)]
+    recording_uri = _voice_recording_uri_from_calls(calls)
+    patch: dict[str, Any] = {
+        "temp_last_refresh_at": now,
+        "voice_last_check_at": now,
+        "voice_calls": calls[:5],
+        "voice_calls_count": len(calls),
+    }
+    if recording_uri:
+        patch.update(
+            {
+                "temp_wait_state": "call_received",
+                "voice_call_received_at": now,
+                "voice_recording_uri": recording_uri,
+            }
+        )
+        await update_order_details(current["_id"], patch)
+        await _log_temp_event(
+            current,
+            "voice_call_received",
+            {"has_recording": True, "source": "numbers_miniapp_poll"},
+        )
+        return await get_order(current["_id"]) or {**current, **patch}
+
+    await update_order_details(current["_id"], patch)
+    current = await get_order(current["_id"]) or {**current, **patch}
+    if _temp_elapsed_sec(current) < _order_temp_timeout_sec(current):
+        return current
+
+    result = await _cancel_and_refund_temp_order(
+        order_id=current["_id"],
+        order=current,
+        actor_user_id=int(current.get("user_id") or 0),
+        reason="miniapp_voice_timeout_auto_refund",
+        require_no_sms=True,
+    )
+    if result.get("success"):
+        return await get_order(current["_id"]) or current
+
+    current = await _mark_temp_refund_pending(
+        order_id=current["_id"],
+        order=current,
+        result=result,
+        source="numbers_miniapp_voice_timeout",
+    )
+    await _log_temp_event(
+        current,
+        "voice_wait_timeout",
+        {
+            "timeout_sec": _order_temp_timeout_sec(current),
+            "auto_refund_failed": True,
+            "auto_refund_reason": str(result.get("reason") or ""),
+            "source": "numbers_miniapp",
+        },
+    )
+    return current
+
+
+def _second_code_log_payload(order: dict[str, Any], *, now: datetime, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "provider": str(order.get("provider") or ""),
+        "provider_order_id": str(order.get("provider_order_id") or ""),
+        "seconds_since_purchase": _seconds_between(now, order.get("created_at")),
+        "seconds_since_first_code": _seconds_between(now, order.get("temp_first_sms_at")),
+        "seconds_since_last_sms": _seconds_between(now, order.get("temp_last_sms_at")),
+        "seconds_since_previous_second_code": _seconds_between(now, order.get("temp_second_code_last_at")),
+        "resend_retention_expires_at": (
+            _temp_my_numbers_expires_at(order).isoformat() if _temp_my_numbers_expires_at(order) else None
+        ),
+        "resend_guarantee_seconds": _order_reuse_warranty_sec(order),
+        "codes_count_before": int(order.get("temp_codes_count") or len(order.get("temp_codes") or []) or 0),
+        "source": "numbers_miniapp",
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+async def _request_second_code_for_order(
+    *,
+    order_id: Any,
+    order: dict[str, Any],
+    user_id: int,
+    reseller_id: int,
+    lang: str,
+) -> dict[str, Any]:
+    if str((order or {}).get("number_mode") or "").strip().lower() != "temp":
+        return {"ok": False, "code": "invalid_mode", "message": _text(lang, "This action is only for temporary numbers.", "هذا الإجراء خاص بالأرقام المؤقتة فقط.")}
+
+    now = _utc_now()
+    provider = str(order.get("provider") or "").strip().lower()
+    provider_order_id = str(order.get("provider_order_id") or "").strip()
+    if not provider or not provider_order_id:
+        return {"ok": False, "code": "order_not_found", "message": _text(lang, "Order not found.", "الطلب غير موجود.")}
+    if not _temp_resend_available(order):
+        await _log_temp_event(
+            order,
+            "second_code_not_allowed",
+            _second_code_log_payload(order, now=now, extra={"reason": "retention_expired_or_invalid_order"}),
+        )
+        return {"ok": False, "code": "second_code_unavailable", "message": _text(lang, "Second code is not available for this order.", "الكود الثاني غير متاح لهذا الطلب.")}
+
+    await _log_temp_event(order, "second_code_attempted", _second_code_log_payload(order, now=now))
+    resend_result = await provider_resend(PROVIDERS, provider, provider_order_id)
+    if not bool((resend_result or {}).get("success")):
+        await _log_temp_event(
+            order,
+            "second_code_provider_rejected",
+            _second_code_log_payload(order, now=now, extra={"provider_error": str((resend_result or {}).get("raw") or "")}),
+        )
+        return {"ok": False, "code": "second_code_provider_failed", "message": _text(lang, "Provider could not request a second code right now.", "المزود لم يستطع طلب كود ثاني حاليا.")}
+
+    new_provider_order_id = str((resend_result or {}).get("order_id") or provider_order_id).strip() or provider_order_id
+    new_provider_number = str((resend_result or {}).get("number") or order.get("provider_number") or "").strip()
+    await _log_temp_event(
+        order,
+        "second_code_provider_success",
+        _second_code_log_payload(
+            order,
+            now=now,
+            extra={
+                "new_provider_order_id": new_provider_order_id,
+                "number_changed": bool(new_provider_number and new_provider_number != str(order.get("provider_number") or "")),
+            },
+        ),
+    )
+
+    extra_sale, extra_cost = _second_code_price(order)
+    if extra_sale <= 0:
+        await _log_temp_event(
+            order,
+            "second_code_not_allowed",
+            _second_code_log_payload(order, now=now, extra={"reason": "missing_extra_price"}),
+        )
+        return {"ok": False, "code": "second_code_unavailable", "message": _text(lang, "Second code is not available for this order.", "الكود الثاني غير متاح لهذا الطلب.")}
+
+    second_order = await create_order(
+        user_id=int(user_id),
+        reseller_id=int(reseller_id),
+        service_id=f"{str(order.get('service_id') or order.get('temp_service_key') or 'temp')}:second_code",
+        selling_price=extra_sale,
+        base_price=extra_cost,
+    )
+    await update_order_details(
+        second_order["_id"],
+        {
+            "number_mode": "temp",
+            "source": "numbers_miniapp",
+            "telegram_bot_id": None,
+            "provisioning_state": "awaiting_charge",
+            "provisioning_provider": provider,
+            "provisioning_service": str(order.get("temp_api_service") or order.get("service_id") or ""),
+            "provisioning_country": order.get("temp_country"),
+            "provisioning_state_code": order.get("temp_state"),
+            "provisioning_created_at": now,
+            "temp_second_code_source_order_id": str(order_id),
+        },
+    )
+    ok, msg = await FinancialManager.process_core_purchase(
+        user_id=int(user_id),
+        order_id=second_order["_id"],
+        sale_price=extra_sale,
+        cost_price=extra_cost,
+        reseller_id=int(reseller_id),
+    )
+    if not ok:
+        await update_order_status(second_order["_id"], "failed")
+        await _log_temp_event(
+            order,
+            "second_code_charge_failed",
+            _second_code_log_payload(
+                order,
+                now=now,
+                extra={"extra_sale": extra_sale, "extra_cost": extra_cost, "finance_error": str(msg)},
+            ),
+        )
+        return {"ok": False, "code": str(msg), "message": finance_error_public_text(lang, str(msg))}
+
+    charged_at = _utc_now()
+    await update_order_status(second_order["_id"], "success")
+    await update_order_details(
+        second_order["_id"],
+        {
+            "provisioning_state": "provisioned",
+            "provisioning_charged_at": charged_at,
+            "provisioned_at": charged_at,
+        },
+    )
+    await update_order_details(
+        order_id,
+        {
+            "temp_second_code_last_at": now,
+            "temp_second_code_count": int(order.get("temp_second_code_count") or 0) + 1,
+            "provider_order_id": new_provider_order_id,
+            "provider_number": new_provider_number or str(order.get("provider_number") or ""),
+            "temp_wait_state": "waiting",
+            "temp_wait_started_at": now,
+            "temp_last_refresh_at": None,
+        },
+    )
+    await _log_temp_event(
+        order,
+        "second_code_requested",
+        _second_code_log_payload(
+            order,
+            now=now,
+            extra={
+                "extra_sale": extra_sale,
+                "extra_cost": extra_cost,
+                "new_provider_order_id": new_provider_order_id,
+                "second_order_id": str(second_order["_id"]),
+            },
+        ),
+    )
+
+    refreshed = await get_order(order_id) or order
+    refreshed = await _refresh_temp_order(refreshed)
+    return {
+        "ok": True,
+        "message": _text(lang, f"Second code requested. Charged {_money(extra_sale)}.", f"تم طلب كود ثاني. تم خصم {_money(extra_sale)}."),
+        "order": _order_payload(refreshed),
+        "second_order_id": str(second_order["_id"]),
+    }
+
+
+def _pick_alternate_temp_provider(
+    prices: dict[str, Any],
+    *,
+    current_provider: str,
+    service: str,
+    country: str,
+    state: str,
+) -> tuple[str, dict[str, Any]] | None:
+    candidates: list[tuple[float, tuple[int, str, str], str, dict[str, Any]]] = []
+    for code, raw_info in (prices or {}).items():
+        code = str(code or "").strip().lower()
+        if not code or code == current_provider or code in _HIDDEN_TEMP_PROVIDER_CODES or not isinstance(raw_info, dict):
+            continue
+        if not _can_quote_temp_offer(
+            mode="temp",
+            service=service,
+            country=country,
+            state=state,
+            provider_code=code,
+            info=raw_info,
+        ):
+            continue
+        try:
+            candidate_price = float(raw_info.get("price") or 999999)
+        except Exception:
+            candidate_price = 999999.0
+        candidates.append((candidate_price, _provider_sort_key(code), code, raw_info))
+    if not candidates:
+        return None
+    _price, _sort_key, provider_code, info = sorted(candidates, key=lambda item: (item[0], item[1]))[0]
+    return provider_code, info
+
+
+async def _enable_alternate_provider_suggestion(
+    *,
+    order_id: Any,
+    order: dict[str, Any],
+    lang: str,
+) -> dict[str, Any] | None:
+    if str((order or {}).get("number_mode") or "").strip().lower() != "temp":
+        return None
+    if not _temp_like_replace_available(order):
+        return None
+    service = str(order.get("temp_service_key") or order.get("service_id") or "").strip()
+    current_provider = str(order.get("provider") or order.get("provisioning_provider") or "").strip().lower()
+    country = str(order.get("temp_country") or order.get("provisioning_country") or "none").strip() or "none"
+    state = str(order.get("temp_state") or order.get("provisioning_state_code") or "none").strip() or "none"
+    if country != "1":
+        state = "none"
+    if not service:
+        return None
+    try:
+        prices = await asyncio.wait_for(get_all_prices(service, country, state, with_success_rates=False), timeout=_PRICE_TIMEOUT_SEC)
+    except Exception:
+        return None
+    picked = _pick_alternate_temp_provider(
+        prices,
+        current_provider=current_provider,
+        service=service,
+        country=country,
+        state=state,
+    )
+    if not picked:
+        return None
+    provider_code, info = picked
+    try:
+        suggested_price = float(info.get("price") or 0.0)
+    except Exception:
+        suggested_price = 0.0
+    await update_order_details(
+        order_id,
+        {
+            "temp_alternate_enabled": True,
+            "temp_alternate_provider": provider_code,
+            "temp_alternate_api_service": str(info.get("api_service_name") or ""),
+            "temp_alternate_price": suggested_price,
+            "temp_alternate_base_price": float(info.get("base_price") or suggested_price),
+            "temp_alternate_suggested_at": _utc_now(),
+        },
+    )
+    await _log_temp_event(
+        order,
+        "alternate_provider_suggested",
+        {
+            "source": "numbers_miniapp",
+            "provider": provider_code,
+            "price": suggested_price,
+            "message_language": lang,
+        },
+    )
+    return {"provider": provider_code, "info": info, "price": suggested_price}
+
+
+async def _request_replacement_number(
+    *,
+    order_id: Any,
+    order: dict[str, Any],
+    user_id: int,
+    reseller_id: int,
+    lang: str,
+    alternate_provider: bool = False,
+) -> dict[str, Any]:
+    mode = str((order or {}).get("number_mode") or "").strip().lower()
+    if mode not in {"temp", "voice"}:
+        return {"ok": False, "code": "invalid_mode", "message": _text(lang, "This action is only for temporary numbers.", "هذا الإجراء خاص بالأرقام المؤقتة فقط.")}
+    if not _temp_like_replace_available(order):
+        return {"ok": False, "code": "replace_unavailable", "message": _text(lang, "A replacement is not available for this order.", "استبدال الرقم غير متاح لهذا الطلب.")}
+
+    service = str(order.get("temp_service_key") or order.get("service_id") or "").strip()
+    current_provider = str(order.get("provider") or order.get("provisioning_provider") or "").strip().lower()
+    provider_code = current_provider
+    if alternate_provider and mode == "temp":
+        if not bool(order.get("temp_alternate_enabled")):
+            return {"ok": False, "code": "alternate_unavailable", "message": _text(lang, "No alternate provider is available for this order.", "لا يوجد مزود بديل متاح لهذا الطلب.")}
+        suggested_provider = str(order.get("temp_alternate_provider") or "").strip().lower()
+        if not suggested_provider or suggested_provider == current_provider:
+            return {"ok": False, "code": "alternate_unavailable", "message": _text(lang, "No alternate provider is available for this order.", "لا يوجد مزود بديل متاح لهذا الطلب.")}
+        provider_code = suggested_provider
+    country = str(order.get("temp_country") or order.get("provisioning_country") or "none").strip() or "none"
+    state = str(order.get("temp_state") or order.get("provisioning_state_code") or "none").strip() or "none"
+    if mode == "voice":
+        if alternate_provider:
+            return {"ok": False, "code": "alternate_unavailable", "message": _text(lang, "No alternate provider is available for this order.", "لا يوجد مزود بديل متاح لهذا الطلب.")}
+        country = "1"
+        state = "none"
+    elif country != "1":
+        state = "none"
+    if not service or (not provider_code and not alternate_provider):
+        return {"ok": False, "code": "replace_unavailable", "message": _text(lang, "A replacement is not available for this order.", "استبدال الرقم غير متاح لهذا الطلب.")}
+    if provider_code in _HIDDEN_TEMP_PROVIDER_CODES and not alternate_provider:
+        return {"ok": False, "code": "replace_unavailable", "message": _text(lang, "A replacement is not available for this order.", "استبدال الرقم غير متاح لهذا الطلب.")}
+
+    try:
+        if mode == "voice":
+            prices = await asyncio.wait_for(get_all_voice_prices(service, "1", "none"), timeout=_PRICE_TIMEOUT_SEC)
+        else:
+            prices = await asyncio.wait_for(get_all_prices(service, country, state, with_success_rates=False), timeout=_PRICE_TIMEOUT_SEC)
+    except asyncio.TimeoutError:
+        return {"ok": False, "code": "provider_timeout", "message": _text(lang, "Provider checks took too long. Try again.", "فحص المزودين أخذ وقت طويل. جرّب مرة ثانية.")}
+
+    if alternate_provider:
+        info = prices.get(provider_code) if provider_code and provider_code != current_provider else None
+        if not isinstance(info, dict) or not _can_quote_temp_offer(
+            mode="temp",
+            service=service,
+            country=country,
+            state=state,
+            provider_code=provider_code,
+            info=info,
+        ):
+            return {"ok": False, "code": "alternate_unavailable", "message": _text(lang, "No alternate provider is available for this order.", "لا يوجد مزود بديل متاح لهذا الطلب.")}
+    else:
+        info = prices.get(provider_code)
+    if not isinstance(info, dict):
+        return {"ok": False, "code": "provider_unavailable", "message": _text(lang, "This provider is not available right now.", "هذا المزود غير متاح حالياً.")}
+
+    if mode == "voice":
+        can_buy = _can_quote_voice_offer(mode="voice", service=service, provider_code=provider_code, info=info)
+    else:
+        can_buy = _can_quote_temp_offer(
+            mode="temp",
+            service=service,
+            country=country,
+            state=state,
+            provider_code=provider_code,
+            info=info,
+        )
+    if not can_buy:
+        return {"ok": False, "code": "provider_unavailable", "message": _text(lang, "This provider is not available right now.", "هذا المزود غير متاح حالياً.")}
+
+    result = await _purchase_temp_offer(
+        user_id=int(user_id),
+        reseller_id=int(reseller_id),
+        lang=lang,
+        offer={
+            "service": service,
+            "country": country,
+            "state": state,
+            "provider_code": provider_code,
+            "info": info,
+        },
+        number_mode=mode,
+        source_order_id=str(order_id),
+        source_reason="alternate_provider_request" if alternate_provider else "replace_request",
+    )
+    if result.get("ok"):
+        await _log_temp_event(
+            order,
+            "replacement_requested",
+            {
+                "source": "numbers_miniapp",
+                "replacement_order_id": str((result.get("order") or {}).get("id") or ""),
+                "provider": provider_code,
+                "alternate_provider": bool(alternate_provider),
+            },
+        )
+    return result
 
 
 async def _sync_rental_sms_snapshot(order_id: Any, order: dict[str, Any]) -> dict[str, Any]:
@@ -1191,6 +2067,37 @@ async def _refresh_rental_order(order: dict[str, Any]) -> dict[str, Any]:
         return order
     await _sync_rental_sms_snapshot(order["_id"], order)
     return await get_order(order["_id"]) or order
+
+
+async def _sync_rental_notes_tags_snapshot(order_id: Any, order: dict[str, Any]) -> dict[str, Any]:
+    provider = str(order.get("provider") or "").strip().lower()
+    provider_order_id = str(order.get("provider_order_id") or "").strip()
+    if not provider or not provider_order_id:
+        return {"success": False, "notes": "", "tags": [], "raw": "provider_order_missing"}
+    try:
+        data = await notes_tags_from_provider(provider, provider_order_id)
+    except Exception as exc:
+        return {"success": False, "notes": "", "tags": [], "raw": str(exc)}
+    if not bool(data.get("success")):
+        return {"success": False, "notes": "", "tags": [], "raw": data.get("raw")}
+
+    notes = str(data.get("notes") or "")
+    tags = [str(item) for item in (data.get("tags") or []) if str(item or "").strip()]
+    await update_order_details(
+        order_id,
+        {
+            "rental_notes": notes,
+            "rental_tags": tags[:20],
+            "rental_notes_tags_fetched_at": _utc_now(),
+        },
+    )
+    await _log_number_event_from_order(
+        order,
+        "rental_notes_tags_fetched",
+        payload={"source": "numbers_miniapp", "tags_count": len(tags), "has_notes": bool(notes)},
+        number_mode="rental",
+    )
+    return {"success": True, "notes": notes, "tags": tags[:20], "raw": data.get("raw")}
 
 
 async def _provider_close_rental(order: dict[str, Any]) -> dict[str, Any]:
@@ -1370,7 +2277,11 @@ async def _purchase_temp_offer(
     reseller_id: int,
     lang: str,
     offer: dict[str, Any],
+    number_mode: str = "temp",
+    source_order_id: str | None = None,
+    source_reason: str | None = None,
 ) -> dict[str, Any]:
+    number_mode = "voice" if str(number_mode or "").strip().lower() == "voice" else "temp"
     service = str(offer.get("service") or "").strip()
     country = str(offer.get("country") or "none").strip() or "none"
     state = str(offer.get("state") or "none").strip() or "none"
@@ -1409,7 +2320,7 @@ async def _purchase_temp_offer(
     await update_order_details(
         order_id,
         {
-            "number_mode": "temp",
+            "number_mode": number_mode,
             "source": "numbers_miniapp",
             "telegram_bot_id": None,
             "provisioning_state": "awaiting_charge",
@@ -1418,17 +2329,24 @@ async def _purchase_temp_offer(
             "provisioning_country": None if country == "none" else country,
             "provisioning_state_code": None if state == "none" else state,
             "provisioning_created_at": _utc_now(),
+            "temp_retry_source_order_id": str(source_order_id or "") or None,
+            "temp_retry_reason": str(source_reason or "") or None,
         },
     )
     order.update(
         {
-            "number_mode": "temp",
+            "number_mode": number_mode,
             "provisioning_provider": provider_code,
             "provisioning_country": None if country == "none" else country,
             "provisioning_state_code": None if state == "none" else state,
         }
     )
-    await _log_number_event_from_order(order, "order_created", payload={"source": "numbers_miniapp"}, number_mode="temp")
+    await _log_number_event_from_order(
+        order,
+        "order_created",
+        payload={"source": "numbers_miniapp", "source_order_id": source_order_id, "source_reason": source_reason},
+        number_mode=number_mode,
+    )
 
     ok, message = await FinancialManager.process_core_purchase(
         user_id=user_id,
@@ -1444,7 +2362,7 @@ async def _purchase_temp_offer(
             "wallet_charge_failed",
             payload={"message": str(message), "source": "numbers_miniapp"},
             status_after="failed",
-            number_mode="temp",
+            number_mode=number_mode,
         )
         return {"ok": False, "code": str(message), "message": finance_error_public_text(lang, str(message))}
 
@@ -1456,21 +2374,26 @@ async def _purchase_temp_offer(
                 "provisioning_charged_at": _utc_now(),
             },
         )
-        await _log_number_event_from_order(order, "wallet_charged", status_after="paid", number_mode="temp")
+        await _log_number_event_from_order(order, "wallet_charged", status_after="paid", number_mode=number_mode)
         provider_country = str(info.get("provider_country") or country or "").strip()
         req_country = None if provider_country == "none" else provider_country
         req_state = None if state == "none" else state
+        purchase_options = {
+            "reuse_mode": True,
+            "_audit_requested_service": service,
+            "source": "numbers_miniapp",
+        }
+        if source_reason:
+            purchase_options["retry_reason"] = str(source_reason)
+        if number_mode == "voice":
+            purchase_options["capability"] = "voice"
         buy_res = await buy_number_from_provider(
             provider_code=provider_code,
             api_service_name=api_service,
             country=req_country,
             state=req_state,
             dry_run=False,
-            purchase_options={
-                "reuse_mode": True,
-                "_audit_requested_service": service,
-                "source": "numbers_miniapp",
-            },
+            purchase_options=purchase_options,
         )
         if not buy_res or not buy_res.get("success"):
             refund_ok, _refund_msg = await FinancialManager.refund_core_purchase(
@@ -1493,7 +2416,7 @@ async def _purchase_temp_offer(
                 "provider_buy_failed",
                 payload={"raw": buy_res.get("raw") if isinstance(buy_res, dict) else "provider_no_response", "source": "numbers_miniapp"},
                 status_after="refunded" if refund_ok else "failed",
-                number_mode="temp",
+                number_mode=number_mode,
             )
             return {
                 "ok": False,
@@ -1518,7 +2441,8 @@ async def _purchase_temp_offer(
                 "provider": provider_code,
                 "provider_number": number,
                 "provider_pool": provider_pool,
-                "number_mode": "temp",
+                "number_mode": number_mode,
+                "voice_enabled": number_mode == "voice",
                 "temp_api_service": api_service,
                 "temp_country": None if country == "none" else country,
                 "temp_state": None if state == "none" else state,
@@ -1531,7 +2455,7 @@ async def _purchase_temp_offer(
                 "temp_replace_enabled": False,
                 "temp_codes": [],
                 "temp_codes_count": 0,
-                "temp_wait_state": "waiting",
+                "temp_wait_state": "waiting_for_call" if number_mode == "voice" else "waiting",
                 "temp_wait_started_at": now,
                 "provisioning_state": "provisioned",
                 "provisioned_at": now,
@@ -1552,7 +2476,7 @@ async def _purchase_temp_offer(
             "provider_buy_success",
             payload={"provider_pool": provider_pool, "source": "numbers_miniapp"},
             status_after="success",
-            number_mode="temp",
+            number_mode=number_mode,
         )
         await _log_temp_event(
             {
@@ -1922,6 +2846,21 @@ def _normalize_provider_rows(
                     "provider": code,
                 }
             )
+        elif _can_quote_voice_offer(
+            mode=mode,
+            service=service,
+            provider_code=code,
+            info=info,
+        ):
+            quote_token = _make_quote_token(
+                {
+                    "mode": "voice",
+                    "service": str(service or ""),
+                    "country": "1",
+                    "state": "none",
+                    "provider": code,
+                }
+            )
         rows.append(
             {
                 "provider": provider_display_name(code),
@@ -2028,6 +2967,9 @@ async def prices(request: web.Request) -> web.Response:
         raise web.HTTPBadRequest(text="invalid service")
     if mode not in {"temp", "rental", "voice"}:
         raise web.HTTPBadRequest(text="invalid mode")
+    if mode == "voice":
+        country = "1"
+        state = "none"
     if country != "1":
         state = "none"
 
@@ -2073,12 +3015,19 @@ async def active_orders(request: web.Request) -> web.Response:
     user_doc = await _load_or_create_user(auth)
     lang = _lang_from_user(user_doc, auth)
     _ = lang
-    temp_orders = await list_user_open_temp_orders(int(auth["user_id"]), limit=10)
+    temp_orders = await list_user_recent_temp_and_voice_orders(
+        int(auth["user_id"]),
+        limit=12,
+        days=_TEMP_MY_NUMBERS_RETENTION_DAYS,
+    )
     rental_orders = await list_user_rental_orders(int(auth["user_id"]), limit=10)
     rows: list[dict[str, Any]] = []
     for order in temp_orders or []:
         try:
-            refreshed = await _refresh_temp_order(order)
+            if str(order.get("number_mode") or "").strip().lower() == "voice":
+                refreshed = await _refresh_voice_order(order)
+            else:
+                refreshed = await _refresh_temp_order(order)
         except Exception:
             logger.exception("numbers miniapp order refresh failed: order=%s", order.get("_id"))
             refreshed = order
@@ -2114,6 +3063,8 @@ async def purchase_temp(request: web.Request) -> web.Response:
         quote_mode = str(quote_payload.get("mode") or "temp").strip().lower()
         if quote_mode == "rental":
             offer = await _resolve_rental_offer_from_quote(token)
+        elif quote_mode == "voice":
+            offer = await _resolve_voice_offer_from_quote(token)
         else:
             offer = await _resolve_temp_offer_from_quote(token)
     except asyncio.TimeoutError:
@@ -2135,6 +3086,14 @@ async def purchase_temp(request: web.Request) -> web.Response:
             reseller_id=int(auth["user_id"]),
             lang=lang,
             offer=offer,
+        )
+    elif quote_mode == "voice":
+        result = await _purchase_temp_offer(
+            user_id=int(auth["user_id"]),
+            reseller_id=int(auth["user_id"]),
+            lang=lang,
+            offer=offer,
+            number_mode="voice",
         )
     else:
         result = await _purchase_temp_offer(
@@ -2169,14 +3128,200 @@ async def refresh_order(request: web.Request) -> web.Response:
     if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
         return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
     try:
-        if str(order.get("number_mode") or "").strip().lower() == "rental":
+        number_mode = str(order.get("number_mode") or "").strip().lower()
+        if number_mode == "rental":
             refreshed = await _refresh_rental_order(order)
+        elif number_mode == "voice":
+            refreshed = await _refresh_voice_order(order)
         else:
             refreshed = await _refresh_temp_order(order)
     except Exception:
         logger.exception("numbers miniapp manual refresh failed: order=%s", raw_id)
         refreshed = order
     return web.json_response({"ok": True, "order": _order_payload(refreshed)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def download_recording(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    lang = _lang_from_user(user_doc, auth)
+    raw_id = str(request.match_info.get("order_id") or "").strip()
+    try:
+        order_id = ObjectId(raw_id)
+    except Exception:
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    order = await get_order(order_id)
+    if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    if str(order.get("number_mode") or "").strip().lower() != "voice":
+        return _json_error(_text(lang, "This action is only for call numbers.", "هذا الإجراء خاص بأرقام الاتصال فقط."), status=400, code="invalid_mode")
+
+    refreshed = await _refresh_voice_order(order)
+    recording_uri = str((refreshed or {}).get("voice_recording_uri") or "").strip()
+    provider = str((refreshed or {}).get("provider") or "").strip().lower()
+    if not provider or not recording_uri:
+        return _json_error(_text(lang, "No call recording is available yet.", "لا يوجد تسجيل مكالمة حاليا."), status=404, code="recording_not_ready")
+
+    try:
+        data = await get_recording_from_provider(provider, recording_uri)
+    except Exception:
+        logger.exception("numbers miniapp recording download failed: order=%s", raw_id)
+        data = {"success": False}
+    if not isinstance(data, dict) or not data.get("success") or not data.get("content"):
+        return _json_error(_text(lang, "Could not download the recording right now.", "تعذر تحميل التسجيل حاليا."), status=502, code="recording_download_failed")
+
+    content_type = str(data.get("content_type") or "application/octet-stream")
+    headers = {
+        **_NO_STORE_HEADERS,
+        "Content-Disposition": f'attachment; filename="{_voice_recording_filename(content_type)}"',
+    }
+    return web.Response(body=bytes(data.get("content") or b""), content_type=content_type, headers=headers)
+
+
+async def request_second_code(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    lang = _lang_from_user(user_doc, auth)
+    raw_id = str(request.match_info.get("order_id") or "").strip()
+    try:
+        order_id = ObjectId(raw_id)
+    except Exception:
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    order = await get_order(order_id)
+    if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+
+    result = await _request_second_code_for_order(
+        order_id=order_id,
+        order=order,
+        user_id=int(auth["user_id"]),
+        reseller_id=int(auth["user_id"]),
+        lang=lang,
+    )
+    if not result.get("ok"):
+        status = 402 if str(result.get("code")) == "INSUFFICIENT_USER_BALANCE" else 409
+        if str(result.get("code")) in {"order_not_found", "invalid_mode"}:
+            status = 404 if str(result.get("code")) == "order_not_found" else 400
+        refreshed = await get_order(order_id) or order
+        return _json_error(
+            str(result.get("message") or ""),
+            status=status,
+            code=str(result.get("code") or "second_code_failed"),
+            order=_order_payload(refreshed),
+        )
+
+    try:
+        balance = await get_user_wallet_balance(int(auth["user_id"]), int(auth["user_id"]))
+        result["balance"] = float(balance)
+        result["balance_label"] = _money(balance)
+    except Exception:
+        pass
+    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
+
+
+async def replace_order(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    lang = _lang_from_user(user_doc, auth)
+    raw_id = str(request.match_info.get("order_id") or "").strip()
+    try:
+        order_id = ObjectId(raw_id)
+    except Exception:
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    order = await get_order(order_id)
+    if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+
+    result = await _request_replacement_number(
+        order_id=order_id,
+        order=order,
+        user_id=int(auth["user_id"]),
+        reseller_id=int(auth["user_id"]),
+        lang=lang,
+        alternate_provider=False,
+    )
+    if not result.get("ok"):
+        failure_code = str(result.get("code") or "")
+        if failure_code in {"provider_unavailable", "provider_failed", "provider_timeout", "invalid_offer"}:
+            suggestion = await _enable_alternate_provider_suggestion(order_id=order_id, order=order, lang=lang)
+            if suggestion:
+                refreshed = await get_order(order_id) or order
+                return web.json_response(
+                    {
+                        "ok": True,
+                        "replacement_failed": True,
+                        "code": failure_code,
+                        "message": _text(
+                            lang,
+                            "Same provider retry failed. Alternate provider is available.",
+                            "فشلت محاولة نفس المزود. ظهر خيار مزود بديل.",
+                        ),
+                        "order": _order_payload(refreshed),
+                    },
+                    headers=dict(_NO_STORE_HEADERS),
+                )
+        status = 402 if failure_code == "INSUFFICIENT_USER_BALANCE" else 409
+        if failure_code in {"order_not_found", "invalid_mode"}:
+            status = 404 if failure_code == "order_not_found" else 400
+        refreshed = await get_order(order_id) or order
+        return _json_error(
+            str(result.get("message") or ""),
+            status=status,
+            code=failure_code or "replace_failed",
+            order=_order_payload(refreshed),
+        )
+
+    try:
+        balance = await get_user_wallet_balance(int(auth["user_id"]), int(auth["user_id"]))
+        result["balance"] = float(balance)
+        result["balance_label"] = _money(balance)
+    except Exception:
+        pass
+    result["message"] = _text(lang, "Replacement number requested.", "تم طلب رقم بديل.")
+    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
+
+
+async def alternate_order(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    lang = _lang_from_user(user_doc, auth)
+    raw_id = str(request.match_info.get("order_id") or "").strip()
+    try:
+        order_id = ObjectId(raw_id)
+    except Exception:
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    order = await get_order(order_id)
+    if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+
+    result = await _request_replacement_number(
+        order_id=order_id,
+        order=order,
+        user_id=int(auth["user_id"]),
+        reseller_id=int(auth["user_id"]),
+        lang=lang,
+        alternate_provider=True,
+    )
+    if not result.get("ok"):
+        status = 402 if str(result.get("code")) == "INSUFFICIENT_USER_BALANCE" else 409
+        if str(result.get("code")) in {"order_not_found", "invalid_mode"}:
+            status = 404 if str(result.get("code")) == "order_not_found" else 400
+        refreshed = await get_order(order_id) or order
+        return _json_error(
+            str(result.get("message") or ""),
+            status=status,
+            code=str(result.get("code") or "alternate_failed"),
+            order=_order_payload(refreshed),
+        )
+
+    try:
+        balance = await get_user_wallet_balance(int(auth["user_id"]), int(auth["user_id"]))
+        result["balance"] = float(balance)
+        result["balance_label"] = _money(balance)
+    except Exception:
+        pass
+    result["message"] = _text(lang, "Alternate provider number requested.", "تم طلب رقم من مزود بديل.")
+    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
 
 
 async def finish_order(request: web.Request) -> web.Response:
@@ -2213,6 +3358,132 @@ async def finish_order(request: web.Request) -> web.Response:
         {
             "ok": True,
             "message": _text(lang, "Rental finished.", "تم إنهاء الإيجار."),
+            "order": _order_payload(refreshed),
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def renew_order(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    lang = _lang_from_user(user_doc, auth)
+    raw_id = str(request.match_info.get("order_id") or "").strip()
+    try:
+        order_id = ObjectId(raw_id)
+    except Exception:
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    order = await get_order(order_id)
+    if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    if str(order.get("number_mode") or "").strip().lower() != "rental":
+        return _json_error(_text(lang, "This action is only for rentals.", "هذا الإجراء خاص بالإيجار فقط."), status=400, code="invalid_mode")
+    if not bool(order.get("rental_is_renewable")):
+        return _json_error(_text(lang, "Renew is not supported for this rental.", "التجديد غير مدعوم لهذا الإيجار."), status=409, code="renew_not_supported")
+    provider = str(order.get("provider") or "").strip().lower()
+    provider_order_id = str(order.get("provider_order_id") or "").strip()
+    if not provider or not provider_order_id:
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+
+    try:
+        renew_res = await renew_rental_from_provider(provider, provider_order_id)
+        ok = bool(renew_res.get("success"))
+    except Exception:
+        logger.exception("numbers miniapp rental renew failed: order=%s", raw_id)
+        renew_res = {"success": False}
+        ok = False
+    if not ok:
+        await _log_number_event_from_order(order, "rental_renew_failed", payload={"source": "numbers_miniapp"}, number_mode="rental")
+        refreshed = await get_order(order_id) or order
+        return _json_error(_text(lang, "Could not renew this rental right now.", "تعذر تجديد هذا الإيجار حاليا."), status=409, code="renew_failed", order=_order_payload(refreshed))
+
+    await update_order_details(order_id, {"rental_last_renew_at": _utc_now(), "rental_last_renew_raw": renew_res.get("raw")})
+    await _log_number_event_from_order(order, "rental_renewed", payload={"raw": renew_res.get("raw"), "source": "numbers_miniapp"}, number_mode="rental")
+    refreshed = await _refresh_rental_order(await get_order(order_id) or order)
+    return web.json_response(
+        {
+            "ok": True,
+            "message": _text(lang, "Rental renewed.", "تم تجديد الإيجار."),
+            "order": _order_payload(refreshed),
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def wake_order(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    lang = _lang_from_user(user_doc, auth)
+    raw_id = str(request.match_info.get("order_id") or "").strip()
+    try:
+        order_id = ObjectId(raw_id)
+    except Exception:
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    order = await get_order(order_id)
+    if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    if str(order.get("number_mode") or "").strip().lower() != "rental":
+        return _json_error(_text(lang, "This action is only for rentals.", "هذا الإجراء خاص بالإيجار فقط."), status=400, code="invalid_mode")
+    provider = str(order.get("provider") or "").strip().lower()
+    provider_order_id = str(order.get("provider_order_id") or "").strip()
+    if not provider or not provider_order_id:
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+
+    try:
+        wake_res = await wake_rental_from_provider(provider, provider_order_id)
+        ok = bool(wake_res.get("success"))
+    except Exception:
+        logger.exception("numbers miniapp rental wake failed: order=%s", raw_id)
+        wake_res = {"success": False}
+        ok = False
+    if not ok:
+        await _log_number_event_from_order(order, "rental_wake_failed", payload={"source": "numbers_miniapp"}, number_mode="rental")
+        refreshed = await get_order(order_id) or order
+        return _json_error(_text(lang, "Could not wake this rental right now.", "تعذر تنشيط هذا الإيجار حاليا."), status=409, code="wake_failed", order=_order_payload(refreshed))
+
+    await update_order_details(order_id, {"rental_last_wake_at": _utc_now(), "rental_last_wake_raw": wake_res.get("raw")})
+    await _log_number_event_from_order(order, "rental_wake_ok", payload={"raw": wake_res.get("raw"), "source": "numbers_miniapp"}, number_mode="rental")
+    refreshed = await _refresh_rental_order(await get_order(order_id) or order)
+    return web.json_response(
+        {
+            "ok": True,
+            "message": _text(lang, "Rental wake requested.", "تم طلب تنشيط الإيجار."),
+            "order": _order_payload(refreshed),
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def notes_order(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    lang = _lang_from_user(user_doc, auth)
+    raw_id = str(request.match_info.get("order_id") or "").strip()
+    try:
+        order_id = ObjectId(raw_id)
+    except Exception:
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    order = await get_order(order_id)
+    if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    if str(order.get("number_mode") or "").strip().lower() != "rental":
+        return _json_error(_text(lang, "This action is only for rentals.", "هذا الإجراء خاص بالإيجار فقط."), status=400, code="invalid_mode")
+
+    result = await _sync_rental_notes_tags_snapshot(order_id, order)
+    refreshed = await get_order(order_id) or order
+    if not result.get("success"):
+        return _json_error(
+            _text(lang, "Notes and tags are not available for this rental.", "الملاحظات والتاغات غير متاحة لهذا الإيجار."),
+            status=409,
+            code="notes_not_supported",
+            order=_order_payload(refreshed),
+        )
+    return web.json_response(
+        {
+            "ok": True,
+            "message": _text(lang, "Notes and tags loaded.", "تم تحميل الملاحظات والتاغات."),
+            "notes": str(result.get("notes") or ""),
+            "tags": result.get("tags") or [],
             "order": _order_payload(refreshed),
         },
         headers=dict(_NO_STORE_HEADERS),
@@ -2273,6 +3544,25 @@ async def cancel_order(request: web.Request) -> web.Response:
     )
     if not result.get("success"):
         refreshed = await get_order(order_id) or order
+        if _temp_refund_result_retryable(result):
+            refreshed = await _mark_temp_refund_pending(
+                order_id=order_id,
+                order=refreshed,
+                result=result,
+                source="numbers_miniapp_user_cancel",
+            )
+            return web.json_response(
+                {
+                    "ok": True,
+                    "message": _text(
+                        lang,
+                        "Refund is pending. We will keep retrying.",
+                        "الاسترجاع قيد المعالجة. رح نضل نعيد المحاولة.",
+                    ),
+                    "order": _order_payload(refreshed),
+                },
+                headers=dict(_NO_STORE_HEADERS),
+            )
         return _json_error(
             _text(lang, "Could not cancel this order right now.", "تعذر إلغاء الطلب حاليا."),
             status=409,
@@ -2302,5 +3592,12 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_get("/mini/numbers/api/orders", active_orders)
     app.router.add_post("/mini/numbers/api/purchase", purchase_temp)
     app.router.add_post("/mini/numbers/api/orders/{order_id}/refresh", refresh_order)
+    app.router.add_get("/mini/numbers/api/orders/{order_id}/recording", download_recording)
+    app.router.add_post("/mini/numbers/api/orders/{order_id}/second-code", request_second_code)
+    app.router.add_post("/mini/numbers/api/orders/{order_id}/replace", replace_order)
+    app.router.add_post("/mini/numbers/api/orders/{order_id}/alternate", alternate_order)
     app.router.add_post("/mini/numbers/api/orders/{order_id}/finish", finish_order)
+    app.router.add_post("/mini/numbers/api/orders/{order_id}/renew", renew_order)
+    app.router.add_post("/mini/numbers/api/orders/{order_id}/wake", wake_order)
+    app.router.add_post("/mini/numbers/api/orders/{order_id}/notes", notes_order)
     app.router.add_post("/mini/numbers/api/orders/{order_id}/cancel", cancel_order)

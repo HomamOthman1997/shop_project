@@ -18,6 +18,8 @@ const state = {
   orderPollTimer: null,
 };
 
+const ORDER_POLL_INTERVAL_MS = 12000;
+
 const els = {
   viewTabs: document.getElementById("viewTabs"),
   buyView: document.getElementById("buyView"),
@@ -72,24 +74,58 @@ const copy = {
     base: "التكلفة",
     options: "خيارات",
     unavailable: "غير متاح",
-    active: "الطلبات النشطة",
+    active: "طلباتي",
+    numbersList: "أرقامي",
     waiting: "بانتظار الكود",
-    noOrders: "لا توجد طلبات نشطة حاليا",
+    waitingCall: "بانتظار المكالمة",
+    callReceived: "وصلت المكالمة",
+    recording: "تسجيل المكالمة",
+    downloadRecording: "تحميل التسجيل",
+    noOrders: "لا توجد أرقام حاليا",
     buy: "شراء",
     refresh: "تحديث",
     cancel: "إلغاء واسترجاع",
+    tryAnother: "رقم بديل",
+    alternateProvider: "مزود بديل",
+    confirmTryAnother: "تأكيد طلب رقم بديل؟",
+    confirmAlternateProvider: "تأكيد طلب رقم من مزود بديل؟",
+    replacementRequested: "تم طلب رقم بديل",
+    secondCode: "كود ثاني",
+    confirmSecondCode: "تأكيد طلب كود ثاني؟",
+    secondCodeRequested: "تم طلب كود ثاني",
     purchasing: "جاري تنفيذ الطلب",
     purchased: "تم حجز الرقم",
     authRequired: "افتح التطبيق من تيليغرام للمتابعة",
     confirmBuy: "تأكيد شراء الرقم؟",
     code: "الكود",
     number: "الرقم",
+    copyCode: "نسخ الكود",
+    copyNumber: "نسخ الرقم",
+    copied: "تم النسخ",
+    detailProvider: "المزود",
+    detailCountry: "الدولة",
+    detailState: "الولاية",
+    detailCreated: "تاريخ الطلب",
+    detailReuseUntil: "نافذة الكود الثاني",
+    detailSecondCodes: "أكواد إضافية",
+    detailDuration: "المدة",
+    detailEnds: "النهاية",
+    detailCalls: "المكالمات",
+    detailRetry: "محاولات الاسترجاع",
+    recentActivity: "آخر الحركات",
+    noActivity: "لا توجد حركات بعد",
+    afterBalance: "الرصيد بعد العملية",
     refunded: "تم الاسترجاع",
     refundPending: "بانتظار الاسترجاع",
     cancelWait: "الإلغاء بعد",
     left: "متبقي",
     finish: "إنهاء",
     finished: "منتهي",
+    renew: "تجديد",
+    wake: "تنشيط",
+    notesTags: "ملاحظات",
+    notes: "ملاحظات",
+    tags: "Tags",
     account: "الحساب",
     accountTitle: "حسابي",
     balance: "الرصيد",
@@ -131,24 +167,58 @@ const copy = {
     base: "Cost",
     options: "Options",
     unavailable: "Unavailable",
-    active: "Active orders",
+    active: "My numbers",
+    numbersList: "Numbers list",
     waiting: "Waiting for code",
-    noOrders: "No active orders right now",
+    waitingCall: "Waiting for call",
+    callReceived: "Call received",
+    recording: "Call recording",
+    downloadRecording: "Download recording",
+    noOrders: "No numbers right now",
     buy: "Buy",
     refresh: "Refresh",
     cancel: "Cancel & refund",
+    tryAnother: "Try another",
+    alternateProvider: "Alternate provider",
+    confirmTryAnother: "Confirm replacement number request?",
+    confirmAlternateProvider: "Confirm alternate provider request?",
+    replacementRequested: "Replacement number requested",
+    secondCode: "Second code",
+    confirmSecondCode: "Confirm second code request?",
+    secondCodeRequested: "Second code requested",
     purchasing: "Placing order",
     purchased: "Number reserved",
     authRequired: "Open from Telegram to continue",
     confirmBuy: "Confirm number purchase?",
     code: "Code",
     number: "Number",
+    copyCode: "Copy code",
+    copyNumber: "Copy number",
+    copied: "Copied",
+    detailProvider: "Provider",
+    detailCountry: "Country",
+    detailState: "State",
+    detailCreated: "Created",
+    detailReuseUntil: "Second-code window",
+    detailSecondCodes: "Extra codes",
+    detailDuration: "Duration",
+    detailEnds: "Ends",
+    detailCalls: "Calls",
+    detailRetry: "Refund retries",
+    recentActivity: "Recent activity",
+    noActivity: "No activity yet",
+    afterBalance: "Balance after",
     refunded: "Refunded",
     refundPending: "Refund pending",
     cancelWait: "Cancel after",
     left: "left",
     finish: "Finish",
     finished: "Finished",
+    renew: "Renew",
+    wake: "Wake",
+    notesTags: "Notes",
+    notes: "Notes",
+    tags: "Tags",
     account: "Account",
     accountTitle: "My account",
     balance: "Balance",
@@ -257,7 +327,11 @@ function setView(view) {
   els.accountView.classList.toggle("hidden", view !== "account");
   els.supportView.classList.toggle("hidden", view !== "support");
   renderViewTabs();
-  if (view === "orders") refreshOrders({ quiet: true });
+  if (view === "orders") {
+    refreshOrders({ quiet: true });
+  } else {
+    clearOrderPoll();
+  }
   if (view === "account") loadAccount();
   if (view === "support") loadSupportInfo();
 }
@@ -340,7 +414,15 @@ function renderSelectors() {
 }
 
 function updateStateVisibility() {
-  const showState = state.selectedCountry === "1" && state.mode !== "rental";
+  const isVoice = state.mode === "voice";
+  if (isVoice) {
+    state.selectedCountry = "1";
+    state.selectedState = "none";
+    els.countrySelect.value = "1";
+    els.stateSelect.value = "none";
+  }
+  els.countrySelect.disabled = isVoice;
+  const showState = state.selectedCountry === "1" && state.mode === "temp";
   els.stateField.classList.toggle("hidden", !showState);
   if (!showState) {
     state.selectedState = "none";
@@ -388,7 +470,34 @@ function statusLabel(order) {
   if (status === "refunded") return t("refunded");
   if (status === "refund_pending") return t("refundPending");
   if (status === "finished") return t("finished");
+  if (order.mode === "voice" && status === "call_received") return t("callReceived");
+  if (order.mode === "voice") return t("waitingCall");
   return t("waiting");
+}
+
+function clearOrderPoll() {
+  if (state.orderPollTimer) {
+    window.clearTimeout(state.orderPollTimer);
+    state.orderPollTimer = null;
+  }
+}
+
+function orderNeedsPolling(order) {
+  if (!order || order.can_refresh === false) return false;
+  return ["waiting", "refund_pending"].includes(order.public_status);
+}
+
+function scheduleOrderPoll() {
+  clearOrderPoll();
+  if (state.view !== "orders" || !canUseTelegramAuth() || !state.activeOrders.some(orderNeedsPolling)) {
+    return;
+  }
+  state.orderPollTimer = window.setTimeout(async () => {
+    state.orderPollTimer = null;
+    if (state.view === "orders") {
+      await refreshOrders({ quiet: true });
+    }
+  }, ORDER_POLL_INTERVAL_MS);
 }
 
 function askConfirm(message) {
@@ -399,6 +508,42 @@ function askConfirm(message) {
     }
     resolve(window.confirm(message));
   });
+}
+
+async function copyText(value, button) {
+  const text = String(value || "").trim();
+  if (!text) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.append(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+    if (button) {
+      const previous = button.textContent;
+      button.textContent = t("copied");
+      window.setTimeout(() => {
+        button.textContent = previous;
+      }, 1100);
+    }
+    els.statusLine.textContent = t("copied");
+  } catch (_error) {
+    els.statusLine.textContent = t("error");
+  }
+}
+
+function detailLabel(key) {
+  const normalized = String(key || "").trim();
+  if (!normalized) return "";
+  return t(`detail${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`);
 }
 
 function emptyState(text) {
@@ -412,6 +557,7 @@ function renderActiveOrders(rows = state.activeOrders) {
   state.activeOrders = rows || [];
   if (!state.activeOrders.length) {
     els.activeOrders.replaceChildren(emptyState(canUseTelegramAuth() ? t("noOrders") : t("authRequired")));
+    clearOrderPoll();
     return;
   }
   els.activeOrders.replaceChildren(
@@ -438,21 +584,105 @@ function renderActiveOrders(rows = state.activeOrders) {
       meta.textContent = details.filter(Boolean).join(" · ");
       main.append(title, meta);
 
+      if (Array.isArray(order.details) && order.details.length) {
+        const detailGrid = document.createElement("div");
+        detailGrid.className = "order-detail-grid";
+        order.details.slice(0, 7).forEach((item) => {
+          const row = document.createElement("div");
+          row.className = "order-detail";
+          const label = document.createElement("span");
+          label.textContent = detailLabel(item.key);
+          const value = document.createElement("strong");
+          value.textContent = item.value || "-";
+          row.append(label, value);
+          detailGrid.append(row);
+        });
+        main.append(detailGrid);
+      }
+
       if (order.code) {
         const code = document.createElement("span");
         code.className = "order-code";
         code.textContent = order.code;
         main.append(code);
       }
+      if (order.mode === "rental" && (order.notes || order.tags?.length)) {
+        const notes = document.createElement("p");
+        notes.className = "order-meta";
+        const parts = [];
+        if (order.notes) parts.push(`${t("notes")}: ${order.notes}`);
+        if (order.tags?.length) parts.push(`${t("tags")}: ${order.tags.slice(0, 6).join(", ")}`);
+        notes.textContent = parts.join(" · ");
+        main.append(notes);
+      }
+      if (order.mode === "voice" && order.recording_available) {
+        const recording = document.createElement("span");
+        recording.className = "order-code";
+        recording.textContent = t("recording");
+        main.append(recording);
+      }
 
       const actions = document.createElement("div");
       actions.className = "order-actions";
-      const refresh = document.createElement("button");
-      refresh.type = "button";
-      refresh.className = "small-action";
-      refresh.textContent = t("refresh");
-      refresh.addEventListener("click", () => refreshSingleOrder(order.id, refresh));
-      actions.append(refresh);
+      if (order.number) {
+        const copyNumber = document.createElement("button");
+        copyNumber.type = "button";
+        copyNumber.className = "small-action secondary-small";
+        copyNumber.textContent = t("copyNumber");
+        copyNumber.addEventListener("click", () => copyText(order.number, copyNumber));
+        actions.append(copyNumber);
+      }
+      if (order.code) {
+        const copyCode = document.createElement("button");
+        copyCode.type = "button";
+        copyCode.className = "small-action secondary-small";
+        copyCode.textContent = t("copyCode");
+        copyCode.addEventListener("click", () => copyText(order.code, copyCode));
+        actions.append(copyCode);
+      }
+      if (order.can_refresh !== false) {
+        const refresh = document.createElement("button");
+        refresh.type = "button";
+        refresh.className = "small-action";
+        refresh.textContent = t("refresh");
+        refresh.addEventListener("click", () => refreshSingleOrder(order.id, refresh));
+        actions.append(refresh);
+      }
+
+      if (order.mode === "voice" && order.recording_url) {
+        const recording = document.createElement("button");
+        recording.type = "button";
+        recording.className = "small-action";
+        recording.textContent = t("downloadRecording");
+        recording.addEventListener("click", () => downloadRecording(order, recording));
+        actions.append(recording);
+      }
+
+      if (order.mode === "temp" && order.can_second_code) {
+        const second = document.createElement("button");
+        second.type = "button";
+        second.className = "small-action";
+        second.textContent = `${t("secondCode")} ${order.second_code_price_label || ""}`.trim();
+        second.addEventListener("click", () => requestSecondCode(order, second));
+        actions.append(second);
+      }
+
+      if ((order.mode === "temp" || order.mode === "voice") && order.can_replace) {
+        const replace = document.createElement("button");
+        replace.type = "button";
+        replace.className = "small-action";
+        replace.textContent = t("tryAnother");
+        replace.addEventListener("click", () => replaceOrder(order, replace));
+        actions.append(replace);
+      }
+      if (order.mode === "temp" && order.can_alternate_provider) {
+        const alternate = document.createElement("button");
+        alternate.type = "button";
+        alternate.className = "small-action";
+        alternate.textContent = [t("alternateProvider"), order.alternate_provider_id, order.alternate_provider_price_label].filter(Boolean).join(" ");
+        alternate.addEventListener("click", () => alternateOrder(order, alternate));
+        actions.append(alternate);
+      }
 
       if (order.public_status === "waiting" && order.mode !== "rental") {
         const cancel = document.createElement("button");
@@ -462,6 +692,30 @@ function renderActiveOrders(rows = state.activeOrders) {
         cancel.textContent = order.can_cancel ? t("cancel") : `${t("cancelWait")} ${formatDuration(order.cancel_wait_sec)}`;
         cancel.addEventListener("click", () => cancelOrder(order.id, cancel));
         actions.append(cancel);
+      }
+      if (order.mode === "rental" && order.can_renew) {
+        const renew = document.createElement("button");
+        renew.type = "button";
+        renew.className = "small-action";
+        renew.textContent = t("renew");
+        renew.addEventListener("click", () => rentalProviderAction(order.id, "renew", renew));
+        actions.append(renew);
+      }
+      if (order.mode === "rental" && order.can_wake) {
+        const wake = document.createElement("button");
+        wake.type = "button";
+        wake.className = "small-action";
+        wake.textContent = t("wake");
+        wake.addEventListener("click", () => rentalProviderAction(order.id, "wake", wake));
+        actions.append(wake);
+      }
+      if (order.mode === "rental" && order.can_notes) {
+        const notes = document.createElement("button");
+        notes.type = "button";
+        notes.className = "small-action";
+        notes.textContent = t("notesTags");
+        notes.addEventListener("click", () => rentalProviderAction(order.id, "notes", notes));
+        actions.append(notes);
       }
       if (order.mode === "rental" && order.can_finish) {
         const finish = document.createElement("button");
@@ -476,6 +730,7 @@ function renderActiveOrders(rows = state.activeOrders) {
       return card;
     })
   );
+  scheduleOrderPoll();
 }
 
 async function refreshOrders({ quiet = false } = {}) {
@@ -488,6 +743,7 @@ async function refreshOrders({ quiet = false } = {}) {
     renderActiveOrders(payload.orders || []);
   } catch (error) {
     if (!quiet) els.statusLine.textContent = error.message || t("error");
+    scheduleOrderPoll();
   }
 }
 
@@ -536,6 +792,121 @@ async function finishOrder(orderId, button) {
   } catch (error) {
     els.statusLine.textContent = error.message || t("error");
     await refreshOrders({ quiet: true });
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function rentalProviderAction(orderId, action, button) {
+  if (!orderId || !action) return;
+  const confirmed = action === "renew" ? await askConfirm(t("renew")) : true;
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/${action}`, { method: "POST", body: {} });
+    const next = state.activeOrders.filter((item) => item.id !== orderId);
+    renderActiveOrders([payload.order, ...next].filter(Boolean));
+    els.statusLine.textContent = payload.message || "";
+  } catch (error) {
+    els.statusLine.textContent = error.message || t("error");
+    await refreshOrders({ quiet: true });
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function requestSecondCode(order, button) {
+  if (!order?.id) return;
+  const confirmed = await askConfirm(`${t("confirmSecondCode")} ${order.second_code_price_label || ""}`);
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/second-code`, { method: "POST", body: {} });
+    const next = state.activeOrders.filter((item) => item.id !== order.id);
+    renderActiveOrders([payload.order, ...next].filter(Boolean));
+    if (payload.balance_label) {
+      els.sessionPill.textContent = payload.balance_label;
+    }
+    els.statusLine.textContent = payload.message || t("secondCodeRequested");
+  } catch (error) {
+    els.statusLine.textContent = error.message || t("error");
+    await refreshOrders({ quiet: true });
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function replaceOrder(order, button) {
+  if (!order?.id) return;
+  const confirmed = await askConfirm(t("confirmTryAnother"));
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/replace`, { method: "POST", body: {} });
+    const next = state.activeOrders.filter((item) => item.id !== order.id);
+    renderActiveOrders([payload.order, ...next].filter(Boolean));
+    if (payload.balance_label) {
+      els.sessionPill.textContent = payload.balance_label;
+    }
+    els.statusLine.textContent = payload.message || t("replacementRequested");
+  } catch (error) {
+    els.statusLine.textContent = error.message || t("error");
+    await refreshOrders({ quiet: true });
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function alternateOrder(order, button) {
+  if (!order?.id) return;
+  const confirmed = await askConfirm([t("confirmAlternateProvider"), order.alternate_provider_id, order.alternate_provider_price_label].filter(Boolean).join(" "));
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/alternate`, { method: "POST", body: {} });
+    const next = state.activeOrders.filter((item) => item.id !== order.id);
+    renderActiveOrders([payload.order, ...next].filter(Boolean));
+    if (payload.balance_label) {
+      els.sessionPill.textContent = payload.balance_label;
+    }
+    els.statusLine.textContent = payload.message || t("replacementRequested");
+  } catch (error) {
+    els.statusLine.textContent = error.message || t("error");
+    await refreshOrders({ quiet: true });
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function downloadRecording(order, button) {
+  if (!order?.recording_url) return;
+  button.disabled = true;
+  try {
+    const response = await fetch(order.recording_url, {
+      headers: headers(),
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      let message = t("error");
+      try {
+        const payload = await response.json();
+        message = payload?.message || message;
+      } catch (_error) {
+        message = response.statusText || message;
+      }
+      throw new Error(message);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "call-recording";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    els.statusLine.textContent = error.message || t("error");
   } finally {
     button.disabled = false;
   }
@@ -615,7 +986,7 @@ function renderProviders(rows) {
         main.append(options);
       }
 
-      if (row.available && state.mode === "temp" && row.quote_token) {
+      if (row.available && (state.mode === "temp" || state.mode === "voice") && row.quote_token) {
         const actions = document.createElement("div");
         actions.className = "provider-actions";
         const price = document.createElement("div");
@@ -652,6 +1023,36 @@ function infoCard(label, value) {
   return card;
 }
 
+function activityCard(rows = []) {
+  const card = document.createElement("div");
+  card.className = "activity-card";
+  const title = document.createElement("h3");
+  title.textContent = t("recentActivity");
+  card.append(title);
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "order-meta";
+    empty.textContent = t("noActivity");
+    card.append(empty);
+    return card;
+  }
+  rows.slice(0, 8).forEach((row) => {
+    const item = document.createElement("div");
+    item.className = `activity-row ${Number(row.amount || 0) >= 0 ? "credit" : "debit"}`;
+    const main = document.createElement("div");
+    const label = document.createElement("strong");
+    label.textContent = row.label || "-";
+    const meta = document.createElement("span");
+    meta.textContent = [row.created_at, row.balance_label ? `${t("afterBalance")}: ${row.balance_label}` : ""].filter(Boolean).join(" · ");
+    main.append(label, meta);
+    const amount = document.createElement("b");
+    amount.textContent = row.amount_label || "-";
+    item.append(main, amount);
+    card.append(item);
+  });
+  return card;
+}
+
 function renderAccount(payload) {
   state.account = payload;
   if (!payload?.user) {
@@ -668,7 +1069,8 @@ function renderAccount(payload) {
     infoCard(t("userId"), String(user.id || "-")),
     infoCard(t("username"), user.username ? `@${user.username}` : "-"),
     infoCard(t("language"), user.language_label || user.language || "-"),
-    infoCard(t("joined"), user.joined_at || "-")
+    infoCard(t("joined"), user.joined_at || "-"),
+    activityCard(payload.recent_activity || [])
   );
 }
 
@@ -770,6 +1172,12 @@ async function checkPrices() {
   state.selectedService = selectedServiceFromInput();
   state.selectedCountry = els.countrySelect.value || "none";
   state.selectedState = els.stateSelect.value || "none";
+  if (state.mode === "voice") {
+    state.selectedCountry = "1";
+    state.selectedState = "none";
+    els.countrySelect.value = "1";
+    els.stateSelect.value = "none";
+  }
   updateStateVisibility();
   renderQuickServices();
   els.selectionTitle.textContent = serviceLabel(state.selectedService);
@@ -813,7 +1221,6 @@ async function boot() {
   renderActiveOrders([]);
   refreshOrders({ quiet: true });
   if (canUseTelegramAuth()) loadAccount();
-  state.orderPollTimer = window.setInterval(() => refreshOrders({ quiet: true }), 8000);
   els.countrySelect.addEventListener("change", () => {
     state.selectedCountry = els.countrySelect.value || "none";
     updateStateVisibility();

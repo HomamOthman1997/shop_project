@@ -227,6 +227,28 @@ async def list_user_open_temp_and_voice_orders(user_id: int, limit: int = 20):
     return await cursor.to_list(length=int(limit))
 
 
+async def list_user_recent_temp_and_voice_orders(user_id: int, limit: int = 20, days: int = 5):
+    temp_cutoff = datetime.now(UTC) - timedelta(days=max(1, int(days or 5)))
+    cursor = (
+        db.orders.find(
+            {
+                "user_id": int(user_id),
+                "number_mode": {"$in": ["temp", "voice"]},
+                "status": {"$in": ["success", "pending", "paid", "cancelled", "failed", "refunded", "expired"]},
+                "created_at": {"$gte": temp_cutoff},
+                "$or": [
+                    {"provider_order_id": {"$exists": True, "$nin": [None, ""]}},
+                    {"provider": {"$exists": True, "$nin": [None, ""]}},
+                    {"provisioning_provider": {"$exists": True, "$nin": [None, ""]}},
+                ],
+            }
+        )
+        .sort("created_at", -1)
+        .limit(int(limit))
+    )
+    return await cursor.to_list(length=int(limit))
+
+
 async def list_paid_number_orders_missing_provider(limit: int = 200):
     cursor = (
         db.orders.find(

@@ -7,6 +7,35 @@ import pytest
 sys.path.insert(0, os.getcwd())
 
 
+def test_voice_waiting_order_counts_active_for_trust_gate():
+    from services.numbers.handlers.temp_order_utils import _is_temp_order_active_for_trust_gate
+
+    now = datetime.now(UTC)
+    order = {
+        "number_mode": "voice",
+        "temp_wait_state": "waiting_for_call",
+        "temp_wait_started_at": now - timedelta(seconds=30),
+        "temp_wait_timeout_sec": 300,
+    }
+
+    assert _is_temp_order_active_for_trust_gate(order, now=now) is True
+
+
+def test_voice_received_call_counts_active_for_trust_gate():
+    from services.numbers.handlers.temp_order_utils import _is_temp_order_active_for_trust_gate
+
+    now = datetime.now(UTC)
+    order = {
+        "number_mode": "voice",
+        "temp_wait_state": "call_received",
+        "temp_wait_started_at": now - timedelta(seconds=30),
+        "temp_wait_timeout_sec": 300,
+        "temp_reuse_warranty_sec": 300,
+    }
+
+    assert _is_temp_order_active_for_trust_gate(order, now=now) is True
+
+
 @pytest.mark.asyncio
 async def test_cancel_and_refund_temp_order_success(monkeypatch):
     import services.numbers.handlers.core_numbers_buy as hb
