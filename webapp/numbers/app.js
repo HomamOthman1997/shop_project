@@ -66,6 +66,8 @@ const copy = {
     refundPending: "بانتظار الاسترجاع",
     cancelWait: "الإلغاء بعد",
     left: "متبقي",
+    finish: "إنهاء",
+    finished: "منتهي",
   },
   en: {
     eyebrow: "CyberZone Numbers",
@@ -101,6 +103,8 @@ const copy = {
     refundPending: "Refund pending",
     cancelWait: "Cancel after",
     left: "left",
+    finish: "Finish",
+    finished: "Finished",
   },
 };
 
@@ -270,6 +274,7 @@ function statusLabel(order) {
   if (status === "code_received") return t("code");
   if (status === "refunded") return t("refunded");
   if (status === "refund_pending") return t("refundPending");
+  if (status === "finished") return t("finished");
   return t("waiting");
 }
 
@@ -334,7 +339,7 @@ function renderActiveOrders(rows = state.activeOrders) {
       refresh.addEventListener("click", () => refreshSingleOrder(order.id, refresh));
       actions.append(refresh);
 
-      if (order.public_status === "waiting") {
+      if (order.public_status === "waiting" && order.mode !== "rental") {
         const cancel = document.createElement("button");
         cancel.type = "button";
         cancel.className = "danger-action";
@@ -342,6 +347,14 @@ function renderActiveOrders(rows = state.activeOrders) {
         cancel.textContent = order.can_cancel ? t("cancel") : `${t("cancelWait")} ${formatDuration(order.cancel_wait_sec)}`;
         cancel.addEventListener("click", () => cancelOrder(order.id, cancel));
         actions.append(cancel);
+      }
+      if (order.mode === "rental" && order.can_finish) {
+        const finish = document.createElement("button");
+        finish.type = "button";
+        finish.className = "danger-action";
+        finish.textContent = t("finish");
+        finish.addEventListener("click", () => finishOrder(order.id, finish));
+        actions.append(finish);
       }
 
       card.append(main, actions);
@@ -381,6 +394,24 @@ async function cancelOrder(orderId, button) {
   button.disabled = true;
   try {
     const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/cancel`, { method: "POST", body: {} });
+    const next = state.activeOrders.filter((item) => item.id !== orderId);
+    renderActiveOrders([payload.order, ...next].filter(Boolean));
+    els.statusLine.textContent = payload.message || "";
+  } catch (error) {
+    els.statusLine.textContent = error.message || t("error");
+    await refreshOrders({ quiet: true });
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function finishOrder(orderId, button) {
+  if (!orderId) return;
+  const confirmed = await askConfirm(t("finish"));
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/finish`, { method: "POST", body: {} });
     const next = state.activeOrders.filter((item) => item.id !== orderId);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
     els.statusLine.textContent = payload.message || "";
@@ -452,9 +483,15 @@ function renderProviders(rows) {
         const options = document.createElement("div");
         options.className = "option-row";
         row.options.slice(0, 5).forEach((option) => {
-          const pill = document.createElement("span");
+          const pill = document.createElement(state.mode === "rental" && option.quote_token ? "button" : "span");
           pill.className = "option-pill";
-          pill.textContent = `${option.duration || t("options")} ${option.price_label}`;
+          if (pill.tagName === "BUTTON") {
+            pill.type = "button";
+            pill.classList.add("buyable");
+            pill.addEventListener("click", () => buyProvider({ ...row, price_label: option.price_label, quote_token: option.quote_token }, pill));
+          }
+          const optionText = `${option.duration_label || option.duration || t("options")} ${option.price_label}`;
+          pill.textContent = pill.tagName === "BUTTON" ? `${t("buy")} ${optionText}` : optionText;
           options.append(pill);
         });
         main.append(options);
@@ -476,7 +513,7 @@ function renderProviders(rows) {
       } else {
         const price = document.createElement("div");
         price.className = "provider-price";
-        price.textContent = row.available ? row.price_label : t("unavailable");
+        price.textContent = row.available ? (state.mode === "rental" && row.options?.length ? row.options[0].price_label : row.price_label) : t("unavailable");
         card.append(main, price);
       }
       return card;

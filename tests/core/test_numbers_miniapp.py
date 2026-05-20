@@ -69,6 +69,33 @@ def test_numbers_temp_rows_include_signed_quote_and_hide_internal_lanes(monkeypa
     assert quote["provider"] == "textverified"
 
 
+def test_numbers_rental_options_include_signed_quotes(monkeypatch):
+    monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
+
+    rows = miniapp._normalize_provider_rows(
+        {
+            "herosms": {
+                "available_for_buy": True,
+                "api_service_name": "go",
+                "options": [
+                    {"duration": 2, "duration_label": "2h", "price": 0.55, "base_price": 0.5},
+                ],
+            }
+        },
+        "rental",
+        service="google",
+        country="1",
+    )
+
+    option = rows[0]["options"][0]
+    assert option["duration_label"] == "2h"
+    quote = miniapp._verify_quote_token(option["quote_token"])
+    assert quote["mode"] == "rental"
+    assert quote["service"] == "google"
+    assert quote["provider"] == "herosms"
+
+
 def test_register_numbers_routes_adds_public_endpoints():
     app = web.Application()
 
@@ -82,4 +109,5 @@ def test_register_numbers_routes_adds_public_endpoints():
     assert ("GET", "/mini/numbers/api/orders") in routes
     assert ("POST", "/mini/numbers/api/purchase") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/refresh") in routes
+    assert ("POST", "/mini/numbers/api/orders/{order_id}/finish") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/cancel") in routes
