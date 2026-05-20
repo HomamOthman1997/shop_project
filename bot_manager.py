@@ -82,7 +82,15 @@ from utils.sentry_reporting import init_sentry
 from utils.log_noise import install_transient_noise_filter
 from utils.telegram_error_reporting import install_telegram_error_handler
 from utils.bot_kind_filter import BotKindFilter
-from utils.bot_menu_context import BOT_KIND_ADMIN, BOT_KIND_CARD, BOT_KIND_DIGITAL, BOT_KIND_MAIN, BOT_KIND_NUMBERS, BOT_KIND_RESELLER
+from utils.bot_menu_context import (
+    BOT_KIND_ADMIN,
+    BOT_KIND_CARD,
+    BOT_KIND_DIGITAL,
+    BOT_KIND_MAIN,
+    BOT_KIND_NUMBERS,
+    BOT_KIND_RESELLER,
+    extract_bot_id_from_token,
+)
 
 _public_dispatcher_built = False
 _main_dispatcher_built = False
@@ -96,6 +104,7 @@ _LOCK_ACQUIRED = False
 _cached_main_bot_id: int | None = None
 _cached_numbers_bot_id: int | None = None
 _cached_admin_bot_id: int | None = None
+_cached_digital_products_bot_id: int | None = None
 _cached_card_ex_bot_id: int | None = None
 
 
@@ -872,24 +881,33 @@ build_game_dispatcher = build_digital_products_dispatcher
 build_cards_dispatcher = build_card_ex_dispatcher
 
 
+async def _resolve_static_bot_id_from_token(token: str, label: str) -> int | None:
+    token = str(token or "").strip()
+    if not token:
+        return None
+    token_bot_id = extract_bot_id_from_token(token)
+    if token_bot_id:
+        return token_bot_id
+
+    bot = Bot(token=token)
+    try:
+        me = await bot.get_me()
+        return int(me.id)
+    except Exception as exc:
+        logging.warning("failed to resolve %s bot id via getMe fallback: %s", label, exc)
+        return None
+    finally:
+        with suppress(Exception):
+            await bot.session.close()
+
+
 async def _resolve_main_bot_id() -> int | None:
     global _cached_main_bot_id
     if isinstance(_cached_main_bot_id, int) and _cached_main_bot_id > 0:
         return _cached_main_bot_id
     token = str(getattr(settings, "bot_main_token", "") or "").strip()
-    if not token:
-        return None
-    bot = Bot(token=token)
-    try:
-        me = await bot.get_me()
-        _cached_main_bot_id = int(me.id)
-        return _cached_main_bot_id
-    except Exception as exc:
-        logging.error("failed to resolve main bot id: %s", exc)
-        return None
-    finally:
-        with suppress(Exception):
-            await bot.session.close()
+    _cached_main_bot_id = await _resolve_static_bot_id_from_token(token, "main")
+    return _cached_main_bot_id
 
 
 async def _resolve_numbers_bot_id() -> int | None:
@@ -897,19 +915,8 @@ async def _resolve_numbers_bot_id() -> int | None:
     if isinstance(_cached_numbers_bot_id, int) and _cached_numbers_bot_id > 0:
         return _cached_numbers_bot_id
     token = str(getattr(settings, "bot_numbers_token", "") or "").strip()
-    if not token:
-        return None
-    bot = Bot(token=token)
-    try:
-        me = await bot.get_me()
-        _cached_numbers_bot_id = int(me.id)
-        return _cached_numbers_bot_id
-    except Exception as exc:
-        logging.error("failed to resolve numbers bot id: %s", exc)
-        return None
-    finally:
-        with suppress(Exception):
-            await bot.session.close()
+    _cached_numbers_bot_id = await _resolve_static_bot_id_from_token(token, "numbers")
+    return _cached_numbers_bot_id
 
 
 async def _resolve_admin_bot_id() -> int | None:
@@ -917,35 +924,17 @@ async def _resolve_admin_bot_id() -> int | None:
     if isinstance(_cached_admin_bot_id, int) and _cached_admin_bot_id > 0:
         return _cached_admin_bot_id
     token = str(getattr(settings, "bot_admin_token", "") or "").strip()
-    if not token:
-        return None
-    bot = Bot(token=token)
-    try:
-        me = await bot.get_me()
-        _cached_admin_bot_id = int(me.id)
-        return _cached_admin_bot_id
-    except Exception as exc:
-        logging.error("failed to resolve admin bot id: %s", exc)
-        return None
-    finally:
-        with suppress(Exception):
-            await bot.session.close()
+    _cached_admin_bot_id = await _resolve_static_bot_id_from_token(token, "admin")
+    return _cached_admin_bot_id
 
 
 async def _resolve_digital_products_bot_id() -> int | None:
+    global _cached_digital_products_bot_id
+    if isinstance(_cached_digital_products_bot_id, int) and _cached_digital_products_bot_id > 0:
+        return _cached_digital_products_bot_id
     token = str(getattr(settings, "bot_digital_products_token", "") or "").strip()
-    if not token:
-        return None
-    bot = Bot(token=token)
-    try:
-        me = await bot.get_me()
-        return int(me.id)
-    except Exception as exc:
-        logging.error("failed to resolve digital-products bot id: %s", exc)
-        return None
-    finally:
-        with suppress(Exception):
-            await bot.session.close()
+    _cached_digital_products_bot_id = await _resolve_static_bot_id_from_token(token, "digital-products")
+    return _cached_digital_products_bot_id
 
 
 async def _resolve_card_ex_bot_id() -> int | None:
@@ -956,19 +945,8 @@ async def _resolve_card_ex_bot_id() -> int | None:
         str(getattr(settings, "bot_card_ex_token", "") or "").strip()
         or str(getattr(settings, "bot_cards_token", "") or "").strip()
     )
-    if not token:
-        return None
-    bot = Bot(token=token)
-    try:
-        me = await bot.get_me()
-        _cached_card_ex_bot_id = int(me.id)
-        return _cached_card_ex_bot_id
-    except Exception as exc:
-        logging.error("failed to resolve card-ex bot id: %s", exc)
-        return None
-    finally:
-        with suppress(Exception):
-            await bot.session.close()
+    _cached_card_ex_bot_id = await _resolve_static_bot_id_from_token(token, "card-ex")
+    return _cached_card_ex_bot_id
 
 
 async def _fetch_verified_bot_maps() -> tuple[dict[int, str], dict[int, int], dict[int, str], dict[int, str], dict[int, str], dict[int, str]]:
