@@ -60,6 +60,7 @@ def test_number_type_kb_removes_free_emoji_when_custom_icon_is_set(monkeypatch):
     monkeypatch.setattr(core_numbers_kb, "_ICON_TEMP_NUMBERS", "custom-temp")
     monkeypatch.setattr(core_numbers_kb, "_ICON_RENTAL_NUMBERS", "custom-rental")
     monkeypatch.setattr(core_numbers_kb, "_ICON_CALL_NUMBER", "custom-call")
+    monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", False, raising=False)
 
     kb = number_type_kb("en", show_cancel=False)
 
@@ -69,6 +70,21 @@ def test_number_type_kb_removes_free_emoji_when_custom_icon_is_set(monkeypatch):
     assert kb.inline_keyboard[0][1].icon_custom_emoji_id == "custom-rental"
     assert kb.inline_keyboard[1][0].text == "US Call Number"
     assert kb.inline_keyboard[1][0].icon_custom_emoji_id == "custom-call"
+
+
+def test_number_type_kb_shows_miniapp_button_when_url_is_available(monkeypatch):
+    monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", True, raising=False)
+    monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_public_url", "https://numbers.example.com", raising=False)
+    monkeypatch.setattr(core_numbers_kb.settings, "digital_products_miniapp_public_url", "", raising=False)
+    monkeypatch.delenv("RAILWAY_PUBLIC_DOMAIN", raising=False)
+    monkeypatch.delenv("RAILWAY_STATIC_URL", raising=False)
+
+    kb = number_type_kb("en", show_cancel=False)
+    first_button = kb.inline_keyboard[0][0]
+
+    assert first_button.text == "Open Numbers App"
+    assert first_button.web_app is not None
+    assert first_button.web_app.url == "https://numbers.example.com/mini/numbers"
 
 
 @pytest.mark.asyncio
@@ -296,7 +312,11 @@ async def test_voice_price_loading_forces_us_without_state(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rental_add_number_returns_to_number_type_selection():
+async def test_rental_add_number_returns_to_number_type_selection(monkeypatch):
+    from services.numbers.keyboards import core_numbers_kb
+
+    monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", False, raising=False)
+
     class _Message:
         def __init__(self):
             self.message_id = 45

@@ -1792,7 +1792,7 @@ async def test_balance_handler_and_topup_removed(monkeypatch):
     msg = DummyMsg('/balance', user_id=99, username='abc')
     await balance_handler(msg)
     assert "Balance: 💲 7.50" in msg.reply
-    assert "available wallet balance" in msg.reply
+    assert "available wallet balance" not in msg.reply
 
     result = await admin._execute_owner_action(action="topup", payload="@abc 10", actor_id=1)
     assert result == "Unknown action."

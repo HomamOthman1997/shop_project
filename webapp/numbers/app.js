@@ -9,6 +9,8 @@ const state = {
   selectedCountry: "none",
   selectedState: "none",
   loading: false,
+  activeOrders: [],
+  orderPollTimer: null,
 };
 
 const els = {
@@ -25,6 +27,8 @@ const els = {
   resultCount: document.getElementById("resultCount"),
   selectionTitle: document.getElementById("selectionTitle"),
   sessionPill: document.getElementById("sessionPill"),
+  activeBand: document.getElementById("activeBand"),
+  activeOrders: document.getElementById("activeOrders"),
 };
 
 const copy = {
@@ -47,6 +51,21 @@ const copy = {
     base: "التكلفة",
     options: "خيارات",
     unavailable: "غير متاح",
+    active: "الطلبات النشطة",
+    waiting: "بانتظار الكود",
+    buy: "شراء",
+    refresh: "تحديث",
+    cancel: "إلغاء واسترجاع",
+    purchasing: "جاري تنفيذ الطلب",
+    purchased: "تم حجز الرقم",
+    authRequired: "افتح التطبيق من تيليغرام للشراء",
+    confirmBuy: "تأكيد شراء الرقم؟",
+    code: "الكود",
+    number: "الرقم",
+    refunded: "تم الاسترجاع",
+    refundPending: "بانتظار الاسترجاع",
+    cancelWait: "الإلغاء بعد",
+    left: "متبقي",
   },
   en: {
     eyebrow: "CyberZone Numbers",
@@ -67,6 +86,21 @@ const copy = {
     base: "Cost",
     options: "Options",
     unavailable: "Unavailable",
+    active: "Active orders",
+    waiting: "Waiting for code",
+    buy: "Buy",
+    refresh: "Refresh",
+    cancel: "Cancel & refund",
+    purchasing: "Placing order",
+    purchased: "Number reserved",
+    authRequired: "Open from Telegram to purchase",
+    confirmBuy: "Confirm number purchase?",
+    code: "Code",
+    number: "Number",
+    refunded: "Refunded",
+    refundPending: "Refund pending",
+    cancelWait: "Cancel after",
+    left: "left",
   },
 };
 
@@ -85,17 +119,31 @@ function setLanguage() {
   els.statusLine.textContent = t("ready");
 }
 
-function headers() {
+function headers(extra = {}) {
   const initData = tg?.initData || "";
-  return initData ? { "X-Telegram-Init-Data": initData } : {};
+  return {
+    ...(initData ? { "X-Telegram-Init-Data": initData } : {}),
+    ...extra,
+  };
 }
 
-async function api(path) {
-  const response = await fetch(path, { headers: headers(), cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(await response.text());
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    method: options.method || "GET",
+    headers: headers(options.body ? { "Content-Type": "application/json" } : {}),
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    cache: "no-store",
+  });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    payload = null;
   }
-  return response.json();
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.message || response.statusText || t("error"));
+  }
+  return payload;
 }
 
 function serviceLabel(key) {
@@ -107,9 +155,14 @@ function selectedServiceFromInput() {
   const raw = els.serviceSearch.value.trim();
   if (!raw) return state.selectedService;
   const lowered = raw.toLowerCase();
-  const exact = state.services.find((item) => item.label.toLowerCase() === lowered || item.key.toLowerCase() === lowered);
+  const matches = (item) => {
+    const aliases = Array.isArray(item.aliases) ? item.aliases : [];
+    const values = [item.label, item.key, ...aliases].map((value) => String(value || "").toLowerCase());
+    return values;
+  };
+  const exact = state.services.find((item) => matches(item).some((value) => value === lowered));
   if (exact) return exact.key;
-  const partial = state.services.find((item) => item.label.toLowerCase().includes(lowered) || item.key.toLowerCase().includes(lowered));
+  const partial = state.services.find((item) => matches(item).some((value) => value.includes(lowered)));
   return partial?.key || state.selectedService;
 }
 
@@ -202,6 +255,170 @@ function setLoading(loading) {
   els.quoteButton.textContent = loading ? t("loading") : t("check");
 }
 
+function formatDuration(seconds) {
+  const sec = Math.max(0, Number(seconds || 0));
+  if (sec < 60) return `${sec}s`;
+  const minutes = Math.ceil(sec / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+function statusLabel(order) {
+  const status = String(order.public_status || "");
+  if (status === "code_received") return t("code");
+  if (status === "refunded") return t("refunded");
+  if (status === "refund_pending") return t("refundPending");
+  return t("waiting");
+}
+
+function canUsePurchasing() {
+  return Boolean(tg?.initData);
+}
+
+function askConfirm(message) {
+  return new Promise((resolve) => {
+    if (tg?.showConfirm) {
+      tg.showConfirm(message, resolve);
+      return;
+    }
+    resolve(window.confirm(message));
+  });
+}
+
+function renderActiveOrders(rows = state.activeOrders) {
+  state.activeOrders = rows || [];
+  els.activeBand.classList.toggle("hidden", !state.activeOrders.length);
+  if (!state.activeOrders.length) {
+    els.activeOrders.replaceChildren();
+    return;
+  }
+  els.activeOrders.replaceChildren(
+    ...state.activeOrders.map((order) => {
+      const card = document.createElement("article");
+      card.className = "order-card";
+
+      const main = document.createElement("div");
+      main.className = "order-main";
+
+      const title = document.createElement("p");
+      title.className = "order-title";
+      const id = document.createElement("span");
+      id.className = "provider-id";
+      id.textContent = order.provider_id || "";
+      title.append(id, document.createTextNode(`${order.service_label || order.service || ""} · ${statusLabel(order)}`));
+
+      const meta = document.createElement("p");
+      meta.className = "order-meta";
+      const details = [];
+      if (order.number) details.push(`${t("number")}: ${order.number}`);
+      details.push(`${order.price_label || ""}`);
+      if (order.public_status === "waiting") details.push(`${formatDuration(order.seconds_left)} ${t("left")}`);
+      meta.textContent = details.filter(Boolean).join(" · ");
+      main.append(title, meta);
+
+      if (order.code) {
+        const code = document.createElement("span");
+        code.className = "order-code";
+        code.textContent = order.code;
+        main.append(code);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "order-actions";
+      const refresh = document.createElement("button");
+      refresh.type = "button";
+      refresh.className = "small-action";
+      refresh.textContent = t("refresh");
+      refresh.addEventListener("click", () => refreshSingleOrder(order.id, refresh));
+      actions.append(refresh);
+
+      if (order.public_status === "waiting") {
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "danger-action";
+        cancel.disabled = !order.can_cancel;
+        cancel.textContent = order.can_cancel ? t("cancel") : `${t("cancelWait")} ${formatDuration(order.cancel_wait_sec)}`;
+        cancel.addEventListener("click", () => cancelOrder(order.id, cancel));
+        actions.append(cancel);
+      }
+
+      card.append(main, actions);
+      return card;
+    })
+  );
+}
+
+async function refreshOrders({ quiet = false } = {}) {
+  if (!canUsePurchasing()) return;
+  try {
+    const payload = await api("/mini/numbers/api/orders");
+    renderActiveOrders(payload.orders || []);
+  } catch (error) {
+    if (!quiet) els.statusLine.textContent = error.message || t("error");
+  }
+}
+
+async function refreshSingleOrder(orderId, button) {
+  if (!orderId) return;
+  button.disabled = true;
+  try {
+    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/refresh`, { method: "POST", body: {} });
+    const next = state.activeOrders.filter((item) => item.id !== orderId);
+    renderActiveOrders([payload.order, ...next].filter(Boolean));
+  } catch (error) {
+    els.statusLine.textContent = error.message || t("error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function cancelOrder(orderId, button) {
+  if (!orderId) return;
+  const confirmed = await askConfirm(t("cancel"));
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/cancel`, { method: "POST", body: {} });
+    const next = state.activeOrders.filter((item) => item.id !== orderId);
+    renderActiveOrders([payload.order, ...next].filter(Boolean));
+    els.statusLine.textContent = payload.message || "";
+  } catch (error) {
+    els.statusLine.textContent = error.message || t("error");
+    await refreshOrders({ quiet: true });
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function buyProvider(row, button) {
+  if (!canUsePurchasing()) {
+    els.statusLine.textContent = t("authRequired");
+    return;
+  }
+  const confirmed = await askConfirm(`${t("confirmBuy")} ${row.price_label || ""}`);
+  if (!confirmed) return;
+  button.disabled = true;
+  els.statusLine.textContent = t("purchasing");
+  try {
+    const payload = await api("/mini/numbers/api/purchase", {
+      method: "POST",
+      body: { quote_token: row.quote_token },
+    });
+    if (payload.balance_label) {
+      els.sessionPill.textContent = payload.balance_label;
+    }
+    renderActiveOrders([payload.order, ...state.activeOrders].filter(Boolean));
+    els.statusLine.textContent = t("purchased");
+    await refreshOrders({ quiet: true });
+  } catch (error) {
+    els.statusLine.textContent = error.message || t("error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderProviders(rows) {
   els.resultCount.textContent = String(rows.length);
   if (!rows.length) {
@@ -243,11 +460,25 @@ function renderProviders(rows) {
         main.append(options);
       }
 
-      const price = document.createElement("div");
-      price.className = "provider-price";
-      price.textContent = row.available ? row.price_label : t("unavailable");
-
-      card.append(main, price);
+      if (row.available && state.mode === "temp" && row.quote_token) {
+        const actions = document.createElement("div");
+        actions.className = "provider-actions";
+        const price = document.createElement("div");
+        price.className = "action-price";
+        price.textContent = row.price_label;
+        const buy = document.createElement("button");
+        buy.type = "button";
+        buy.className = "small-action";
+        buy.textContent = t("buy");
+        buy.addEventListener("click", () => buyProvider(row, buy));
+        actions.append(price, buy);
+        card.append(main, actions);
+      } else {
+        const price = document.createElement("div");
+        price.className = "provider-price";
+        price.textContent = row.available ? row.price_label : t("unavailable");
+        card.append(main, price);
+      }
       return card;
     })
   );
@@ -303,6 +534,9 @@ async function boot() {
   renderSelectors();
   renderQuickServices();
   renderProviders([]);
+  renderActiveOrders([]);
+  refreshOrders({ quiet: true });
+  state.orderPollTimer = window.setInterval(() => refreshOrders({ quiet: true }), 8000);
   els.countrySelect.addEventListener("change", () => {
     state.selectedCountry = els.countrySelect.value || "none";
     updateStateVisibility();

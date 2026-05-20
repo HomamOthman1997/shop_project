@@ -1,5 +1,7 @@
-﻿from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import os
 import re
+
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from config import settings
 from services.numbers.data.countries import COUNTRIES_LIST
@@ -74,6 +76,35 @@ def _provider_sort_key(provider_code: str | None) -> tuple[int, str, str]:
 
 def _numbers_text(lang: str, en: str, ar: str) -> str:
     return ar if str(lang or "").lower().startswith("ar") else en
+
+
+def _numbers_miniapp_url() -> str:
+    raw = str(getattr(settings, "numbers_miniapp_public_url", "") or "").strip().rstrip("/")
+    if not raw:
+        raw = str(getattr(settings, "digital_products_miniapp_public_url", "") or "").strip().rstrip("/")
+    if not raw:
+        raw = str(os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("RAILWAY_STATIC_URL") or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    if not raw.startswith(("http://", "https://")):
+        raw = f"https://{raw}"
+    for suffix in ("/mini/numbers", "/mini/digital", "/mini/cardex"):
+        if raw.endswith(suffix):
+            raw = raw[: -len(suffix)]
+            break
+    return f"{raw.rstrip('/')}/mini/numbers"
+
+
+def _numbers_miniapp_button(lang: str) -> InlineKeyboardButton | None:
+    if not bool(getattr(settings, "numbers_miniapp_enabled", True)):
+        return None
+    url = _numbers_miniapp_url()
+    if not url:
+        return None
+    return InlineKeyboardButton(
+        text=_numbers_text(lang, "Open Numbers App", "فتح تطبيق الأرقام"),
+        web_app=WebAppInfo(url=url),
+    )
 
 
 def _provider_buyable(info: dict) -> bool:
@@ -203,6 +234,11 @@ def _button_label(text: str, *, icon_id: str | None = None) -> str:
 
 def number_type_kb(lang: str, *, show_cancel: bool = True) -> InlineKeyboardMarkup:
     rows = [
+        *(
+            [[button]]
+            if (button := _numbers_miniapp_button(lang)) is not None
+            else []
+        ),
         [
             InlineKeyboardButton(
                 text=_button_label(t(lang, "temp_numbers"), icon_id=_ICON_TEMP_NUMBERS),

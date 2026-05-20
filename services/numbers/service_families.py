@@ -3,10 +3,19 @@ import unicodedata
 from typing import Dict
 
 
+_SERVICE_ALIAS_REPLACEMENTS: dict[str, str] = {
+    "اتابول": "attapoll",
+    "اتا بول": "attapoll",
+    "أتابول": "attapoll",
+    "أتا بول": "attapoll",
+}
+
+
 def normalize_service_key(value: str) -> str:
     text = unicodedata.normalize("NFKD", value or "")
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     text = text.casefold()
+    text = _SERVICE_ALIAS_REPLACEMENTS.get(text.strip(), text)
     return re.sub(r"[^a-z0-9]+", "", text)
 
 

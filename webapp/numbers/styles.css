@@ -92,6 +92,7 @@ h2 {
 }
 
 .control-band,
+.active-band,
 .result-band {
   border: 1px solid var(--line);
   background: rgba(21, 27, 36, 0.92);
@@ -107,6 +108,16 @@ h2 {
   margin-top: 12px;
   border-radius: 8px;
   padding: 14px 12px;
+}
+
+.active-band {
+  margin-top: 12px;
+  border-radius: 8px;
+  padding: 14px 12px;
+}
+
+.hidden {
+  display: none !important;
 }
 
 .mode-switch {
@@ -230,7 +241,8 @@ h2 {
   gap: 8px;
 }
 
-.provider-card {
+.provider-card,
+.order-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -242,11 +254,13 @@ h2 {
   padding: 12px;
 }
 
-.provider-main {
+.provider-main,
+.order-main {
   min-width: 0;
 }
 
-.provider-name {
+.provider-name,
+.order-title {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -266,23 +280,93 @@ h2 {
   font-size: 12px;
 }
 
-.provider-meta {
+.provider-meta,
+.order-meta {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
 }
 
-.provider-price {
+.provider-price,
+.provider-actions,
+.order-actions {
   min-width: 84px;
   text-align: end;
+}
+
+.provider-price {
   font-size: 18px;
   font-weight: 900;
   color: #b9f5df;
 }
 
+.provider-actions,
+.order-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.action-price {
+  font-size: 18px;
+  font-weight: 900;
+  color: #b9f5df;
+}
+
+.small-action,
+.danger-action {
+  min-height: 36px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.small-action {
+  background: var(--blue);
+  color: #06111f;
+}
+
+.danger-action {
+  background: rgba(239, 111, 108, 0.18);
+  color: #ffc6c4;
+  border: 1px solid rgba(239, 111, 108, 0.28);
+}
+
+.small-action:disabled,
+.danger-action:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .provider-card.unavailable .provider-price {
   color: var(--warn);
+}
+
+.active-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.order-code {
+  display: inline-block;
+  margin-top: 8px;
+  border-radius: 6px;
+  background: rgba(32, 180, 134, 0.14);
+  color: #b9f5df;
+  padding: 6px 8px;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.order-number {
+  color: var(--text);
+  font-weight: 850;
 }
 
 .option-row {
@@ -334,11 +418,15 @@ h2 {
     min-height: 40px;
   }
 
-  .provider-card {
+  .provider-card,
+  .order-card {
     grid-template-columns: 1fr;
   }
 
-  .provider-price {
+  .provider-price,
+  .provider-actions,
+  .order-actions {
     text-align: start;
+    justify-items: start;
   }
 }

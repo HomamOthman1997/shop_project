@@ -38,6 +38,37 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
     assert rows[-1]["reason"] == "Provider balance is low"
 
 
+def test_numbers_temp_rows_include_signed_quote_and_hide_internal_lanes(monkeypatch):
+    monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
+
+    rows = miniapp._normalize_provider_rows(
+        {
+            "textverified": {
+                "price": 0.5,
+                "base_price": 0.4,
+                "api_service_name": "attapoll",
+                "available_for_buy": True,
+            },
+            "smsman": {
+                "price": 0.3,
+                "base_price": 0.25,
+                "api_service_name": "1230",
+                "available_for_buy": True,
+            },
+        },
+        "temp",
+        service="attapoll",
+        country="1",
+        state="none",
+    )
+
+    assert [row["provider_id"] for row in rows] == ["S2"]
+    quote = miniapp._verify_quote_token(rows[0]["quote_token"])
+    assert quote["service"] == "attapoll"
+    assert quote["provider"] == "textverified"
+
+
 def test_register_numbers_routes_adds_public_endpoints():
     app = web.Application()
 
@@ -48,3 +79,7 @@ def test_register_numbers_routes_adds_public_endpoints():
     assert ("GET", "/mini/numbers/static/{name}") in routes
     assert ("GET", "/mini/numbers/api/bootstrap") in routes
     assert ("GET", "/mini/numbers/api/prices") in routes
+    assert ("GET", "/mini/numbers/api/orders") in routes
+    assert ("POST", "/mini/numbers/api/purchase") in routes
+    assert ("POST", "/mini/numbers/api/orders/{order_id}/refresh") in routes
+    assert ("POST", "/mini/numbers/api/orders/{order_id}/cancel") in routes

@@ -133,6 +133,9 @@ async def test_language_selection_keeps_channel_warning_for_reseller_bot(monkeyp
 
 @pytest.mark.asyncio
 async def test_language_selection_opens_numbers_type_menu(monkeypatch):
+    from keyboards import main_menu_kb
+    from services.numbers.keyboards import core_numbers_kb
+
     callback = DummyCallback(bot_id=879, user_id=654)
     state = DummyState()
 
@@ -153,6 +156,8 @@ async def test_language_selection_opens_numbers_type_menu(monkeypatch):
     monkeypatch.setattr(language_handler, "is_main_bot", fake_false)
     monkeypatch.setattr(language_handler, "is_digital_products_bot", fake_false)
     monkeypatch.setattr(language_handler, "is_card_ex_bot", fake_false)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", False, raising=False)
+    monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", False, raising=False)
     monkeypatch.setattr("handlers.start.menu_for_current_bot", fake_menu)
 
     await language_handler._apply_language(callback, "en", state)

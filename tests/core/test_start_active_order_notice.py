@@ -113,6 +113,11 @@ async def test_numbers_start_guards_skip_digital_and_card_bots(monkeypatch):
 @pytest.mark.asyncio
 async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
     from handlers import start
+    from keyboards import main_menu_kb
+    from services.numbers.keyboards import core_numbers_kb
+
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", False, raising=False)
+    monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", False, raising=False)
 
     class _DummyState:
         def __init__(self):
@@ -155,6 +160,7 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
 @pytest.mark.asyncio
 async def test_numbers_bot_cancel_returns_to_number_type_entry(monkeypatch):
     from services.numbers.handlers import core_numbers
+    from services.numbers.keyboards import core_numbers_kb
 
     async def fake_get_user(_user_id):
         return {"language": "en"}
@@ -207,6 +213,7 @@ async def test_numbers_bot_cancel_returns_to_number_type_entry(monkeypatch):
     monkeypatch.setattr(core_numbers, "get_user", fake_get_user)
     monkeypatch.setattr(core_numbers, "is_numbers_bot", fake_true)
     monkeypatch.setattr(core_numbers, "_handle_rental_exit_callback_guard", fake_rental_guard)
+    monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", False, raising=False)
 
     await core_numbers.back_to_main(callback, state)
 

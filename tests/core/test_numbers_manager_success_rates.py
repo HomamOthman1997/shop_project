@@ -1,6 +1,8 @@
 import pytest
 
 from services.numbers import manager
+from services.numbers.service_families import normalize_service_key
+from services.numbers.service_map import resolve_canonical_service_key
 
 
 class _TempProvider:
@@ -32,6 +34,19 @@ async def _service_resolution(*_args, **_kwargs):
 
 async def _service_name(*_args, **_kwargs):
     return "telegram"
+
+
+def test_arabic_attapoll_alias_resolves_to_canonical_service():
+    assert normalize_service_key("اتابول") == "attapoll"
+    assert resolve_canonical_service_key("اتابول") == "attapoll"
+
+
+def test_numbers_miniapp_bootstrap_includes_arabic_attapoll_alias():
+    from services.numbers.miniapp import _bootstrap_payload
+
+    service = next(row for row in _bootstrap_payload()["services"] if row["key"] == "attapoll")
+
+    assert "اتابول" in service["aliases"]
 
 
 @pytest.mark.asyncio

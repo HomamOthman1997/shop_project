@@ -141,7 +141,11 @@ def test_digital_products_menu_uses_arabic_miniapp_label_when_enabled(monkeypatc
     assert first_button.text == "فتح المتجر الرقمي"
 
 
-def test_numbers_menu_is_numbers_only():
+def test_numbers_menu_is_numbers_only(monkeypatch):
+    from keyboards import main_menu_kb
+
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", False, raising=False)
+
     labels = [btn.text for row in numbers_main_menu("en").keyboard for btn in row]
 
     assert labels == [
