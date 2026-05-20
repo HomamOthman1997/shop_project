@@ -101,13 +101,13 @@ def _is_btn(text: str | None, expected: str) -> bool:
 
 
 _CARD_MENU_ALIASES: dict[str, tuple[str, ...]] = {
-    "Sell Card": ("Sell Card", "بيع كرت"),
-    "Wallet": ("Wallet", "المحفظة"),
+    "Sell Card": ("Sell Card", "Sell / Exchange Card", "بيع كرت", "بيع / تصريف بطاقة"),
+    "Wallet": ("Wallet", "Card EX Wallet", "المحفظة", "محفظة Card EX"),
     "My Cards": ("My Cards", "بطاقاتي"),
     "Withdraw": ("Withdraw", "طلب سحب"),
-    "My Withdrawals": ("My Withdrawals", "سحوباتي"),
+    "My Withdrawals": ("My Withdrawals", "سحوباتي", "طلبات السحب"),
     "Price Sheet": ("Price Sheet", "Price Sheet (Mini App)", "نشرة الأسعار", "نشرة الأسعار (Mini App)"),
-    "Support": ("Support", "الدعم"),
+    "Support": ("Support", "Card EX Support", "الدعم", "دعم Card EX"),
 }
 
 
@@ -963,8 +963,8 @@ async def open_support_callback(callback: types.CallbackQuery) -> None:
 def _admin_panel_text(lang: str) -> str:
     return _t(
         lang,
-        "Cards Admin Panel\n\nChoose the management section.",
-        "لوحة إدارة البطاقات\n\nاختر القسم الذي تريد إدارته.",
+        "Card EX Admin\n\nChoose the management section.",
+        "لوحة إدارة Card EX\n\nاختر القسم الذي تريد إدارته.",
     )
 
 

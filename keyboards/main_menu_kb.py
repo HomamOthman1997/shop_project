@@ -19,6 +19,10 @@ _ICON_ACCOUNT = _icon(getattr(settings, "tg_icon_account", None))
 _ICON_SUPPORT = _icon(getattr(settings, "tg_icon_support", None))
 
 
+def _label(lang: str, en: str, ar: str) -> str:
+    return ar if str(lang or "").lower().startswith("ar") else en
+
+
 def _kb_button(text: str, *, icon_id: str | None = None, web_app: WebAppInfo | None = None) -> KeyboardButton:
     kwargs = {}
     if web_app is not None:
@@ -95,7 +99,7 @@ def digital_products_main_menu(lang: str) -> ReplyKeyboardMarkup:
     miniapp_ready = bool(getattr(settings, "digital_products_miniapp_enabled", False)) and bool(miniapp_url)
     if miniapp_ready:
         keyboard = [
-            [_kb_button("Open Digital Store", web_app=WebAppInfo(url=miniapp_url))],
+            [_kb_button(_label(lang, "Open Digital Store", "فتح المتجر الرقمي"), web_app=WebAppInfo(url=miniapp_url))],
             [
                 _kb_button(t(lang, "user_settings_my_account"), icon_id=_ICON_ACCOUNT),
                 _kb_button(t(lang, "btn_support"), icon_id=_ICON_SUPPORT),

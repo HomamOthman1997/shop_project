@@ -260,29 +260,37 @@ def test_cardex_miniapp_optional_auth_allows_public_prices_without_init_data(mon
 def test_cards_main_menu_uses_arabic_labels_for_ar():
     kb = cards_main_menu("ar")
     labels = [button.text for row in kb.inline_keyboard for button in row]
-    assert "بيع كرت" in labels
+    assert "بيع / تصريف بطاقة" in labels
     assert "بطاقات وقسائم" not in labels
-    assert "المحفظة" in labels
+    assert "محفظة Card EX" in labels
     assert "بطاقاتي" in labels
     assert "طلب سحب" in labels
-    assert "سحوباتي" in labels
+    assert "طلبات السحب" in labels
+    assert "دعم Card EX" in labels
 
 
 def test_cards_menu_button_aliases_accept_arabic_and_english():
     assert _is_menu_btn("Sell Card", "Sell Card")
+    assert _is_menu_btn("Sell / Exchange Card", "Sell Card")
     assert _is_menu_btn("بيع كرت", "Sell Card")
+    assert _is_menu_btn("بيع / تصريف بطاقة", "Sell Card")
     assert _is_menu_btn("Wallet", "Wallet")
+    assert _is_menu_btn("Card EX Wallet", "Wallet")
     assert _is_menu_btn("المحفظة", "Wallet")
+    assert _is_menu_btn("محفظة Card EX", "Wallet")
     assert _is_menu_btn("بطاقاتي", "My Cards")
     assert _is_menu_btn("طلب سحب", "Withdraw")
     assert _is_menu_btn("سحوباتي", "My Withdrawals")
+    assert _is_menu_btn("طلبات السحب", "My Withdrawals")
+    assert _is_menu_btn("Card EX Support", "Support")
+    assert _is_menu_btn("دعم Card EX", "Support")
 
 
 def test_cards_main_menu_shows_admin_panel_and_card_actions_for_admins():
     kb = cards_main_menu("en", is_admin=True)
     labels = [button.text for row in kb.inline_keyboard for button in row]
-    assert "Admin Panel" in labels
-    assert "Sell Card" in labels
+    assert "Card EX Admin" in labels
+    assert "Sell / Exchange Card" in labels
     assert "Price Sheet" in labels
 
 

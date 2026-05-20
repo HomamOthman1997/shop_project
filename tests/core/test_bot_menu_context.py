@@ -91,7 +91,7 @@ def test_reseller_menu_uses_direct_main_bot_link(monkeypatch):
     monkeypatch.setattr(reseller_menu_mod.settings, "main_bot_username", "MainHubBot", raising=False)
 
     buttons = [btn for row in reseller_main_menu("en").inline_keyboard for btn in row]
-    main_button = next(btn for btn in buttons if btn.text == "🚀 Main Bot")
+    main_button = next(btn for btn in buttons if btn.text == "🚀 CyberZone Hub")
 
     assert main_button.url == "https://t.me/MainHubBot?start=hub"
     assert main_button.callback_data is None
@@ -107,11 +107,24 @@ def test_digital_products_menu_exposes_miniapp_button_when_enabled(monkeypatch):
     first_button = kb.keyboard[0][0]
     labels = [btn.text for row in kb.keyboard for btn in row]
 
+    assert first_button.text == "Open Digital Store"
     assert first_button.web_app is not None
     assert first_button.web_app.url == "https://store.example.com/mini/digital"
     assert t("en", "btn_giftcards") not in labels
     assert t("en", "btn_games_topups") not in labels
     assert t("en", "btn_sim_topup") not in labels
+
+
+def test_digital_products_menu_uses_arabic_miniapp_label_when_enabled(monkeypatch):
+    from keyboards import main_menu_kb
+
+    monkeypatch.setattr(main_menu_kb.settings, "digital_products_miniapp_enabled", True)
+    monkeypatch.setattr(main_menu_kb.settings, "digital_products_miniapp_public_url", "https://store.example.com")
+
+    kb = digital_products_main_menu("ar")
+    first_button = kb.keyboard[0][0]
+
+    assert first_button.text == "فتح المتجر الرقمي"
 
 
 def test_numbers_menu_is_numbers_only():
@@ -208,7 +221,7 @@ async def test_menu_for_current_bot_shows_card_admin_button_for_admin_user(monke
     labels = [btn.text for row in kb.inline_keyboard for btn in row]
 
     assert labels == [btn.text for row in cards_main_menu("ar", is_admin=True).inline_keyboard for btn in row]
-    assert labels[0] == "لوحة الإدارة"
+    assert labels[0] == "لوحة إدارة Card EX"
 
 
 @pytest.mark.asyncio

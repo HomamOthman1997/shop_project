@@ -14,7 +14,7 @@ def _label(lang: str, ar: str, en: str) -> str:
 def _main_bot_button(lang: str) -> InlineKeyboardButton:
     username = str(getattr(settings, "main_bot_username", "") or "").strip().lstrip("@")
     if username:
-        return InlineKeyboardButton(text=_label(lang, "🚀 البوت الرئيسي", "🚀 Main Bot"), url=f"https://t.me/{username}?start=hub")
+        return InlineKeyboardButton(text=_label(lang, "🚀 مركز CyberZone", "🚀 CyberZone Hub"), url=f"https://t.me/{username}?start=hub")
     return InlineKeyboardButton(text=t(lang, "btn_cyberzone_services"), callback_data="rsmenu:main_bot_services")
 
 

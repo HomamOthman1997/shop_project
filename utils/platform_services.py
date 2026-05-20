@@ -2,17 +2,16 @@ from __future__ import annotations
 
 
 MAIN_PLATFORM_SERVICES = (
-    {"key": "main_bot", "label_en": "Main Bot", "label_ar": "البوت الرئيسي"},
+    {"key": "main_bot", "label_en": "CyberZone Hub", "label_ar": "مركز CyberZone"},
     {"key": "p2p", "label_en": "P2P", "label_ar": "بي تو بي"},
-    {"key": "cards", "label_en": "Cards", "label_ar": "شراء البطاقات"},
+    {"key": "cards", "label_en": "Card EX", "label_ar": "Card EX"},
 )
 
 MAIN_PRODUCT_LINES = (
-    {"key": "numbers", "label_en": "Numbers", "label_ar": "الأرقام"},
-    {"key": "proxies", "label_en": "Proxies", "label_ar": "البروكسيات"},
-    {"key": "games", "label_en": "Game Topups", "label_ar": "شحن الألعاب"},
-    {"key": "apps", "label_en": "Apps", "label_ar": "التطبيقات"},
-    {"key": "create_bot", "label_en": "Create Bots", "label_ar": "إنشاء البوتات"},
+    {"key": "numbers", "label_en": "Numbers Bot", "label_ar": "بوت الأرقام"},
+    {"key": "digital_store", "label_en": "Digital Store", "label_ar": "المتجر الرقمي"},
+    {"key": "card_ex", "label_en": "Card EX", "label_ar": "Card EX"},
+    {"key": "create_bot", "label_en": "Reseller Bot Builder", "label_ar": "إنشاء بوت ريسيلر"},
 )
 
 

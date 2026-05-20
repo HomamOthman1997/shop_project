@@ -25,7 +25,7 @@ def cardex_miniapp_ready() -> bool:
 
 def cardex_miniapp_kb(lang: str | None = None) -> InlineKeyboardMarkup:
     is_ar = str(lang or "").lower().startswith("ar")
-    text = "فتح الميني أب" if is_ar else "Open Mini App"
+    text = "فتح ميني أب Card EX" if is_ar else "Open Card EX Mini App"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=text, web_app=WebAppInfo(url=cardex_miniapp_url()))],
@@ -35,14 +35,14 @@ def cardex_miniapp_kb(lang: str | None = None) -> InlineKeyboardMarkup:
 
 def cards_main_menu(lang: str | None = None, *, is_admin: bool = False, user_id: int | None = None) -> InlineKeyboardMarkup:
     is_ar = str(lang or "").lower().startswith("ar")
-    sell = "بيع كرت" if is_ar else "Sell Card"
-    wallet = "المحفظة" if is_ar else "Wallet"
+    sell = "بيع / تصريف بطاقة" if is_ar else "Sell / Exchange Card"
+    wallet = "محفظة Card EX" if is_ar else "Card EX Wallet"
     my_cards = "بطاقاتي" if is_ar else "My Cards"
     withdraw = "طلب سحب" if is_ar else "Withdraw"
-    my_withdrawals = "سحوباتي" if is_ar else "My Withdrawals"
+    my_withdrawals = "طلبات السحب" if is_ar else "My Withdrawals"
     price_sheet = "نشرة الأسعار (Mini App)" if is_ar and cardex_miniapp_ready() else "نشرة الأسعار" if is_ar else "Price Sheet (Mini App)" if cardex_miniapp_ready() else "Price Sheet"
-    support = "الدعم" if is_ar else "Support"
-    admin_panel = "لوحة الإدارة" if is_ar else "Admin Panel"
+    support = "دعم Card EX" if is_ar else "Card EX Support"
+    admin_panel = "لوحة إدارة Card EX" if is_ar else "Card EX Admin"
 
     price_button = (
         InlineKeyboardButton(text=price_sheet, web_app=WebAppInfo(url=cardex_miniapp_url()))
