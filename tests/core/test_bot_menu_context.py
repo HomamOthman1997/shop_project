@@ -155,6 +155,24 @@ def test_numbers_menu_is_numbers_only():
     assert t("en", "btn_proxies") not in labels
 
 
+def test_numbers_menu_adds_miniapp_button_when_enabled(monkeypatch):
+    from keyboards import main_menu_kb
+
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", True, raising=False)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_public_url", "https://numbers.example.com", raising=False)
+    monkeypatch.setattr(main_menu_kb.settings, "digital_products_miniapp_public_url", "", raising=False)
+    monkeypatch.delenv("RAILWAY_PUBLIC_DOMAIN", raising=False)
+    monkeypatch.delenv("RAILWAY_STATIC_URL", raising=False)
+
+    kb = numbers_main_menu("en")
+    first_button = kb.keyboard[0][0]
+
+    assert first_button.text == "Open Numbers App"
+    assert first_button.web_app is not None
+    assert first_button.web_app.url == "https://numbers.example.com/mini/numbers"
+    assert kb.keyboard[1][0].text == t("en", "btn_my_numbers")
+
+
 @pytest.mark.asyncio
 async def test_menu_for_current_bot_prioritizes_platform_store_bots_over_reseller_owned(monkeypatch):
     async def _true(*_args, **_kwargs):

@@ -52,6 +52,7 @@ from services.digital_products.static_taxonomy import (
     provider_label as taxonomy_provider_label,
 )
 from services.cards_bot.miniapp import register_cardex_routes
+from services.numbers.miniapp import register_numbers_routes
 
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "webapp" / "digital"
@@ -2010,11 +2011,16 @@ def create_app() -> web.Application:
     app.router.add_post("/mini/digital/api/usage", record_usage)
     app.router.add_post("/mini/digital/api/selection", create_selection)
     register_cardex_routes(app)
+    register_numbers_routes(app)
     return app
 
 
 async def start_miniapp_server() -> tuple[web.AppRunner, web.TCPSite] | None:
-    if not bool(getattr(settings, "digital_products_miniapp_enabled", False)) and not bool(getattr(settings, "cardex_miniapp_enabled", False)):
+    if (
+        not bool(getattr(settings, "digital_products_miniapp_enabled", False))
+        and not bool(getattr(settings, "cardex_miniapp_enabled", False))
+        and not bool(getattr(settings, "numbers_miniapp_enabled", False))
+    ):
         return None
     await bootstrap_miniapp_indexes()
     app = create_app()

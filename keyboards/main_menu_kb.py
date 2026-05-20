@@ -1,3 +1,5 @@
+import os
+
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 
 from config import settings
@@ -41,6 +43,29 @@ def _digital_store_webapp_url() -> str:
     return f"{raw}/mini/digital"
 
 
+def _miniapp_base_url(*keys: str) -> str:
+    for key in keys:
+        raw = str(getattr(settings, key, "") or "").strip().rstrip("/")
+        if raw:
+            break
+    else:
+        raw = str(os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("RAILWAY_STATIC_URL") or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    if not raw.startswith(("http://", "https://")):
+        raw = f"https://{raw}"
+    for suffix in ("/mini/numbers", "/mini/digital", "/mini/cardex"):
+        if raw.endswith(suffix):
+            raw = raw[: -len(suffix)]
+            break
+    return raw.rstrip("/")
+
+
+def _numbers_miniapp_url() -> str:
+    base = _miniapp_base_url("numbers_miniapp_public_url", "digital_products_miniapp_public_url")
+    return f"{base}/mini/numbers" if base else ""
+
+
 def main_menu(lang: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text=t(lang, "btn_services"))],
@@ -62,7 +87,14 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
 
 
 def numbers_main_menu(lang: str) -> ReplyKeyboardMarkup:
+    miniapp_url = _numbers_miniapp_url()
+    miniapp_ready = bool(getattr(settings, "numbers_miniapp_enabled", False)) and bool(miniapp_url)
     keyboard = [
+        *(
+            [[_kb_button(_label(lang, "Open Numbers App", "فتح تطبيق الأرقام"), web_app=WebAppInfo(url=miniapp_url))]]
+            if miniapp_ready
+            else []
+        ),
         [
             _kb_button(t(lang, "btn_my_numbers")),
         ],

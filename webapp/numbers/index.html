@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Numbers</title>
+    <link rel="stylesheet" href="/mini/numbers/static/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" data-i18n="eyebrow">CyberZone Numbers</p>
+          <h1 data-i18n="title">الأرقام</h1>
+        </div>
+        <div class="balance-pill" id="sessionPill">Mini App</div>
+      </header>
+
+      <section class="control-band" aria-label="Number order filters">
+        <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="Mode"></div>
+
+        <div class="field-grid">
+          <label class="field">
+            <span data-i18n="service">الخدمة</span>
+            <input id="serviceSearch" list="servicesList" autocomplete="off" />
+            <datalist id="servicesList"></datalist>
+          </label>
+
+          <label class="field">
+            <span data-i18n="country">الدولة</span>
+            <select id="countrySelect"></select>
+          </label>
+
+          <label class="field state-field" id="stateField">
+            <span data-i18n="state">الولاية</span>
+            <select id="stateSelect"></select>
+          </label>
+        </div>
+
+        <div class="quick-row" id="quickServices"></div>
+
+        <button class="primary-action" id="quoteButton" type="button" data-i18n="check">
+          فحص الأسعار
+        </button>
+      </section>
+
+      <section class="result-band" aria-live="polite">
+        <div class="result-header">
+          <div>
+            <p class="eyebrow" data-i18n="providers">المزودين</p>
+            <h2 id="selectionTitle">Telegram</h2>
+          </div>
+          <span class="count-pill" id="resultCount">0</span>
+        </div>
+        <div id="statusLine" class="status-line"></div>
+        <div class="provider-list" id="providerList"></div>
+      </section>
+    </main>
+    <script src="/mini/numbers/static/app.js"></script>
+  </body>
+</html>
