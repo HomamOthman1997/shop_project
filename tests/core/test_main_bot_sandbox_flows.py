@@ -478,8 +478,13 @@ async def test_more_services_button_opens_other_bot_links(monkeypatch):
 
     await main_menu.open_more_services_from_numbers_menu(message)
 
+    text = message.answers[-1][0]
     markup = message.answers[-1][1]
     urls = [button.url for row in markup.inline_keyboard for button in row]
+    assert text.startswith("Our Other Services")
+    assert "Numbers Bot: phone numbers and activation orders" in text
+    assert "Digital Store: game top-ups, digital cards, SIM and eSIM" in text
+    assert "Card EX: card selling and exchange" in text
     assert urls == [
         "https://t.me/numbers?start=numbers",
         "https://t.me/digital?start=hub",
@@ -501,7 +506,9 @@ async def test_reseller_other_services_button_does_not_open_custom_services_bot(
 
     await main_menu.open_other_services_from_reseller_user_menu(message)
 
-    assert message.answers[-1][0] == main_menu.t("en", "more_services_text")
+    text = message.answers[-1][0]
+    assert text.startswith("Our Other Services")
+    assert "The custom-services catalog stays inside CyberZone Hub." in text
     markup = message.answers[-1][1]
     labels = [button.text for row in markup.inline_keyboard for button in row]
     urls = [button.url for row in markup.inline_keyboard for button in row]

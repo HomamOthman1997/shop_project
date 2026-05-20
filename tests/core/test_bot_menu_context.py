@@ -57,6 +57,20 @@ async def test_send_digital_products_message_clears_reply_keyboard_first(monkeyp
     assert message.calls[1][1].__class__.__name__ == "InlineKeyboardMarkup"
 
 
+@pytest.mark.asyncio
+async def test_main_bot_services_text_includes_platform_map(monkeypatch):
+    monkeypatch.setattr(bot_menu_context, "main_bot_username", lambda: "MainHubBot")
+
+    text = await bot_menu_context.main_bot_services_text("en")
+
+    assert "CyberZone Hub" in text
+    assert "Platform map:" in text
+    assert "Numbers Bot: phone numbers and activation orders" in text
+    assert "Digital Store: game top-ups, digital cards, SIM and eSIM" in text
+    assert "Card EX: card selling and exchange" in text
+    assert "Reseller Bot Builder: create and manage reseller bots" in text
+
+
 def test_main_menus_do_not_show_custom_services_button():
     main_rows = [[btn.text for btn in row] for row in main_menu("en").keyboard]
     main_buttons = [btn for row in main_rows for btn in row]

@@ -52,6 +52,7 @@ from utils.bot_menu_context import (
 from services.subscriptions.presentation import subscription_summary_lines
 from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_message_guard
 from utils.permissions import is_reseller
+from utils.platform_services import render_other_services_text
 from utils.recharge_ui import owner_reseller_topup_review_kb, user_recharge_review_kb
 from utils.loading_sticker import send_loading_sticker
 from utils.translations import t
@@ -584,25 +585,31 @@ async def _open_support_menu_message(message: types.Message, lang: str) -> None:
     )
 
 
-def _more_services_kb(lang: str) -> InlineKeyboardMarkup | None:
-    rows: list[list[InlineKeyboardButton]] = []
+def _more_services_entries(lang: str) -> list[tuple[str, InlineKeyboardButton]]:
+    entries: list[tuple[str, InlineKeyboardButton]] = []
     numbers_url = numbers_bot_url("numbers")
     digital_url = digital_products_bot_url("hub")
     card_url = card_ex_bot_url("cards")
     if numbers_url:
-        rows.append([InlineKeyboardButton(text=t(lang, "open_numbers_bot_button"), url=numbers_url)])
+        entries.append(("numbers", InlineKeyboardButton(text=t(lang, "open_numbers_bot_button"), url=numbers_url)))
     if digital_url:
-        rows.append([InlineKeyboardButton(text=t(lang, "open_digital_products_button"), url=digital_url)])
+        entries.append(("digital_store", InlineKeyboardButton(text=t(lang, "open_digital_products_button"), url=digital_url)))
     if card_url:
-        rows.append([InlineKeyboardButton(text=t(lang, "open_card_ex_bot_button"), url=card_url)])
-    if not rows:
+        entries.append(("card_ex", InlineKeyboardButton(text=t(lang, "open_card_ex_bot_button"), url=card_url)))
+    return entries
+
+
+def _more_services_kb(lang: str) -> InlineKeyboardMarkup | None:
+    entries = _more_services_entries(lang)
+    if not entries:
         return None
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return InlineKeyboardMarkup(inline_keyboard=[[button] for _, button in entries])
 
 
 async def _open_more_services_message(message: types.Message, lang: str) -> None:
-    markup = _more_services_kb(lang)
-    text = t(lang, "more_services_text") if markup else t(lang, "more_services_not_configured_text")
+    entries = _more_services_entries(lang)
+    markup = InlineKeyboardMarkup(inline_keyboard=[[button] for _, button in entries]) if entries else None
+    text = render_other_services_text(lang, [key for key, _ in entries]) if entries else t(lang, "more_services_not_configured_text")
     await message.answer(text, reply_markup=markup)
 
 

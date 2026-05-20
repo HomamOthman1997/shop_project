@@ -88,7 +88,7 @@ async def redirect_proxy_command(message: types.Message) -> None:
 async def redirect_numbers_callback(callback: types.CallbackQuery) -> None:
     lang = await _lang_for(callback.from_user.id)
     await callback.answer(
-        "هذه الخدمة متاحة عبر Main Bot." if lang.startswith("ar") else "This service is available in Main Bot.",
+        "هذه الخدمة متاحة عبر مركز CyberZone." if lang.startswith("ar") else "This service is available in CyberZone Hub.",
         show_alert=True,
     )
     await send_main_bot_message(callback, lang=lang)
@@ -98,7 +98,7 @@ async def redirect_numbers_callback(callback: types.CallbackQuery) -> None:
 async def redirect_proxy_callback(callback: types.CallbackQuery) -> None:
     lang = await _lang_for(callback.from_user.id)
     await callback.answer(
-        "هذه الخدمة متاحة عبر Main Bot." if lang.startswith("ar") else "This service is available in Main Bot.",
+        "هذه الخدمة متاحة عبر مركز CyberZone." if lang.startswith("ar") else "This service is available in CyberZone Hub.",
         show_alert=True,
     )
     await send_main_bot_message(callback, lang=lang)

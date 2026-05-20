@@ -98,7 +98,7 @@ def reseller_subscription_kb(subscription: dict, lang: str = "en") -> types.Inli
 
     main_url = main_bot_url("hub")
     if main_url:
-        main_label = "فتح البوت الرئيسي للشحن" if is_ar else "Open Main Bot to Top Up"
+        main_label = "فتح مركز CyberZone للشحن" if is_ar else "Open CyberZone Hub to Top Up"
         rows.append([types.InlineKeyboardButton(text=main_label, url=main_url)])
 
     plan_buttons: list[types.InlineKeyboardButton] = []
