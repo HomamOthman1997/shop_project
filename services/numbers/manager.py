@@ -576,7 +576,14 @@ async def get_provider_service_name_dynamic(service_key: str, provider_code: str
     return str(resolved)
 
 
-async def get_all_prices(service_key: str, country: str | None, state: str | None, *, ignore_balance: bool = False):
+async def get_all_prices(
+    service_key: str,
+    country: str | None,
+    state: str | None,
+    *,
+    ignore_balance: bool = False,
+    with_success_rates: bool = True,
+):
     """Fetch temporary-number prices from all configured providers."""
     results = {}
     markup_pct = await _effective_numbers_markup_percent()
@@ -896,12 +903,12 @@ async def get_all_prices(service_key: str, country: str | None, state: str | Non
                     "requested_service": str(service_key or ""),
                     "canonical_service": str(resolve_canonical_service_key(str(service_key or "")) or ""),
                 }
-    if results:
+    if results and with_success_rates:
         await _apply_dynamic_success_rates(results, str(service_key or ""), country=country, state=state or "none")
     return results
 
 
-async def get_all_rental_prices(service_key: str, country: str | None):
+async def get_all_rental_prices(service_key: str, country: str | None, *, with_success_rates: bool = True):
     """Fetch rental options from providers that support rental APIs."""
     results = {}
     is_unlimited = _is_unlimited_rental_service(service_key)
@@ -1101,7 +1108,7 @@ async def get_all_rental_prices(service_key: str, country: str | None):
     for code, data in responses:
         if data:
             results[code] = data
-    if results:
+    if results and with_success_rates:
         await _apply_dynamic_success_rates(results, f"{str(service_key or '')}:rental", country=country)
     return results
 
