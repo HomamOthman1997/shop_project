@@ -100,7 +100,7 @@ const els = {
 
 const copy = {
   ar: {
-    eyebrow: "CyberZone Numbers",
+    eyebrow: "PHANTOM NUMBERS",
     title: "الأرقام",
     tabBuy: "شراء",
     tabOrders: "طلباتي",
@@ -202,7 +202,7 @@ const copy = {
     openBot: "فتح البوت",
   },
   en: {
-    eyebrow: "CyberZone Numbers",
+    eyebrow: "PHANTOM NUMBERS",
     title: "Numbers",
     tabBuy: "Buy",
     tabOrders: "My numbers",
@@ -656,6 +656,11 @@ function renderViewTabs() {
   );
 }
 
+function resetBuyStatus() {
+  if (!els.statusLine || state.loading || state.pricesChecked) return;
+  els.statusLine.textContent = "";
+}
+
 function setView(view) {
   state.view = view;
   els.buyView.classList.toggle("hidden", view !== "buy");
@@ -668,6 +673,7 @@ function setView(view) {
   } else {
     clearOrderPoll();
   }
+  if (view === "buy") resetBuyStatus();
   if (view === "account") loadAccount();
   if (view === "support") loadSupportInfo();
 }
