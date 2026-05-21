@@ -1,5 +1,15 @@
 const tg = window.Telegram?.WebApp;
 
+const MODE_SELECTION_DEFAULTS = {
+  temp: { service: "", country: "none", state: "none" },
+  rental: { service: "", country: "none", state: "none" },
+  voice: { service: "", country: "1", state: "none" },
+};
+
+function defaultModeSelection(mode) {
+  return { ...(MODE_SELECTION_DEFAULTS[mode] || MODE_SELECTION_DEFAULTS.temp) };
+}
+
 const state = {
   lang: "ar",
   view: "buy",
@@ -10,6 +20,11 @@ const state = {
   selectedService: "",
   selectedCountry: "none",
   selectedState: "none",
+  modeSelections: {
+    temp: defaultModeSelection("temp"),
+    rental: defaultModeSelection("rental"),
+    voice: defaultModeSelection("voice"),
+  },
   orderFlowOpen: false,
   pricesChecked: false,
   loading: false,
@@ -193,7 +208,7 @@ const copy = {
     beforeOrder: "Before ordering",
     introTitle: "Important notes before requesting a number",
     introNotice1: "Choose the exact service. The number is reserved for the selected service only.",
-    introNotice2: "For US numbers, any state usually gives better prices than a specific state.",
+    introNotice2: "Leaving the state unset usually provides more options and better prices.",
     introNotice3: "If no code or call arrives, the app checks the provider and follows the refund flow when eligible.",
     requestNumber: "Request number",
     service: "Service",
@@ -319,7 +334,7 @@ Object.assign(copy.ar, {
   beforeOrder: "قبل الطلب",
   introTitle: "تنبيهات مهمة قبل طلب الرقم",
   introNotice1: "اختر الخدمة المطلوبة بدقة. الرقم يعمل للخدمة المحددة فقط.",
-  introNotice2: "للأرقام الأمريكية، اختيار أي ولاية غالباً يعطي أسعار أفضل من ولاية محددة.",
+  introNotice2: "عدم استخدام ولاية محددة يساعد على الحصول على سعر أرخص ومزودات أكثر.",
   introNotice3: "إذا لم يصل الكود أو المكالمة، التطبيق يفحص المزود ويتابع الاسترجاع تلقائياً عند توفر شروطه.",
   requestNumber: "طلب رقم",
   service: "الخدمة",
@@ -331,7 +346,7 @@ Object.assign(copy.ar, {
   state: "الولاية",
   chooseState: "أي ولاية",
   searchState: "ابحث عن ولاية",
-  stateHint: "في حال عدم استخدام ولاية مخصصة ستتوفر خيارات أكثر وأسعار أفضل. علماً أن إضافة ولاية قد تزيد سعر الرقم بنسبة 20%.",
+  stateHint: "عدم استخدام ولاية محددة يساعد على الحصول على سعر أرخص ومزودات أكثر. علماً أن إضافة ولاية مخصصة قد تزيد سعر الرقم بنسبة 20%.",
   check: "فحص الأسعار",
   providers: "المزودين",
   successLegend: "★ تعني نسبة نجاح المزود",
@@ -525,11 +540,12 @@ function clickExternalLink(url) {
 }
 
 function openTelegramUrl(url) {
-  if (!url) return;
+  if (!url) return false;
   const deepLink = telegramDeepLink(url);
   try {
     if (tg?.openTelegramLink && /^https?:\/\/(t\.me|telegram\.me)\//i.test(url)) {
       tg.openTelegramLink(url);
+      return true;
     }
   } catch (_error) {
     // Fall through to direct Telegram link navigation.
@@ -540,7 +556,7 @@ function openTelegramUrl(url) {
       window.setTimeout(() => {
         window.location.href = url;
       }, 450);
-      return;
+      return true;
     } catch (_error) {
       // Fall through to the generic opener.
     }
@@ -548,15 +564,17 @@ function openTelegramUrl(url) {
   try {
     if (tg?.openLink) {
       tg.openLink(url);
-      return;
+      return true;
     }
   } catch (_error) {
     // Fall through to browser navigation.
   }
   try {
     clickExternalLink(url);
+    return true;
   } catch (_error) {
     window.location.href = url;
+    return true;
   }
 }
 
@@ -570,14 +588,6 @@ function openRecharge() {
     els.statusLine.textContent = t("openingRecharge");
     openTelegramUrl(url);
     return;
-  }
-  try {
-    if (tg?.close) {
-      tg.close();
-      return;
-    }
-  } catch (_error) {
-    // Fall through to the account view error.
   }
   setView("account");
   els.statusLine.textContent = t("error");
@@ -663,6 +673,27 @@ function clearPriceResults() {
   renderBuyFlow();
 }
 
+function modeSelection(mode = state.mode) {
+  if (!state.modeSelections[mode]) {
+    state.modeSelections[mode] = defaultModeSelection(mode);
+  }
+  return state.modeSelections[mode];
+}
+
+function saveModeSelection(mode = state.mode) {
+  const selection = modeSelection(mode);
+  selection.service = state.selectedService || "";
+  selection.country = mode === "voice" ? "1" : state.selectedCountry || "none";
+  selection.state = (selection.country === "1" ? state.selectedState : "none") || "none";
+}
+
+function loadModeSelection(mode = state.mode) {
+  const selection = modeSelection(mode);
+  state.selectedService = selection.service || "";
+  state.selectedCountry = mode === "voice" ? "1" : selection.country || "none";
+  state.selectedState = state.selectedCountry === "1" ? selection.state || "none" : "none";
+}
+
 function scrollToResults() {
   window.setTimeout(() => {
     els.resultBand?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -714,6 +745,7 @@ function setServiceSelection(key) {
   state.selectedService = key || "";
   els.serviceSearch.value = "";
   state.showAllProviders = false;
+  saveModeSelection();
   clearPriceResults();
   updateServiceLabel();
   renderProviders([]);
@@ -815,7 +847,7 @@ function setSelectorMenuOpen(kind, open) {
 }
 
 function setCountrySelection(code) {
-  state.selectedCountry = code || "none";
+  state.selectedCountry = state.mode === "voice" ? "1" : code || "none";
   if (state.selectedCountry !== "1") {
     state.selectedState = "none";
     if (els.stateSearch) els.stateSearch.value = "";
@@ -823,6 +855,7 @@ function setCountrySelection(code) {
   }
   if (els.countrySearch) els.countrySearch.value = "";
   state.showAllProviders = false;
+  saveModeSelection();
   clearPriceResults();
   updateStateVisibility();
   updateSelectorLabels();
@@ -834,6 +867,7 @@ function setStateSelection(code) {
   state.selectedState = code || "none";
   if (els.stateSearch) els.stateSearch.value = "";
   state.showAllProviders = false;
+  saveModeSelection();
   clearPriceResults();
   updateSelectorLabels();
   renderProviders([]);
@@ -905,13 +939,18 @@ function renderModes() {
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", state.mode === key ? "true" : "false");
       button.addEventListener("click", () => {
+        if (state.mode === key) return;
+        saveModeSelection();
         state.mode = key;
-        if (key === "voice") {
-          state.selectedCountry = "1";
-          state.selectedState = "none";
-        }
+        loadModeSelection(key);
+        if (els.serviceSearch) els.serviceSearch.value = "";
+        if (els.countrySearch) els.countrySearch.value = "";
+        if (els.stateSearch) els.stateSearch.value = "";
         state.showAllProviders = false;
         clearPriceResults();
+        setServiceMenuOpen(false);
+        setSelectorMenuOpen("country", false);
+        setSelectorMenuOpen("state", false);
         updateStateVisibility();
         updateSelectorLabels();
         renderModes();
@@ -1794,6 +1833,7 @@ async function checkPrices() {
   state.selectedService = selectedServiceFromInput();
   state.selectedCountry = state.mode === "voice" ? "1" : state.selectedCountry || els.countrySelect.value || "none";
   state.selectedState = state.selectedCountry === "1" ? state.selectedState || els.stateSelect.value || "none" : "none";
+  saveModeSelection();
   if (!state.selectedService) {
     els.statusLine.textContent = t("chooseServiceFirst");
     renderProviders([]);
@@ -1840,9 +1880,18 @@ async function boot() {
   state.services = payload.services || [];
   state.countries = payload.countries || [];
   state.states = payload.states_us || [];
-  state.selectedService = payload.defaults?.service || "";
-  state.selectedCountry = payload.defaults?.country || "none";
-  state.selectedState = payload.defaults?.state || "none";
+  state.mode = ["temp", "rental", "voice"].includes(payload.defaults?.mode) ? payload.defaults.mode : "temp";
+  state.modeSelections = {
+    temp: {
+      ...defaultModeSelection("temp"),
+      service: payload.defaults?.service || "",
+      country: payload.defaults?.country || "none",
+      state: payload.defaults?.state || "none",
+    },
+    rental: defaultModeSelection("rental"),
+    voice: defaultModeSelection("voice"),
+  };
+  loadModeSelection(state.mode);
   state.supportBotUrl = payload.links?.numbers_bot || state.supportBotUrl;
   state.rechargeUrl = payload.links?.recharge || state.rechargeUrl;
   renderViewTabs();
