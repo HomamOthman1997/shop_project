@@ -733,6 +733,8 @@ def test_numbers_terminal_provider_refund_reasons_cover_edge_cases():
     assert miniapp._provider_terminal_refund_reason("", allow_empty=True) == "provider_empty_response"
     assert miniapp._provider_terminal_refund_reason({"status": "refunded"}) == "provider_already_refunded"
     assert miniapp._provider_terminal_refund_reason("Activation not found", allow_missing=True) == "provider_missing_or_expired"
+    assert miniapp._provider_terminal_refund_reason("Timed Out", allow_missing=False) == ""
+    assert miniapp._provider_terminal_refund_reason("Timed Out", allow_missing=True) == "provider_missing_or_expired"
 
 
 def test_numbers_expired_temp_order_without_code_exposes_replacement():
@@ -1050,6 +1052,7 @@ def test_provider_terminal_status_classifier_keeps_waiting_states_open():
     assert miniapp._provider_terminal_refund_reason("STATUS_WAIT_CODE", allow_missing=True) == ""
     assert miniapp._provider_terminal_refund_reason({"error_code": "wait_sms"}, allow_missing=True) == ""
     assert miniapp._provider_terminal_refund_reason("NO_ACTIVATION", allow_missing=True) == "provider_missing_or_expired"
+    assert miniapp._provider_terminal_refund_reason({"status": "Timed Out"}, allow_missing=True) == "provider_missing_or_expired"
     assert miniapp._provider_terminal_refund_reason("STATUS_CANCEL") == "provider_already_refunded"
 
 
