@@ -667,11 +667,15 @@ async def get_all_prices(
             if not provider_allows_temp(code, state_selected=state_selected):
                 return (code, None)
             resolution = _service_resolution_snapshot(service_key, code)
-            balance_task = asyncio.create_task(
-                _provider_balance_with_timeout(
-                    provider_obj,
-                    timeout_sec=_price_screen_balance_timeout_sec(),
+            balance_task = (
+                asyncio.create_task(
+                    _provider_balance_with_timeout(
+                        provider_obj,
+                        timeout_sec=_price_screen_balance_timeout_sec(),
+                    )
                 )
+                if not ignore_balance
+                else None
             )
 
             # NonVoIP lane split: expose two virtual lanes (S5 cheapest + S6 second cheapest).
@@ -701,7 +705,7 @@ async def get_all_prices(
                             variants = [dict(single)]
                             variants[0]["api_service_name"] = str(single.get("api_service_name") or api_service_name)
                 if not variants:
-                    provider_balance = await balance_task
+                    provider_balance = await balance_task if balance_task is not None else None
                     if show_all_for_testing:
                         return (
                             code,
@@ -721,7 +725,7 @@ async def get_all_prices(
                             },
                         )
                     return (code, None)
-                provider_balance = await balance_task
+                provider_balance = await balance_task if balance_task is not None else None
                 lanes: list[dict[str, Any]] = []
                 for variant in variants[:2]:
                     try:
@@ -777,7 +781,7 @@ async def get_all_prices(
                 resolution = await get_provider_service_resolution_dynamic(service_key, code)
                 api_service_name = str(resolution.get("resolved_provider_service") or "")
             if not api_service_name:
-                if not balance_task.done():
+                if balance_task is not None and not balance_task.done():
                     balance_task.cancel()
                 if show_all_for_testing:
                     _log_provider_resolution_failure(resolution)
@@ -806,14 +810,21 @@ async def get_all_prices(
             c_code = str(country) if country and country != "none" else None
             s_code = str(state) if state and state != "none" else None
 
-            price_result, balance_result = await asyncio.gather(
-                asyncio.wait_for(
+            if balance_task is not None:
+                price_result, balance_result = await asyncio.gather(
+                    asyncio.wait_for(
+                        provider_obj.get_price(api_service_name, c_code, s_code),
+                        timeout=_price_screen_provider_timeout_sec(code),
+                    ),
+                    balance_task,
+                    return_exceptions=True,
+                )
+            else:
+                price_result = await asyncio.wait_for(
                     provider_obj.get_price(api_service_name, c_code, s_code),
                     timeout=_price_screen_provider_timeout_sec(code),
-                ),
-                balance_task,
-                return_exceptions=True,
-            )
+                )
+                balance_result = None
             if isinstance(price_result, Exception):
                 raise price_result
             price_data = price_result

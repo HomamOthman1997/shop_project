@@ -111,10 +111,11 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
 async def test_numbers_prices_endpoint_skips_blocking_success_rates(monkeypatch):
     calls = {}
 
-    async def fake_get_all_prices(service, country, state, with_success_rates=True, provider_codes=None):
+    async def fake_get_all_prices(service, country, state, ignore_balance=False, with_success_rates=True, provider_codes=None):
         calls["service"] = service
         calls["country"] = country
         calls["state"] = state
+        calls["ignore_balance"] = ignore_balance
         calls["with_success_rates"] = with_success_rates
         calls["provider_codes"] = tuple(provider_codes or ())
         return {
@@ -138,6 +139,7 @@ async def test_numbers_prices_endpoint_skips_blocking_success_rates(monkeypatch)
         "service": "telegram",
         "country": "1",
         "state": "none",
+        "ignore_balance": True,
         "with_success_rates": False,
         "provider_codes": miniapp._TEMP_PRICE_SCREEN_PROVIDER_CODES,
     }

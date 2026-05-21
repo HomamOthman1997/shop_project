@@ -202,3 +202,35 @@ async def test_get_all_prices_does_not_block_on_slow_balance(monkeypatch):
     assert "smspool" in prices
     assert prices["smspool"]["base_price"] == 0.5
     assert prices["smspool"]["provider_reason"] == "provider_balance_unknown"
+
+
+@pytest.mark.asyncio
+async def test_get_all_prices_ignore_balance_skips_balance_endpoint(monkeypatch):
+    from services.numbers import manager
+
+    class _Provider:
+        async def get_price(self, service, country=None, state=None):
+            return {"success": True, "price": 0.5}
+
+        async def get_balance(self):
+            raise AssertionError("price screen should not call balance when ignore_balance=True")
+
+    async def _fake_provider_resolution(service_key: str, provider_code: str):
+        return {"resolved_provider_service": "svc_1", "provider_reason": "resolved_provider_lookup"}
+
+    monkeypatch.setattr(
+        manager,
+        "PROVIDERS",
+        {"smspool": _Provider()},
+        raising=False,
+    )
+    monkeypatch.setattr(manager, "get_provider_service_resolution_dynamic", _fake_provider_resolution)
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+    monkeypatch.setattr(manager.settings, "numbers_show_all_providers_for_testing", False)
+    manager._PROVIDER_BALANCE_CACHE.clear()
+
+    prices = await manager.get_all_prices("paypal", "1", None, ignore_balance=True)
+
+    assert "smspool" in prices
+    assert prices["smspool"]["available_for_buy"] is True
+    assert prices["smspool"]["base_price"] == 0.5

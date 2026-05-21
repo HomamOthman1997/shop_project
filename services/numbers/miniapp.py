@@ -6613,6 +6613,7 @@ async def prices(request: web.Request) -> web.Response:
                     service,
                     country,
                     state,
+                    ignore_balance=True,
                     with_success_rates=False,
                     provider_codes=_TEMP_PRICE_SCREEN_PROVIDER_CODES,
                 ),
