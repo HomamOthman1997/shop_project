@@ -43,6 +43,7 @@ const state = {
   countrySuggestionRanks: {},
   countrySuggestionPrices: {},
   countrySuggestionRequestId: 0,
+  priceRequestId: 0,
   busyCount: 0,
   priceProgressTimer: null,
   priceProgressStartedAt: 0,
@@ -2249,6 +2250,7 @@ async function sendSupportTicket() {
 }
 
 async function checkPrices() {
+  const requestId = ++state.priceRequestId;
   state.selectedService = selectedServiceFromInput();
   state.selectedCountry = state.mode === "voice" ? "1" : state.selectedCountry || els.countrySelect.value || "none";
   state.selectedState = state.selectedCountry === "1" ? state.selectedState || els.stateSelect.value || "none" : "none";
@@ -2280,8 +2282,10 @@ async function checkPrices() {
       service: state.selectedService,
       country: state.selectedCountry,
       state: state.selectedState,
+      _: String(Date.now()),
     });
     const payload = await api(`/mini/numbers/api/prices?${params.toString()}`);
+    if (requestId !== state.priceRequestId) return;
     const rows = payload.providers || [];
     if (payload.ok === false || !rows.length) {
       state.priceCheckFailed = true;
@@ -2295,11 +2299,14 @@ async function checkPrices() {
     renderProviders(rows);
     scrollToResults();
   } catch (_error) {
+    if (requestId !== state.priceRequestId) return;
     state.priceCheckFailed = true;
     els.statusLine.textContent = t("error");
     renderProviders([]);
   } finally {
-    setLoading(false);
+    if (requestId === state.priceRequestId) {
+      setLoading(false);
+    }
   }
 }
 

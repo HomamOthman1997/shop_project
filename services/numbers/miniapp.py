@@ -265,7 +265,7 @@ _CHEAP_COUNTRY_ISOS = (
 
 _BOOTSTRAP_CACHE: dict[str, Any] = {"data": None}
 
-_PRICE_TIMEOUT_SEC = 18.0
+_PRICE_TIMEOUT_SEC = 34.0
 _PRICE_SOFT_TIMEOUT_SEC = 6.0
 _TEMP_PRICE_SCREEN_PROVIDER_CODES = ("smspool", "telabot", "textverified", "herosms", "pvadeals", "vaksms")
 

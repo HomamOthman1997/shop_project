@@ -641,7 +641,9 @@ def test_price_screen_provider_timeouts_allow_slow_valid_providers():
     assert manager._price_screen_provider_timeout_sec("smspool") >= 16.0
     assert manager._price_screen_provider_timeout_sec("herosms") >= 8.0
     assert manager._price_screen_provider_timeout_sec("textverified") >= 7.0
-    assert manager._price_screen_provider_timeout_sec("telabot") <= 5.5
+    assert manager._price_screen_provider_timeout_sec("telabot") >= 8.0
+    assert manager._price_screen_provider_timeout_sec("pvadeals") >= 10.0
+    assert manager._price_screen_provider_timeout_sec("vaksms") >= 10.0
 
 
 @pytest.mark.asyncio
