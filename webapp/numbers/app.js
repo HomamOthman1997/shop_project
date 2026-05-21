@@ -457,6 +457,20 @@ function t(key) {
   return (copy[state.lang] || copy.en)[key] || copy.en[key] || key;
 }
 
+function statusIsAnyTranslation(key) {
+  const text = els.statusLine?.textContent || "";
+  return [copy.ar?.[key], copy.en?.[key]].filter(Boolean).includes(text);
+}
+
+function refreshTranslatedStatus() {
+  if (!els.statusLine) return;
+  if (!els.statusLine.textContent || statusIsAnyTranslation("ready")) {
+    els.statusLine.textContent = t("ready");
+  } else if (statusIsAnyTranslation("chooseServiceFirst")) {
+    els.statusLine.textContent = t("chooseServiceFirst");
+  }
+}
+
 function applyLanguage(languageCode) {
   state.lang = String(languageCode || "ar").toLowerCase().startsWith("ar") ? "ar" : "en";
   document.documentElement.lang = state.lang;
@@ -478,6 +492,7 @@ function applyLanguage(languageCode) {
   }
   updateServiceLabel();
   updateSelectorLabels();
+  refreshTranslatedStatus();
 }
 
 function setLanguage() {
@@ -979,7 +994,9 @@ function renderModes() {
         setSelectorMenuOpen("country", false);
         setSelectorMenuOpen("state", false);
         updateStateVisibility();
+        updateServiceLabel();
         updateSelectorLabels();
+        renderServiceOptions();
         renderModes();
         renderProviders([]);
       });
