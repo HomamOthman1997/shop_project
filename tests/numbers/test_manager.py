@@ -637,6 +637,13 @@ def test_provider_capability_matrix_rules():
     ) is True
 
 
+def test_price_screen_provider_timeouts_allow_slow_valid_providers():
+    assert manager._price_screen_provider_timeout_sec("smspool") >= 16.0
+    assert manager._price_screen_provider_timeout_sec("herosms") >= 8.0
+    assert manager._price_screen_provider_timeout_sec("textverified") >= 7.0
+    assert manager._price_screen_provider_timeout_sec("telabot") <= 5.5
+
+
 @pytest.mark.asyncio
 async def test_buy_number_dry_run():
     price = await manager.buy_number_from_provider(

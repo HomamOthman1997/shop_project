@@ -33,6 +33,13 @@ def _price_screen_provider_timeout_sec(settings_obj: Any, provider_code: str | N
             return max(1.0, float(explicit))
         except (TypeError, ValueError):
             pass
+    code = str(provider_code or "").strip().lower()
+    if code == "smspool":
+        return 16.0
+    if code == "herosms":
+        return 8.0
+    if code == "textverified":
+        return 7.0
     return max(1.0, min(_provider_timeout_sec(settings_obj, "temp", provider_code), 5.5))
 
 
