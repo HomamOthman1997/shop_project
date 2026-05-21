@@ -471,7 +471,7 @@ h2 {
   grid-template-columns: 1fr;
   align-content: start;
   position: relative;
-  padding-top: 36px;
+  padding-top: 42px;
 }
 
 .provider-card.best {
@@ -958,7 +958,7 @@ h2 {
 
   .provider-card {
     min-height: 112px;
-    padding: 10px;
+    padding: 42px 10px 10px;
   }
 
   .provider-name {
