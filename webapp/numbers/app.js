@@ -45,6 +45,7 @@ const state = {
 const ORDER_POLL_INTERVAL_MS = 12000;
 
 const els = {
+  bootSplash: document.getElementById("bootSplash"),
   viewTabs: document.getElementById("viewTabs"),
   buyView: document.getElementById("buyView"),
   introBand: document.getElementById("introBand"),
@@ -607,6 +608,11 @@ function hideBusy() {
   if (!state.busyCount) {
     els.busyOverlay?.classList.add("hidden");
   }
+}
+
+function finishBoot() {
+  document.body.classList.remove("app-booting");
+  els.bootSplash?.setAttribute("aria-hidden", "true");
 }
 
 function renderViewTabs() {
@@ -1981,4 +1987,6 @@ boot().catch(() => {
   els.statusLine.textContent = t("error");
   renderProviders([]);
   renderActiveOrders([]);
+}).finally(() => {
+  finishBoot();
 });
