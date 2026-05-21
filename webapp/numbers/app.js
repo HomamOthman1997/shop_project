@@ -1607,7 +1607,7 @@ function renderProviders(rows, { preserve = false } = {}) {
   const allRows = preserve ? state.providerRows : rows || [];
   els.resultCount.textContent = String(allRows.length);
   if (!allRows.length) {
-    els.providerList.replaceChildren(emptyState(state.mode === "voice" ? t("emptyVoice") : t("empty")));
+    els.providerList.replaceChildren();
     return;
   }
 
@@ -1894,6 +1894,8 @@ async function checkPrices() {
   state.showAllProviders = false;
   els.selectionTitle.textContent = serviceLabel(state.selectedService);
   els.statusLine.textContent = t("loading");
+  clearPriceResults();
+  renderProviders([]);
   setLoading(true);
   try {
     const params = new URLSearchParams({
@@ -1903,13 +1905,19 @@ async function checkPrices() {
       state: state.selectedState,
     });
     const payload = await api(`/mini/numbers/api/prices?${params.toString()}`);
-    els.statusLine.textContent = payload.ok === false ? payload.message || t("error") : "";
-    renderProviders(payload.providers || []);
+    const rows = payload.providers || [];
+    if (payload.ok === false || !rows.length) {
+      els.statusLine.textContent = payload.message || (state.mode === "voice" ? t("emptyVoice") : t("empty"));
+      renderProviders([]);
+      return;
+    }
+    els.statusLine.textContent = "";
+    showPriceResults();
+    renderProviders(rows);
     scrollToResults();
   } catch (_error) {
     els.statusLine.textContent = t("error");
     renderProviders([]);
-    scrollToResults();
   } finally {
     setLoading(false);
   }

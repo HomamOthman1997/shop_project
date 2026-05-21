@@ -586,7 +586,6 @@ h2 {
   grid-template-columns: 1fr;
   align-content: start;
   position: relative;
-  padding-top: 42px;
 }
 
 .provider-card.best {
@@ -596,14 +595,13 @@ h2 {
 }
 
 .success-badge {
-  position: absolute;
-  top: 10px;
-  right: 10px;
+  justify-self: end;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 48px;
   min-height: 24px;
+  margin-bottom: 8px;
   border: 1px solid rgba(231, 182, 75, 0.32);
   border-radius: 999px;
   background: rgba(231, 182, 75, 0.12);
@@ -1081,7 +1079,7 @@ h2 {
 
   .provider-card {
     min-height: 112px;
-    padding: 42px 10px 10px;
+    padding: 10px;
   }
 
   .provider-name {
