@@ -598,14 +598,29 @@ h2 {
   background: rgba(27, 37, 48, 0.98);
 }
 
+.provider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  margin-bottom: 5px;
+}
+
+.provider-header .provider-name {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .success-badge {
-  justify-self: end;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 48px;
   min-height: 24px;
-  margin-bottom: 8px;
   border: 1px solid rgba(231, 182, 75, 0.32);
   border-radius: 999px;
   background: rgba(231, 182, 75, 0.12);

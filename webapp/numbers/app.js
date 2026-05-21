@@ -1621,15 +1621,18 @@ function renderProviders(rows, { preserve = false } = {}) {
     const main = document.createElement("div");
     main.className = "provider-main";
 
-    const successBadge = document.createElement("span");
-    successBadge.className = "success-badge";
-    successBadge.title = t("successLegend");
-    successBadge.textContent = `\u2605 ${row.success_rate || "-"}`;
-    card.append(successBadge);
+    const header = document.createElement("div");
+    header.className = "provider-header";
 
     const name = document.createElement("p");
     name.className = "provider-name";
     name.textContent = row.provider;
+
+    const successBadge = document.createElement("span");
+    successBadge.className = "success-badge";
+    successBadge.title = t("successLegend");
+    successBadge.textContent = `\u2605 ${row.success_rate || "-"}`;
+    header.append(name, successBadge);
 
     const meta = document.createElement("p");
     meta.className = "provider-meta";
@@ -1639,7 +1642,7 @@ function renderProviders(rows, { preserve = false } = {}) {
     if (row.voice_fallback) details.push(t("voiceFallback"));
     meta.textContent = details.join(" · ");
 
-    main.append(name, meta);
+    main.append(header, meta);
     if (row.options?.length) {
       const options = document.createElement("div");
       options.className = "option-row";
