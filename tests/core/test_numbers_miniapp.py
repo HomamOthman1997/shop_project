@@ -174,6 +174,81 @@ def test_numbers_rental_options_include_signed_quotes(monkeypatch):
     assert quote["provider"] == "herosms"
 
 
+def test_numbers_rental_textverified_options_use_selected_state(monkeypatch):
+    monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
+
+    rows = miniapp._normalize_provider_rows(
+        {
+            "textverified": {
+                "available_for_buy": True,
+                "api_service_name": "Telegram",
+                "options": [
+                    {
+                        "duration": 24,
+                        "duration_label": "1d",
+                        "price": 1.5,
+                        "tv_duration_key": "P1D",
+                        "tv_is_renewable": True,
+                    },
+                ],
+            }
+        },
+        "rental",
+        service="telegram",
+        country="1",
+        state="CA",
+    )
+
+    option = rows[0]["options"][0]
+    assert option["with_state"] is True
+    assert option["state_code"] == "CA"
+    assert option["renewable"] is True
+    assert option["price"] == 3.5
+    quote = miniapp._verify_quote_token(option["quote_token"])
+    assert quote["state"] == "CA"
+    assert quote["option_key"][4] == "ca"
+
+
+@pytest.mark.asyncio
+async def test_numbers_rental_quote_resolves_textverified_state_option(monkeypatch):
+    monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
+
+    raw_prices = {
+        "textverified": {
+            "available_for_buy": True,
+            "api_service_name": "Telegram",
+            "options": [
+                {
+                    "duration": 24,
+                    "duration_label": "1d",
+                    "price": 1.5,
+                    "tv_duration_key": "P1D",
+                    "tv_is_renewable": False,
+                },
+            ],
+        }
+    }
+
+    rows = miniapp._normalize_provider_rows(raw_prices, "rental", service="telegram", country="1", state="NY")
+
+    async def fake_get_all_rental_prices(service, country, with_success_rates=False):
+        assert service == "telegram"
+        assert country == "1"
+        assert with_success_rates is False
+        return raw_prices
+
+    monkeypatch.setattr(miniapp, "get_all_rental_prices", fake_get_all_rental_prices)
+
+    offer = await miniapp._resolve_rental_offer_from_quote(rows[0]["options"][0]["quote_token"])
+
+    assert offer["provider_code"] == "textverified"
+    assert offer["option"]["tv_with_state"] is True
+    assert offer["option"]["state_code"] == "NY"
+    assert offer["option"]["price"] == 3.5
+
+
 def test_numbers_voice_rows_include_signed_quote(monkeypatch):
     monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
     monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
@@ -600,6 +675,8 @@ def test_numbers_rental_order_payload_exposes_renew_and_wake_actions():
             "rental_is_renewable": True,
             "rental_notes": "Keep alive",
             "rental_tags": ["vip", "login"],
+            "rental_sms_messages": ["Code 111", "Code 222"],
+            "rental_sms_count": 2,
             "selling_price": 1.2,
             "base_price": 1.0,
         }
@@ -610,6 +687,9 @@ def test_numbers_rental_order_payload_exposes_renew_and_wake_actions():
     assert payload["can_wake"] is True
     assert payload["can_notes"] is True
     assert payload["can_finish"] is True
+    assert payload["can_sms"] is True
+    assert payload["code"] == "Code 222"
+    assert payload["messages"] == ["Code 111", "Code 222"]
     assert payload["notes"] == "Keep alive"
     assert payload["tags"] == ["vip", "login"]
     details = {item["key"]: item["value"] for item in payload["details"]}
@@ -639,6 +719,7 @@ def test_register_numbers_routes_adds_public_endpoints():
     assert ("POST", "/mini/numbers/api/orders/{order_id}/second-code") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/replace") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/alternate") in routes
+    assert ("POST", "/mini/numbers/api/orders/{order_id}/sms") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/finish") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/renew") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/wake") in routes

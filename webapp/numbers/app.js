@@ -256,6 +256,12 @@ const copy = {
     refundWorking: "Refund in progress",
     refundWait: "Checking provider and wallet. Please wait.",
     voiceFallback: "Generic voice route",
+    checkCall: "Check call",
+    rentalSms: "Check SMS",
+    noSmsYet: "No SMS yet",
+    optionRenewable: "Renewable",
+    optionSingle: "One time",
+    optionState: "State",
   },
 };
 
@@ -359,6 +365,12 @@ Object.assign(copy.ar, {
   loadingAccount: "جاري تحميل الحساب",
   openBot: "فتح البوت",
   voiceFallback: "مسار اتصال عام",
+  checkCall: "\u0641\u062d\u0635 \u0627\u0644\u0645\u0643\u0627\u0644\u0645\u0629",
+  rentalSms: "\u062c\u0644\u0628 SMS",
+  noSmsYet: "\u0644\u0627 \u064a\u0648\u062c\u062f SMS \u0628\u0639\u062f",
+  optionRenewable: "\u0642\u0627\u0628\u0644 \u0644\u0644\u062a\u062c\u062f\u064a\u062f",
+  optionSingle: "\u0645\u0631\u0629 \u0648\u0627\u062d\u062f\u0629",
+  optionState: "\u0648\u0644\u0627\u064a\u0629",
 });
 
 function t(key) {
@@ -786,6 +798,16 @@ function renderActiveOrders(rows = state.activeOrders) {
         code.textContent = order.code;
         main.append(code);
       }
+      if (order.mode === "rental" && Array.isArray(order.messages) && order.messages.length > 1) {
+        const messageList = document.createElement("div");
+        messageList.className = "order-message-list";
+        order.messages.slice(-5).forEach((message) => {
+          const item = document.createElement("span");
+          item.textContent = message;
+          messageList.append(item);
+        });
+        main.append(messageList);
+      }
       if (order.mode === "rental" && (order.notes || order.tags?.length)) {
         const notes = document.createElement("p");
         notes.className = "order-meta";
@@ -824,7 +846,7 @@ function renderActiveOrders(rows = state.activeOrders) {
         const refresh = document.createElement("button");
         refresh.type = "button";
         refresh.className = "small-action";
-        refresh.textContent = t("refresh");
+        refresh.textContent = order.mode === "voice" ? t("checkCall") : t("refresh");
         refresh.addEventListener("click", () => refreshSingleOrder(order.id, refresh));
         actions.append(refresh);
       }
@@ -872,6 +894,14 @@ function renderActiveOrders(rows = state.activeOrders) {
         cancel.textContent = order.can_cancel ? t("cancel") : `${t("cancelWait")} ${formatDuration(order.cancel_wait_sec)}`;
         cancel.addEventListener("click", () => cancelOrder(order.id, cancel));
         actions.append(cancel);
+      }
+      if (order.mode === "rental" && order.can_sms) {
+        const sms = document.createElement("button");
+        sms.type = "button";
+        sms.className = "small-action";
+        sms.textContent = t("rentalSms");
+        sms.addEventListener("click", () => rentalProviderAction(order.id, "sms", sms));
+        actions.append(sms);
       }
       if (order.mode === "rental" && order.can_renew) {
         const renew = document.createElement("button");
@@ -1130,6 +1160,22 @@ async function buyProvider(row, button) {
   }
 }
 
+function rentalOptionLabel(option) {
+  const parts = [option.duration_label || option.duration || t("options")];
+  if (option.renewable) {
+    parts.push(t("optionRenewable"));
+  } else if (Object.prototype.hasOwnProperty.call(option, "renewable")) {
+    parts.push(t("optionSingle"));
+  }
+  if (option.with_state && option.state_code && option.state_code !== "none") {
+    parts.push(`${t("optionState")} ${option.state_code}`);
+  }
+  if (option.price_label) {
+    parts.push(option.price_label);
+  }
+  return parts.filter(Boolean).join(" \u00b7 ");
+}
+
 function renderProviders(rows, { preserve = false } = {}) {
   if (!preserve) {
     state.providerRows = rows || [];
@@ -1168,7 +1214,7 @@ function renderProviders(rows, { preserve = false } = {}) {
     if (row.options?.length) {
       const options = document.createElement("div");
       options.className = "option-row";
-      row.options.slice(0, 5).forEach((option) => {
+      row.options.forEach((option) => {
         const pill = document.createElement(state.mode === "rental" && option.quote_token ? "button" : "span");
         pill.className = "option-pill";
         if (pill.tagName === "BUTTON") {
@@ -1176,7 +1222,7 @@ function renderProviders(rows, { preserve = false } = {}) {
           pill.classList.add("buyable");
           pill.addEventListener("click", () => buyProvider({ ...row, price_label: option.price_label, quote_token: option.quote_token }, pill));
         }
-        const optionText = `${option.duration_label || option.duration || t("options")} ${option.price_label}`;
+        const optionText = state.mode === "rental" ? rentalOptionLabel(option) : `${option.duration_label || option.duration || t("options")} ${option.price_label}`;
         pill.textContent = pill.tagName === "BUTTON" ? `${t("buy")} ${optionText}` : optionText;
         options.append(pill);
       });

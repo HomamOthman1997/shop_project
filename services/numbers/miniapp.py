@@ -106,6 +106,7 @@ _HIDDEN_TEMP_PROVIDER_CODES = {"smsman", "smsman_s6"}
 _SUPPORT_CATEGORIES = ("numbers", "user_balance")
 _TEMP_MY_NUMBERS_RETENTION_DAYS = 5
 _VOICE_GENERIC_SERVICE = "servicenotlistedvoice"
+_TEXTVERIFIED_RENTAL_STATE_SURCHARGE = 2.0
 _EXTRA_SERVICE_SEARCH_ALIASES: dict[str, tuple[str, ...]] = {
     "attapoll": ("اتابول", "اتا بول", "أتابول", "أتا بول"),
 }
@@ -1259,6 +1260,50 @@ def _rental_duration_label(option: dict[str, Any]) -> str:
     return f"{hours}h"
 
 
+def _rental_state_code_for_quote(state: str | None) -> str:
+    raw = str(state or "none").strip().upper()
+    if raw and raw != "NONE" and len(raw) == 2:
+        return raw
+    return "none"
+
+
+def _miniapp_rental_option_candidates(
+    provider_code: str,
+    provider_info: dict[str, Any],
+    *,
+    state: str | None = None,
+) -> list[dict[str, Any]]:
+    provider_code = str(provider_code or "").strip().lower()
+    api_service = str((provider_info or {}).get("api_service_name") or "").strip()
+    state_code = _rental_state_code_for_quote(state)
+    use_textverified_state = provider_code == "textverified" and state_code != "none"
+    rows: list[dict[str, Any]] = []
+    for raw_option in (provider_info or {}).get("options") or []:
+        if not isinstance(raw_option, dict):
+            continue
+        option = dict(raw_option)
+        option.setdefault("provider", provider_code)
+        option.setdefault("api_service_name", api_service)
+        if provider_code == "textverified":
+            option["tv_with_state"] = bool(use_textverified_state)
+            option["state_code"] = state_code if use_textverified_state else "none"
+            if use_textverified_state:
+                try:
+                    option["price"] = round(float(option.get("price") or 0.0) + _TEXTVERIFIED_RENTAL_STATE_SURCHARGE, 4)
+                except Exception:
+                    option["price"] = _TEXTVERIFIED_RENTAL_STATE_SURCHARGE
+                if option.get("base_price") not in (None, ""):
+                    try:
+                        option["base_price"] = round(float(option.get("base_price") or 0.0) + _TEXTVERIFIED_RENTAL_STATE_SURCHARGE, 4)
+                    except Exception:
+                        option["base_price"] = option["price"]
+                option["state_surcharge"] = _TEXTVERIFIED_RENTAL_STATE_SURCHARGE
+        else:
+            option.setdefault("state_code", "none")
+        rows.append(option)
+    return rows
+
+
 async def _resolve_rental_offer_from_quote(token: str) -> dict[str, Any]:
     quote = _verify_quote_token(token)
     if str(quote.get("mode") or "").strip().lower() != "rental":
@@ -1269,6 +1314,7 @@ async def _resolve_rental_offer_from_quote(token: str) -> dict[str, Any]:
     match_key = tuple(str(part) for part in (quote.get("option_key") or []))
     if not service or not provider_code or not country or len(match_key) != 6:
         raise web.HTTPBadRequest(text="invalid quote")
+    state = _rental_state_code_for_quote(str(quote.get("state") or match_key[4] or "none"))
 
     prices = await asyncio.wait_for(
         get_all_rental_prices(service, country, with_success_rates=False),
@@ -1281,12 +1327,7 @@ async def _resolve_rental_offer_from_quote(token: str) -> dict[str, Any]:
     if not api_service:
         raise web.HTTPBadRequest(text="provider unavailable")
 
-    for raw_option in provider_info.get("options") or []:
-        if not isinstance(raw_option, dict):
-            continue
-        option = dict(raw_option)
-        option.setdefault("provider", provider_code)
-        option.setdefault("api_service_name", api_service)
+    for option in _miniapp_rental_option_candidates(provider_code, provider_info, state=state):
         if _rental_option_match_key(option) != match_key:
             continue
         if not _can_quote_rental_option(
@@ -1497,6 +1538,7 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
             "code": messages[-1] if messages else "",
             "codes": messages,
             "messages": messages,
+            "sms_count": len(messages),
             "notes": str(order.get("rental_notes") or ""),
             "tags": rental_tags,
             "details": _order_detail_rows(order, mode="rental", public_status=public_status),
@@ -1506,6 +1548,7 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
             "duration_label": str(order.get("rental_duration_label") or ""),
             "end_date": str(order.get("rental_end_date") or ""),
             "can_refresh": public_status in {"waiting", "code_received"},
+            "can_sms": public_status in {"waiting", "code_received"},
             "can_finish": public_status in {"waiting", "code_received"},
             "can_renew": bool(order.get("rental_is_renewable")) and public_status in {"waiting", "code_received"},
             "can_wake": public_status in {"waiting", "code_received"},
@@ -3249,12 +3292,7 @@ def _normalize_provider_rows(
         available = bool(info.get("available_for_buy", True))
         options = []
         if mode == "rental":
-            for option in (info.get("options") or [])[:8]:
-                if not isinstance(option, dict):
-                    continue
-                normalized_option = dict(option)
-                normalized_option.setdefault("provider", code)
-                normalized_option.setdefault("api_service_name", str(info.get("api_service_name") or ""))
+            for normalized_option in _miniapp_rental_option_candidates(code, info, state=state):
                 option_quote = ""
                 if _can_quote_rental_option(
                     mode=mode,
@@ -3269,21 +3307,27 @@ def _normalize_provider_rows(
                             "mode": "rental",
                             "service": str(service or ""),
                             "country": str(country or "none"),
+                            "state": str(normalized_option.get("state_code") or state or "none"),
                             "provider": code,
                             "option_key": list(_rental_option_match_key(normalized_option)),
                         }
                     )
                 if not option_quote:
                     continue
-                options.append(
-                    {
-                        "duration": str(normalized_option.get("duration") or normalized_option.get("label") or normalized_option.get("hours") or "").strip(),
-                        "duration_label": _rental_duration_label(normalized_option),
-                        "price": float(normalized_option.get("price") or 0.0),
-                        "price_label": _money(normalized_option.get("price")),
-                        "quote_token": option_quote,
-                    }
-                )
+                option_state = str(normalized_option.get("state_code") or "none").strip()
+                option_payload = {
+                    "duration": str(normalized_option.get("duration") or normalized_option.get("label") or normalized_option.get("hours") or "").strip(),
+                    "duration_label": _rental_duration_label(normalized_option),
+                    "price": float(normalized_option.get("price") or 0.0),
+                    "price_label": _money(normalized_option.get("price")),
+                    "quote_token": option_quote,
+                    "state_code": option_state if option_state else "none",
+                }
+                if "tv_is_renewable" in normalized_option:
+                    option_payload["renewable"] = bool(normalized_option.get("tv_is_renewable"))
+                if "tv_with_state" in normalized_option:
+                    option_payload["with_state"] = bool(normalized_option.get("tv_with_state"))
+                options.append(option_payload)
         quote_token = ""
         if _can_quote_temp_offer(
             mode=mode,
@@ -3805,6 +3849,45 @@ async def alternate_order(request: web.Request) -> web.Response:
     return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
 
 
+async def rental_sms_order(request: web.Request) -> web.Response:
+    auth = _require_auth(request)
+    user_doc = await _load_or_create_user(auth)
+    lang = _lang_from_user(user_doc, auth)
+    raw_id = str(request.match_info.get("order_id") or "").strip()
+    try:
+        order_id = ObjectId(raw_id)
+    except Exception:
+        return _json_error(_text(lang, "Order not found.", "\u0627\u0644\u0637\u0644\u0628 \u063a\u064a\u0631 \u0645\u0648\u062c\u0648\u062f."), status=404, code="order_not_found")
+    order = await get_order(order_id)
+    if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
+        return _json_error(_text(lang, "Order not found.", "\u0627\u0644\u0637\u0644\u0628 \u063a\u064a\u0631 \u0645\u0648\u062c\u0648\u062f."), status=404, code="order_not_found")
+    if str(order.get("number_mode") or "").strip().lower() != "rental":
+        return _json_error(
+            _text(lang, "This action is only for rentals.", "\u0647\u0630\u0627 \u0627\u0644\u0625\u062c\u0631\u0627\u0621 \u062e\u0627\u0635 \u0628\u0627\u0644\u0625\u064a\u062c\u0627\u0631 \u0641\u0642\u0637."),
+            status=400,
+            code="invalid_mode",
+        )
+
+    result = await _sync_rental_sms_snapshot(order_id, order)
+    refreshed = await get_order(order_id) or order
+    if not result.get("has_sms"):
+        code = "no_sms_yet" if result.get("success") else "sms_check_failed"
+        message = _text(lang, "No SMS yet.", "\u0644\u0627 \u064a\u0648\u062c\u062f SMS \u0628\u0639\u062f.")
+        if not result.get("success"):
+            message = _text(lang, "Could not check rental SMS right now.", "\u062a\u0639\u0630\u0631 \u0641\u062d\u0635 \u0631\u0633\u0627\u0626\u0644 SMS \u062d\u0627\u0644\u064a\u0627.")
+        return _json_error(message, status=409, code=code, order=_order_payload(refreshed))
+
+    return web.json_response(
+        {
+            "ok": True,
+            "message": _text(lang, "Rental SMS loaded.", "\u062a\u0645 \u062a\u062d\u0645\u064a\u0644 \u0631\u0633\u0627\u0626\u0644 SMS."),
+            "messages": result.get("messages") or [],
+            "order": _order_payload(refreshed),
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
 async def finish_order(request: web.Request) -> web.Response:
     auth = _require_auth(request)
     user_doc = await _load_or_create_user(auth)
@@ -4087,6 +4170,7 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_post("/mini/numbers/api/orders/{order_id}/second-code", request_second_code)
     app.router.add_post("/mini/numbers/api/orders/{order_id}/replace", replace_order)
     app.router.add_post("/mini/numbers/api/orders/{order_id}/alternate", alternate_order)
+    app.router.add_post("/mini/numbers/api/orders/{order_id}/sms", rental_sms_order)
     app.router.add_post("/mini/numbers/api/orders/{order_id}/finish", finish_order)
     app.router.add_post("/mini/numbers/api/orders/{order_id}/renew", renew_order)
     app.router.add_post("/mini/numbers/api/orders/{order_id}/wake", wake_order)
