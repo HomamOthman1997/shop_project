@@ -9,59 +9,68 @@
   </head>
   <body>
     <main class="app-shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow" data-i18n="eyebrow">CyberZone Numbers</p>
-          <h1 data-i18n="title">Numbers</h1>
-        </div>
-        <div class="balance-pill" id="sessionPill">Mini App</div>
-      </header>
-
-      <nav class="view-tabs" id="viewTabs" aria-label="Numbers sections"></nav>
-
-      <section class="view-panel" id="buyView">
-        <section class="control-band" aria-label="Number order filters">
-          <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="Mode"></div>
-
-          <div class="field-grid">
-            <label class="field">
-              <span data-i18n="service">Service</span>
-              <input id="serviceSearch" list="servicesList" autocomplete="off" />
-              <datalist id="servicesList"></datalist>
-            </label>
-
-            <label class="field">
-              <span data-i18n="country">Country</span>
-              <select id="countrySelect"></select>
-            </label>
-
-            <label class="field state-field" id="stateField">
-              <span data-i18n="state">State</span>
-              <select id="stateSelect"></select>
-            </label>
+      <aside class="app-nav">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" data-i18n="eyebrow">CyberZone Numbers</p>
+            <h1 data-i18n="title">Numbers</h1>
           </div>
+          <button class="balance-pill" id="sessionPill" type="button">Mini App</button>
+        </header>
 
-          <div class="quick-row" id="quickServices"></div>
+        <nav class="view-tabs" id="viewTabs" aria-label="Numbers sections"></nav>
+      </aside>
 
-          <button class="primary-action" id="quoteButton" type="button" data-i18n="check">
-            Check prices
-          </button>
-        </section>
+      <section class="content-shell">
+        <section class="view-panel" id="buyView">
+          <section class="control-band" aria-label="Number order filters">
+            <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="Mode"></div>
 
-        <section class="result-band" aria-live="polite">
-          <div class="result-header">
-            <div>
-              <p class="eyebrow" data-i18n="providers">Providers</p>
-              <h2 id="selectionTitle">Telegram</h2>
+            <div class="field-grid">
+              <label class="field service-field">
+                <span data-i18n="service">Service</span>
+                <button class="select-trigger" id="serviceTrigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="serviceLabel" data-i18n="chooseService">Choose service</span>
+                </button>
+                <div class="service-menu hidden" id="serviceMenu">
+                  <input id="serviceSearch" type="search" autocomplete="off" />
+                  <div class="service-options" id="servicesList" role="listbox"></div>
+                </div>
+              </label>
+
+              <label class="field">
+                <span data-i18n="country">Country</span>
+                <select id="countrySelect"></select>
+              </label>
+
+              <label class="field state-field" id="stateField">
+                <span data-i18n="state">State</span>
+                <select id="stateSelect"></select>
+                <small class="field-hint" id="stateHint" data-i18n="stateHint">Any state usually gives better prices.</small>
+              </label>
             </div>
-            <span class="count-pill" id="resultCount">0</span>
-          </div>
-          <div id="statusLine" class="status-line"></div>
-          <div class="provider-list" id="providerList"></div>
-        </section>
-      </section>
 
-      <section class="active-band view-panel hidden" id="activeBand" aria-live="polite">
+            <div class="quick-row hidden" id="quickServices"></div>
+
+            <button class="primary-action" id="quoteButton" type="button" data-i18n="check">
+              Check prices
+            </button>
+          </section>
+
+          <section class="result-band" aria-live="polite">
+            <div class="result-header">
+              <div>
+                <p class="eyebrow" data-i18n="providers">Providers</p>
+                <h2 id="selectionTitle" data-i18n="chooseService">Choose service</h2>
+              </div>
+              <span class="count-pill" id="resultCount">0</span>
+            </div>
+            <div id="statusLine" class="status-line"></div>
+            <div class="provider-list" id="providerList"></div>
+          </section>
+        </section>
+
+        <section class="active-band view-panel hidden" id="activeBand" aria-live="polite">
         <div class="result-header">
           <div>
             <p class="eyebrow" data-i18n="active">Active orders</p>
@@ -69,9 +78,9 @@
           </div>
         </div>
         <div class="active-list" id="activeOrders"></div>
-      </section>
+        </section>
 
-      <section class="account-band view-panel hidden" id="accountView" aria-live="polite">
+        <section class="account-band view-panel hidden" id="accountView" aria-live="polite">
         <div class="result-header">
           <div>
             <p class="eyebrow" data-i18n="account">Account</p>
@@ -82,11 +91,11 @@
         <div class="account-actions">
           <button class="small-action" id="langArButton" type="button">AR</button>
           <button class="small-action" id="langEnButton" type="button">EN</button>
-          <button class="secondary-action" id="rechargeButton" type="button" data-i18n="recharge">Recharge</button>
+          <button class="secondary-action hidden" id="rechargeButton" type="button" data-i18n="recharge">Recharge</button>
         </div>
-      </section>
+        </section>
 
-      <section class="support-band view-panel hidden" id="supportView" aria-live="polite">
+        <section class="support-band view-panel hidden" id="supportView" aria-live="polite">
         <div class="result-header">
           <div>
             <p class="eyebrow" data-i18n="support">Support</p>
@@ -105,8 +114,16 @@
           Send support ticket
         </button>
         <div id="supportStatus" class="status-line"></div>
+        </section>
       </section>
     </main>
+    <div class="busy-overlay hidden" id="busyOverlay" role="status" aria-live="polite">
+      <div class="busy-panel">
+        <span class="busy-spinner" aria-hidden="true"></span>
+        <strong id="busyTitle">Working</strong>
+        <small id="busyText">Please wait</small>
+      </div>
+    </div>
     <script src="/mini/numbers/static/app.js"></script>
   </body>
 </html>

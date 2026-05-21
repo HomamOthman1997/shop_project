@@ -7,7 +7,7 @@ const state = {
   services: [],
   countries: [],
   states: [],
-  selectedService: "telegram",
+  selectedService: "",
   selectedCountry: "none",
   selectedState: "none",
   loading: false,
@@ -15,7 +15,12 @@ const state = {
   account: null,
   supportCategories: [],
   supportBotUrl: null,
+  rechargeUrl: null,
   orderPollTimer: null,
+  providerRows: [],
+  showAllProviders: false,
+  serviceMenuOpen: false,
+  busyCount: 0,
 };
 
 const ORDER_POLL_INTERVAL_MS = 12000;
@@ -24,6 +29,9 @@ const els = {
   viewTabs: document.getElementById("viewTabs"),
   buyView: document.getElementById("buyView"),
   modeSwitch: document.getElementById("modeSwitch"),
+  serviceTrigger: document.getElementById("serviceTrigger"),
+  serviceLabel: document.getElementById("serviceLabel"),
+  serviceMenu: document.getElementById("serviceMenu"),
   serviceSearch: document.getElementById("serviceSearch"),
   servicesList: document.getElementById("servicesList"),
   countrySelect: document.getElementById("countrySelect"),
@@ -48,6 +56,9 @@ const els = {
   supportMessage: document.getElementById("supportMessage"),
   sendSupportButton: document.getElementById("sendSupportButton"),
   supportStatus: document.getElementById("supportStatus"),
+  busyOverlay: document.getElementById("busyOverlay"),
+  busyTitle: document.getElementById("busyTitle"),
+  busyText: document.getElementById("busyText"),
 };
 
 const copy = {
@@ -152,10 +163,16 @@ const copy = {
     tabAccount: "Account",
     tabSupport: "Support",
     service: "Service",
+    chooseService: "Choose service",
+    chooseServiceFirst: "Choose a service first",
     country: "Country",
     state: "State",
+    stateHint: "Any state usually gives better prices than a specific state.",
     check: "Check prices",
     providers: "Providers",
+    bestChoice: "Best choice",
+    showOtherProviders: "Show other providers",
+    hideOtherProviders: "Show best choice only",
     loading: "Checking providers",
     ready: "Choose a service and country, then check prices",
     empty: "No offers are available for this selection",
@@ -236,8 +253,113 @@ const copy = {
     supportSent: "Support ticket sent",
     loadingAccount: "Loading account",
     openBot: "Open bot",
+    refundWorking: "Refund in progress",
+    refundWait: "Checking provider and wallet. Please wait.",
+    voiceFallback: "Generic voice route",
   },
 };
+
+Object.assign(copy.ar, {
+  title: "الأرقام",
+  tabBuy: "شراء",
+  tabOrders: "طلباتي",
+  tabAccount: "حسابي",
+  tabSupport: "الدعم",
+  service: "الخدمة",
+  chooseService: "اختر الخدمة",
+  chooseServiceFirst: "اختر الخدمة أولاً",
+  country: "الدولة",
+  state: "الولاية",
+  stateHint: "بدون ولاية منجيبلك أفضل الأسعار غالباً.",
+  check: "فحص الأسعار",
+  providers: "المزودين",
+  bestChoice: "أفضل خيار",
+  showOtherProviders: "عرض باقي المزودات",
+  hideOtherProviders: "عرض أفضل خيار فقط",
+  loading: "جاري فحص المزودين",
+  ready: "اختر الخدمة والدولة ثم افحص السعر",
+  empty: "لا توجد عروض متاحة لهذا الاختيار",
+  error: "تعذر تحميل البيانات حالياً",
+  temp: "أرقام مؤقتة",
+  rental: "أرقام للإيجار",
+  voice: "رقم اتصال",
+  success: "نجاح",
+  base: "التكلفة",
+  options: "خيارات",
+  unavailable: "غير متاح",
+  active: "طلباتي",
+  numbersList: "أرقامي",
+  waiting: "بانتظار الكود",
+  waitingCall: "بانتظار المكالمة",
+  callReceived: "وصلت المكالمة",
+  recording: "تسجيل المكالمة",
+  downloadRecording: "تحميل التسجيل",
+  noOrders: "لا توجد أرقام حالياً",
+  buy: "شراء",
+  refresh: "تحديث",
+  cancel: "إلغاء واسترجاع",
+  tryAnother: "رقم بديل",
+  alternateProvider: "مزود بديل",
+  confirmTryAnother: "تأكيد طلب رقم بديل؟",
+  confirmAlternateProvider: "تأكيد طلب رقم من مزود بديل؟",
+  replacementRequested: "تم طلب رقم بديل",
+  secondCode: "كود ثاني",
+  confirmSecondCode: "تأكيد طلب كود ثاني؟",
+  secondCodeRequested: "تم طلب كود ثاني",
+  purchasing: "جاري تنفيذ الطلب",
+  purchased: "تم حجز الرقم",
+  authRequired: "افتح التطبيق من تيليغرام للمتابعة",
+  confirmBuy: "تأكيد شراء الرقم؟",
+  code: "الكود",
+  number: "الرقم",
+  copyCode: "نسخ الكود",
+  copyNumber: "نسخ الرقم",
+  copied: "تم النسخ",
+  detailProvider: "المزود",
+  detailCountry: "الدولة",
+  detailState: "الولاية",
+  detailCreated: "تاريخ الطلب",
+  detailReuseUntil: "نافذة الكود الثاني",
+  detailSecondCodes: "أكواد إضافية",
+  detailDuration: "المدة",
+  detailEnds: "النهاية",
+  detailCalls: "المكالمات",
+  detailRetry: "محاولات الاسترجاع",
+  recentActivity: "آخر الحركات",
+  noActivity: "لا توجد حركات بعد",
+  afterBalance: "الرصيد بعد العملية",
+  refunded: "تم الاسترجاع",
+  refundPending: "بانتظار الاسترجاع",
+  refundWorking: "جاري الاسترجاع",
+  refundWait: "عم نفحص المزود والمحفظة، يرجى الانتظار.",
+  cancelWait: "الإلغاء بعد",
+  left: "متبقي",
+  finish: "إنهاء",
+  finished: "منتهي",
+  renew: "تجديد",
+  wake: "تنشيط",
+  notesTags: "ملاحظات",
+  notes: "ملاحظات",
+  tags: "وسوم",
+  account: "الحساب",
+  accountTitle: "حسابي",
+  balance: "الرصيد",
+  userId: "User ID",
+  username: "Username",
+  language: "اللغة",
+  joined: "تاريخ الانضمام",
+  recharge: "شحن الرصيد",
+  support: "الدعم",
+  supportTitle: "فتح تذكرة دعم",
+  supportCategory: "القسم",
+  supportMessage: "الرسالة",
+  supportPlaceholder: "اكتب المشكلة أو رقم الطلب إن وجد",
+  sendSupport: "إرسال تذكرة الدعم",
+  supportSent: "تم إرسال التذكرة",
+  loadingAccount: "جاري تحميل الحساب",
+  openBot: "فتح البوت",
+  voiceFallback: "مسار اتصال عام",
+});
 
 function t(key) {
   return (copy[state.lang] || copy.en)[key] || copy.en[key] || key;
@@ -253,6 +375,10 @@ function applyLanguage(languageCode) {
   if (els.supportMessage) {
     els.supportMessage.placeholder = t("supportPlaceholder");
   }
+  if (els.serviceSearch) {
+    els.serviceSearch.placeholder = t("chooseService");
+  }
+  updateServiceLabel();
 }
 
 function setLanguage() {
@@ -301,19 +427,39 @@ function openTelegramUrl(url) {
   window.location.href = url;
 }
 
+function showBusy(title, text) {
+  state.busyCount += 1;
+  if (els.busyTitle) els.busyTitle.textContent = title || t("loading");
+  if (els.busyText) els.busyText.textContent = text || "";
+  els.busyOverlay?.classList.remove("hidden");
+}
+
+function hideBusy() {
+  state.busyCount = Math.max(0, state.busyCount - 1);
+  if (!state.busyCount) {
+    els.busyOverlay?.classList.add("hidden");
+  }
+}
+
 function renderViewTabs() {
   const tabs = [
-    ["buy", t("tabBuy")],
-    ["orders", t("tabOrders")],
-    ["account", t("tabAccount")],
-    ["support", t("tabSupport")],
+    ["buy", t("tabBuy"), "01"],
+    ["orders", t("tabOrders"), "02"],
+    ["account", t("tabAccount"), "03"],
+    ["support", t("tabSupport"), "04"],
   ];
   els.viewTabs.replaceChildren(
-    ...tabs.map(([key, label]) => {
+    ...tabs.map(([key, label, index]) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = `view-tab${state.view === key ? " active" : ""}`;
-      button.textContent = label;
+      const icon = document.createElement("span");
+      icon.className = "nav-index";
+      icon.textContent = index;
+      const text = document.createElement("span");
+      text.className = "nav-label";
+      text.textContent = label;
+      button.append(icon, text);
       button.addEventListener("click", () => setView(key));
       return button;
     })
@@ -337,12 +483,13 @@ function setView(view) {
 }
 
 function serviceLabel(key) {
+  if (!key) return t("chooseService");
   const found = state.services.find((item) => item.key === key);
   return found?.label || key;
 }
 
 function selectedServiceFromInput() {
-  const raw = els.serviceSearch.value.trim();
+  const raw = els.serviceSearch.value.trim() || state.selectedService;
   if (!raw) return state.selectedService;
   const lowered = raw.toLowerCase();
   const matches = (item) => {
@@ -353,6 +500,66 @@ function selectedServiceFromInput() {
   if (exact) return exact.key;
   const partial = state.services.find((item) => matches(item).some((value) => value.includes(lowered)));
   return partial?.key || state.selectedService;
+}
+
+function updateServiceLabel() {
+  if (els.serviceLabel) {
+    els.serviceLabel.textContent = state.selectedService ? serviceLabel(state.selectedService) : t("chooseService");
+  }
+  if (els.selectionTitle) {
+    els.selectionTitle.textContent = state.selectedService ? serviceLabel(state.selectedService) : t("chooseService");
+  }
+}
+
+function setServiceMenuOpen(open) {
+  state.serviceMenuOpen = Boolean(open);
+  els.serviceMenu?.classList.toggle("hidden", !state.serviceMenuOpen);
+  els.serviceTrigger?.setAttribute("aria-expanded", state.serviceMenuOpen ? "true" : "false");
+  if (state.serviceMenuOpen) {
+    renderServiceOptions();
+    window.setTimeout(() => els.serviceSearch?.focus(), 0);
+  }
+}
+
+function setServiceSelection(key) {
+  state.selectedService = key || "";
+  els.serviceSearch.value = "";
+  state.showAllProviders = false;
+  updateServiceLabel();
+  renderProviders([]);
+  setServiceMenuOpen(false);
+}
+
+function serviceMatches(item, query) {
+  const lowered = String(query || "").trim().toLowerCase();
+  if (!lowered) return true;
+  const aliases = Array.isArray(item.aliases) ? item.aliases : [];
+  return [item.label, item.key, ...aliases].some((value) => String(value || "").toLowerCase().includes(lowered));
+}
+
+function renderServiceOptions() {
+  const query = els.serviceSearch.value || "";
+  const filtered = state.services.filter((item) => serviceMatches(item, query)).slice(0, 80);
+  if (!filtered.length) {
+    els.servicesList.replaceChildren(emptyState(t("empty")));
+    return;
+  }
+  els.servicesList.replaceChildren(
+    ...filtered.map((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `service-option${state.selectedService === item.key ? " active" : ""}`;
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", state.selectedService === item.key ? "true" : "false");
+      const label = document.createElement("strong");
+      label.textContent = item.label;
+      const key = document.createElement("span");
+      key.textContent = item.key;
+      button.append(label, key);
+      button.addEventListener("click", () => setServiceSelection(item.key));
+      return button;
+    })
+  );
 }
 
 function renderModes() {
@@ -371,6 +578,7 @@ function renderModes() {
       button.setAttribute("aria-selected", state.mode === key ? "true" : "false");
       button.addEventListener("click", () => {
         state.mode = key;
+        state.showAllProviders = false;
         updateStateVisibility();
         renderModes();
         renderProviders([]);
@@ -381,15 +589,8 @@ function renderModes() {
 }
 
 function renderSelectors() {
-  els.servicesList.replaceChildren(
-    ...state.services.map((item) => {
-      const option = document.createElement("option");
-      option.value = item.label;
-      option.dataset.key = item.key;
-      return option;
-    })
-  );
-  els.serviceSearch.value = serviceLabel(state.selectedService);
+  renderServiceOptions();
+  updateServiceLabel();
 
   els.countrySelect.replaceChildren(
     ...state.countries.map((item) => {
@@ -414,15 +615,8 @@ function renderSelectors() {
 }
 
 function updateStateVisibility() {
-  const isVoice = state.mode === "voice";
-  if (isVoice) {
-    state.selectedCountry = "1";
-    state.selectedState = "none";
-    els.countrySelect.value = "1";
-    els.stateSelect.value = "none";
-  }
-  els.countrySelect.disabled = isVoice;
-  const showState = state.selectedCountry === "1" && state.mode === "temp";
+  els.countrySelect.disabled = false;
+  const showState = state.selectedCountry === "1";
   els.stateField.classList.toggle("hidden", !showState);
   if (!showState) {
     state.selectedState = "none";
@@ -431,21 +625,7 @@ function updateStateVisibility() {
 }
 
 function renderQuickServices() {
-  const top = state.services.filter((item) => item.top).slice(0, 10);
-  els.quickServices.replaceChildren(
-    ...top.map((item) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `quick-chip${state.selectedService === item.key ? " active" : ""}`;
-      button.textContent = item.label;
-      button.addEventListener("click", () => {
-        state.selectedService = item.key;
-        els.serviceSearch.value = item.label;
-        renderQuickServices();
-      });
-      return button;
-    })
-  );
+  els.quickServices.replaceChildren();
 }
 
 function setLoading(loading) {
@@ -740,6 +920,9 @@ async function refreshOrders({ quiet = false } = {}) {
   }
   try {
     const payload = await api("/mini/numbers/api/orders");
+    if (payload.balance_label) {
+      els.sessionPill.textContent = payload.balance_label;
+    }
     renderActiveOrders(payload.orders || []);
   } catch (error) {
     if (!quiet) els.statusLine.textContent = error.message || t("error");
@@ -754,6 +937,9 @@ async function refreshSingleOrder(orderId, button) {
     const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/refresh`, { method: "POST", body: {} });
     const next = state.activeOrders.filter((item) => item.id !== orderId);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
+    if (payload.balance_label) {
+      els.sessionPill.textContent = payload.balance_label;
+    }
   } catch (error) {
     els.statusLine.textContent = error.message || t("error");
   } finally {
@@ -766,15 +952,20 @@ async function cancelOrder(orderId, button) {
   const confirmed = await askConfirm(t("cancel"));
   if (!confirmed) return;
   button.disabled = true;
+  showBusy(t("refundWorking"), t("refundWait"));
   try {
     const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/cancel`, { method: "POST", body: {} });
     const next = state.activeOrders.filter((item) => item.id !== orderId);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
+    if (payload.balance_label) {
+      els.sessionPill.textContent = payload.balance_label;
+    }
     els.statusLine.textContent = payload.message || "";
   } catch (error) {
     els.statusLine.textContent = error.message || t("error");
     await refreshOrders({ quiet: true });
   } finally {
+    hideBusy();
     button.disabled = false;
   }
 }
@@ -939,75 +1130,94 @@ async function buyProvider(row, button) {
   }
 }
 
-function renderProviders(rows) {
-  els.resultCount.textContent = String(rows.length);
-  if (!rows.length) {
+function renderProviders(rows, { preserve = false } = {}) {
+  if (!preserve) {
+    state.providerRows = rows || [];
+  }
+  const allRows = preserve ? state.providerRows : rows || [];
+  els.resultCount.textContent = String(allRows.length);
+  if (!allRows.length) {
     els.providerList.replaceChildren(emptyState(t("empty")));
     return;
   }
-  els.providerList.replaceChildren(
-    ...rows.map((row) => {
-      const card = document.createElement("article");
-      card.className = `provider-card${row.available ? "" : " unavailable"}`;
 
-      const main = document.createElement("div");
-      main.className = "provider-main";
+  const recommended = allRows.find((row) => row.recommended) || allRows[0];
+  const visibleRows = state.showAllProviders ? allRows : [recommended];
+  const cards = visibleRows.map((row) => {
+    const card = document.createElement("article");
+    card.className = `provider-card${row.recommended ? " best" : ""}`;
 
-      const name = document.createElement("p");
-      name.className = "provider-name";
-      const id = document.createElement("span");
-      id.className = "provider-id";
-      id.textContent = row.provider_id;
-      name.append(id, document.createTextNode(row.provider));
+    const main = document.createElement("div");
+    main.className = "provider-main";
 
-      const meta = document.createElement("p");
-      meta.className = "provider-meta";
-      const details = [`${t("success")}: ${row.success_rate}`];
-      if (row.base_price_label && row.base_price_label !== "-") details.push(`${t("base")}: ${row.base_price_label}`);
-      if (!row.available && row.reason) details.push(row.reason);
-      meta.textContent = details.join(" · ");
+    const name = document.createElement("p");
+    name.className = "provider-name";
+    const id = document.createElement("span");
+    id.className = "provider-id";
+    id.textContent = row.provider_id;
+    name.append(id, document.createTextNode(row.provider));
 
-      main.append(name, meta);
-      if (row.options?.length) {
-        const options = document.createElement("div");
-        options.className = "option-row";
-        row.options.slice(0, 5).forEach((option) => {
-          const pill = document.createElement(state.mode === "rental" && option.quote_token ? "button" : "span");
-          pill.className = "option-pill";
-          if (pill.tagName === "BUTTON") {
-            pill.type = "button";
-            pill.classList.add("buyable");
-            pill.addEventListener("click", () => buyProvider({ ...row, price_label: option.price_label, quote_token: option.quote_token }, pill));
-          }
-          const optionText = `${option.duration_label || option.duration || t("options")} ${option.price_label}`;
-          pill.textContent = pill.tagName === "BUTTON" ? `${t("buy")} ${optionText}` : optionText;
-          options.append(pill);
-        });
-        main.append(options);
-      }
+    const meta = document.createElement("p");
+    meta.className = "provider-meta";
+    const details = [];
+    if (row.recommended) details.push(t("bestChoice"));
+    if (row.voice_fallback) details.push(t("voiceFallback"));
+    meta.textContent = details.join(" · ");
 
-      if (row.available && (state.mode === "temp" || state.mode === "voice") && row.quote_token) {
-        const actions = document.createElement("div");
-        actions.className = "provider-actions";
-        const price = document.createElement("div");
-        price.className = "action-price";
-        price.textContent = row.price_label;
-        const buy = document.createElement("button");
-        buy.type = "button";
-        buy.className = "small-action";
-        buy.textContent = t("buy");
-        buy.addEventListener("click", () => buyProvider(row, buy));
-        actions.append(price, buy);
-        card.append(main, actions);
-      } else {
-        const price = document.createElement("div");
-        price.className = "provider-price";
-        price.textContent = row.available ? (state.mode === "rental" && row.options?.length ? row.options[0].price_label : row.price_label) : t("unavailable");
-        card.append(main, price);
-      }
-      return card;
-    })
-  );
+    main.append(name, meta);
+    if (row.options?.length) {
+      const options = document.createElement("div");
+      options.className = "option-row";
+      row.options.slice(0, 5).forEach((option) => {
+        const pill = document.createElement(state.mode === "rental" && option.quote_token ? "button" : "span");
+        pill.className = "option-pill";
+        if (pill.tagName === "BUTTON") {
+          pill.type = "button";
+          pill.classList.add("buyable");
+          pill.addEventListener("click", () => buyProvider({ ...row, price_label: option.price_label, quote_token: option.quote_token }, pill));
+        }
+        const optionText = `${option.duration_label || option.duration || t("options")} ${option.price_label}`;
+        pill.textContent = pill.tagName === "BUTTON" ? `${t("buy")} ${optionText}` : optionText;
+        options.append(pill);
+      });
+      main.append(options);
+    }
+
+    if ((state.mode === "temp" || state.mode === "voice") && row.quote_token) {
+      const actions = document.createElement("div");
+      actions.className = "provider-actions";
+      const price = document.createElement("div");
+      price.className = "action-price";
+      price.textContent = row.price_label;
+      const buy = document.createElement("button");
+      buy.type = "button";
+      buy.className = "small-action";
+      buy.textContent = t("buy");
+      buy.addEventListener("click", () => buyProvider(row, buy));
+      actions.append(price, buy);
+      card.append(main, actions);
+    } else {
+      const price = document.createElement("div");
+      price.className = "provider-price";
+      price.textContent = state.mode === "rental" && row.options?.length ? row.options[0].price_label : row.price_label;
+      card.append(main, price);
+    }
+    return card;
+  });
+
+  if (allRows.length > 1) {
+    const showAll = document.createElement("button");
+    showAll.type = "button";
+    showAll.className = "show-providers-action";
+    showAll.textContent = state.showAllProviders ? t("hideOtherProviders") : `${t("showOtherProviders")} (${allRows.length - 1})`;
+    showAll.addEventListener("click", () => {
+      state.showAllProviders = !state.showAllProviders;
+      renderProviders([], { preserve: true });
+    });
+    cards.push(showAll);
+  }
+
+  els.providerList.replaceChildren(...cards);
 }
 
 function infoCard(label, value) {
@@ -1063,6 +1273,7 @@ function renderAccount(payload) {
   els.sessionPill.textContent = payload.balance_label || user.full_name || user.username || "Mini App";
   state.supportCategories = payload.support_categories || state.supportCategories;
   state.supportBotUrl = payload.links?.numbers_bot || state.supportBotUrl;
+  state.rechargeUrl = payload.links?.recharge || state.rechargeUrl;
   renderSupportCategories();
   els.accountDetails.replaceChildren(
     infoCard(t("balance"), payload.balance_label || "-"),
@@ -1172,14 +1383,16 @@ async function checkPrices() {
   state.selectedService = selectedServiceFromInput();
   state.selectedCountry = els.countrySelect.value || "none";
   state.selectedState = els.stateSelect.value || "none";
-  if (state.mode === "voice") {
-    state.selectedCountry = "1";
-    state.selectedState = "none";
-    els.countrySelect.value = "1";
-    els.stateSelect.value = "none";
+  if (!state.selectedService) {
+    els.statusLine.textContent = t("chooseServiceFirst");
+    renderProviders([]);
+    updateServiceLabel();
+    return;
   }
+  setServiceMenuOpen(false);
   updateStateVisibility();
-  renderQuickServices();
+  updateServiceLabel();
+  state.showAllProviders = false;
   els.selectionTitle.textContent = serviceLabel(state.selectedService);
   els.statusLine.textContent = t("loading");
   setLoading(true);
@@ -1210,9 +1423,11 @@ async function boot() {
   state.services = payload.services || [];
   state.countries = payload.countries || [];
   state.states = payload.states_us || [];
-  state.selectedService = payload.defaults?.service || "telegram";
+  state.selectedService = payload.defaults?.service || "";
   state.selectedCountry = payload.defaults?.country || "none";
   state.selectedState = payload.defaults?.state || "none";
+  state.supportBotUrl = payload.links?.numbers_bot || state.supportBotUrl;
+  state.rechargeUrl = payload.links?.recharge || state.rechargeUrl;
   renderViewTabs();
   renderModes();
   renderSelectors();
@@ -1228,10 +1443,19 @@ async function boot() {
   els.stateSelect.addEventListener("change", () => {
     state.selectedState = els.stateSelect.value || "none";
   });
+  els.serviceTrigger.addEventListener("click", () => setServiceMenuOpen(!state.serviceMenuOpen));
+  els.serviceSearch.addEventListener("input", renderServiceOptions);
+  document.addEventListener("click", (event) => {
+    if (!state.serviceMenuOpen) return;
+    const target = event.target;
+    if (els.serviceMenu.contains(target) || els.serviceTrigger.contains(target)) return;
+    setServiceMenuOpen(false);
+  });
   els.quoteButton.addEventListener("click", checkPrices);
   els.langArButton.addEventListener("click", () => changeLanguage("ar", els.langArButton));
   els.langEnButton.addEventListener("click", () => changeLanguage("en", els.langEnButton));
-  els.rechargeButton.addEventListener("click", () => openTelegramUrl(state.account?.links?.recharge || state.supportBotUrl));
+  els.sessionPill.addEventListener("click", () => openTelegramUrl(state.rechargeUrl || state.account?.links?.recharge || state.supportBotUrl));
+  els.rechargeButton.addEventListener("click", () => openTelegramUrl(state.rechargeUrl || state.account?.links?.recharge || state.supportBotUrl));
   els.sendSupportButton.addEventListener("click", sendSupportTicket);
 }
 

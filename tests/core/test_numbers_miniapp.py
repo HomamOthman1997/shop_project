@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from aiohttp import web
 
 from services.numbers import miniapp
@@ -10,7 +11,7 @@ def test_numbers_bootstrap_payload_has_core_filters():
 
     payload = miniapp._bootstrap_payload()
 
-    assert payload["defaults"] == {"mode": "temp", "service": "telegram", "country": "1", "state": "none"}
+    assert payload["defaults"] == {"mode": "temp", "service": "", "country": "none", "state": "none"}
     assert [item["key"] for item in payload["modes"]] == ["temp", "rental", "voice"]
     assert any(item["code"] == "1" for item in payload["countries"])
     assert any(item["code"] == "none" for item in payload["states_us"])
@@ -22,7 +23,13 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
 
     rows = miniapp._normalize_provider_rows(
         {
-            "alpha_provider": {"price": 1.25, "base_price": 1.0, "success_rate": 88, "success_attempts": 10},
+            "alpha_provider": {
+                "price": 1.25,
+                "base_price": 1.0,
+                "api_service_name": "telegram",
+                "success_rate": 88,
+                "success_attempts": 10,
+            },
             "beta_provider": {
                 "price": 0,
                 "available_for_buy": False,
@@ -31,13 +38,17 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
             },
         },
         "temp",
+        service="telegram",
+        country="none",
+        state="none",
     )
 
     assert rows[0]["provider_id"].startswith("S")
     assert rows[0]["price_label"] == "$1.25"
     assert rows[0]["success_rate"] == "88%"
-    assert rows[-1]["available"] is False
-    assert rows[-1]["reason"] == "Provider balance is low"
+    assert len(rows) == 1
+    assert rows[0]["available"] is True
+    assert rows[0]["recommended"] is True
 
 
 def test_numbers_account_activity_payload_formats_ledger_rows():
@@ -73,6 +84,36 @@ def test_numbers_account_activity_payload_formats_ledger_rows():
     assert rows[0]["balance_label"] == "$1.56"
     assert rows[1]["label"] == "Numbers refund"
     assert rows[1]["amount_label"] == "+$0.44"
+
+
+def test_numbers_account_activity_payload_includes_order_subject():
+    created_at = datetime(2026, 5, 20, 12, 0, tzinfo=UTC)
+
+    rows = miniapp._ledger_activity_payload(
+        [
+            {
+                "_id": "tx-1",
+                "direction": "debit",
+                "amount": -0.44,
+                "reason": "purchase_core_user_debit",
+                "category": "core_purchase",
+                "balance_after": 1.56,
+                "created_at": created_at,
+                "order_id": "order-1",
+            },
+        ],
+        "en",
+        {
+            "order-1": {
+                "number_mode": "voice",
+                "temp_service_key": "telegram",
+                "provider_number": "+15551234567",
+            }
+        },
+    )
+
+    assert rows[0]["subject"] == "Telegram call · +15551234567"
+    assert rows[0]["label"] == "Numbers purchase · Telegram call · +15551234567"
 
 
 def test_numbers_temp_rows_include_signed_quote_and_hide_internal_lanes(monkeypatch):
@@ -161,6 +202,74 @@ def test_numbers_voice_rows_include_signed_quote(monkeypatch):
     assert quote["state"] == "none"
 
 
+def test_numbers_price_rows_mark_best_choice_and_hide_unavailable(monkeypatch):
+    monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "numbers_success_rate_display_min_attempts", 1, raising=False)
+
+    rows = miniapp._normalize_provider_rows(
+        {
+            "herosms": {
+                "price": 0.1,
+                "base_price": 0.08,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "success_rate": 50,
+                "success_attempts": 20,
+            },
+            "textverified": {
+                "price": 0.11,
+                "base_price": 0.09,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "success_rate": 99,
+                "success_attempts": 20,
+            },
+            "down": {
+                "price": 0.09,
+                "api_service_name": "telegram",
+                "available_for_buy": False,
+                "provider_reason": "provider_balance_low",
+            },
+        },
+        "temp",
+        service="telegram",
+        country="none",
+        state="none",
+    )
+
+    assert [row["provider_id"] for row in rows] == ["S2", "S1"]
+    assert rows[0]["recommended"] is True
+    assert all(row["available"] for row in rows)
+    assert all("reason" not in row for row in rows)
+    assert all("base_price_label" not in row for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_numbers_voice_prices_fallback_to_generic_route(monkeypatch):
+    async def fake_get_all_voice_prices(service, country, state):
+        if service == "telegram":
+            return {"textverified": {"available_for_buy": False, "provider_reason": "service_not_supported"}}
+        if service == miniapp._VOICE_GENERIC_SERVICE:
+            return {
+                "textverified": {
+                    "price": 0.5,
+                    "base_price": 0.4,
+                    "api_service_name": miniapp._VOICE_GENERIC_SERVICE,
+                    "available_for_buy": True,
+                    "voice_capable": True,
+                }
+            }
+        return {}
+
+    monkeypatch.setattr(miniapp, "get_all_voice_prices", fake_get_all_voice_prices)
+
+    rows = await miniapp._get_miniapp_voice_prices("telegram", "1", "none")
+
+    assert rows["textverified"]["api_service_name"] == miniapp._VOICE_GENERIC_SERVICE
+    assert rows["textverified"]["voice_fallback_service"] is True
+
+
 def test_numbers_voice_order_payload_exposes_recording_download():
     payload = miniapp._order_payload(
         {
@@ -222,6 +331,31 @@ def test_numbers_temp_order_payload_exposes_second_code_action():
     assert details["provider"] == "Bravo"
     assert details["country"] == "United States"
     assert details["reuseUntil"].endswith("UTC")
+
+
+def test_numbers_temp_order_payload_uses_provisioning_provider_fallback():
+    payload = miniapp._order_payload(
+        {
+            "_id": "temp-order-id",
+            "number_mode": "temp",
+            "status": "success",
+            "provisioning_provider": "textverified",
+            "provider_order_id": "abc",
+            "provider_number": "+15551234567",
+            "temp_service_key": "attapoll",
+            "temp_country": "1",
+            "selling_price": 0.44,
+            "base_price": 0.4,
+            "temp_wait_state": "waiting",
+            "temp_codes": [],
+            "temp_codes_count": 0,
+        }
+    )
+
+    assert payload["provider"] == "Bravo"
+    assert payload["provider_id"] == "S2"
+    details = {item["key"]: item["value"] for item in payload["details"]}
+    assert details["provider"] == "Bravo"
 
 
 def test_numbers_temp_second_code_pending_hides_old_code():
@@ -361,6 +495,93 @@ def test_numbers_refunded_temp_order_payload_exposes_alternate_after_failed_retr
     assert payload["alternate_provider_id"] == "S1"
     assert payload["alternate_provider"] == "Alpha"
     assert payload["alternate_provider_price_label"] == "$0.66"
+
+
+def test_provider_terminal_status_classifier_keeps_waiting_states_open():
+    assert miniapp._provider_terminal_refund_reason("STATUS_WAIT_CODE", allow_missing=True) == ""
+    assert miniapp._provider_terminal_refund_reason({"error_code": "wait_sms"}, allow_missing=True) == ""
+    assert miniapp._provider_terminal_refund_reason("NO_ACTIVATION", allow_missing=True) == "provider_missing_or_expired"
+    assert miniapp._provider_terminal_refund_reason("STATUS_CANCEL") == "provider_already_refunded"
+
+
+@pytest.mark.asyncio
+async def test_refresh_temp_order_refunds_old_missing_provider_order(monkeypatch):
+    now = datetime.now(UTC)
+    stored = {
+        "_id": "order-old",
+        "number_mode": "temp",
+        "status": "success",
+        "user_id": 123,
+        "reseller_id": 123,
+        "provisioning_provider": "herosms",
+        "provider_order_id": "prov-old",
+        "provider_number": "+15551234567",
+        "temp_service_key": "rebtel",
+        "temp_country": "1",
+        "selling_price": 0.11,
+        "base_price": 0.10,
+        "created_at": now - timedelta(minutes=20),
+        "temp_wait_started_at": now - timedelta(minutes=20),
+        "temp_wait_timeout_sec": 300,
+        "temp_wait_state": "waiting",
+        "temp_codes": [],
+        "temp_codes_count": 0,
+    }
+    calls: dict = {}
+
+    class _DummyProvider:
+        async def cancel(self, activation_id):
+            calls["cancel"] = activation_id
+            return {"success": False, "raw": "NO_ACTIVATION"}
+
+    class _DummyFinancialManager:
+        @classmethod
+        async def refund_core_purchase(cls, user_id, order_id, sale_price, cost_price, reseller_id=None):
+            calls["refund"] = {
+                "user_id": user_id,
+                "order_id": order_id,
+                "sale_price": sale_price,
+                "cost_price": cost_price,
+                "reseller_id": reseller_id,
+            }
+            return True, "OK"
+
+    async def _fake_get_order(_order_id):
+        return dict(stored)
+
+    async def _fake_update_order_status(_order_id, status):
+        calls["status"] = status
+        stored["status"] = status
+
+    async def _fake_update_order_details(_order_id, patch):
+        stored.update(patch)
+        calls.setdefault("details", []).append(dict(patch))
+
+    async def _fake_fetch_provider_sms(_providers, provider, provider_order_id):
+        calls["fetch"] = (provider, provider_order_id)
+        return {"success": False, "messages": [], "raw": "NO_ACTIVATION"}
+
+    async def _fake_log(*args, **kwargs):
+        return None
+
+    monkeypatch.setitem(miniapp.PROVIDERS, "herosms", _DummyProvider())
+    monkeypatch.setattr(miniapp, "FinancialManager", _DummyFinancialManager)
+    monkeypatch.setattr(miniapp, "get_order", _fake_get_order)
+    monkeypatch.setattr(miniapp, "update_order_status", _fake_update_order_status)
+    monkeypatch.setattr(miniapp, "update_order_details", _fake_update_order_details)
+    monkeypatch.setattr(miniapp, "fetch_provider_sms", _fake_fetch_provider_sms)
+    monkeypatch.setattr(miniapp, "_log_temp_event", _fake_log)
+    monkeypatch.setattr(miniapp, "_log_number_event_from_order", _fake_log)
+
+    refreshed = await miniapp._refresh_temp_order(dict(stored))
+
+    assert calls["fetch"] == ("herosms", "prov-old")
+    assert calls["cancel"] == "prov-old"
+    assert calls["refund"]["order_id"] == "order-old"
+    assert calls["status"] == "cancelled"
+    assert refreshed["status"] == "cancelled"
+    assert refreshed["temp_wait_state"] == "refunded"
+    assert refreshed["temp_provider_terminal_reason"] == "provider_missing_or_expired"
 
 
 def test_numbers_rental_order_payload_exposes_renew_and_wake_actions():
