@@ -1943,6 +1943,10 @@ async function buyProvider(row, button) {
     }
     renderActiveOrders([payload.order, ...state.activeOrders].filter(Boolean));
     els.statusLine.textContent = t("purchased");
+    setView("orders");
+    window.setTimeout(() => {
+      els.activeBand?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
     await refreshOrders({ quiet: true });
   } catch (error) {
     els.statusLine.textContent = error.message || t("error");
