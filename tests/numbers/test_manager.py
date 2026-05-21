@@ -1,6 +1,7 @@
 import os
 import sys
 import asyncio
+import time
 import pytest
 
 # make sure project root is on import path so "services" package is found
@@ -231,6 +232,25 @@ async def test_dynamic_provider_name_smsman(monkeypatch):
 
     monkeypatch.setitem(manager.PROVIDERS, "smsman", _SMSManDummy())
     assert await manager.get_provider_service_name_dynamic("telegram", "smsman") == "77"
+
+
+@pytest.mark.asyncio
+async def test_provider_resolution_candidates_run_concurrently():
+    class _SlowResolver:
+        async def resolve_service_code(self, value):
+            await asyncio.sleep(0.05)
+            return "gl" if value == "gmail" else None
+
+    start = time.perf_counter()
+    code, candidate = await manager._provider_resolve_first_service_code(
+        "vaksms",
+        _SlowResolver(),
+        ["google", "mail", "gmail"],
+    )
+
+    assert code == "gl"
+    assert candidate == "gmail"
+    assert time.perf_counter() - start < 0.14
 
 
 @pytest.mark.asyncio

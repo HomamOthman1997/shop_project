@@ -229,6 +229,61 @@ async def _provider_resolve_service_code_with_timeout(provider_code: str, provid
     return str(result)
 
 
+async def _provider_resolve_first_service_code(
+    provider_code: str,
+    provider_obj: Any,
+    candidates: list[str],
+) -> tuple[str | None, str | None]:
+    clean_candidates = []
+    seen = set()
+    for candidate in candidates:
+        text = str(candidate or "").strip()
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        clean_candidates.append(text)
+    if not clean_candidates or not hasattr(provider_obj, "resolve_service_code"):
+        return None, None
+
+    first_candidate = clean_candidates[0]
+    first_code = await _provider_resolve_service_code_with_timeout(provider_code, provider_obj, first_candidate)
+    if first_code:
+        return first_code, first_candidate
+
+    remaining_candidates = clean_candidates[1:]
+    if not remaining_candidates:
+        return None, None
+
+    if hasattr(provider_obj, "list_services"):
+        try:
+            await _provider_list_services_cached(provider_code, provider_obj)
+        except Exception:
+            pass
+
+    async def _resolve(candidate: str) -> tuple[str, str | None]:
+        return candidate, await _provider_resolve_service_code_with_timeout(provider_code, provider_obj, candidate)
+
+    tasks = [asyncio.create_task(_resolve(candidate)) for candidate in remaining_candidates]
+    try:
+        for task in asyncio.as_completed(tasks):
+            candidate, code = await task
+            if code:
+                for pending in tasks:
+                    if pending is not task and not pending.done():
+                        pending.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                return code, candidate
+    finally:
+        for pending in tasks:
+            if not pending.done():
+                pending.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    return None, None
+
+
 def _price_screen_balance_timeout_sec() -> float:
     return _runtime_price_screen_balance_timeout_sec(settings)
 
@@ -523,13 +578,12 @@ async def get_provider_service_resolution_dynamic(service_key: str, provider_cod
                 candidates.append(display_name)
             resolution["provider_candidates"] = [str(item) for item in candidates if str(item).strip()]
 
-            for candidate in candidates:
-                code = await _provider_resolve_service_code_with_timeout("pvadeals", prov, str(candidate))
-                if code:
-                    resolution["resolved_provider_service"] = str(code)
-                    resolution["resolved_provider_candidate"] = str(candidate)
-                    resolution["provider_reason"] = "resolved_provider_lookup"
-                    return _cache_and_return(resolution)
+            code, candidate = await _provider_resolve_first_service_code("pvadeals", prov, resolution["provider_candidates"])
+            if code:
+                resolution["resolved_provider_service"] = str(code)
+                resolution["resolved_provider_candidate"] = str(candidate or "")
+                resolution["provider_reason"] = "resolved_provider_lookup"
+                return _cache_and_return(resolution)
 
             live = await _provider_list_services_cached("pvadeals", prov)
             if isinstance(live, list):
@@ -565,13 +619,12 @@ async def get_provider_service_resolution_dynamic(service_key: str, provider_cod
                 candidates.append(display_name)
             resolution["provider_candidates"] = [str(item) for item in candidates if str(item).strip()]
 
-            for candidate in candidates:
-                code = await _provider_resolve_service_code_with_timeout(provider_code, prov, str(candidate))
-                if code:
-                    resolution["resolved_provider_service"] = str(code)
-                    resolution["resolved_provider_candidate"] = str(candidate)
-                    resolution["provider_reason"] = "resolved_provider_lookup"
-                    return _cache_and_return(resolution)
+            code, candidate = await _provider_resolve_first_service_code(provider_code, prov, resolution["provider_candidates"])
+            if code:
+                resolution["resolved_provider_service"] = str(code)
+                resolution["resolved_provider_candidate"] = str(candidate or "")
+                resolution["provider_reason"] = "resolved_provider_lookup"
+                return _cache_and_return(resolution)
 
             resolution["provider_reason"] = "service_not_supported"
             return _cache_and_return(resolution)
