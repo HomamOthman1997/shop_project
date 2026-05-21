@@ -60,6 +60,10 @@ body.app-booting .boot-splash {
   pointer-events: auto;
 }
 
+body:not(.app-booting) .boot-splash {
+  display: none;
+}
+
 .boot-card {
   display: grid;
   justify-items: center;

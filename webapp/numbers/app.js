@@ -612,7 +612,8 @@ function hideBusy() {
 
 function finishBoot() {
   document.body.classList.remove("app-booting");
-  els.bootSplash?.setAttribute("aria-hidden", "true");
+  els.bootSplash?.remove();
+  els.bootSplash = null;
 }
 
 function renderViewTabs() {
