@@ -51,6 +51,7 @@ const els = {
   requestNumberButton: document.getElementById("requestNumberButton"),
   controlBand: document.getElementById("controlBand"),
   modeSwitch: document.getElementById("modeSwitch"),
+  fieldGrid: document.getElementById("fieldGrid"),
   serviceTrigger: document.getElementById("serviceTrigger"),
   serviceLabel: document.getElementById("serviceLabel"),
   serviceMenu: document.getElementById("serviceMenu"),
@@ -62,6 +63,7 @@ const els = {
   countrySearch: document.getElementById("countrySearch"),
   countryList: document.getElementById("countryList"),
   countrySelect: document.getElementById("countrySelect"),
+  countryField: document.getElementById("countryField"),
   stateTrigger: document.getElementById("stateTrigger"),
   stateLabel: document.getElementById("stateLabel"),
   stateMenu: document.getElementById("stateMenu"),
@@ -747,6 +749,7 @@ function setServiceSelection(key) {
   state.showAllProviders = false;
   saveModeSelection();
   clearPriceResults();
+  updateStateVisibility();
   updateServiceLabel();
   renderProviders([]);
   setServiceMenuOpen(false);
@@ -826,6 +829,13 @@ function updateSelectorLabels() {
 
 function setSelectorMenuOpen(kind, open) {
   const isCountry = kind === "country";
+  if (open && !state.selectedService && (isCountry || kind === "state")) {
+    els.statusLine.textContent = t("chooseServiceFirst");
+    return;
+  }
+  if (open && !isCountry && state.selectedCountry !== "1") {
+    return;
+  }
   const menuKey = isCountry ? "countryMenuOpen" : "stateMenuOpen";
   state[menuKey] = Boolean(open);
   const menu = isCountry ? els.countryMenu : els.stateMenu;
@@ -847,6 +857,11 @@ function setSelectorMenuOpen(kind, open) {
 }
 
 function setCountrySelection(code) {
+  if (!state.selectedService) {
+    els.statusLine.textContent = t("chooseServiceFirst");
+    setSelectorMenuOpen("country", false);
+    return;
+  }
   state.selectedCountry = state.mode === "voice" ? "1" : code || "none";
   if (state.selectedCountry !== "1") {
     state.selectedState = "none";
@@ -864,6 +879,11 @@ function setCountrySelection(code) {
 }
 
 function setStateSelection(code) {
+  if (!state.selectedService) {
+    els.statusLine.textContent = t("chooseServiceFirst");
+    setSelectorMenuOpen("state", false);
+    return;
+  }
   state.selectedState = code || "none";
   if (els.stateSearch) els.stateSearch.value = "";
   state.showAllProviders = false;
@@ -991,9 +1011,27 @@ function renderSelectors() {
 }
 
 function updateStateVisibility() {
-  els.countrySelect.disabled = false;
-  const showState = state.selectedCountry === "1";
+  const hasService = Boolean(state.selectedService);
+  const showCountry = hasService;
+  const showState = hasService && state.selectedCountry === "1";
+  els.countryField?.classList.toggle("hidden", !showCountry);
   els.stateField.classList.toggle("hidden", !showState);
+  els.countrySelect.disabled = !showCountry;
+  els.stateSelect.disabled = !showState;
+  if (els.countryTrigger) {
+    els.countryTrigger.disabled = !showCountry;
+    els.countryTrigger.setAttribute("aria-disabled", showCountry ? "false" : "true");
+  }
+  if (els.stateTrigger) {
+    els.stateTrigger.disabled = !showState;
+    els.stateTrigger.setAttribute("aria-disabled", showState ? "false" : "true");
+  }
+  els.fieldGrid?.classList.toggle("service-only", !showCountry);
+  els.fieldGrid?.classList.toggle("service-country", showCountry && !showState);
+  els.fieldGrid?.classList.toggle("service-country-state", showCountry && showState);
+  if (!showCountry) {
+    setSelectorMenuOpen("country", false);
+  }
   if (!showState) {
     state.selectedState = "none";
     els.stateSelect.value = "none";

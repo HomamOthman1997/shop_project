@@ -41,7 +41,7 @@
           <section class="control-band hidden" id="controlBand" aria-label="Number order filters">
             <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="Mode"></div>
 
-            <div class="field-grid">
+            <div class="field-grid" id="fieldGrid">
               <label class="field service-field">
                 <span data-i18n="service">Service</span>
                 <button class="select-trigger" id="serviceTrigger" type="button" aria-haspopup="listbox" aria-expanded="false">
@@ -53,7 +53,7 @@
                 </div>
               </label>
 
-              <label class="field country-field">
+              <label class="field country-field hidden" id="countryField">
                 <span data-i18n="country">Country</span>
                 <button class="select-trigger" id="countryTrigger" type="button" aria-haspopup="listbox" aria-expanded="false">
                   <span id="countryLabel" data-i18n="chooseCountry">Any country</span>
@@ -65,7 +65,7 @@
                 <select class="native-select-shadow" id="countrySelect" tabindex="-1" aria-hidden="true"></select>
               </label>
 
-              <label class="field state-field" id="stateField">
+              <label class="field state-field hidden" id="stateField">
                 <span data-i18n="state">State</span>
                 <button class="select-trigger" id="stateTrigger" type="button" aria-haspopup="listbox" aria-expanded="false">
                   <span id="stateLabel" data-i18n="chooseState">Any state</span>
