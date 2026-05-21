@@ -27,6 +27,7 @@ const state = {
   },
   orderFlowOpen: false,
   pricesChecked: false,
+  priceCheckFailed: false,
   loading: false,
   activeOrders: [],
   account: null,
@@ -43,6 +44,8 @@ const state = {
   countrySuggestionPrices: {},
   countrySuggestionRequestId: 0,
   busyCount: 0,
+  priceProgressTimer: null,
+  priceProgressStartedAt: 0,
 };
 
 const ORDER_POLL_INTERVAL_MS = 12000;
@@ -125,6 +128,9 @@ const copy = {
     successLegend: "★ تعني نسبة نجاح المزود",
     bestPrice: "أفضل سعر",
     loading: "جاري فحص المزودين",
+    loadingPhaseFast: "جاري فحص المزودين الأسرع",
+    loadingPhaseSlow: "بانتظار المزودين الأبطأ قليلاً",
+    loadingPhaseFinal: "جاري تجهيز أفضل الأسعار المتاحة",
     ready: "اختر الخدمة والدولة ثم افحص السعر",
     empty: "لا توجد عروض متاحة لهذا الاختيار",
     error: "تعذر تحميل البيانات حاليا",
@@ -238,6 +244,9 @@ const copy = {
     showOtherProviders: "Show other providers",
     hideOtherProviders: "Show best choice only",
     loading: "Checking providers",
+    loadingPhaseFast: "Checking priority providers",
+    loadingPhaseSlow: "Waiting for slower providers",
+    loadingPhaseFinal: "Preparing the best available prices",
     ready: "Choose a service and country, then check prices",
     empty: "No offers are available for this selection",
     emptyVoice: "No call route is available for this service right now.",
@@ -365,6 +374,9 @@ Object.assign(copy.ar, {
   showOtherProviders: "عرض باقي المزودات",
   hideOtherProviders: "عرض أفضل خيار فقط",
   loading: "جاري فحص المزودين",
+  loadingPhaseFast: "جاري فحص المزودين الأسرع",
+  loadingPhaseSlow: "بانتظار المزودين الأبطأ قليلاً",
+  loadingPhaseFinal: "جاري تجهيز أفضل الأسعار المتاحة",
   ready: "اختر الخدمة والدولة ثم افحص السعر",
   empty: "لا توجد عروض متاحة لهذا الاختيار",
   emptyVoice: "لا يوجد مسار اتصال متاح لهذه الخدمة حالياً.",
@@ -472,10 +484,17 @@ function statusIsAnyTranslation(key) {
 
 function refreshTranslatedStatus() {
   if (!els.statusLine) return;
-  if (!els.statusLine.textContent || statusIsAnyTranslation("ready")) {
+  if (!els.statusLine.textContent) {
+    return;
+  }
+  if (statusIsAnyTranslation("ready")) {
     els.statusLine.textContent = t("ready");
   } else if (statusIsAnyTranslation("chooseServiceFirst")) {
     els.statusLine.textContent = t("chooseServiceFirst");
+  } else if (statusIsAnyTranslation("loading")) {
+    els.statusLine.textContent = t("loading");
+  } else if (statusIsAnyTranslation("error")) {
+    els.statusLine.textContent = t("error");
   }
 }
 
@@ -519,7 +538,7 @@ function setLanguage() {
   }
   const languageCode = saved || document.documentElement.lang || tg?.initDataUnsafe?.user?.language_code || "ar";
   applyLanguage(languageCode);
-  els.statusLine.textContent = t("ready");
+  els.statusLine.textContent = "";
 }
 
 function headers(extra = {}) {
@@ -679,11 +698,13 @@ function renderViewTabs() {
 
 function resetBuyStatus() {
   if (!els.statusLine || state.loading || state.pricesChecked) return;
+  state.priceCheckFailed = false;
   els.statusLine.textContent = "";
 }
 
-function clearTransientStatus() {
+function clearTransientStatus({ clearPriceFailure = true } = {}) {
   if (!els.statusLine || state.loading || state.pricesChecked) return;
+  if (clearPriceFailure) state.priceCheckFailed = false;
   els.statusLine.textContent = "";
 }
 
@@ -709,6 +730,9 @@ function renderBuyFlow() {
   els.controlBand?.classList.toggle("hidden", !state.orderFlowOpen);
   els.resultBand?.classList.toggle("hidden", !state.pricesChecked);
   els.successLegend?.classList.toggle("hidden", !state.pricesChecked);
+  if (!state.pricesChecked && !state.loading && !state.priceCheckFailed && els.statusLine) {
+    els.statusLine.textContent = "";
+  }
 }
 
 function openOrderFlow() {
@@ -837,6 +861,7 @@ function setServiceMenuOpen(open) {
 function setServiceSelection(key) {
   state.selectedService = key || "";
   els.serviceSearch.value = "";
+  state.priceCheckFailed = false;
   state.showAllProviders = false;
   saveModeSelection();
   clearPriceResults();
@@ -1002,6 +1027,7 @@ function setCountrySelection(code) {
     return;
   }
   state.selectedCountry = state.mode === "voice" ? "1" : code || "none";
+  state.priceCheckFailed = false;
   if (state.selectedCountry !== "1") {
     state.selectedState = "none";
     if (els.stateSearch) els.stateSearch.value = "";
@@ -1025,6 +1051,7 @@ function setStateSelection(code) {
     return;
   }
   state.selectedState = code || "none";
+  state.priceCheckFailed = false;
   if (els.stateSearch) els.stateSearch.value = "";
   state.showAllProviders = false;
   saveModeSelection();
@@ -1107,6 +1134,7 @@ function renderModes() {
         if (els.serviceSearch) els.serviceSearch.value = "";
         if (els.countrySearch) els.countrySearch.value = "";
         if (els.stateSearch) els.stateSearch.value = "";
+        state.priceCheckFailed = false;
         state.showAllProviders = false;
         clearPriceResults();
         clearTransientStatus();
@@ -1223,10 +1251,60 @@ function renderQuickServices() {
   els.quickServices.replaceChildren();
 }
 
+function priceProgressPhase(elapsedMs) {
+  if (elapsedMs >= 12000) return t("loadingPhaseFinal");
+  if (elapsedMs >= 5500) return t("loadingPhaseSlow");
+  return t("loadingPhaseFast");
+}
+
+function renderPriceProgress() {
+  if (!els.statusLine || !state.loading || !state.priceProgressStartedAt) return;
+  const elapsedMs = Date.now() - state.priceProgressStartedAt;
+  const percent = Math.min(94, Math.max(8, Math.round((elapsedMs / 18000) * 100)));
+  const wrap = document.createElement("div");
+  wrap.className = "price-progress";
+  wrap.setAttribute("role", "progressbar");
+  wrap.setAttribute("aria-valuemin", "0");
+  wrap.setAttribute("aria-valuemax", "100");
+  wrap.setAttribute("aria-valuenow", String(percent));
+
+  const label = document.createElement("span");
+  label.className = "price-progress-label";
+  label.textContent = priceProgressPhase(elapsedMs);
+
+  const track = document.createElement("span");
+  track.className = "price-progress-track";
+  const fill = document.createElement("span");
+  fill.className = "price-progress-fill";
+  fill.style.width = `${percent}%`;
+  track.append(fill);
+
+  wrap.append(label, track);
+  els.statusLine.replaceChildren(wrap);
+}
+
+function startPriceProgress() {
+  window.clearInterval(state.priceProgressTimer);
+  state.priceProgressStartedAt = Date.now();
+  renderPriceProgress();
+  state.priceProgressTimer = window.setInterval(renderPriceProgress, 700);
+}
+
+function stopPriceProgress() {
+  window.clearInterval(state.priceProgressTimer);
+  state.priceProgressTimer = null;
+  state.priceProgressStartedAt = 0;
+}
+
 function setLoading(loading) {
   state.loading = loading;
   els.quoteButton.disabled = loading;
   els.quoteButton.textContent = loading ? t("loading") : t("check");
+  if (loading) {
+    startPriceProgress();
+  } else {
+    stopPriceProgress();
+  }
 }
 
 function formatDuration(seconds) {
@@ -2172,6 +2250,7 @@ async function checkPrices() {
   state.selectedState = state.selectedCountry === "1" ? state.selectedState || els.stateSelect.value || "none" : "none";
   saveModeSelection();
   if (!state.selectedService) {
+    state.priceCheckFailed = false;
     els.statusLine.textContent = t("chooseServiceFirst");
     renderProviders([]);
     updateServiceLabel();
@@ -2185,6 +2264,7 @@ async function checkPrices() {
   updateServiceLabel();
   updateSelectorLabels();
   state.showAllProviders = false;
+  state.priceCheckFailed = false;
   els.selectionTitle.textContent = serviceLabel(state.selectedService);
   els.statusLine.textContent = t("loading");
   clearPriceResults();
@@ -2200,15 +2280,18 @@ async function checkPrices() {
     const payload = await api(`/mini/numbers/api/prices?${params.toString()}`);
     const rows = payload.providers || [];
     if (payload.ok === false || !rows.length) {
+      state.priceCheckFailed = true;
       els.statusLine.textContent = payload.message || (state.mode === "voice" ? t("emptyVoice") : t("empty"));
       renderProviders([]);
       return;
     }
+    state.priceCheckFailed = false;
     els.statusLine.textContent = "";
     showPriceResults();
     renderProviders(rows);
     scrollToResults();
   } catch (_error) {
+    state.priceCheckFailed = true;
     els.statusLine.textContent = t("error");
     renderProviders([]);
   } finally {

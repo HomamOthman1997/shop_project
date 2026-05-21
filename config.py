@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     numbers_success_rate_min_attempts: int = 3
     numbers_success_rate_default_percent: float = 100.0
     numbers_success_rate_display_min_attempts: int = 5
+    numbers_success_rate_query_timeout_sec: float = 2.0
     numbers_trust_enabled: bool = True
     numbers_trust_attempt_window_minutes: int = 15
     numbers_trust_allowed_no_code_attempts: int = 2

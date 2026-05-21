@@ -108,14 +108,15 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_numbers_prices_endpoint_uses_dynamic_success_rates(monkeypatch):
+async def test_numbers_prices_endpoint_skips_blocking_success_rates(monkeypatch):
     calls = {}
 
-    async def fake_get_all_prices(service, country, state, with_success_rates=True):
+    async def fake_get_all_prices(service, country, state, with_success_rates=True, provider_codes=None):
         calls["service"] = service
         calls["country"] = country
         calls["state"] = state
         calls["with_success_rates"] = with_success_rates
+        calls["provider_codes"] = tuple(provider_codes or ())
         return {
             "textverified": {
                 "price": 0.44,
@@ -133,7 +134,13 @@ async def test_numbers_prices_endpoint_uses_dynamic_success_rates(monkeypatch):
     response = await miniapp.prices(request)
     payload = json.loads(response.text)
 
-    assert calls == {"service": "telegram", "country": "1", "state": "none", "with_success_rates": True}
+    assert calls == {
+        "service": "telegram",
+        "country": "1",
+        "state": "none",
+        "with_success_rates": False,
+        "provider_codes": miniapp._TEMP_PRICE_SCREEN_PROVIDER_CODES,
+    }
     assert payload["providers"][0]["success_rate"] == "91%"
 
 
@@ -828,6 +835,215 @@ def test_numbers_refunded_temp_order_payload_exposes_alternate_after_failed_retr
     assert payload["alternate_provider_id"] == "S1"
     assert payload["alternate_provider"] == "Alpha"
     assert payload["alternate_provider_price_label"] == "$0.66"
+
+
+def test_numbers_pick_alternate_temp_provider_ignores_current_hidden_and_unbuyable():
+    prices = {
+        "textverified": {"price": 0.10, "api_service_name": "gmail"},
+        "smsman": {"price": 0.01, "api_service_name": "gmail"},
+        "bad": {"price": 0.02, "api_service_name": ""},
+        "herosms": {"price": 0.30, "api_service_name": "gmail"},
+        "smspool": {"price": 0.20, "api_service_name": "gmail"},
+    }
+
+    picked = miniapp._pick_alternate_temp_provider(
+        prices,
+        current_provider="textverified",
+        service="gmail",
+        country="1",
+        state="none",
+    )
+
+    assert picked is not None
+    provider_code, info = picked
+    assert provider_code == "smspool"
+    assert info["price"] == 0.20
+
+
+def test_numbers_pick_alternate_temp_provider_uses_retry_score_not_price_only():
+    prices = {
+        "textverified": {"price": 0.10, "api_service_name": "gmail"},
+        "cheaplow": {
+            "price": 0.20,
+            "api_service_name": "gmail",
+            "success_rate": 45,
+            "success_attempts": 10,
+        },
+        "herosms": {
+            "price": 0.24,
+            "api_service_name": "gmail",
+            "success_rate": 92,
+            "success_attempts": 10,
+        },
+    }
+
+    picked = miniapp._pick_alternate_temp_provider(
+        prices,
+        current_provider="textverified",
+        service="gmail",
+        country="1",
+        state="none",
+    )
+
+    assert picked is not None
+    provider_code, info = picked
+    assert provider_code == "herosms"
+    assert info["success_rate"] == 92
+
+
+@pytest.mark.asyncio
+async def test_numbers_enable_alternate_provider_suggestion_persists_best_option(monkeypatch):
+    order = {
+        "_id": "temp-order-id",
+        "number_mode": "temp",
+        "status": "cancelled",
+        "temp_wait_state": "refunded",
+        "provider": "textverified",
+        "provider_order_id": "abc",
+        "provider_number": "+15551234567",
+        "temp_service_key": "gmail",
+        "temp_country": "1",
+        "temp_state": "none",
+        "selling_price": 0.44,
+        "base_price": 0.4,
+        "temp_codes": [],
+        "temp_codes_count": 0,
+    }
+    calls: dict = {}
+
+    async def _fake_prices(service, country, state, with_success_rates=False):
+        calls["prices"] = (service, country, state, with_success_rates)
+        return {
+            "textverified": {"price": 0.10, "api_service_name": "gmail"},
+            "herosms": {"price": 0.42, "base_price": 0.40, "api_service_name": "gmail"},
+        }
+
+    async def _fake_update(order_id, patch):
+        calls["update"] = (order_id, dict(patch))
+
+    async def _fake_log(order_arg, event, payload):
+        calls["log"] = (order_arg, event, payload)
+
+    monkeypatch.setattr(miniapp, "get_all_prices", _fake_prices)
+    monkeypatch.setattr(miniapp, "update_order_details", _fake_update)
+    monkeypatch.setattr(miniapp, "_log_temp_event", _fake_log)
+
+    result = await miniapp._enable_alternate_provider_suggestion(order_id=order["_id"], order=dict(order), lang="en")
+
+    assert result is not None
+    assert result["provider"] == "herosms"
+    assert calls["prices"] == ("gmail", "1", "none", False)
+    assert calls["update"][0] == "temp-order-id"
+    assert calls["update"][1]["temp_alternate_provider"] == "herosms"
+    assert calls["update"][1]["temp_alternate_api_service"] == "gmail"
+    assert calls["update"][1]["temp_alternate_price"] == 0.42
+    assert calls["log"][1] == "alternate_provider_suggested"
+
+
+@pytest.mark.asyncio
+async def test_numbers_request_replacement_number_uses_current_provider(monkeypatch):
+    order = {
+        "_id": "temp-order-id",
+        "number_mode": "temp",
+        "status": "cancelled",
+        "temp_wait_state": "refunded",
+        "provider": "textverified",
+        "provider_order_id": "abc",
+        "provider_number": "+15551234567",
+        "temp_service_key": "gmail",
+        "temp_country": "1",
+        "temp_state": "none",
+        "selling_price": 0.44,
+        "base_price": 0.4,
+        "temp_codes": [],
+        "temp_codes_count": 0,
+    }
+    calls: dict = {}
+
+    async def _fake_prices(service, country, state, with_success_rates=False):
+        calls["prices"] = (service, country, state, with_success_rates)
+        return {"textverified": {"price": 0.44, "base_price": 0.4, "api_service_name": "gmail"}}
+
+    async def _fake_purchase(**kwargs):
+        calls["purchase"] = kwargs
+        return {"ok": True, "order": {"id": "replacement-order"}}
+
+    async def _fake_log(order_arg, event, payload):
+        calls["log"] = (order_arg, event, payload)
+
+    monkeypatch.setattr(miniapp, "get_all_prices", _fake_prices)
+    monkeypatch.setattr(miniapp, "_purchase_temp_offer", _fake_purchase)
+    monkeypatch.setattr(miniapp, "_log_temp_event", _fake_log)
+
+    result = await miniapp._request_replacement_number(
+        order_id=order["_id"],
+        order=dict(order),
+        user_id=123,
+        reseller_id=123,
+        lang="en",
+    )
+
+    assert result["ok"] is True
+    assert calls["prices"] == ("gmail", "1", "none", False)
+    assert calls["purchase"]["offer"]["provider_code"] == "textverified"
+    assert calls["purchase"]["source_order_id"] == "temp-order-id"
+    assert calls["purchase"]["source_reason"] == "replace_request"
+    assert calls["log"][1] == "replacement_requested"
+
+
+@pytest.mark.asyncio
+async def test_numbers_request_replacement_number_uses_alternate_provider(monkeypatch):
+    order = {
+        "_id": "temp-order-id",
+        "number_mode": "temp",
+        "status": "cancelled",
+        "temp_wait_state": "refunded",
+        "provider": "textverified",
+        "provider_order_id": "abc",
+        "provider_number": "+15551234567",
+        "temp_service_key": "gmail",
+        "temp_country": "1",
+        "temp_state": "none",
+        "selling_price": 0.44,
+        "base_price": 0.4,
+        "temp_codes": [],
+        "temp_codes_count": 0,
+        "temp_alternate_enabled": True,
+        "temp_alternate_provider": "herosms",
+    }
+    calls: dict = {}
+
+    async def _fake_prices(service, country, state, with_success_rates=False):
+        return {
+            "textverified": {"price": 0.44, "base_price": 0.4, "api_service_name": "gmail"},
+            "herosms": {"price": 0.66, "base_price": 0.6, "api_service_name": "gmail"},
+        }
+
+    async def _fake_purchase(**kwargs):
+        calls["purchase"] = kwargs
+        return {"ok": True, "order": {"id": "alternate-order"}}
+
+    async def _fake_log(order_arg, event, payload):
+        calls["log"] = (order_arg, event, payload)
+
+    monkeypatch.setattr(miniapp, "get_all_prices", _fake_prices)
+    monkeypatch.setattr(miniapp, "_purchase_temp_offer", _fake_purchase)
+    monkeypatch.setattr(miniapp, "_log_temp_event", _fake_log)
+
+    result = await miniapp._request_replacement_number(
+        order_id=order["_id"],
+        order=dict(order),
+        user_id=123,
+        reseller_id=123,
+        lang="en",
+        alternate_provider=True,
+    )
+
+    assert result["ok"] is True
+    assert calls["purchase"]["offer"]["provider_code"] == "herosms"
+    assert calls["purchase"]["offer"]["info"]["price"] == 0.66
+    assert calls["purchase"]["source_reason"] == "alternate_provider_request"
+    assert calls["log"][2]["alternate_provider"] is True
 
 
 def test_provider_terminal_status_classifier_keeps_waiting_states_open():

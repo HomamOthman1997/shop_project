@@ -569,6 +569,34 @@ h2 {
   font-weight: 650;
 }
 
+.price-progress {
+  display: grid;
+  gap: 8px;
+}
+
+.price-progress-label {
+  color: #c8dcf5;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.price-progress-track {
+  display: block;
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.price-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2bbf91, #5aa7ff);
+  transition: width 0.65s ease;
+}
+
 .success-legend {
   margin: 7px 0 0;
   color: #b9d9ff;

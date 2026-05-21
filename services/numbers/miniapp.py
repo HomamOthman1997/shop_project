@@ -145,6 +145,7 @@ from services.numbers.shared.temp_refund import (
 )
 
 from services.numbers.shared.temp_second_code import request_second_code_for_order as _shared_request_second_code_for_order
+from services.numbers.shared.temp_replacement import pick_retry_provider as _shared_pick_retry_provider
 
 from services.numbers.manager import (
 
@@ -265,6 +266,8 @@ _CHEAP_COUNTRY_ISOS = (
 _BOOTSTRAP_CACHE: dict[str, Any] = {"data": None}
 
 _PRICE_TIMEOUT_SEC = 18.0
+_PRICE_SOFT_TIMEOUT_SEC = 6.0
+_TEMP_PRICE_SCREEN_PROVIDER_CODES = ("smspool", "telabot", "textverified", "herosms", "pvadeals", "vaksms")
 
 _MAX_PRICE_ROWS = 16
 
@@ -4217,52 +4220,24 @@ def _pick_alternate_temp_provider(
     state: str,
 
 ) -> tuple[str, dict[str, Any]] | None:
-
-    candidates: list[tuple[float, tuple[int, str, str], str, dict[str, Any]]] = []
-
-    for code, raw_info in (prices or {}).items():
-
-        code = str(code or "").strip().lower()
-
-        if not code or code == current_provider or code in _HIDDEN_TEMP_PROVIDER_CODES or not isinstance(raw_info, dict):
-
-            continue
-
-        if not _can_quote_temp_offer(
-
+    quoteable = {
+        str(code or "").strip().lower(): info
+        for code, info in (prices or {}).items()
+        if isinstance(info, dict)
+        and _can_quote_temp_offer(
             mode="temp",
-
             service=service,
-
             country=country,
-
             state=state,
-
-            provider_code=code,
-
-            info=raw_info,
-
-        ):
-
-            continue
-
-        try:
-
-            candidate_price = float(raw_info.get("price") or 999999)
-
-        except Exception:
-
-            candidate_price = 999999.0
-
-        candidates.append((candidate_price, _provider_sort_key(code), code, raw_info))
-
-    if not candidates:
-
-        return None
-
-    _price, _sort_key, provider_code, info = sorted(candidates, key=lambda item: (item[0], item[1]))[0]
-
-    return provider_code, info
+            provider_code=str(code or "").strip().lower(),
+            info=info,
+        )
+    }
+    return _shared_pick_retry_provider(
+        quoteable,
+        exclude_provider=current_provider,
+        hidden_provider_codes=_HIDDEN_TEMP_PROVIDER_CODES,
+    )
 
 async def _enable_alternate_provider_suggestion(
 
@@ -6570,7 +6545,13 @@ async def prices(request: web.Request) -> web.Response:
 
             raw = await asyncio.wait_for(
 
-                get_all_prices(service, country, state, with_success_rates=True),
+                get_all_prices(
+                    service,
+                    country,
+                    state,
+                    with_success_rates=False,
+                    provider_codes=_TEMP_PRICE_SCREEN_PROVIDER_CODES,
+                ),
 
                 timeout=_PRICE_TIMEOUT_SEC,
 

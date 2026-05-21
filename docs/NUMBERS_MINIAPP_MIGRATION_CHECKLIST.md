@@ -34,6 +34,8 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 - [x] Busy state while refund/cancel is running
 - [x] Replacement number request
 - [x] Alternate provider retry with suggested price
+  - Backend tests now cover current-provider replacement and alternate-provider replacement.
+  - Alternate provider ranking now uses the same retry scoring helper as the Telegram flow.
 - [x] Second-code request
   - Shared backend second-code service now used by both Mini App and Telegram wrappers.
 - [x] Rental SMS fetch

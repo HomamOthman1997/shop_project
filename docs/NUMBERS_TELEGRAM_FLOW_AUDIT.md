@@ -30,6 +30,9 @@ These parts are used by the Mini App and must stay available:
 - `services/numbers/shared/temp_second_code.py`
   - Temporary-number second-code provider resend, second-order charging, state update, and event logging.
   - Used by both the Telegram flow and the Mini App.
+- `services/numbers/shared/temp_replacement.py`
+  - Shared alternate-provider retry scoring and selection.
+  - Used by both the Telegram flow and the Mini App.
 
 ## Telegram-Only Candidates
 
@@ -75,7 +78,10 @@ These should be treated as customer Telegram UI/state handlers until proven othe
 - [x] Mini App exposes eligible rental cancel/refund instead of keeping the backend route hidden.
 - [x] Extract duplicated temp/call refund service logic out of `core_numbers_buy.py`.
 - [x] Extract duplicated temp second-code service logic out of `core_numbers_buy.py`.
+- [~] Temp replacement is covered in Mini App backend tests, including current-provider retry and alternate-provider retry.
+- [x] Alternate-provider retry selection uses the shared Telegram scoring logic in the Mini App.
 - [ ] Extract duplicated temp replacement service logic out of `core_numbers_buy.py`.
+  - Remaining reason: Telegram replacement still edits the chat message and queues the Telegram waiter against the same message. Keep this as a wrapper until a live Telegram smoke test confirms an extracted shared service preserves that UX.
 
 ## Hard Stop Before Deletion
 

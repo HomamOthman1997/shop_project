@@ -201,14 +201,23 @@ class HeroSMSProvider(BaseProvider):
 
         _status, data = await self._request("getCountries")
         countries: list[dict[str, Any]] = []
+        items: list[Any] = []
         if isinstance(data, list):
-            for item in data:
-                if not isinstance(item, dict):
-                    continue
-                cid = _as_int(item.get("id"))
-                if cid is None or cid < 0:
-                    continue
-                countries.append(item)
+            items = list(data)
+        elif isinstance(data, dict):
+            items = []
+            for country_id, item in data.items():
+                if isinstance(item, dict):
+                    row = dict(item)
+                    row.setdefault("id", country_id)
+                    items.append(row)
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            cid = _as_int(item.get("id"))
+            if cid is None or cid < 0:
+                continue
+            countries.append(item)
         if countries:
             self._countries_cache = countries
             self._countries_cached_at = now

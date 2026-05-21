@@ -310,6 +310,14 @@ def _success_rate_default() -> float:
     return max(0.0, min(100.0, value))
 
 
+def _success_rate_query_timeout_sec() -> float:
+    try:
+        value = float(getattr(settings, "numbers_success_rate_query_timeout_sec", 2.0) or 2.0)
+    except Exception:
+        value = 2.0
+    return max(0.1, value)
+
+
 def _blend_success_rate(general: dict[str, Any], contextual: dict[str, Any], default_rate: float) -> float:
     general_rate = float(general.get("success_rate", default_rate))
     context_rate = float(contextual.get("success_rate", default_rate))
@@ -339,26 +347,36 @@ async def _apply_dynamic_success_rates(
     if not providers:
         return
     try:
-        stats = await temp_number_stats_repo.get_provider_success_rates(
-            service_id=str(service_id or "").strip(),
-            providers=providers,
-            lookback_days=_success_rate_lookback_days(),
-            min_attempts=_success_rate_min_attempts(),
-            default_rate=_success_rate_default(),
+        timeout_sec = _success_rate_query_timeout_sec()
+        stats = await asyncio.wait_for(
+            temp_number_stats_repo.get_provider_success_rates(
+                service_id=str(service_id or "").strip(),
+                providers=providers,
+                lookback_days=_success_rate_lookback_days(),
+                min_attempts=_success_rate_min_attempts(),
+                default_rate=_success_rate_default(),
+            ),
+            timeout=timeout_sec,
         )
         context_stats: dict[str, Any] = {}
         country_value = str(country or "").strip()
         state_value = str(state or "").strip() or "none"
         if country_value:
-            context_stats = await temp_number_stats_repo.get_provider_success_rates(
-                service_id=str(service_id or "").strip(),
-                providers=providers,
-                country=country_value,
-                state=state_value,
-                lookback_days=_success_rate_lookback_days(),
-                min_attempts=_success_rate_min_attempts(),
-                default_rate=_success_rate_default(),
+            context_stats = await asyncio.wait_for(
+                temp_number_stats_repo.get_provider_success_rates(
+                    service_id=str(service_id or "").strip(),
+                    providers=providers,
+                    country=country_value,
+                    state=state_value,
+                    lookback_days=_success_rate_lookback_days(),
+                    min_attempts=_success_rate_min_attempts(),
+                    default_rate=_success_rate_default(),
+                ),
+                timeout=timeout_sec,
             )
+    except TimeoutError:
+        logger.warning("provider success rates timed out: service=%s", service_id)
+        return
     except Exception:
         logger.exception("failed to compute provider success rates: service=%s", service_id)
         return
@@ -583,6 +601,8 @@ async def get_all_prices(
     *,
     ignore_balance: bool = False,
     with_success_rates: bool = True,
+    soft_timeout_sec: float | None = None,
+    provider_codes: set[str] | list[str] | tuple[str, ...] | None = None,
 ):
     """Fetch temporary-number prices from all configured providers."""
     results = {}
@@ -877,12 +897,24 @@ async def get_all_prices(
                 )
         return (code, None)
 
+    allowed_provider_codes = {str(code or "").strip().lower() for code in (provider_codes or []) if str(code or "").strip()}
     tasks = [
-        fetch_single_provider(code, p)
+        asyncio.create_task(fetch_single_provider(code, p))
         for code, p in PROVIDERS.items()
-        if code != "smsman_s6"
+        if code != "smsman_s6" and (not allowed_provider_codes or str(code).strip().lower() in allowed_provider_codes)
     ]
-    responses = await asyncio.gather(*tasks)
+    if soft_timeout_sec and soft_timeout_sec > 0:
+        done, pending = await asyncio.wait(tasks, timeout=float(soft_timeout_sec))
+        responses = [task.result() for task in done if not task.cancelled() and task.exception() is None]
+        has_visible_data = any(data for _code, data in responses)
+        if pending and has_visible_data:
+            for task in pending:
+                task.cancel()
+            await asyncio.wait(pending, timeout=0.1)
+        elif pending:
+            responses.extend(await asyncio.gather(*pending))
+    else:
+        responses = await asyncio.gather(*tasks)
 
     for code, data in responses:
         if data:

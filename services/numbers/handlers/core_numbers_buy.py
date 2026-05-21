@@ -98,6 +98,10 @@ from services.numbers.shared.temp_refund import (
     cancel_and_refund_temp_order as _shared_cancel_and_refund_temp_order,
 )
 from services.numbers.shared.temp_second_code import request_second_code_for_order as _shared_request_second_code_for_order
+from services.numbers.shared.temp_replacement import (
+    pick_retry_provider as _shared_pick_retry_provider,
+    provider_retry_score as _shared_provider_retry_score,
+)
 from services.numbers.handlers.temp_waiter_runtime import (
     queue_temp_waiter as _queue_temp_waiter_impl,
     send_temp_timeout_state as _send_temp_timeout_state_impl,
@@ -908,51 +912,15 @@ async def _send_voice_recording_file(*, bot, chat_id: int, provider_code: str, r
 
 
 def _provider_retry_score(info: dict, cheapest: float) -> float:
-    try:
-        price = float(info.get("price") or 0)
-    except Exception:
-        price = 0.0
-    try:
-        rate = float(
-            info.get("recommended_success_rate")
-            if info.get("recommended_success_rate") is not None
-            else info.get("success_rate", 100)
-        )
-    except Exception:
-        rate = 100.0
-    rate = max(0.0, min(100.0, rate))
-    attempts = int(info.get("success_attempts") or 0)
-    context_attempts = int(info.get("context_success_attempts") or 0)
-    if attempts < 3 and context_attempts < 3:
-        rate = min(rate, 90.0)
-    price_ratio = price / cheapest if cheapest > 0 else 1.0
-    price_penalty = min(22.0, max(0.0, price_ratio - 1.0) * 12.0)
-    sample_bonus = min(4.0, (attempts + (context_attempts * 2)) * 0.25)
-    return rate - price_penalty + sample_bonus
+    return _shared_provider_retry_score(info, cheapest)
 
 
 def _pick_retry_provider(prices: dict, *, exclude_provider: str | None = None) -> tuple[str, dict] | None:
-    excluded = str(exclude_provider or "").strip().lower()
-    candidates: list[tuple[float, float, str, dict]] = []
-    buyable: list[tuple[str, dict, float]] = []
-    for provider_code, info in (prices or {}).items():
-        code = str(provider_code or "").strip().lower()
-        if not code or code == excluded or code in _HIDDEN_TEMP_PROVIDER_CODES or not isinstance(info, dict):
-            continue
-        try:
-            price = float(info.get("price") or 0)
-        except Exception:
-            price = 0.0
-        if not bool(info.get("available_for_buy", True)) or not str(info.get("api_service_name") or "").strip() or price <= 0:
-            continue
-        buyable.append((code, info, price))
-    if not buyable:
-        return None
-    cheapest = min(price for _code, _info, price in buyable)
-    for code, info, price in buyable:
-        candidates.append((-_provider_retry_score(info, cheapest), price, code, info))
-    candidates.sort(key=lambda row: (row[0], row[1], row[2]))
-    return candidates[0][2], candidates[0][3]
+    return _shared_pick_retry_provider(
+        prices,
+        exclude_provider=exclude_provider,
+        hidden_provider_codes=_HIDDEN_TEMP_PROVIDER_CODES,
+    )
 
 
 async def _safe_callback_answer(
