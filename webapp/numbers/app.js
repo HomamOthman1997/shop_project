@@ -1955,7 +1955,9 @@ async function boot() {
   renderProviders([]);
   renderActiveOrders([]);
   refreshOrders({ quiet: true });
-  if (canUseTelegramAuth()) loadAccount();
+  if (canUseTelegramAuth()) {
+    await loadAccount();
+  }
   els.countrySelect.addEventListener("change", () => {
     setCountrySelection(els.countrySelect.value || "none");
   });
