@@ -23,7 +23,22 @@
 
       <section class="content-shell">
         <section class="view-panel" id="buyView">
-          <section class="control-band" aria-label="Number order filters">
+          <section class="intro-band" id="introBand" aria-label="Before ordering">
+            <div>
+              <p class="eyebrow" data-i18n="beforeOrder">Before ordering</p>
+              <h2 data-i18n="introTitle">Read this before requesting a number</h2>
+            </div>
+            <div class="notice-list">
+              <p data-i18n="introNotice1">Choose the exact service before buying. The number is reserved for the selected service only.</p>
+              <p data-i18n="introNotice2">For US numbers, choosing any state usually gives better prices than a specific state.</p>
+              <p data-i18n="introNotice3">If no code or call arrives, the app checks the provider and handles the refund flow automatically when eligible.</p>
+            </div>
+            <button class="primary-action" id="requestNumberButton" type="button" data-i18n="requestNumber">
+              Request number
+            </button>
+          </section>
+
+          <section class="control-band hidden" id="controlBand" aria-label="Number order filters">
             <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="Mode"></div>
 
             <div class="field-grid">
@@ -38,14 +53,28 @@
                 </div>
               </label>
 
-              <label class="field">
+              <label class="field country-field">
                 <span data-i18n="country">Country</span>
-                <select id="countrySelect"></select>
+                <button class="select-trigger" id="countryTrigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="countryLabel" data-i18n="chooseCountry">Any country</span>
+                </button>
+                <div class="select-menu hidden" id="countryMenu">
+                  <input id="countrySearch" type="search" autocomplete="off" />
+                  <div class="select-options" id="countryList" role="listbox"></div>
+                </div>
+                <select class="native-select-shadow" id="countrySelect" tabindex="-1" aria-hidden="true"></select>
               </label>
 
               <label class="field state-field" id="stateField">
                 <span data-i18n="state">State</span>
-                <select id="stateSelect"></select>
+                <button class="select-trigger" id="stateTrigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="stateLabel" data-i18n="chooseState">Any state</span>
+                </button>
+                <div class="select-menu hidden" id="stateMenu">
+                  <input id="stateSearch" type="search" autocomplete="off" />
+                  <div class="select-options" id="stateList" role="listbox"></div>
+                </div>
+                <select class="native-select-shadow" id="stateSelect" tabindex="-1" aria-hidden="true"></select>
                 <small class="field-hint" id="stateHint" data-i18n="stateHint">Any state usually gives better prices.</small>
               </label>
             </div>
@@ -57,11 +86,12 @@
             </button>
           </section>
 
-          <section class="result-band" aria-live="polite">
+          <section class="result-band hidden" id="resultBand" aria-live="polite">
             <div class="result-header">
               <div>
                 <p class="eyebrow" data-i18n="providers">Providers</p>
                 <h2 id="selectionTitle" data-i18n="chooseService">Choose service</h2>
+                <p class="success-legend hidden" id="successLegend" data-i18n="successLegend">★ = success rate</p>
               </div>
               <span class="count-pill" id="resultCount">0</span>
             </div>

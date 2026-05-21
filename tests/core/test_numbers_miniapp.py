@@ -15,8 +15,10 @@ def test_numbers_bootstrap_payload_has_core_filters():
 
     assert payload["defaults"] == {"mode": "temp", "service": "", "country": "none", "state": "none"}
     assert [item["key"] for item in payload["modes"]] == ["temp", "rental", "voice"]
-    assert any(item["code"] == "1" for item in payload["countries"])
-    assert any(item["code"] == "none" for item in payload["states_us"])
+    us_country = next(item for item in payload["countries"] if item["code"] == "1")
+    any_state = next(item for item in payload["states_us"] if item["code"] == "none")
+    assert "usa" in {str(alias).lower() for alias in us_country["aliases"]}
+    assert "any" in {str(alias).lower() for alias in any_state["aliases"]}
     assert any(item["key"] == "telegram" for item in payload["services"])
 
 
@@ -359,7 +361,10 @@ def test_numbers_price_rows_mark_best_choice_and_hide_unavailable(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_numbers_voice_prices_fallback_to_generic_route(monkeypatch):
-    async def fake_get_all_voice_prices(service, country, state):
+    calls = []
+
+    async def fake_get_all_voice_prices(service, country, state, *, ignore_balance=False):
+        calls.append((service, country, state, ignore_balance))
         if service == "telegram":
             return {"textverified": {"available_for_buy": False, "provider_reason": "service_not_supported"}}
         if service == miniapp._VOICE_GENERIC_SERVICE:
@@ -380,6 +385,63 @@ async def test_numbers_voice_prices_fallback_to_generic_route(monkeypatch):
 
     assert rows["textverified"]["api_service_name"] == miniapp._VOICE_GENERIC_SERVICE
     assert rows["textverified"]["voice_fallback_service"] is True
+    assert calls[0] == ("telegram", "1", "none", False)
+    assert calls[1] == (miniapp._VOICE_GENERIC_SERVICE, "1", "none", False)
+
+
+@pytest.mark.asyncio
+async def test_numbers_voice_prices_endpoint_ignores_provider_balance_like_bot(monkeypatch):
+    calls = {}
+
+    async def fake_get_miniapp_voice_prices(service, country, state, *, ignore_balance=False):
+        calls["service"] = service
+        calls["country"] = country
+        calls["state"] = state
+        calls["ignore_balance"] = ignore_balance
+        return {
+            "textverified": {
+                "price": 0.55,
+                "base_price": 0.5,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "voice_capable": True,
+            }
+        }
+
+    monkeypatch.setattr(miniapp, "_get_miniapp_voice_prices", fake_get_miniapp_voice_prices)
+    request = make_mocked_request("GET", "/mini/numbers/api/prices?mode=voice&service=telegram&country=none&state=CA")
+
+    response = await miniapp.prices(request)
+    payload = json.loads(response.text)
+
+    assert calls == {"service": "telegram", "country": "1", "state": "CA", "ignore_balance": True}
+    assert payload["providers"][0]["quote_token"]
+
+
+def test_numbers_voice_rows_preserve_selected_state_in_quote(monkeypatch):
+    monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
+
+    rows = miniapp._normalize_provider_rows(
+        {
+            "textverified": {
+                "price": 0.44,
+                "base_price": 0.4,
+                "api_service_name": "attapoll",
+                "available_for_buy": True,
+                "voice_capable": True,
+            }
+        },
+        "voice",
+        service="attapoll",
+        country="1",
+        state="NY",
+    )
+
+    quote = miniapp._verify_quote_token(rows[0]["quote_token"])
+
+    assert quote["mode"] == "voice"
+    assert quote["state"] == "NY"
 
 
 def test_numbers_voice_order_payload_exposes_recording_download():
@@ -528,6 +590,36 @@ def test_numbers_refund_pending_temp_order_can_refresh():
     assert payload["can_refresh"] is True
     assert payload["can_cancel"] is False
     assert payload["can_replace"] is False
+
+
+def test_numbers_terminal_provider_refund_reasons_cover_edge_cases():
+    assert miniapp._provider_terminal_refund_reason("", allow_empty=False) == ""
+    assert miniapp._provider_terminal_refund_reason("", allow_empty=True) == "provider_empty_response"
+    assert miniapp._provider_terminal_refund_reason({"status": "refunded"}) == "provider_already_refunded"
+    assert miniapp._provider_terminal_refund_reason("Activation not found", allow_missing=True) == "provider_missing_or_expired"
+
+
+def test_numbers_expired_temp_order_without_code_exposes_replacement():
+    payload = miniapp._order_payload(
+        {
+            "_id": "expired-temp-id",
+            "number_mode": "temp",
+            "status": "expired",
+            "temp_wait_state": "waiting",
+            "provider": "textverified",
+            "provider_order_id": "abc",
+            "provider_number": "+15551234567",
+            "temp_service_key": "attapoll",
+            "temp_country": "1",
+            "selling_price": 0.44,
+            "base_price": 0.4,
+            "temp_codes": [],
+            "temp_codes_count": 0,
+        }
+    )
+
+    assert payload["public_status"] == "expired"
+    assert payload["can_replace"] is True
 
 
 def test_numbers_refund_pending_voice_order_can_refresh():

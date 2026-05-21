@@ -903,24 +903,39 @@ def _order_detail_rows(order: dict[str, Any], *, mode: str, public_status: str) 
     return rows[:7]
 
 
-def _country_rows() -> list[dict[str, str]]:
-    rows = [{"code": "none", "iso": "", "name": "Any country"}]
+def _clean_aliases(values: Any) -> list[str]:
+    seen: set[str] = set()
+    aliases: list[str] = []
+    for value in values or []:
+        text = str(value or "").strip()
+        key = text.lower()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        aliases.append(text)
+    return aliases
+
+
+def _country_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = [{"code": "none", "iso": "", "name": "Any country", "aliases": ["any", "all"]}]
     for item in COUNTRIES_LIST:
         code = str(item.get("code") or "").strip()
         iso = str(item.get("iso") or "").strip().upper()
         name = str(item.get("name") or "").strip()
         if code and name and "_V" not in iso:
-            rows.append({"code": code, "iso": iso, "name": name})
+            aliases = _clean_aliases([code, iso, name, *(item.get("aliases") or [])])
+            rows.append({"code": code, "iso": iso, "name": name, "aliases": aliases})
     return rows
 
 
-def _state_rows() -> list[dict[str, str]]:
-    rows = [{"code": "none", "name": "Any state"}]
+def _state_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = [{"code": "none", "name": "Any state", "aliases": ["any", "all"]}]
     for item in STATES_LIST:
         code = str(item.get("code") or "").strip().upper()
         name = str(item.get("name") or "").strip()
         if code and name:
-            rows.append({"code": code, "name": name})
+            aliases = _clean_aliases([code, name, *(item.get("aliases") or [])])
+            rows.append({"code": code, "name": name, "aliases": aliases})
     return rows
 
 
@@ -1146,14 +1161,20 @@ def _voice_unavailable_prices(reason: str = "voice_unavailable") -> dict[str, di
     }
 
 
-async def _get_miniapp_voice_prices(service: str, country: str = "1", state: str = "none") -> dict[str, Any]:
-    raw = await get_all_voice_prices(service, country, state)
+async def _get_miniapp_voice_prices(
+    service: str,
+    country: str = "1",
+    state: str = "none",
+    *,
+    ignore_balance: bool = False,
+) -> dict[str, Any]:
+    raw = await get_all_voice_prices(service, country, state, ignore_balance=ignore_balance)
     if raw and any(_miniapp_provider_buyable("voice", str(code), info) for code, info in raw.items() if isinstance(info, dict)):
         return raw
 
     fallback_service = _VOICE_GENERIC_SERVICE
     if resolve_canonical_service_key(service) != fallback_service:
-        fallback = await get_all_voice_prices(fallback_service, "1", "none")
+        fallback = await get_all_voice_prices(fallback_service, "1", state, ignore_balance=ignore_balance)
         if fallback:
             out: dict[str, Any] = {}
             for code, info in fallback.items():
@@ -1411,8 +1432,11 @@ async def _resolve_voice_offer_from_quote(token: str) -> dict[str, Any]:
         raise web.HTTPBadRequest(text="invalid quote")
 
     country = "1"
-    state = "none"
-    prices = await asyncio.wait_for(_get_miniapp_voice_prices(service, country, state), timeout=_PRICE_TIMEOUT_SEC)
+    state = str(quote.get("state") or "none").strip() or "none"
+    prices = await asyncio.wait_for(
+        _get_miniapp_voice_prices(service, country, state, ignore_balance=True),
+        timeout=_PRICE_TIMEOUT_SEC,
+    )
     info = prices.get(provider_code)
     if not isinstance(info, dict):
         raise web.HTTPBadRequest(text="provider unavailable")
@@ -2473,7 +2497,10 @@ async def _request_replacement_number(
 
     try:
         if mode == "voice":
-            prices = await asyncio.wait_for(_get_miniapp_voice_prices(service, "1", "none"), timeout=_PRICE_TIMEOUT_SEC)
+            prices = await asyncio.wait_for(
+                _get_miniapp_voice_prices(service, "1", state, ignore_balance=True),
+                timeout=_PRICE_TIMEOUT_SEC,
+            )
         else:
             prices = await asyncio.wait_for(get_all_prices(service, country, state, with_success_rates=False), timeout=_PRICE_TIMEOUT_SEC)
     except asyncio.TimeoutError:
@@ -3369,7 +3396,7 @@ def _normalize_provider_rows(
                     "mode": "voice",
                     "service": str(service or ""),
                     "country": "1",
-                    "state": "none",
+                    "state": str(state or "none"),
                     "provider": code,
                 }
             )
@@ -3498,7 +3525,7 @@ async def prices(request: web.Request) -> web.Response:
         raise web.HTTPBadRequest(text="invalid mode")
     if mode == "voice":
         country = "1"
-        state = "none"
+        state = state or "none"
     if country != "1":
         state = "none"
 
@@ -3509,7 +3536,10 @@ async def prices(request: web.Request) -> web.Response:
                 timeout=_PRICE_TIMEOUT_SEC,
             )
         elif mode == "voice":
-            raw = await asyncio.wait_for(_get_miniapp_voice_prices(service, country, state), timeout=_PRICE_TIMEOUT_SEC)
+            raw = await asyncio.wait_for(
+                _get_miniapp_voice_prices(service, country, state, ignore_balance=True),
+                timeout=_PRICE_TIMEOUT_SEC,
+            )
         else:
             raw = await asyncio.wait_for(
                 get_all_prices(service, country, state, with_success_rates=True),

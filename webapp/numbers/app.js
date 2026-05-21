@@ -10,6 +10,8 @@ const state = {
   selectedService: "",
   selectedCountry: "none",
   selectedState: "none",
+  orderFlowOpen: false,
+  pricesChecked: false,
   loading: false,
   activeOrders: [],
   account: null,
@@ -20,6 +22,8 @@ const state = {
   providerRows: [],
   showAllProviders: false,
   serviceMenuOpen: false,
+  countryMenuOpen: false,
+  stateMenuOpen: false,
   busyCount: 0,
 };
 
@@ -28,21 +32,36 @@ const ORDER_POLL_INTERVAL_MS = 12000;
 const els = {
   viewTabs: document.getElementById("viewTabs"),
   buyView: document.getElementById("buyView"),
+  introBand: document.getElementById("introBand"),
+  requestNumberButton: document.getElementById("requestNumberButton"),
+  controlBand: document.getElementById("controlBand"),
   modeSwitch: document.getElementById("modeSwitch"),
   serviceTrigger: document.getElementById("serviceTrigger"),
   serviceLabel: document.getElementById("serviceLabel"),
   serviceMenu: document.getElementById("serviceMenu"),
   serviceSearch: document.getElementById("serviceSearch"),
   servicesList: document.getElementById("servicesList"),
+  countryTrigger: document.getElementById("countryTrigger"),
+  countryLabel: document.getElementById("countryLabel"),
+  countryMenu: document.getElementById("countryMenu"),
+  countrySearch: document.getElementById("countrySearch"),
+  countryList: document.getElementById("countryList"),
   countrySelect: document.getElementById("countrySelect"),
+  stateTrigger: document.getElementById("stateTrigger"),
+  stateLabel: document.getElementById("stateLabel"),
+  stateMenu: document.getElementById("stateMenu"),
+  stateSearch: document.getElementById("stateSearch"),
+  stateList: document.getElementById("stateList"),
   stateSelect: document.getElementById("stateSelect"),
   stateField: document.getElementById("stateField"),
   quickServices: document.getElementById("quickServices"),
   quoteButton: document.getElementById("quoteButton"),
+  resultBand: document.getElementById("resultBand"),
   providerList: document.getElementById("providerList"),
   statusLine: document.getElementById("statusLine"),
   resultCount: document.getElementById("resultCount"),
   selectionTitle: document.getElementById("selectionTitle"),
+  successLegend: document.getElementById("successLegend"),
   sessionPill: document.getElementById("sessionPill"),
   activeBand: document.getElementById("activeBand"),
   activeOrders: document.getElementById("activeOrders"),
@@ -69,11 +88,19 @@ const copy = {
     tabOrders: "طلباتي",
     tabAccount: "حسابي",
     tabSupport: "الدعم",
+    beforeOrder: "قبل الطلب",
+    introTitle: "تنبيهات مهمة قبل طلب الرقم",
+    introNotice1: "اختر الخدمة المطلوبة بدقة. الرقم يعمل للخدمة المحددة فقط.",
+    introNotice2: "للأرقام الأمريكية، اختيار أي ولاية غالباً يعطي أسعار أفضل من ولاية محددة.",
+    introNotice3: "إذا لم يصل الكود أو المكالمة، التطبيق يفحص المزود ويتابع الاسترجاع تلقائياً عند توفر شروطه.",
+    requestNumber: "طلب رقم",
     service: "الخدمة",
     country: "الدولة",
     state: "الولاية",
     check: "فحص الأسعار",
     providers: "المزودين",
+    successLegend: "★ تعني نسبة نجاح المزود",
+    bestPrice: "أفضل سعر",
     loading: "جاري فحص المزودين",
     ready: "اختر الخدمة والدولة ثم افحص السعر",
     empty: "لا توجد عروض متاحة لهذا الاختيار",
@@ -145,6 +172,7 @@ const copy = {
     language: "اللغة",
     joined: "تاريخ الانضمام",
     recharge: "شحن الرصيد",
+    openingRecharge: "فتح الشحن",
     support: "الدعم",
     supportTitle: "فتح تذكرة دعم",
     supportCategory: "القسم",
@@ -162,20 +190,33 @@ const copy = {
     tabOrders: "My numbers",
     tabAccount: "Account",
     tabSupport: "Support",
+    beforeOrder: "Before ordering",
+    introTitle: "Important notes before requesting a number",
+    introNotice1: "Choose the exact service. The number is reserved for the selected service only.",
+    introNotice2: "For US numbers, any state usually gives better prices than a specific state.",
+    introNotice3: "If no code or call arrives, the app checks the provider and follows the refund flow when eligible.",
+    requestNumber: "Request number",
     service: "Service",
     chooseService: "Choose service",
     chooseServiceFirst: "Choose a service first",
     country: "Country",
+    chooseCountry: "Any country",
+    searchCountry: "Search country",
     state: "State",
+    chooseState: "Any state",
+    searchState: "Search state",
     stateHint: "Any state usually gives better prices than a specific state.",
     check: "Check prices",
     providers: "Providers",
+    successLegend: "★ means provider success rate",
+    bestPrice: "Best price",
     bestChoice: "Best choice",
     showOtherProviders: "Show other providers",
     hideOtherProviders: "Show best choice only",
     loading: "Checking providers",
     ready: "Choose a service and country, then check prices",
     empty: "No offers are available for this selection",
+    emptyVoice: "No call route is available for this service right now.",
     error: "Could not load data right now",
     temp: "Temporary SMS",
     rental: "Rental numbers",
@@ -244,6 +285,7 @@ const copy = {
     language: "Language",
     joined: "Joined",
     recharge: "Recharge",
+    openingRecharge: "Opening recharge",
     support: "Support",
     supportTitle: "Open support ticket",
     supportCategory: "Category",
@@ -255,6 +297,9 @@ const copy = {
     openBot: "Open bot",
     refundWorking: "Refund in progress",
     refundWait: "Checking provider and wallet. Please wait.",
+    working: "Working",
+    pleaseWait: "Please wait.",
+    checkingOrder: "Checking order",
     voiceFallback: "Generic voice route",
     checkCall: "Check call",
     rentalSms: "Check SMS",
@@ -271,20 +316,33 @@ Object.assign(copy.ar, {
   tabOrders: "طلباتي",
   tabAccount: "حسابي",
   tabSupport: "الدعم",
+  beforeOrder: "قبل الطلب",
+  introTitle: "تنبيهات مهمة قبل طلب الرقم",
+  introNotice1: "اختر الخدمة المطلوبة بدقة. الرقم يعمل للخدمة المحددة فقط.",
+  introNotice2: "للأرقام الأمريكية، اختيار أي ولاية غالباً يعطي أسعار أفضل من ولاية محددة.",
+  introNotice3: "إذا لم يصل الكود أو المكالمة، التطبيق يفحص المزود ويتابع الاسترجاع تلقائياً عند توفر شروطه.",
+  requestNumber: "طلب رقم",
   service: "الخدمة",
   chooseService: "اختر الخدمة",
   chooseServiceFirst: "اختر الخدمة أولاً",
   country: "الدولة",
+  chooseCountry: "أي دولة",
+  searchCountry: "ابحث عن دولة",
   state: "الولاية",
+  chooseState: "أي ولاية",
+  searchState: "ابحث عن ولاية",
   stateHint: "بدون ولاية منجيبلك أفضل الأسعار غالباً.",
   check: "فحص الأسعار",
   providers: "المزودين",
+  successLegend: "★ تعني نسبة نجاح المزود",
+  bestPrice: "أفضل سعر",
   bestChoice: "أفضل خيار",
   showOtherProviders: "عرض باقي المزودات",
   hideOtherProviders: "عرض أفضل خيار فقط",
   loading: "جاري فحص المزودين",
   ready: "اختر الخدمة والدولة ثم افحص السعر",
   empty: "لا توجد عروض متاحة لهذا الاختيار",
+  emptyVoice: "لا يوجد مسار اتصال متاح لهذه الخدمة حالياً.",
   error: "تعذر تحميل البيانات حالياً",
   temp: "أرقام مؤقتة",
   rental: "أرقام للإيجار",
@@ -338,6 +396,9 @@ Object.assign(copy.ar, {
   refundPending: "بانتظار الاسترجاع",
   refundWorking: "جاري الاسترجاع",
   refundWait: "عم نفحص المزود والمحفظة، يرجى الانتظار.",
+  working: "جاري التنفيذ",
+  pleaseWait: "يرجى الانتظار.",
+  checkingOrder: "جاري فحص الطلب",
   cancelWait: "الإلغاء بعد",
   left: "متبقي",
   finish: "إنهاء",
@@ -355,6 +416,7 @@ Object.assign(copy.ar, {
   language: "اللغة",
   joined: "تاريخ الانضمام",
   recharge: "شحن الرصيد",
+  openingRecharge: "فتح الشحن",
   support: "الدعم",
   supportTitle: "فتح تذكرة دعم",
   supportCategory: "القسم",
@@ -390,7 +452,14 @@ function applyLanguage(languageCode) {
   if (els.serviceSearch) {
     els.serviceSearch.placeholder = t("chooseService");
   }
+  if (els.countrySearch) {
+    els.countrySearch.placeholder = t("searchCountry");
+  }
+  if (els.stateSearch) {
+    els.stateSearch.placeholder = t("searchState");
+  }
   updateServiceLabel();
+  updateSelectorLabels();
 }
 
 function setLanguage() {
@@ -430,15 +499,51 @@ function canUseTelegramAuth() {
   return Boolean(tg?.initData);
 }
 
+function telegramDeepLink(url) {
+  try {
+    const parsed = new URL(url);
+    if (!/^(t\.me|telegram\.me)$/i.test(parsed.hostname)) return "";
+    const domain = parsed.pathname.replace(/^\/+/, "").split("/")[0];
+    if (!domain) return "";
+    const params = new URLSearchParams({ domain });
+    const start = parsed.searchParams.get("start");
+    if (start) params.set("start", start);
+    return `tg://resolve?${params.toString()}`;
+  } catch (_error) {
+    return "";
+  }
+}
+
+function clickExternalLink(url) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
 function openTelegramUrl(url) {
   if (!url) return;
+  const deepLink = telegramDeepLink(url);
   try {
     if (tg?.openTelegramLink && /^https?:\/\/(t\.me|telegram\.me)\//i.test(url)) {
       tg.openTelegramLink(url);
-      return;
     }
   } catch (_error) {
-    // Fall through to the generic opener.
+    // Fall through to direct Telegram link navigation.
+  }
+  if (deepLink) {
+    try {
+      window.location.href = deepLink;
+      window.setTimeout(() => {
+        window.location.href = url;
+      }, 450);
+      return;
+    } catch (_error) {
+      // Fall through to the generic opener.
+    }
   }
   try {
     if (tg?.openLink) {
@@ -448,7 +553,11 @@ function openTelegramUrl(url) {
   } catch (_error) {
     // Fall through to browser navigation.
   }
-  window.location.href = url;
+  try {
+    clickExternalLink(url);
+  } catch (_error) {
+    window.location.href = url;
+  }
 }
 
 function rechargeUrl() {
@@ -458,8 +567,17 @@ function rechargeUrl() {
 function openRecharge() {
   const url = rechargeUrl();
   if (url) {
+    els.statusLine.textContent = t("openingRecharge");
     openTelegramUrl(url);
     return;
+  }
+  try {
+    if (tg?.close) {
+      tg.close();
+      return;
+    }
+  } catch (_error) {
+    // Fall through to the account view error.
   }
   setView("account");
   els.statusLine.textContent = t("error");
@@ -520,6 +638,37 @@ function setView(view) {
   if (view === "support") loadSupportInfo();
 }
 
+function renderBuyFlow() {
+  els.introBand?.classList.toggle("hidden", state.orderFlowOpen);
+  els.controlBand?.classList.toggle("hidden", !state.orderFlowOpen);
+  els.resultBand?.classList.toggle("hidden", !state.pricesChecked);
+  els.successLegend?.classList.toggle("hidden", !state.pricesChecked);
+}
+
+function openOrderFlow() {
+  state.orderFlowOpen = true;
+  renderBuyFlow();
+  window.setTimeout(() => {
+    els.controlBand?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 0);
+}
+
+function showPriceResults() {
+  state.pricesChecked = true;
+  renderBuyFlow();
+}
+
+function clearPriceResults() {
+  state.pricesChecked = false;
+  renderBuyFlow();
+}
+
+function scrollToResults() {
+  window.setTimeout(() => {
+    els.resultBand?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 60);
+}
+
 function serviceLabel(key) {
   if (!key) return t("chooseService");
   const found = state.services.find((item) => item.key === key);
@@ -554,6 +703,8 @@ function setServiceMenuOpen(open) {
   els.serviceMenu?.classList.toggle("hidden", !state.serviceMenuOpen);
   els.serviceTrigger?.setAttribute("aria-expanded", state.serviceMenuOpen ? "true" : "false");
   if (state.serviceMenuOpen) {
+    setSelectorMenuOpen("country", false);
+    setSelectorMenuOpen("state", false);
     renderServiceOptions();
     window.setTimeout(() => els.serviceSearch?.focus(), 0);
   }
@@ -563,6 +714,7 @@ function setServiceSelection(key) {
   state.selectedService = key || "";
   els.serviceSearch.value = "";
   state.showAllProviders = false;
+  clearPriceResults();
   updateServiceLabel();
   renderProviders([]);
   setServiceMenuOpen(false);
@@ -600,6 +752,144 @@ function renderServiceOptions() {
   );
 }
 
+function optionText(item, kind) {
+  if (!item) return "";
+  if (kind === "country") {
+    return item.iso ? `${item.name} (${item.iso})` : item.name;
+  }
+  return item.name || item.code || "";
+}
+
+function selectedOption(list, code) {
+  return list.find((item) => String(item.code) === String(code));
+}
+
+function searchTokens(item) {
+  const aliases = Array.isArray(item?.aliases) ? item.aliases : [];
+  return [item?.name, item?.code, item?.iso, ...aliases].map((value) => String(value || "").toLowerCase());
+}
+
+function selectorMatches(item, query) {
+  const lowered = String(query || "").trim().toLowerCase();
+  if (!lowered) return true;
+  return searchTokens(item).some((value) => value.includes(lowered));
+}
+
+function updateSelectorLabels() {
+  const country = selectedOption(state.countries, state.selectedCountry);
+  const stateRow = selectedOption(state.states, state.selectedState);
+  if (els.countryLabel) {
+    els.countryLabel.textContent = optionText(country, "country") || t("chooseCountry");
+  }
+  if (els.stateLabel) {
+    els.stateLabel.textContent = optionText(stateRow, "state") || t("chooseState");
+  }
+  if (els.countrySelect) {
+    els.countrySelect.value = state.selectedCountry;
+  }
+  if (els.stateSelect) {
+    els.stateSelect.value = state.selectedState;
+  }
+}
+
+function setSelectorMenuOpen(kind, open) {
+  const isCountry = kind === "country";
+  const menuKey = isCountry ? "countryMenuOpen" : "stateMenuOpen";
+  state[menuKey] = Boolean(open);
+  const menu = isCountry ? els.countryMenu : els.stateMenu;
+  const trigger = isCountry ? els.countryTrigger : els.stateTrigger;
+  const search = isCountry ? els.countrySearch : els.stateSearch;
+  menu?.classList.toggle("hidden", !state[menuKey]);
+  trigger?.setAttribute("aria-expanded", state[menuKey] ? "true" : "false");
+  if (state[menuKey]) {
+    setServiceMenuOpen(false);
+    if (isCountry) {
+      setSelectorMenuOpen("state", false);
+      renderCountryOptions();
+    } else {
+      setSelectorMenuOpen("country", false);
+      renderStateOptions();
+    }
+    window.setTimeout(() => search?.focus(), 0);
+  }
+}
+
+function setCountrySelection(code) {
+  state.selectedCountry = code || "none";
+  if (state.selectedCountry !== "1") {
+    state.selectedState = "none";
+    if (els.stateSearch) els.stateSearch.value = "";
+    setSelectorMenuOpen("state", false);
+  }
+  if (els.countrySearch) els.countrySearch.value = "";
+  state.showAllProviders = false;
+  clearPriceResults();
+  updateStateVisibility();
+  updateSelectorLabels();
+  renderProviders([]);
+  setSelectorMenuOpen("country", false);
+}
+
+function setStateSelection(code) {
+  state.selectedState = code || "none";
+  if (els.stateSearch) els.stateSearch.value = "";
+  state.showAllProviders = false;
+  clearPriceResults();
+  updateSelectorLabels();
+  renderProviders([]);
+  setSelectorMenuOpen("state", false);
+}
+
+function renderCountryOptions() {
+  const query = els.countrySearch?.value || "";
+  const filtered = state.countries.filter((item) => selectorMatches(item, query)).slice(0, 90);
+  if (!filtered.length) {
+    els.countryList.replaceChildren(emptyState(t("empty")));
+    return;
+  }
+  els.countryList.replaceChildren(
+    ...filtered.map((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `select-option${state.selectedCountry === item.code ? " active" : ""}`;
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", state.selectedCountry === item.code ? "true" : "false");
+      const label = document.createElement("strong");
+      label.textContent = optionText(item, "country");
+      const key = document.createElement("span");
+      key.textContent = item.code === "none" ? "" : item.code;
+      button.append(label, key);
+      button.addEventListener("click", () => setCountrySelection(item.code));
+      return button;
+    })
+  );
+}
+
+function renderStateOptions() {
+  const query = els.stateSearch?.value || "";
+  const filtered = state.states.filter((item) => selectorMatches(item, query)).slice(0, 90);
+  if (!filtered.length) {
+    els.stateList.replaceChildren(emptyState(t("empty")));
+    return;
+  }
+  els.stateList.replaceChildren(
+    ...filtered.map((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `select-option${state.selectedState === item.code ? " active" : ""}`;
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", state.selectedState === item.code ? "true" : "false");
+      const label = document.createElement("strong");
+      label.textContent = optionText(item, "state");
+      const key = document.createElement("span");
+      key.textContent = item.code === "none" ? "" : item.code;
+      button.append(label, key);
+      button.addEventListener("click", () => setStateSelection(item.code));
+      return button;
+    })
+  );
+}
+
 function renderModes() {
   const modes = [
     ["temp", t("temp")],
@@ -616,8 +906,14 @@ function renderModes() {
       button.setAttribute("aria-selected", state.mode === key ? "true" : "false");
       button.addEventListener("click", () => {
         state.mode = key;
+        if (key === "voice") {
+          state.selectedCountry = "1";
+          state.selectedState = "none";
+        }
         state.showAllProviders = false;
+        clearPriceResults();
         updateStateVisibility();
+        updateSelectorLabels();
         renderModes();
         renderProviders([]);
       });
@@ -649,6 +945,9 @@ function renderSelectors() {
     })
   );
   els.stateSelect.value = state.selectedState;
+  renderCountryOptions();
+  renderStateOptions();
+  updateSelectorLabels();
   updateStateVisibility();
 }
 
@@ -659,7 +958,9 @@ function updateStateVisibility() {
   if (!showState) {
     state.selectedState = "none";
     els.stateSelect.value = "none";
+    setSelectorMenuOpen("state", false);
   }
+  updateSelectorLabels();
 }
 
 function renderQuickServices() {
@@ -989,6 +1290,7 @@ async function refreshOrders({ quiet = false } = {}) {
 async function refreshSingleOrder(orderId, button) {
   if (!orderId) return;
   button.disabled = true;
+  showBusy(t("checkingOrder"), t("pleaseWait"));
   try {
     const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/refresh`, { method: "POST", body: {} });
     const next = state.activeOrders.filter((item) => item.id !== orderId);
@@ -999,6 +1301,7 @@ async function refreshSingleOrder(orderId, button) {
   } catch (error) {
     els.statusLine.textContent = error.message || t("error");
   } finally {
+    hideBusy();
     button.disabled = false;
   }
 }
@@ -1031,6 +1334,7 @@ async function finishOrder(orderId, button) {
   const confirmed = await askConfirm(t("finish"));
   if (!confirmed) return;
   button.disabled = true;
+  showBusy(t("working"), t("pleaseWait"));
   try {
     const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/finish`, { method: "POST", body: {} });
     const next = state.activeOrders.filter((item) => item.id !== orderId);
@@ -1040,6 +1344,7 @@ async function finishOrder(orderId, button) {
     els.statusLine.textContent = error.message || t("error");
     await refreshOrders({ quiet: true });
   } finally {
+    hideBusy();
     button.disabled = false;
   }
 }
@@ -1049,6 +1354,7 @@ async function rentalProviderAction(orderId, action, button) {
   const confirmed = action === "renew" ? await askConfirm(t("renew")) : true;
   if (!confirmed) return;
   button.disabled = true;
+  showBusy(t("working"), t("pleaseWait"));
   try {
     const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/${action}`, { method: "POST", body: {} });
     const next = state.activeOrders.filter((item) => item.id !== orderId);
@@ -1058,6 +1364,7 @@ async function rentalProviderAction(orderId, action, button) {
     els.statusLine.textContent = error.message || t("error");
     await refreshOrders({ quiet: true });
   } finally {
+    hideBusy();
     button.disabled = false;
   }
 }
@@ -1067,6 +1374,7 @@ async function requestSecondCode(order, button) {
   const confirmed = await askConfirm(`${t("confirmSecondCode")} ${order.second_code_price_label || ""}`);
   if (!confirmed) return;
   button.disabled = true;
+  showBusy(t("working"), t("pleaseWait"));
   try {
     const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/second-code`, { method: "POST", body: {} });
     const next = state.activeOrders.filter((item) => item.id !== order.id);
@@ -1079,6 +1387,7 @@ async function requestSecondCode(order, button) {
     els.statusLine.textContent = error.message || t("error");
     await refreshOrders({ quiet: true });
   } finally {
+    hideBusy();
     button.disabled = false;
   }
 }
@@ -1088,6 +1397,7 @@ async function replaceOrder(order, button) {
   const confirmed = await askConfirm(t("confirmTryAnother"));
   if (!confirmed) return;
   button.disabled = true;
+  showBusy(t("working"), t("pleaseWait"));
   try {
     const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/replace`, { method: "POST", body: {} });
     const next = state.activeOrders.filter((item) => item.id !== order.id);
@@ -1100,6 +1410,7 @@ async function replaceOrder(order, button) {
     els.statusLine.textContent = error.message || t("error");
     await refreshOrders({ quiet: true });
   } finally {
+    hideBusy();
     button.disabled = false;
   }
 }
@@ -1109,6 +1420,7 @@ async function alternateOrder(order, button) {
   const confirmed = await askConfirm([t("confirmAlternateProvider"), order.alternate_provider_id, order.alternate_provider_price_label].filter(Boolean).join(" "));
   if (!confirmed) return;
   button.disabled = true;
+  showBusy(t("working"), t("pleaseWait"));
   try {
     const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/alternate`, { method: "POST", body: {} });
     const next = state.activeOrders.filter((item) => item.id !== order.id);
@@ -1121,6 +1433,7 @@ async function alternateOrder(order, button) {
     els.statusLine.textContent = error.message || t("error");
     await refreshOrders({ quiet: true });
   } finally {
+    hideBusy();
     button.disabled = false;
   }
 }
@@ -1167,6 +1480,7 @@ async function buyProvider(row, button) {
   const confirmed = await askConfirm(`${t("confirmBuy")} ${row.price_label || ""}`);
   if (!confirmed) return;
   button.disabled = true;
+  showBusy(t("purchasing"), t("pleaseWait"));
   els.statusLine.textContent = t("purchasing");
   try {
     const payload = await api("/mini/numbers/api/purchase", {
@@ -1182,6 +1496,7 @@ async function buyProvider(row, button) {
   } catch (error) {
     els.statusLine.textContent = error.message || t("error");
   } finally {
+    hideBusy();
     button.disabled = false;
   }
 }
@@ -1209,7 +1524,7 @@ function renderProviders(rows, { preserve = false } = {}) {
   const allRows = preserve ? state.providerRows : rows || [];
   els.resultCount.textContent = String(allRows.length);
   if (!allRows.length) {
-    els.providerList.replaceChildren(emptyState(t("empty")));
+    els.providerList.replaceChildren(emptyState(state.mode === "voice" ? t("emptyVoice") : t("empty")));
     return;
   }
 
@@ -1222,19 +1537,21 @@ function renderProviders(rows, { preserve = false } = {}) {
     const main = document.createElement("div");
     main.className = "provider-main";
 
+    const successBadge = document.createElement("span");
+    successBadge.className = "success-badge";
+    successBadge.title = t("successLegend");
+    successBadge.textContent = `\u2605 ${row.success_rate || "-"}`;
+    card.append(successBadge);
+
     const name = document.createElement("p");
     name.className = "provider-name";
-    const id = document.createElement("span");
-    id.className = "provider-id";
-    id.textContent = row.provider_id;
-    name.append(id, document.createTextNode(row.provider));
+    name.textContent = row.provider;
 
     const meta = document.createElement("p");
     meta.className = "provider-meta";
     const details = [];
-    if (row.recommended) details.push(t("bestChoice"));
+    if (row.recommended) details.push(t("bestPrice"));
     if (row.location_tag) details.push(`[${row.location_tag}]`);
-    if (row.success_rate) details.push(`${t("success")}: ${row.success_rate}`);
     if (row.voice_fallback) details.push(t("voiceFallback"));
     meta.textContent = details.join(" · ");
 
@@ -1475,17 +1792,21 @@ async function sendSupportTicket() {
 
 async function checkPrices() {
   state.selectedService = selectedServiceFromInput();
-  state.selectedCountry = els.countrySelect.value || "none";
-  state.selectedState = els.stateSelect.value || "none";
+  state.selectedCountry = state.mode === "voice" ? "1" : state.selectedCountry || els.countrySelect.value || "none";
+  state.selectedState = state.selectedCountry === "1" ? state.selectedState || els.stateSelect.value || "none" : "none";
   if (!state.selectedService) {
     els.statusLine.textContent = t("chooseServiceFirst");
     renderProviders([]);
     updateServiceLabel();
     return;
   }
+  showPriceResults();
   setServiceMenuOpen(false);
+  setSelectorMenuOpen("country", false);
+  setSelectorMenuOpen("state", false);
   updateStateVisibility();
   updateServiceLabel();
+  updateSelectorLabels();
   state.showAllProviders = false;
   els.selectionTitle.textContent = serviceLabel(state.selectedService);
   els.statusLine.textContent = t("loading");
@@ -1500,9 +1821,11 @@ async function checkPrices() {
     const payload = await api(`/mini/numbers/api/prices?${params.toString()}`);
     els.statusLine.textContent = payload.ok === false ? payload.message || t("error") : "";
     renderProviders(payload.providers || []);
+    scrollToResults();
   } catch (_error) {
     els.statusLine.textContent = t("error");
     renderProviders([]);
+    scrollToResults();
   } finally {
     setLoading(false);
   }
@@ -1523,6 +1846,7 @@ async function boot() {
   state.supportBotUrl = payload.links?.numbers_bot || state.supportBotUrl;
   state.rechargeUrl = payload.links?.recharge || state.rechargeUrl;
   renderViewTabs();
+  renderBuyFlow();
   renderModes();
   renderSelectors();
   renderQuickServices();
@@ -1531,21 +1855,31 @@ async function boot() {
   refreshOrders({ quiet: true });
   if (canUseTelegramAuth()) loadAccount();
   els.countrySelect.addEventListener("change", () => {
-    state.selectedCountry = els.countrySelect.value || "none";
-    updateStateVisibility();
+    setCountrySelection(els.countrySelect.value || "none");
   });
   els.stateSelect.addEventListener("change", () => {
-    state.selectedState = els.stateSelect.value || "none";
+    setStateSelection(els.stateSelect.value || "none");
   });
   els.serviceTrigger.addEventListener("click", () => setServiceMenuOpen(!state.serviceMenuOpen));
   els.serviceSearch.addEventListener("input", renderServiceOptions);
+  els.countryTrigger.addEventListener("click", () => setSelectorMenuOpen("country", !state.countryMenuOpen));
+  els.countrySearch.addEventListener("input", renderCountryOptions);
+  els.stateTrigger.addEventListener("click", () => setSelectorMenuOpen("state", !state.stateMenuOpen));
+  els.stateSearch.addEventListener("input", renderStateOptions);
   document.addEventListener("click", (event) => {
-    if (!state.serviceMenuOpen) return;
     const target = event.target;
-    if (els.serviceMenu.contains(target) || els.serviceTrigger.contains(target)) return;
-    setServiceMenuOpen(false);
+    if (state.serviceMenuOpen && !els.serviceMenu.contains(target) && !els.serviceTrigger.contains(target)) {
+      setServiceMenuOpen(false);
+    }
+    if (state.countryMenuOpen && !els.countryMenu.contains(target) && !els.countryTrigger.contains(target)) {
+      setSelectorMenuOpen("country", false);
+    }
+    if (state.stateMenuOpen && !els.stateMenu.contains(target) && !els.stateTrigger.contains(target)) {
+      setSelectorMenuOpen("state", false);
+    }
   });
   els.quoteButton.addEventListener("click", checkPrices);
+  els.requestNumberButton.addEventListener("click", openOrderFlow);
   els.langArButton.addEventListener("click", () => changeLanguage("ar", els.langArButton));
   els.langEnButton.addEventListener("click", () => changeLanguage("en", els.langEnButton));
   els.sessionPill.addEventListener("click", openRecharge);
@@ -1556,6 +1890,7 @@ async function boot() {
 boot().catch(() => {
   setLanguage();
   renderViewTabs();
+  renderBuyFlow();
   els.statusLine.textContent = t("error");
   renderProviders([]);
   renderActiveOrders([]);

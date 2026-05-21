@@ -159,6 +159,7 @@ h2 {
 }
 
 .control-band,
+.intro-band,
 .active-band,
 .result-band,
 .account-band,
@@ -171,6 +172,29 @@ h2 {
 .control-band {
   border-radius: 8px;
   padding: 12px;
+}
+
+.intro-band {
+  border-radius: 8px;
+  padding: 16px 14px;
+}
+
+.notice-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.notice-list p {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #d7dde7;
+  padding: 10px 11px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 700;
 }
 
 .result-band {
@@ -274,7 +298,8 @@ h2 {
   transform: rotate(45deg);
 }
 
-.service-menu {
+.service-menu,
+.select-menu {
   position: absolute;
   z-index: 20;
   top: calc(100% + 6px);
@@ -286,18 +311,21 @@ h2 {
   padding: 8px;
 }
 
-.service-menu input {
+.service-menu input,
+.select-menu input {
   margin-bottom: 8px;
 }
 
-.service-options {
+.service-options,
+.select-options {
   display: grid;
   max-height: 280px;
   overflow-y: auto;
   gap: 5px;
 }
 
-.service-option {
+.service-option,
+.select-option {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
@@ -312,15 +340,27 @@ h2 {
   cursor: pointer;
 }
 
-.service-option span {
+.service-option span,
+.select-option span {
   color: var(--muted);
   font-size: 11px;
 }
 
 .service-option.active,
-.service-option:hover {
+.service-option:hover,
+.select-option.active,
+.select-option:hover {
   border-color: rgba(90, 167, 255, 0.5);
   background: rgba(90, 167, 255, 0.12);
+}
+
+.native-select-shadow {
+  position: absolute;
+  width: 1px !important;
+  height: 1px !important;
+  min-height: 1px !important;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .field-hint {
@@ -401,6 +441,13 @@ h2 {
   font-weight: 650;
 }
 
+.success-legend {
+  margin: 7px 0 0;
+  color: #b9d9ff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .provider-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -423,11 +470,31 @@ h2 {
 .provider-card {
   grid-template-columns: 1fr;
   align-content: start;
+  position: relative;
+  padding-top: 36px;
 }
 
 .provider-card.best {
+  grid-column: 1 / -1;
   border-color: rgba(32, 180, 134, 0.58);
   background: rgba(27, 37, 48, 0.98);
+}
+
+.success-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 24px;
+  border: 1px solid rgba(231, 182, 75, 0.32);
+  border-radius: 999px;
+  background: rgba(231, 182, 75, 0.12);
+  color: #ffd783;
+  font-size: 12px;
+  font-weight: 950;
 }
 
 .provider-main,
