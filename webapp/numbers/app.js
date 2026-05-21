@@ -460,7 +460,7 @@ function t(key) {
 function applyLanguage(languageCode) {
   state.lang = String(languageCode || "ar").toLowerCase().startsWith("ar") ? "ar" : "en";
   document.documentElement.lang = state.lang;
-  document.documentElement.dir = "ltr";
+  document.documentElement.dir = state.lang === "ar" ? "rtl" : "ltr";
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);
   });
