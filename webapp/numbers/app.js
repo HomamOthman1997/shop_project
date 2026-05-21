@@ -189,7 +189,7 @@ const copy = {
     username: "Username",
     language: "اللغة",
     joined: "تاريخ الانضمام",
-    recharge: "شحن الرصيد",
+    recharge: "شراء",
     openingRecharge: "فتح الشحن",
     support: "الدعم",
     supportTitle: "فتح تذكرة دعم",
@@ -433,7 +433,7 @@ Object.assign(copy.ar, {
   username: "Username",
   language: "اللغة",
   joined: "تاريخ الانضمام",
-  recharge: "شحن الرصيد",
+  recharge: "شراء",
   openingRecharge: "فتح الشحن",
   support: "الدعم",
   supportTitle: "فتح تذكرة دعم",
@@ -460,7 +460,7 @@ function t(key) {
 function applyLanguage(languageCode) {
   state.lang = String(languageCode || "ar").toLowerCase().startsWith("ar") ? "ar" : "en";
   document.documentElement.lang = state.lang;
-  document.documentElement.dir = state.lang === "ar" ? "rtl" : "ltr";
+  document.documentElement.dir = "ltr";
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);
   });
