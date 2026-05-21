@@ -1,11 +1,18 @@
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 
 from services.numbers import miniapp
+
+
+def test_numbers_miniapp_does_not_import_telegram_handler_helpers_directly():
+    source = Path(miniapp.__file__).read_text(encoding="utf-8")
+
+    assert "services.numbers.handlers" not in source
 
 
 def test_numbers_bootstrap_payload_has_core_filters():
@@ -20,6 +27,46 @@ def test_numbers_bootstrap_payload_has_core_filters():
     assert "usa" in {str(alias).lower() for alias in us_country["aliases"]}
     assert "any" in {str(alias).lower() for alias in any_state["aliases"]}
     assert any(item["key"] == "telegram" for item in payload["services"])
+
+
+@pytest.mark.asyncio
+async def test_numbers_country_suggestions_rank_available_prices(monkeypatch):
+    miniapp._CHEAP_COUNTRY_CACHE.clear()
+    calls = []
+
+    async def fake_get_all_prices(service, country, state, *, ignore_balance=False, with_success_rates=True):
+        calls.append((service, country, state, ignore_balance, with_success_rates))
+        prices = {"1": 0.44, "2": 0.22, "24": 0.33}
+        price = prices.get(str(country))
+        if price is None:
+            return {}
+        return {"textverified": {"price": price, "base_price": price - 0.01}}
+
+    monkeypatch.setattr(miniapp, "get_all_prices", fake_get_all_prices)
+
+    rows = await miniapp._country_suggestions_for_service("temp", "gmail", limit=3)
+
+    assert [row["code"] for row in rows] == ["1", "2", "24"]
+    assert rows[0]["price_label"] == "$0.44"
+    assert calls
+    assert all(call[3] is True and call[4] is False for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_numbers_country_suggestions_endpoint(monkeypatch):
+    async def fake_suggestions(mode, service, limit=10):
+        return [{"code": "44", "name": "United Kingdom", "price": 0.22, "price_label": "$0.22"}]
+
+    monkeypatch.setattr(miniapp, "_country_suggestions_for_service", fake_suggestions)
+    request = make_mocked_request("GET", "/mini/numbers/api/country-suggestions?mode=temp&service=gmail")
+
+    response = await miniapp.country_suggestions(request)
+    payload = json.loads(response.text)
+
+    assert payload["ok"] is True
+    assert payload["mode"] == "temp"
+    assert payload["service"] == "gmail"
+    assert payload["countries"][0]["price_label"] == "$0.22"
 
 
 def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
@@ -153,6 +200,42 @@ def test_numbers_account_activity_payload_includes_order_subject():
 
     assert rows[0]["subject"] == "Telegram call · +15551234567"
     assert rows[0]["label"] == "Numbers purchase · Telegram call · +15551234567"
+
+
+def test_numbers_account_activity_payload_uses_metadata_subject_without_order():
+    created_at = datetime(2026, 5, 20, 12, 0, tzinfo=UTC)
+
+    rows = miniapp._ledger_activity_payload(
+        [
+            {
+                "_id": "tx-1",
+                "direction": "credit",
+                "amount": 5,
+                "reason": "recharge_request_accepted",
+                "category": "recharge_credit",
+                "balance_after": 10,
+                "created_at": created_at,
+                "order_id": "",
+                "metadata": {"bot_username": "PHANTOM_OTP_NUMBERS_BOT"},
+            },
+            {
+                "_id": "tx-2",
+                "direction": "debit",
+                "amount": -1.25,
+                "reason": "purchase_core_user_debit",
+                "category": "core_purchase",
+                "balance_after": 8.75,
+                "created_at": created_at,
+                "order_id": "",
+                "metadata": {"service_label": "Telegram"},
+            },
+        ],
+        "en",
+    )
+
+    assert rows[0]["label"] == "Balance recharge · @PHANTOM_OTP_NUMBERS_BOT"
+    assert rows[0]["subject"] == "@PHANTOM_OTP_NUMBERS_BOT"
+    assert rows[1]["label"] == "Numbers purchase · Telegram"
 
 
 def test_numbers_temp_rows_include_signed_quote_and_hide_internal_lanes(monkeypatch):
@@ -359,6 +442,35 @@ def test_numbers_price_rows_mark_best_choice_and_hide_unavailable(monkeypatch):
     assert all("base_price_label" not in row for row in rows)
 
 
+def test_numbers_provider_debug_rows_explain_hidden_providers(monkeypatch):
+    monkeypatch.setattr(miniapp.settings, "numbers_success_rate_display_min_attempts", 1, raising=False)
+
+    rows = miniapp._provider_debug_rows(
+        {
+            "smsman": {
+                "price": 0.3,
+                "api_service_name": "1230",
+                "available_for_buy": True,
+                "success_rate": 75,
+                "success_attempts": 6,
+            },
+            "down": {
+                "price": 0.09,
+                "api_service_name": "telegram",
+                "available_for_buy": False,
+                "provider_reason": "provider_balance_low",
+            },
+        },
+        "temp",
+    )
+
+    by_code = {row["provider_code"]: row for row in rows}
+    assert by_code["smsman"]["visible"] is False
+    assert by_code["smsman"]["reason"] == "hidden_provider"
+    assert by_code["down"]["visible"] is False
+    assert by_code["down"]["reason"] == "provider_balance_low"
+
+
 @pytest.mark.asyncio
 async def test_numbers_voice_prices_fallback_to_generic_route(monkeypatch):
     calls = []
@@ -466,6 +578,23 @@ def test_numbers_voice_order_payload_exposes_recording_download():
     assert payload["public_status"] == "call_received"
     assert payload["recording_available"] is True
     assert payload["recording_url"] == "/mini/numbers/api/orders/voice-order-id/recording"
+
+
+def test_numbers_order_event_payload_is_customer_safe():
+    payload = miniapp._event_payload(
+        {
+            "event": "provider_cancel_failed",
+            "created_at": datetime(2026, 5, 21, 12, 30, tzinfo=UTC),
+            "payload": {"raw": "internal provider error"},
+        },
+        "en",
+    )
+
+    assert payload == {
+        "event": "provider_cancel_failed",
+        "label": "Provider refund is retrying",
+        "time": "2026-05-21 12:30 UTC",
+    }
 
 
 def test_numbers_temp_order_payload_exposes_second_code_action():
@@ -788,6 +917,234 @@ async def test_refresh_temp_order_refunds_old_missing_provider_order(monkeypatch
     assert refreshed["temp_provider_terminal_reason"] == "provider_missing_or_expired"
 
 
+@pytest.mark.asyncio
+async def test_cancel_temp_order_marks_financial_refund_failure_retryable(monkeypatch):
+    now = datetime.now(UTC)
+    order = {
+        "_id": "finance-fail-order",
+        "number_mode": "temp",
+        "status": "success",
+        "user_id": 123,
+        "reseller_id": 123,
+        "provider": "textverified",
+        "provider_order_id": "prov-finance-fail",
+        "provider_number": "+15551234567",
+        "selling_price": 0.44,
+        "base_price": 0.4,
+        "created_at": now - timedelta(minutes=20),
+        "temp_wait_started_at": now - timedelta(minutes=20),
+        "temp_wait_timeout_sec": 300,
+        "temp_wait_state": "waiting",
+        "temp_codes": [],
+        "temp_codes_count": 0,
+    }
+    calls: dict = {}
+
+    class _DummyProvider:
+        async def cancel(self, activation_id):
+            calls["cancel"] = activation_id
+            return {"success": True, "raw": "cancelled"}
+
+    class _DummyFinancialManager:
+        @classmethod
+        async def refund_core_purchase(cls, user_id, order_id, sale_price, cost_price, reseller_id=None):
+            calls["refund"] = order_id
+            return False, "ledger_write_failed"
+
+    async def _fail_update_order_status(*args, **kwargs):
+        raise AssertionError("status must not close when wallet refund fails")
+
+    async def _fake_update_order_details(*args, **kwargs):
+        calls.setdefault("details", []).append(args)
+
+    async def _fake_log(*args, **kwargs):
+        return None
+
+    monkeypatch.setitem(miniapp.PROVIDERS, "textverified", _DummyProvider())
+    monkeypatch.setattr(miniapp, "FinancialManager", _DummyFinancialManager)
+    monkeypatch.setattr(miniapp, "update_order_status", _fail_update_order_status)
+    monkeypatch.setattr(miniapp, "update_order_details", _fake_update_order_details)
+    monkeypatch.setattr(miniapp, "_log_temp_event", _fake_log)
+    monkeypatch.setattr(miniapp, "_log_number_event_from_order", _fake_log)
+
+    result = await miniapp._cancel_and_refund_temp_order(
+        order_id=order["_id"],
+        order=dict(order),
+        actor_user_id=123,
+        reason="test_finance_failure",
+        require_no_sms=True,
+    )
+
+    assert calls["cancel"] == "prov-finance-fail"
+    assert calls["refund"] == "finance-fail-order"
+    assert result == {"success": False, "reason": "financial_refund_failed", "raw": "ledger_write_failed"}
+    assert miniapp._temp_refund_result_retryable(result) is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_temp_order_exposes_retryable_provider_cancel_failure(monkeypatch):
+    order = {
+        "_id": "provider-retry-order",
+        "number_mode": "temp",
+        "status": "success",
+        "user_id": 123,
+        "reseller_id": 123,
+        "provider": "textverified",
+        "provider_order_id": "prov-timeout",
+        "provider_number": "+15551234567",
+        "selling_price": 0.44,
+        "base_price": 0.4,
+        "temp_wait_state": "waiting",
+        "temp_codes": [],
+        "temp_codes_count": 0,
+    }
+    calls = {"cancel": 0}
+
+    class _DummyProvider:
+        async def cancel(self, activation_id):
+            calls["cancel"] += 1
+            assert activation_id == "prov-timeout"
+            return {"success": False, "raw": "provider timeout"}
+
+    async def _fake_sleep(_seconds):
+        calls["sleep"] = calls.get("sleep", 0) + 1
+
+    async def _fake_log(*args, **kwargs):
+        return None
+
+    monkeypatch.setitem(miniapp.PROVIDERS, "textverified", _DummyProvider())
+    monkeypatch.setattr(miniapp.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(miniapp, "_log_number_event_from_order", _fake_log)
+
+    result = await miniapp._cancel_and_refund_temp_order(
+        order_id=order["_id"],
+        order=dict(order),
+        actor_user_id=123,
+        reason="test_provider_retryable",
+        require_no_sms=True,
+    )
+
+    assert calls["cancel"] == 4
+    assert calls["sleep"] == 2
+    assert result["reason"] == "provider_cancel_failed"
+    assert result["retryable"] is True
+    assert miniapp._temp_refund_result_retryable(result) is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_temp_order_exposes_permanent_provider_cancel_failure(monkeypatch):
+    order = {
+        "_id": "provider-permanent-order",
+        "number_mode": "temp",
+        "status": "success",
+        "user_id": 123,
+        "reseller_id": 123,
+        "provider": "textverified",
+        "provider_order_id": "prov-denied",
+        "provider_number": "+15551234567",
+        "selling_price": 0.44,
+        "base_price": 0.4,
+        "temp_wait_state": "waiting",
+        "temp_codes": [],
+        "temp_codes_count": 0,
+    }
+
+    class _DummyProvider:
+        async def cancel(self, _activation_id):
+            return {"success": False, "raw": "policy denied"}
+
+    async def _fake_sleep(_seconds):
+        return None
+
+    async def _fake_log(*args, **kwargs):
+        return None
+
+    monkeypatch.setitem(miniapp.PROVIDERS, "textverified", _DummyProvider())
+    monkeypatch.setattr(miniapp.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(miniapp, "_log_number_event_from_order", _fake_log)
+
+    result = await miniapp._cancel_and_refund_temp_order(
+        order_id=order["_id"],
+        order=dict(order),
+        actor_user_id=123,
+        reason="test_provider_permanent",
+        require_no_sms=True,
+    )
+
+    assert result["reason"] == "provider_cancel_failed"
+    assert result["retryable"] is False
+    assert miniapp._temp_refund_result_retryable(result) is False
+
+
+@pytest.mark.asyncio
+async def test_cancel_temp_order_empty_provider_response_after_timeout_refunds_locally(monkeypatch):
+    now = datetime.now(UTC)
+    stored = {
+        "_id": "provider-empty-order",
+        "number_mode": "temp",
+        "status": "success",
+        "user_id": 123,
+        "reseller_id": 123,
+        "provider": "textverified",
+        "provider_order_id": "prov-empty",
+        "provider_number": "+15551234567",
+        "selling_price": 0.44,
+        "base_price": 0.4,
+        "created_at": now - timedelta(minutes=20),
+        "temp_wait_started_at": now - timedelta(minutes=20),
+        "temp_wait_timeout_sec": 300,
+        "temp_wait_state": "waiting",
+        "temp_codes": [],
+        "temp_codes_count": 0,
+    }
+    calls: dict = {}
+
+    class _DummyProvider:
+        async def cancel(self, activation_id):
+            calls["cancel"] = activation_id
+            return {"success": False, "raw": ""}
+
+    class _DummyFinancialManager:
+        @classmethod
+        async def refund_core_purchase(cls, user_id, order_id, sale_price, cost_price, reseller_id=None):
+            calls["refund"] = order_id
+            return True, "OK"
+
+    async def _fake_update_order_status(_order_id, status):
+        calls["status"] = status
+        stored["status"] = status
+
+    async def _fake_update_order_details(_order_id, patch):
+        stored.update(patch)
+        calls["details"] = dict(patch)
+
+    async def _fake_log(*args, **kwargs):
+        return None
+
+    monkeypatch.setitem(miniapp.PROVIDERS, "textverified", _DummyProvider())
+    monkeypatch.setattr(miniapp, "FinancialManager", _DummyFinancialManager)
+    monkeypatch.setattr(miniapp, "update_order_status", _fake_update_order_status)
+    monkeypatch.setattr(miniapp, "update_order_details", _fake_update_order_details)
+    monkeypatch.setattr(miniapp, "_log_temp_event", _fake_log)
+    monkeypatch.setattr(miniapp, "_log_number_event_from_order", _fake_log)
+
+    result = await miniapp._cancel_and_refund_temp_order(
+        order_id=stored["_id"],
+        order=dict(stored),
+        actor_user_id=123,
+        reason="test_empty_provider_terminal",
+        require_no_sms=True,
+        allow_empty_provider_refund=True,
+    )
+
+    assert result == {"success": True, "reason": "ok"}
+    assert calls["cancel"] == "prov-empty"
+    assert calls["refund"] == "provider-empty-order"
+    assert calls["status"] == "cancelled"
+    assert stored["temp_wait_state"] == "refunded"
+    assert stored["temp_provider_terminal_reason"] == "provider_empty_response"
+
+
 def test_numbers_rental_order_payload_exposes_renew_and_wake_actions():
     payload = miniapp._order_payload(
         {
@@ -827,6 +1184,54 @@ def test_numbers_rental_order_payload_exposes_renew_and_wake_actions():
     assert details["duration"] == "1d"
 
 
+def test_numbers_rental_order_payload_exposes_cancel_when_refundable_without_sms():
+    now = datetime.now(UTC)
+    payload = miniapp._order_payload(
+        {
+            "_id": "rental-order-id",
+            "number_mode": "rental",
+            "status": "success",
+            "provisioning_state": "provisioned",
+            "provider": "herosms",
+            "provider_order_id": "rental-1",
+            "provider_number": "+15551234567",
+            "service_id": "telegram:rental",
+            "rental_country": "1",
+            "rental_started_at": now,
+            "rental_protection_policy": {"refund_deadline_sec": 1200, "safe_cutoff_sec": 60},
+            "rental_sms_count": 0,
+            "selling_price": 1.2,
+            "base_price": 1.0,
+        }
+    )
+
+    assert payload["public_status"] == "waiting"
+    assert payload["can_cancel"] is True
+
+
+def test_numbers_rental_order_payload_hides_cancel_after_sms():
+    payload = miniapp._order_payload(
+        {
+            "_id": "rental-order-id",
+            "number_mode": "rental",
+            "status": "success",
+            "provisioning_state": "provisioned",
+            "provider": "herosms",
+            "provider_order_id": "rental-1",
+            "provider_number": "+15551234567",
+            "service_id": "telegram:rental",
+            "rental_country": "1",
+            "rental_sms_count": 1,
+            "rental_sms_messages": ["Code 123"],
+            "selling_price": 1.2,
+            "base_price": 1.0,
+        }
+    )
+
+    assert payload["public_status"] == "code_received"
+    assert payload["can_cancel"] is False
+
+
 def test_register_numbers_routes_adds_public_endpoints():
     app = web.Application()
 
@@ -836,6 +1241,7 @@ def test_register_numbers_routes_adds_public_endpoints():
     assert ("GET", "/mini/numbers") in routes
     assert ("GET", "/mini/numbers/static/{name}") in routes
     assert ("GET", "/mini/numbers/api/bootstrap") in routes
+    assert ("GET", "/mini/numbers/api/country-suggestions") in routes
     assert ("GET", "/mini/numbers/api/account") in routes
     assert ("POST", "/mini/numbers/api/account/language") in routes
     assert ("GET", "/mini/numbers/api/support") in routes

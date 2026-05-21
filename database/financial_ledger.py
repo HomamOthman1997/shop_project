@@ -365,6 +365,9 @@ async def list_user_wallet_entries(user_id: int, reseller_id: int, limit: int = 
                 "balance_after": 1,
                 "created_at": 1,
                 "order_id": 1,
+                "actor_type": 1,
+                "actor_id": 1,
+                "metadata": 1,
             },
         )
         .sort("created_at", -1)

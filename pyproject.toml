@@ -1,0 +1,25 @@
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+exclude = [
+  ".git",
+  ".venv",
+  "__pycache__",
+  "data",
+  "docs/providers/raw",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.black]
+line-length = 120
+target-version = ["py313"]

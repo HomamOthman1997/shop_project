@@ -39,10 +39,15 @@ const state = {
   serviceMenuOpen: false,
   countryMenuOpen: false,
   stateMenuOpen: false,
+  countrySuggestionRanks: {},
+  countrySuggestionPrices: {},
+  countrySuggestionRequestId: 0,
   busyCount: 0,
 };
 
 const ORDER_POLL_INTERVAL_MS = 12000;
+const QUICK_COUNTRY_ISOS = ["US", "GB", "DE", "FR"];
+const QUICK_STATE_CODES = ["CA", "NY", "TX", "FL", "WA"];
 
 const els = {
   bootSplash: document.getElementById("bootSplash"),
@@ -136,6 +141,7 @@ const copy = {
     waitingCall: "بانتظار المكالمة",
     callReceived: "وصلت المكالمة",
     recording: "تسجيل المكالمة",
+    playRecording: "تشغيل التسجيل",
     downloadRecording: "تحميل التسجيل",
     noOrders: "لا توجد أرقام حاليا",
     buy: "شراء",
@@ -249,6 +255,7 @@ const copy = {
     waitingCall: "Waiting for call",
     callReceived: "Call received",
     recording: "Call recording",
+    playRecording: "Play recording",
     downloadRecording: "Download recording",
     noOrders: "No numbers right now",
     buy: "Buy",
@@ -375,6 +382,7 @@ Object.assign(copy.ar, {
   waitingCall: "بانتظار المكالمة",
   callReceived: "وصلت المكالمة",
   recording: "تسجيل المكالمة",
+  playRecording: "تشغيل التسجيل",
   downloadRecording: "تحميل التسجيل",
   noOrders: "لا توجد أرقام حالياً",
   buy: "شراء",
@@ -471,8 +479,15 @@ function refreshTranslatedStatus() {
   }
 }
 
-function applyLanguage(languageCode) {
+function applyLanguage(languageCode, options = {}) {
   state.lang = String(languageCode || "ar").toLowerCase().startsWith("ar") ? "ar" : "en";
+  if (options.persist) {
+    try {
+      window.localStorage?.setItem("numbersMiniAppLanguageChoice", state.lang);
+    } catch (_error) {
+      // Storage can be unavailable inside some embedded browsers.
+    }
+  }
   document.documentElement.lang = state.lang;
   document.documentElement.dir = state.lang === "ar" ? "rtl" : "ltr";
   document.querySelectorAll("[data-i18n]").forEach((node) => {
@@ -496,7 +511,13 @@ function applyLanguage(languageCode) {
 }
 
 function setLanguage() {
-  const languageCode = tg?.initDataUnsafe?.user?.language_code || navigator.language || "ar";
+  let saved = "";
+  try {
+    saved = window.localStorage?.getItem("numbersMiniAppLanguageChoice") || "";
+  } catch (_error) {
+    saved = "";
+  }
+  const languageCode = saved || document.documentElement.lang || tg?.initDataUnsafe?.user?.language_code || "ar";
   applyLanguage(languageCode);
   els.statusLine.textContent = t("ready");
 }
@@ -661,6 +682,11 @@ function resetBuyStatus() {
   els.statusLine.textContent = "";
 }
 
+function clearTransientStatus() {
+  if (!els.statusLine || state.loading || state.pricesChecked) return;
+  els.statusLine.textContent = "";
+}
+
 function setView(view) {
   state.view = view;
   els.buyView.classList.toggle("hidden", view !== "buy");
@@ -736,18 +762,55 @@ function serviceLabel(key) {
   return found?.label || key;
 }
 
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function orderedMatch(query, text) {
+  const q = normalizeSearchText(query).replace(/\s+/g, "");
+  const haystack = normalizeSearchText(text).replace(/\s+/g, "");
+  if (!q) return true;
+  let offset = 0;
+  for (const char of q) {
+    const next = haystack.indexOf(char, offset);
+    if (next < 0) return false;
+    offset = next + 1;
+  }
+  return true;
+}
+
+function rankedTokenMatch(tokens, query) {
+  const q = normalizeSearchText(query);
+  if (!q) return 0;
+  let best = -1;
+  for (const rawToken of tokens) {
+    const token = normalizeSearchText(rawToken);
+    if (!token) continue;
+    if (token === q) best = Math.max(best, 500);
+    else if (token.startsWith(q)) best = Math.max(best, 420);
+    else if (token.includes(q)) best = Math.max(best, 320);
+    else if (orderedMatch(q, token)) best = Math.max(best, 180);
+  }
+  return best;
+}
+
 function selectedServiceFromInput() {
   const raw = els.serviceSearch.value.trim() || state.selectedService;
   if (!raw) return state.selectedService;
-  const lowered = raw.toLowerCase();
+  const lowered = normalizeSearchText(raw);
   const matches = (item) => {
     const aliases = Array.isArray(item.aliases) ? item.aliases : [];
-    return [item.label, item.key, ...aliases].map((value) => String(value || "").toLowerCase());
+    return [item.label, item.key, ...aliases].map((value) => normalizeSearchText(value));
   };
   const exact = state.services.find((item) => matches(item).some((value) => value === lowered));
   if (exact) return exact.key;
-  const partial = state.services.find((item) => matches(item).some((value) => value.includes(lowered)));
-  return partial?.key || state.selectedService;
+  const ranked = rankedServiceOptions(raw);
+  return ranked[0]?.key || state.selectedService;
 }
 
 function updateServiceLabel() {
@@ -777,22 +840,39 @@ function setServiceSelection(key) {
   state.showAllProviders = false;
   saveModeSelection();
   clearPriceResults();
+  clearTransientStatus();
+  loadCountrySuggestions();
   updateStateVisibility();
   updateServiceLabel();
   renderProviders([]);
   setServiceMenuOpen(false);
 }
 
-function serviceMatches(item, query) {
-  const lowered = String(query || "").trim().toLowerCase();
-  if (!lowered) return true;
+function serviceTokens(item) {
   const aliases = Array.isArray(item.aliases) ? item.aliases : [];
-  return [item.label, item.key, ...aliases].some((value) => String(value || "").toLowerCase().includes(lowered));
+  return [item.label, item.key, ...aliases];
+}
+
+function rankedServiceOptions(query) {
+  const q = normalizeSearchText(query);
+  return state.services
+    .map((item, index) => ({
+      item,
+      index,
+      rank: rankedTokenMatch(serviceTokens(item), q),
+    }))
+    .filter((row) => !q || row.rank >= 0)
+    .sort((a, b) => {
+      if (q && b.rank !== a.rank) return b.rank - a.rank;
+      if (Boolean(b.item.top) !== Boolean(a.item.top)) return Number(Boolean(b.item.top)) - Number(Boolean(a.item.top));
+      return a.index - b.index;
+    })
+    .map((row) => row.item);
 }
 
 function renderServiceOptions() {
   const query = els.serviceSearch.value || "";
-  const filtered = state.services.filter((item) => serviceMatches(item, query)).slice(0, 80);
+  const filtered = rankedServiceOptions(query).slice(0, 80);
   if (!filtered.length) {
     els.servicesList.replaceChildren(emptyState(t("empty")));
     return;
@@ -829,13 +909,41 @@ function selectedOption(list, code) {
 
 function searchTokens(item) {
   const aliases = Array.isArray(item?.aliases) ? item.aliases : [];
-  return [item?.name, item?.code, item?.iso, ...aliases].map((value) => String(value || "").toLowerCase());
+  return [item?.name, item?.code, item?.iso, ...aliases];
 }
 
-function selectorMatches(item, query) {
-  const lowered = String(query || "").trim().toLowerCase();
-  if (!lowered) return true;
-  return searchTokens(item).some((value) => value.includes(lowered));
+function quickCountryRank(item) {
+  if (String(item?.code) === "none") return 1000;
+  const suggested = state.countrySuggestionRanks[String(item?.code || "")];
+  if (suggested) return 2000 + suggested;
+  const index = QUICK_COUNTRY_ISOS.indexOf(String(item?.iso || "").toUpperCase());
+  return index >= 0 ? 900 - index : 0;
+}
+
+function quickStateRank(item) {
+  if (String(item?.code) === "none") return 1000;
+  const index = QUICK_STATE_CODES.indexOf(String(item?.code || "").toUpperCase());
+  return index >= 0 ? 900 - index : 0;
+}
+
+function rankedSelectorOptions(list, kind, query, limit = 90) {
+  const q = normalizeSearchText(query);
+  const quickRank = kind === "country" ? quickCountryRank : quickStateRank;
+  return list
+    .map((item, index) => ({
+      item,
+      index,
+      quick: quickRank(item),
+      rank: rankedTokenMatch(searchTokens(item), q),
+    }))
+    .filter((row) => !q || row.rank >= 0)
+    .sort((a, b) => {
+      if (q && b.rank !== a.rank) return b.rank - a.rank;
+      if (b.quick !== a.quick) return b.quick - a.quick;
+      return a.index - b.index;
+    })
+    .slice(0, limit)
+    .map((row) => row.item);
 }
 
 function updateSelectorLabels() {
@@ -859,6 +967,9 @@ function setSelectorMenuOpen(kind, open) {
   const isCountry = kind === "country";
   if (open && !state.selectedService && (isCountry || kind === "state")) {
     els.statusLine.textContent = t("chooseServiceFirst");
+    return;
+  }
+  if (open && isCountry && state.mode === "voice") {
     return;
   }
   if (open && !isCountry && state.selectedCountry !== "1") {
@@ -900,6 +1011,7 @@ function setCountrySelection(code) {
   state.showAllProviders = false;
   saveModeSelection();
   clearPriceResults();
+  clearTransientStatus();
   updateStateVisibility();
   updateSelectorLabels();
   renderProviders([]);
@@ -917,6 +1029,7 @@ function setStateSelection(code) {
   state.showAllProviders = false;
   saveModeSelection();
   clearPriceResults();
+  clearTransientStatus();
   updateSelectorLabels();
   renderProviders([]);
   setSelectorMenuOpen("state", false);
@@ -924,7 +1037,7 @@ function setStateSelection(code) {
 
 function renderCountryOptions() {
   const query = els.countrySearch?.value || "";
-  const filtered = state.countries.filter((item) => selectorMatches(item, query)).slice(0, 90);
+  const filtered = rankedSelectorOptions(state.countries, "country", query);
   if (!filtered.length) {
     els.countryList.replaceChildren(emptyState(t("empty")));
     return;
@@ -939,7 +1052,7 @@ function renderCountryOptions() {
       const label = document.createElement("strong");
       label.textContent = optionText(item, "country");
       const key = document.createElement("span");
-      key.textContent = item.code === "none" ? "" : item.code;
+      key.textContent = state.countrySuggestionPrices[item.code] || (item.code === "none" ? "" : item.code);
       button.append(label, key);
       button.addEventListener("click", () => setCountrySelection(item.code));
       return button;
@@ -949,7 +1062,7 @@ function renderCountryOptions() {
 
 function renderStateOptions() {
   const query = els.stateSearch?.value || "";
-  const filtered = state.states.filter((item) => selectorMatches(item, query)).slice(0, 90);
+  const filtered = rankedSelectorOptions(state.states, "state", query);
   if (!filtered.length) {
     els.stateList.replaceChildren(emptyState(t("empty")));
     return;
@@ -996,6 +1109,8 @@ function renderModes() {
         if (els.stateSearch) els.stateSearch.value = "";
         state.showAllProviders = false;
         clearPriceResults();
+        clearTransientStatus();
+        loadCountrySuggestions();
         setServiceMenuOpen(false);
         setSelectorMenuOpen("country", false);
         setSelectorMenuOpen("state", false);
@@ -1046,11 +1161,13 @@ function updateStateVisibility() {
   const showState = hasService && state.selectedCountry === "1";
   els.countryField?.classList.toggle("hidden", !showCountry);
   els.stateField.classList.toggle("hidden", !showState);
-  els.countrySelect.disabled = !showCountry;
+  els.countrySelect.disabled = !showCountry || state.mode === "voice";
   els.stateSelect.disabled = !showState;
   if (els.countryTrigger) {
-    els.countryTrigger.disabled = !showCountry;
-    els.countryTrigger.setAttribute("aria-disabled", showCountry ? "false" : "true");
+    const countryLocked = state.mode === "voice";
+    els.countryTrigger.disabled = !showCountry || countryLocked;
+    els.countryTrigger.setAttribute("aria-disabled", showCountry && !countryLocked ? "false" : "true");
+    els.countryField?.classList.toggle("locked", showCountry && countryLocked);
   }
   if (els.stateTrigger) {
     els.stateTrigger.disabled = !showState;
@@ -1068,6 +1185,38 @@ function updateStateVisibility() {
     setSelectorMenuOpen("state", false);
   }
   updateSelectorLabels();
+}
+
+async function loadCountrySuggestions() {
+  state.countrySuggestionRequestId += 1;
+  const requestId = state.countrySuggestionRequestId;
+  state.countrySuggestionRanks = {};
+  state.countrySuggestionPrices = {};
+  if (!state.selectedService || state.mode === "voice") {
+    renderCountryOptions();
+    return;
+  }
+  try {
+    const params = new URLSearchParams({ mode: state.mode, service: state.selectedService });
+    const payload = await api(`/mini/numbers/api/country-suggestions?${params.toString()}`);
+    if (requestId !== state.countrySuggestionRequestId) return;
+    const ranks = {};
+    const prices = {};
+    (payload.countries || []).forEach((item, index) => {
+      const code = String(item.code || "");
+      if (!code) return;
+      ranks[code] = Math.max(1, 999 - index);
+      if (item.price_label) prices[code] = item.price_label;
+    });
+    state.countrySuggestionRanks = ranks;
+    state.countrySuggestionPrices = prices;
+    renderCountryOptions();
+  } catch (_error) {
+    if (requestId !== state.countrySuggestionRequestId) return;
+    state.countrySuggestionRanks = {};
+    state.countrySuggestionPrices = {};
+    renderCountryOptions();
+  }
 }
 
 function renderQuickServices() {
@@ -1099,6 +1248,58 @@ function statusLabel(order) {
   if (order.mode === "voice" && status === "call_received") return t("callReceived");
   if (order.mode === "voice") return t("waitingCall");
   return t("waiting");
+}
+
+function orderTimelineLabels(order) {
+  const mode = String(order?.mode || "");
+  const status = String(order?.public_status || "");
+  if (mode === "voice") {
+    return [t("purchased"), t("waitingCall"), status === "call_received" ? t("recording") : t("checkCall")];
+  }
+  if (mode === "rental") {
+    return [t("purchased"), t("waiting"), status === "finished" ? t("finished") : t("code")];
+  }
+  return [t("purchased"), t("waiting"), status === "code_received" ? t("code") : t("refresh")];
+}
+
+function orderTimelineState(order, index, total) {
+  const status = String(order?.public_status || "");
+  if (status === "refunded" || status === "failed" || status === "expired") {
+    return index === total - 1 ? "danger" : "done";
+  }
+  if (status === "refund_pending") {
+    return index === total - 1 ? "current" : "done";
+  }
+  if (status === "code_received" || status === "call_received" || status === "finished") {
+    return "done";
+  }
+  if (status === "waiting") {
+    return index === 0 ? "done" : index === 1 ? "current" : "pending";
+  }
+  return index === 0 ? "done" : "pending";
+}
+
+function renderOrderTimeline(order) {
+  const status = String(order?.public_status || "");
+  const labels = orderTimelineLabels(order);
+  if (status === "refunded" || status === "failed" || status === "expired") {
+    labels[labels.length - 1] = statusLabel(order);
+  } else if (status === "refund_pending") {
+    labels[labels.length - 1] = t("refundPending");
+  }
+  const timeline = document.createElement("ol");
+  timeline.className = "order-timeline";
+  labels.forEach((label, index) => {
+    const item = document.createElement("li");
+    item.className = `order-timeline-step ${orderTimelineState(order, index, labels.length)}`;
+    const marker = document.createElement("span");
+    marker.className = "timeline-marker";
+    const text = document.createElement("span");
+    text.textContent = label;
+    item.append(marker, text);
+    timeline.append(item);
+  });
+  return timeline;
 }
 
 function clearOrderPoll() {
@@ -1208,7 +1409,22 @@ function renderActiveOrders(rows = state.activeOrders) {
       details.push(`${order.price_label || ""}`);
       if (order.public_status === "waiting") details.push(`${formatDuration(order.seconds_left)} ${t("left")}`);
       meta.textContent = details.filter(Boolean).join(" · ");
-      main.append(title, meta);
+      main.append(title, meta, renderOrderTimeline(order));
+      if (Array.isArray(order.events) && order.events.length) {
+        const eventList = document.createElement("div");
+        eventList.className = "order-event-list";
+        order.events.slice(-4).forEach((event) => {
+          const item = document.createElement("div");
+          item.className = "order-event";
+          const label = document.createElement("span");
+          label.textContent = event.label || event.event || "";
+          const time = document.createElement("small");
+          time.textContent = event.time || "";
+          item.append(label, time);
+          eventList.append(item);
+        });
+        main.append(eventList);
+      }
 
       if (Array.isArray(order.details) && order.details.length) {
         const detailGrid = document.createElement("div");
@@ -1286,6 +1502,13 @@ function renderActiveOrders(rows = state.activeOrders) {
       }
 
       if (order.mode === "voice" && order.recording_url) {
+        const preview = document.createElement("button");
+        preview.type = "button";
+        preview.className = "small-action secondary-small";
+        preview.textContent = t("playRecording");
+        preview.addEventListener("click", () => previewRecording(order, preview, main));
+        actions.append(preview);
+
         const recording = document.createElement("button");
         recording.type = "button";
         recording.className = "small-action";
@@ -1579,6 +1802,49 @@ async function downloadRecording(order, button) {
   }
 }
 
+async function previewRecording(order, button, container) {
+  if (!order?.recording_url || !container) return;
+  const existing = container.querySelector(`[data-recording-preview="${order.id}"]`);
+  if (existing) {
+    existing.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    return;
+  }
+  const previous = button?.textContent || "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = t("loading");
+  }
+  try {
+    const response = await fetch(order.recording_url, {
+      headers: authHeaders(),
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(t("error"));
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const wrap = document.createElement("div");
+    wrap.className = "recording-preview";
+    wrap.dataset.recordingPreview = order.id;
+    const label = document.createElement("span");
+    label.textContent = t("recording");
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.preload = "metadata";
+    audio.src = url;
+    audio.addEventListener("ended", () => URL.revokeObjectURL(url), { once: true });
+    wrap.append(label, audio);
+    container.append(wrap);
+    window.setTimeout(() => audio.play().catch(() => undefined), 0);
+  } catch (_error) {
+    els.statusLine.textContent = t("error");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = previous || t("playRecording");
+    }
+  }
+}
+
 async function buyProvider(row, button) {
   if (!canUseTelegramAuth()) {
     els.statusLine.textContent = t("authRequired");
@@ -1836,7 +2102,7 @@ async function changeLanguage(language, button) {
       method: "POST",
       body: { language },
     });
-    applyLanguage(payload.user?.language || language);
+    applyLanguage(payload.user?.language || language, { persist: true });
     renderViewTabs();
     renderModes();
     renderSelectors();
@@ -1977,6 +2243,7 @@ async function boot() {
   renderBuyFlow();
   renderModes();
   renderSelectors();
+  loadCountrySuggestions();
   renderQuickServices();
   renderProviders([]);
   renderActiveOrders([]);

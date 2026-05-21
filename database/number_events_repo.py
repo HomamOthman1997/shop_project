@@ -75,6 +75,16 @@ async def list_number_order_events(*, since: datetime, until: datetime | None = 
     return await cursor.to_list(length=int(limit))
 
 
+async def list_number_order_events_for_order(order_id: Any, *, limit: int = 12) -> list[dict[str, Any]]:
+    if order_id is None:
+        return []
+    safe_limit = max(1, min(50, int(limit or 12)))
+    cursor = db.number_order_events.find({"order_id": _as_order_id(order_id)}).sort("created_at", -1).limit(safe_limit)
+    rows = await cursor.to_list(length=safe_limit)
+    rows.reverse()
+    return rows
+
+
 def build_numbers_report_from_events(events: list[dict[str, Any]], *, since: datetime, until: datetime) -> dict[str, Any]:
     total_events = len(events)
     order_latest: dict[Any, dict[str, Any]] = {}

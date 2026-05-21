@@ -33,7 +33,7 @@ from database.orders_repo import (
 )
 from database.user_repo import get_user
 from database.financial_ledger import get_user_wallet_balance
-from services.numbers.handlers.temp_order_utils import (
+from services.numbers.shared.temp_order import (
     TEMP_CANCEL_AFTER_SEC,
     TEMP_POLL_INTERVALS,
     TEMP_PROVIDER_SAFETY_BUFFER_SEC,
@@ -81,7 +81,7 @@ from services.numbers.handlers.temp_order_utils import (
     _utc_now,
     _warranty_minutes_text_value,
 )
-from services.numbers.handlers.rental_policy_utils import (
+from services.numbers.shared.rental_policy import (
     HERO_RENTAL_CANCEL_WINDOW_SEC,
     RENTAL_EXIT_GUARD_FALLBACK_SYNC_WINDOW_SEC,
     _is_within_hero_rental_cancel_window as _policy_is_within_hero_rental_cancel_window,
@@ -90,10 +90,14 @@ from services.numbers.handlers.rental_policy_utils import (
     _rental_protection_policy as _policy_rental_protection_policy,
     _rental_safe_cutoff_at as _policy_rental_safe_cutoff_at,
 )
-from services.numbers.handlers.temp_provider_io import (
+from services.numbers.shared.provider_io import (
     fetch_provider_sms as _fetch_provider_sms_impl,
     provider_resend as _provider_resend_impl,
 )
+from services.numbers.shared.temp_refund import (
+    cancel_and_refund_temp_order as _shared_cancel_and_refund_temp_order,
+)
+from services.numbers.shared.temp_second_code import request_second_code_for_order as _shared_request_second_code_for_order
 from services.numbers.handlers.temp_waiter_runtime import (
     queue_temp_waiter as _queue_temp_waiter_impl,
     send_temp_timeout_state as _send_temp_timeout_state_impl,
@@ -103,7 +107,7 @@ from services.numbers.handlers.recovery_runtime import (
     run_temp_wait_recovery_sweep as _run_temp_wait_recovery_sweep_impl,
     run_unprovisioned_number_order_recovery_sweep as _run_unprovisioned_number_order_recovery_sweep_impl,
 )
-from services.numbers.handlers.event_logging import (
+from services.numbers.shared.events import (
     _log_number_event_from_order as _log_number_event_from_order_impl,
     _log_rental_event as _log_rental_event_impl,
     _log_temp_event as _log_temp_event_impl,
@@ -1036,104 +1040,22 @@ async def _cancel_and_refund_temp_order(
     reason: str,
     require_no_sms: bool = True,
 ) -> dict:
-    if not order_id or not order:
-        return {"success": False, "reason": "order_not_found"}
-
-    status = str(order.get("status") or "").lower()
-    if status in {"cancelled", "failed", "refunded", "expired"}:
-        return {"success": False, "reason": "already_closed"}
-    if order.get("temp_refunded_at") or order.get("temp_cancelled_at"):
-        return {"success": False, "reason": "already_closed"}
-
-    if require_no_sms and _temp_order_has_received_code(order):
-        return {"success": False, "reason": "sms_received"}
-
-    provider = str(order.get("provider") or "").strip().lower()
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-    if not provider or not provider_order_id:
-        return {"success": False, "reason": "provider_order_missing"}
-
-    prov = PROVIDERS.get(provider)
-    if not prov or not hasattr(prov, "cancel"):
-        return {"success": False, "reason": "provider_cancel_not_supported"}
-
-    await _log_number_event_from_order(
-        order,
-        "cancel_requested",
-        payload={"reason": str(reason or "cancelled")},
-        number_mode="temp",
+    return await _shared_cancel_and_refund_temp_order(
+        order_id=order_id,
+        order=order,
+        actor_user_id=actor_user_id,
+        reason=reason,
+        providers=PROVIDERS,
+        financial_manager=FinancialManager,
+        update_order_status_fn=update_order_status,
+        update_order_details_fn=update_order_details,
+        log_temp_event_fn=_log_temp_event,
+        log_number_event_from_order_fn=_log_number_event_from_order,
+        require_no_sms=require_no_sms,
+        source="",
+        final_status="cancelled",
+        sleep_fn=asyncio.sleep,
     )
-
-    cancel_res: dict = {"success": False, "raw": "cancel_not_attempted"}
-    for attempt in range(1, 5):
-        try:
-            cancel_res = await asyncio.wait_for(prov.cancel(provider_order_id), timeout=12.0)
-        except Exception as exc:
-            cancel_res = {"success": False, "raw": str(exc)}
-        if bool((cancel_res or {}).get("success")):
-            break
-        if attempt < 3:
-            await asyncio.sleep(float(min(6, attempt * 2)))
-
-    if not bool((cancel_res or {}).get("success")):
-        await _log_number_event_from_order(
-            order,
-            "provider_cancel_failed",
-            payload={"raw": (cancel_res or {}).get("raw"), "reason": str(reason or "cancelled")},
-            number_mode="temp",
-        )
-        return {
-            "success": False,
-            "reason": "provider_cancel_failed",
-            "raw": (cancel_res or {}).get("raw"),
-            "retryable": bool((cancel_res or {}).get("retryable")) or _is_retryable_provider_cancel((cancel_res or {}).get("raw")),
-        }
-
-    sale_price, cost_price = extract_order_amounts(order)
-    ok, msg = await FinancialManager.refund_core_purchase(
-        int(actor_user_id),
-        order_id,
-        sale_price,
-        cost_price,
-        reseller_id=int(order.get("reseller_id") or actor_user_id),
-    )
-    if not ok:
-        await _log_number_event_from_order(
-            order,
-            "refund_failed",
-            payload={"raw": msg, "reason": str(reason or "cancelled")},
-            number_mode="temp",
-        )
-        return {"success": False, "reason": "financial_refund_failed", "raw": msg}
-
-    now = _utc_now()
-    await update_order_status(order_id, "cancelled")
-    await update_order_details(
-        order_id,
-        {
-            "temp_cancelled_at": now,
-            "temp_refunded_at": now,
-            "temp_cancel_reason": str(reason or "cancelled"),
-            "temp_wait_state": "refunded",
-        },
-    )
-    await _log_temp_event(
-        order,
-        "cancelled_refunded",
-        {
-            "sale_price": sale_price,
-            "cost_price": cost_price,
-            "reason": str(reason or "cancelled"),
-        },
-    )
-    await _log_number_event_from_order(
-        order,
-        "refund_success",
-        payload={"reason": str(reason or "cancelled")},
-        status_after="cancelled",
-        number_mode="temp",
-    )
-    return {"success": True, "reason": "ok"}
 
 
 async def _retry_temp_refund_until_success(
@@ -3991,146 +3913,47 @@ async def temp_second_code(callback: types.CallbackQuery):
     if not order_oid or not order:
         return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
 
-    now = _utc_now()
-
-    provider = str(order.get("provider") or "")
-    provider_order_id = str(order.get("provider_order_id") or "")
-    if not provider or not provider_order_id:
-        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
-    if not _temp_resend_available(order):
-        await _log_temp_event(
-            order,
-            "second_code_not_allowed",
-            _second_code_log_payload(order, now=now, extra={"reason": "retention_expired_or_invalid_order"}),
-        )
-        return await _safe_callback_answer_or_message(callback, t(lang, "temp_second_code_failed"), show_alert=True)
-
-    await _log_temp_event(order, "second_code_attempted", _second_code_log_payload(order, now=now))
-    resend_result = await _provider_resend(provider, provider_order_id)
-    if not bool((resend_result or {}).get("success")):
-        await _log_temp_event(
-            order,
-            "second_code_provider_rejected",
-            _second_code_log_payload(
-                order,
-                now=now,
-                extra={
-                    "provider_error": _provider_error_text(resend_result or {}),
-                    "provider_response_status": str((resend_result or {}).get("status") or ""),
-                },
-            ),
-        )
-        return await _safe_callback_answer_or_message(callback, t(lang, "temp_second_code_failed"), show_alert=True)
-    new_provider_order_id = str((resend_result or {}).get("order_id") or provider_order_id).strip() or provider_order_id
-    new_provider_number = str((resend_result or {}).get("number") or order.get("provider_number") or "").strip()
-    await _log_temp_event(
-        order,
-        "second_code_provider_success",
-        _second_code_log_payload(
-            order,
-            now=now,
-            extra={
-                "new_provider_order_id": new_provider_order_id,
-                "number_changed": bool(new_provider_number and new_provider_number != str(order.get("provider_number") or "")),
-            },
-        ),
-    )
-
-    sale_price, cost_price = extract_order_amounts(order)
-    extra_sale = round(max(0.0, sale_price) / 2.0, 4)
-    extra_cost = round(max(0.0, cost_price) / 2.0, 4)
-    if extra_sale <= 0:
-        await _log_temp_event(
-            order,
-            "second_code_not_allowed",
-            _second_code_log_payload(order, now=now, extra={"reason": "missing_extra_price"}),
-        )
-        return await _safe_callback_answer_or_message(callback, t(lang, "temp_second_code_failed"), show_alert=True)
-
     bot_id = (await callback.message.bot.get_me()).id
     reseller_id = await _resolve_user_reseller(callback.from_user.id, bot_id)
-    second_order = await create_order(
-        user_id=callback.from_user.id,
-        reseller_id=reseller_id,
-        service_id=f"{str(order.get('service_id') or 'temp')}:second_code",
-        selling_price=extra_sale,
-        base_price=extra_cost,
-    )
-    await update_order_details(
-        second_order["_id"],
-        {
-            "number_mode": "temp",
-            "telegram_bot_id": int(bot_id),
-            "provisioning_state": "awaiting_charge",
-            "provisioning_provider": str(order.get("provider") or ""),
-            "provisioning_service": str(order.get("temp_api_service") or order.get("service_id") or ""),
-            "provisioning_country": order.get("temp_country"),
-            "provisioning_state_code": order.get("temp_state"),
-            "provisioning_created_at": _utc_now(),
-        },
-    )
-    ok, msg = await FinancialManager.process_core_purchase(
-        user_id=callback.from_user.id,
-        order_id=second_order["_id"],
-        sale_price=extra_sale,
-        cost_price=extra_cost,
-        reseller_id=reseller_id,
-    )
-    if not ok:
-        await update_order_status(second_order["_id"], "failed")
-        await _log_temp_event(
-            order,
-            "second_code_charge_failed",
-            _second_code_log_payload(
-                order,
-                now=now,
-                extra={"extra_sale": extra_sale, "extra_cost": extra_cost, "finance_error": str(msg)},
-            ),
-        )
-        return await _safe_callback_answer_or_message(
-            callback,
-            finance_error_public_text(lang, str(msg)),
-            show_alert=True,
-        )
-
-    await update_order_status(second_order["_id"], "success")
-    await update_order_details(
-        second_order["_id"],
-        {
-            "provisioning_state": "provisioned",
-            "provisioning_charged_at": _utc_now(),
-            "provisioned_at": _utc_now(),
-        },
-    )
-    await update_order_details(
-        order_oid,
-        {
-            "temp_second_code_last_at": now,
-            "temp_second_code_count": int(order.get("temp_second_code_count") or 0) + 1,
-            "provider_order_id": new_provider_order_id,
-            "provider_number": new_provider_number or str(order.get("provider_number") or ""),
-            "temp_wait_state": "waiting",
-            "temp_wait_started_at": now,
-        },
-    )
-    await _log_temp_event(
-        order,
-        "second_code_requested",
-        _second_code_log_payload(
-            order,
-            now=now,
-            extra={
-                "extra_sale": extra_sale,
-                "extra_cost": extra_cost,
-                "new_provider_order_id": new_provider_order_id,
-                "second_order_id": str(second_order["_id"]),
-            },
+    result = await _shared_request_second_code_for_order(
+        order_id=order_oid,
+        order=order,
+        user_id=int(callback.from_user.id),
+        reseller_id=int(reseller_id),
+        providers=PROVIDERS,
+        provider_resend_fn=lambda _providers, provider, provider_order_id: _provider_resend(provider, provider_order_id),
+        financial_manager=FinancialManager,
+        create_order_fn=create_order,
+        update_order_details_fn=update_order_details,
+        update_order_status_fn=update_order_status,
+        get_order_fn=get_order,
+        log_temp_event_fn=_log_temp_event,
+        temp_resend_available_fn=_temp_resend_available,
+        second_code_price_fn=lambda item: (
+            round(max(0.0, extract_order_amounts(item)[0]) / 2.0, 4),
+            round(max(0.0, extract_order_amounts(item)[1]) / 2.0, 4),
         ),
+        second_code_log_payload_fn=_second_code_log_payload,
+        source="telegram",
+        telegram_bot_id=int(bot_id),
+        refresh_order_fn=None,
     )
+    if not result.get("ok"):
+        if str(result.get("code") or "") == "finance_error":
+            return await _safe_callback_answer_or_message(
+                callback,
+                finance_error_public_text(lang, str(result.get("finance_message") or "")),
+                show_alert=True,
+            )
+        if str(result.get("code") or "") == "order_not_found":
+            return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
+        return await _safe_callback_answer_or_message(callback, t(lang, "temp_second_code_failed"), show_alert=True)
 
-    refreshed = await get_order(order_oid)
+    refreshed = result.get("order") if isinstance(result.get("order"), dict) else await get_order(order_oid)
     if refreshed:
         await _queue_temp_waiter(bot=callback.message.bot, order=refreshed, lang=lang, is_second_code=True)
+    provider = str(result.get("provider") or order.get("provider") or "")
+    new_provider_number = str(result.get("new_provider_number") or order.get("provider_number") or "-")
     await _best_effort_safe_edit_message(
         callback.message.bot,
         chat_id=callback.message.chat.id,
@@ -4138,7 +3961,7 @@ async def temp_second_code(callback: types.CallbackQuery):
         text=_temp_waiting_text(
             lang=lang,
             provider_code=provider,
-            number=new_provider_number or str(order.get("provider_number") or "-"),
+            number=new_provider_number,
             country_code=str(order.get("temp_country") or ""),
             interval_sec=_poll_interval_for_provider(provider),
             elapsed_sec=0,
@@ -4150,10 +3973,9 @@ async def temp_second_code(callback: types.CallbackQuery):
     )
     return await _safe_callback_answer_or_message(
         callback,
-        t(lang, "temp_second_code_done").format(amount=float(extra_sale)),
+        t(lang, "temp_second_code_done").format(amount=float(result.get("extra_sale") or 0.0)),
         show_alert=True,
     )
-
 
 @router.callback_query(lambda c: c.data == "buy:cancel")
 async def cancel_buy(callback: types.CallbackQuery, state: FSMContext):
