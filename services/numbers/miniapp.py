@@ -1008,6 +1008,18 @@ def _success_rate(value: Any, attempts: Any = None) -> str:
     return f"{int(rate)}%" if rate.is_integer() else f"{rate:.1f}%"
 
 
+def _success_attempt_count(info: dict[str, Any]) -> int:
+    try:
+        attempts = int(info.get("success_attempts") or 0)
+    except Exception:
+        attempts = 0
+    try:
+        context_attempts = int(info.get("context_success_attempts") or 0)
+    except Exception:
+        context_attempts = 0
+    return max(attempts, context_attempts)
+
+
 def _public_reason(value: Any) -> str:
     reason = str(value or "").strip().lower()
     if reason == "provider_balance_low":
@@ -3369,13 +3381,19 @@ def _normalize_provider_rows(
             continue
         if mode == "rental":
             available = bool(options)
+        success_value = info.get("recommended_success_rate") if info.get("recommended_success_rate") is not None else info.get("success_rate", 100)
+        success_attempts = _success_attempt_count(info)
+        provider_state_code = str(info.get("provider_state_code") or "").strip().upper()
+        provider_country_iso = str(info.get("provider_country_iso") or "").strip().upper()
         rows.append(
             {
                 "provider": provider_display_name(code),
                 "provider_id": provider_public_id(code),
+                "location_tag": provider_state_code or provider_country_iso,
                 "price": float(options[0]["price"] if mode == "rental" and options else info.get("price") or 0.0),
                 "price_label": _money(options[0]["price"] if mode == "rental" and options else info.get("price")),
-                "success_rate": _success_rate(info.get("success_rate"), info.get("success_attempts")),
+                "success_rate": _success_rate(success_value, success_attempts),
+                "success_attempts": int(success_attempts),
                 "available": available,
                 "quote_token": quote_token,
                 "options": options,
@@ -3487,14 +3505,14 @@ async def prices(request: web.Request) -> web.Response:
     try:
         if mode == "rental":
             raw = await asyncio.wait_for(
-                get_all_rental_prices(service, country, with_success_rates=False),
+                get_all_rental_prices(service, country, with_success_rates=True),
                 timeout=_PRICE_TIMEOUT_SEC,
             )
         elif mode == "voice":
             raw = await asyncio.wait_for(_get_miniapp_voice_prices(service, country, state), timeout=_PRICE_TIMEOUT_SEC)
         else:
             raw = await asyncio.wait_for(
-                get_all_prices(service, country, state, with_success_rates=False),
+                get_all_prices(service, country, state, with_success_rates=True),
                 timeout=_PRICE_TIMEOUT_SEC,
             )
     except asyncio.TimeoutError:

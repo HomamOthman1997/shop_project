@@ -1,7 +1,9 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
 
 from services.numbers import miniapp
 
@@ -29,6 +31,9 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
                 "api_service_name": "telegram",
                 "success_rate": 88,
                 "success_attempts": 10,
+                "recommended_success_rate": 92,
+                "context_success_attempts": 5,
+                "provider_state_code": "CA",
             },
             "beta_provider": {
                 "price": 0,
@@ -45,10 +50,42 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
 
     assert rows[0]["provider_id"].startswith("S")
     assert rows[0]["price_label"] == "$1.25"
-    assert rows[0]["success_rate"] == "88%"
+    assert rows[0]["success_rate"] == "92%"
+    assert rows[0]["success_attempts"] == 10
+    assert rows[0]["location_tag"] == "CA"
     assert len(rows) == 1
     assert rows[0]["available"] is True
     assert rows[0]["recommended"] is True
+
+
+@pytest.mark.asyncio
+async def test_numbers_prices_endpoint_uses_dynamic_success_rates(monkeypatch):
+    calls = {}
+
+    async def fake_get_all_prices(service, country, state, with_success_rates=True):
+        calls["service"] = service
+        calls["country"] = country
+        calls["state"] = state
+        calls["with_success_rates"] = with_success_rates
+        return {
+            "textverified": {
+                "price": 0.44,
+                "base_price": 0.4,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "recommended_success_rate": 91,
+                "success_attempts": 5,
+            }
+        }
+
+    monkeypatch.setattr(miniapp, "get_all_prices", fake_get_all_prices)
+    request = make_mocked_request("GET", "/mini/numbers/api/prices?mode=temp&service=telegram&country=1&state=none")
+
+    response = await miniapp.prices(request)
+    payload = json.loads(response.text)
+
+    assert calls == {"service": "telegram", "country": "1", "state": "none", "with_success_rates": True}
+    assert payload["providers"][0]["success_rate"] == "91%"
 
 
 def test_numbers_account_activity_payload_formats_ledger_rows():

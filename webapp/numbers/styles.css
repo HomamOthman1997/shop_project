@@ -420,6 +420,11 @@ h2 {
   padding: 12px;
 }
 
+.provider-card {
+  grid-template-columns: 1fr;
+  align-content: start;
+}
+
 .provider-card.best {
   border-color: rgba(32, 180, 134, 0.58);
   background: rgba(27, 37, 48, 0.98);
@@ -494,6 +499,17 @@ h2 {
 .order-actions {
   min-width: 84px;
   text-align: end;
+}
+
+.provider-card .provider-price,
+.provider-card .provider-actions {
+  justify-self: stretch;
+  text-align: start;
+}
+
+.provider-card .provider-actions {
+  grid-template-columns: 1fr auto;
+  align-items: center;
 }
 
 .provider-price {
@@ -645,6 +661,23 @@ h2 {
   margin-top: 12px;
 }
 
+.settings-action-card {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(32, 180, 134, 0.35);
+  border-radius: 8px;
+  background: rgba(32, 180, 134, 0.11);
+  padding: 12px;
+}
+
+.settings-action-card > div {
+  display: grid;
+  gap: 4px;
+}
+
 .secondary-action {
   min-height: 36px;
   border: 1px solid var(--line);
@@ -788,7 +821,7 @@ h2 {
     display: block;
     padding-left: 10px;
     padding-right: 10px;
-    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+    padding-bottom: calc(132px + env(safe-area-inset-bottom));
   }
 
   .app-nav {
@@ -815,15 +848,15 @@ h2 {
   .view-tabs {
     position: fixed;
     z-index: 40;
-    left: 10px;
-    right: 10px;
-    bottom: calc(8px + env(safe-area-inset-bottom));
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    left: 0;
+    right: 0;
+    bottom: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 8px 8px 0 0;
     background: rgba(15, 21, 29, 0.96);
     box-shadow: var(--shadow);
-    padding: 6px;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
   }
 
   .mode-button {
@@ -833,9 +866,9 @@ h2 {
   }
 
   .view-tab {
-    min-height: 42px;
+    min-height: 46px;
     justify-content: center;
-    padding: 0 5px;
+    padding: 6px 8px;
   }
 
   .nav-index {
@@ -844,10 +877,33 @@ h2 {
 
   .nav-label {
     font-size: 12px;
+    line-height: 1.2;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    text-align: center;
   }
 
   .provider-list {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .provider-card {
+    min-height: 112px;
+    padding: 10px;
+  }
+
+  .provider-name {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 14px;
+  }
+
+  .provider-id {
+    min-width: 30px;
+    min-height: 22px;
   }
 
   .order-card {

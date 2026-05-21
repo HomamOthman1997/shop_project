@@ -432,11 +432,37 @@ function canUseTelegramAuth() {
 
 function openTelegramUrl(url) {
   if (!url) return;
-  if (tg?.openTelegramLink) {
-    tg.openTelegramLink(url);
-    return;
+  try {
+    if (tg?.openTelegramLink && /^https?:\/\/(t\.me|telegram\.me)\//i.test(url)) {
+      tg.openTelegramLink(url);
+      return;
+    }
+  } catch (_error) {
+    // Fall through to the generic opener.
+  }
+  try {
+    if (tg?.openLink) {
+      tg.openLink(url);
+      return;
+    }
+  } catch (_error) {
+    // Fall through to browser navigation.
   }
   window.location.href = url;
+}
+
+function rechargeUrl() {
+  return state.rechargeUrl || state.account?.links?.recharge || state.supportBotUrl || state.account?.links?.numbers_bot || "";
+}
+
+function openRecharge() {
+  const url = rechargeUrl();
+  if (url) {
+    openTelegramUrl(url);
+    return;
+  }
+  setView("account");
+  els.statusLine.textContent = t("error");
 }
 
 function showBusy(title, text) {
@@ -1207,6 +1233,8 @@ function renderProviders(rows, { preserve = false } = {}) {
     meta.className = "provider-meta";
     const details = [];
     if (row.recommended) details.push(t("bestChoice"));
+    if (row.location_tag) details.push(`[${row.location_tag}]`);
+    if (row.success_rate) details.push(`${t("success")}: ${row.success_rate}`);
     if (row.voice_fallback) details.push(t("voiceFallback"));
     meta.textContent = details.join(" · ");
 
@@ -1279,6 +1307,26 @@ function infoCard(label, value) {
   return card;
 }
 
+function rechargeActionCard(balanceLabel) {
+  const card = document.createElement("div");
+  card.className = "settings-action-card";
+  const copy = document.createElement("div");
+  const label = document.createElement("span");
+  label.className = "info-label";
+  label.textContent = t("balance");
+  const value = document.createElement("strong");
+  value.className = "info-value";
+  value.textContent = balanceLabel || "-";
+  copy.append(label, value);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "small-action";
+  button.textContent = t("recharge");
+  button.addEventListener("click", openRecharge);
+  card.append(copy, button);
+  return card;
+}
+
 function activityCard(rows = []) {
   const card = document.createElement("div");
   card.className = "activity-card";
@@ -1322,7 +1370,7 @@ function renderAccount(payload) {
   state.rechargeUrl = payload.links?.recharge || state.rechargeUrl;
   renderSupportCategories();
   els.accountDetails.replaceChildren(
-    infoCard(t("balance"), payload.balance_label || "-"),
+    rechargeActionCard(payload.balance_label || "-"),
     infoCard(t("userId"), String(user.id || "-")),
     infoCard(t("username"), user.username ? `@${user.username}` : "-"),
     infoCard(t("language"), user.language_label || user.language || "-"),
@@ -1500,8 +1548,8 @@ async function boot() {
   els.quoteButton.addEventListener("click", checkPrices);
   els.langArButton.addEventListener("click", () => changeLanguage("ar", els.langArButton));
   els.langEnButton.addEventListener("click", () => changeLanguage("en", els.langEnButton));
-  els.sessionPill.addEventListener("click", () => openTelegramUrl(state.rechargeUrl || state.account?.links?.recharge || state.supportBotUrl));
-  els.rechargeButton.addEventListener("click", () => openTelegramUrl(state.rechargeUrl || state.account?.links?.recharge || state.supportBotUrl));
+  els.sessionPill.addEventListener("click", openRecharge);
+  els.rechargeButton.addEventListener("click", openRecharge);
   els.sendSupportButton.addEventListener("click", sendSupportTicket);
 }
 
