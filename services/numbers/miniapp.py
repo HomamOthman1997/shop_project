@@ -3515,6 +3515,70 @@ async def _retry_pending_temp_refund(order: dict[str, Any], *, source: str) -> d
 
         return order
 
+    provider = _order_provider_code(order)
+
+    provider_order_id = _order_provider_order_id(order)
+
+    if provider and provider_order_id:
+
+        sms_data = await fetch_provider_sms(PROVIDERS, provider, provider_order_id)
+
+        seen_codes = set(str(code) for code in (order.get("temp_codes") or []) if str(code or "").strip())
+
+        code = _extract_new_sms_code((sms_data or {}).get("messages") or [], seen_codes)
+
+        if code:
+
+            return await get_order(order["_id"]) or order
+
+        terminal_reason = _provider_terminal_refund_reason(
+
+            (sms_data or {}).get("raw"),
+
+            allow_missing=True,
+
+            allow_empty=True,
+
+        )
+
+        if terminal_reason:
+
+            result = await _finalize_temp_local_refund(
+
+                order_id=order["_id"],
+
+                order=order,
+
+                actor_user_id=int(order.get("user_id") or 0),
+
+                reason=f"{source}_{terminal_reason}",
+
+                provider_raw=(sms_data or {}).get("raw"),
+
+                provider_terminal_reason=terminal_reason,
+
+            )
+
+            if result.get("success"):
+
+                return await get_order(order["_id"]) or order
+
+            if _temp_refund_result_retryable(result):
+
+                return await _mark_temp_refund_pending(
+
+                    order_id=order["_id"],
+
+                    order=order,
+
+                    result=result,
+
+                    source=source,
+
+                )
+
+            return await get_order(order["_id"]) or order
+
     result = await _cancel_and_refund_temp_order(
 
         order_id=order["_id"],

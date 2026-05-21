@@ -39,7 +39,6 @@ _PROVIDER_TERMINAL_MISSING_MARKERS = (
     "expired",
     "time out",
     "timed out",
-    "timeout",
     "deleted",
     "removed",
 )

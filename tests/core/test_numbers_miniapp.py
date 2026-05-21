@@ -1053,6 +1053,7 @@ def test_provider_terminal_status_classifier_keeps_waiting_states_open():
     assert miniapp._provider_terminal_refund_reason({"error_code": "wait_sms"}, allow_missing=True) == ""
     assert miniapp._provider_terminal_refund_reason("NO_ACTIVATION", allow_missing=True) == "provider_missing_or_expired"
     assert miniapp._provider_terminal_refund_reason({"status": "Timed Out"}, allow_missing=True) == "provider_missing_or_expired"
+    assert miniapp._provider_terminal_refund_reason("provider request timeout", allow_missing=True) == ""
     assert miniapp._provider_terminal_refund_reason("STATUS_CANCEL") == "provider_already_refunded"
 
 
@@ -1130,6 +1131,85 @@ async def test_refresh_temp_order_refunds_old_missing_provider_order(monkeypatch
     assert calls["fetch"] == ("herosms", "prov-old")
     assert calls["cancel"] == "prov-old"
     assert calls["refund"]["order_id"] == "order-old"
+    assert calls["status"] == "cancelled"
+    assert refreshed["status"] == "cancelled"
+    assert refreshed["temp_wait_state"] == "refunded"
+    assert refreshed["temp_provider_terminal_reason"] == "provider_missing_or_expired"
+
+
+@pytest.mark.asyncio
+async def test_refresh_refund_pending_order_credits_wallet_when_provider_timed_out(monkeypatch):
+    now = datetime.now(UTC)
+    stored = {
+        "_id": "order-pending-timeout",
+        "number_mode": "temp",
+        "status": "success",
+        "user_id": 123,
+        "reseller_id": 123,
+        "provider": "textverified",
+        "provider_order_id": "prov-timeout",
+        "provider_number": "+15703604255",
+        "temp_service_key": "gmail",
+        "temp_country": "1",
+        "selling_price": 0.83,
+        "base_price": 0.75,
+        "created_at": now - timedelta(minutes=20),
+        "temp_wait_started_at": now - timedelta(minutes=20),
+        "temp_wait_timeout_sec": 300,
+        "temp_wait_state": "refund_pending",
+        "temp_codes": [],
+        "temp_codes_count": 0,
+    }
+    calls: dict = {}
+
+    class _DummyProvider:
+        async def cancel(self, _activation_id):
+            raise AssertionError("terminal provider status should finalize local refund before cancel retry")
+
+    class _DummyFinancialManager:
+        @classmethod
+        async def refund_core_purchase(cls, user_id, order_id, sale_price, cost_price, reseller_id=None):
+            calls["refund"] = {
+                "user_id": user_id,
+                "order_id": order_id,
+                "sale_price": sale_price,
+                "cost_price": cost_price,
+                "reseller_id": reseller_id,
+            }
+            return True, "OK"
+
+    async def _fake_get_order(_order_id):
+        return dict(stored)
+
+    async def _fake_update_order_status(_order_id, status):
+        calls["status"] = status
+        stored["status"] = status
+
+    async def _fake_update_order_details(_order_id, patch):
+        stored.update(patch)
+        calls.setdefault("details", []).append(dict(patch))
+
+    async def _fake_fetch_provider_sms(_providers, provider, provider_order_id):
+        calls["fetch"] = (provider, provider_order_id)
+        return {"success": True, "messages": [], "raw": {"status": "Timed Out"}}
+
+    async def _fake_log(*args, **kwargs):
+        return None
+
+    monkeypatch.setitem(miniapp.PROVIDERS, "textverified", _DummyProvider())
+    monkeypatch.setattr(miniapp, "FinancialManager", _DummyFinancialManager)
+    monkeypatch.setattr(miniapp, "get_order", _fake_get_order)
+    monkeypatch.setattr(miniapp, "update_order_status", _fake_update_order_status)
+    monkeypatch.setattr(miniapp, "update_order_details", _fake_update_order_details)
+    monkeypatch.setattr(miniapp, "fetch_provider_sms", _fake_fetch_provider_sms)
+    monkeypatch.setattr(miniapp, "_log_temp_event", _fake_log)
+    monkeypatch.setattr(miniapp, "_log_number_event_from_order", _fake_log)
+
+    refreshed = await miniapp._refresh_temp_order(dict(stored))
+
+    assert calls["fetch"] == ("textverified", "prov-timeout")
+    assert calls["refund"]["order_id"] == "order-pending-timeout"
+    assert calls["refund"]["sale_price"] == 0.83
     assert calls["status"] == "cancelled"
     assert refreshed["status"] == "cancelled"
     assert refreshed["temp_wait_state"] == "refunded"
