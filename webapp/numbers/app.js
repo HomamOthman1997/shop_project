@@ -146,6 +146,8 @@ const copy = {
     numbersList: "أرقامي",
     waiting: "بانتظار الكود",
     waitingCall: "بانتظار المكالمة",
+    callDetected: "تم رصد المكالمة",
+    recordingPending: "بانتظار تجهيز التسجيل",
     callReceived: "وصلت المكالمة",
     recording: "تسجيل المكالمة",
     playRecording: "تشغيل التسجيل",
@@ -263,6 +265,8 @@ const copy = {
     numbersList: "Numbers list",
     waiting: "Waiting for code",
     waitingCall: "Waiting for call",
+    callDetected: "Call detected",
+    recordingPending: "Waiting for recording",
     callReceived: "Call received",
     recording: "Call recording",
     playRecording: "Play recording",
@@ -393,6 +397,8 @@ Object.assign(copy.ar, {
   numbersList: "أرقامي",
   waiting: "بانتظار الكود",
   waitingCall: "بانتظار المكالمة",
+  callDetected: "تم رصد المكالمة",
+  recordingPending: "بانتظار تجهيز التسجيل",
   callReceived: "وصلت المكالمة",
   recording: "تسجيل المكالمة",
   playRecording: "تشغيل التسجيل",
@@ -1325,6 +1331,7 @@ function statusLabel(order) {
   if (status === "refund_pending") return t("refundPending");
   if (status === "finished") return t("finished");
   if (order.mode === "voice" && status === "call_received") return t("callReceived");
+  if (order.mode === "voice" && status === "waiting_for_recording") return t("recordingPending");
   if (order.mode === "voice") return t("waitingCall");
   return t("waiting");
 }
@@ -1333,7 +1340,9 @@ function orderTimelineLabels(order) {
   const mode = String(order?.mode || "");
   const status = String(order?.public_status || "");
   if (mode === "voice") {
-    return [t("purchased"), t("waitingCall"), status === "call_received" ? t("recording") : t("checkCall")];
+    const callStep = status === "call_received" || status === "waiting_for_recording" ? t("callDetected") : t("waitingCall");
+    const recordingStep = status === "call_received" ? t("recording") : status === "waiting_for_recording" ? t("recordingPending") : t("checkCall");
+    return [t("purchased"), callStep, recordingStep];
   }
   if (mode === "rental") {
     return [t("purchased"), t("waiting"), status === "finished" ? t("finished") : t("code")];
@@ -1351,6 +1360,9 @@ function orderTimelineState(order, index, total) {
   }
   if (status === "code_received" || status === "call_received" || status === "finished") {
     return "done";
+  }
+  if (status === "waiting_for_recording") {
+    return index <= 1 ? "done" : "current";
   }
   if (status === "waiting") {
     return index === 0 ? "done" : index === 1 ? "current" : "pending";
@@ -1390,7 +1402,7 @@ function clearOrderPoll() {
 
 function orderNeedsPolling(order) {
   if (!order || order.can_refresh === false) return false;
-  return ["waiting", "refund_pending"].includes(order.public_status);
+  return ["waiting", "waiting_for_recording", "refund_pending"].includes(order.public_status);
 }
 
 function scheduleOrderPoll() {
@@ -1486,7 +1498,7 @@ function renderActiveOrders(rows = state.activeOrders) {
       const details = [];
       if (order.number) details.push(`${t("number")}: ${order.number}`);
       details.push(`${order.price_label || ""}`);
-      if (order.public_status === "waiting") details.push(`${formatDuration(order.seconds_left)} ${t("left")}`);
+      if (["waiting", "waiting_for_recording"].includes(order.public_status)) details.push(`${formatDuration(order.seconds_left)} ${t("left")}`);
       meta.textContent = details.filter(Boolean).join(" · ");
       main.append(title, meta, renderOrderTimeline(order));
       if (Array.isArray(order.events) && order.events.length) {
@@ -1551,6 +1563,11 @@ function renderActiveOrders(rows = state.activeOrders) {
         recording.className = "order-code";
         recording.textContent = t("recording");
         main.append(recording);
+      } else if (order.mode === "voice" && order.public_status === "waiting_for_recording") {
+        const pending = document.createElement("span");
+        pending.className = "order-code muted-code";
+        pending.textContent = t("recordingPending");
+        main.append(pending);
       }
 
       const actions = document.createElement("div");

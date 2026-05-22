@@ -468,7 +468,7 @@ def _temp_refresh_cooldown_left(order: dict, now: datetime | None = None) -> int
 def _is_temp_order_active_for_trust_gate(order: dict | None, now: datetime | None = None) -> bool:
     order = order or {}
     state = str(order.get("temp_wait_state") or "").strip().lower()
-    if state not in {"waiting", "waiting_for_call", "code_received", "call_received", "refund_pending"}:
+    if state not in {"waiting", "waiting_for_call", "waiting_for_recording", "code_received", "call_received", "refund_pending"}:
         return False
 
     elapsed = _temp_elapsed_sec(order, now=now)

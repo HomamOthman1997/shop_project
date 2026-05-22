@@ -1036,6 +1036,12 @@ h2 {
   letter-spacing: 0;
 }
 
+.order-code.muted-code {
+  background: rgba(231, 182, 75, 0.12);
+  color: #f0d18a;
+  font-size: 14px;
+}
+
 .order-message-list {
   display: grid;
   gap: 5px;

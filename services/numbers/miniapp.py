@@ -1671,6 +1671,8 @@ def _event_public_label(event: str, lang: str) -> str:
 
         "manual_refresh_no_sms": ("No new SMS yet", "لا توجد رسالة جديدة بعد"),
 
+        "voice_call_seen": ("Call detected, waiting for recording", "تم رصد المكالمة، بانتظار التسجيل"),
+
         "voice_call_received": ("Call received", "وصلت المكالمة"),
 
         "manual_voice_check_no_call": ("No call yet", "لا توجد مكالمة بعد"),
@@ -2939,6 +2941,10 @@ def _order_public_status(order: dict[str, Any]) -> str:
 
             return "call_received"
 
+        if wait_state == "waiting_for_recording":
+
+            return "waiting_for_recording"
+
         if wait_state == "refund_pending":
 
             return "refund_pending"
@@ -3233,7 +3239,7 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
 
             "seconds_left": max(0, int(timeout_sec) - int(elapsed)),
 
-            "can_refresh": public_status in {"waiting", "refund_pending"},
+            "can_refresh": public_status in {"waiting", "waiting_for_recording", "refund_pending"},
 
             "can_cancel": cancel_left <= 0 and public_status == "waiting",
 
@@ -3847,6 +3853,100 @@ async def _refresh_temp_order(order: dict[str, Any]) -> dict[str, Any]:
 
     return current
 
+_VOICE_RECORDING_KEYS = {
+    "recording",
+    "recordinguri",
+    "recordingurl",
+    "recordinghref",
+    "recordinglink",
+    "recordingdownloadurl",
+    "recordingdownloaduri",
+    "recordingdownloadlink",
+    "audiouri",
+    "audiourl",
+    "audiohref",
+    "audiolink",
+    "mp3url",
+    "wavurl",
+}
+
+
+def _voice_recording_key_matches(key: Any) -> bool:
+
+    normalized = re.sub(r"[^a-z0-9]+", "", str(key or "").strip().lower())
+
+    if normalized in _VOICE_RECORDING_KEYS:
+
+        return True
+
+    return bool(("recording" in normalized or "audio" in normalized) and any(part in normalized for part in ("uri", "url", "href", "link")))
+
+
+def _voice_recording_uri_from_value(value: Any, *, key: Any = "") -> str:
+
+    key_matches = _voice_recording_key_matches(key)
+
+    if isinstance(value, str):
+
+        return value.strip() if key_matches else ""
+
+    if isinstance(value, dict):
+
+        if key_matches:
+
+            for item_key, item_value in value.items():
+
+                normalized = re.sub(r"[^a-z0-9]+", "", str(item_key or "").strip().lower())
+
+                if normalized not in {"uri", "url", "href", "link", "downloaduri", "downloadurl", "downloadlink"}:
+
+                    continue
+
+                if isinstance(item_value, str) and item_value.strip():
+
+                    return item_value.strip()
+
+        for item_key, item_value in value.items():
+
+            if not _voice_recording_key_matches(item_key):
+
+                continue
+
+            if isinstance(item_value, str) and item_value.strip():
+
+                return item_value.strip()
+
+            nested = _voice_recording_uri_from_value(item_value, key=item_key)
+
+            if nested:
+
+                return nested
+
+        for item_key, item_value in value.items():
+
+            if not isinstance(item_value, (dict, list, tuple)):
+
+                continue
+
+            nested = _voice_recording_uri_from_value(item_value, key=item_key)
+
+            if nested:
+
+                return nested
+
+    if isinstance(value, (list, tuple)):
+
+        for item in value:
+
+            nested = _voice_recording_uri_from_value(item, key=key)
+
+            if nested:
+
+                return nested
+
+    return ""
+
+
 def _voice_recording_uri_from_calls(calls: Any) -> str:
 
     if not isinstance(calls, list):
@@ -3859,7 +3959,7 @@ def _voice_recording_uri_from_calls(calls: Any) -> str:
 
             continue
 
-        recording_uri = str(call.get("recordingUri") or call.get("recordingUrl") or "").strip()
+        recording_uri = _voice_recording_uri_from_value(call)
 
         if recording_uri:
 
@@ -3889,6 +3989,160 @@ def _voice_recording_filename(content_type: str | None) -> str:
 
     return "call-recording.bin"
 
+async def _retry_pending_voice_refund(order: dict[str, Any], *, source: str) -> dict[str, Any]:
+
+    if not order or not order.get("_id"):
+
+        return order
+
+    provider = _order_provider_code(order)
+
+    provider_order_id = _order_provider_order_id(order)
+
+    if provider and provider_order_id:
+
+        calls_data = await get_calls_from_provider(
+
+            provider,
+
+            provider_order_id,
+
+            to_number=str(order.get("provider_number") or ""),
+
+        )
+
+        calls = [dict(item) for item in (calls_data.get("calls") or []) if isinstance(item, dict)]
+
+        recording_uri = _voice_recording_uri_from_calls(calls)
+
+        now = _utc_now()
+
+        await update_order_details(
+
+            order["_id"],
+
+            {
+
+                "temp_last_refresh_at": now,
+
+                "voice_last_check_at": now,
+
+                "voice_calls": calls[:5],
+
+                "voice_calls_count": len(calls),
+
+            },
+
+        )
+
+        if recording_uri:
+
+            await update_order_details(
+
+                order["_id"],
+
+                {
+
+                    "temp_wait_state": "call_received",
+
+                    "voice_call_received_at": now,
+
+                    "voice_recording_uri": recording_uri,
+
+                },
+
+            )
+
+            await _log_temp_event(order, "voice_call_received", {"has_recording": True, "source": source})
+
+            return await get_order(order["_id"]) or order
+
+        terminal_reason = _provider_terminal_refund_reason(
+
+            (calls_data or {}).get("raw"),
+
+            allow_missing=True,
+
+            allow_empty=True,
+
+        )
+
+        if terminal_reason:
+
+            result = await _finalize_temp_local_refund(
+
+                order_id=order["_id"],
+
+                order=order,
+
+                actor_user_id=int(order.get("user_id") or 0),
+
+                reason=f"{source}_{terminal_reason}",
+
+                provider_raw=(calls_data or {}).get("raw"),
+
+                provider_terminal_reason=terminal_reason,
+
+            )
+
+            if result.get("success"):
+
+                return await get_order(order["_id"]) or order
+
+            if _temp_refund_result_retryable(result):
+
+                return await _mark_temp_refund_pending(
+
+                    order_id=order["_id"],
+
+                    order=order,
+
+                    result=result,
+
+                    source=source,
+
+                )
+
+            return await get_order(order["_id"]) or order
+
+    result = await _cancel_and_refund_temp_order(
+
+        order_id=order["_id"],
+
+        order=order,
+
+        actor_user_id=int(order.get("user_id") or 0),
+
+        reason=source,
+
+        require_no_sms=True,
+
+        allow_provider_terminal_refund=True,
+
+        allow_empty_provider_refund=True,
+
+    )
+
+    if result.get("success"):
+
+        return await get_order(order["_id"]) or order
+
+    if _temp_refund_result_retryable(result):
+
+        return await _mark_temp_refund_pending(
+
+            order_id=order["_id"],
+
+            order=order,
+
+            result=result,
+
+            source=source,
+
+        )
+
+    return await get_order(order["_id"]) or order
+
 async def _refresh_voice_order(order: dict[str, Any]) -> dict[str, Any]:
 
     if not order or not order.get("_id"):
@@ -3915,7 +4169,7 @@ async def _refresh_voice_order(order: dict[str, Any]) -> dict[str, Any]:
 
     if str(current.get("temp_wait_state") or "").strip().lower() == "refund_pending":
 
-        return await _retry_pending_temp_refund(current, source="miniapp_voice_refund_retry")
+        return await _retry_pending_voice_refund(current, source="miniapp_voice_refund_retry")
 
     if str(current.get("voice_recording_uri") or "").strip():
 
@@ -4001,9 +4255,35 @@ async def _refresh_voice_order(order: dict[str, Any]) -> dict[str, Any]:
 
         return await get_order(current["_id"]) or {**current, **patch}
 
+    if calls and str(current.get("temp_wait_state") or "").strip().lower() != "waiting_for_recording":
+
+        patch.update(
+
+            {
+
+                "temp_wait_state": "waiting_for_recording",
+
+                "voice_call_received_at": current.get("voice_call_received_at") or now,
+
+            }
+
+        )
+
     await update_order_details(current["_id"], patch)
 
     current = await get_order(current["_id"]) or {**current, **patch}
+
+    if calls and str(patch.get("temp_wait_state") or "").strip().lower() == "waiting_for_recording":
+
+        await _log_temp_event(
+
+            current,
+
+            "voice_call_seen",
+
+            {"has_recording": False, "source": "numbers_miniapp_poll"},
+
+        )
 
     timeout_reached = _temp_elapsed_sec(current) >= _order_temp_timeout_sec(current)
 

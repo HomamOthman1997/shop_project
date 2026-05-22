@@ -164,6 +164,56 @@ async def test_get_calls_returns_recording_uri(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_download_recording_accepts_relative_textverified_uri(monkeypatch):
+    from services.numbers.core.session_manager import SessionManager
+
+    provider = TextVerifiedProvider()
+
+    async def fake_auth(self):
+        return "tok"
+
+    monkeypatch.setattr(TextVerifiedProvider, "_auth", fake_auth)
+
+    class RecordingResp:
+        status = 200
+        headers = {"Content-Type": "audio/mpeg"}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def text(self):
+            return ""
+
+        async def read(self):
+            return b"mp3-bytes"
+
+    class DummySession:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, headers=None):
+            self.calls.append((url, dict(headers or {})))
+            return RecordingResp()
+
+    sess = DummySession()
+
+    async def fake_get_session():
+        return sess
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+
+    res = await provider.download_recording("/api/pub/v2/calls/call_1/recording")
+
+    assert res["success"] is True
+    assert res["content"] == b"mp3-bytes"
+    assert res["content_type"] == "audio/mpeg"
+    assert sess.calls[0][0] == "https://www.textverified.com/api/pub/v2/calls/call_1/recording"
+
+
+@pytest.mark.asyncio
 async def test_buy_number_fallback_from_area_code_to_any(monkeypatch):
     from services.numbers.core.session_manager import SessionManager
 

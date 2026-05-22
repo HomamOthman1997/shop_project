@@ -589,6 +589,56 @@ def test_numbers_voice_order_payload_exposes_recording_download():
     assert payload["recording_url"] == "/mini/numbers/api/orders/voice-order-id/recording"
 
 
+def test_numbers_voice_recording_uri_accepts_provider_variants():
+    assert (
+        miniapp._voice_recording_uri_from_calls(
+            [
+                {
+                    "id": "call_1",
+                    "recording": {"downloadUrl": "https://example.test/nested.mp3"},
+                }
+            ]
+        )
+        == "https://example.test/nested.mp3"
+    )
+    assert (
+        miniapp._voice_recording_uri_from_calls(
+            [
+                {
+                    "id": "call_2",
+                    "recording_url": "/api/pub/v2/calls/call_2/recording",
+                }
+            ]
+        )
+        == "/api/pub/v2/calls/call_2/recording"
+    )
+
+
+def test_numbers_voice_order_payload_waiting_for_recording_can_refresh():
+    payload = miniapp._order_payload(
+        {
+            "_id": "voice-order-id",
+            "number_mode": "voice",
+            "status": "success",
+            "temp_wait_state": "waiting_for_recording",
+            "provider": "textverified",
+            "provider_order_id": "abc",
+            "provider_number": "+15551234567",
+            "temp_service_key": "attapoll",
+            "temp_country": "1",
+            "selling_price": 0.44,
+            "base_price": 0.4,
+            "voice_calls_count": 1,
+            "voice_calls": [{"id": "call_1", "recordingUri": None}],
+        }
+    )
+
+    assert payload["public_status"] == "waiting_for_recording"
+    assert payload["recording_available"] is False
+    assert payload["can_refresh"] is True
+    assert payload["can_cancel"] is False
+
+
 def test_numbers_order_event_payload_is_customer_safe():
     payload = miniapp._event_payload(
         {
@@ -1212,6 +1262,132 @@ async def test_refresh_refund_pending_order_credits_wallet_when_provider_timed_o
     assert calls["fetch"] == ("textverified", "prov-timeout")
     assert calls["refund"]["order_id"] == "order-pending-timeout"
     assert calls["refund"]["sale_price"] == 0.83
+    assert calls["status"] == "cancelled"
+    assert refreshed["status"] == "cancelled"
+    assert refreshed["temp_wait_state"] == "refunded"
+    assert refreshed["temp_provider_terminal_reason"] == "provider_missing_or_expired"
+
+
+@pytest.mark.asyncio
+async def test_refresh_voice_order_marks_waiting_for_recording_when_call_seen(monkeypatch):
+    now = datetime.now(UTC)
+    stored = {
+        "_id": "voice-waiting-recording",
+        "number_mode": "voice",
+        "status": "success",
+        "user_id": 123,
+        "reseller_id": 123,
+        "provider": "textverified",
+        "provider_order_id": "prov-voice",
+        "provider_number": "+15551234567",
+        "temp_service_key": "gmail",
+        "temp_country": "1",
+        "selling_price": 0.83,
+        "base_price": 0.75,
+        "created_at": now,
+        "temp_wait_started_at": now,
+        "temp_wait_timeout_sec": 300,
+        "temp_wait_state": "waiting_for_call",
+    }
+    calls: dict = {}
+
+    async def _fake_get_order(_order_id):
+        return dict(stored)
+
+    async def _fake_update_order_details(_order_id, patch):
+        stored.update(patch)
+        calls.setdefault("details", []).append(dict(patch))
+
+    async def _fake_get_calls(provider, provider_order_id, to_number=None):
+        calls["voice_fetch"] = (provider, provider_order_id, to_number)
+        return {"success": True, "calls": [{"id": "call_1", "to": to_number, "recordingUri": None}], "raw": {"data": []}}
+
+    async def _fake_log(*args, **kwargs):
+        calls.setdefault("events", []).append(args)
+
+    monkeypatch.setattr(miniapp, "get_order", _fake_get_order)
+    monkeypatch.setattr(miniapp, "update_order_details", _fake_update_order_details)
+    monkeypatch.setattr(miniapp, "get_calls_from_provider", _fake_get_calls)
+    monkeypatch.setattr(miniapp, "_log_temp_event", _fake_log)
+
+    refreshed = await miniapp._refresh_voice_order(dict(stored))
+
+    assert calls["voice_fetch"] == ("textverified", "prov-voice", "+15551234567")
+    assert refreshed["temp_wait_state"] == "waiting_for_recording"
+    assert refreshed["voice_calls_count"] == 1
+    assert any(event[1] == "voice_call_seen" for event in calls["events"])
+
+
+@pytest.mark.asyncio
+async def test_refresh_refund_pending_voice_order_uses_call_status_for_local_refund(monkeypatch):
+    now = datetime.now(UTC)
+    stored = {
+        "_id": "voice-pending-timeout",
+        "number_mode": "voice",
+        "status": "success",
+        "user_id": 123,
+        "reseller_id": 123,
+        "provider": "textverified",
+        "provider_order_id": "prov-voice-timeout",
+        "provider_number": "+15703604255",
+        "temp_service_key": "gmail",
+        "temp_country": "1",
+        "selling_price": 0.83,
+        "base_price": 0.75,
+        "created_at": now - timedelta(minutes=20),
+        "temp_wait_started_at": now - timedelta(minutes=20),
+        "temp_wait_timeout_sec": 300,
+        "temp_wait_state": "refund_pending",
+        "voice_calls": [],
+    }
+    calls: dict = {}
+
+    class _DummyFinancialManager:
+        @classmethod
+        async def refund_core_purchase(cls, user_id, order_id, sale_price, cost_price, reseller_id=None):
+            calls["refund"] = {
+                "user_id": user_id,
+                "order_id": order_id,
+                "sale_price": sale_price,
+                "cost_price": cost_price,
+                "reseller_id": reseller_id,
+            }
+            return True, "OK"
+
+    async def _fake_get_order(_order_id):
+        return dict(stored)
+
+    async def _fake_update_order_status(_order_id, status):
+        calls["status"] = status
+        stored["status"] = status
+
+    async def _fake_update_order_details(_order_id, patch):
+        stored.update(patch)
+        calls.setdefault("details", []).append(dict(patch))
+
+    async def _fake_get_calls(provider, provider_order_id, to_number=None):
+        calls["voice_fetch"] = (provider, provider_order_id, to_number)
+        return {"success": True, "calls": [], "raw": {"status": "Timed Out"}}
+
+    async def _fail_fetch_provider_sms(*args, **kwargs):
+        raise AssertionError("voice refund retry must not use SMS polling")
+
+    async def _fake_log(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(miniapp, "FinancialManager", _DummyFinancialManager)
+    monkeypatch.setattr(miniapp, "get_order", _fake_get_order)
+    monkeypatch.setattr(miniapp, "update_order_status", _fake_update_order_status)
+    monkeypatch.setattr(miniapp, "update_order_details", _fake_update_order_details)
+    monkeypatch.setattr(miniapp, "get_calls_from_provider", _fake_get_calls)
+    monkeypatch.setattr(miniapp, "fetch_provider_sms", _fail_fetch_provider_sms)
+    monkeypatch.setattr(miniapp, "_log_temp_event", _fake_log)
+    monkeypatch.setattr(miniapp, "_log_number_event_from_order", _fake_log)
+
+    refreshed = await miniapp._refresh_voice_order(dict(stored))
+
+    assert calls["voice_fetch"] == ("textverified", "prov-voice-timeout", "+15703604255")
+    assert calls["refund"]["order_id"] == "voice-pending-timeout"
     assert calls["status"] == "cancelled"
     assert refreshed["status"] == "cancelled"
     assert refreshed["temp_wait_state"] == "refunded"

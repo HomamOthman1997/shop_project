@@ -1,5 +1,7 @@
 ﻿from typing import Dict, Any, Optional
 
+from urllib.parse import urljoin
+
 import asyncio
 import time
 
@@ -718,6 +720,15 @@ class TextVerifiedProvider(BaseProvider):
 
     async def download_recording(self, recording_uri: str) -> dict[str, Any]:
         uri = str(recording_uri or "").strip()
+        if uri and not uri.lower().startswith(("http://", "https://")):
+            api_origin = self.BASE.split("/api", 1)[0].rstrip("/")
+            api_base = self.BASE.rstrip("/") + "/"
+            if uri.startswith("/api/"):
+                uri = f"{api_origin}{uri}"
+            elif uri.startswith("api/"):
+                uri = f"{api_origin}/{uri}"
+            else:
+                uri = urljoin(api_base, uri.lstrip("/"))
         if not uri.lower().startswith(("http://", "https://")):
             return {"success": False, "raw": "invalid_recording_uri"}
 
