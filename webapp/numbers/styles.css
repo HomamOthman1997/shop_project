@@ -373,6 +373,79 @@ h2 {
   padding: 18px;
 }
 
+.console-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 14px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid rgba(157, 174, 194, 0.13);
+}
+
+.console-heading h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 22px;
+  line-height: 1.16;
+}
+
+.quality-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 360px;
+}
+
+.quality-strip span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(107, 182, 255, 0.24);
+  border-radius: var(--radius-sm);
+  background: rgba(107, 182, 255, 0.08);
+  color: #cfe6ff;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 860;
+  white-space: nowrap;
+}
+
+.intro-band.compact {
+  display: grid;
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 12px;
+  padding: 13px;
+  box-shadow: none;
+}
+
+.intro-band.compact::after {
+  display: none;
+}
+
+.intro-band.compact h2 {
+  margin-bottom: 0;
+  font-size: 17px;
+  line-height: 1.22;
+}
+
+.intro-band.compact .notice-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0;
+}
+
+.intro-band.compact .notice-list p {
+  padding: 10px 10px 10px 12px;
+  font-size: 11px;
+}
+
+.intro-band.compact .primary-action {
+  display: none;
+}
+
 .intro-band::after {
   content: "";
   display: block;
@@ -583,6 +656,13 @@ h2 {
 .select-trigger:focus-visible {
   border-color: rgba(107, 182, 255, 0.62);
   box-shadow: 0 0 0 3px rgba(107, 182, 255, 0.1);
+}
+
+.field input:disabled,
+.field select:disabled,
+.field textarea:disabled {
+  opacity: 0.68;
+  cursor: not-allowed;
 }
 
 .service-menu,
@@ -852,6 +932,12 @@ h2 {
   background: var(--teal);
 }
 
+.provider-card.compare {
+  background:
+    linear-gradient(180deg, rgba(24, 34, 47, 0.88), rgba(14, 22, 32, 0.88)),
+    var(--panel);
+}
+
 .provider-header {
   display: flex;
   align-items: flex-start;
@@ -881,6 +967,12 @@ h2 {
   color: #ffe0a3;
   font-size: 12px;
   font-weight: 950;
+}
+
+.success-badge.muted {
+  border-color: rgba(157, 174, 194, 0.2);
+  background: rgba(157, 174, 194, 0.08);
+  color: #b9c7d7;
 }
 
 .provider-main,
@@ -918,6 +1010,43 @@ h2 {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.provider-quality-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.quality-badge {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(157, 174, 194, 0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.045);
+  color: #dce5ef;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 860;
+  line-height: 1;
+}
+
+.quality-badge.accent {
+  border-color: rgba(48, 208, 162, 0.38);
+  background: rgba(48, 208, 162, 0.12);
+  color: #d9fff4;
+}
+
+.quality-badge.blue {
+  border-color: rgba(107, 182, 255, 0.32);
+  background: rgba(107, 182, 255, 0.1);
+  color: #d8ebff;
+}
+
+.quality-badge.muted {
+  color: #b8c4d1;
 }
 
 .provider-price,
@@ -1494,9 +1623,17 @@ h2 {
   place-items: center;
   border: 1px dashed rgba(157, 174, 194, 0.24);
   border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(107, 182, 255, 0.055), rgba(255, 255, 255, 0.025));
   color: var(--muted);
+  font-weight: 760;
+  line-height: 1.45;
   text-align: center;
   padding: 16px;
+}
+
+.support-band.support-locked .primary-action {
+  opacity: 0.64;
+  cursor: not-allowed;
 }
 
 .busy-overlay {
@@ -1620,8 +1757,26 @@ h2 {
     font-size: 19px;
   }
 
+  .console-heading {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .quality-strip {
+    justify-content: flex-start;
+    max-width: none;
+  }
+
+  .intro-band.compact {
+    grid-template-columns: 1fr;
+  }
+
   .notice-list {
     grid-template-columns: 1fr;
+  }
+
+  .intro-band.compact .notice-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .field-grid,
@@ -1783,6 +1938,10 @@ h2 {
   }
 
   .provider-list {
+    grid-template-columns: 1fr;
+  }
+
+  .intro-band.compact .notice-list {
     grid-template-columns: 1fr;
   }
 

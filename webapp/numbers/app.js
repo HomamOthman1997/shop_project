@@ -25,7 +25,7 @@ const state = {
     rental: defaultModeSelection("rental"),
     voice: defaultModeSelection("voice"),
   },
-  orderFlowOpen: false,
+  orderFlowOpen: true,
   pricesChecked: false,
   priceCheckFailed: false,
   loading: false,
@@ -231,6 +231,11 @@ const copy = {
     introNotice1: "Choose the exact service. The number is reserved for the selected service only.",
     introNotice2: "Leaving the state unset usually provides more options and better prices.",
     introNotice3: "If no code or call arrives, the app checks the provider and follows the refund flow when eligible.",
+    orderConsole: "Order console",
+    orderConsoleTitle: "Find the best route before you buy",
+    qualityLive: "Live provider quotes",
+    qualityProtected: "Refund flow",
+    qualityCompare: "Smart comparison",
     requestNumber: "Request number",
     service: "Service",
     chooseService: "Choose service",
@@ -249,6 +254,15 @@ const copy = {
     bestChoice: "Best choice",
     showOtherProviders: "Show other providers",
     hideOtherProviders: "Show best choice only",
+    routeBest: "Recommended route",
+    routeAvailable: "Available route",
+    quoteReady: "Instant quote",
+    providerNew: "New route",
+    providerMeasured: "Measured route",
+    protectedFlow: "Eligible refund flow",
+    tempRoute: "SMS route",
+    rentalRoute: "Rental route",
+    voiceRoute: "Voice route",
     loading: "Checking providers",
     loadingPhaseFast: "Checking priority providers",
     loadingPhaseSlow: "Waiting for slower providers",
@@ -399,6 +413,20 @@ Object.assign(copy.ar, {
   bestChoice: "أفضل خيار",
   showOtherProviders: "عرض باقي المزودات",
   hideOtherProviders: "عرض أفضل خيار فقط",
+  orderConsole: "\u0644\u0648\u062d\u0629 \u0627\u0644\u0637\u0644\u0628",
+  orderConsoleTitle: "\u0627\u062e\u062a\u0631 \u0623\u0641\u0636\u0644 \u0645\u0633\u0627\u0631 \u0645\u062a\u0627\u062d \u0642\u0628\u0644 \u0627\u0644\u0634\u0631\u0627\u0621",
+  qualityLive: "\u062a\u0633\u0639\u064a\u0631 \u0645\u0628\u0627\u0634\u0631",
+  qualityProtected: "\u0645\u0633\u0627\u0631 \u0627\u0633\u062a\u0631\u062c\u0627\u0639",
+  qualityCompare: "\u0645\u0642\u0627\u0631\u0646\u0629 \u0630\u0643\u064a\u0629",
+  routeBest: "\u0627\u0644\u0645\u0633\u0627\u0631 \u0627\u0644\u0645\u0642\u062a\u0631\u062d",
+  routeAvailable: "\u0645\u0633\u0627\u0631 \u0645\u062a\u0627\u062d",
+  quoteReady: "\u062a\u0633\u0639\u064a\u0631 \u062c\u0627\u0647\u0632",
+  providerNew: "\u0645\u0633\u0627\u0631 \u062c\u062f\u064a\u062f",
+  providerMeasured: "\u0645\u0633\u0627\u0631 \u0645\u0642\u0627\u0633",
+  protectedFlow: "\u0645\u0624\u0647\u0644 \u0644\u0644\u0627\u0633\u062a\u0631\u062c\u0627\u0639",
+  tempRoute: "SMS",
+  rentalRoute: "\u0625\u064a\u062c\u0627\u0631",
+  voiceRoute: "\u0627\u062a\u0635\u0627\u0644",
   loading: "جاري فحص المزودين",
   loadingPhaseFast: "جاري فحص المزودين الأسرع",
   loadingPhaseSlow: "بانتظار المزودين الأبطأ قليلاً",
@@ -812,8 +840,10 @@ function setView(view) {
 }
 
 function renderBuyFlow() {
-  els.introBand?.classList.toggle("hidden", state.orderFlowOpen);
-  els.controlBand?.classList.toggle("hidden", !state.orderFlowOpen);
+  els.controlBand?.classList.remove("hidden");
+  els.introBand?.classList.remove("hidden");
+  els.introBand?.classList.toggle("compact", state.orderFlowOpen);
+  els.requestNumberButton?.classList.toggle("hidden", state.orderFlowOpen);
   els.resultBand?.classList.toggle("hidden", !state.pricesChecked);
   els.successLegend?.classList.toggle("hidden", !state.pricesChecked);
   if (!state.pricesChecked && !state.loading && !state.priceCheckFailed && els.statusLine) {
@@ -2075,6 +2105,32 @@ function rentalOptionLabel(option) {
   return parts.filter(Boolean).join(" \u00b7 ");
 }
 
+function providerSuccessText(row) {
+  const rate = String(row?.success_rate || "").trim();
+  if (!rate || rate === "-" || /^n\/?a$/i.test(rate)) {
+    return t("providerNew");
+  }
+  return `\u2605 ${rate}`;
+}
+
+function providerModeLabel(row) {
+  if (state.mode === "voice" || row?.voice_fallback) return t("voiceRoute");
+  if (state.mode === "rental") return t("rentalRoute");
+  return t("tempRoute");
+}
+
+function providerBadges(row) {
+  const hasQuote = Boolean(row?.quote_token || row?.options?.some((option) => option.quote_token));
+  const badges = [
+    { text: row?.recommended ? t("bestChoice") : t("routeAvailable"), tone: row?.recommended ? "accent" : "muted" },
+    { text: providerSuccessText(row) === t("providerNew") ? t("providerNew") : t("providerMeasured"), tone: "muted" },
+    { text: providerModeLabel(row), tone: "blue" },
+  ];
+  if (hasQuote) badges.push({ text: t("quoteReady"), tone: "blue" });
+  badges.push({ text: t("protectedFlow"), tone: "muted" });
+  return badges;
+}
+
 function renderProviders(rows, { preserve = false } = {}) {
   if (!preserve) {
     state.providerRows = rows || [];
@@ -2090,7 +2146,7 @@ function renderProviders(rows, { preserve = false } = {}) {
   const visibleRows = state.showAllProviders ? allRows : [recommended];
   const cards = visibleRows.map((row) => {
     const card = document.createElement("article");
-    card.className = `provider-card${row.recommended ? " best" : ""}`;
+    card.className = `provider-card${row.recommended ? " best" : " compare"}`;
 
     const main = document.createElement("div");
     main.className = "provider-main";
@@ -2105,18 +2161,29 @@ function renderProviders(rows, { preserve = false } = {}) {
     const successBadge = document.createElement("span");
     successBadge.className = "success-badge";
     successBadge.title = t("successLegend");
-    successBadge.textContent = `\u2605 ${row.success_rate || "-"}`;
+    successBadge.textContent = providerSuccessText(row);
+    if (successBadge.textContent === t("providerNew")) {
+      successBadge.classList.add("muted");
+    }
     header.append(name, successBadge);
 
     const meta = document.createElement("p");
     meta.className = "provider-meta";
-    const details = [];
-    if (row.recommended) details.push(t("bestPrice"));
+    const details = [row.recommended ? t("routeBest") : t("routeAvailable"), providerModeLabel(row)];
     if (row.location_tag) details.push(`[${row.location_tag}]`);
     if (row.voice_fallback) details.push(t("voiceFallback"));
     meta.textContent = details.join(" · ");
 
-    main.append(header, meta);
+    const quality = document.createElement("div");
+    quality.className = "provider-quality-row";
+    providerBadges(row).forEach((badge) => {
+      const chip = document.createElement("span");
+      chip.className = `quality-badge ${badge.tone}`;
+      chip.textContent = badge.text;
+      quality.append(chip);
+    });
+
+    main.append(header, meta, quality);
     if (row.options?.length) {
       const options = document.createElement("div");
       options.className = "option-row";
@@ -2541,22 +2608,36 @@ async function changeLanguage(language, button) {
 
 function renderSupportCategories(categories = state.supportCategories) {
   state.supportCategories = categories || [];
-  els.supportCategory.replaceChildren(
-    ...state.supportCategories.map((item) => {
-      const option = document.createElement("option");
-      option.value = item.key;
-      option.textContent = item.label;
-      return option;
-    })
-  );
+  const options = state.supportCategories.map((item) => {
+    const option = document.createElement("option");
+    option.value = item.key;
+    option.textContent = item.label;
+    return option;
+  });
+  if (!options.length) {
+    const option = document.createElement("option");
+    option.value = "numbers";
+    option.textContent = t("supportCategory");
+    options.push(option);
+  }
+  els.supportCategory.replaceChildren(...options);
+}
+
+function setSupportFormEnabled(enabled) {
+  els.supportCategory.disabled = !enabled;
+  els.supportMessage.disabled = !enabled;
+  els.sendSupportButton.disabled = !enabled;
+  els.supportView?.classList.toggle("support-locked", !enabled);
 }
 
 async function loadSupportInfo() {
   if (!canUseTelegramAuth()) {
     els.supportStatus.textContent = t("authRequired");
     renderSupportCategories([]);
+    setSupportFormEnabled(false);
     return;
   }
+  setSupportFormEnabled(true);
   try {
     const payload = await api("/mini/numbers/api/support");
     state.supportBotUrl = payload.bot_url || state.supportBotUrl;
@@ -2570,6 +2651,7 @@ async function loadSupportInfo() {
 async function sendSupportTicket() {
   if (!canUseTelegramAuth()) {
     els.supportStatus.textContent = t("authRequired");
+    setSupportFormEnabled(false);
     return;
   }
   const category = els.supportCategory.value || "numbers";

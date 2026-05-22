@@ -43,7 +43,7 @@
         text-align: center;
       }
     </style>
-    <link rel="stylesheet" href="/mini/numbers/static/styles.css?v=20260522-enterprise" />
+    <link rel="stylesheet" href="/mini/numbers/static/styles.css?v=20260522-enterprise-console" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body class="app-booting">
@@ -69,22 +69,19 @@
 
       <section class="content-shell">
         <section class="view-panel" id="buyView">
-          <section class="intro-band" id="introBand" aria-label="Before ordering">
-            <div>
-              <p class="eyebrow" data-i18n="beforeOrder">Before ordering</p>
-              <h2 data-i18n="introTitle">Read this before requesting a number</h2>
+          <section class="control-band" id="controlBand" aria-label="Number order filters">
+            <div class="console-heading">
+              <div>
+                <p class="eyebrow" data-i18n="orderConsole">Order console</p>
+                <h2 data-i18n="orderConsoleTitle">Find the best route before you buy</h2>
+              </div>
+              <div class="quality-strip" aria-label="Quality signals">
+                <span data-i18n="qualityLive">Live provider quotes</span>
+                <span data-i18n="qualityProtected">Refund flow</span>
+                <span data-i18n="qualityCompare">Smart comparison</span>
+              </div>
             </div>
-            <div class="notice-list">
-              <p data-i18n="introNotice1">Choose the exact service before buying. The number is reserved for the selected service only.</p>
-              <p data-i18n="introNotice2">Leaving the state unset usually provides more options and better prices.</p>
-              <p data-i18n="introNotice3">If no code or call arrives, the app checks the provider and handles the refund flow automatically when eligible.</p>
-            </div>
-            <button class="primary-action" id="requestNumberButton" type="button" data-i18n="requestNumber">
-              Request number
-            </button>
-          </section>
 
-          <section class="control-band hidden" id="controlBand" aria-label="Number order filters">
             <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="Mode"></div>
 
             <div class="field-grid" id="fieldGrid">
@@ -131,6 +128,21 @@
               Check prices
             </button>
             <div id="statusLine" class="status-line"></div>
+          </section>
+
+          <section class="intro-band compact" id="introBand" aria-label="Before ordering">
+            <div>
+              <p class="eyebrow" data-i18n="beforeOrder">Before ordering</p>
+              <h2 data-i18n="introTitle">Read this before requesting a number</h2>
+            </div>
+            <div class="notice-list">
+              <p data-i18n="introNotice1">Choose the exact service before buying. The number is reserved for the selected service only.</p>
+              <p data-i18n="introNotice2">Leaving the state unset usually provides more options and better prices.</p>
+              <p data-i18n="introNotice3">If no code or call arrives, the app checks the provider and handles the refund flow automatically when eligible.</p>
+            </div>
+            <button class="primary-action" id="requestNumberButton" type="button" data-i18n="requestNumber">
+              Request number
+            </button>
           </section>
 
           <section class="result-band hidden" id="resultBand" aria-live="polite">
@@ -200,6 +212,6 @@
         <small id="busyText">Please wait</small>
       </div>
     </div>
-    <script src="/mini/numbers/static/app.js?v=20260522-enterprise"></script>
+    <script src="/mini/numbers/static/app.js?v=20260522-enterprise-console"></script>
   </body>
 </html>
