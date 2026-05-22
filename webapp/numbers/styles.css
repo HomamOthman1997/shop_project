@@ -650,6 +650,7 @@ h2 {
 }
 
 .native-select-shadow {
+  display: none !important;
   position: absolute;
   width: 1px !important;
   max-width: 1px !important;
