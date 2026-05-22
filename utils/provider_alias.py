@@ -13,6 +13,8 @@ _PROVIDER_PUBLIC_IDS: dict[str, str] = {
     "vaksms": "S6",
     "smsman": "S7",
     "smsman_s6": "S8",
+    "smsready": "S9",
+    "pvapins": "S10",
     # Proxy providers are also hidden behind the same public IDs.
     "9proxy": "S5",
     "4g": "S5",
@@ -28,6 +30,8 @@ _PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "S6": "Foxtrot",
     "S7": "NonVoIP",
     "S8": "NonVoIP",
+    "S9": "SMS-Ready",
+    "S10": "PVA Pins",
 }
 
 _GENERIC_PROVIDER_ERROR = {

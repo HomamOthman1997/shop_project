@@ -2,6 +2,8 @@ import pytest
 
 from services.numbers.providers.error_normalizer import normalize_provider_error
 from services.numbers.providers.herosms_provider import HeroSMSProvider
+from services.numbers.providers.pvapins_provider import PVAPinsProvider
+from services.numbers.providers.smsready_provider import SMSReadyProvider
 from services.numbers.providers.smsman_provider import SMSManProvider
 from services.numbers.providers.smspool_provider import SMSPoolProvider
 from services.numbers.providers.telabot_provider import TelabotProvider
@@ -14,6 +16,8 @@ def test_provider_contract_methods_exist():
         TextVerifiedProvider(),
         HeroSMSProvider(),
         SMSManProvider(),
+        SMSReadyProvider(),
+        PVAPinsProvider(),
         TelabotProvider(),
     ]
     for provider in providers:
@@ -37,4 +41,3 @@ def test_error_normalizer_codes(raw, expected_code):
     assert normalized["code"] == expected_code
     assert isinstance(normalized["message"], str)
     assert normalized["message"]
-

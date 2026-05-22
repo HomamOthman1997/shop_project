@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     smsman_base_url: str = "https://api.sms-man.com/control"
     pvadeals_key: Optional[str] = None
     pvadeals_base_url: str = "https://prod-v3.pvadeals.com/v3/api"
+    smsready_key: Optional[str] = None
+    smsready_base_url: str = "https://api.sms-ready.com/api"
+    pvapins_key: Optional[str] = None
+    pvapins_base_url: str = "https://api.pvapins.com/user/api"
     vaksms_key: Optional[str] = None
     vaksms_base_url: str = "https://vak-sms.com/api"
     vaksms_docs_url: str = "https://vak-sms.com/api/vak/"

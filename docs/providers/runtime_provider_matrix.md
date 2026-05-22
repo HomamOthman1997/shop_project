@@ -8,9 +8,11 @@ This file is generated from source code and is intended to prevent docs/runtime 
 |---|---:|---:|---:|---:|---:|---:|
 | herosms | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | pvadeals | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| pvapins | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | smsman | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | smsman_s6 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | smspool | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ |
+| smsready | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | telabot | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | textverified | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | vaksms | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |

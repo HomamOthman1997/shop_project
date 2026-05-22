@@ -43,6 +43,8 @@ from services.numbers.providers.smspool_provider import SMSPoolProvider
 from services.numbers.providers.telabot_provider import TelabotProvider
 from services.numbers.providers.textverified_provider import TextVerifiedProvider
 from services.numbers.providers.pvadeals_provider import PVADealsProvider
+from services.numbers.providers.pvapins_provider import PVAPinsProvider
+from services.numbers.providers.smsready_provider import SMSReadyProvider
 from services.numbers.providers.vaksms_provider import VAKSMSProvider
 from services.numbers.providers.error_normalizer import normalize_provider_error
 from services.numbers.service_map import (
@@ -62,6 +64,8 @@ PROVIDERS: dict[str, Any] = {
     "herosms": HeroSMSProvider(),
     "smsman": _SMSMAN_PROVIDER,
     "pvadeals": PVADealsProvider(),
+    "smsready": SMSReadyProvider(),
+    "pvapins": PVAPinsProvider(),
     "vaksms": VAKSMSProvider(),
     # Virtual second lane for the same backend provider (second-best offer).
     "smsman_s6": _SMSMAN_PROVIDER,
@@ -96,7 +100,7 @@ def _provider_method_kwargs(method: Any, opts: dict[str, Any]) -> dict[str, Any]
     return {key: value for key, value in clean_opts.items() if key in accepted}
 
 
-RENTAL_PROVIDER_CODES: tuple[str, ...] = ("smspool", "herosms", "textverified", "pvadeals")
+RENTAL_PROVIDER_CODES: tuple[str, ...] = ("smspool", "herosms", "textverified", "pvadeals", "smsready", "pvapins")
 RENTAL_UNLIMITED_SERVICE_KEY = "rental_unlimited"
 TEMP_NOT_LISTED_SERVICE_KEY = "not_listed_generic"
 # backward compatibility alias
@@ -154,6 +158,20 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {
         "supports_temp": True,
         "supports_rental": True,
         "supports_unlimited_rental": True,
+        "supports_state_temp": False,
+        "supports_state_rental": False,
+    },
+    "smsready": {
+        "supports_temp": True,
+        "supports_rental": True,
+        "supports_unlimited_rental": False,
+        "supports_state_temp": False,
+        "supports_state_rental": False,
+    },
+    "pvapins": {
+        "supports_temp": True,
+        "supports_rental": True,
+        "supports_unlimited_rental": False,
         "supports_state_temp": False,
         "supports_state_rental": False,
     },
@@ -605,7 +623,7 @@ async def get_provider_service_resolution_dynamic(service_key: str, provider_cod
             resolution["provider_reason"] = "service_not_supported"
             return _cache_and_return(resolution)
 
-        if provider_code in {"herosms", "smsman", "vaksms"}:
+        if provider_code in {"herosms", "smsman", "vaksms", "smsready", "pvapins"}:
             mapped = get_service_provider_map(norm_target).get(provider_code)
             if mapped:
                 resolution["resolved_provider_service"] = str(mapped)
@@ -1365,6 +1383,8 @@ async def rent_number_from_provider(
             "state_code",
             "tv_duration_key",
             "tv_is_renewable",
+            "provider_duration",
+            "provider_app",
         ):
             value = option_meta.get(key)
             if value not in (None, ""):

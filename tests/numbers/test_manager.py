@@ -45,6 +45,8 @@ def _patch_providers(monkeypatch):
     monkeypatch.setitem(manager.PROVIDERS, 'herosms', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'smsman', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'pvadeals', DummyProvider())
+    monkeypatch.setitem(manager.PROVIDERS, 'smsready', DummyProvider())
+    monkeypatch.setitem(manager.PROVIDERS, 'pvapins', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'vaksms', DummyProvider())
 
 
@@ -652,12 +654,18 @@ def test_provider_capability_matrix_rules():
     assert manager.provider_allows_temp("telabot", state_selected=True) is True
     assert manager.provider_allows_temp("pvadeals", state_selected=False) is True
     assert manager.provider_allows_temp("pvadeals", state_selected=True) is False
+    assert manager.provider_allows_temp("smsready", state_selected=False) is True
+    assert manager.provider_allows_temp("smsready", state_selected=True) is False
+    assert manager.provider_allows_temp("pvapins", state_selected=False) is True
+    assert manager.provider_allows_temp("pvapins", state_selected=True) is False
     assert manager.provider_allows_temp("vaksms", state_selected=False) is True
     assert manager.provider_allows_temp("vaksms", state_selected=True) is False
 
     assert manager.provider_allows_rental("herosms", service_key="paypal", country_iso="US") is True
     assert manager.provider_allows_rental("smspool", service_key="paypal", country_iso="US") is False
     assert manager.provider_allows_rental("pvadeals", service_key="paypal", country_iso="US") is True
+    assert manager.provider_allows_rental("smsready", service_key="paypal", country_iso="US") is True
+    assert manager.provider_allows_rental("pvapins", service_key="paypal", country_iso="US") is True
     assert manager.provider_allows_rental("vaksms", service_key="paypal", country_iso="US") is False
     assert manager.provider_allows_rental(
         "smspool",
@@ -694,6 +702,8 @@ def test_price_screen_provider_timeouts_allow_slow_valid_providers():
     assert manager._price_screen_provider_timeout_sec("textverified") >= 7.0
     assert manager._price_screen_provider_timeout_sec("telabot") >= 8.0
     assert manager._price_screen_provider_timeout_sec("pvadeals") >= 10.0
+    assert manager._price_screen_provider_timeout_sec("smsready") >= 10.0
+    assert manager._price_screen_provider_timeout_sec("pvapins") >= 10.0
     assert manager._price_screen_provider_timeout_sec("vaksms") >= 10.0
 
 
@@ -824,6 +834,8 @@ def test_config_settings():
     assert hasattr(settings, "herosms_key")
     assert hasattr(settings, "smsman_key")
     assert hasattr(settings, "pvadeals_key")
+    assert hasattr(settings, "smsready_key")
+    assert hasattr(settings, "pvapins_key")
 
 
 async def _make_resp(status=200, text="", json_data=None):
@@ -1899,6 +1911,15 @@ def test_provider_factory_smsman():
 
     inst = ProviderFactory.get("smsman")
     assert isinstance(inst, SMSManProvider)
+
+
+def test_provider_factory_new_provider_integrations():
+    from services.numbers.provider_factory import ProviderFactory
+    from services.numbers.providers.pvapins_provider import PVAPinsProvider
+    from services.numbers.providers.smsready_provider import SMSReadyProvider
+
+    assert isinstance(ProviderFactory.get("smsready"), SMSReadyProvider)
+    assert isinstance(ProviderFactory.get("pvapins"), PVAPinsProvider)
 
 # note: original_get could also be used if needed but manager directly calls ProviderFactory.get
 

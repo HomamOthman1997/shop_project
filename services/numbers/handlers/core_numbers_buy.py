@@ -2699,6 +2699,8 @@ async def rent_confirm_process(callback: types.CallbackQuery, state: FSMContext)
                 "state_code",
                 "tv_duration_key",
                 "tv_is_renewable",
+                "provider_duration",
+                "provider_app",
             )
             if selected.get(key) not in (None, "")
         }

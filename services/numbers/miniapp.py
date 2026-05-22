@@ -276,7 +276,16 @@ _BOOTSTRAP_CACHE: dict[str, Any] = {"data": None}
 
 _PRICE_TIMEOUT_SEC = 34.0
 _PRICE_SOFT_TIMEOUT_SEC = 6.0
-_TEMP_PRICE_SCREEN_PROVIDER_CODES = ("smspool", "telabot", "textverified", "herosms", "pvadeals", "vaksms")
+_TEMP_PRICE_SCREEN_PROVIDER_CODES = (
+    "smspool",
+    "telabot",
+    "textverified",
+    "herosms",
+    "pvadeals",
+    "vaksms",
+    "smsready",
+    "pvapins",
+)
 
 _MAX_PRICE_ROWS = 16
 
@@ -6659,6 +6668,10 @@ async def _purchase_rental_offer(
                 "tv_duration_key",
 
                 "tv_is_renewable",
+
+                "provider_duration",
+
+                "provider_app",
 
             )
 

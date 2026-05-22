@@ -42,7 +42,7 @@ def _price_screen_provider_timeout_sec(settings_obj: Any, provider_code: str | N
         return 7.0
     if code == "telabot":
         return 8.0
-    if code in {"pvadeals", "vaksms"}:
+    if code in {"pvadeals", "vaksms", "smsready", "pvapins"}:
         return 10.0
     return max(1.0, min(_provider_timeout_sec(settings_obj, "temp", provider_code), 5.5))
 
