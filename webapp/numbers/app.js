@@ -36,7 +36,6 @@ const state = {
   rechargeUrl: null,
   orderPollTimer: null,
   providerRows: [],
-  showAllProviders: false,
   serviceMenuOpen: false,
   countryMenuOpen: false,
   stateMenuOpen: false,
@@ -130,11 +129,10 @@ const copy = {
     check: "فحص الأسعار",
     providers: "المزودين",
     successLegend: "★ تعني نسبة نجاح المزود",
-    bestPrice: "أفضل سعر",
     loading: "جاري فحص المزودين",
     loadingPhaseFast: "جاري فحص المزودين الأسرع",
     loadingPhaseSlow: "بانتظار المزودين الأبطأ قليلاً",
-    loadingPhaseFinal: "جاري تجهيز أفضل الأسعار المتاحة",
+    loadingPhaseFinal: "جاري تجهيز أسعار المزودين المتاحة",
     ready: "اختر الخدمة والدولة ثم افحص السعر",
     empty: "لا توجد عروض متاحة لهذا الاختيار",
     error: "تعذر تحميل البيانات حاليا",
@@ -232,10 +230,7 @@ const copy = {
     introNotice2: "Leaving the state unset usually provides more options and better prices.",
     introNotice3: "If no code or call arrives, the app checks the provider and follows the refund flow when eligible.",
     orderConsole: "Order console",
-    orderConsoleTitle: "Find the best route before you buy",
-    qualityLive: "Live provider quotes",
-    qualityProtected: "Refund flow",
-    qualityCompare: "Smart comparison",
+    orderConsoleTitle: "Choose service and check provider prices",
     requestNumber: "Request number",
     service: "Service",
     chooseService: "Choose service",
@@ -250,26 +245,13 @@ const copy = {
     check: "Check prices",
     providers: "Providers",
     successLegend: "★ means provider success rate",
-    bestPrice: "Best price",
-    bestChoice: "Best choice",
-    showOtherProviders: "Show other providers",
-    hideOtherProviders: "Show best choice only",
-    routeBest: "Recommended route",
-    routeAvailable: "Available route",
-    quoteReady: "Instant quote",
-    providerNew: "New route",
-    providerMeasured: "Measured route",
-    protectedFlow: "Eligible refund flow",
-    tempRoute: "SMS route",
-    rentalRoute: "Rental route",
-    voiceRoute: "Voice route",
     loading: "Checking providers",
     loadingPhaseFast: "Checking priority providers",
     loadingPhaseSlow: "Waiting for slower providers",
-    loadingPhaseFinal: "Preparing the best available prices",
+    loadingPhaseFinal: "Preparing available provider prices",
     ready: "Choose a service and country, then check prices",
     empty: "No offers are available for this selection",
-    emptyVoice: "No call route is available for this service right now.",
+    emptyVoice: "No call number is available for this service right now.",
     error: "Could not load data right now",
     temp: "Temporary SMS",
     rental: "Rental numbers",
@@ -374,7 +356,7 @@ const copy = {
     working: "Working",
     pleaseWait: "Please wait.",
     checkingOrder: "Checking order",
-    voiceFallback: "Generic voice route",
+    voiceFallback: "Generic voice number",
     checkCall: "Check call",
     rentalSms: "Check SMS",
     noSmsYet: "No SMS yet",
@@ -409,31 +391,15 @@ Object.assign(copy.ar, {
   check: "فحص الأسعار",
   providers: "المزودين",
   successLegend: "★ تعني نسبة نجاح المزود",
-  bestPrice: "أفضل سعر",
-  bestChoice: "أفضل خيار",
-  showOtherProviders: "عرض باقي المزودات",
-  hideOtherProviders: "عرض أفضل خيار فقط",
   orderConsole: "\u0644\u0648\u062d\u0629 \u0627\u0644\u0637\u0644\u0628",
-  orderConsoleTitle: "\u0627\u062e\u062a\u0631 \u0623\u0641\u0636\u0644 \u0645\u0633\u0627\u0631 \u0645\u062a\u0627\u062d \u0642\u0628\u0644 \u0627\u0644\u0634\u0631\u0627\u0621",
-  qualityLive: "\u062a\u0633\u0639\u064a\u0631 \u0645\u0628\u0627\u0634\u0631",
-  qualityProtected: "\u0645\u0633\u0627\u0631 \u0627\u0633\u062a\u0631\u062c\u0627\u0639",
-  qualityCompare: "\u0645\u0642\u0627\u0631\u0646\u0629 \u0630\u0643\u064a\u0629",
-  routeBest: "\u0627\u0644\u0645\u0633\u0627\u0631 \u0627\u0644\u0645\u0642\u062a\u0631\u062d",
-  routeAvailable: "\u0645\u0633\u0627\u0631 \u0645\u062a\u0627\u062d",
-  quoteReady: "\u062a\u0633\u0639\u064a\u0631 \u062c\u0627\u0647\u0632",
-  providerNew: "\u0645\u0633\u0627\u0631 \u062c\u062f\u064a\u062f",
-  providerMeasured: "\u0645\u0633\u0627\u0631 \u0645\u0642\u0627\u0633",
-  protectedFlow: "\u0645\u0624\u0647\u0644 \u0644\u0644\u0627\u0633\u062a\u0631\u062c\u0627\u0639",
-  tempRoute: "SMS",
-  rentalRoute: "\u0625\u064a\u062c\u0627\u0631",
-  voiceRoute: "\u0627\u062a\u0635\u0627\u0644",
+  orderConsoleTitle: "\u0627\u062e\u062a\u0631 \u0627\u0644\u062e\u062f\u0645\u0629 \u0648\u0627\u0641\u062d\u0635 \u0623\u0633\u0639\u0627\u0631 \u0627\u0644\u0645\u0632\u0648\u062f\u064a\u0646",
   loading: "جاري فحص المزودين",
   loadingPhaseFast: "جاري فحص المزودين الأسرع",
   loadingPhaseSlow: "بانتظار المزودين الأبطأ قليلاً",
-  loadingPhaseFinal: "جاري تجهيز أفضل الأسعار المتاحة",
+  loadingPhaseFinal: "جاري تجهيز أسعار المزودين المتاحة",
   ready: "اختر الخدمة والدولة ثم افحص السعر",
   empty: "لا توجد عروض متاحة لهذا الاختيار",
-  emptyVoice: "لا يوجد مسار اتصال متاح لهذه الخدمة حالياً.",
+  emptyVoice: "لا يوجد رقم اتصال متاح لهذه الخدمة حالياً.",
   error: "تعذر تحميل البيانات حالياً",
   temp: "أرقام مؤقتة",
   rental: "أرقام للإيجار",
@@ -538,7 +504,7 @@ Object.assign(copy.ar, {
   supportSent: "تم إرسال التذكرة",
   loadingAccount: "جاري تحميل الحساب",
   openBot: "فتح البوت",
-  voiceFallback: "مسار اتصال عام",
+  voiceFallback: "رقم اتصال عام",
   checkCall: "\u0641\u062d\u0635 \u0627\u0644\u0645\u0643\u0627\u0644\u0645\u0629",
   rentalSms: "\u062c\u0644\u0628 SMS",
   noSmsYet: "\u0644\u0627 \u064a\u0648\u062c\u062f SMS \u0628\u0639\u062f",
@@ -978,7 +944,6 @@ function setServiceSelection(key) {
   state.selectedService = key || "";
   els.serviceSearch.value = "";
   state.priceCheckFailed = false;
-  state.showAllProviders = false;
   saveModeSelection();
   clearPriceResults();
   clearTransientStatus();
@@ -1150,7 +1115,6 @@ function setCountrySelection(code) {
     setSelectorMenuOpen("state", false);
   }
   if (els.countrySearch) els.countrySearch.value = "";
-  state.showAllProviders = false;
   saveModeSelection();
   clearPriceResults();
   clearTransientStatus();
@@ -1169,7 +1133,6 @@ function setStateSelection(code) {
   state.selectedState = code || "none";
   state.priceCheckFailed = false;
   if (els.stateSearch) els.stateSearch.value = "";
-  state.showAllProviders = false;
   saveModeSelection();
   clearPriceResults();
   clearTransientStatus();
@@ -1257,7 +1220,6 @@ function renderModes() {
         if (els.countrySearch) els.countrySearch.value = "";
         if (els.stateSearch) els.stateSearch.value = "";
         state.priceCheckFailed = false;
-        state.showAllProviders = false;
         clearPriceResults();
         clearTransientStatus();
         loadCountrySuggestions();
@@ -2108,27 +2070,9 @@ function rentalOptionLabel(option) {
 function providerSuccessText(row) {
   const rate = String(row?.success_rate || "").trim();
   if (!rate || rate === "-" || /^n\/?a$/i.test(rate)) {
-    return t("providerNew");
+    return "";
   }
   return `\u2605 ${rate}`;
-}
-
-function providerModeLabel(row) {
-  if (state.mode === "voice" || row?.voice_fallback) return t("voiceRoute");
-  if (state.mode === "rental") return t("rentalRoute");
-  return t("tempRoute");
-}
-
-function providerBadges(row) {
-  const hasQuote = Boolean(row?.quote_token || row?.options?.some((option) => option.quote_token));
-  const badges = [
-    { text: row?.recommended ? t("bestChoice") : t("routeAvailable"), tone: row?.recommended ? "accent" : "muted" },
-    { text: providerSuccessText(row) === t("providerNew") ? t("providerNew") : t("providerMeasured"), tone: "muted" },
-    { text: providerModeLabel(row), tone: "blue" },
-  ];
-  if (hasQuote) badges.push({ text: t("quoteReady"), tone: "blue" });
-  badges.push({ text: t("protectedFlow"), tone: "muted" });
-  return badges;
 }
 
 function renderProviders(rows, { preserve = false } = {}) {
@@ -2142,11 +2086,9 @@ function renderProviders(rows, { preserve = false } = {}) {
     return;
   }
 
-  const recommended = allRows.find((row) => row.recommended) || allRows[0];
-  const visibleRows = state.showAllProviders ? allRows : [recommended];
-  const cards = visibleRows.map((row) => {
+  const cards = allRows.map((row) => {
     const card = document.createElement("article");
-    card.className = `provider-card${row.recommended ? " best" : " compare"}`;
+    card.className = "provider-card";
 
     const main = document.createElement("div");
     main.className = "provider-main";
@@ -2162,28 +2104,19 @@ function renderProviders(rows, { preserve = false } = {}) {
     successBadge.className = "success-badge";
     successBadge.title = t("successLegend");
     successBadge.textContent = providerSuccessText(row);
-    if (successBadge.textContent === t("providerNew")) {
-      successBadge.classList.add("muted");
+    header.append(name);
+    if (successBadge.textContent) {
+      header.append(successBadge);
     }
-    header.append(name, successBadge);
 
     const meta = document.createElement("p");
     meta.className = "provider-meta";
-    const details = [row.recommended ? t("routeBest") : t("routeAvailable"), providerModeLabel(row)];
+    const details = [];
     if (row.location_tag) details.push(`[${row.location_tag}]`);
     if (row.voice_fallback) details.push(t("voiceFallback"));
     meta.textContent = details.join(" · ");
 
-    const quality = document.createElement("div");
-    quality.className = "provider-quality-row";
-    providerBadges(row).forEach((badge) => {
-      const chip = document.createElement("span");
-      chip.className = `quality-badge ${badge.tone}`;
-      chip.textContent = badge.text;
-      quality.append(chip);
-    });
-
-    main.append(header, meta, quality);
+    main.append(header, meta);
     if (row.options?.length) {
       const options = document.createElement("div");
       options.className = "option-row";
@@ -2223,18 +2156,6 @@ function renderProviders(rows, { preserve = false } = {}) {
     }
     return card;
   });
-
-  if (allRows.length > 1) {
-    const showAll = document.createElement("button");
-    showAll.type = "button";
-    showAll.className = "show-providers-action";
-    showAll.textContent = state.showAllProviders ? t("hideOtherProviders") : `${t("showOtherProviders")} (${allRows.length - 1})`;
-    showAll.addEventListener("click", () => {
-      state.showAllProviders = !state.showAllProviders;
-      renderProviders([], { preserve: true });
-    });
-    cards.push(showAll);
-  }
 
   els.providerList.replaceChildren(...cards);
 }
@@ -2691,7 +2612,6 @@ async function checkPrices() {
   updateStateVisibility();
   updateServiceLabel();
   updateSelectorLabels();
-  state.showAllProviders = false;
   state.priceCheckFailed = false;
   els.selectionTitle.textContent = serviceLabel(state.selectedService);
   els.statusLine.textContent = t("loading");
