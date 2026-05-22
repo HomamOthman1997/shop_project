@@ -26,7 +26,7 @@ from urllib.parse import parse_qsl
 
 from aiogram import Bot
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
 from aiohttp import web
 
@@ -37,6 +37,8 @@ from config import settings
 from database import number_events_repo, temp_number_stats_repo
 
 from database.financial_ledger import get_user_wallet_balance, list_user_wallet_entries
+from database.mongo import db
+from database.owner_payment_settings_repo import get_owner_exchange_rate, get_owner_payment_methods
 
 from database.orders_repo import (
 
@@ -57,6 +59,8 @@ from database.orders_repo import (
     update_order_status,
 
 )
+
+from database.recharge_repo import create_recharge_request
 
 from database.support_tickets_repo import create_support_ticket, has_open_support_ticket, set_ticket_delivery
 
@@ -197,6 +201,8 @@ from utils.core_service_guard import finance_error_public_text
 from utils.financial_manager import FinancialManager
 
 from utils.bot_menu_context import extract_bot_id_from_token, numbers_bot_url
+
+from utils.recharge_ui import owner_reseller_topup_review_kb
 
 from utils.provider_alias import provider_display_name, provider_public_id
 
@@ -786,6 +792,618 @@ def _ledger_activity_payload(
 
     return rows
 
+def _currency_label(amount: Any, currency: Any) -> str:
+
+    code = str(currency or "USD").strip().upper() or "USD"
+
+    try:
+
+        value = float(amount or 0.0)
+
+    except Exception:
+
+        value = 0.0
+
+    if code == "USD":
+
+        text = f"{value:.4f}".rstrip("0").rstrip(".")
+
+        return f"${text or '0'}"
+
+    if value.is_integer():
+
+        text = str(int(value))
+
+    else:
+
+        text = f"{value:.4f}".rstrip("0").rstrip(".")
+
+    return f"{text} {code}"
+
+async def _recharge_per_credit(method: dict[str, Any]) -> float:
+
+    try:
+
+        per_credit = float(method.get("per_credit") or 0.0)
+
+    except Exception:
+
+        per_credit = 0.0
+
+    if per_credit > 0:
+
+        return per_credit
+
+    if str(method.get("currency") or "USD").strip().upper() == "SYP":
+
+        return float(await get_owner_exchange_rate())
+
+    return 1.0
+
+def _render_recharge_instructions(method: dict[str, Any], *, rate: float) -> str:
+
+    raw_target = str(method.get("target") or "").strip()
+
+    currency = str(method.get("currency") or "USD").strip().upper() or "USD"
+
+    instructions = str(method.get("instructions") or "").strip()
+
+    try:
+
+        instructions = instructions.format(
+
+            target=raw_target or "-",
+
+            support=method.get("support", "@support"),
+
+            per_credit=rate,
+
+            currency=currency,
+
+        )
+
+    except Exception:
+
+        pass
+
+    if raw_target:
+
+        instructions = instructions.replace(raw_target, "").strip()
+
+    return instructions
+
+async def _recharge_method_payload(method: dict[str, Any], lang: str) -> dict[str, Any]:
+
+    currency = str(method.get("currency") or "USD").strip().upper() or "USD"
+
+    rate = await _recharge_per_credit(method)
+
+    rate_label = _text(
+
+        lang,
+
+        f"1 credit = {_currency_label(rate, currency)}",
+
+        f"1 كريدت = {_currency_label(rate, currency)}",
+
+    )
+
+    return {
+
+        "code": str(method.get("code") or method.get("title") or "").strip(),
+
+        "title": str(method.get("title") or method.get("code") or "").strip(),
+
+        "currency": currency,
+
+        "target": str(method.get("target") or "").strip(),
+
+        "support": str(method.get("support") or "@support").strip(),
+
+        "per_credit": float(rate),
+
+        "rate_label": rate_label,
+
+        "instructions": _render_recharge_instructions(method, rate=rate),
+
+    }
+
+async def _recharge_methods_payload(lang: str) -> list[dict[str, Any]]:
+
+    rows = []
+
+    for method in await get_owner_payment_methods():
+
+        if not bool(method.get("enabled", True)):
+
+            continue
+
+        payload = await _recharge_method_payload(method, lang)
+
+        if payload["code"]:
+
+            rows.append(payload)
+
+    return rows
+
+def _recharge_status_label(status: Any, lang: str) -> str:
+
+    key = str(status or "pending").strip().lower()
+
+    labels = {
+
+        "pending": ("Pending review", "بانتظار المراجعة"),
+
+        "processing": ("Processing", "قيد المعالجة"),
+
+        "need_more_proof": ("Needs another proof", "يحتاج إثبات إضافي"),
+
+        "accepted": ("Accepted", "تم القبول"),
+
+        "rejected": ("Rejected", "مرفوض"),
+
+    }
+
+    en, ar = labels.get(key, (key.replace("_", " ").title(), key.replace("_", " ")))
+
+    return _text(lang, en, ar)
+
+def _recharge_request_payload(req: dict[str, Any], lang: str) -> dict[str, Any]:
+
+    details = req.get("details") if isinstance(req.get("details"), dict) else {}
+
+    paid_amount = details.get("paid_amount")
+
+    paid_currency = str(details.get("paid_currency") or "USD").strip().upper() or "USD"
+
+    return {
+
+        "id": str(req.get("_id") or ""),
+
+        "method": str(req.get("method") or "-"),
+
+        "status": str(req.get("status") or "pending"),
+
+        "status_label": _recharge_status_label(req.get("status"), lang),
+
+        "credits": float(req.get("approved_amount") or req.get("amount") or 0.0),
+
+        "credits_label": _money(req.get("approved_amount") or req.get("amount") or 0.0),
+
+        "paid_label": _currency_label(paid_amount, paid_currency) if paid_amount is not None else "",
+
+        "created_at": _compact_datetime(req.get("created_at")),
+
+        "updated_at": _compact_datetime(req.get("updated_at")),
+
+        "delivery_ok": bool((req.get("delivery") or {}).get("delivered")),
+
+    }
+
+async def _recent_recharge_requests_payload(user_id: int, lang: str, *, limit: int = 6) -> list[dict[str, Any]]:
+
+    rows = await db.recharge_requests.find(
+
+        {"user_id": int(user_id), "wallet_type": "user"},
+
+        sort=[("created_at", -1)],
+
+        limit=int(limit),
+
+    ).to_list(int(limit))
+
+    return [_recharge_request_payload(row, lang) for row in rows]
+
+async def _recharge_payload(user_id: int, lang: str) -> dict[str, Any]:
+
+    methods: list[dict[str, Any]]
+
+    try:
+
+        methods = await _recharge_methods_payload(lang)
+
+    except Exception:
+
+        logger.exception("numbers miniapp recharge methods failed user=%s", user_id)
+
+        methods = []
+
+    try:
+
+        requests = await _recent_recharge_requests_payload(user_id, lang)
+
+    except Exception:
+
+        logger.exception("numbers miniapp recharge requests failed user=%s", user_id)
+
+        requests = []
+
+    return {
+
+        "methods": methods,
+
+        "requests": requests,
+
+        "bot_url": numbers_bot_url("balance"),
+
+        "max_proof_bytes": 6 * 1024 * 1024,
+
+    }
+
+def _recharge_review_caption(
+
+    *,
+
+    request_id: str,
+
+    auth: dict[str, Any],
+
+    user_doc: dict[str, Any] | None,
+
+    req: dict[str, Any],
+
+    method: dict[str, Any],
+
+) -> str:
+
+    profile = _auth_profile(auth, user_doc)
+
+    username = f"@{profile['username']}" if profile.get("username") else "-"
+
+    full_name = profile.get("full_name") or "-"
+
+    details = req.get("details") if isinstance(req.get("details"), dict) else {}
+
+    return (
+
+        "Manual Payment Request\n\n"
+
+        f"Request ID: {request_id}\n"
+
+        f"User ID: {int(auth['user_id'])}\n"
+
+        f"Username: {username}\n"
+
+        f"Full name: {full_name}\n"
+
+        f"Source: Numbers Mini App\n"
+
+        f"Method: {method.get('title') or method.get('code') or req.get('method') or '-'}\n"
+
+        f"Paid Amount: {float(details.get('paid_amount') or 0.0):.4f} {details.get('paid_currency') or 'USD'}\n"
+
+        f"Credits Unit: $ credits\n"
+
+        f"Credited To User: {float(req.get('amount') or 0.0):.4f}\n"
+
+        f"Created At: {req.get('created_at')}"
+
+    )
+
+async def _notify_recharge_review_from_miniapp(
+
+    *,
+
+    auth: dict[str, Any],
+
+    user_doc: dict[str, Any],
+
+    req: dict[str, Any],
+
+    method: dict[str, Any],
+
+    proof_bytes: bytes,
+
+    proof_filename: str,
+
+    proof_content_type: str,
+
+) -> tuple[bool, str, int | None, int | None, int | None]:
+
+    token = _support_bridge_token()
+
+    target = await db.system_settings.find_one({"_id": "owner_notifications"}) or {}
+
+    chat_id = target.get("chat_id")
+
+    if not token or not isinstance(chat_id, int):
+
+        return False, "owner_notifications_not_configured", None, None, None
+
+    thread_id = target.get("message_thread_id")
+
+    kwargs: dict[str, Any] = {
+
+        "chat_id": int(chat_id),
+
+        "reply_markup": owner_reseller_topup_review_kb(str(req.get("_id"))),
+
+    }
+
+    if thread_id is not None:
+
+        kwargs["message_thread_id"] = int(thread_id)
+
+    caption = _recharge_review_caption(
+
+        request_id=str(req.get("_id")),
+
+        auth=auth,
+
+        user_doc=user_doc,
+
+        req=req,
+
+        method=method,
+
+    )
+
+    bot = Bot(token=token)
+
+    try:
+
+        upload = BufferedInputFile(proof_bytes, filename=proof_filename or "recharge-proof.jpg")
+
+        if str(proof_content_type or "").lower().startswith("image/"):
+
+            try:
+
+                sent = await bot.send_photo(photo=upload, caption=caption, **kwargs)
+
+            except Exception:
+
+                upload = BufferedInputFile(proof_bytes, filename=proof_filename or "recharge-proof.jpg")
+
+                sent = await bot.send_document(document=upload, caption=caption, **kwargs)
+
+        else:
+
+            sent = await bot.send_document(document=upload, caption=caption, **kwargs)
+
+        return (
+
+            True,
+
+            "owner_topic",
+
+            int(getattr(sent, "message_id", 0) or 0),
+
+            int(chat_id),
+
+            int(thread_id) if thread_id is not None else None,
+
+        )
+
+    except Exception as exc:
+
+        logger.exception("numbers miniapp recharge review delivery failed request=%s", req.get("_id"))
+
+        return False, f"owner_topic_send_failed:{exc}", None, None, None
+
+    finally:
+
+        await bot.session.close()
+
+async def _parse_recharge_submit_form(request: web.Request) -> tuple[dict[str, str], bytes, str, str]:
+
+    if not str(request.content_type or "").lower().startswith("multipart/"):
+
+        raise web.HTTPBadRequest(text="multipart form required")
+
+    reader = await request.multipart()
+
+    fields: dict[str, str] = {}
+
+    proof_bytes = b""
+
+    proof_filename = "recharge-proof.jpg"
+
+    proof_content_type = ""
+
+    max_size = 6 * 1024 * 1024
+
+    async for part in reader:
+
+        name = str(part.name or "").strip()
+
+        if name == "proof":
+
+            proof_filename = str(part.filename or proof_filename).strip() or proof_filename
+
+            proof_content_type = str(part.headers.get("Content-Type") or "").strip()
+
+            proof_bytes = await part.read(decode=False)
+
+            if len(proof_bytes) > max_size:
+
+                raise web.HTTPRequestEntityTooLarge(max_size=max_size, actual_size=len(proof_bytes))
+
+            continue
+
+        value = await part.text()
+
+        fields[name] = str(value or "").strip()
+
+    return fields, proof_bytes, proof_filename, proof_content_type
+
+async def _submit_recharge_request_from_miniapp(
+
+    *,
+
+    auth: dict[str, Any],
+
+    user_doc: dict[str, Any],
+
+    lang: str,
+
+    fields: dict[str, str],
+
+    proof_bytes: bytes,
+
+    proof_filename: str,
+
+    proof_content_type: str,
+
+) -> dict[str, Any]:
+
+    method_code = str(fields.get("method_code") or "").strip()
+
+    if not method_code:
+
+        return {"ok": False, "code": "missing_method", "message": _text(lang, "Choose a payment method.", "اختر طريقة دفع.")}
+
+    method_rows = [row for row in await get_owner_payment_methods() if bool(row.get("enabled", True))]
+
+    method = next((row for row in method_rows if str(row.get("code") or "").strip() == method_code), None)
+
+    if not method:
+
+        return {"ok": False, "code": "invalid_method", "message": _text(lang, "Choose a valid payment method.", "اختر طريقة دفع صحيحة.")}
+
+    if not proof_bytes:
+
+        return {"ok": False, "code": "missing_proof", "message": _text(lang, "Upload the payment proof image.", "ارفع صورة إثبات الدفع.")}
+
+    try:
+
+        paid_amount = float(str(fields.get("paid_amount") or "").replace(",", "."))
+
+    except Exception:
+
+        return {"ok": False, "code": "invalid_amount", "message": _text(lang, "Enter a valid paid amount.", "اكتب مبلغ الدفع بشكل صحيح.")}
+
+    if paid_amount <= 0:
+
+        return {"ok": False, "code": "invalid_amount", "message": _text(lang, "Paid amount must be greater than zero.", "مبلغ الدفع يجب أن يكون أكبر من صفر.")}
+
+    rate = await _recharge_per_credit(method)
+
+    credits = round(float(paid_amount) / float(rate or 1.0), 6)
+
+    user_id = int(auth["user_id"])
+
+    req = await create_recharge_request(
+
+        user_id=user_id,
+
+        method=str(method.get("title") or method.get("code") or "payment"),
+
+        amount=credits,
+
+        proof_file_id="",
+
+        reseller_id=user_id,
+
+        details={
+
+            "method_code": method.get("code"),
+
+            "paid_amount": float(paid_amount),
+
+            "paid_currency": str(method.get("currency") or "USD").upper(),
+
+            "per_credit": float(rate),
+
+            "credits": float(credits),
+
+            "wallet_scope": "main_bot",
+
+            "source": "numbers_miniapp",
+
+            "source_bot_id": _numbers_source_bot_id(),
+
+            "proof_filename": proof_filename,
+
+            "proof_content_type": proof_content_type,
+
+            "proof_size_bytes": len(proof_bytes),
+
+        },
+
+        wallet_type="user",
+
+    )
+
+    delivered, route, msg_id, chat_id, thread_id = await _notify_recharge_review_from_miniapp(
+
+        auth=auth,
+
+        user_doc=user_doc,
+
+        req=req,
+
+        method=method,
+
+        proof_bytes=proof_bytes,
+
+        proof_filename=proof_filename,
+
+        proof_content_type=proof_content_type,
+
+    )
+
+    await db.recharge_requests.update_one(
+
+        {"_id": req["_id"]},
+
+        {
+
+            "$set": {
+
+                "delivery.delivered": bool(delivered),
+
+                "delivery.route": route,
+
+                "delivery.message_id": msg_id,
+
+                "delivery.chat_id": chat_id,
+
+                "delivery.message_thread_id": thread_id,
+
+                "delivery.updated_at": datetime.now(UTC),
+
+            }
+
+        },
+
+    )
+
+    refreshed = await db.recharge_requests.find_one({"_id": req["_id"]}) or req
+
+    message = _text(
+
+        lang,
+
+        "Recharge request submitted. We will review it soon.",
+
+        "تم إرسال طلب الشحن. سنراجعه قريباً.",
+
+    )
+
+    if not delivered:
+
+        message = _text(
+
+            lang,
+
+            "Recharge request was saved, but delivery to review queue failed. Support can still follow it.",
+
+            "تم حفظ طلب الشحن، لكن تعذر إرساله لقائمة المراجعة. يمكن للدعم متابعته.",
+
+        )
+
+    return {
+
+        "ok": True,
+
+        "message": message,
+
+        "request": _recharge_request_payload(refreshed, lang),
+
+        "delivery_ok": bool(delivered),
+
+    }
+
 async def _account_payload(user_doc: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
 
     user_id = int(auth["user_id"])
@@ -843,6 +1461,8 @@ async def _account_payload(user_doc: dict[str, Any], auth: dict[str, Any]) -> di
         },
 
         "recent_activity": activity,
+
+        "recharge": await _recharge_payload(user_id, lang),
 
         "support_categories": _support_categories_payload(lang),
 
@@ -6760,6 +7380,110 @@ async def account_language(request: web.Request) -> web.Response:
 
     return web.json_response(await _account_payload(updated, auth), headers=dict(_NO_STORE_HEADERS))
 
+async def recharge_info(request: web.Request) -> web.Response:
+
+    auth = _require_auth(request)
+
+    user_doc = await _load_or_create_user(auth)
+
+    lang = _lang_from_user(user_doc, auth)
+
+    balance = await get_user_wallet_balance(int(auth["user_id"]), int(auth["user_id"]))
+
+    return web.json_response(
+
+        {
+
+            "ok": True,
+
+            "balance": float(balance),
+
+            "balance_label": _money(balance),
+
+            "recharge": await _recharge_payload(int(auth["user_id"]), lang),
+
+        },
+
+        headers=dict(_NO_STORE_HEADERS),
+
+    )
+
+async def recharge_submit(request: web.Request) -> web.Response:
+
+    auth = _require_auth(request)
+
+    user_doc = await _load_or_create_user(auth)
+
+    lang = _lang_from_user(user_doc, auth)
+
+    try:
+
+        fields, proof_bytes, proof_filename, proof_content_type = await _parse_recharge_submit_form(request)
+
+    except web.HTTPRequestEntityTooLarge:
+
+        return _json_error(
+
+            _text(lang, "Proof file is too large.", "ملف إثبات الدفع كبير جداً."),
+
+            status=413,
+
+            code="proof_too_large",
+
+        )
+
+    except Exception:
+
+        return _json_error(
+
+            _text(lang, "Could not read the recharge form.", "تعذر قراءة نموذج الشحن."),
+
+            status=400,
+
+            code="invalid_form",
+
+        )
+
+    result = await _submit_recharge_request_from_miniapp(
+
+        auth=auth,
+
+        user_doc=user_doc,
+
+        lang=lang,
+
+        fields=fields,
+
+        proof_bytes=proof_bytes,
+
+        proof_filename=proof_filename,
+
+        proof_content_type=proof_content_type,
+
+    )
+
+    if not result.get("ok"):
+
+        return _json_error(
+
+            str(result.get("message") or _text(lang, "Recharge request failed.", "تعذر إرسال طلب الشحن.")),
+
+            status=400,
+
+            code=str(result.get("code") or "recharge_failed"),
+
+        )
+
+    balance = await get_user_wallet_balance(int(auth["user_id"]), int(auth["user_id"]))
+
+    result["balance"] = float(balance)
+
+    result["balance_label"] = _money(balance)
+
+    result["recharge"] = await _recharge_payload(int(auth["user_id"]), lang)
+
+    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
+
 async def support_info(request: web.Request) -> web.Response:
 
     auth = _require_auth(request)
@@ -8144,6 +8868,10 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_get("/mini/numbers/api/account", account)
 
     app.router.add_post("/mini/numbers/api/account/language", account_language)
+
+    app.router.add_get("/mini/numbers/api/recharge", recharge_info)
+
+    app.router.add_post("/mini/numbers/api/recharge/submit", recharge_submit)
 
     app.router.add_get("/mini/numbers/api/support", support_info)
 

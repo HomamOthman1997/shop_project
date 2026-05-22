@@ -247,6 +247,48 @@ def test_numbers_account_activity_payload_uses_metadata_subject_without_order():
     assert rows[1]["label"] == "Numbers purchase · Telegram"
 
 
+@pytest.mark.asyncio
+async def test_numbers_recharge_method_payload_renders_payment_details():
+    payload = await miniapp._recharge_method_payload(
+        {
+            "code": "owner_usdt",
+            "title": "USDT",
+            "currency": "USD",
+            "per_credit": 1,
+            "target": "T_WALLET",
+            "support": "@support",
+            "instructions": "Send payment to {target}. Contact {support}.",
+        },
+        "en",
+    )
+
+    assert payload["code"] == "owner_usdt"
+    assert payload["target"] == "T_WALLET"
+    assert payload["rate_label"] == "1 credit = $1"
+    assert "T_WALLET" not in payload["instructions"]
+    assert "@support" in payload["instructions"]
+
+
+def test_numbers_recharge_request_payload_formats_user_visible_status():
+    row = miniapp._recharge_request_payload(
+        {
+            "_id": "req-1",
+            "method": "USDT",
+            "status": "need_more_proof",
+            "amount": 2.5,
+            "details": {"paid_amount": 2.5, "paid_currency": "USD"},
+            "delivery": {"delivered": True},
+            "created_at": datetime(2026, 5, 20, 12, 0, tzinfo=UTC),
+        },
+        "ar",
+    )
+
+    assert row["status_label"] == "يحتاج إثبات إضافي"
+    assert row["credits_label"] == "$2.5"
+    assert row["paid_label"] == "$2.5"
+    assert row["delivery_ok"] is True
+
+
 def test_numbers_temp_rows_include_signed_quote_and_hide_internal_lanes(monkeypatch):
     monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
     monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
@@ -1721,6 +1763,8 @@ def test_register_numbers_routes_adds_public_endpoints():
     assert ("GET", "/mini/numbers/api/country-suggestions") in routes
     assert ("GET", "/mini/numbers/api/account") in routes
     assert ("POST", "/mini/numbers/api/account/language") in routes
+    assert ("GET", "/mini/numbers/api/recharge") in routes
+    assert ("POST", "/mini/numbers/api/recharge/submit") in routes
     assert ("GET", "/mini/numbers/api/support") in routes
     assert ("POST", "/mini/numbers/api/support/ticket") in routes
     assert ("GET", "/mini/numbers/api/prices") in routes

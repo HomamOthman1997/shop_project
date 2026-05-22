@@ -47,6 +47,9 @@ const state = {
   busyCount: 0,
   priceProgressTimer: null,
   priceProgressStartedAt: 0,
+  rechargeMethodCode: "",
+  accountNotice: "",
+  rechargeSubmitting: false,
 };
 
 const ORDER_POLL_INTERVAL_MS = 12000;
@@ -325,6 +328,24 @@ const copy = {
     joined: "Joined",
     recharge: "Recharge",
     openingRecharge: "Opening recharge",
+    rechargeTitle: "Top up balance",
+    rechargeSubtitle: "Choose a payment method, enter the paid amount, and upload the proof inside the app.",
+    rechargeMethod: "Payment method",
+    choosePaymentMethod: "Choose payment method",
+    paymentTarget: "Payment details",
+    paymentRate: "Rate",
+    paidAmount: "Paid amount",
+    proofFile: "Payment proof",
+    proofHint: "Upload the transfer receipt or payment proof screenshot.",
+    submitRecharge: "Submit recharge request",
+    submittingRecharge: "Submitting recharge request",
+    rechargeSubmitted: "Recharge request submitted",
+    rechargeRequests: "Recharge requests",
+    noRechargeRequests: "No recharge requests yet",
+    openRechargeBot: "Open recharge bot",
+    refreshBalance: "Refresh balance",
+    copiedPaymentTarget: "Payment details copied",
+    noPaymentMethods: "No payment methods are available right now",
     support: "Support",
     supportTitle: "Open support ticket",
     supportCategory: "Category",
@@ -462,6 +483,24 @@ Object.assign(copy.ar, {
   joined: "تاريخ الانضمام",
   recharge: "شراء",
   openingRecharge: "فتح الشحن",
+  rechargeTitle: "شحن الرصيد",
+  rechargeSubtitle: "اختر طريقة الدفع وأرسل المبلغ والإثبات من داخل التطبيق.",
+  rechargeMethod: "طريقة الدفع",
+  choosePaymentMethod: "اختر طريقة الدفع",
+  paymentTarget: "بيانات الدفع",
+  paymentRate: "السعر",
+  paidAmount: "المبلغ المدفوع",
+  proofFile: "إثبات الدفع",
+  proofHint: "ارفع صورة التحويل أو لقطة إثبات الدفع.",
+  submitRecharge: "إرسال طلب الشحن",
+  submittingRecharge: "جاري إرسال طلب الشحن",
+  rechargeSubmitted: "تم إرسال طلب الشحن",
+  rechargeRequests: "طلبات الشحن",
+  noRechargeRequests: "لا توجد طلبات شحن بعد",
+  openRechargeBot: "فتح بوت الشحن",
+  refreshBalance: "تحديث الرصيد",
+  copiedPaymentTarget: "تم نسخ بيانات الدفع",
+  noPaymentMethods: "لا توجد طرق دفع متاحة حالياً",
   support: "الدعم",
   supportTitle: "فتح تذكرة دعم",
   supportCategory: "القسم",
@@ -575,6 +614,25 @@ async function api(path, options = {}) {
   return payload;
 }
 
+async function apiForm(path, formData) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: headers(),
+    body: formData,
+    cache: "no-store",
+  });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    payload = null;
+  }
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.message || response.statusText || t("error"));
+  }
+  return payload;
+}
+
 function canUseTelegramAuth() {
   return Boolean(tg?.initData);
 }
@@ -648,13 +706,20 @@ function rechargeUrl() {
 }
 
 function openRecharge() {
+  state.accountNotice = "";
+  setView("account");
+  window.setTimeout(() => {
+    els.accountView?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 0);
+}
+
+function openRechargeBot() {
   const url = rechargeUrl();
   if (url) {
     els.statusLine.textContent = t("openingRecharge");
     openTelegramUrl(url);
     return;
   }
-  setView("account");
   els.statusLine.textContent = t("error");
 }
 
@@ -678,21 +743,35 @@ function finishBoot() {
   els.bootSplash = null;
 }
 
+const ICONS = {
+  buy: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12l-1 12H7L6 7Z"></path><path d="M9 7a3 3 0 0 1 6 0"></path></svg>',
+  orders: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h11"></path><path d="M8 12h11"></path><path d="M8 18h11"></path><path d="M4 6h.01"></path><path d="M4 12h.01"></path><path d="M4 18h.01"></path></svg>',
+  account: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"></path><circle cx="12" cy="7" r="4"></circle></svg>',
+  support: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 16 0v4a2 2 0 0 1-2 2h-2"></path><path d="M4 12v3a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 2Z"></path><path d="M20 12v3a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2Z"></path><path d="M13 18h3"></path></svg>',
+  temp: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2"></rect><path d="M10 17h4"></path></svg>',
+  rental: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h11v10H8z"></path><path d="M5 10h3"></path><path d="M5 14h3"></path><path d="M11 4v3"></path><path d="M16 4v3"></path></svg>',
+  voice: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.8a2 2 0 0 1-.4 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"></path></svg>',
+};
+
+function iconSvg(name) {
+  return ICONS[name] || ICONS.buy;
+}
+
 function renderViewTabs() {
   const tabs = [
-    ["buy", t("tabBuy"), "01"],
-    ["orders", t("tabOrders"), "02"],
-    ["account", t("tabAccount"), "03"],
-    ["support", t("tabSupport"), "04"],
+    ["buy", t("tabBuy"), "buy"],
+    ["orders", t("tabOrders"), "orders"],
+    ["account", t("tabAccount"), "account"],
+    ["support", t("tabSupport"), "support"],
   ];
   els.viewTabs.replaceChildren(
-    ...tabs.map(([key, label, index]) => {
+    ...tabs.map(([key, label, iconName]) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = `view-tab${state.view === key ? " active" : ""}`;
       const icon = document.createElement("span");
-      icon.className = "nav-index";
-      icon.textContent = index;
+      icon.className = "nav-icon";
+      icon.innerHTML = iconSvg(iconName);
       const text = document.createElement("span");
       text.className = "nav-label";
       text.textContent = label;
@@ -1121,16 +1200,22 @@ function renderStateOptions() {
 
 function renderModes() {
   const modes = [
-    ["temp", t("temp")],
-    ["rental", t("rental")],
-    ["voice", t("voice")],
+    ["temp", t("temp"), "temp"],
+    ["rental", t("rental"), "rental"],
+    ["voice", t("voice"), "voice"],
   ];
   els.modeSwitch.replaceChildren(
-    ...modes.map(([key, label]) => {
+    ...modes.map(([key, label, iconName]) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = `mode-button${state.mode === key ? " active" : ""}`;
-      button.textContent = label;
+      const icon = document.createElement("span");
+      icon.className = "mode-icon";
+      icon.innerHTML = iconSvg(iconName);
+      const text = document.createElement("span");
+      text.className = "mode-label";
+      text.textContent = label;
+      button.append(icon, text);
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", state.mode === key ? "true" : "false");
       button.addEventListener("click", () => {
@@ -2100,9 +2185,131 @@ function infoCard(label, value) {
   return card;
 }
 
-function rechargeActionCard(balanceLabel) {
+function selectedRechargeMethod(recharge) {
+  const methods = recharge?.methods || [];
+  if (!methods.length) {
+    state.rechargeMethodCode = "";
+    return null;
+  }
+  const current = methods.find((method) => method.code === state.rechargeMethodCode);
+  if (current) return current;
+  state.rechargeMethodCode = methods[0].code || "";
+  return methods[0];
+}
+
+function accountNoticeCard(message) {
   const card = document.createElement("div");
-  card.className = "settings-action-card";
+  card.className = "account-notice";
+  card.textContent = message || "";
+  return card;
+}
+
+function paymentTargetBlock(method) {
+  const block = document.createElement("div");
+  block.className = "payment-target";
+
+  const label = document.createElement("span");
+  label.className = "info-label";
+  label.textContent = t("paymentTarget");
+
+  const target = document.createElement("strong");
+  target.className = "payment-target-value";
+  target.textContent = method?.target || "-";
+
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = "small-action secondary-small";
+  copyButton.textContent = t("copyNumber");
+  copyButton.disabled = !method?.target;
+  copyButton.addEventListener("click", async () => {
+    await copyText(method?.target || "", copyButton);
+    els.statusLine.textContent = t("copiedPaymentTarget");
+  });
+
+  block.append(label, target, copyButton);
+  return block;
+}
+
+function rechargeRequestsCard(rows = []) {
+  const card = document.createElement("div");
+  card.className = "recharge-requests-card";
+  const title = document.createElement("h3");
+  title.textContent = t("rechargeRequests");
+  card.append(title);
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "order-meta";
+    empty.textContent = t("noRechargeRequests");
+    card.append(empty);
+    return card;
+  }
+  rows.slice(0, 6).forEach((row) => {
+    const item = document.createElement("div");
+    item.className = `recharge-request-row ${row.status || "pending"}`;
+    const main = document.createElement("div");
+    const label = document.createElement("strong");
+    label.textContent = row.status_label || row.status || "-";
+    const meta = document.createElement("span");
+    meta.textContent = [row.method, row.paid_label, row.created_at].filter(Boolean).join(" · ");
+    main.append(label, meta);
+    const amount = document.createElement("b");
+    amount.textContent = row.credits_label || "-";
+    item.append(main, amount);
+    card.append(item);
+  });
+  return card;
+}
+
+async function submitRechargeForm(form, statusNode) {
+  if (!canUseTelegramAuth()) {
+    statusNode.textContent = t("authRequired");
+    return;
+  }
+  const formData = new FormData(form);
+  const button = form.querySelector("button[type='submit']");
+  if (!formData.get("method_code")) {
+    statusNode.textContent = t("choosePaymentMethod");
+    return;
+  }
+  if (!formData.get("paid_amount")) {
+    statusNode.textContent = t("paidAmount");
+    return;
+  }
+  const proof = formData.get("proof");
+  if (!proof || !proof.size) {
+    statusNode.textContent = t("proofHint");
+    return;
+  }
+  state.rechargeSubmitting = true;
+  if (button) button.disabled = true;
+  showBusy(t("submittingRecharge"), t("pleaseWait"));
+  statusNode.textContent = t("submittingRecharge");
+  try {
+    const payload = await apiForm("/mini/numbers/api/recharge/submit", formData);
+    state.accountNotice = payload.message || t("rechargeSubmitted");
+    if (payload.balance_label) {
+      els.sessionPill.textContent = payload.balance_label;
+    }
+    await loadAccount();
+  } catch (error) {
+    state.accountNotice = error.message || t("error");
+    renderAccount(state.account);
+  } finally {
+    state.rechargeSubmitting = false;
+    if (button) button.disabled = false;
+    hideBusy();
+  }
+}
+
+function rechargeActionCard(payload) {
+  const recharge = payload?.recharge || {};
+  const balanceLabel = payload?.balance_label || "-";
+  const methods = recharge.methods || [];
+  const method = selectedRechargeMethod(recharge);
+  const card = document.createElement("div");
+  card.className = "settings-action-card recharge-card";
+  const header = document.createElement("div");
+  header.className = "recharge-card-header";
   const copy = document.createElement("div");
   const label = document.createElement("span");
   label.className = "info-label";
@@ -2111,12 +2318,125 @@ function rechargeActionCard(balanceLabel) {
   value.className = "info-value";
   value.textContent = balanceLabel || "-";
   copy.append(label, value);
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "small-action";
-  button.textContent = t("recharge");
-  button.addEventListener("click", openRecharge);
-  card.append(copy, button);
+  const refresh = document.createElement("button");
+  refresh.type = "button";
+  refresh.className = "small-action secondary-small";
+  refresh.textContent = t("refreshBalance");
+  refresh.addEventListener("click", () => loadAccount());
+  header.append(copy, refresh);
+
+  const intro = document.createElement("div");
+  intro.className = "recharge-intro";
+  const title = document.createElement("h3");
+  title.textContent = t("rechargeTitle");
+  const subtitle = document.createElement("p");
+  subtitle.textContent = t("rechargeSubtitle");
+  intro.append(title, subtitle);
+
+  const status = document.createElement("p");
+  status.className = "recharge-status";
+
+  if (!methods.length) {
+    const empty = document.createElement("p");
+    empty.className = "order-meta";
+    empty.textContent = t("noPaymentMethods");
+    const botButton = document.createElement("button");
+    botButton.type = "button";
+    botButton.className = "small-action";
+    botButton.textContent = t("openRechargeBot");
+    botButton.addEventListener("click", openRechargeBot);
+    card.append(header, intro, empty, botButton);
+    return card;
+  }
+
+  const form = document.createElement("form");
+  form.className = "recharge-form";
+
+  const methodField = document.createElement("label");
+  methodField.className = "field recharge-field";
+  const methodText = document.createElement("span");
+  methodText.textContent = t("rechargeMethod");
+  const methodSelect = document.createElement("select");
+  methodSelect.name = "method_code";
+  methods.forEach((row) => {
+    const option = document.createElement("option");
+    option.value = row.code || "";
+    option.textContent = row.title || row.code || "-";
+    option.selected = option.value === state.rechargeMethodCode;
+    methodSelect.append(option);
+  });
+  methodSelect.addEventListener("change", () => {
+    state.rechargeMethodCode = methodSelect.value;
+    renderAccount(state.account);
+  });
+  methodField.append(methodText, methodSelect);
+
+  const amountField = document.createElement("label");
+  amountField.className = "field recharge-field";
+  const amountText = document.createElement("span");
+  amountText.textContent = t("paidAmount");
+  const amountInput = document.createElement("input");
+  amountInput.name = "paid_amount";
+  amountInput.type = "number";
+  amountInput.inputMode = "decimal";
+  amountInput.min = "0";
+  amountInput.step = "0.0001";
+  amountInput.placeholder = method?.currency || "USD";
+  amountField.append(amountText, amountInput);
+
+  const proofField = document.createElement("label");
+  proofField.className = "field recharge-field";
+  const proofText = document.createElement("span");
+  proofText.textContent = t("proofFile");
+  const proofInput = document.createElement("input");
+  proofInput.name = "proof";
+  proofInput.type = "file";
+  proofInput.accept = "image/*,.pdf";
+  const proofHint = document.createElement("small");
+  proofHint.className = "field-hint";
+  proofHint.textContent = t("proofHint");
+  proofField.append(proofText, proofInput, proofHint);
+
+  const rate = document.createElement("div");
+  rate.className = "recharge-rate";
+  const rateKey = document.createElement("span");
+  rateKey.textContent = t("paymentRate");
+  const rateValue = document.createElement("strong");
+  rateValue.textContent = method?.rate_label || "-";
+  rate.append(rateKey, rateValue);
+
+  const instructions = document.createElement("p");
+  instructions.className = "recharge-instructions";
+  instructions.textContent = method?.instructions || "";
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.className = "primary-action";
+  submit.textContent = t("submitRecharge");
+
+  const botButton = document.createElement("button");
+  botButton.type = "button";
+  botButton.className = "secondary-action";
+  botButton.textContent = t("openRechargeBot");
+  botButton.addEventListener("click", openRechargeBot);
+
+  form.append(
+    methodField,
+    paymentTargetBlock(method),
+    rate,
+    instructions,
+    amountField,
+    proofField,
+    submit,
+    botButton,
+    status
+  );
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitRechargeForm(form, status);
+  });
+
+  card.append(header, intro, form);
   return card;
 }
 
@@ -2162,14 +2482,17 @@ function renderAccount(payload) {
   state.supportBotUrl = payload.links?.numbers_bot || state.supportBotUrl;
   state.rechargeUrl = payload.links?.recharge || state.rechargeUrl;
   renderSupportCategories();
-  els.accountDetails.replaceChildren(
-    rechargeActionCard(payload.balance_label || "-"),
+  const cards = [
+    ...(state.accountNotice ? [accountNoticeCard(state.accountNotice)] : []),
+    rechargeActionCard(payload),
     infoCard(t("userId"), String(user.id || "-")),
     infoCard(t("username"), user.username ? `@${user.username}` : "-"),
     infoCard(t("language"), user.language_label || user.language || "-"),
     infoCard(t("joined"), user.joined_at || "-"),
-    activityCard(payload.recent_activity || [])
-  );
+    rechargeRequestsCard(payload.recharge?.requests || []),
+    activityCard(payload.recent_activity || []),
+  ];
+  els.accountDetails.replaceChildren(...cards);
 }
 
 async function loadAccount() {
