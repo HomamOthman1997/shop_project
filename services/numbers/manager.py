@@ -70,12 +70,17 @@ PROVIDERS: dict[str, Any] = {
 
 def _provider_buy_kwargs(provider: Any, opts: dict[str, Any]) -> dict[str, Any]:
     """Return only purchase options accepted by this provider's buy method."""
+    return _provider_method_kwargs(provider.buy_number, opts)
+
+
+def _provider_method_kwargs(method: Any, opts: dict[str, Any]) -> dict[str, Any]:
+    """Return only keyword options accepted by a provider method."""
     clean_opts = {k: v for k, v in opts.items() if not str(k).startswith("_audit_")}
     if not clean_opts:
         return {}
 
     try:
-        signature = inspect.signature(provider.buy_number)
+        signature = inspect.signature(method)
     except (TypeError, ValueError):
         return clean_opts
 
@@ -1219,17 +1224,24 @@ async def get_all_voice_prices(service_key: str, country: str | None, state: str
     c_code = str(country) if country and country != "none" else None
     s_code = str(state) if state and state != "none" else None
     try:
-        price_result, balance_result = await asyncio.gather(
-            asyncio.wait_for(
+        if ignore_balance:
+            price_result = await asyncio.wait_for(
                 provider_obj.get_voice_price(str(service_key or ""), c_code, s_code),
                 timeout=_price_screen_provider_timeout_sec(provider_code),
-            ),
-            _provider_balance_with_timeout(
-                provider_obj,
-                timeout_sec=_price_screen_balance_timeout_sec(),
-            ),
-            return_exceptions=True,
-        )
+            )
+            balance_result = None
+        else:
+            price_result, balance_result = await asyncio.gather(
+                asyncio.wait_for(
+                    provider_obj.get_voice_price(str(service_key or ""), c_code, s_code),
+                    timeout=_price_screen_provider_timeout_sec(provider_code),
+                ),
+                _provider_balance_with_timeout(
+                    provider_obj,
+                    timeout_sec=_price_screen_balance_timeout_sec(),
+                ),
+                return_exceptions=True,
+            )
         if isinstance(price_result, Exception):
             raise price_result
         if not isinstance(price_result, dict) or not bool(price_result.get("success")):
@@ -1357,6 +1369,7 @@ async def rent_number_from_provider(
             value = option_meta.get(key)
             if value not in (None, ""):
                 provider_kwargs[key] = value
+    provider_kwargs = _provider_method_kwargs(provider.rent_number, provider_kwargs)
     return await provider.rent_number(
         api_service_name,
         country=country,
