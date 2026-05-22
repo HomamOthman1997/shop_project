@@ -101,6 +101,7 @@ from services.numbers.shared.temp_second_code import request_second_code_for_ord
 from services.numbers.shared.temp_replacement import (
     pick_retry_provider as _shared_pick_retry_provider,
     provider_retry_score as _shared_provider_retry_score,
+    temp_replacement_fields as _shared_temp_replacement_fields,
 )
 from services.numbers.handlers.temp_waiter_runtime import (
     queue_temp_waiter as _queue_temp_waiter_impl,
@@ -3776,11 +3777,12 @@ async def temp_replace_number(callback: types.CallbackQuery):
     if _temp_order_has_received_code(order):
         return await _safe_callback_answer(t(lang, "temp_second_code_failed"), show_alert=True)
 
-    provider_code = str(order.get("provider") or "").strip().lower()
-    api_service = str(order.get("temp_api_service") or "").strip()
-    service_name = str(order.get("temp_service_key") or str(order.get("service_id") or "")).strip()
-    country = order.get("temp_country")
-    state_code = order.get("temp_state")
+    replacement = _shared_temp_replacement_fields(order)
+    provider_code = str(replacement.get("provider") or "")
+    api_service = str(replacement.get("api_service") or "")
+    service_name = str(replacement.get("service") or "")
+    country = replacement.get("raw_country")
+    state_code = replacement.get("raw_state")
     final_price, cost_price = extract_order_amounts(order)
 
     return await _request_replacement_temp_number(
@@ -3810,10 +3812,11 @@ async def temp_try_alternate_provider(callback: types.CallbackQuery):
     if _temp_order_has_received_code(order):
         return await _safe_callback_answer(t(lang, "temp_second_code_failed"), show_alert=True)
 
-    service_name = str(order.get("temp_service_key") or str(order.get("service_id") or "")).strip()
-    country = order.get("temp_country")
-    state_code = order.get("temp_state")
-    current_provider = str(order.get("provider") or "").strip().lower()
+    replacement = _shared_temp_replacement_fields(order)
+    service_name = str(replacement.get("service") or "")
+    country = replacement.get("raw_country")
+    state_code = replacement.get("raw_state")
+    current_provider = str(replacement.get("provider") or "")
     if not service_name:
         return await _safe_callback_answer(t(lang, "temp_replace_unavailable"), show_alert=True)
 

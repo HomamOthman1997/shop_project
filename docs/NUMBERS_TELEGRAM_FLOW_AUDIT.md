@@ -78,9 +78,10 @@ These should be treated as customer Telegram UI/state handlers until proven othe
 - [x] Mini App exposes eligible rental cancel/refund instead of keeping the backend route hidden.
 - [x] Extract duplicated temp/call refund service logic out of `core_numbers_buy.py`.
 - [x] Extract duplicated temp second-code service logic out of `core_numbers_buy.py`.
-- [~] Temp replacement is covered in Mini App backend tests, including current-provider retry and alternate-provider retry.
+- [x] Temp replacement is covered in Mini App backend tests, including current-provider retry and alternate-provider retry.
 - [x] Alternate-provider retry selection uses the shared Telegram scoring logic in the Mini App.
-- [ ] Extract duplicated temp replacement service logic out of `core_numbers_buy.py`.
+- [~] Extract duplicated temp replacement service logic out of `core_numbers_buy.py`.
+  - Shared extraction now covers replacement order field resolution and alternate-provider scoring.
   - Remaining reason: Telegram replacement still edits the chat message and queues the Telegram waiter against the same message. Keep this as a wrapper until a live Telegram smoke test confirms an extracted shared service preserves that UX.
 
 ## Hard Stop Before Deletion

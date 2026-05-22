@@ -145,7 +145,10 @@ from services.numbers.shared.temp_refund import (
 )
 
 from services.numbers.shared.temp_second_code import request_second_code_for_order as _shared_request_second_code_for_order
-from services.numbers.shared.temp_replacement import pick_retry_provider as _shared_pick_retry_provider
+from services.numbers.shared.temp_replacement import (
+    pick_retry_provider as _shared_pick_retry_provider,
+    temp_replacement_fields as _shared_temp_replacement_fields,
+)
 
 from services.numbers.manager import (
 
@@ -4603,17 +4606,15 @@ async def _enable_alternate_provider_suggestion(
 
         return None
 
-    service = str(order.get("temp_service_key") or order.get("service_id") or "").strip()
+    replacement = _shared_temp_replacement_fields(order)
+
+    service = str(replacement.get("service") or "")
 
     current_provider = _order_provider_code(order)
 
-    country = str(order.get("temp_country") or order.get("provisioning_country") or "none").strip() or "none"
+    country = str(replacement.get("country") or "none")
 
-    state = str(order.get("temp_state") or order.get("provisioning_state_code") or "none").strip() or "none"
-
-    if country != "1":
-
-        state = "none"
+    state = str(replacement.get("state") or "none")
 
     if not service:
 
@@ -4727,7 +4728,9 @@ async def _request_replacement_number(
 
         return {"ok": False, "code": "replace_unavailable", "message": _text(lang, "A replacement is not available for this order.", "استبدال الرقم غير متاح لهذا الطلب.")}
 
-    service = str(order.get("temp_service_key") or order.get("service_id") or "").strip()
+    replacement = _shared_temp_replacement_fields(order)
+
+    service = str(replacement.get("service") or "")
 
     current_provider = _order_provider_code(order)
 
@@ -4747,9 +4750,9 @@ async def _request_replacement_number(
 
         provider_code = suggested_provider
 
-    country = str(order.get("temp_country") or order.get("provisioning_country") or "none").strip() or "none"
+    country = str(replacement.get("country") or "none")
 
-    state = str(order.get("temp_state") or order.get("provisioning_state_code") or "none").strip() or "none"
+    state = str(replacement.get("state") or "none")
 
     if mode == "voice":
 
@@ -4758,10 +4761,6 @@ async def _request_replacement_number(
             return {"ok": False, "code": "alternate_unavailable", "message": _text(lang, "No alternate provider is available for this order.", "لا يوجد مزود بديل متاح لهذا الطلب.")}
 
         country = "1"
-
-        state = "none"
-
-    elif country != "1":
 
         state = "none"
 

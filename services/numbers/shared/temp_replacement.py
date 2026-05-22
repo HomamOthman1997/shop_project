@@ -3,6 +3,32 @@ from __future__ import annotations
 from typing import Any
 
 
+def temp_replacement_fields(order: dict[str, Any] | None) -> dict[str, Any]:
+    order = order or {}
+    service = str(order.get("temp_service_key") or order.get("service_id") or "").strip()
+    provider = str(order.get("provider") or order.get("provisioning_provider") or "").strip().lower()
+    api_service = str(order.get("temp_api_service") or order.get("provisioning_service") or "").strip()
+    raw_country = order.get("temp_country")
+    if raw_country in (None, ""):
+        raw_country = order.get("provisioning_country")
+    raw_state = order.get("temp_state")
+    if raw_state in (None, ""):
+        raw_state = order.get("provisioning_state_code")
+    country = str(raw_country or "none").strip() or "none"
+    state = str(raw_state or "none").strip() or "none"
+    if country != "1":
+        state = "none"
+    return {
+        "service": service,
+        "provider": provider,
+        "api_service": api_service,
+        "raw_country": raw_country,
+        "raw_state": raw_state,
+        "country": country,
+        "state": state,
+    }
+
+
 def provider_retry_score(info: dict[str, Any], cheapest: float) -> float:
     try:
         price = float(info.get("price") or 0)
