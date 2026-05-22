@@ -23,6 +23,13 @@ def test_provider_public_ids_shift_pvadeals_and_vaksms():
     assert provider_display_name("vaksms") == "Foxtrot"
 
 
+def test_smsman_display_name_tracks_nonvoip_brand():
+    assert provider_public_id("smsman") == "S7"
+    assert provider_public_id("smsman_s6") == "S8"
+    assert provider_display_name("smsman") == "NonVoIP"
+    assert provider_display_name("smsman_s6") == "NonVoIP"
+
+
 def test_provider_choice_kb_hides_smsman_lanes():
     kb = provider_choice_kb(
         {
