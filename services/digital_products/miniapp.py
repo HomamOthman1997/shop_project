@@ -53,6 +53,7 @@ from services.digital_products.static_taxonomy import (
 )
 from services.cards_bot.miniapp import register_cardex_routes
 from services.numbers.miniapp import register_numbers_routes
+from services.landing_page import landing_page as _landing_page_handler
 
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "webapp" / "digital"
@@ -2009,7 +2010,7 @@ async def health(_request: web.Request) -> web.Response:
 def create_app() -> web.Application:
     app = web.Application()
     app.on_cleanup.append(_cleanup_app)
-    app.router.add_get("/", health)
+    app.router.add_get("/", _landing_page_handler)
     app.router.add_get("/health", health)
     app.router.add_get("/healthz", health)
     app.router.add_get("/ready", health)
