@@ -4,6 +4,7 @@ Numbers is the first API-first consolidation target.
 
 ## Active Docs
 
+- `API_CONTRACT.md`: draft versioned Numbers API contract.
 - `MINIAPP_MIGRATION_CHECKLIST.md`: current Telegram-to-Mini-App migration status.
 - `TELEGRAM_FLOW_AUDIT.md`: what Telegram code can and cannot be deleted yet.
 - `MINIAPP_VISUAL_QA.md`: manual visual QA checklist after deployments.

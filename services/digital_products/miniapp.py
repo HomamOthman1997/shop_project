@@ -52,6 +52,7 @@ from services.digital_products.static_taxonomy import (
     provider_label as taxonomy_provider_label,
 )
 from services.cards_bot.miniapp import register_cardex_routes
+from services.numbers.api import register_numbers_api_routes
 from services.numbers.miniapp import register_numbers_routes
 from services.landing_page import landing_page as _landing_page_handler
 
@@ -2027,6 +2028,7 @@ def create_app() -> web.Application:
     app.router.add_post("/mini/digital/api/usage", record_usage)
     app.router.add_post("/mini/digital/api/selection", create_selection)
     register_cardex_routes(app)
+    register_numbers_api_routes(app)
     register_numbers_routes(app)
     return app
 
