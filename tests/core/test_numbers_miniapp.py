@@ -1780,7 +1780,7 @@ def test_register_numbers_routes_adds_public_endpoints():
     assert ("POST", "/mini/numbers/api/orders/{order_id}/renew") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/wake") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/notes") in routes
-    assert ("POST", "/mini/numbers/api/orders/{order_id}/cancel") in routes
+    assert ("POST", "/mini/numbers/api/orders/{order_id}/cancel") not in routes
 
 def test_numbers_support_categories_are_numbers_scoped():
     rows = miniapp._support_categories_payload("en")

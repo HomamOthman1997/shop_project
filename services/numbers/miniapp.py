@@ -8915,5 +8915,3 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_post("/mini/numbers/api/orders/{order_id}/wake", wake_order)
 
     app.router.add_post("/mini/numbers/api/orders/{order_id}/notes", notes_order)
-
-    app.router.add_post("/mini/numbers/api/orders/{order_id}/cancel", cancel_order)

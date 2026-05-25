@@ -56,7 +56,6 @@ async def test_create_key_filters_to_allowed_customer_scopes(monkeypatch):
                 "api_keys:manage",
                 "numbers:orders:create",
                 "numbers:orders:refresh",
-                "numbers:orders:cancel",
                 "numbers:account:read",
             ],
         }
@@ -71,7 +70,6 @@ async def test_create_key_filters_to_allowed_customer_scopes(monkeypatch):
     assert calls["create"]["reseller_id"] == 123
     assert calls["create"]["scopes"] == [
         "numbers:account:read",
-        "numbers:orders:cancel",
         "numbers:orders:create",
         "numbers:orders:refresh",
         "numbers:quotes",

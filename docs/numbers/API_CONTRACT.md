@@ -30,7 +30,6 @@ API keys are stored hashed and must carry scopes. Current scopes:
 - `numbers:orders:read`
 - `numbers:orders:create`
 - `numbers:orders:refresh`
-- `numbers:orders:cancel`
 - `numbers:account:read`
 - `api_keys:manage`
 - `*` for internal/admin keys only.
@@ -86,7 +85,6 @@ Current limits:
 - `numbers:orders:read`: 90 requests per minute.
 - `numbers:orders:create`: 30 requests per minute.
 - `numbers:orders:refresh`: 60 requests per minute.
-- `numbers:orders:cancel`: 30 requests per minute.
 - `api_keys:manage`: 30 requests per minute.
 
 When a limit is exceeded, the API returns HTTP `429` with `Retry-After`.
@@ -108,7 +106,7 @@ Body:
 ```json
 {
   "name": "customer bot",
-  "scopes": ["numbers:account:read", "numbers:quotes", "numbers:orders:read", "numbers:orders:create", "numbers:orders:refresh", "numbers:orders:cancel"]
+  "scopes": ["numbers:account:read", "numbers:quotes", "numbers:orders:read", "numbers:orders:create", "numbers:orders:refresh"]
 }
 ```
 
@@ -266,21 +264,7 @@ Response:
 
 Downloads a call recording when available.
 
-`POST /api/v1/numbers/orders/{order_id}/cancel`
-
-Cancels/refunds an eligible order.
-
-Current implementation cancels temporary-number orders directly through the provider and refunds the wallet through the ledger when no SMS code has been received.
-
-Headers:
-
-- `Idempotency-Key`: strongly recommended. Repeating the same key for the same order returns the original successful response and does not run a second refund.
-
-Response:
-
-```json
-{"ok": true, "order": {"id": "order-id", "status": "cancelled", "wait_state": "refunded"}}
-```
+There is no public customer refund/cancel endpoint. Refunds are server-managed: the backend verifies that no code was received, checks the provider/order timeout policy, attempts provider cancellation, refunds through the ledger, and leaves failures for support review.
 
 `POST /api/v1/numbers/orders/{order_id}/second-code`
 
