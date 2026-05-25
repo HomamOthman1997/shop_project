@@ -79,9 +79,12 @@ Planned path:
 
 Returns normalized provider rows with public provider IDs only. Real provider names must not be exposed to customers.
 
-Supported modes:
+Currently supported modes:
 
 - `temp`
+
+Planned modes:
+
 - `rental`
 - `voice`
 
