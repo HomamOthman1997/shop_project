@@ -30,8 +30,8 @@ _PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "S6": "Foxtrot",
     "S7": "NonVoIP",
     "S8": "NonVoIP",
-    "S9": "SMS-Ready",
-    "S10": "PVA Pins",
+    "S9": "Golf",
+    "S10": "Hotel",
 }
 
 _GENERIC_PROVIDER_ERROR = {
