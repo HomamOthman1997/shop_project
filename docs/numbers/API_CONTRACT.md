@@ -33,6 +33,55 @@ API keys are stored hashed and must carry scopes. Current scopes:
 
 Mini App authentication remains Telegram `initData` based and is separate from customer API authentication.
 
+## Response Format And Errors
+
+Successful responses return:
+
+```json
+{"ok": true}
+```
+
+Errors return:
+
+```json
+{"ok": false, "code": "error_code", "message": "Human readable message."}
+```
+
+Stable error codes currently emitted by the versioned API:
+
+- `missing_quote`
+- `missing_service`
+- `unsupported_mode`
+- `invalid_quote`
+- `expired_quote`
+- `provider_unavailable`
+- `provider_price_changed`
+- `insufficient_balance`
+- `provider_purchase_failed`
+- `provider_not_available`
+- `missing_scopes`
+- `invalid_owner`
+- `key_not_found`
+
+Auth middleware may also return standard HTTP `401`, `403`, and `429` responses.
+
+## Rate Limits
+
+Authenticated API responses include:
+
+- `X-RateLimit-Bucket`
+- `X-RateLimit-Limit`
+- `X-RateLimit-Remaining`
+- `X-RateLimit-Reset`
+
+Current limits:
+
+- `numbers:quotes`: 120 requests per minute.
+- `numbers:orders:create`: 30 requests per minute.
+- `api_keys:manage`: 30 requests per minute.
+
+When a limit is exceeded, the API returns HTTP `429` with `Retry-After`.
+
 ## API Key Management
 
 These endpoints manage customer/partner API keys. They require an existing key with `api_keys:manage`.
@@ -224,10 +273,7 @@ Reason:
 
 ## Required Before Customer API Exposure
 
-- API key/token auth with scopes.
-- Stable error code list.
-- Idempotency keys for purchase, cancel/refund, replacement, and rental renewal.
-- Rate limiting by user/API key.
+- Idempotency keys for cancel/refund, replacement, and rental renewal.
 - Optional webhooks for order status and SMS events.
 - External docs with examples.
 - Contract tests that assert response shape for `/api/v1/numbers`.

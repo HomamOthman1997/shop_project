@@ -6,7 +6,14 @@ from services.numbers.api_payloads import TEMP_QUOTE_PROVIDER_CODES, normalize_t
 from services.numbers.manager import get_all_prices
 from services.numbers.order_service import NumbersOrderError, create_temp_order_from_quote
 from services.numbers.service_map import get_service_display_name, resolve_canonical_service_key
-from services.platform.api_auth import require_api_auth
+from services.platform.api_auth import ApiAuthContext, require_api_auth
+from services.platform.api_rate_limits import (
+    ApiRateLimitDecision,
+    ApiRateLimitExceeded,
+    check_api_rate_limit,
+    rate_limit_headers,
+    retry_after_seconds,
+)
 
 _NO_STORE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
@@ -32,7 +39,8 @@ async def catalog_bootstrap(_request: web.Request) -> web.Response:
 
 
 async def quotes(request: web.Request) -> web.Response:
-    await require_api_auth(request, "numbers:quotes")
+    auth = await require_api_auth(request, "numbers:quotes")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:quotes", limit=120)
 
     mode = str(request.query.get("mode") or "temp").strip().lower()
     service = resolve_canonical_service_key(str(request.query.get("service") or ""))
@@ -40,9 +48,9 @@ async def quotes(request: web.Request) -> web.Response:
     state = str(request.query.get("state") or "none").strip() or "none"
 
     if mode != "temp":
-        raise web.HTTPBadRequest(text="unsupported mode")
+        return _json_error("Unsupported mode.", status=400, code="unsupported_mode", rate_limit=rate_limit)
     if not service:
-        raise web.HTTPBadRequest(text="missing service")
+        return _json_error("Missing service.", status=400, code="missing_service", rate_limit=rate_limit)
     if country != "1":
         state = "none"
 
@@ -63,16 +71,46 @@ async def quotes(request: web.Request) -> web.Response:
             "state": state,
             "providers": normalize_temp_quote_rows(raw, service=service, country=country, state=state),
         },
-        headers=dict(_NO_STORE_HEADERS),
+        headers=_response_headers(rate_limit),
     )
 
 
-def _json_error(message: str, *, status: int, code: str) -> web.Response:
-    return web.json_response({"ok": False, "code": code, "message": message}, status=status, headers=dict(_NO_STORE_HEADERS))
+def _response_headers(rate_limit: ApiRateLimitDecision | None = None) -> dict[str, str]:
+    headers = dict(_NO_STORE_HEADERS)
+    if rate_limit is not None:
+        headers.update(rate_limit_headers(rate_limit))
+    return headers
+
+
+def _json_error(
+    message: str,
+    *,
+    status: int,
+    code: str,
+    rate_limit: ApiRateLimitDecision | None = None,
+) -> web.Response:
+    headers = _response_headers(rate_limit)
+    if rate_limit is not None and status == 429:
+        headers["Retry-After"] = str(retry_after_seconds(rate_limit))
+    return web.json_response({"ok": False, "code": code, "message": message}, status=status, headers=headers)
+
+
+async def _check_rate_limit(auth: ApiAuthContext, *, bucket: str, limit: int) -> ApiRateLimitDecision:
+    try:
+        return await check_api_rate_limit(auth, bucket=bucket, limit=limit)
+    except ApiRateLimitExceeded as exc:
+        raise web.HTTPTooManyRequests(
+            text="rate limit exceeded",
+            headers={
+                **_response_headers(exc.decision),
+                "Retry-After": str(retry_after_seconds(exc.decision)),
+            },
+        ) from exc
 
 
 async def create_order(request: web.Request) -> web.Response:
     auth = await require_api_auth(request, "numbers:orders:create")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:create", limit=30)
 
     try:
         body = await request.json()
@@ -81,7 +119,7 @@ async def create_order(request: web.Request) -> web.Response:
 
     quote_token = str((body or {}).get("quote_token") or "").strip()
     if not quote_token:
-        return _json_error("Missing quote token.", status=400, code="missing_quote")
+        return _json_error("Missing quote token.", status=400, code="missing_quote", rate_limit=rate_limit)
 
     idempotency_key = str(request.headers.get("Idempotency-Key") or (body or {}).get("idempotency_key") or "").strip()
     try:
@@ -93,8 +131,8 @@ async def create_order(request: web.Request) -> web.Response:
             lang=str((body or {}).get("language") or "en"),
         )
     except NumbersOrderError as exc:
-        return _json_error(exc.message, status=exc.status, code=exc.code)
-    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
+        return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+    return web.json_response(result, headers=_response_headers(rate_limit))
 
 
 def register_numbers_api_routes(app: web.Application) -> None:
