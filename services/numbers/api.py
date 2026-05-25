@@ -5,7 +5,7 @@ from datetime import datetime
 from aiohttp import web
 
 from database.financial_ledger import get_user_wallet_balance
-from database.orders_repo import list_user_recent_temp_and_voice_orders, list_user_rental_orders
+from database.orders_repo import get_user_number_order, list_user_recent_temp_and_voice_orders, list_user_rental_orders
 from database.user_repo import get_user
 from services.numbers.api_payloads import TEMP_QUOTE_PROVIDER_CODES, normalize_temp_quote_rows, numbers_bootstrap_payload
 from services.numbers.manager import get_all_prices
@@ -161,6 +161,22 @@ async def list_orders(request: web.Request) -> web.Response:
     )
 
 
+async def get_order_detail(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:read")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:read", limit=90)
+    order_id = str(request.match_info.get("order_id") or "").strip()
+    order = await get_user_number_order(order_id, auth.user_id, auth.reseller_id)
+    if not isinstance(order, dict):
+        return _json_error("Order was not found.", status=404, code="order_not_found", rate_limit=rate_limit)
+    return web.json_response(
+        {
+            "ok": True,
+            "order": public_order_payload(order),
+        },
+        headers=_response_headers(rate_limit),
+    )
+
+
 def _response_headers(rate_limit: ApiRateLimitDecision | None = None) -> dict[str, str]:
     headers = dict(_NO_STORE_HEADERS)
     if rate_limit is not None:
@@ -227,4 +243,5 @@ def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/numbers/account", account)
     app.router.add_get("/api/v1/numbers/quotes", quotes)
     app.router.add_get("/api/v1/numbers/orders", list_orders)
+    app.router.add_get("/api/v1/numbers/orders/{order_id}", get_order_detail)
     app.router.add_post("/api/v1/numbers/orders", create_order)

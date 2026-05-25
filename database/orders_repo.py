@@ -1,6 +1,8 @@
 ﻿from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
+from bson import ObjectId
+
 from .mongo import db
 
 
@@ -78,6 +80,21 @@ async def update_order_details(order_id, data: dict):
 
 async def get_order(order_id):
     return await db.orders.find_one({"_id": order_id})
+
+
+async def get_user_number_order(order_id: str, user_id: int, reseller_id: int | None = None):
+    try:
+        oid = ObjectId(str(order_id))
+    except Exception:
+        return None
+    query = {
+        "_id": oid,
+        "user_id": int(user_id),
+        "number_mode": {"$in": ["temp", "voice", "rental"]},
+    }
+    if reseller_id is not None:
+        query["reseller_id"] = int(reseller_id)
+    return await db.orders.find_one(query)
 
 
 async def list_user_rental_orders(user_id: int, limit: int = 20):

@@ -30,6 +30,7 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     assert ("GET", "/api/v1/numbers/account") in routes
     assert ("GET", "/api/v1/numbers/quotes") in routes
     assert ("GET", "/api/v1/numbers/orders") in routes
+    assert ("GET", "/api/v1/numbers/orders/{order_id}") in routes
     assert ("POST", "/api/v1/numbers/orders") in routes
 
 
@@ -254,6 +255,61 @@ async def test_numbers_api_list_orders_filters_mode(monkeypatch):
     payload = json.loads(response.text)
 
     assert [item["id"] for item in payload["orders"]] == ["temp-1"]
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_get_order_detail_is_owner_scoped(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        calls["get"] = (order_id, user_id, reseller_id)
+        return {
+            "_id": order_id,
+            "status": "success",
+            "number_mode": "temp",
+            "temp_service_key": "telegram",
+            "provider_number": "15550001111",
+            "selling_price": 1.25,
+            "base_price": 0.5,
+        }
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    request = make_mocked_request("GET", "/api/v1/numbers/orders/order-1", match_info={"order_id": "order-1"})
+
+    response = await api.get_order_detail(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:orders:read"
+    assert calls["get"] == ("order-1", 123, 456)
+    assert payload["order"]["id"] == "order-1"
+    assert payload["order"]["number"] == "15550001111"
+    assert "base_price" not in payload["order"]
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_get_order_detail_returns_404(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        return None
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    request = make_mocked_request("GET", "/api/v1/numbers/orders/missing", match_info={"order_id": "missing"})
+
+    response = await api.get_order_detail(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 404
+    assert payload["code"] == "order_not_found"
 
 
 @pytest.mark.asyncio

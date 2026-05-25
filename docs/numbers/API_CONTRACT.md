@@ -64,6 +64,7 @@ Stable error codes currently emitted by the versioned API:
 - `missing_scopes`
 - `invalid_owner`
 - `key_not_found`
+- `order_not_found`
 
 Auth middleware may also return standard HTTP `401`, `403`, and `429` responses.
 
@@ -202,6 +203,16 @@ Response:
 
 ```json
 {"ok": true, "mode": "all", "orders": [{"id": "order-id", "status": "success", "mode": "temp"}]}
+```
+
+`GET /api/v1/numbers/orders/{order_id}`
+
+Returns one order owned by the authenticated API key owner/reseller scope.
+
+Response:
+
+```json
+{"ok": true, "order": {"id": "order-id", "status": "success", "mode": "temp"}}
 ```
 
 Planned path:
