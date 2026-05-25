@@ -41,6 +41,7 @@ async def test_check_api_rate_limit_allows_under_limit(monkeypatch):
     call = fake_db.api_rate_limits.calls[0]
     assert call["query"]["_id"] == "api:key-1:numbers:quotes:960"
     assert call["update"]["$inc"] == {"count": 1}
+    assert "expires_at" in call["update"]["$setOnInsert"]
 
 
 @pytest.mark.asyncio

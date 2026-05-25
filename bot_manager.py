@@ -34,6 +34,7 @@ from database.proxy_telemetry_repo import bootstrap_proxy_events_indexes
 from database.usage_stats_repo import bootstrap_usage_stats_indexes
 from database.lifecycle_repo import ensure_schema_markers, run_lifecycle_cleanup
 from database.number_events_repo import bootstrap_number_events_indexes
+from database.platform_api_repo import bootstrap_platform_api_indexes
 from database.temp_number_stats_repo import bootstrap_temp_number_stats_indexes
 from services.subscriptions.bot_subscription_service import (
     mark_bot_subscription_expiry_notice,
@@ -169,6 +170,7 @@ async def _run_startup_bootstraps() -> None:
         ("user links indexes", bootstrap_user_links_indexes),
         ("temp number stats indexes", bootstrap_temp_number_stats_indexes),
         ("number events indexes", bootstrap_number_events_indexes),
+        ("platform API indexes", bootstrap_platform_api_indexes),
         ("proxy events indexes", bootstrap_proxy_events_indexes),
         ("usage stats indexes", bootstrap_usage_stats_indexes),
         ("schema markers", ensure_schema_markers),

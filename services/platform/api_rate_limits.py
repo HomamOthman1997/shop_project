@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from pymongo import ReturnDocument
 
@@ -47,6 +48,7 @@ async def check_api_rate_limit(
     now = int(time.time())
     window = _window_start(now, window_seconds)
     reset_at = window + window_seconds
+    expires_at = datetime.fromtimestamp(reset_at + window_seconds, tz=UTC)
     key = f"api:{auth.key_id}:{bucket}:{window}"
 
     doc = await db.api_rate_limits.find_one_and_update(
@@ -60,6 +62,7 @@ async def check_api_rate_limit(
                 "window_start": window,
                 "window_seconds": window_seconds,
                 "reset_at": reset_at,
+                "expires_at": expires_at,
             },
             "$inc": {"count": 1},
         },
