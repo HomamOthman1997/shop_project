@@ -6,6 +6,11 @@ from aiohttp.test_utils import make_mocked_request
 
 from services.numbers import api
 from services.numbers import api_payloads
+from services.platform.api_auth import ApiAuthContext
+
+
+def api_auth_context(**kwargs):
+    return ApiAuthContext(**kwargs)
 
 
 def test_register_numbers_api_routes_adds_versioned_endpoints():
@@ -58,7 +63,7 @@ async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
 
     async def fake_require_api_auth(request, required_scope):
         calls["auth_scope"] = required_scope
-        return api.ApiAuthContext(key_id="key-1", user_id=123, reseller_id=123, scopes=(required_scope,))
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=123, scopes=(required_scope,))
 
     async def fake_get_all_prices(service, country, state, ignore_balance=False, with_success_rates=True, provider_codes=None):
         calls["args"] = {
@@ -114,7 +119,7 @@ async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
 @pytest.mark.asyncio
 async def test_numbers_api_quotes_reject_unsupported_modes(monkeypatch):
     async def fake_require_api_auth(request, required_scope):
-        return api.ApiAuthContext(key_id="key-1", user_id=123, reseller_id=123, scopes=(required_scope,))
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=123, scopes=(required_scope,))
 
     monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
     request = make_mocked_request("GET", "/api/v1/numbers/quotes?mode=rental&service=telegram&country=1")
@@ -142,7 +147,7 @@ async def test_numbers_api_create_order_uses_order_service(monkeypatch):
 
     async def fake_require_api_auth(request, required_scope):
         calls["auth_scope"] = required_scope
-        return api.ApiAuthContext(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
 
     async def fake_create_temp_order_from_quote(**kwargs):
         calls.update(kwargs)

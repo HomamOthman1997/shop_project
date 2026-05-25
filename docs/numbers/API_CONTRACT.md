@@ -28,9 +28,37 @@ API keys are stored hashed and must carry scopes. Current scopes:
 
 - `numbers:quotes`
 - `numbers:orders:create`
+- `api_keys:manage`
 - `*` for internal/admin keys only.
 
 Mini App authentication remains Telegram `initData` based and is separate from customer API authentication.
+
+## API Key Management
+
+These endpoints manage customer/partner API keys. They require an existing key with `api_keys:manage`.
+
+`GET /api/v1/api-keys`
+
+Lists keys for the authenticated reseller scope. Raw secrets are never returned.
+
+`POST /api/v1/api-keys`
+
+Creates a key. The raw `api_key` is returned once and must be stored by the caller.
+
+Body:
+
+```json
+{
+  "name": "customer bot",
+  "scopes": ["numbers:quotes", "numbers:orders:create"]
+}
+```
+
+Only customer-safe scopes are accepted. Management scopes are not grantable through this endpoint unless we later add an explicit owner-only flow.
+
+`POST /api/v1/api-keys/{key_id}/revoke`
+
+Revokes a key in the authenticated reseller scope.
 
 ## Public/Client Endpoints
 

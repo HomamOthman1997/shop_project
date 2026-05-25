@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from aiohttp import web
 
-from services.numbers.api_auth import ApiAuthContext, require_api_auth
 from services.numbers.api_payloads import TEMP_QUOTE_PROVIDER_CODES, normalize_temp_quote_rows, numbers_bootstrap_payload
 from services.numbers.manager import get_all_prices
 from services.numbers.order_service import NumbersOrderError, create_temp_order_from_quote
 from services.numbers.service_map import get_service_display_name, resolve_canonical_service_key
+from services.platform.api_auth import require_api_auth
 
 _NO_STORE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",

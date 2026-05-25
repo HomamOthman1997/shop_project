@@ -3,7 +3,7 @@ from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 
 from database import api_keys_repo
-from services.numbers import api_auth
+from services.platform import api_auth
 
 
 def test_api_key_hash_does_not_store_raw_secret():
