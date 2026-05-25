@@ -29,6 +29,7 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     assert ("GET", "/api/v1/numbers/catalog/bootstrap") in routes
     assert ("GET", "/api/v1/numbers/account") in routes
     assert ("GET", "/api/v1/numbers/quotes") in routes
+    assert ("GET", "/api/v1/numbers/orders") in routes
     assert ("POST", "/api/v1/numbers/orders") in routes
 
 
@@ -162,6 +163,97 @@ async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
     assert payload["providers"][0]["price_label"] == "$0.44"
     assert payload["providers"][0]["quote_token"]
     assert response.headers["X-RateLimit-Bucket"] == "numbers:quotes"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_list_orders_combines_number_modes(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_recent(user_id, limit=20, days=5):
+        calls["recent"] = (user_id, limit, days)
+        return [
+            {
+                "_id": "temp-1",
+                "status": "success",
+                "number_mode": "temp",
+                "temp_service_key": "telegram",
+                "temp_country": "1",
+                "temp_state": "CA",
+                "provider_public_id": "S01",
+                "provider_number": "15550001111",
+                "selling_price": 1.25,
+                "base_price": 1.0,
+                "temp_wait_state": "waiting",
+                "created_at": datetime(2026, 5, 25, 12, 0, tzinfo=UTC),
+            },
+            {
+                "_id": "voice-1",
+                "status": "success",
+                "number_mode": "voice",
+                "temp_service_key": "whatsapp",
+                "created_at": datetime(2026, 5, 25, 11, 0, tzinfo=UTC),
+            },
+        ]
+
+    async def fake_rentals(user_id, limit=20):
+        calls["rentals"] = (user_id, limit)
+        return [
+            {
+                "_id": "rent-1",
+                "status": "success",
+                "number_mode": "rental",
+                "service_id": "gmail",
+                "provider_number": "15550002222",
+                "created_at": datetime(2026, 5, 25, 13, 0, tzinfo=UTC),
+            }
+        ]
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "list_user_recent_temp_and_voice_orders", fake_recent)
+    monkeypatch.setattr(api, "list_user_rental_orders", fake_rentals)
+    request = make_mocked_request("GET", "/api/v1/numbers/orders?mode=all&limit=5")
+
+    response = await api.list_orders(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:orders:read"
+    assert calls["recent"] == (123, 5, 5)
+    assert calls["rentals"] == (123, 5)
+    assert [item["id"] for item in payload["orders"]] == ["rent-1", "temp-1", "voice-1"]
+    assert payload["orders"][1]["provider_id"] == "S01"
+    assert "base_price" not in payload["orders"][1]
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:orders:read"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_list_orders_filters_mode(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_recent(user_id, limit=20, days=5):
+        return [
+            {"_id": "temp-1", "number_mode": "temp", "created_at": datetime(2026, 5, 25, 12, 0, tzinfo=UTC)},
+            {"_id": "voice-1", "number_mode": "voice", "created_at": datetime(2026, 5, 25, 11, 0, tzinfo=UTC)},
+        ]
+
+    async def fail_rentals(*args, **kwargs):
+        raise AssertionError("rental query should not run for temp-only mode")
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "list_user_recent_temp_and_voice_orders", fake_recent)
+    monkeypatch.setattr(api, "list_user_rental_orders", fail_rentals)
+    request = make_mocked_request("GET", "/api/v1/numbers/orders?mode=temp")
+
+    response = await api.list_orders(request)
+    payload = json.loads(response.text)
+
+    assert [item["id"] for item in payload["orders"]] == ["temp-1"]
 
 
 @pytest.mark.asyncio

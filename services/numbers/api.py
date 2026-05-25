@@ -5,10 +5,11 @@ from datetime import datetime
 from aiohttp import web
 
 from database.financial_ledger import get_user_wallet_balance
+from database.orders_repo import list_user_recent_temp_and_voice_orders, list_user_rental_orders
 from database.user_repo import get_user
 from services.numbers.api_payloads import TEMP_QUOTE_PROVIDER_CODES, normalize_temp_quote_rows, numbers_bootstrap_payload
 from services.numbers.manager import get_all_prices
-from services.numbers.order_service import NumbersOrderError, create_temp_order_from_quote
+from services.numbers.order_service import NumbersOrderError, create_temp_order_from_quote, public_order_payload
 from services.numbers.service_map import get_service_display_name, resolve_canonical_service_key
 from services.platform.api_auth import ApiAuthContext, require_api_auth
 from services.platform.api_rate_limits import (
@@ -119,6 +120,47 @@ async def quotes(request: web.Request) -> web.Response:
     )
 
 
+def _parse_limit(request: web.Request, *, default: int = 20, maximum: int = 50) -> int:
+    try:
+        value = int(str(request.query.get("limit") or default))
+    except Exception:
+        value = default
+    return max(1, min(value, maximum))
+
+
+async def list_orders(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:read")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:read", limit=90)
+    mode = str(request.query.get("mode") or "all").strip().lower()
+    limit = _parse_limit(request)
+
+    if mode not in {"all", "temp", "voice", "rental"}:
+        return _json_error("Unsupported mode.", status=400, code="unsupported_mode", rate_limit=rate_limit)
+
+    rows = []
+    if mode in {"all", "temp", "voice"}:
+        rows.extend(await list_user_recent_temp_and_voice_orders(auth.user_id, limit=limit))
+    if mode in {"all", "rental"}:
+        rows.extend(await list_user_rental_orders(auth.user_id, limit=limit))
+
+    if mode == "temp":
+        rows = [row for row in rows if str(row.get("number_mode") or "") == "temp"]
+    elif mode == "voice":
+        rows = [row for row in rows if str(row.get("number_mode") or "") == "voice"]
+
+    rows.sort(key=lambda row: row.get("created_at") or datetime.min, reverse=True)
+    rows = rows[:limit]
+
+    return web.json_response(
+        {
+            "ok": True,
+            "mode": mode,
+            "orders": [public_order_payload(row) for row in rows],
+        },
+        headers=_response_headers(rate_limit),
+    )
+
+
 def _response_headers(rate_limit: ApiRateLimitDecision | None = None) -> dict[str, str]:
     headers = dict(_NO_STORE_HEADERS)
     if rate_limit is not None:
@@ -184,4 +226,5 @@ def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/numbers/catalog/bootstrap", catalog_bootstrap)
     app.router.add_get("/api/v1/numbers/account", account)
     app.router.add_get("/api/v1/numbers/quotes", quotes)
+    app.router.add_get("/api/v1/numbers/orders", list_orders)
     app.router.add_post("/api/v1/numbers/orders", create_order)

@@ -23,6 +23,7 @@ _NO_STORE_HEADERS = {
 _ALLOWED_CUSTOMER_SCOPES = {
     "numbers:account:read",
     "numbers:quotes",
+    "numbers:orders:read",
     "numbers:orders:create",
 }
 

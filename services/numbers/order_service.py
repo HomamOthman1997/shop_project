@@ -27,7 +27,7 @@ class NumbersOrderError(Exception):
         self.status = status
 
 
-def _public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
+def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
     order = order or {}
     order_id = order.get("_id")
     return {
@@ -40,7 +40,6 @@ def _public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
         "provider_id": str(order.get("provider_public_id") or ""),
         "number": str(order.get("provider_number") or ""),
         "selling_price": float(order.get("selling_price") or 0.0),
-        "base_price": float(order.get("base_price") or 0.0),
         "wait_state": str(order.get("temp_wait_state") or ""),
     }
 
@@ -269,7 +268,7 @@ async def create_temp_order_from_quote(
             },
         )
         fresh_order = await get_order(order_id) or order
-        response = {"ok": True, "order": _public_order_payload(fresh_order)}
+        response = {"ok": True, "order": public_order_payload(fresh_order)}
         await _idempotency_save(user_id, idempotency_key, response)
         return response
     except NumbersOrderError:

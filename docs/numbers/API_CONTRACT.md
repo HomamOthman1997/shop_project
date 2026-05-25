@@ -27,6 +27,7 @@ Accepted headers:
 API keys are stored hashed and must carry scopes. Current scopes:
 
 - `numbers:quotes`
+- `numbers:orders:read`
 - `numbers:orders:create`
 - `numbers:account:read`
 - `api_keys:manage`
@@ -79,6 +80,7 @@ Current limits:
 
 - `numbers:quotes`: 120 requests per minute.
 - `numbers:account:read`: 60 requests per minute.
+- `numbers:orders:read`: 90 requests per minute.
 - `numbers:orders:create`: 30 requests per minute.
 - `api_keys:manage`: 30 requests per minute.
 
@@ -101,7 +103,7 @@ Body:
 ```json
 {
   "name": "customer bot",
-  "scopes": ["numbers:account:read", "numbers:quotes", "numbers:orders:create"]
+  "scopes": ["numbers:account:read", "numbers:quotes", "numbers:orders:read", "numbers:orders:create"]
 }
 ```
 
@@ -187,11 +189,20 @@ Planned modes:
 
 ### Orders
 
-Planned path:
-
 `GET /api/v1/numbers/orders`
 
-Returns active temp, rental, and voice orders for the authenticated user.
+Returns recent temp, rental, and voice orders for the authenticated user.
+
+Query:
+
+- `mode=all|temp|voice|rental`, default `all`.
+- `limit=1..50`, default `20`.
+
+Response:
+
+```json
+{"ok": true, "mode": "all", "orders": [{"id": "order-id", "status": "success", "mode": "temp"}]}
+```
 
 Planned path:
 

@@ -90,6 +90,7 @@ async def test_create_temp_order_from_quote_success(monkeypatch):
 
     assert result["ok"] is True
     assert result["order"]["id"] == "order-1"
+    assert "base_price" not in result["order"]
     assert calls["prices"][0:3] == ("telegram", "1", "CA")
     assert calls["charge"]["sale_price"] == 0.44
     assert calls["buy"]["provider_code"] == "textverified"
