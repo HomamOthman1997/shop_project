@@ -69,6 +69,7 @@ from services.numbers.handlers.core_numbers_buy import (
 )
 from services.numbers.handlers.numbers_inline import router as numbers_inline_router
 from services.numbers.manager import PROVIDERS
+from services.numbers.order_auto_refund_service import run_numbers_api_auto_refund_sweep
 from services.numbers.core.session_manager import SessionManager
 from services.proxies.handlers.proxy_flow import router as proxy_flow_router
 from services.proxies.handlers.proxy_inline import router as proxy_inline_router
@@ -1208,6 +1209,7 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
     next_rental_protection_at = now
     next_card_ex_release_at = now
     next_temp_recovery_sweep_at = now
+    next_numbers_api_auto_refund_at = now
     next_unprovisioned_order_recovery_at = now
     provider_balance_alert_state: dict[str, dict[str, Any]] = {}
     next_financial_anomaly_at = (
@@ -1885,7 +1887,27 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                 )
                 next_unprovisioned_order_recovery_at = _utc_now() + timedelta(seconds=interval_sec)
 
-            await asyncio.sleep(poll_seconds)
+        if _utc_now() >= next_numbers_api_auto_refund_at:
+            try:
+                stats = await run_numbers_api_auto_refund_sweep(
+                    limit=max(20, int(getattr(settings, "numbers_api_auto_refund_limit", 100) or 100))
+                )
+                if any(int(stats.get(key) or 0) for key in ("checked", "refunded", "support_review", "errors")):
+                    logging.info(
+                        "numbers API auto-refund checked=%s refunded=%s skipped=%s support_review=%s errors=%s",
+                        stats.get("checked"),
+                        stats.get("refunded"),
+                        stats.get("skipped"),
+                        stats.get("support_review"),
+                        stats.get("errors"),
+                    )
+            except Exception as exc:
+                logging.error("numbers API auto-refund sweep failed: %s", exc)
+            finally:
+                interval_sec = max(30, int(getattr(settings, "numbers_api_auto_refund_interval_sec", 60) or 60))
+                next_numbers_api_auto_refund_at = _utc_now() + timedelta(seconds=interval_sec)
+
+        await asyncio.sleep(poll_seconds)
     finally:
         if miniapp_runner is not None:
             with suppress(Exception):

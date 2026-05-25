@@ -203,6 +203,30 @@ async def list_open_temp_orders_for_recovery(limit: int = 200):
     return await cursor.to_list(length=int(limit))
 
 
+async def list_api_temp_orders_for_auto_refund(limit: int = 200):
+    cursor = (
+        db.orders.find(
+            {
+                "source": "numbers_api",
+                "number_mode": "temp",
+                "status": {"$in": ["success", "pending", "paid"]},
+                "provider_order_id": {"$exists": True, "$nin": [None, ""]},
+                "temp_wait_state": {"$in": ["waiting", "refund_pending"]},
+                "$or": [
+                    {"temp_codes_count": {"$exists": False}},
+                    {"temp_codes_count": 0},
+                    {"temp_last_code": {"$exists": False}},
+                    {"temp_last_code": ""},
+                    {"temp_last_code": None},
+                ],
+            }
+        )
+        .sort("created_at", 1)
+        .limit(int(limit))
+    )
+    return await cursor.to_list(length=int(limit))
+
+
 async def list_user_open_temp_orders(user_id: int, limit: int = 20):
     cursor = (
         db.orders.find(

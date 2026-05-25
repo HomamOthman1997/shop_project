@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
+from database.orders_repo import list_api_temp_orders_for_auto_refund, update_order_details
 from services.numbers.order_cancel_service import cancel_number_order
 from services.numbers.order_service import public_order_payload
-from services.numbers.shared.temp_order import _order_temp_timeout_sec, _temp_elapsed_sec, _temp_order_has_received_code
+from services.numbers.shared.temp_order import _order_temp_timeout_sec, _temp_elapsed_sec, _temp_order_has_received_code, _utc_now
 from services.numbers.shared.temp_refund import temp_refund_result_retryable
 
 
@@ -55,3 +56,42 @@ async def auto_refund_temp_order_if_due(
             "order": public_order_payload(order),
         }
     return {"ok": True, "refunded": True, "reason": "timeout_no_code", "order": result.get("order") or public_order_payload(order)}
+
+
+async def run_numbers_api_auto_refund_sweep(
+    *,
+    limit: int = 200,
+    sleep_fn: Callable[[float], Awaitable[Any]] | None = None,
+) -> dict[str, int]:
+    stats = {"checked": 0, "refunded": 0, "skipped": 0, "support_review": 0, "errors": 0}
+    orders = await list_api_temp_orders_for_auto_refund(limit=int(limit))
+    for order in orders:
+        stats["checked"] += 1
+        try:
+            result = await auto_refund_temp_order_if_due(order, sleep_fn=sleep_fn)
+        except Exception:
+            stats["errors"] += 1
+            await _mark_support_review(order, "auto_refund_exception")
+            continue
+        if result.get("refunded"):
+            stats["refunded"] += 1
+        elif result.get("support_review_required"):
+            stats["support_review"] += 1
+            await _mark_support_review(order, str(result.get("reason") or "auto_refund_failed"))
+        else:
+            stats["skipped"] += 1
+    return stats
+
+
+async def _mark_support_review(order: dict[str, Any], reason: str) -> None:
+    order_id = order.get("_id") if isinstance(order, dict) else None
+    if not order_id:
+        return
+    await update_order_details(
+        order_id,
+        {
+            "temp_refund_support_review_required": True,
+            "temp_refund_support_review_reason": str(reason or "auto_refund_failed"),
+            "temp_refund_support_review_at": _utc_now(),
+        },
+    )

@@ -73,3 +73,31 @@ async def test_auto_refund_marks_support_review_on_provider_failure(monkeypatch)
     assert result["refunded"] is False
     assert result["reason"] == "provider_cancel_failed"
     assert result["support_review_required"] is True
+
+
+@pytest.mark.asyncio
+async def test_auto_refund_sweep_marks_support_review(monkeypatch):
+    calls = {}
+    order = due_order()
+
+    async def fake_list_api_temp_orders_for_auto_refund(limit):
+        calls["limit"] = limit
+        return [order]
+
+    async def fake_auto_refund_temp_order_if_due(order_arg, sleep_fn=None):
+        calls["order"] = order_arg
+        return {"ok": True, "refunded": False, "support_review_required": True, "reason": "provider_cancel_failed"}
+
+    async def fake_update_order_details(order_id, patch):
+        calls["support_patch"] = (order_id, patch)
+
+    monkeypatch.setattr(order_auto_refund_service, "list_api_temp_orders_for_auto_refund", fake_list_api_temp_orders_for_auto_refund)
+    monkeypatch.setattr(order_auto_refund_service, "auto_refund_temp_order_if_due", fake_auto_refund_temp_order_if_due)
+    monkeypatch.setattr(order_auto_refund_service, "update_order_details", fake_update_order_details)
+
+    stats = await order_auto_refund_service.run_numbers_api_auto_refund_sweep(limit=5)
+
+    assert stats == {"checked": 1, "refunded": 0, "skipped": 0, "support_review": 1, "errors": 0}
+    assert calls["limit"] == 5
+    assert calls["support_patch"][0] == "order-1"
+    assert calls["support_patch"][1]["temp_refund_support_review_reason"] == "provider_cancel_failed"
