@@ -4,8 +4,9 @@ This directory is the primary home for project documentation.
 
 ## Start Here
 - `PROJECT_CONTEXT.md`: current high-level product and architecture context.
-- `chatgpt_reference_master.md`: canonical long-form workspace reference.
-- `master_checklist.md`: broad implementation and closure checklist.
+- `AGENT_HANDOFF_CONTEXT.md`: compact context for future Codex/AI sessions.
+- `NUMBERS_MINIAPP_MIGRATION_CHECKLIST.md`: current Mini App migration checklist.
+- `NUMBERS_TELEGRAM_FLOW_AUDIT.md`: Telegram bot flow coverage audit.
 
 ## Operational Docs
 - `BACKUP_RESTORE_RUNBOOK.md`
@@ -17,11 +18,8 @@ This directory is the primary home for project documentation.
 - `LOG_RETENTION_POLICY.md`
 
 ## Product / Planning Docs
-- `PHONE_VERIFICATION_CONCEPT.md`
-- `feature_closure_roadmap.md`
-- `financial_model.md`
-- `WISHLIST_DEFERRED.md`
-- `CARDS_BOT_BLUEPRINT_CHECKLIST.md`
+- Active product direction belongs in `PROJECT_CONTEXT.md` and `AGENT_HANDOFF_CONTEXT.md`.
+- Older planning drafts live under `archive/legacy-planning/`.
 
 ## Provider Docs
 - `providers/READ_ME_FIRST.md`: provider-doc navigation notes.
@@ -31,6 +29,8 @@ This directory is the primary home for project documentation.
 
 ## Archive
 - `archive/`: historical notes, old chat exports, and dated handoff documents kept for reference only.
+- `archive/generated-reports/`: generated analysis reports kept for audit/reference.
+- `archive/legacy-planning/`: superseded planning and checklist drafts.
 
 ## Cleanup Rules
 - Keep active docs in `docs/`.
