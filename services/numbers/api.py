@@ -14,6 +14,7 @@ from services.numbers.order_refresh_service import refresh_number_order
 from services.numbers.order_service import NumbersOrderError, create_temp_order_from_quote, public_order_payload
 from services.numbers.service_map import get_service_display_name, resolve_canonical_service_key
 from services.platform.api_auth import ApiAuthContext, require_api_auth
+from services.platform.api_idempotency import get_idempotent_response, save_idempotent_response
 from services.platform.api_rate_limits import (
     ApiRateLimitDecision,
     ApiRateLimitExceeded,
@@ -197,6 +198,12 @@ async def cancel_order(request: web.Request) -> web.Response:
     auth = await require_api_auth(request, "numbers:orders:cancel")
     rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:cancel", limit=30)
     order_id = str(request.match_info.get("order_id") or "").strip()
+    idempotency_key = str(request.headers.get("Idempotency-Key") or "").strip()
+    operation = f"numbers:orders:cancel:{order_id}"
+    cached = await get_idempotent_response(user_id=auth.user_id, key=idempotency_key, operation=operation)
+    if cached is not None:
+        return web.json_response({**cached, "idempotent_replay": True}, headers=_response_headers(rate_limit))
+
     order = await get_user_number_order(order_id, auth.user_id, auth.reseller_id)
     if not isinstance(order, dict):
         return _json_error("Order was not found.", status=404, code="order_not_found", rate_limit=rate_limit)
@@ -204,6 +211,7 @@ async def cancel_order(request: web.Request) -> web.Response:
         result = await cancel_number_order(order, actor_user_id=auth.user_id)
     except NumbersOrderError as exc:
         return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+    await save_idempotent_response(user_id=auth.user_id, key=idempotency_key, operation=operation, response=result)
     return web.json_response(result, headers=_response_headers(rate_limit))
 
 

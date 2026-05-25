@@ -272,6 +272,10 @@ Cancels/refunds an eligible order.
 
 Current implementation cancels temporary-number orders directly through the provider and refunds the wallet through the ledger when no SMS code has been received.
 
+Headers:
+
+- `Idempotency-Key`: strongly recommended. Repeating the same key for the same order returns the original successful response and does not run a second refund.
+
 Response:
 
 ```json
