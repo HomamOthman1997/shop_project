@@ -184,12 +184,38 @@ def _b64_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
 
+def _b64_decode(value: str) -> bytes:
+    padded = str(value or "") + ("=" * (-len(str(value or "")) % 4))
+    return base64.urlsafe_b64decode(padded.encode("ascii"))
+
+
 def make_quote_token(payload: dict[str, Any]) -> str:
     clean_payload = dict(payload or {})
     clean_payload["exp"] = int(time.time()) + QUOTE_TTL_SEC
     body = _b64_encode(json.dumps(clean_payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     sig = hmac.new(_quote_secret(), body.encode("ascii"), hashlib.sha256).hexdigest()
     return f"{body}.{sig}"
+
+
+class QuoteTokenError(ValueError):
+    pass
+
+
+def verify_quote_token(token: str) -> dict[str, Any]:
+    raw = str(token or "").strip()
+    if "." not in raw:
+        raise QuoteTokenError("invalid_quote")
+    body, sig = raw.rsplit(".", 1)
+    expected = hmac.new(_quote_secret(), body.encode("ascii"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        raise QuoteTokenError("bad_quote")
+    try:
+        payload = json.loads(_b64_decode(body).decode("utf-8"))
+    except Exception as exc:
+        raise QuoteTokenError("bad_quote_payload") from exc
+    if int(payload.get("exp") or 0) < int(time.time()):
+        raise QuoteTokenError("quote_expired")
+    return payload
 
 
 def _provider_sort_key(code: str) -> tuple[int, str, str]:
@@ -212,6 +238,10 @@ def _provider_buyable_for_temp(provider_code: str, info: dict[str, Any]) -> bool
         return float(info.get("price") or 0.0) > 0
     except Exception:
         return False
+
+
+def temp_provider_offer_is_buyable(provider_code: str, info: dict[str, Any]) -> bool:
+    return _provider_buyable_for_temp(provider_code, info)
 
 
 def _recommended_temp_provider_code(data: dict[str, Any]) -> str:

@@ -100,7 +100,31 @@ Planned path:
 
 `POST /api/v1/numbers/orders`
 
-Creates a temp, rental, or voice order depending on request payload.
+Creates a temporary-number order from a `quote_token`.
+
+Headers:
+
+- `X-User-Id`: temporary development user context until API keys/scopes are introduced.
+- `Idempotency-Key`: strongly recommended for every money-moving request.
+
+Body:
+
+```json
+{"quote_token": "quoted-offer-token", "language": "en"}
+```
+
+Response:
+
+```json
+{"ok": true, "order": {"id": "order-id", "status": "success"}}
+```
+
+Planned expansion:
+
+- rental orders,
+- voice/call orders,
+- API key based user context,
+- scoped customer API tokens.
 
 Planned path:
 

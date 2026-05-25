@@ -17,6 +17,7 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     assert ("GET", "/api/v1/numbers/health") in routes
     assert ("GET", "/api/v1/numbers/catalog/bootstrap") in routes
     assert ("GET", "/api/v1/numbers/quotes") in routes
+    assert ("POST", "/api/v1/numbers/orders") in routes
 
 
 @pytest.mark.asyncio
@@ -110,3 +111,45 @@ async def test_numbers_api_quotes_reject_unsupported_modes():
 
     with pytest.raises(web.HTTPBadRequest):
         await api.quotes(request)
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_create_order_requires_user():
+    request = make_mocked_request("POST", "/api/v1/numbers/orders", headers={"Content-Type": "application/json"})
+    request._read_bytes = json.dumps({"quote_token": "quote"}).encode("utf-8")
+
+    response = await api.create_order(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 401
+    assert payload["code"] == "missing_user"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_create_order_uses_order_service(monkeypatch):
+    calls = {}
+
+    async def fake_create_temp_order_from_quote(**kwargs):
+        calls.update(kwargs)
+        return {"ok": True, "order": {"id": "order-1"}}
+
+    monkeypatch.setattr(api, "create_temp_order_from_quote", fake_create_temp_order_from_quote)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/numbers/orders",
+        headers={"Content-Type": "application/json", "X-User-Id": "123", "Idempotency-Key": "idem-1"},
+    )
+    request._read_bytes = json.dumps({"quote_token": "quote-1", "language": "en"}).encode("utf-8")
+
+    response = await api.create_order(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload == {"ok": True, "order": {"id": "order-1"}}
+    assert calls == {
+        "user_id": 123,
+        "reseller_id": 123,
+        "quote_token": "quote-1",
+        "idempotency_key": "idem-1",
+        "lang": "en",
+    }
