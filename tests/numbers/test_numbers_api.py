@@ -33,6 +33,11 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     assert ("GET", "/api/v1/numbers/orders/{order_id}") in routes
     assert ("POST", "/api/v1/numbers/orders") in routes
     assert ("POST", "/api/v1/numbers/orders/{order_id}/refresh") in routes
+    assert ("POST", "/api/v1/numbers/orders/{order_id}/resend") in routes
+    assert ("GET", "/api/v1/numbers/ops/refund-reviews") in routes
+    assert ("POST", "/api/v1/numbers/ops/refund-reviews/{order_id}/resolve") in routes
+    assert ("GET", "/api/v1/numbers/ops/provider-webhook-events") in routes
+    assert ("POST", "/api/v1/numbers/ops/provider-webhook-events/{event_id}/replay") in routes
 
 
 @pytest.mark.asyncio
@@ -345,6 +350,38 @@ async def test_numbers_api_refresh_order_uses_refresh_service(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_numbers_api_resend_order_uses_resend_service(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        calls["get"] = (order_id, user_id, reseller_id)
+        return {"_id": order_id, "user_id": user_id, "reseller_id": reseller_id, "number_mode": "temp"}
+
+    async def fake_request_number_order_resend(order, *, user_id, reseller_id):
+        calls["resend"] = (order, user_id, reseller_id)
+        return {"ok": True, "order": {"id": order["_id"], "public_status": "waiting"}, "second_order_id": "second-1"}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    monkeypatch.setattr(api, "request_number_order_resend", fake_request_number_order_resend)
+    request = make_mocked_request("POST", "/api/v1/numbers/orders/order-1/resend", match_info={"order_id": "order-1"})
+
+    response = await api.resend_order(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:orders:resend"
+    assert calls["get"] == ("order-1", 123, 456)
+    assert calls["resend"][1:] == (123, 456)
+    assert payload == {"ok": True, "order": {"id": "order-1", "public_status": "waiting"}, "second_order_id": "second-1"}
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:orders:resend"
+
+
+@pytest.mark.asyncio
 async def test_numbers_api_quotes_reject_unsupported_modes(monkeypatch):
     async def fake_require_api_auth(request, required_scope):
         return api_auth_context(key_id="key-1", user_id=123, reseller_id=123, scopes=(required_scope,))
@@ -411,3 +448,93 @@ async def test_numbers_api_create_order_uses_order_service(monkeypatch):
         "idempotency_key": "idem-1",
         "lang": "en",
     }
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_lists_refund_reviews_scoped_to_reseller(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_list_reviews(**kwargs):
+        calls["list"] = kwargs
+        return [
+            {
+                "_id": "order-1",
+                "source": "numbers_api",
+                "number_mode": "temp",
+                "user_id": 123,
+                "reseller_id": 456,
+                "status": "success",
+                "temp_refund_support_review_status": "open",
+                "temp_refund_support_review_reason": "provider_cancel_failed",
+            }
+        ]
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "list_api_temp_refund_support_reviews", fake_list_reviews)
+    request = make_mocked_request("GET", "/api/v1/numbers/ops/refund-reviews?limit=10")
+
+    response = await api.list_refund_reviews(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["auth_scope"] == "numbers:support:review"
+    assert calls["list"] == {"limit": 10, "reseller_id": 456, "include_resolved": False}
+    assert payload["ok"] is True
+    assert payload["reviews"][0]["id"] == "order-1"
+    assert payload["reviews"][0]["status"] == "open"
+    assert payload["reviews"][0]["reason"] == "provider_cancel_failed"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_resolve_refund_review_marks_review_only(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_resolve_review(**kwargs):
+        calls["resolve"] = kwargs
+        return {
+            "_id": kwargs["order_id"],
+            "source": "numbers_api",
+            "number_mode": "temp",
+            "user_id": 777,
+            "reseller_id": 456,
+            "status": "success",
+            "temp_refund_support_review_status": "resolved",
+            "temp_refund_support_review_reason": "provider_cancel_failed",
+            "temp_refund_support_review_resolution": kwargs["resolution"],
+            "temp_refund_support_review_notes": kwargs["notes"],
+        }
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "resolve_api_temp_refund_support_review", fake_resolve_review)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/numbers/ops/refund-reviews/order-1/resolve",
+        headers={"Content-Type": "application/json"},
+        match_info={"order_id": "order-1"},
+    )
+    request._read_bytes = json.dumps({"resolution": "reviewed in provider dashboard", "notes": "SUP-1"}).encode("utf-8")
+
+    response = await api.resolve_refund_review(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["auth_scope"] == "numbers:support:review"
+    assert calls["resolve"] == {
+        "order_id": "order-1",
+        "actor_user_id": 123,
+        "reseller_id": 456,
+        "resolution": "reviewed in provider dashboard",
+        "notes": "SUP-1",
+    }
+    assert payload["review"]["status"] == "resolved"
+    assert payload["review"]["resolution"] == "reviewed in provider dashboard"

@@ -1484,15 +1484,6 @@ function orderNeedsPolling(order) {
 
 function scheduleOrderPoll() {
   clearOrderPoll();
-  if (state.view !== "orders" || !canUseTelegramAuth() || !state.activeOrders.some(orderNeedsPolling)) {
-    return;
-  }
-  state.orderPollTimer = window.setTimeout(async () => {
-    state.orderPollTimer = null;
-    if (state.view === "orders") {
-      await refreshOrders({ quiet: true });
-    }
-  }, ORDER_POLL_INTERVAL_MS);
 }
 
 function askConfirm(message) {
@@ -1548,6 +1539,172 @@ function emptyState(text) {
   return div;
 }
 
+function orderTone(order) {
+  const status = String(order?.public_status || "");
+  if (status === "code_received" || status === "call_received" || status === "finished") return "success";
+  if (status === "refunded") return "refunded";
+  if (status === "refund_pending") return "pending-refund";
+  if (status === "failed" || status === "expired") return "danger";
+  return "waiting";
+}
+
+function refundStatusText(order) {
+  const refund = order?.refund || {};
+  if (refund.refunded || order?.public_status === "refunded") return t("refunded");
+  if (refund.pending || order?.public_status === "refund_pending") return t("refundPending");
+  return "";
+}
+
+function appendOrderFact(parent, label, value) {
+  if (!value) return;
+  const item = document.createElement("div");
+  item.className = "order-fact";
+  const key = document.createElement("span");
+  key.textContent = label;
+  const val = document.createElement("strong");
+  val.textContent = value;
+  item.append(key, val);
+  parent.append(item);
+}
+
+function renderReceivePanel(order) {
+  const panel = document.createElement("div");
+  panel.className = `receive-panel ${orderTone(order)}`;
+  const label = document.createElement("span");
+  label.className = "receive-label";
+  label.textContent = statusLabel(order);
+  const value = document.createElement("strong");
+  value.className = "receive-value";
+  if (order.code) {
+    value.textContent = order.code;
+  } else if (order.public_status === "refunded") {
+    value.textContent = t("refunded");
+  } else if (order.public_status === "refund_pending") {
+    value.textContent = t("refundPending");
+  } else if (order.mode === "voice" && order.public_status === "waiting_for_recording") {
+    value.textContent = t("recordingPending");
+  } else {
+    value.textContent = ["waiting", "waiting_for_recording"].includes(order.public_status)
+      ? `${formatDuration(order.seconds_left)} ${t("left")}`
+      : statusLabel(order);
+  }
+  panel.append(label, value);
+  return panel;
+}
+
+function addOrderAction(actions, { label, className = "small-action", disabled = false, onClick }) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.textContent = label;
+  button.disabled = Boolean(disabled);
+  if (onClick) button.addEventListener("click", () => onClick(button));
+  actions.append(button);
+  return button;
+}
+
+function renderOrderCard(order) {
+  const card = document.createElement("article");
+  card.className = `order-card order-card-v2 ${orderTone(order)}`;
+
+  const main = document.createElement("div");
+  main.className = "order-main";
+
+  const header = document.createElement("div");
+  header.className = "order-card-head";
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "order-title-wrap";
+  const title = document.createElement("h3");
+  title.className = "order-title";
+  title.textContent = order.service_label || order.service || "";
+  const meta = document.createElement("p");
+  meta.className = "order-meta";
+  meta.textContent = [order.provider_id, order.price_label].filter(Boolean).join(" · ");
+  titleWrap.append(title, meta);
+  const status = document.createElement("span");
+  status.className = `order-status-badge ${orderTone(order)}`;
+  status.textContent = statusLabel(order);
+  header.append(titleWrap, status);
+  main.append(header, renderReceivePanel(order));
+
+  const facts = document.createElement("div");
+  facts.className = "order-facts";
+  appendOrderFact(facts, t("number"), order.number || "-");
+  appendOrderFact(facts, t("code"), order.code || "");
+  appendOrderFact(facts, t("refundPending"), refundStatusText(order));
+  if (order.mode === "rental" && Array.isArray(order.messages) && order.messages.length) {
+    appendOrderFact(facts, t("rentalSms"), order.messages.slice(-1)[0]);
+  }
+  if (facts.children.length) main.append(facts);
+
+  if (Array.isArray(order.events) && order.events.length) {
+    const eventList = document.createElement("div");
+    eventList.className = "order-event-list compact";
+    order.events.slice(-2).forEach((event) => {
+      const item = document.createElement("div");
+      item.className = "order-event";
+      const label = document.createElement("span");
+      label.textContent = event.label || event.event || "";
+      const time = document.createElement("small");
+      time.textContent = event.time || "";
+      item.append(label, time);
+      eventList.append(item);
+    });
+    main.append(eventList);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "order-actions order-actions-v2";
+  if (order.number) {
+    addOrderAction(actions, { label: t("copyNumber"), className: "small-action secondary-small", onClick: (button) => copyText(order.number, button) });
+  }
+  if (order.code) {
+    addOrderAction(actions, { label: t("copyCode"), className: "small-action secondary-small", onClick: (button) => copyText(order.code, button) });
+  }
+  if (order.can_refresh !== false) {
+    addOrderAction(actions, { label: order.mode === "voice" ? t("checkCall") : t("refresh"), onClick: (button) => refreshSingleOrder(order.id, button) });
+  }
+  if (order.mode === "temp" && (order.can_second_code || order.can_resend)) {
+    addOrderAction(actions, {
+      label: `${t("secondCode")} ${order.second_code_price_label || ""}`.trim(),
+      className: "small-action primary-small",
+      onClick: (button) => requestSecondCode(order, button),
+    });
+  }
+  if ((order.mode === "temp" || order.mode === "voice") && order.can_replace) {
+    addOrderAction(actions, { label: t("tryAnother"), className: "small-action secondary-small", onClick: (button) => replaceOrder(order, button) });
+  }
+  if (order.mode === "temp" && order.can_alternate_provider) {
+    addOrderAction(actions, {
+      label: [t("alternateProvider"), order.alternate_provider_id, order.alternate_provider_price_label].filter(Boolean).join(" "),
+      className: "small-action secondary-small",
+      onClick: (button) => alternateOrder(order, button),
+    });
+  }
+  if (order.mode === "voice" && order.recording_url) {
+    addOrderAction(actions, { label: t("playRecording"), className: "small-action secondary-small", onClick: (button) => previewRecording(order, button, main) });
+    addOrderAction(actions, { label: t("downloadRecording"), onClick: (button) => downloadRecording(order, button) });
+  }
+  if (order.mode === "rental" && order.can_sms) {
+    addOrderAction(actions, { label: t("rentalSms"), onClick: (button) => rentalProviderAction(order.id, "sms", button) });
+  }
+  if (order.mode === "rental" && order.can_renew) {
+    addOrderAction(actions, { label: t("renew"), onClick: (button) => rentalProviderAction(order.id, "renew", button) });
+  }
+  if (order.mode === "rental" && order.can_wake) {
+    addOrderAction(actions, { label: t("wake"), className: "small-action secondary-small", onClick: (button) => rentalProviderAction(order.id, "wake", button) });
+  }
+  if (order.mode === "rental" && order.can_notes) {
+    addOrderAction(actions, { label: t("notesTags"), className: "small-action secondary-small", onClick: (button) => rentalProviderAction(order.id, "notes", button) });
+  }
+  if (order.mode === "rental" && order.can_finish) {
+    addOrderAction(actions, { label: t("finish"), className: "danger-action", onClick: (button) => finishOrder(order.id, button) });
+  }
+
+  card.append(main, actions);
+  return card;
+}
+
 function renderActiveOrders(rows = state.activeOrders) {
   state.activeOrders = rows || [];
   if (!state.activeOrders.length) {
@@ -1555,222 +1712,9 @@ function renderActiveOrders(rows = state.activeOrders) {
     clearOrderPoll();
     return;
   }
-  els.activeOrders.replaceChildren(
-    ...state.activeOrders.map((order) => {
-      const card = document.createElement("article");
-      card.className = "order-card";
-
-      const main = document.createElement("div");
-      main.className = "order-main";
-
-      const title = document.createElement("p");
-      title.className = "order-title";
-      const id = document.createElement("span");
-      id.className = "provider-id";
-      id.textContent = order.provider_id || "";
-      title.append(id, document.createTextNode(`${order.service_label || order.service || ""} · ${statusLabel(order)}`));
-
-      const meta = document.createElement("p");
-      meta.className = "order-meta";
-      const details = [];
-      if (order.number) details.push(`${t("number")}: ${order.number}`);
-      details.push(`${order.price_label || ""}`);
-      if (["waiting", "waiting_for_recording"].includes(order.public_status)) details.push(`${formatDuration(order.seconds_left)} ${t("left")}`);
-      meta.textContent = details.filter(Boolean).join(" · ");
-      main.append(title, meta, renderOrderTimeline(order));
-      if (Array.isArray(order.events) && order.events.length) {
-        const eventList = document.createElement("div");
-        eventList.className = "order-event-list";
-        order.events.slice(-4).forEach((event) => {
-          const item = document.createElement("div");
-          item.className = "order-event";
-          const label = document.createElement("span");
-          label.textContent = event.label || event.event || "";
-          const time = document.createElement("small");
-          time.textContent = event.time || "";
-          item.append(label, time);
-          eventList.append(item);
-        });
-        main.append(eventList);
-      }
-
-      if (Array.isArray(order.details) && order.details.length) {
-        const detailGrid = document.createElement("div");
-        detailGrid.className = "order-detail-grid";
-        order.details.slice(0, 7).forEach((item) => {
-          const row = document.createElement("div");
-          row.className = "order-detail";
-          const label = document.createElement("span");
-          label.textContent = detailLabel(item.key);
-          const value = document.createElement("strong");
-          value.textContent = item.value || "-";
-          row.append(label, value);
-          detailGrid.append(row);
-        });
-        main.append(detailGrid);
-      }
-
-      if (order.code) {
-        const code = document.createElement("span");
-        code.className = "order-code";
-        code.textContent = order.code;
-        main.append(code);
-      }
-      if (order.mode === "rental" && Array.isArray(order.messages) && order.messages.length > 1) {
-        const messageList = document.createElement("div");
-        messageList.className = "order-message-list";
-        order.messages.slice(-5).forEach((message) => {
-          const item = document.createElement("span");
-          item.textContent = message;
-          messageList.append(item);
-        });
-        main.append(messageList);
-      }
-      if (order.mode === "rental" && (order.notes || order.tags?.length)) {
-        const notes = document.createElement("p");
-        notes.className = "order-meta";
-        const parts = [];
-        if (order.notes) parts.push(`${t("notes")}: ${order.notes}`);
-        if (order.tags?.length) parts.push(`${t("tags")}: ${order.tags.slice(0, 6).join(", ")}`);
-        notes.textContent = parts.join(" · ");
-        main.append(notes);
-      }
-      if (order.mode === "voice" && order.recording_available) {
-        const recording = document.createElement("span");
-        recording.className = "order-code";
-        recording.textContent = t("recording");
-        main.append(recording);
-      } else if (order.mode === "voice" && order.public_status === "waiting_for_recording") {
-        const pending = document.createElement("span");
-        pending.className = "order-code muted-code";
-        pending.textContent = t("recordingPending");
-        main.append(pending);
-      }
-
-      const actions = document.createElement("div");
-      actions.className = "order-actions";
-      if (order.number) {
-        const copyNumber = document.createElement("button");
-        copyNumber.type = "button";
-        copyNumber.className = "small-action secondary-small";
-        copyNumber.textContent = t("copyNumber");
-        copyNumber.addEventListener("click", () => copyText(order.number, copyNumber));
-        actions.append(copyNumber);
-      }
-      if (order.code) {
-        const copyCode = document.createElement("button");
-        copyCode.type = "button";
-        copyCode.className = "small-action secondary-small";
-        copyCode.textContent = t("copyCode");
-        copyCode.addEventListener("click", () => copyText(order.code, copyCode));
-        actions.append(copyCode);
-      }
-      if (order.can_refresh !== false) {
-        const refresh = document.createElement("button");
-        refresh.type = "button";
-        refresh.className = "small-action";
-        refresh.textContent = order.mode === "voice" ? t("checkCall") : t("refresh");
-        refresh.addEventListener("click", () => refreshSingleOrder(order.id, refresh));
-        actions.append(refresh);
-      }
-
-      if (order.mode === "voice" && order.recording_url) {
-        const preview = document.createElement("button");
-        preview.type = "button";
-        preview.className = "small-action secondary-small";
-        preview.textContent = t("playRecording");
-        preview.addEventListener("click", () => previewRecording(order, preview, main));
-        actions.append(preview);
-
-        const recording = document.createElement("button");
-        recording.type = "button";
-        recording.className = "small-action";
-        recording.textContent = t("downloadRecording");
-        recording.addEventListener("click", () => downloadRecording(order, recording));
-        actions.append(recording);
-      }
-
-      if (order.mode === "temp" && order.can_second_code) {
-        const second = document.createElement("button");
-        second.type = "button";
-        second.className = "small-action";
-        second.textContent = `${t("secondCode")} ${order.second_code_price_label || ""}`.trim();
-        second.addEventListener("click", () => requestSecondCode(order, second));
-        actions.append(second);
-      }
-
-      if ((order.mode === "temp" || order.mode === "voice") && order.can_replace) {
-        const replace = document.createElement("button");
-        replace.type = "button";
-        replace.className = "small-action";
-        replace.textContent = t("tryAnother");
-        replace.addEventListener("click", () => replaceOrder(order, replace));
-        actions.append(replace);
-      }
-      if (order.mode === "temp" && order.can_alternate_provider) {
-        const alternate = document.createElement("button");
-        alternate.type = "button";
-        alternate.className = "small-action";
-        alternate.textContent = [t("alternateProvider"), order.alternate_provider_id, order.alternate_provider_price_label].filter(Boolean).join(" ");
-        alternate.addEventListener("click", () => alternateOrder(order, alternate));
-        actions.append(alternate);
-      }
-
-      if (order.public_status === "waiting" && order.mode !== "rental") {
-        const cancel = document.createElement("button");
-        cancel.type = "button";
-        cancel.className = "danger-action";
-        cancel.disabled = !order.can_cancel;
-        cancel.textContent = order.can_cancel ? t("cancel") : `${t("cancelWait")} ${formatDuration(order.cancel_wait_sec)}`;
-        cancel.addEventListener("click", () => cancelOrder(order.id, cancel));
-        actions.append(cancel);
-      }
-      if (order.mode === "rental" && order.can_sms) {
-        const sms = document.createElement("button");
-        sms.type = "button";
-        sms.className = "small-action";
-        sms.textContent = t("rentalSms");
-        sms.addEventListener("click", () => rentalProviderAction(order.id, "sms", sms));
-        actions.append(sms);
-      }
-      if (order.mode === "rental" && order.can_renew) {
-        const renew = document.createElement("button");
-        renew.type = "button";
-        renew.className = "small-action";
-        renew.textContent = t("renew");
-        renew.addEventListener("click", () => rentalProviderAction(order.id, "renew", renew));
-        actions.append(renew);
-      }
-      if (order.mode === "rental" && order.can_wake) {
-        const wake = document.createElement("button");
-        wake.type = "button";
-        wake.className = "small-action";
-        wake.textContent = t("wake");
-        wake.addEventListener("click", () => rentalProviderAction(order.id, "wake", wake));
-        actions.append(wake);
-      }
-      if (order.mode === "rental" && order.can_notes) {
-        const notes = document.createElement("button");
-        notes.type = "button";
-        notes.className = "small-action";
-        notes.textContent = t("notesTags");
-        notes.addEventListener("click", () => rentalProviderAction(order.id, "notes", notes));
-        actions.append(notes);
-      }
-      if (order.mode === "rental" && order.can_finish) {
-        const finish = document.createElement("button");
-        finish.type = "button";
-        finish.className = "danger-action";
-        finish.textContent = t("finish");
-        finish.addEventListener("click", () => finishOrder(order.id, finish));
-        actions.append(finish);
-      }
-
-      card.append(main, actions);
-      return card;
-    })
-  );
+  els.activeOrders.replaceChildren(...state.activeOrders.map(renderOrderCard));
   scheduleOrderPoll();
+  return;
 }
 
 async function refreshOrders({ quiet = false } = {}) {
@@ -1803,29 +1747,6 @@ async function refreshSingleOrder(orderId, button) {
     }
   } catch (error) {
     els.statusLine.textContent = error.message || t("error");
-  } finally {
-    hideBusy();
-    button.disabled = false;
-  }
-}
-
-async function cancelOrder(orderId, button) {
-  if (!orderId) return;
-  const confirmed = await askConfirm(t("cancel"));
-  if (!confirmed) return;
-  button.disabled = true;
-  showBusy(t("refundWorking"), t("refundWait"));
-  try {
-    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/cancel`, { method: "POST", body: {} });
-    const next = state.activeOrders.filter((item) => item.id !== orderId);
-    renderActiveOrders([payload.order, ...next].filter(Boolean));
-    if (payload.balance_label) {
-      els.sessionPill.textContent = payload.balance_label;
-    }
-    els.statusLine.textContent = payload.message || "";
-  } catch (error) {
-    els.statusLine.textContent = error.message || t("error");
-    await refreshOrders({ quiet: true });
   } finally {
     hideBusy();
     button.disabled = false;
@@ -2098,7 +2019,7 @@ function renderProviders(rows, { preserve = false } = {}) {
 
     const name = document.createElement("p");
     name.className = "provider-name";
-    name.textContent = row.provider;
+    name.textContent = row.provider_id || row.provider;
 
     const successBadge = document.createElement("span");
     successBadge.className = "success-badge";

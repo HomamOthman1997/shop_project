@@ -97,6 +97,40 @@ async def get_user_number_order(order_id: str, user_id: int, reseller_id: int | 
     return await db.orders.find_one(query)
 
 
+async def get_temp_order_by_provider_order(provider_code: str, provider_order_id: str):
+    provider = str(provider_code or "").strip().lower()
+    external_id = str(provider_order_id or "").strip()
+    if not provider or not external_id:
+        return None
+    return await db.orders.find_one(
+        {
+            "number_mode": "temp",
+            "$or": [
+                {"provider": provider},
+                {"provisioning_provider": provider},
+            ],
+            "provider_order_id": external_id,
+        }
+    )
+
+
+async def get_number_order_by_provider_order(provider_code: str, provider_order_id: str):
+    provider = str(provider_code or "").strip().lower()
+    external_id = str(provider_order_id or "").strip()
+    if not provider or not external_id:
+        return None
+    return await db.orders.find_one(
+        {
+            "number_mode": {"$in": ["temp", "voice", "rental"]},
+            "$or": [
+                {"provider": provider},
+                {"provisioning_provider": provider},
+            ],
+            "provider_order_id": external_id,
+        }
+    )
+
+
 async def list_user_rental_orders(user_id: int, limit: int = 20):
     cursor = (
         db.orders.find(
@@ -225,6 +259,62 @@ async def list_api_temp_orders_for_auto_refund(limit: int = 200):
         .limit(int(limit))
     )
     return await cursor.to_list(length=int(limit))
+
+
+async def list_api_temp_refund_support_reviews(
+    *,
+    limit: int = 100,
+    reseller_id: int | None = None,
+    include_resolved: bool = False,
+):
+    query = {
+        "source": "numbers_api",
+        "number_mode": "temp",
+        "temp_refund_support_review_required": True,
+    }
+    if reseller_id is not None:
+        query["reseller_id"] = int(reseller_id)
+    if not include_resolved:
+        query["temp_refund_support_review_status"] = {"$ne": "resolved"}
+    cursor = (
+        db.orders.find(query)
+        .sort([("temp_refund_support_review_at", 1), ("created_at", 1)])
+        .limit(max(1, int(limit)))
+    )
+    return await cursor.to_list(length=max(1, int(limit)))
+
+
+async def resolve_api_temp_refund_support_review(
+    *,
+    order_id: str,
+    actor_user_id: int,
+    resolution: str,
+    notes: str = "",
+    reseller_id: int | None = None,
+) -> dict | None:
+    try:
+        oid = ObjectId(str(order_id))
+    except Exception:
+        return None
+    query = {
+        "_id": oid,
+        "source": "numbers_api",
+        "number_mode": "temp",
+        "temp_refund_support_review_required": True,
+    }
+    if reseller_id is not None:
+        query["reseller_id"] = int(reseller_id)
+    patch = {
+        "temp_refund_support_review_status": "resolved",
+        "temp_refund_support_review_resolved_at": datetime.now(UTC),
+        "temp_refund_support_review_resolved_by": int(actor_user_id),
+        "temp_refund_support_review_resolution": str(resolution or "").strip(),
+        "temp_refund_support_review_notes": str(notes or "").strip(),
+    }
+    result = await db.orders.update_one(query, {"$set": patch})
+    if not bool(result.matched_count):
+        return None
+    return await db.orders.find_one({"_id": oid})
 
 
 async def list_user_open_temp_orders(user_id: int, limit: int = 20):

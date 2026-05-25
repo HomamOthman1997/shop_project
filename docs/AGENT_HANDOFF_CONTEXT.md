@@ -42,6 +42,17 @@ Important recent commits:
 - `ba23fe9 feat: add landing page handler at root path for phantom-app.net`
 - `efc905f Obfuscate new provider display names`
 
+Current in-flight Numbers consolidation:
+- Versioned Numbers API work lives under `services/numbers/api.py` and shared API services.
+- Customer API key scopes include order create/read/refresh/resend, quotes, account read, webhooks, and key management.
+- Mini App temp purchase now uses the API quote/order service path where possible.
+- Mini App temp refresh delegates to webhook-first API refresh.
+- Mini App resend/second-code delegates to the API resend service.
+- Default provider SMS polling is disabled through `numbers_provider_sms_polling_enabled=False`.
+- Provider inbound callbacks should use `https://phantom-app.net/api/v1/provider-webhooks/{provider}?token=<provider-webhook-token>`.
+- Provider webhook processing updates temporary and rental orders, logs provider webhook audit events, and queues customer-facing `numbers.order.sms` webhooks.
+- The active order UI is centered on receive status, code, resend availability, and refund status; no primary manual temp refund button should be reintroduced.
+
 Numbers provider decisions:
 - Provider real names should not be shown to end users unless explicitly approved.
 - `smsman` and `smsman_s6` display as `NonVoIP`.
@@ -73,7 +84,7 @@ Current goal:
 
 ## Recommended Next Step
 
-Start with Numbers API layer consolidation.
+Continue Numbers API/webhook consolidation.
 
 Goal:
 - Create or formalize stable internal API endpoints for numbers workflows.
@@ -92,8 +103,9 @@ Suggested API areas:
 - Orders:
   - create temp order
   - create rental order
-  - refresh SMS
-  - cancel/refund
+  - refresh status without provider polling
+  - server-managed timeout refund
+  - resend/second-code
   - replacement/alternate provider
   - rental finish/renew/wake/notes
 - Admin:
@@ -129,6 +141,8 @@ Migration/context docs:
 - `docs/platform/API_FIRST_PRODUCT_STRATEGY.md`
 - `docs/numbers/MINIAPP_MIGRATION_CHECKLIST.md`
 - `docs/numbers/TELEGRAM_FLOW_AUDIT.md`
+- `docs/numbers/API_CONTRACT.md`
+- `docs/numbers/PROVIDER_DELIVERY_MATRIX.md`
 - `docs/PROJECT_CONTEXT.md`
 
 ## How To Use This File In Future Requests
@@ -156,3 +170,4 @@ If the session is outside this repo, paste only the relevant sections from this 
 - Do not commit runtime data files unless explicitly requested.
 - Run targeted tests after provider/UI changes.
 - Run full `pytest` before pushes when touching shared numbers logic.
+- Live provider webhook verification is still separate from local tests.

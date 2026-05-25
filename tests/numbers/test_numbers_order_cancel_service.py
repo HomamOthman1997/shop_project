@@ -19,8 +19,12 @@ async def test_cancel_number_order_refunds_temp_order(monkeypatch):
     async def fake_sleep(_seconds):
         calls["sleep"] = True
 
+    async def fake_enqueue_event_for_user(**kwargs):
+        calls["webhook"] = kwargs
+
     monkeypatch.setattr(order_cancel_service, "cancel_and_refund_temp_order", fake_cancel_and_refund_temp_order)
     monkeypatch.setattr(order_cancel_service, "get_order", fake_get_order)
+    monkeypatch.setattr(order_cancel_service, "enqueue_event_for_user", fake_enqueue_event_for_user)
 
     result = await order_cancel_service.cancel_number_order(order, actor_user_id=123, sleep_fn=fake_sleep)
 
@@ -30,6 +34,7 @@ async def test_cancel_number_order_refunds_temp_order(monkeypatch):
     assert calls["cancel"]["source"] == "numbers_api_cancel"
     assert result["order"]["status"] == "cancelled"
     assert result["order"]["wait_state"] == "refunded"
+    assert calls["webhook"]["event_type"] == "numbers.order.refunded"
 
 
 @pytest.mark.asyncio
@@ -52,6 +57,40 @@ async def test_cancel_number_order_rejects_failed_cancel(monkeypatch):
 
     assert exc.value.code == "sms_received"
     assert exc.value.status == 409
+
+
+@pytest.mark.asyncio
+async def test_cancel_number_order_accepts_server_managed_refund_policy(monkeypatch):
+    calls = {}
+    order = {"_id": "order-1", "number_mode": "temp", "status": "success", "user_id": 123, "reseller_id": 456}
+
+    async def fake_cancel_and_refund_temp_order(**kwargs):
+        calls["cancel"] = kwargs
+        return {"success": True, "reason": "ok"}
+
+    async def fake_get_order(order_id):
+        return {**order, "status": "cancelled", "temp_wait_state": "refunded"}
+
+    async def fake_enqueue_event_for_user(**kwargs):
+        calls["webhook"] = kwargs
+
+    monkeypatch.setattr(order_cancel_service, "cancel_and_refund_temp_order", fake_cancel_and_refund_temp_order)
+    monkeypatch.setattr(order_cancel_service, "get_order", fake_get_order)
+    monkeypatch.setattr(order_cancel_service, "enqueue_event_for_user", fake_enqueue_event_for_user)
+
+    await order_cancel_service.cancel_number_order(
+        order,
+        actor_user_id=123,
+        reason="numbers_api_timeout_auto_refund",
+        source="numbers_api_auto_refund",
+        allow_provider_terminal_refund=True,
+        allow_empty_provider_refund=True,
+    )
+
+    assert calls["cancel"]["reason"] == "numbers_api_timeout_auto_refund"
+    assert calls["cancel"]["source"] == "numbers_api_auto_refund"
+    assert calls["cancel"]["allow_provider_terminal_refund"] is True
+    assert calls["cancel"]["allow_empty_provider_refund"] is True
 
 
 @pytest.mark.asyncio

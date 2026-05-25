@@ -623,6 +623,7 @@ async def test_unprovisioned_number_order_recovery_refunds(monkeypatch):
 @pytest.mark.asyncio
 async def test_temp_wait_recovery_syncs_waiting_orders(monkeypatch):
     import services.numbers.handlers.core_numbers_buy as hb
+    import services.numbers.handlers.recovery_runtime as rr
 
     calls = {}
     order = {
@@ -631,6 +632,7 @@ async def test_temp_wait_recovery_syncs_waiting_orders(monkeypatch):
         "status": "success",
         "number_mode": "temp",
         "provider": "smsman",
+        "provider_sms_delivery": "polling",
         "provider_order_id": "prov-1",
         "telegram_bot_id": 999,
         "temp_wait_state": "waiting",
@@ -662,7 +664,54 @@ async def test_temp_wait_recovery_syncs_waiting_orders(monkeypatch):
     monkeypatch.setattr(hb, "get_user", _fake_get_user)
     monkeypatch.setattr(hb, "_fetch_provider_sms", _fake_fetch)
     monkeypatch.setattr(hb, "_sync_temp_wait_controls", _fake_sync)
+    monkeypatch.setattr(rr, "provider_sms_polling_enabled", lambda: True)
 
     stats = await hb.run_temp_wait_recovery_sweep(bot=_DummyBot(), limit=10)
     assert stats["synced"] == 1
     assert calls["synced"][0] == "oid-temp"
+
+
+@pytest.mark.asyncio
+async def test_temp_recovery_skips_provider_polling_for_webhook_sms(monkeypatch):
+    import services.numbers.handlers.core_numbers_buy as hb
+
+    calls = {}
+    order = {
+        "_id": "oid-temp",
+        "status": "success",
+        "number_mode": "temp",
+        "provider": "smsready",
+        "provider_sms_delivery": "webhook",
+        "provider_order_id": "50",
+        "telegram_bot_id": 999,
+        "temp_wait_state": "waiting",
+        "temp_wait_chat_id": 1,
+        "temp_wait_message_id": 2,
+        "created_at": datetime.now(UTC) - timedelta(minutes=1),
+    }
+
+    async def _fake_list(limit=200):
+        return [order]
+
+    async def _fake_get_order(_order_id):
+        return dict(order)
+
+    async def _fake_get_user(_user_id):
+        return {"language": "en"}
+
+    async def _fake_fetch(provider_code, provider_order_id):
+        calls["fetch"] = (provider_code, provider_order_id)
+        return {"success": True, "messages": ["123456"]}
+
+    class _DummyBot:
+        _cached_bot_id = 999
+
+    monkeypatch.setattr(hb, "list_open_temp_orders_for_recovery", _fake_list)
+    monkeypatch.setattr(hb, "get_order", _fake_get_order)
+    monkeypatch.setattr(hb, "get_user", _fake_get_user)
+    monkeypatch.setattr(hb, "_fetch_provider_sms", _fake_fetch)
+
+    stats = await hb.run_temp_wait_recovery_sweep(bot=_DummyBot(), limit=10)
+
+    assert stats["webhook_waiting"] == 1
+    assert "fetch" not in calls

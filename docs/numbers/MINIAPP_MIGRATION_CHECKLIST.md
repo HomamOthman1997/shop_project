@@ -1,6 +1,6 @@
 # Numbers Mini App Migration Checklist
 
-Last updated: 2026-05-21
+Last updated: 2026-05-25
 Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 
 ## Status legend
@@ -28,17 +28,20 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 - [x] Hide unavailable providers from the customer UI
 - [x] Provider success-rate display with star badge
 - [x] My numbers / active orders view
-- [x] Temporary order refresh
-- [x] Temporary cancel/refund action
-  - Shared backend refund service now used by both Mini App and Telegram wrappers.
-- [x] Busy state while refund/cancel is running
+- [x] Temporary order status refresh through the shared API service
+  - Refresh is webhook-first and does not poll providers when webhook delivery is active or global provider polling is disabled.
+- [x] Server-managed temporary refund flow
+  - The Mini App no longer exposes a primary manual refund button for temp orders. Timeout/no-code refunds are handled by backend policy, provider-aware cancellation, wallet refund, and support-review escalation.
+- [x] Refund state display
+  - Customers can see refunded/pending-refund state on the order receive card.
 - [x] Replacement number request
 - [x] Alternate provider retry with suggested price
   - Backend tests now cover current-provider replacement and alternate-provider replacement.
   - Alternate provider ranking now uses the same retry scoring helper as the Telegram flow.
 - [x] Second-code request
-  - Shared backend second-code service now used by both Mini App and Telegram wrappers.
-- [x] Rental SMS fetch
+  - Mini App now delegates to the API-level resend service. The order resets to waiting and the next code is expected through provider webhook delivery.
+- [x] Rental SMS display/action
+  - With provider polling disabled, rental SMS action reads stored webhook state instead of polling the provider.
 - [x] Rental finish action
 - [x] Rental renew action
 - [x] Rental wake action
@@ -76,6 +79,12 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 
 ### Refund And Recovery Coverage
 
+- [x] Move temporary order auto-refund to backend-managed flow.
+  - Done means: refresh/timeout paths run provider-aware auto-refund and return refund state without a customer manual refund endpoint.
+- [x] Provider inbound webhook support for temp and rental codes.
+  - Done means: provider callbacks update orders by `provider + provider_order_id`, log audit events, and enqueue customer-facing `numbers.order.sms` webhooks.
+- [x] Disable default provider SMS polling for Numbers code delivery.
+  - Done means: `numbers_provider_sms_polling_enabled` defaults to false, Mini App order refresh does not poll providers, and Telegram recovery/rental SMS paths respect the same gate.
 - [x] Expand refund/recovery test matrix for temporary numbers and call numbers.
   - Cover: expired order, provider already refunded, missing activation, missing provider order id, empty provider response, provider 404/not found, provider cancel failed but retryable, provider cancel permanently failed, finance refund failed.
 - [x] Confirm auto-refund behavior after timeout across providers.
@@ -109,6 +118,8 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 ### Visual QA
 
 - [x] Provider cards use best provider full-width and other providers two per row.
+- [x] Active order cards focus on receive state, code, resend availability, and refund status.
+- [x] Provider cards show public provider IDs instead of real provider names.
 - [ ] Test long provider names on real Telegram mobile webview.
   - Done means: no overlap with star badge, price, or buy button.
 - [ ] Test Arabic RTL screens end to end.
@@ -131,6 +142,7 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 - [hold] Manual financial adjustments and sensitive refund operations.
 - [hold] Support reply/solve workflow that depends on Telegram chat threads.
 - [hold] Provider balance alerts and operational logs.
+- [hold] Live provider webhook verification for every upstream provider.
 
 ## Deferred engineering work
 
@@ -143,10 +155,8 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 
 ## Recommended execution order
 
-1. Selection UX: searchable service/country/state dropdowns and no stale selection across modes.
-2. Call number polish: timeline, empty state, recording preview/fallback validation.
-3. Refund matrix: tests and edge-case handling for expired/already-refunded/missing provider records.
-4. Wallet and recharge verification in live Telegram.
-5. Branding/config audit on Railway.
-6. Admin-only diagnostics for hidden providers.
-7. Deferred engineering cleanup.
+1. Configure upstream provider dashboards to `https://phantom-app.net/api/v1/provider-webhooks/{provider}?token=...`.
+2. Run live webhook verification per provider and replay/fix unmatched callbacks.
+3. Wallet and recharge verification in live Telegram.
+4. Branding/config audit on Railway.
+5. Deferred engineering cleanup.

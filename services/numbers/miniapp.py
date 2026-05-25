@@ -72,6 +72,21 @@ from services.numbers.data.countries import COUNTRIES_LIST
 
 from services.numbers.data.states_us import STATES_LIST
 
+from services.numbers.api_payloads import (
+    QuoteTokenError as ApiQuoteTokenError,
+    normalize_temp_quote_rows as _api_normalize_temp_quote_rows,
+    verify_quote_token as _api_verify_quote_token,
+)
+
+from services.numbers.order_refresh_service import refresh_number_order as _api_refresh_number_order
+from services.numbers.order_resend_service import request_number_order_resend as _api_request_number_order_resend
+from services.numbers.order_service import (
+    NumbersOrderError as ApiNumbersOrderError,
+    create_temp_order_from_quote as _api_create_temp_order_from_quote,
+)
+
+from services.numbers.provider_delivery import provider_sms_delivery_strategy, provider_sms_polling_enabled
+
 from services.numbers.shared.events import (
 
     _log_number_event_from_order as _log_number_event_from_order_impl,
@@ -3605,6 +3620,50 @@ def _order_public_status(order: dict[str, Any]) -> str:
 
     return "waiting"
 
+def _order_refund_payload(order: dict[str, Any], public_status: str) -> dict[str, Any]:
+
+    refunded = public_status == "refunded"
+
+    pending = public_status == "refund_pending"
+
+    refunded_at = (
+
+        order.get("temp_refunded_at")
+
+        or order.get("rental_refunded_at")
+
+        or order.get("provider_refunded_at")
+
+        or order.get("provisioning_failure_at")
+
+    )
+
+    return {
+
+        "status": "refunded" if refunded else "pending" if pending else "none",
+
+        "refunded": bool(refunded),
+
+        "pending": bool(pending),
+
+        "reason": str(
+
+            order.get("temp_refund_reason")
+
+            or order.get("temp_refund_source")
+
+            or order.get("temp_provider_terminal_reason")
+
+            or order.get("rental_refund_reason")
+
+            or ""
+
+        ),
+
+        "refunded_at": refunded_at.isoformat() if isinstance(refunded_at, datetime) else None,
+
+    }
+
 def _temp_my_numbers_expires_at(order: dict[str, Any]) -> datetime | None:
 
     created_at = _coerce_utc_datetime((order or {}).get("created_at"))
@@ -3744,6 +3803,7 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
             "status": str(order.get("status") or ""),
 
             "public_status": public_status,
+            "refund": _order_refund_payload(order, public_status),
 
             "provider": provider_display_name(provider_code),
 
@@ -3830,6 +3890,7 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
             "status": str(order.get("status") or ""),
 
             "public_status": public_status,
+            "refund": _order_refund_payload(order, public_status),
 
             "wait_state": str(order.get("temp_wait_state") or ""),
 
@@ -3912,6 +3973,7 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
         "status": str(order.get("status") or ""),
 
         "public_status": public_status,
+        "refund": _order_refund_payload(order, public_status),
 
         "wait_state": str(order.get("temp_wait_state") or ""),
 
@@ -3942,6 +4004,7 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
         "base_price_label": _money(cost_price),
 
         "can_second_code": can_second_code,
+        "can_resend": can_second_code,
 
         "second_code_price": float(second_sale),
 
@@ -4279,211 +4342,15 @@ async def _refresh_temp_order(order: dict[str, Any]) -> dict[str, Any]:
 
         return current
 
-    if str(current.get("temp_wait_state") or "").strip().lower() == "refund_pending":
+    try:
 
-        return await _retry_pending_temp_refund(current, source="miniapp_refund_retry")
+        await _api_refresh_number_order(current)
 
-    if _temp_order_has_received_code(current) and not _temp_second_code_waiting(current):
+    except ApiNumbersOrderError:
 
         return current
 
-    sms_data = await fetch_provider_sms(PROVIDERS, provider, provider_order_id)
-
-    seen_codes = set(str(code) for code in (current.get("temp_codes") or []) if str(code or "").strip())
-
-    code = _extract_new_sms_code(sms_data.get("messages") or [], seen_codes)
-
-    if code:
-
-        now = _utc_now()
-
-        clean_code = _safe_code_text(code)
-
-        updated_codes = list(seen_codes)
-
-        updated_codes.append(clean_code)
-
-        patch = {
-
-            "temp_wait_state": "code_received",
-
-            "temp_last_sms_at": now,
-
-            "temp_last_code": clean_code,
-
-            "temp_codes": updated_codes,
-
-            "temp_codes_count": len(updated_codes),
-
-        }
-
-        if not current.get("temp_first_sms_at"):
-
-            patch["temp_first_sms_at"] = now
-
-            seconds_to_first_sms = _seconds_between(now, current.get("created_at"))
-
-            if seconds_to_first_sms is not None:
-
-                patch["temp_seconds_to_first_sms"] = seconds_to_first_sms
-
-        await update_order_details(current["_id"], patch)
-
-        await _log_temp_event(
-
-            current,
-
-            "code_received",
-
-            {
-
-                "code_len": len(clean_code),
-
-                "seconds_since_purchase": _seconds_between(now, current.get("created_at")),
-
-                "source": "numbers_miniapp_poll",
-
-            },
-
-        )
-
-        return await get_order(current["_id"]) or {**current, **patch}
-
-    now = _utc_now()
-
-    await update_order_details(current["_id"], {"temp_last_refresh_at": now})
-
-    current = await get_order(current["_id"]) or current
-
-    timeout_reached = _temp_elapsed_sec(current) >= _order_temp_timeout_sec(current)
-
-    terminal_reason = _provider_terminal_refund_reason(
-
-        (sms_data or {}).get("raw"),
-
-        allow_missing=timeout_reached,
-
-        allow_empty=timeout_reached,
-
-    )
-
-    if terminal_reason:
-
-        if terminal_reason == "provider_already_refunded":
-
-            result = await _finalize_temp_local_refund(
-
-                order_id=current["_id"],
-
-                order=current,
-
-                actor_user_id=int(current.get("user_id") or 0),
-
-                reason=f"miniapp_provider_{terminal_reason}",
-
-                provider_raw=(sms_data or {}).get("raw"),
-
-                provider_terminal_reason=terminal_reason,
-
-            )
-
-        else:
-
-            result = await _cancel_and_refund_temp_order(
-
-                order_id=current["_id"],
-
-                order=current,
-
-                actor_user_id=int(current.get("user_id") or 0),
-
-                reason=f"miniapp_provider_{terminal_reason}",
-
-                require_no_sms=True,
-
-                allow_provider_terminal_refund=True,
-
-                allow_empty_provider_refund=True,
-
-            )
-
-        if result.get("success"):
-
-            return await get_order(current["_id"]) or current
-
-        current = await _mark_temp_refund_pending(
-
-            order_id=current["_id"],
-
-            order=current,
-
-            result=result,
-
-            source="numbers_miniapp_provider_terminal",
-
-        )
-
-        return current
-
-    if not timeout_reached:
-
-        return current
-
-    result = await _cancel_and_refund_temp_order(
-
-        order_id=current["_id"],
-
-        order=current,
-
-        actor_user_id=int(current.get("user_id") or 0),
-
-        reason="miniapp_timeout_auto_refund",
-
-        require_no_sms=True,
-
-        allow_provider_terminal_refund=True,
-
-        allow_empty_provider_refund=True,
-
-    )
-
-    if result.get("success"):
-
-        return await get_order(current["_id"]) or current
-
-    current = await _mark_temp_refund_pending(
-
-        order_id=current["_id"],
-
-        order=current,
-
-        result=result,
-
-        source="numbers_miniapp_timeout",
-
-    )
-
-    await _log_temp_event(
-
-        current,
-
-        "wait_timeout",
-
-        {
-
-            "timeout_sec": _order_temp_timeout_sec(current),
-
-            "auto_refund_failed": True,
-
-            "auto_refund_reason": str(result.get("reason") or ""),
-
-            "source": "numbers_miniapp",
-
-        },
-
-    )
-
-    return current
+    return await get_order(current["_id"]) or current
 
 _VOICE_RECORDING_KEYS = {
     "recording",
@@ -5537,6 +5404,24 @@ async def _sync_rental_sms_snapshot(order_id: Any, order: dict[str, Any]) -> dic
 
     provider_order_id = str(order.get("provider_order_id") or "").strip()
 
+    stored_messages = [str(item) for item in (order.get("rental_sms_messages") or []) if str(item or "").strip()]
+
+    if not provider_sms_polling_enabled():
+
+        return {
+
+            "success": True,
+
+            "has_sms": bool(stored_messages),
+
+            "messages": stored_messages,
+
+            "raw": "provider_sms_polling_disabled_waiting_for_webhook",
+
+            "polling_disabled": True,
+
+        }
+
     if not provider or not provider_order_id:
 
         return {"success": False, "has_sms": False, "messages": [], "raw": "provider_order_missing"}
@@ -6303,6 +6188,8 @@ async def _purchase_temp_offer(
 
                 "provider": provider_code,
 
+                "provider_sms_delivery": provider_sms_delivery_strategy(provider_code) if number_mode == "temp" else "polling",
+
                 "provider_number": number,
 
                 "provider_pool": provider_pool,
@@ -6982,6 +6869,20 @@ def _normalize_provider_rows(
     state: str | None = None,
 
 ) -> list[dict[str, Any]]:
+
+    if mode == "temp":
+
+        return _api_normalize_temp_quote_rows(
+
+            data,
+
+            service=str(service or ""),
+
+            country=str(country or "none"),
+
+            state=str(state or "none"),
+
+        )
 
     rows: list[dict[str, Any]] = []
 
@@ -7716,7 +7617,7 @@ async def active_orders(request: web.Request) -> web.Response:
 
             if str(order.get("number_mode") or "").strip().lower() == "voice":
 
-                refreshed = await _refresh_voice_order(order)
+                refreshed = order
 
             else:
 
@@ -7740,17 +7641,7 @@ async def active_orders(request: web.Request) -> web.Response:
 
             continue
 
-        try:
-
-            refreshed = await _refresh_rental_order(order)
-
-        except Exception:
-
-            logger.exception("numbers miniapp rental refresh failed: order=%s", order.get("_id"))
-
-            refreshed = order
-
-        rows.append(await _order_payload_with_events(refreshed, lang))
+        rows.append(await _order_payload_with_events(order, lang))
 
     payload: dict[str, Any] = {"ok": True, "orders": rows}
 
@@ -7790,11 +7681,23 @@ async def purchase_temp(request: web.Request) -> web.Response:
 
         return _json_error(_text(lang, "Missing quote.", "العرض غير موجود."), status=400, code="missing_quote")
 
+    api_temp_quote = False
+
     try:
 
-        quote_payload = _verify_quote_token(token)
+        try:
 
-        quote_mode = str(quote_payload.get("mode") or "temp").strip().lower()
+            quote_payload = _api_verify_quote_token(token)
+
+            quote_mode = str(quote_payload.get("mode") or "temp").strip().lower()
+
+            api_temp_quote = quote_mode == "temp"
+
+        except ApiQuoteTokenError:
+
+            quote_payload = _verify_quote_token(token)
+
+            quote_mode = str(quote_payload.get("mode") or "temp").strip().lower()
 
         if quote_mode == "rental":
 
@@ -7804,9 +7707,13 @@ async def purchase_temp(request: web.Request) -> web.Response:
 
             offer = await _resolve_voice_offer_from_quote(token)
 
-        else:
+        elif not api_temp_quote:
 
             offer = await _resolve_temp_offer_from_quote(token)
+
+        else:
+
+            offer = {}
 
     except asyncio.TimeoutError:
 
@@ -7861,6 +7768,66 @@ async def purchase_temp(request: web.Request) -> web.Response:
             number_mode="voice",
 
         )
+
+    elif api_temp_quote:
+
+        trust_gate = await _evaluate_temp_trust_gate(
+
+            user_id=int(auth["user_id"]),
+
+            service_id=str(quote_payload.get("service") or ""),
+
+            provider_code=str(quote_payload.get("provider") or ""),
+
+        )
+
+        if not bool(trust_gate.get("allowed")):
+
+            result = {
+
+                "ok": False,
+
+                "code": "trust_blocked",
+
+                "message": _trust_message(
+
+                    lang,
+
+                    mode=str(trust_gate.get("mode") or "purchase"),
+
+                    wait_sec=int(trust_gate.get("wait_sec") or 0),
+
+                ),
+
+            }
+
+        else:
+
+            try:
+
+                api_result = await _api_create_temp_order_from_quote(
+
+                    user_id=int(auth["user_id"]),
+
+                    reseller_id=int(auth["user_id"]),
+
+                    quote_token=token,
+
+                    idempotency_key=str((body or {}).get("idempotency_key") or ""),
+
+                    lang=lang,
+
+                )
+
+                order_id = str(((api_result.get("order") or {}).get("id") if isinstance(api_result, dict) else "") or "")
+
+                fresh_order = await get_order(order_id) if order_id else None
+
+                result = {"ok": True, "order": _order_payload(fresh_order or {})}
+
+            except ApiNumbersOrderError as exc:
+
+                result = {"ok": False, "code": exc.code, "message": exc.message}
 
     else:
 
@@ -8048,43 +8015,47 @@ async def request_second_code(request: web.Request) -> web.Response:
 
         return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
 
-    result = await _request_second_code_for_order(
+    try:
 
-        order_id=order_id,
+        api_result = await _api_request_number_order_resend(
 
-        order=order,
+            order,
 
-        user_id=int(auth["user_id"]),
+            user_id=int(auth["user_id"]),
 
-        reseller_id=int(auth["user_id"]),
+            reseller_id=int(auth["user_id"]),
 
-        lang=lang,
+        )
 
-    )
-
-    if not result.get("ok"):
-
-        status = 402 if str(result.get("code")) == "INSUFFICIENT_USER_BALANCE" else 409
-
-        if str(result.get("code")) in {"order_not_found", "invalid_mode"}:
-
-            status = 404 if str(result.get("code")) == "order_not_found" else 400
+    except ApiNumbersOrderError as exc:
 
         refreshed = await get_order(order_id) or order
 
         return _json_error(
 
-            str(result.get("message") or ""),
+            exc.message,
 
-            status=status,
+            status=exc.status,
 
-            code=str(result.get("code") or "second_code_failed"),
+            code=exc.code or "second_code_failed",
 
             order=await _order_payload_with_events(refreshed, lang),
 
         )
 
-    result = await _attach_order_events(result, lang)
+    refreshed = await get_order(order_id) or order
+
+    result = {
+
+        "ok": True,
+
+        "message": _text(lang, "Resend requested. Waiting for the next code.", "تم طلب إعادة الإرسال. بانتظار الكود الجديد."),
+
+        "order": await _order_payload_with_events(refreshed, lang),
+
+        "second_order_id": str(api_result.get("second_order_id") or ""),
+
+    }
 
     try:
 

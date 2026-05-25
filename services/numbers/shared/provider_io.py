@@ -2,8 +2,17 @@
 
 from typing import Any
 
+from services.numbers.provider_delivery import provider_sms_polling_enabled
+
 
 async def fetch_provider_sms(providers: dict[str, Any], provider_code: str, provider_order_id: str) -> dict:
+    if not provider_sms_polling_enabled():
+        return {
+            "success": True,
+            "messages": [],
+            "raw": "provider_sms_polling_disabled_waiting_for_webhook",
+            "polling_disabled": True,
+        }
     prov = providers.get(str(provider_code or "").lower())
     if not prov:
         return {"success": False, "messages": [], "raw": "provider_not_found"}

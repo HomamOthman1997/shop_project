@@ -54,7 +54,9 @@ from services.digital_products.static_taxonomy import (
 from services.cards_bot.miniapp import register_cardex_routes
 from services.numbers.api import register_numbers_api_routes
 from services.numbers.miniapp import register_numbers_routes
+from services.numbers.provider_webhooks import register_provider_webhook_routes
 from services.platform.api_keys_api import register_api_key_routes
+from services.platform.webhooks_api import register_webhook_routes
 from services.landing_page import landing_page as _landing_page_handler
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -2030,7 +2032,9 @@ def create_app() -> web.Application:
     app.router.add_post("/mini/digital/api/selection", create_selection)
     register_cardex_routes(app)
     register_api_key_routes(app)
+    register_webhook_routes(app)
     register_numbers_api_routes(app)
+    register_provider_webhook_routes(app)
     register_numbers_routes(app)
     return app
 

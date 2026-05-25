@@ -1,6 +1,6 @@
 # Numbers Telegram Flow Audit
 
-Last updated: 2026-05-21
+Last updated: 2026-05-25
 
 Purpose: prevent deleting backend logic that the Numbers Mini App still needs while we gradually retire Telegram-only customer UI.
 
@@ -16,7 +16,8 @@ These parts are used by the Mini App and must stay available:
   - Temporary-number timing, timeout, resend warranty, SMS code extraction, retry classification, and active-order checks.
   - Transitional source: `services/numbers/handlers/temp_order_utils.py`.
 - `services/numbers/shared/provider_io.py`
-  - Provider SMS polling and resend adapter.
+  - Provider resend adapter and gated legacy SMS polling fallback.
+  - Default code-delivery behavior is webhook-first. Polling is disabled unless `numbers_provider_sms_polling_enabled` is explicitly enabled.
   - Source of truth. `services/numbers/handlers/temp_provider_io.py` is now a compatibility wrapper.
 - `services/numbers/shared/rental_policy.py`
   - Rental refund windows, safe cutoff, and no-SMS policy.
@@ -33,6 +34,12 @@ These parts are used by the Mini App and must stay available:
 - `services/numbers/shared/temp_replacement.py`
   - Shared alternate-provider retry scoring and selection.
   - Used by both the Telegram flow and the Mini App.
+- `services/numbers/order_service.py`, `order_refresh_service.py`, `order_resend_service.py`
+  - API-first temporary order creation, webhook-first refresh, public order payload, and resend orchestration.
+- `services/numbers/provider_webhooks.py`, `provider_webhook_service.py`, `provider_webhook_normalizer.py`
+  - Provider inbound webhook routes, generic payload normalization, temp/rental order updates, audit logging, and customer webhook enqueueing.
+- `services/platform/webhooks.py`, `webhooks_api.py`, `webhook_delivery.py`
+  - Customer-facing webhook registration, signing, delivery queue, and worker.
 
 ## Telegram-Only Candidates
 
@@ -55,7 +62,7 @@ These should be treated as customer Telegram UI/state handlers until proven othe
   - Keep while Telegram push notifications remain in use.
 - `services/numbers/handlers/recovery_runtime.py`
   - Recovery loop orchestration.
-  - Keep unless a Mini App/global recovery worker fully replaces it.
+  - Keep while Telegram notifications and recovery sweeps remain active. It now respects webhook-first delivery and skips provider SMS polling when polling is disabled.
 
 ## Safe Migration Order
 
@@ -78,6 +85,12 @@ These should be treated as customer Telegram UI/state handlers until proven othe
 - [x] Mini App exposes eligible rental cancel/refund instead of keeping the backend route hidden.
 - [x] Extract duplicated temp/call refund service logic out of `core_numbers_buy.py`.
 - [x] Extract duplicated temp second-code service logic out of `core_numbers_buy.py`.
+- [x] Add API-level temp resend service and route.
+- [x] Add provider inbound webhook routes for SMSReady, PVADeals, and generic provider callbacks.
+- [x] Make provider webhook processing update temp and rental orders.
+- [x] Gate legacy provider SMS polling behind `numbers_provider_sms_polling_enabled`.
+- [x] Mini App active orders no longer poll rental/voice providers on page load.
+- [x] Telegram recovery/rental SMS paths respect the global polling gate.
 - [x] Temp replacement is covered in Mini App backend tests, including current-provider retry and alternate-provider retry.
 - [x] Alternate-provider retry selection uses the shared Telegram scoring logic in the Mini App.
 - [~] Extract duplicated temp replacement service logic out of `core_numbers_buy.py`.
@@ -92,3 +105,4 @@ Before deleting any Telegram Numbers file:
 - Existing Telegram tests that still cover fallback behavior must either pass against wrappers or be intentionally removed with a documented replacement.
 - Mini App backend tests must cover the behavior that used to live in the deleted module.
 - Railway/Telegram live smoke test must pass after deploy.
+- Provider webhook callbacks must be verified live for active providers before deleting legacy polling/recovery code entirely.

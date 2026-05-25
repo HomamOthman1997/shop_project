@@ -23,6 +23,7 @@ Digital products should become an API-first product area with:
 - product details and availability,
 - price quotes,
 - order creation,
-- delivery/status polling,
+- delivery/status webhooks where providers support them,
+- polling only as a documented fallback,
 - refund/recovery status,
 - provider/admin diagnostics.

@@ -50,6 +50,11 @@ The active platform decision is documented in:
 
 Primary files:
 
+- [`services/numbers/api.py`](/Users/CyberZone/PycharmProjects/shop_project/services/numbers/api.py)
+- [`services/numbers/order_service.py`](/Users/CyberZone/PycharmProjects/shop_project/services/numbers/order_service.py)
+- [`services/numbers/order_refresh_service.py`](/Users/CyberZone/PycharmProjects/shop_project/services/numbers/order_refresh_service.py)
+- [`services/numbers/order_resend_service.py`](/Users/CyberZone/PycharmProjects/shop_project/services/numbers/order_resend_service.py)
+- [`services/numbers/provider_webhooks.py`](/Users/CyberZone/PycharmProjects/shop_project/services/numbers/provider_webhooks.py)
 - [`services/numbers/handlers/core_numbers.py`](/Users/CyberZone/PycharmProjects/shop_project/services/numbers/handlers/core_numbers.py)
 - [`services/numbers/handlers/core_numbers_buy.py`](/Users/CyberZone/PycharmProjects/shop_project/services/numbers/handlers/core_numbers_buy.py)
 - [`services/numbers/handlers/numbers_inline.py`](/Users/CyberZone/PycharmProjects/shop_project/services/numbers/handlers/numbers_inline.py)
@@ -64,6 +69,11 @@ Capabilities:
 - Provider comparison
 - Markup handling
 - Balance-aware provider filtering
+- Versioned customer API under `/api/v1/numbers`
+- Telegram Mini App API under `/mini/numbers/api`
+- Provider inbound webhooks under `/api/v1/provider-webhooks/{provider}`
+- Customer-facing webhook registration and delivery
+- Server-managed no-code refund handling
 
 Current provider naming in UX:
 
@@ -74,6 +84,8 @@ Current provider naming in UX:
 Docs:
 
 - [`docs/numbers/README.md`](docs/numbers/README.md)
+- [`docs/numbers/API_CONTRACT.md`](docs/numbers/API_CONTRACT.md)
+- [`docs/numbers/PROVIDER_DELIVERY_MATRIX.md`](docs/numbers/PROVIDER_DELIVERY_MATRIX.md)
 
 ### Proxies
 
@@ -190,6 +202,7 @@ The project direction in this phase is:
 ## Near-Term Priorities
 
 - Continue Numbers API-first consolidation
+- Configure and verify provider webhooks on `phantom-app.net`
 - Verify Railway deploy is picking up the latest `main`
 - Keep proxy inline flows stable
 - Keep reply keyboard removal consistent before inline-keyboard flows

@@ -15,3 +15,10 @@ async def bootstrap_platform_api_indexes() -> None:
         background=True,
     )
     await db.numbers_api_idempotency_keys.create_index([("updated_at", -1)], background=True)
+    await db.api_webhooks.create_index([("reseller_id", 1), ("status", 1), ("created_at", -1)], background=True)
+    await db.api_webhooks.create_index([("user_id", 1), ("reseller_id", 1), ("status", 1), ("events", 1)], background=True)
+    await db.api_webhook_deliveries.create_index([("status", 1), ("next_attempt_at", 1)], background=True)
+    await db.api_webhook_deliveries.create_index([("webhook_id", 1), ("created_at", -1)], background=True)
+    await db.provider_webhook_events.create_index([("provider", 1), ("provider_order_id", 1), ("created_at", -1)], background=True)
+    await db.provider_webhook_events.create_index([("status", 1), ("created_at", -1)], background=True)
+    await db.provider_webhook_events.create_index([("replay_status", 1), ("replayed_at", -1)], background=True)

@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     # This forces markups/fees/commissions to zero for analysis/testing.
     profit_policy_enabled: bool = True
     numbers_show_all_providers_for_testing: bool = False
+    numbers_provider_webhook_token: Optional[str] = None
+    numbers_provider_sms_polling_enabled: bool = False
     # Temporary testing hook: JSON object like {"smspool": 5, "smsman": 10.5}
     # to simulate provider balances without querying the upstream provider.
     numbers_provider_balance_simulation: Optional[str] = None

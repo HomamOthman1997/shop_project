@@ -94,6 +94,22 @@ async def bootstrap_financial_indexes() -> None:
         background=True,
         partialFilterExpression={"number_mode": "temp"},
     )
+    await db.orders.create_index(
+        [("number_mode", 1), ("provider", 1), ("provider_order_id", 1)],
+        background=True,
+        partialFilterExpression={"number_mode": "temp"},
+    )
+    await db.orders.create_index(
+        [
+            ("source", 1),
+            ("number_mode", 1),
+            ("reseller_id", 1),
+            ("temp_refund_support_review_status", 1),
+            ("temp_refund_support_review_at", 1),
+        ],
+        background=True,
+        partialFilterExpression={"temp_refund_support_review_required": True},
+    )
     await db.session_locks.create_index("lock_key", unique=True, background=True)
     await db.session_locks.create_index("expires_at", expireAfterSeconds=0, background=True)
     await db.wallets.create_index("wallet_key", unique=True, background=True)

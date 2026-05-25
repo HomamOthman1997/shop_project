@@ -16,6 +16,9 @@ class FakeDb:
         self.api_keys = FakeCollection()
         self.api_rate_limits = FakeCollection()
         self.numbers_api_idempotency_keys = FakeCollection()
+        self.api_webhooks = FakeCollection()
+        self.api_webhook_deliveries = FakeCollection()
+        self.provider_webhook_events = FakeCollection()
 
 
 @pytest.mark.asyncio
@@ -31,3 +34,9 @@ async def test_bootstrap_platform_api_indexes(monkeypatch):
         [("user_id", 1), ("key", 1), ("operation", 1)],
         {"unique": True, "background": True},
     ) in fake_db.numbers_api_idempotency_keys.calls
+    assert ([("status", 1), ("next_attempt_at", 1)], {"background": True}) in fake_db.api_webhook_deliveries.calls
+    assert (
+        [("provider", 1), ("provider_order_id", 1), ("created_at", -1)],
+        {"background": True},
+    ) in fake_db.provider_webhook_events.calls
+    assert ([("replay_status", 1), ("replayed_at", -1)], {"background": True}) in fake_db.provider_webhook_events.calls

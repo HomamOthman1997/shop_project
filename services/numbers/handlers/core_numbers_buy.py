@@ -94,6 +94,7 @@ from services.numbers.shared.provider_io import (
     fetch_provider_sms as _fetch_provider_sms_impl,
     provider_resend as _provider_resend_impl,
 )
+from services.numbers.provider_delivery import provider_sms_polling_enabled
 from services.numbers.shared.temp_refund import (
     cancel_and_refund_temp_order as _shared_cancel_and_refund_temp_order,
 )
@@ -1495,6 +1496,15 @@ async def _sync_rental_sms_snapshot(order_id, order: dict | None) -> dict[str, A
     order = order or {}
     provider = str(order.get("provider") or "").strip().lower()
     provider_order_id = str(order.get("provider_order_id") or "").strip()
+    stored_messages = [str(x) for x in (order.get("rental_sms_messages") or []) if x not in (None, "")]
+    if not provider_sms_polling_enabled():
+        return {
+            "success": True,
+            "messages": stored_messages,
+            "has_sms": bool(stored_messages),
+            "raw": "provider_sms_polling_disabled_waiting_for_webhook",
+            "polling_disabled": True,
+        }
     if not provider or not provider_order_id:
         return {"success": False, "messages": [], "has_sms": False, "reason": "provider_order_missing"}
 

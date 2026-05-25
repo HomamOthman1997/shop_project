@@ -54,8 +54,10 @@ async def test_create_key_filters_to_allowed_customer_scopes(monkeypatch):
             "scopes": [
                 "numbers:quotes",
                 "api_keys:manage",
+                "numbers:support:review",
                 "numbers:orders:create",
                 "numbers:orders:refresh",
+                "numbers:orders:resend",
                 "numbers:account:read",
             ],
         }
@@ -72,6 +74,7 @@ async def test_create_key_filters_to_allowed_customer_scopes(monkeypatch):
         "numbers:account:read",
         "numbers:orders:create",
         "numbers:orders:refresh",
+        "numbers:orders:resend",
         "numbers:quotes",
     ]
     assert payload["api_key"] == "ph_live_secret"

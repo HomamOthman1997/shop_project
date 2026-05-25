@@ -315,7 +315,7 @@ def test_numbers_temp_rows_include_signed_quote_and_hide_internal_lanes(monkeypa
     )
 
     assert [row["provider_id"] for row in rows] == ["S2"]
-    quote = miniapp._verify_quote_token(rows[0]["quote_token"])
+    quote = miniapp._api_verify_quote_token(rows[0]["quote_token"])
     assert quote["service"] == "attapoll"
     assert quote["provider"] == "textverified"
 
@@ -1211,6 +1211,17 @@ async def test_refresh_temp_order_refunds_old_missing_provider_order(monkeypatch
     async def _fake_log(*args, **kwargs):
         return None
 
+    async def _fake_api_refresh(order_arg):
+        calls["api_refresh"] = order_arg["_id"]
+        stored.update(
+            {
+                "status": "cancelled",
+                "temp_wait_state": "refunded",
+                "temp_provider_terminal_reason": "provider_missing_or_expired",
+            }
+        )
+        return {"ok": True, "order": {"id": order_arg["_id"], "status": "cancelled"}}
+
     monkeypatch.setitem(miniapp.PROVIDERS, "herosms", _DummyProvider())
     monkeypatch.setattr(miniapp, "FinancialManager", _DummyFinancialManager)
     monkeypatch.setattr(miniapp, "get_order", _fake_get_order)
@@ -1219,13 +1230,12 @@ async def test_refresh_temp_order_refunds_old_missing_provider_order(monkeypatch
     monkeypatch.setattr(miniapp, "fetch_provider_sms", _fake_fetch_provider_sms)
     monkeypatch.setattr(miniapp, "_log_temp_event", _fake_log)
     monkeypatch.setattr(miniapp, "_log_number_event_from_order", _fake_log)
+    monkeypatch.setattr(miniapp, "_api_refresh_number_order", _fake_api_refresh)
 
     refreshed = await miniapp._refresh_temp_order(dict(stored))
 
-    assert calls["fetch"] == ("herosms", "prov-old")
-    assert calls["cancel"] == "prov-old"
-    assert calls["refund"]["order_id"] == "order-old"
-    assert calls["status"] == "cancelled"
+    assert calls["api_refresh"] == "order-old"
+    assert "fetch" not in calls
     assert refreshed["status"] == "cancelled"
     assert refreshed["temp_wait_state"] == "refunded"
     assert refreshed["temp_provider_terminal_reason"] == "provider_missing_or_expired"
@@ -1290,6 +1300,17 @@ async def test_refresh_refund_pending_order_credits_wallet_when_provider_timed_o
     async def _fake_log(*args, **kwargs):
         return None
 
+    async def _fake_api_refresh(order_arg):
+        calls["api_refresh"] = order_arg["_id"]
+        stored.update(
+            {
+                "status": "cancelled",
+                "temp_wait_state": "refunded",
+                "temp_provider_terminal_reason": "provider_missing_or_expired",
+            }
+        )
+        return {"ok": True, "order": {"id": order_arg["_id"], "status": "cancelled"}}
+
     monkeypatch.setitem(miniapp.PROVIDERS, "textverified", _DummyProvider())
     monkeypatch.setattr(miniapp, "FinancialManager", _DummyFinancialManager)
     monkeypatch.setattr(miniapp, "get_order", _fake_get_order)
@@ -1298,13 +1319,12 @@ async def test_refresh_refund_pending_order_credits_wallet_when_provider_timed_o
     monkeypatch.setattr(miniapp, "fetch_provider_sms", _fake_fetch_provider_sms)
     monkeypatch.setattr(miniapp, "_log_temp_event", _fake_log)
     monkeypatch.setattr(miniapp, "_log_number_event_from_order", _fake_log)
+    monkeypatch.setattr(miniapp, "_api_refresh_number_order", _fake_api_refresh)
 
     refreshed = await miniapp._refresh_temp_order(dict(stored))
 
-    assert calls["fetch"] == ("textverified", "prov-timeout")
-    assert calls["refund"]["order_id"] == "order-pending-timeout"
-    assert calls["refund"]["sale_price"] == 0.83
-    assert calls["status"] == "cancelled"
+    assert calls["api_refresh"] == "order-pending-timeout"
+    assert "fetch" not in calls
     assert refreshed["status"] == "cancelled"
     assert refreshed["temp_wait_state"] == "refunded"
     assert refreshed["temp_provider_terminal_reason"] == "provider_missing_or_expired"

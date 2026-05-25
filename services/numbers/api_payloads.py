@@ -245,7 +245,8 @@ def temp_provider_offer_is_buyable(provider_code: str, info: dict[str, Any]) -> 
 
 
 def _recommended_temp_provider_code(data: dict[str, Any]) -> str:
-    buyable: list[tuple[str, float]] = []
+    buyable: list[tuple[str, float, float]] = []
+    min_attempts = max(1, int(getattr(settings, "numbers_success_rate_display_min_attempts", 5) or 5))
     for provider_code, info in (data or {}).items():
         code = str(provider_code or "").strip().lower()
         if not isinstance(info, dict) or not _provider_buyable_for_temp(code, info):
@@ -256,10 +257,16 @@ def _recommended_temp_provider_code(data: dict[str, Any]) -> str:
             price = float(info.get("price") or 9999)
         except Exception:
             price = 9999.0
-        buyable.append((code, price))
+        attempts = success_attempt_count(info)
+        success_value = info.get("recommended_success_rate") if info.get("recommended_success_rate") is not None else info.get("success_rate", 100)
+        try:
+            success_rate = float(success_value if attempts >= min_attempts else 100.0)
+        except Exception:
+            success_rate = 100.0
+        buyable.append((code, price, max(0.0, min(100.0, success_rate))))
     if not buyable:
         return ""
-    buyable.sort(key=lambda row: (row[1], _provider_sort_key(row[0])))
+    buyable.sort(key=lambda row: (-row[2], row[1], _provider_sort_key(row[0])))
     return buyable[0][0]
 
 

@@ -45,8 +45,8 @@ async def test_auto_refund_skips_if_code_received():
 async def test_auto_refund_delegates_to_provider_aware_cancel(monkeypatch):
     calls = {}
 
-    async def fake_cancel_number_order(order, *, actor_user_id, sleep_fn=None):
-        calls["cancel"] = (order, actor_user_id, sleep_fn)
+    async def fake_cancel_number_order(order, **kwargs):
+        calls["cancel"] = (order, kwargs)
         return {"ok": True, "order": {"id": order["_id"], "status": "cancelled"}}
 
     async def fake_sleep(_seconds):
@@ -56,14 +56,18 @@ async def test_auto_refund_delegates_to_provider_aware_cancel(monkeypatch):
 
     result = await order_auto_refund_service.auto_refund_temp_order_if_due(due_order(), sleep_fn=fake_sleep)
 
-    assert calls["cancel"][1] == 123
-    assert calls["cancel"][2] is fake_sleep
+    assert calls["cancel"][1]["actor_user_id"] == 123
+    assert calls["cancel"][1]["reason"] == "numbers_api_timeout_auto_refund"
+    assert calls["cancel"][1]["source"] == "numbers_api_auto_refund"
+    assert calls["cancel"][1]["allow_provider_terminal_refund"] is True
+    assert calls["cancel"][1]["allow_empty_provider_refund"] is True
+    assert calls["cancel"][1]["sleep_fn"] is fake_sleep
     assert result == {"ok": True, "refunded": True, "reason": "timeout_no_code", "order": {"id": "order-1", "status": "cancelled"}}
 
 
 @pytest.mark.asyncio
 async def test_auto_refund_marks_support_review_on_provider_failure(monkeypatch):
-    async def fake_cancel_number_order(order, *, actor_user_id, sleep_fn=None):
+    async def fake_cancel_number_order(order, **kwargs):
         raise NumbersOrderError("provider_cancel_failed", "Could not cancel this order right now.", status=503)
 
     monkeypatch.setattr(order_auto_refund_service, "cancel_number_order", fake_cancel_number_order)
@@ -100,4 +104,5 @@ async def test_auto_refund_sweep_marks_support_review(monkeypatch):
     assert stats == {"checked": 1, "refunded": 0, "skipped": 0, "support_review": 1, "errors": 0}
     assert calls["limit"] == 5
     assert calls["support_patch"][0] == "order-1"
+    assert calls["support_patch"][1]["temp_refund_support_review_status"] == "open"
     assert calls["support_patch"][1]["temp_refund_support_review_reason"] == "provider_cancel_failed"

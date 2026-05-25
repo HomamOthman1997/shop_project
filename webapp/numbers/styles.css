@@ -1105,6 +1105,166 @@ h2 {
   align-items: start;
 }
 
+.order-card-v2 {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+}
+
+.order-card-v2.success {
+  border-color: rgba(48, 208, 162, 0.34);
+}
+
+.order-card-v2.pending-refund,
+.order-card-v2.refunded {
+  border-color: rgba(242, 191, 93, 0.34);
+}
+
+.order-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.order-title-wrap {
+  min-width: 0;
+}
+
+.order-card-head .order-title {
+  margin-bottom: 4px;
+}
+
+.order-status-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.order-status-badge.success {
+  border-color: rgba(48, 208, 162, 0.35);
+  background: rgba(48, 208, 162, 0.13);
+  color: #d6fff3;
+}
+
+.order-status-badge.waiting {
+  border-color: rgba(107, 182, 255, 0.36);
+  background: rgba(107, 182, 255, 0.12);
+  color: #d8ebff;
+}
+
+.order-status-badge.pending-refund,
+.order-status-badge.refunded {
+  border-color: rgba(242, 191, 93, 0.4);
+  background: rgba(242, 191, 93, 0.13);
+  color: #ffe0a3;
+}
+
+.receive-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  border: 1px solid rgba(107, 182, 255, 0.22);
+  border-radius: var(--radius);
+  background: rgba(107, 182, 255, 0.08);
+  padding: 12px;
+}
+
+.receive-panel.success {
+  border-color: rgba(48, 208, 162, 0.28);
+  background: rgba(48, 208, 162, 0.1);
+}
+
+.receive-panel.pending-refund,
+.receive-panel.refunded {
+  border-color: rgba(242, 191, 93, 0.28);
+  background: rgba(242, 191, 93, 0.1);
+}
+
+.receive-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.receive-value {
+  color: var(--text-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 20px;
+  line-height: 1.1;
+  text-align: end;
+  overflow-wrap: anywhere;
+}
+
+.order-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.order-fact {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.035);
+  padding: 8px 9px;
+}
+
+.order-fact span,
+.order-fact strong {
+  display: block;
+  min-width: 0;
+}
+
+.order-fact span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 820;
+  margin-bottom: 4px;
+}
+
+.order-fact strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.order-actions-v2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  justify-items: stretch;
+  text-align: initial;
+}
+
+.order-actions-v2 .small-action,
+.order-actions-v2 .danger-action {
+  width: 100%;
+  min-height: 38px;
+}
+
+.small-action.primary-small {
+  border-color: rgba(48, 208, 162, 0.42);
+  background: linear-gradient(135deg, var(--teal), #74f2cb);
+}
+
+.order-event-list.compact {
+  margin-top: 10px;
+}
+
 .order-event-list {
   display: grid;
   gap: 6px;
@@ -1806,6 +1966,20 @@ h2 {
   }
 
   .order-card {
+    grid-template-columns: 1fr;
+  }
+
+  .order-card-head,
+  .receive-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .receive-value {
+    text-align: start;
+  }
+
+  .order-facts,
+  .order-actions-v2 {
     grid-template-columns: 1fr;
   }
 

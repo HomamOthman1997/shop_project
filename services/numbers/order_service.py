@@ -4,19 +4,25 @@ from datetime import UTC, datetime
 from typing import Any
 
 from database.mongo import db
-from database.orders_repo import create_order, get_order, update_order_details, update_order_status
+from database.orders_repo import create_order, extract_order_amounts, get_order, update_order_details, update_order_status
 from services.numbers.api_payloads import QuoteTokenError, temp_provider_offer_is_buyable, verify_quote_token
 from services.numbers.manager import buy_number_from_provider, get_all_prices
+from services.numbers.provider_delivery import provider_sms_delivery_strategy
 from services.numbers.shared.events import _log_number_event_from_order, _log_temp_event
 from services.numbers.shared.temp_order import (
     TEMP_WAIT_TIMEOUT_SEC,
+    _coerce_utc_datetime,
     _extract_provider_wait_timeout_sec,
     _poll_interval_for_provider,
     _provider_default_reuse_warranty_sec,
+    _seconds_left_until,
+    _temp_elapsed_sec,
     _utc_now,
 )
+from services.platform.webhooks import enqueue_event_for_user
 from utils.core_service_guard import finance_error_public_text
 from utils.financial_manager import FinancialManager
+from utils.provider_alias import provider_public_id
 
 
 class NumbersOrderError(Exception):
@@ -30,19 +36,152 @@ class NumbersOrderError(Exception):
 def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
     order = order or {}
     order_id = order.get("_id")
+    mode = str(order.get("number_mode") or "temp").strip().lower() or "temp"
+    public_status = _public_order_status(order)
+    sale_price, _cost_price = extract_order_amounts(order)
+    seconds_left = max(0, int(_order_timeout_sec(order)) - int(_temp_elapsed_sec(order)))
+    can_resend = _order_resend_available(order, public_status=public_status)
+    provider_code = str(order.get("provider") or order.get("provisioning_provider") or "").strip().lower()
+    code = _order_last_code(order)
+    codes = _order_codes(order)
     return {
         "id": str(order_id or ""),
         "status": str(order.get("status") or ""),
-        "mode": str(order.get("number_mode") or "temp"),
-        "service": str(order.get("temp_service_key") or order.get("service_id") or ""),
-        "country": str(order.get("temp_country") or "none"),
-        "state": str(order.get("temp_state") or "none"),
-        "provider_id": str(order.get("provider_public_id") or ""),
+        "public_status": public_status,
+        "mode": mode,
+        "service": str(order.get("temp_service_key") or order.get("service_id") or "").replace(":rental", ""),
+        "country": str(order.get("temp_country") or order.get("rental_country") or "none"),
+        "state": str(order.get("temp_state") or order.get("rental_state_code") or "none"),
+        "provider_id": str(order.get("provider_public_id") or provider_public_id(provider_code)),
+        "provider": provider_code,
+        "sms_delivery": str(order.get("provider_sms_delivery") or provider_sms_delivery_strategy(provider_code)),
         "number": str(order.get("provider_number") or ""),
-        "selling_price": float(order.get("selling_price") or 0.0),
+        "selling_price": float(sale_price),
         "wait_state": str(order.get("temp_wait_state") or ""),
-        "code": str(order.get("temp_last_code") or ""),
-        "codes": [str(code) for code in (order.get("temp_codes") or []) if str(code or "").strip()],
+        "code": code,
+        "codes": codes,
+        "messages": _order_messages(order),
+        "elapsed_sec": int(_temp_elapsed_sec(order)),
+        "timeout_sec": int(_order_timeout_sec(order)),
+        "seconds_left": seconds_left,
+        "can_refresh": public_status in {"waiting", "code_received", "refund_pending"},
+        "can_resend": can_resend,
+        "resend_price": float(round(max(0.0, float(sale_price)) / 2.0, 4)) if can_resend else 0.0,
+        "second_code_count": int(order.get("temp_second_code_count") or 0),
+        "refund": _refund_payload(order, public_status=public_status),
+    }
+
+
+def _public_order_status(order: dict[str, Any]) -> str:
+    status = str(order.get("status") or "").strip().lower()
+    wait_state = str(order.get("temp_wait_state") or "").strip().lower()
+    mode = str(order.get("number_mode") or "temp").strip().lower()
+    if status in {"cancelled", "refunded"} or wait_state in {"refunded", "auto_refunded"}:
+        return "refunded"
+    if status in {"failed", "expired"}:
+        return status
+    if wait_state == "refund_pending":
+        return "refund_pending"
+    if mode == "rental" and (int(order.get("rental_sms_count") or 0) > 0 or order.get("rental_sms_received_at")):
+        return "code_received"
+    if _order_has_received_code(order) and not _second_code_waiting(order):
+        return "code_received"
+    return "waiting"
+
+
+def _order_has_received_code(order: dict[str, Any]) -> bool:
+    if str(order.get("number_mode") or "temp").strip().lower() == "rental":
+        if str(order.get("rental_last_code") or "").strip():
+            return True
+        if any(str(code or "").strip() for code in (order.get("rental_codes") or [])):
+            return True
+        return any(str(message or "").strip() for message in (order.get("rental_sms_messages") or []))
+    if str(order.get("temp_last_code") or "").strip():
+        return True
+    return any(str(code or "").strip() for code in (order.get("temp_codes") or []))
+
+
+def _order_last_code(order: dict[str, Any]) -> str:
+    if str(order.get("number_mode") or "temp").strip().lower() == "rental":
+        codes = _order_codes(order)
+        return str(order.get("rental_last_code") or (codes[-1] if codes else "") or "")
+    return str(order.get("temp_last_code") or "")
+
+
+def _order_codes(order: dict[str, Any]) -> list[str]:
+    if str(order.get("number_mode") or "temp").strip().lower() == "rental":
+        codes = [str(code) for code in (order.get("rental_codes") or []) if str(code or "").strip()]
+        if codes:
+            return codes
+        return [str(item) for item in (order.get("rental_sms_messages") or []) if str(item or "").strip()]
+    return [str(code) for code in (order.get("temp_codes") or []) if str(code or "").strip()]
+
+
+def _order_messages(order: dict[str, Any]) -> list[str]:
+    if str(order.get("number_mode") or "temp").strip().lower() == "rental":
+        return [str(item) for item in (order.get("rental_sms_messages") or []) if str(item or "").strip()]
+    text = str(order.get("temp_last_sms_text") or "").strip()
+    return [text] if text else []
+
+
+def _second_code_waiting(order: dict[str, Any]) -> bool:
+    if str(order.get("temp_wait_state") or "").strip().lower() != "waiting":
+        return False
+    second_requested_at = _coerce_utc_datetime(order.get("temp_second_code_last_at"))
+    if not second_requested_at:
+        return False
+    last_sms_at = _coerce_utc_datetime(order.get("temp_last_sms_at"))
+    return not last_sms_at or second_requested_at > last_sms_at
+
+
+def _order_timeout_sec(order: dict[str, Any]) -> int:
+    try:
+        return max(1, int(order.get("temp_wait_timeout_sec") or TEMP_WAIT_TIMEOUT_SEC))
+    except Exception:
+        return TEMP_WAIT_TIMEOUT_SEC
+
+
+def _order_resend_available(order: dict[str, Any], *, public_status: str) -> bool:
+    if str(order.get("number_mode") or "temp").strip().lower() != "temp":
+        return False
+    if public_status != "code_received":
+        return False
+    if str(order.get("status") or "").strip().lower() != "success":
+        return False
+    if str(order.get("provisioning_state") or "").strip().lower() != "provisioned":
+        return False
+    if not str(order.get("provider_order_id") or "").strip():
+        return False
+    number = str(order.get("provider_number") or "").strip()
+    if not number or number == "?":
+        return False
+    reuse_until = _coerce_utc_datetime(order.get("temp_reuse_warranty_until"))
+    return True if not reuse_until else _seconds_left_until(reuse_until) > 0
+
+
+def _refund_payload(order: dict[str, Any], *, public_status: str) -> dict[str, Any]:
+    wait_state = str(order.get("temp_wait_state") or "").strip().lower()
+    refunded = public_status == "refunded"
+    pending = public_status == "refund_pending"
+    refunded_at = (
+        order.get("temp_refunded_at")
+        or order.get("rental_refunded_at")
+        or order.get("provider_refunded_at")
+        or order.get("provisioning_failure_at")
+    )
+    return {
+        "status": "refunded" if refunded else "pending" if pending else "none",
+        "refunded": bool(refunded),
+        "pending": bool(pending),
+        "reason": str(
+            order.get("temp_refund_reason")
+            or order.get("temp_refund_source")
+            or order.get("temp_provider_terminal_reason")
+            or order.get("rental_refund_reason")
+            or wait_state
+            or ""
+        ),
+        "refunded_at": refunded_at.isoformat() if isinstance(refunded_at, datetime) else None,
     }
 
 
@@ -228,6 +367,7 @@ async def create_temp_order_from_quote(
             {
                 "provider_order_id": str(buy_res.get("order_id") or "").strip(),
                 "provider": provider_code,
+                "provider_sms_delivery": provider_sms_delivery_strategy(provider_code),
                 "provider_number": str(buy_res.get("number") or "").strip(),
                 "provider_pool": str(buy_res.get("pool") or "").strip() or None,
                 "number_mode": "temp",
@@ -271,6 +411,12 @@ async def create_temp_order_from_quote(
         )
         fresh_order = await get_order(order_id) or order
         response = {"ok": True, "order": public_order_payload(fresh_order)}
+        await enqueue_event_for_user(
+            user_id=int(user_id),
+            reseller_id=int(reseller_id),
+            event_type="numbers.order.created",
+            data={"order": response["order"]},
+        )
         await _idempotency_save(user_id, idempotency_key, response)
         return response
     except NumbersOrderError:

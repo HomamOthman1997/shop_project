@@ -30,7 +30,10 @@ API keys are stored hashed and must carry scopes. Current scopes:
 - `numbers:orders:read`
 - `numbers:orders:create`
 - `numbers:orders:refresh`
+- `numbers:orders:resend`
 - `numbers:account:read`
+- `webhooks:manage`
+- `numbers:support:review` for internal/support API keys only.
 - `api_keys:manage`
 - `*` for internal/admin keys only.
 
@@ -66,6 +69,10 @@ Stable error codes currently emitted by the versioned API:
 - `invalid_owner`
 - `key_not_found`
 - `order_not_found`
+- `missing_resolution`
+- `review_not_found`
+- `invalid_reseller`
+- `event_not_found`
 
 Auth middleware may also return standard HTTP `401`, `403`, and `429` responses.
 
@@ -85,6 +92,9 @@ Current limits:
 - `numbers:orders:read`: 90 requests per minute.
 - `numbers:orders:create`: 30 requests per minute.
 - `numbers:orders:refresh`: 60 requests per minute.
+- `numbers:orders:resend`: 30 requests per minute.
+- `webhooks:manage`: 30 requests per minute.
+- `numbers:support:review`: 60 requests per minute.
 - `api_keys:manage`: 30 requests per minute.
 
 When a limit is exceeded, the API returns HTTP `429` with `Retry-After`.
@@ -106,7 +116,7 @@ Body:
 ```json
 {
   "name": "customer bot",
-  "scopes": ["numbers:account:read", "numbers:quotes", "numbers:orders:read", "numbers:orders:create", "numbers:orders:refresh"]
+  "scopes": ["numbers:account:read", "numbers:quotes", "numbers:orders:read", "numbers:orders:create", "numbers:orders:refresh", "numbers:orders:resend", "webhooks:manage"]
 }
 ```
 
@@ -115,6 +125,98 @@ Only customer-safe scopes are accepted. Management scopes are not grantable thro
 `POST /api/v1/api-keys/{key_id}/revoke`
 
 Revokes a key in the authenticated reseller scope.
+
+## Webhooks
+
+Webhook management requires `webhooks:manage`.
+
+`GET /api/v1/webhooks`
+
+Lists configured endpoints for the authenticated reseller scope. Secrets are never returned.
+
+`POST /api/v1/webhooks`
+
+Creates a webhook endpoint. The `secret` is returned once.
+
+Body:
+
+```json
+{
+  "url": "https://example.com/numbers-webhook",
+  "events": ["numbers.order.created", "numbers.order.sms", "numbers.order.resend_requested", "numbers.order.refunded"]
+}
+```
+
+Allowed events:
+
+- `numbers.order.created`
+- `numbers.order.sms`
+- `numbers.order.resend_requested`
+- `numbers.order.refunded`
+
+Queued delivery payloads are signed as `sha256=<hex-hmac>` over the canonical JSON body.
+
+Delivery details:
+
+- `Content-Type: application/json`
+- `X-Webhook-Event`: event type.
+- `X-Webhook-Id`: stable event id.
+- `X-Webhook-Signature`: `sha256=<hex-hmac>`.
+- Any `2xx` response marks delivery as complete.
+- Non-`2xx` responses and network errors are retried with exponential backoff, up to the configured platform max attempts.
+
+`POST /api/v1/webhooks/{webhook_id}/revoke`
+
+Revokes a webhook endpoint in the authenticated reseller scope.
+
+## Provider Inbound Webhooks
+
+Provider inbound webhooks are server-to-server endpoints. They are not customer APIs and do not use customer API keys.
+
+Production provider callback base for the new domain:
+
+- `https://phantom-app.net/api/v1/provider-webhooks/{provider}?token=<provider-webhook-token>`
+
+`POST /api/v1/provider-webhooks/smsready?token=<provider-webhook-token>`
+
+Consumes SMSReady `new_sms` callbacks:
+
+```json
+{
+  "event": "new_sms",
+  "message": {
+    "order_id": 50,
+    "number": "18583056127",
+    "code": "245646",
+    "full_sms": "Here is your code: 245646"
+  }
+}
+```
+
+The backend matches `message.order_id` to `provider_order_id`, writes the code onto the order, logs the number event, and enqueues the customer-facing `numbers.order.sms` webhook.
+
+`POST /api/v1/provider-webhooks/pvadeals?token=<provider-webhook-token>`
+
+Consumes PVADeals `sms_received` callbacks:
+
+```json
+{
+  "event": "sms_received",
+  "timestamp": "2026-01-28T22:57:35.001Z",
+  "requestId": "697a90d25ef1873ef44f48bc",
+  "serviceId": "697139f7fe5460ddc2f27214",
+  "number": "+13130001234",
+  "message": "Your Airbnb verification code is 2200."
+}
+```
+
+The backend matches `requestId` to `provider_order_id`, extracts the OTP from `message`, writes the code onto the order, logs the number event, and enqueues the customer-facing `numbers.order.sms` webhook.
+
+`POST /api/v1/provider-webhooks/{provider}?token=<provider-webhook-token>`
+
+Consumes generic provider SMS callbacks for providers whose payload contains common order/code fields such as `provider_order_id`, `order_id`, `activationId`, `requestId`, `code`, `otp`, `full_sms`, `text`, `message.text`, or `data.message`. This route is intentionally generic so provider dashboards can be switched to webhook delivery without adding a bespoke route for every provider.
+
+Provider webhook processing now updates temporary orders and rental orders by `provider + provider_order_id`, logs an inbound audit event, and forwards customer-facing `numbers.order.sms` webhooks. Provider support and remaining verification work are tracked in `docs/numbers/PROVIDER_DELIVERY_MATRIX.md`.
 
 ## Public/Client Endpoints
 
@@ -138,15 +240,13 @@ Returns selector metadata:
 
 ### Country Suggestions
 
-Planned path:
+Mini App path:
 
-`GET /api/v1/numbers/catalog/country-suggestions?mode=temp&service=telegram`
+`GET /mini/numbers/api/country-suggestions?mode=temp&service=telegram`
 
 Returns ranked countries for a service/mode.
 
 ### Account
-
-Planned path:
 
 `GET /api/v1/numbers/account`
 
@@ -163,9 +263,9 @@ Currently returns API-safe identity and wallet balance:
 }
 ```
 
-Planned path:
+Mini App path:
 
-`POST /api/v1/numbers/account/language`
+`POST /mini/numbers/api/account/language`
 
 Body:
 
@@ -174,8 +274,6 @@ Body:
 ```
 
 ### Prices
-
-Planned path:
 
 `GET /api/v1/numbers/quotes?mode=temp&service=telegram&country=1&state=none`
 
@@ -217,8 +315,6 @@ Response:
 {"ok": true, "order": {"id": "order-id", "status": "success", "mode": "temp"}}
 ```
 
-Planned path:
-
 `POST /api/v1/numbers/orders`
 
 Creates a temporary-number order from a `quote_token`.
@@ -240,24 +336,28 @@ Response:
 {"ok": true, "order": {"id": "order-id", "status": "success"}}
 ```
 
-Planned expansion:
-
-- rental orders,
-- voice/call orders,
-- scoped customer API tokens.
-
-Planned path:
-
 `POST /api/v1/numbers/orders/{order_id}/refresh`
 
 Refreshes order status/SMS/call state.
 
-Current implementation refreshes temporary-number SMS state directly from the provider and stores any new code on the order.
+For temporary-number orders, refresh is webhook-first. It never polls providers when the order is marked for provider webhook delivery or when global provider polling is disabled. On timeout, the backend runs the provider-aware auto-refund path and returns the current refund state.
 
 Response:
 
 ```json
 {"ok": true, "order": {"id": "order-id", "wait_state": "code_received", "code": "123456", "codes": ["123456"]}}
+```
+
+`POST /api/v1/numbers/orders/{order_id}/resend`
+
+Requests another SMS/code from the provider for a temporary-number order that already received a code and is still inside the resend/reuse window. The API charges the configured resend price, resets the order to waiting, and relies on the provider webhook to deliver the next code.
+
+Required scope: `numbers:orders:resend`.
+
+Response:
+
+```json
+{"ok": true, "second_order_id": "billing-order-id", "order": {"id": "order-id", "public_status": "waiting", "can_resend": false}}
 ```
 
 `GET /api/v1/numbers/orders/{order_id}/recording`
@@ -266,39 +366,50 @@ Downloads a call recording when available.
 
 There is no public customer refund/cancel endpoint. Refunds are server-managed: the backend verifies that no code was received, checks the provider/order timeout policy, attempts provider cancellation, refunds through the ledger, and leaves failures for support review.
 
-`POST /api/v1/numbers/orders/{order_id}/second-code`
+## Support Operations Endpoints
 
-Requests a second code when supported.
+These endpoints require `numbers:support:review`. This scope is internal-only and is not grantable through customer API key creation.
 
-`POST /api/v1/numbers/orders/{order_id}/replace`
+`GET /api/v1/numbers/ops/refund-reviews`
 
-Retries/replaces using the current provider when eligible.
+Lists API temp-number orders that need support review after server-managed auto-refund could not finish safely. Non-super keys are scoped to their reseller. Super keys may pass `reseller_id`.
 
-`POST /api/v1/numbers/orders/{order_id}/alternate`
+Query:
 
-Retries using an alternate provider when eligible.
+- `limit`: 1-200, default 50.
+- `include_resolved`: `true` to include resolved review records.
+- `reseller_id`: super-key only filter.
 
-### Rental Actions
+`POST /api/v1/numbers/ops/refund-reviews/{order_id}/resolve`
 
-`POST /api/v1/numbers/orders/{order_id}/sms`
+Marks a review as resolved after support investigation. It does not trigger a refund or provider action.
 
-Fetches rental SMS messages.
+Body:
 
-`POST /api/v1/numbers/orders/{order_id}/finish`
+```json
+{
+  "resolution": "provider confirmed already cancelled; wallet adjustment handled in ledger review",
+  "notes": "Ticket SUP-1234"
+}
+```
 
-Finishes a rental when supported.
+`GET /api/v1/numbers/ops/provider-webhook-events`
 
-`POST /api/v1/numbers/orders/{order_id}/renew`
+Lists provider inbound webhook audit events. This is used to verify webhook cutover and investigate unmatched provider callbacks.
 
-Renews a rental when supported.
+Query:
 
-`POST /api/v1/numbers/orders/{order_id}/wake`
+- `provider`: optional provider code filter, e.g. `pvadeals`.
+- `status`: optional event status filter: `processed`, `duplicate`, `ignored`, `unmatched`.
+- `limit`: 1-200, default 50.
 
-Wakes/reactivates a rental when supported.
+`POST /api/v1/numbers/ops/provider-webhook-events/{event_id}/replay`
 
-`POST /api/v1/numbers/orders/{order_id}/notes`
+Replays a stored provider webhook payload through the current parser and order matching logic. This is intended for `unmatched` or `ignored` events after a parser/mapping fix. It does not call the upstream provider and does not poll SMS.
 
-Fetches rental notes/tags when supported.
+### Mini App Action Equivalents
+
+The Mini App still exposes workflow-specific action endpoints under `/mini/numbers/api/orders/{order_id}/...` for replacement, alternate provider retry, rental SMS/finish/renew/wake/notes, and voice recordings. These are not public versioned customer API endpoints yet. Public API exposure should happen only after each action has a stable request/response contract, scope, rate limit, and provider capability matrix.
 
 ## Mini App Only For Now
 

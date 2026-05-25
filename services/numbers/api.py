@@ -5,12 +5,21 @@ from datetime import datetime
 from aiohttp import web
 
 from database.financial_ledger import get_user_wallet_balance
-from database.orders_repo import get_user_number_order, list_user_recent_temp_and_voice_orders, list_user_rental_orders
+from database.orders_repo import (
+    get_user_number_order,
+    list_api_temp_refund_support_reviews,
+    list_user_recent_temp_and_voice_orders,
+    list_user_rental_orders,
+    resolve_api_temp_refund_support_review,
+)
+from database.provider_webhook_repo import list_provider_webhook_events
 from database.user_repo import get_user
 from services.numbers.api_payloads import TEMP_QUOTE_PROVIDER_CODES, normalize_temp_quote_rows, numbers_bootstrap_payload
 from services.numbers.manager import get_all_prices
 from services.numbers.order_refresh_service import refresh_number_order
+from services.numbers.order_resend_service import request_number_order_resend
 from services.numbers.order_service import NumbersOrderError, create_temp_order_from_quote, public_order_payload
+from services.numbers.provider_webhook_service import replay_provider_webhook_event
 from services.numbers.service_map import get_service_display_name, resolve_canonical_service_key
 from services.platform.api_auth import ApiAuthContext, require_api_auth
 from services.platform.api_rate_limits import (
@@ -192,6 +201,109 @@ async def refresh_order(request: web.Request) -> web.Response:
     return web.json_response(result, headers=_response_headers(rate_limit))
 
 
+async def resend_order(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:resend")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:resend", limit=30)
+    order_id = str(request.match_info.get("order_id") or "").strip()
+    order = await get_user_number_order(order_id, auth.user_id, auth.reseller_id)
+    if not isinstance(order, dict):
+        return _json_error("Order was not found.", status=404, code="order_not_found", rate_limit=rate_limit)
+    try:
+        result = await request_number_order_resend(order, user_id=auth.user_id, reseller_id=auth.reseller_id)
+    except NumbersOrderError as exc:
+        return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+    return web.json_response(result, headers=_response_headers(rate_limit))
+
+
+async def list_refund_reviews(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:support:review")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:support:review", limit=60)
+    include_resolved = str(request.query.get("include_resolved") or "").strip().lower() in {"1", "true", "yes"}
+    reseller_id = None if "*" in set(auth.scopes) else auth.reseller_id
+    if reseller_id is None and str(request.query.get("reseller_id") or "").strip():
+        try:
+            reseller_id = int(str(request.query.get("reseller_id") or "0"))
+        except Exception:
+            return _json_error("Invalid reseller id.", status=400, code="invalid_reseller", rate_limit=rate_limit)
+    rows = await list_api_temp_refund_support_reviews(
+        limit=_parse_limit(request, default=50, maximum=200),
+        reseller_id=reseller_id,
+        include_resolved=include_resolved,
+    )
+    return web.json_response(
+        {
+            "ok": True,
+            "reviews": [_refund_review_payload(row) for row in rows],
+        },
+        headers=_response_headers(rate_limit),
+    )
+
+
+async def resolve_refund_review(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:support:review")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:support:review", limit=60)
+    order_id = str(request.match_info.get("order_id") or "").strip()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    resolution = str((body or {}).get("resolution") or "").strip()
+    if not resolution:
+        return _json_error("Missing resolution.", status=400, code="missing_resolution", rate_limit=rate_limit)
+    reseller_id = None if "*" in set(auth.scopes) else auth.reseller_id
+    order = await resolve_api_temp_refund_support_review(
+        order_id=order_id,
+        actor_user_id=auth.user_id,
+        reseller_id=reseller_id,
+        resolution=resolution,
+        notes=str((body or {}).get("notes") or "").strip(),
+    )
+    if not isinstance(order, dict):
+        return _json_error("Review was not found.", status=404, code="review_not_found", rate_limit=rate_limit)
+    return web.json_response(
+        {
+            "ok": True,
+            "review": _refund_review_payload(order),
+        },
+        headers=_response_headers(rate_limit),
+    )
+
+
+async def list_provider_webhook_audit_events(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:support:review")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:support:review", limit=60)
+    rows = await list_provider_webhook_events(
+        provider=str(request.query.get("provider") or "").strip(),
+        status=str(request.query.get("status") or "").strip(),
+        limit=_parse_limit(request, default=50, maximum=200),
+    )
+    return web.json_response({"ok": True, "events": rows}, headers=_response_headers(rate_limit))
+
+
+async def replay_provider_webhook_audit_event(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:support:review")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:support:review", limit=60)
+    event_id = str(request.match_info.get("event_id") or "").strip()
+    result = await replay_provider_webhook_event(event_id)
+    if not result.get("ok") and str(result.get("reason") or "") == "event_not_found":
+        return _json_error("Provider webhook event was not found.", status=404, code="event_not_found", rate_limit=rate_limit)
+    return web.json_response(result, headers=_response_headers(rate_limit))
+
+
+def _refund_review_payload(order: dict) -> dict:
+    return {
+        "id": str(order.get("_id") or ""),
+        "status": str(order.get("temp_refund_support_review_status") or "open"),
+        "reason": str(order.get("temp_refund_support_review_reason") or ""),
+        "reviewed_at": _iso_datetime(order.get("temp_refund_support_review_at")),
+        "resolved_at": _iso_datetime(order.get("temp_refund_support_review_resolved_at")),
+        "resolved_by": order.get("temp_refund_support_review_resolved_by"),
+        "resolution": str(order.get("temp_refund_support_review_resolution") or ""),
+        "notes": str(order.get("temp_refund_support_review_notes") or ""),
+        "order": public_order_payload(order),
+    }
+
+
 def _response_headers(rate_limit: ApiRateLimitDecision | None = None) -> dict[str, str]:
     headers = dict(_NO_STORE_HEADERS)
     if rate_limit is not None:
@@ -261,3 +373,8 @@ def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/numbers/orders/{order_id}", get_order_detail)
     app.router.add_post("/api/v1/numbers/orders", create_order)
     app.router.add_post("/api/v1/numbers/orders/{order_id}/refresh", refresh_order)
+    app.router.add_post("/api/v1/numbers/orders/{order_id}/resend", resend_order)
+    app.router.add_get("/api/v1/numbers/ops/refund-reviews", list_refund_reviews)
+    app.router.add_post("/api/v1/numbers/ops/refund-reviews/{order_id}/resolve", resolve_refund_review)
+    app.router.add_get("/api/v1/numbers/ops/provider-webhook-events", list_provider_webhook_audit_events)
+    app.router.add_post("/api/v1/numbers/ops/provider-webhook-events/{event_id}/replay", replay_provider_webhook_audit_event)

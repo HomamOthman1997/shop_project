@@ -45,7 +45,15 @@ async def auto_refund_temp_order_if_due(
         return {"ok": False, "refunded": False, "reason": "missing_user_id", "order": public_order_payload(order)}
 
     try:
-        result = await cancel_number_order(order, actor_user_id=user_id, sleep_fn=sleep_fn)
+        result = await cancel_number_order(
+            order,
+            actor_user_id=user_id,
+            reason="numbers_api_timeout_auto_refund",
+            source="numbers_api_auto_refund",
+            allow_provider_terminal_refund=True,
+            allow_empty_provider_refund=True,
+            sleep_fn=sleep_fn,
+        )
     except Exception as exc:
         reason = getattr(exc, "code", "auto_refund_failed")
         return {
@@ -91,6 +99,7 @@ async def _mark_support_review(order: dict[str, Any], reason: str) -> None:
         order_id,
         {
             "temp_refund_support_review_required": True,
+            "temp_refund_support_review_status": "open",
             "temp_refund_support_review_reason": str(reason or "auto_refund_failed"),
             "temp_refund_support_review_at": _utc_now(),
         },

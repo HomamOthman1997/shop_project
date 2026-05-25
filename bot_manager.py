@@ -70,6 +70,7 @@ from services.numbers.handlers.core_numbers_buy import (
 from services.numbers.handlers.numbers_inline import router as numbers_inline_router
 from services.numbers.manager import PROVIDERS
 from services.numbers.order_auto_refund_service import run_numbers_api_auto_refund_sweep
+from services.platform.webhook_delivery import run_webhook_delivery_sweep
 from services.numbers.core.session_manager import SessionManager
 from services.proxies.handlers.proxy_flow import router as proxy_flow_router
 from services.proxies.handlers.proxy_inline import router as proxy_inline_router
@@ -1210,6 +1211,7 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
     next_card_ex_release_at = now
     next_temp_recovery_sweep_at = now
     next_numbers_api_auto_refund_at = now
+    next_webhook_delivery_sweep_at = now
     next_unprovisioned_order_recovery_at = now
     provider_balance_alert_state: dict[str, dict[str, Any]] = {}
     next_financial_anomaly_at = (
@@ -1834,7 +1836,14 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
 
         if _utc_now() >= next_temp_recovery_sweep_at:
             try:
-                aggregate = {"checked": 0, "synced": 0, "code_received": 0, "timed_out": 0, "refund_retries": 0}
+                aggregate = {
+                    "checked": 0,
+                    "synced": 0,
+                    "code_received": 0,
+                    "timed_out": 0,
+                    "refund_retries": 0,
+                    "webhook_waiting": 0,
+                }
                 limit = max(50, int(getattr(settings, "numbers_temp_recovery_sweep_limit", 200) or 200))
                 for bot in running_main_bots:
                     stats = await run_temp_wait_recovery_sweep(bot=bot, limit=limit)
@@ -1842,12 +1851,13 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                         aggregate[key] += int(stats.get(key) or 0)
                 if any(aggregate.values()):
                     logging.info(
-                        "temp recovery sweep checked=%s synced=%s code_received=%s timed_out=%s refund_retries=%s",
+                        "temp recovery sweep checked=%s synced=%s code_received=%s timed_out=%s refund_retries=%s webhook_waiting=%s",
                         aggregate.get("checked"),
                         aggregate.get("synced"),
                         aggregate.get("code_received"),
                         aggregate.get("timed_out"),
                         aggregate.get("refund_retries"),
+                        aggregate.get("webhook_waiting"),
                     )
             except Exception as exc:
                 logging.error("temp recovery sweep failed: %s", exc)
@@ -1906,6 +1916,27 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
             finally:
                 interval_sec = max(30, int(getattr(settings, "numbers_api_auto_refund_interval_sec", 60) or 60))
                 next_numbers_api_auto_refund_at = _utc_now() + timedelta(seconds=interval_sec)
+
+        if _utc_now() >= next_webhook_delivery_sweep_at:
+            try:
+                stats = await run_webhook_delivery_sweep(
+                    limit=max(20, int(getattr(settings, "platform_webhook_delivery_limit", 100) or 100)),
+                    timeout_sec=max(2.0, float(getattr(settings, "platform_webhook_delivery_timeout_sec", 8.0) or 8.0)),
+                    max_attempts=max(1, int(getattr(settings, "platform_webhook_delivery_max_attempts", 8) or 8)),
+                )
+                if any(int(stats.get(key) or 0) for key in ("delivered", "retry", "failed")):
+                    logging.info(
+                        "platform webhook delivery checked=%s delivered=%s retry=%s failed=%s",
+                        stats.get("checked"),
+                        stats.get("delivered"),
+                        stats.get("retry"),
+                        stats.get("failed"),
+                    )
+            except Exception as exc:
+                logging.error("platform webhook delivery sweep failed: %s", exc)
+            finally:
+                interval_sec = max(15, int(getattr(settings, "platform_webhook_delivery_interval_sec", 30) or 30))
+                next_webhook_delivery_sweep_at = _utc_now() + timedelta(seconds=interval_sec)
 
         await asyncio.sleep(poll_seconds)
     finally:

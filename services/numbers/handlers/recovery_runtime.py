@@ -1,6 +1,8 @@
 from contextlib import suppress
 from typing import Any, Awaitable, Callable
 
+from services.numbers.provider_delivery import order_uses_provider_sms_webhook, provider_sms_polling_enabled
+
 
 async def run_temp_wait_recovery_sweep(
     *,
@@ -33,6 +35,7 @@ async def run_temp_wait_recovery_sweep(
         "code_received": 0,
         "timed_out": 0,
         "refund_retries": 0,
+        "webhook_waiting": 0,
     }
     if bot is None:
         return stats
@@ -88,6 +91,10 @@ async def run_temp_wait_recovery_sweep(
             continue
 
         if wait_state == "code_received":
+            continue
+
+        if order_uses_provider_sms_webhook(latest) or not provider_sms_polling_enabled():
+            stats["webhook_waiting"] = int(stats.get("webhook_waiting") or 0) + 1
             continue
 
         provider = str(latest.get("provider") or "").strip()

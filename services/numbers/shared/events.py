@@ -38,9 +38,17 @@ async def _log_number_event_from_order(
     payload: dict | None = None,
     status_after: str | None = None,
     number_mode: str | None = None,
-    extract_order_amounts: Callable[[dict], tuple[float, float]],
-    number_events_repo_obj: Any,
+    extract_order_amounts: Callable[[dict], tuple[float, float]] | None = None,
+    number_events_repo_obj: Any = None,
 ) -> None:
+    if extract_order_amounts is None:
+        from database.orders_repo import extract_order_amounts as _extract_order_amounts
+
+        extract_order_amounts = _extract_order_amounts
+    if number_events_repo_obj is None:
+        from database import number_events_repo as _number_events_repo
+
+        number_events_repo_obj = _number_events_repo
     try:
         ctx = _number_event_context_from_order(
             order,
@@ -72,11 +80,16 @@ async def _log_number_event_from_order(
 async def _log_temp_event(
     order: dict,
     event: str,
-    *,
     payload: dict | None = None,
-    temp_number_stats_repo_obj: Any,
-    log_number_event_from_order_cb: Callable[..., Awaitable[None]],
+    temp_number_stats_repo_obj: Any = None,
+    log_number_event_from_order_cb: Callable[..., Awaitable[None]] | None = None,
 ) -> None:
+    if temp_number_stats_repo_obj is None:
+        from database import temp_number_stats_repo as _temp_number_stats_repo
+
+        temp_number_stats_repo_obj = _temp_number_stats_repo
+    if log_number_event_from_order_cb is None:
+        log_number_event_from_order_cb = _log_number_event_from_order
     order = order or {}
     enriched_payload = dict(payload or {})
     enriched_payload.setdefault(
@@ -113,8 +126,10 @@ async def _log_rental_event(
     service_id: str,
     event: str,
     payload: dict | None = None,
-    log_number_event_from_order_cb: Callable[..., Awaitable[None]],
+    log_number_event_from_order_cb: Callable[..., Awaitable[None]] | None = None,
 ) -> None:
+    if log_number_event_from_order_cb is None:
+        log_number_event_from_order_cb = _log_number_event_from_order
     await log_number_event_from_order_cb(
         {
             "_id": order_id,

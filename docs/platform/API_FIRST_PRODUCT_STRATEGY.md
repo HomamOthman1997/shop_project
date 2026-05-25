@@ -50,7 +50,9 @@ Minimum API qualities:
 - no leaked internal provider names unless explicitly admin-only,
 - clear auth model using API keys or scoped tokens,
 - rate limits and abuse protection,
-- webhook or polling support where practical,
+- customer-facing webhooks for asynchronous state changes,
+- provider inbound webhooks where upstream delivery supports it,
+- polling only as a documented fallback or explicit provider exception,
 - versioning before external customers depend on it.
 
 ## Product Boundaries
@@ -86,5 +88,13 @@ Numbers is the first API-first consolidation target because it already has:
 - wallet/ledger effects,
 - refund/replacement/renewal behavior,
 - future web dashboard demand.
+
+Current Numbers backend direction:
+
+- `/api/v1/numbers` is the versioned customer/API surface.
+- `/mini/numbers/api` remains the Telegram Mini App client surface and should delegate to shared/API services where practical.
+- Provider inbound SMS/code delivery is webhook-first through `phantom-app.net`.
+- Customer webhooks are available for order creation, SMS/code, resend requested, and refund events.
+- Refund UX should be server-managed, not a customer manual action.
 
 After Numbers, apply the same pattern to Digital products, Cards, and Proxies.

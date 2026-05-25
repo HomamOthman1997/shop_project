@@ -4,11 +4,21 @@ from typing import Any
 
 from database.orders_repo import get_order, update_order_details
 from services.numbers.manager import PROVIDERS
+from services.numbers.order_auto_refund_service import auto_refund_temp_order_if_due
 from services.numbers.order_service import NumbersOrderError, public_order_payload
+from services.numbers.provider_delivery import order_uses_provider_sms_webhook, provider_sms_polling_enabled
 from services.numbers.shared.events import _log_temp_event
 from services.numbers.shared.provider_io import fetch_provider_sms
-from services.numbers.shared.temp_order import _extract_new_sms_code, _safe_code_text, _seconds_between, _utc_now
+from services.numbers.shared.temp_order import (
+    _extract_new_sms_code,
+    _order_temp_timeout_sec,
+    _safe_code_text,
+    _seconds_between,
+    _temp_elapsed_sec,
+    _utc_now,
+)
 from services.numbers.shared.temp_refund import order_provider_code, order_provider_order_id
+from services.platform.webhooks import enqueue_event_for_user
 
 
 _CLOSED_STATUSES = {"cancelled", "failed", "refunded", "expired"}
@@ -29,10 +39,41 @@ async def refresh_number_order(order: dict[str, Any]) -> dict[str, Any]:
     if _has_received_code(current):
         return {"ok": True, "order": public_order_payload(current)}
 
+    timeout_reached = _temp_elapsed_sec(current) >= _order_temp_timeout_sec(current)
+    if timeout_reached or str(current.get("temp_wait_state") or "").strip().lower() == "refund_pending":
+        refund_result = await auto_refund_temp_order_if_due(current)
+        refreshed_order = (refund_result.get("order") if isinstance(refund_result.get("order"), dict) else None)
+        if refund_result.get("refunded"):
+            return {
+                "ok": True,
+                "order": refreshed_order or public_order_payload(current),
+                "message": "Order was automatically refunded.",
+                "auto_refund": {"status": "refunded", "reason": str(refund_result.get("reason") or "")},
+            }
+        if refund_result.get("support_review_required"):
+            return {
+                "ok": True,
+                "order": refreshed_order or public_order_payload(current),
+                "message": "Refund requires support review.",
+                "auto_refund": {"status": "support_review", "reason": str(refund_result.get("reason") or "")},
+            }
+        if timeout_reached:
+            return {
+                "ok": True,
+                "order": refreshed_order or public_order_payload(current),
+                "message": "Refund is being reviewed.",
+                "auto_refund": {"status": "pending", "reason": str(refund_result.get("reason") or "")},
+            }
+
     provider = order_provider_code(current)
     provider_order_id = order_provider_order_id(current)
     if not provider or not provider_order_id:
         raise NumbersOrderError("order_not_refreshable", "This order cannot be refreshed.", status=409)
+    if order_uses_provider_sms_webhook(current) or not provider_sms_polling_enabled():
+        now = _utc_now()
+        await update_order_details(current["_id"], {"temp_last_refresh_at": now, "temp_last_refresh_mode": "provider_webhook"})
+        refreshed = await get_order(current["_id"]) or {**current, "temp_last_refresh_at": now, "temp_last_refresh_mode": "provider_webhook"}
+        return {"ok": True, "order": public_order_payload(refreshed), "message": "Waiting for provider webhook."}
 
     sms_data = await fetch_provider_sms(PROVIDERS, provider, provider_order_id)
     existing_codes = [str(code) for code in (current.get("temp_codes") or []) if str(code or "").strip()]
@@ -66,7 +107,14 @@ async def refresh_number_order(order: dict[str, Any]) -> dict[str, Any]:
             },
         )
         refreshed = await get_order(current["_id"]) or {**current, **patch}
-        return {"ok": True, "order": public_order_payload(refreshed)}
+        payload = {"ok": True, "order": public_order_payload(refreshed)}
+        await enqueue_event_for_user(
+            user_id=int(refreshed.get("user_id") or current.get("user_id") or 0),
+            reseller_id=int(refreshed.get("reseller_id") or current.get("reseller_id") or current.get("user_id") or 0),
+            event_type="numbers.order.sms",
+            data={"order": payload["order"]},
+        )
+        return payload
 
     await update_order_details(current["_id"], {"temp_last_refresh_at": now})
     refreshed = await get_order(current["_id"]) or {**current, "temp_last_refresh_at": now}
