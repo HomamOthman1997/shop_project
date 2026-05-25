@@ -5,8 +5,11 @@ This directory is the primary home for project documentation.
 ## Start Here
 - `PROJECT_CONTEXT.md`: current high-level product and architecture context.
 - `AGENT_HANDOFF_CONTEXT.md`: compact context for future Codex/AI sessions.
-- `NUMBERS_MINIAPP_MIGRATION_CHECKLIST.md`: current Mini App migration checklist.
-- `NUMBERS_TELEGRAM_FLOW_AUDIT.md`: Telegram bot flow coverage audit.
+- `platform/API_FIRST_PRODUCT_STRATEGY.md`: active API-first platform decision.
+- `numbers/`: Numbers product docs and migration notes.
+- `cards/`: Cards product docs.
+- `digital/`: Digital products docs.
+- `proxies/`: Proxy product docs.
 
 ## Operational Docs
 - `BACKUP_RESTORE_RUNBOOK.md`
@@ -19,6 +22,8 @@ This directory is the primary home for project documentation.
 
 ## Product / Planning Docs
 - Active product direction belongs in `PROJECT_CONTEXT.md` and `AGENT_HANDOFF_CONTEXT.md`.
+- Shared product/API decisions belong in `platform/`.
+- Product-specific docs must stay under their product folder.
 - Older planning drafts live under `archive/legacy-planning/`.
 
 ## Provider Docs
@@ -34,5 +39,6 @@ This directory is the primary home for project documentation.
 
 ## Cleanup Rules
 - Keep active docs in `docs/`.
+- Do not mix Numbers, Cards, Digital, and Proxies planning in one backlog file.
 - Move dated or superseded notes into `docs/archive/`.
 - Avoid keeping duplicate raw provider specs when the content hash is identical.

@@ -164,7 +164,7 @@ Final direction selected in this session:
 
 See dedicated spec:
 
-- [`docs/PHONE_VERIFICATION_CONCEPT.md`](/Users/CyberZone/PycharmProjects/shop_project/docs/PHONE_VERIFICATION_CONCEPT.md)
+- [`docs/cards/PHONE_VERIFICATION_CONCEPT.md`](/Users/CyberZone/PycharmProjects/shop_project/docs/cards/PHONE_VERIFICATION_CONCEPT.md)
 
 ## Decisions Explicitly Deferred
 

@@ -31,6 +31,21 @@ Key responsibilities:
 
 ## Main Functional Areas
 
+## Product Architecture Direction
+
+The project is moving from bot-only workflows toward API-first product areas.
+
+Each major product area should eventually have:
+
+- Telegram bot support,
+- a web surface on `phantom-app.net`,
+- shared backend services,
+- APIs suitable for internal clients and customer-built bots.
+
+The active platform decision is documented in:
+
+- [`docs/platform/API_FIRST_PRODUCT_STRATEGY.md`](docs/platform/API_FIRST_PRODUCT_STRATEGY.md)
+
 ### Numbers
 
 Primary files:
@@ -52,12 +67,13 @@ Capabilities:
 
 Current provider naming in UX:
 
-- `Alpha`
-- `Bravo`
-- `Charlie`
-- `Delta`
-- `Echo`
-- `Foxtrot`
+- provider names shown to customers must be obfuscated,
+- real provider names may be used internally in code, logs, env vars, and admin-only diagnostics,
+- provider display policy is implemented through `utils/provider_alias.py`.
+
+Docs:
+
+- [`docs/numbers/README.md`](docs/numbers/README.md)
 
 ### Proxies
 
@@ -77,6 +93,10 @@ Capabilities:
 - Provider-specific ordering and reconfiguration
 - Proxy telemetry and validation jobs
 
+Docs:
+
+- [`docs/proxies/README.md`](docs/proxies/README.md)
+
 ### Cards Bot
 
 Primary files:
@@ -87,6 +107,31 @@ Current status:
 
 - Live bot area exists and is in use
 - Future phone verification feature is intended for this bot only
+
+Docs:
+
+- [`docs/cards/README.md`](docs/cards/README.md)
+
+### Digital Products
+
+Primary files:
+
+- [`handlers/store_sections.py`](/Users/CyberZone/PycharmProjects/shop_project/handlers/store_sections.py)
+- [`services/game_store/catalog_service.py`](/Users/CyberZone/PycharmProjects/shop_project/services/game_store/catalog_service.py)
+- [`services/game_store/g2bulk_client.py`](/Users/CyberZone/PycharmProjects/shop_project/services/game_store/g2bulk_client.py)
+- [`services/game_store/recovery.py`](/Users/CyberZone/PycharmProjects/shop_project/services/game_store/recovery.py)
+
+Capabilities:
+
+- Game store catalog
+- Gift cards and topups
+- Provider-backed fulfillment
+- Pending-order recovery
+- Future eSIM/digital product expansion
+
+Docs:
+
+- [`docs/digital/README.md`](docs/digital/README.md)
 
 ### Owner / Reseller Operations
 
@@ -135,6 +180,7 @@ Usage:
 The project direction in this phase is:
 
 - Keep existing features intact
+- Move product workflows toward shared backend/API surfaces
 - Improve UX consistency
 - Reduce noisy operational errors
 - Keep inline search reliable
@@ -143,6 +189,7 @@ The project direction in this phase is:
 
 ## Near-Term Priorities
 
+- Continue Numbers API-first consolidation
 - Verify Railway deploy is picking up the latest `main`
 - Keep proxy inline flows stable
 - Keep reply keyboard removal consistent before inline-keyboard flows

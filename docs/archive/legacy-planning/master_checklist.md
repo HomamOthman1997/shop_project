@@ -241,7 +241,7 @@ This checklist is for engineering closure, not marketing release status.
 ## 18. Deferred Wishlist (Not Near-Term)
 
 - [x] Deferred proxy product/scheduling ideas are tracked in:
-`docs/WISHLIST_DEFERRED.md`
+`docs/proxies/WISHLIST_DEFERRED.md`
 - [x] Confirmed project decision: advanced proxy queueing/rotation/fairness monetization ideas are postponed and not planned for near-term implementation.
 
 ### 17.4 Performance and resilience

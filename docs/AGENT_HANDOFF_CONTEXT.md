@@ -4,22 +4,32 @@ This file is a compact project memory for future Codex/AI sessions. It should be
 
 ## Current Product Direction
 
-We are building the numbers business as an API-first platform.
+We are building the whole commerce system as an API-first platform.
+
+Active product areas:
+- Numbers
+- Cards
+- Digital products
+- Proxies
+- Owner/reseller operations
 
 Primary UI today:
-- Telegram Mini App for numbers ordering and account workflows.
-
-Future UI:
-- Full web dashboard on `phantom-app.net`.
-- Web app should consume the same backend/API used by Telegram bots and the Mini App.
+- Telegram bots
+- Telegram Mini App for Numbers ordering and account workflows.
 
 Architecture decision:
 - Do not rewrite everything into a standalone website first.
-- Build a unified backend/API layer first, then use it from:
+- Every major product area must eventually have a web surface on `phantom-app.net`.
+- Every major product area must expose or be ready to expose an API suitable for:
   - Telegram bots
   - Telegram Mini App
   - future web dashboard
   - admin panel
+  - customer-built bots and partner integrations
+- Build shared backend/API layers first, then use them from every client.
+
+Canonical decision doc:
+- `docs/platform/API_FIRST_PRODUCT_STRATEGY.md`
 
 ## Current Repo State Summary
 
@@ -63,7 +73,7 @@ Current goal:
 
 ## Recommended Next Step
 
-Start with API layer consolidation.
+Start with Numbers API layer consolidation.
 
 Goal:
 - Create or formalize stable internal API endpoints for numbers workflows.
@@ -116,8 +126,9 @@ Provider docs/runtime matrix:
 - `scripts/provider_matrix_report.py`
 
 Migration/context docs:
-- `docs/NUMBERS_MINIAPP_MIGRATION_CHECKLIST.md`
-- `docs/NUMBERS_TELEGRAM_FLOW_AUDIT.md`
+- `docs/platform/API_FIRST_PRODUCT_STRATEGY.md`
+- `docs/numbers/MINIAPP_MIGRATION_CHECKLIST.md`
+- `docs/numbers/TELEGRAM_FLOW_AUDIT.md`
 - `docs/PROJECT_CONTEXT.md`
 
 ## How To Use This File In Future Requests
