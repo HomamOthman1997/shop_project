@@ -17,13 +17,20 @@ The versioned API path must not be a blind alias to Mini App handlers. New backe
 
 ## Auth
 
-Current authentication is Telegram Mini App `initData` based.
+Versioned API authentication uses API keys.
 
-Near-term requirement:
+Accepted headers:
 
-- keep Telegram initData auth for Mini App clients,
-- add a scoped API-key/token auth path before exposing endpoints to customers,
-- keep customer API auth separate from admin/operator auth.
+- `Authorization: Bearer <api-key>`
+- `X-API-Key: <api-key>`
+
+API keys are stored hashed and must carry scopes. Current scopes:
+
+- `numbers:quotes`
+- `numbers:orders:create`
+- `*` for internal/admin keys only.
+
+Mini App authentication remains Telegram `initData` based and is separate from customer API authentication.
 
 ## Public/Client Endpoints
 
@@ -104,7 +111,7 @@ Creates a temporary-number order from a `quote_token`.
 
 Headers:
 
-- `X-User-Id`: temporary development user context until API keys/scopes are introduced.
+- `Authorization: Bearer <api-key>` with `numbers:orders:create` scope.
 - `Idempotency-Key`: strongly recommended for every money-moving request.
 
 Body:
@@ -123,7 +130,6 @@ Planned expansion:
 
 - rental orders,
 - voice/call orders,
-- API key based user context,
 - scoped customer API tokens.
 
 Planned path:

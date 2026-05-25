@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aiohttp import web
 
+from services.numbers.api_auth import ApiAuthContext, require_api_auth
 from services.numbers.api_payloads import TEMP_QUOTE_PROVIDER_CODES, normalize_temp_quote_rows, numbers_bootstrap_payload
 from services.numbers.manager import get_all_prices
 from services.numbers.order_service import NumbersOrderError, create_temp_order_from_quote
@@ -31,6 +32,8 @@ async def catalog_bootstrap(_request: web.Request) -> web.Response:
 
 
 async def quotes(request: web.Request) -> web.Response:
+    await require_api_auth(request, "numbers:quotes")
+
     mode = str(request.query.get("mode") or "temp").strip().lower()
     service = resolve_canonical_service_key(str(request.query.get("service") or ""))
     country = str(request.query.get("country") or "none").strip() or "none"
@@ -69,18 +72,12 @@ def _json_error(message: str, *, status: int, code: str) -> web.Response:
 
 
 async def create_order(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:create")
+
     try:
         body = await request.json()
     except Exception:
         body = {}
-
-    # Temporary development auth until external API keys/scopes are introduced.
-    try:
-        user_id = int(request.headers.get("X-User-Id") or (body or {}).get("user_id") or 0)
-    except Exception:
-        user_id = 0
-    if user_id <= 0:
-        return _json_error("Missing API user context.", status=401, code="missing_user")
 
     quote_token = str((body or {}).get("quote_token") or "").strip()
     if not quote_token:
@@ -89,8 +86,8 @@ async def create_order(request: web.Request) -> web.Response:
     idempotency_key = str(request.headers.get("Idempotency-Key") or (body or {}).get("idempotency_key") or "").strip()
     try:
         result = await create_temp_order_from_quote(
-            user_id=user_id,
-            reseller_id=user_id,
+            user_id=auth.user_id,
+            reseller_id=auth.reseller_id,
             quote_token=quote_token,
             idempotency_key=idempotency_key,
             lang=str((body or {}).get("language") or "en"),

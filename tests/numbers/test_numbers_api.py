@@ -56,6 +56,10 @@ async def test_numbers_api_catalog_bootstrap_has_core_selectors():
 async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
     calls = {}
 
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api.ApiAuthContext(key_id="key-1", user_id=123, reseller_id=123, scopes=(required_scope,))
+
     async def fake_get_all_prices(service, country, state, ignore_balance=False, with_success_rates=True, provider_codes=None):
         calls["args"] = {
             "service": service,
@@ -81,12 +85,14 @@ async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
             },
         }
 
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
     monkeypatch.setattr(api, "get_all_prices", fake_get_all_prices)
     request = make_mocked_request("GET", "/api/v1/numbers/quotes?mode=temp&service=telegram&country=1&state=CA")
 
     response = await api.quotes(request)
     payload = json.loads(response.text)
 
+    assert calls["auth_scope"] == "numbers:quotes"
     assert calls["args"] == {
         "service": "telegram",
         "country": "1",
@@ -106,7 +112,11 @@ async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_numbers_api_quotes_reject_unsupported_modes():
+async def test_numbers_api_quotes_reject_unsupported_modes(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return api.ApiAuthContext(key_id="key-1", user_id=123, reseller_id=123, scopes=(required_scope,))
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
     request = make_mocked_request("GET", "/api/v1/numbers/quotes?mode=rental&service=telegram&country=1")
 
     with pytest.raises(web.HTTPBadRequest):
@@ -114,30 +124,36 @@ async def test_numbers_api_quotes_reject_unsupported_modes():
 
 
 @pytest.mark.asyncio
-async def test_numbers_api_create_order_requires_user():
+async def test_numbers_api_create_order_requires_api_key(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        raise web.HTTPUnauthorized(text="missing api key")
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
     request = make_mocked_request("POST", "/api/v1/numbers/orders", headers={"Content-Type": "application/json"})
     request._read_bytes = json.dumps({"quote_token": "quote"}).encode("utf-8")
 
-    response = await api.create_order(request)
-    payload = json.loads(response.text)
-
-    assert response.status == 401
-    assert payload["code"] == "missing_user"
+    with pytest.raises(web.HTTPUnauthorized):
+        await api.create_order(request)
 
 
 @pytest.mark.asyncio
 async def test_numbers_api_create_order_uses_order_service(monkeypatch):
     calls = {}
 
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api.ApiAuthContext(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
     async def fake_create_temp_order_from_quote(**kwargs):
         calls.update(kwargs)
         return {"ok": True, "order": {"id": "order-1"}}
 
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
     monkeypatch.setattr(api, "create_temp_order_from_quote", fake_create_temp_order_from_quote)
     request = make_mocked_request(
         "POST",
         "/api/v1/numbers/orders",
-        headers={"Content-Type": "application/json", "X-User-Id": "123", "Idempotency-Key": "idem-1"},
+        headers={"Content-Type": "application/json", "Authorization": "Bearer key", "Idempotency-Key": "idem-1"},
     )
     request._read_bytes = json.dumps({"quote_token": "quote-1", "language": "en"}).encode("utf-8")
 
@@ -147,8 +163,9 @@ async def test_numbers_api_create_order_uses_order_service(monkeypatch):
     assert response.status == 200
     assert payload == {"ok": True, "order": {"id": "order-1"}}
     assert calls == {
+        "auth_scope": "numbers:orders:create",
         "user_id": 123,
-        "reseller_id": 123,
+        "reseller_id": 456,
         "quote_token": "quote-1",
         "idempotency_key": "idem-1",
         "lang": "en",
