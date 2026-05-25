@@ -29,6 +29,7 @@ API keys are stored hashed and must carry scopes. Current scopes:
 - `numbers:quotes`
 - `numbers:orders:read`
 - `numbers:orders:create`
+- `numbers:orders:refresh`
 - `numbers:account:read`
 - `api_keys:manage`
 - `*` for internal/admin keys only.
@@ -83,6 +84,7 @@ Current limits:
 - `numbers:account:read`: 60 requests per minute.
 - `numbers:orders:read`: 90 requests per minute.
 - `numbers:orders:create`: 30 requests per minute.
+- `numbers:orders:refresh`: 60 requests per minute.
 - `api_keys:manage`: 30 requests per minute.
 
 When a limit is exceeded, the API returns HTTP `429` with `Retry-After`.
@@ -104,7 +106,7 @@ Body:
 ```json
 {
   "name": "customer bot",
-  "scopes": ["numbers:account:read", "numbers:quotes", "numbers:orders:read", "numbers:orders:create"]
+  "scopes": ["numbers:account:read", "numbers:quotes", "numbers:orders:read", "numbers:orders:create", "numbers:orders:refresh"]
 }
 ```
 
@@ -249,6 +251,14 @@ Planned path:
 `POST /api/v1/numbers/orders/{order_id}/refresh`
 
 Refreshes order status/SMS/call state.
+
+Current implementation refreshes temporary-number SMS state directly from the provider and stores any new code on the order.
+
+Response:
+
+```json
+{"ok": true, "order": {"id": "order-id", "wait_state": "code_received", "code": "123456", "codes": ["123456"]}}
+```
 
 `GET /api/v1/numbers/orders/{order_id}/recording`
 

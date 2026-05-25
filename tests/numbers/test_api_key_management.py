@@ -51,7 +51,13 @@ async def test_create_key_filters_to_allowed_customer_scopes(monkeypatch):
     request._read_bytes = json.dumps(
         {
             "name": "bot",
-            "scopes": ["numbers:quotes", "api_keys:manage", "numbers:orders:create", "numbers:account:read"],
+            "scopes": [
+                "numbers:quotes",
+                "api_keys:manage",
+                "numbers:orders:create",
+                "numbers:orders:refresh",
+                "numbers:account:read",
+            ],
         }
     ).encode("utf-8")
 
@@ -62,7 +68,12 @@ async def test_create_key_filters_to_allowed_customer_scopes(monkeypatch):
     assert calls["auth_scope"] == "api_keys:manage"
     assert calls["create"]["user_id"] == 123
     assert calls["create"]["reseller_id"] == 123
-    assert calls["create"]["scopes"] == ["numbers:account:read", "numbers:orders:create", "numbers:quotes"]
+    assert calls["create"]["scopes"] == [
+        "numbers:account:read",
+        "numbers:orders:create",
+        "numbers:orders:refresh",
+        "numbers:quotes",
+    ]
     assert payload["api_key"] == "ph_live_secret"
     assert "key_hash" not in payload["key"]
     assert response.headers["X-RateLimit-Bucket"] == "api_keys:manage"

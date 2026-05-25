@@ -41,6 +41,8 @@ def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
         "number": str(order.get("provider_number") or ""),
         "selling_price": float(order.get("selling_price") or 0.0),
         "wait_state": str(order.get("temp_wait_state") or ""),
+        "code": str(order.get("temp_last_code") or ""),
+        "codes": [str(code) for code in (order.get("temp_codes") or []) if str(code or "").strip()],
     }
 
 

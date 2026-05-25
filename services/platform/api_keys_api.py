@@ -25,6 +25,7 @@ _ALLOWED_CUSTOMER_SCOPES = {
     "numbers:quotes",
     "numbers:orders:read",
     "numbers:orders:create",
+    "numbers:orders:refresh",
 }
 
 
