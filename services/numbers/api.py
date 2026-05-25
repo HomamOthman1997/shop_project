@@ -9,6 +9,7 @@ from database.orders_repo import get_user_number_order, list_user_recent_temp_an
 from database.user_repo import get_user
 from services.numbers.api_payloads import TEMP_QUOTE_PROVIDER_CODES, normalize_temp_quote_rows, numbers_bootstrap_payload
 from services.numbers.manager import get_all_prices
+from services.numbers.order_cancel_service import cancel_number_order
 from services.numbers.order_refresh_service import refresh_number_order
 from services.numbers.order_service import NumbersOrderError, create_temp_order_from_quote, public_order_payload
 from services.numbers.service_map import get_service_display_name, resolve_canonical_service_key
@@ -192,6 +193,20 @@ async def refresh_order(request: web.Request) -> web.Response:
     return web.json_response(result, headers=_response_headers(rate_limit))
 
 
+async def cancel_order(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:cancel")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:cancel", limit=30)
+    order_id = str(request.match_info.get("order_id") or "").strip()
+    order = await get_user_number_order(order_id, auth.user_id, auth.reseller_id)
+    if not isinstance(order, dict):
+        return _json_error("Order was not found.", status=404, code="order_not_found", rate_limit=rate_limit)
+    try:
+        result = await cancel_number_order(order, actor_user_id=auth.user_id)
+    except NumbersOrderError as exc:
+        return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+    return web.json_response(result, headers=_response_headers(rate_limit))
+
+
 def _response_headers(rate_limit: ApiRateLimitDecision | None = None) -> dict[str, str]:
     headers = dict(_NO_STORE_HEADERS)
     if rate_limit is not None:
@@ -261,3 +276,4 @@ def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/numbers/orders/{order_id}", get_order_detail)
     app.router.add_post("/api/v1/numbers/orders", create_order)
     app.router.add_post("/api/v1/numbers/orders/{order_id}/refresh", refresh_order)
+    app.router.add_post("/api/v1/numbers/orders/{order_id}/cancel", cancel_order)

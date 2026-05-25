@@ -33,6 +33,7 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     assert ("GET", "/api/v1/numbers/orders/{order_id}") in routes
     assert ("POST", "/api/v1/numbers/orders") in routes
     assert ("POST", "/api/v1/numbers/orders/{order_id}/refresh") in routes
+    assert ("POST", "/api/v1/numbers/orders/{order_id}/cancel") in routes
 
 
 @pytest.mark.asyncio
@@ -342,6 +343,38 @@ async def test_numbers_api_refresh_order_uses_refresh_service(monkeypatch):
     assert calls["get"] == ("order-1", 123, 456)
     assert payload == {"ok": True, "order": {"id": "order-1", "code": "123456"}}
     assert response.headers["X-RateLimit-Bucket"] == "numbers:orders:refresh"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_cancel_order_uses_cancel_service(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        calls["get"] = (order_id, user_id, reseller_id)
+        return {"_id": order_id, "user_id": user_id, "reseller_id": reseller_id, "number_mode": "temp"}
+
+    async def fake_cancel_number_order(order, *, actor_user_id):
+        calls["cancel"] = (order, actor_user_id)
+        return {"ok": True, "order": {"id": order["_id"], "status": "cancelled"}}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    monkeypatch.setattr(api, "cancel_number_order", fake_cancel_number_order)
+    request = make_mocked_request("POST", "/api/v1/numbers/orders/order-1/cancel", match_info={"order_id": "order-1"})
+
+    response = await api.cancel_order(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:orders:cancel"
+    assert calls["get"] == ("order-1", 123, 456)
+    assert calls["cancel"][1] == 123
+    assert payload == {"ok": True, "order": {"id": "order-1", "status": "cancelled"}}
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:orders:cancel"
 
 
 @pytest.mark.asyncio
