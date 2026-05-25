@@ -28,6 +28,7 @@ API keys are stored hashed and must carry scopes. Current scopes:
 
 - `numbers:quotes`
 - `numbers:orders:create`
+- `numbers:account:read`
 - `api_keys:manage`
 - `*` for internal/admin keys only.
 
@@ -77,6 +78,7 @@ Authenticated API responses include:
 Current limits:
 
 - `numbers:quotes`: 120 requests per minute.
+- `numbers:account:read`: 60 requests per minute.
 - `numbers:orders:create`: 30 requests per minute.
 - `api_keys:manage`: 30 requests per minute.
 
@@ -99,7 +101,7 @@ Body:
 ```json
 {
   "name": "customer bot",
-  "scopes": ["numbers:quotes", "numbers:orders:create"]
+  "scopes": ["numbers:account:read", "numbers:quotes", "numbers:orders:create"]
 }
 ```
 
@@ -144,6 +146,17 @@ Planned path:
 `GET /api/v1/numbers/account`
 
 Returns user profile, wallet balance, and recent wallet activity.
+
+Currently returns API-safe identity and wallet balance:
+
+```json
+{
+  "ok": true,
+  "user": {"id": 123, "username": "customer", "language": "en", "joined_at": "2026-05-25T12:00:00+00:00"},
+  "reseller": {"id": 123},
+  "wallet": {"balance": 10.5, "currency": "USD", "balance_label": "$10.50"}
+}
+```
 
 Planned path:
 

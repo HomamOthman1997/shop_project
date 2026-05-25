@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from aiohttp import web
 
+from database.financial_ledger import get_user_wallet_balance
+from database.user_repo import get_user
 from services.numbers.api_payloads import TEMP_QUOTE_PROVIDER_CODES, normalize_temp_quote_rows, numbers_bootstrap_payload
 from services.numbers.manager import get_all_prices
 from services.numbers.order_service import NumbersOrderError, create_temp_order_from_quote
@@ -36,6 +40,46 @@ async def health(_request: web.Request) -> web.Response:
 
 async def catalog_bootstrap(_request: web.Request) -> web.Response:
     return web.json_response(numbers_bootstrap_payload(), headers=dict(_NO_STORE_HEADERS))
+
+
+def _format_money(value: float) -> str:
+    return f"${float(value or 0):.2f}"
+
+
+def _iso_datetime(value) -> str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return None
+
+
+async def account(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:account:read")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:account:read", limit=60)
+
+    user_doc = await get_user(auth.user_id)
+    if not isinstance(user_doc, dict):
+        user_doc = {}
+    balance = await get_user_wallet_balance(auth.user_id, auth.reseller_id)
+    language = str(user_doc.get("language") or "en").strip().lower()
+
+    return web.json_response(
+        {
+            "ok": True,
+            "user": {
+                "id": auth.user_id,
+                "username": str(user_doc.get("username") or ""),
+                "language": "ar" if language.startswith("ar") else "en",
+                "joined_at": _iso_datetime(user_doc.get("created_at")),
+            },
+            "reseller": {"id": auth.reseller_id},
+            "wallet": {
+                "balance": float(balance),
+                "currency": "USD",
+                "balance_label": _format_money(balance),
+            },
+        },
+        headers=_response_headers(rate_limit),
+    )
 
 
 async def quotes(request: web.Request) -> web.Response:
@@ -138,5 +182,6 @@ async def create_order(request: web.Request) -> web.Response:
 def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/numbers/health", health)
     app.router.add_get("/api/v1/numbers/catalog/bootstrap", catalog_bootstrap)
+    app.router.add_get("/api/v1/numbers/account", account)
     app.router.add_get("/api/v1/numbers/quotes", quotes)
     app.router.add_post("/api/v1/numbers/orders", create_order)

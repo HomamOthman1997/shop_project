@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 
 import pytest
 from aiohttp import web
@@ -26,6 +27,7 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     routes = {(route.method, route.resource.canonical) for route in app.router.routes()}
     assert ("GET", "/api/v1/numbers/health") in routes
     assert ("GET", "/api/v1/numbers/catalog/bootstrap") in routes
+    assert ("GET", "/api/v1/numbers/account") in routes
     assert ("GET", "/api/v1/numbers/quotes") in routes
     assert ("POST", "/api/v1/numbers/orders") in routes
 
@@ -60,6 +62,45 @@ async def test_numbers_api_catalog_bootstrap_has_core_selectors():
     assert any(item["key"] == "telegram" for item in payload["services"])
     assert any(item["code"] == "1" for item in payload["countries"])
     assert any(item["code"] == "none" for item in payload["states_us"])
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_account_returns_wallet_snapshot(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user(user_id):
+        calls["user_id"] = user_id
+        return {
+            "telegram_id": user_id,
+            "username": "customer",
+            "language": "ar",
+            "created_at": datetime(2026, 5, 25, 12, 0, tzinfo=UTC),
+        }
+
+    async def fake_get_user_wallet_balance(user_id, reseller_id):
+        calls["wallet"] = (user_id, reseller_id)
+        return 12.5
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user", fake_get_user)
+    monkeypatch.setattr(api, "get_user_wallet_balance", fake_get_user_wallet_balance)
+    request = make_mocked_request("GET", "/api/v1/numbers/account")
+
+    response = await api.account(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:account:read"
+    assert calls["wallet"] == (123, 456)
+    assert payload["ok"] is True
+    assert payload["user"]["username"] == "customer"
+    assert payload["user"]["language"] == "ar"
+    assert payload["wallet"] == {"balance": 12.5, "currency": "USD", "balance_label": "$12.50"}
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:account:read"
 
 
 @pytest.mark.asyncio
