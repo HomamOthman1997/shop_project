@@ -63,3 +63,10 @@ Normalizer:
 - One real webhook event for `nonvoip` and, if used, `nonvoip_s6`.
 - Exact current cancellation/refund response examples for both `set-status` and `refund_number`.
 - Account balance endpoint is not present in the supplied non-VoIP reseller docs. The adapter treats balance as unsupported unless non-VoIP support provides a documented command.
+
+## Live Notes
+
+- 2026-05-26: a low-cost live order was created successfully.
+- 2026-05-26: `get_messages` for that order returned the expected empty/no-SMS shape: `text=null`, `code=null`, and `received_at=null`.
+- 2026-05-26: immediate `refund_number` for that live order returned `{"code":400,"msg":"Not sufficient"}`. This is classified as `provider_balance_low`, but operationally it means immediate auto-refund is not proven for non-VoIP yet.
+- Keep non-VoIP immediate no-code refund in quarantine until provider support clarifies whether refund only works after expiry or requires a different state transition.

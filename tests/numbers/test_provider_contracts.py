@@ -31,6 +31,7 @@ def test_provider_contract_methods_exist():
     ("raw", "expected_code"),
     [
         ({"errorDescription": "Out of stock or unavailable."}, "OUT_OF_STOCK"),
+        ("NO_NUMBERS", "OUT_OF_STOCK"),
         ({"message": "Insufficient balance, the price is: 0.48"}, "PROVIDER_BALANCE_LOW"),
         ({"message": "Not sufficient"}, "PROVIDER_BALANCE_LOW"),
         ({"error_msg": "Wrong token!"}, "AUTH_ERROR"),
@@ -41,5 +42,6 @@ def test_provider_contract_methods_exist():
 def test_error_normalizer_codes(raw, expected_code):
     normalized = normalize_provider_error(raw)
     assert normalized["code"] == expected_code
+    assert normalized["taxonomy_code"].startswith("provider_")
     assert isinstance(normalized["message"], str)
     assert normalized["message"]

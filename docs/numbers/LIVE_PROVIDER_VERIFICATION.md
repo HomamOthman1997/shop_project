@@ -34,15 +34,40 @@ The script prints JSON lines and scrubs secrets. It checks balance support, serv
 
 | Provider | Balance API | Webhook docs | Route smoke | Live order | Real webhook | Error taxonomy state | Production decision |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `smsready` | Unsupported by supplied docs | Confirmed: `new_sms`, `ltr_renewal` | Passed: route/token/parser accepted synthetic payload | Pending | Pending | Core API errors documented; no balance API | Use after one real webhook event |
-| `pvadeals` | Supported; live balance returned | Confirmed in supplied docs | Passed | Pending | Pending | Needs live purchase error samples | Use after one real webhook event |
-| `textverified` | Supported; live balance returned | Confirmed: `v2.sms.received` | Passed | Pending | Pending | Needs signature/event sample validation | Use after one real webhook event |
-| `herosms` | Supported; live balance returned | Confirmed incoming SMS webhook | Passed | Pending | Pending | Needs live purchase error samples | Use after one real webhook event |
-| `telabot` | Supported; live balance returned as provider payload | Confirmed: `incoming_message` | Passed | Pending | Pending | Needs priority/no-stock/live status samples | Use after one real webhook event |
-| `nonvoip` | Unsupported by supplied docs | Confirmed profile webhook | Passed | Negative probes returned provider `500` for invalid ids | Pending | `Not sufficient` maps to balance-low; provider `500` remains unknown/provider error | Use after one real webhook event and one known failure sample |
+| `smsready` | Unsupported by supplied docs | Confirmed: `new_sms`, `ltr_renewal` | Passed: route/token/parser accepted synthetic payload | Blocked by local/provider network failure to `api.sms-ready.com` | Pending | Connect failure maps to `provider_unknown_error` and remains retryable | Retry from Railway and use after one real webhook event |
+| `pvadeals` | Supported; live balance returned | Confirmed in supplied docs | Passed | Passed: low-cost order created and immediate flag/cancel call succeeded | Pending | Purchase/cancel success path verified; no SMS callback yet | Use after one real webhook event |
+| `textverified` | Supported; live balance returned | Confirmed: `v2.sms.received` | Passed | Passed: low-cost order created and immediate cancel succeeded | Pending | Signature secret configured in dashboard; real signature sample still pending | Use after one real webhook event |
+| `herosms` | Supported; live balance returned | Confirmed incoming SMS webhook | Passed | Attempted; provider returned `NO_NUMBERS` for low-cost US service | Pending | `NO_NUMBERS` maps to `provider_no_stock`; numeric country mapping fixed/preserved | Use after one real webhook event |
+| `telabot` | Supported; live balance returned as provider payload | Confirmed: `incoming_message` | Passed | Passed: low-cost order created and immediate reject succeeded | Pending | Purchase/reject success path verified; priority/no-stock samples still useful | Use after one real webhook event |
+| `nonvoip` | Unsupported by supplied docs | Confirmed profile webhook | Passed | Passed: low-cost order created; immediate refund returned `Not sufficient` | Pending | `Not sufficient` maps to `provider_balance_low`; provider `500` remains unknown/provider error | Quarantine immediate auto-refund until refund semantics are clarified |
 | `pvapins` | Supported; adapter parser verified | Not confirmed; supplied docs emphasize polling | Route exists but not trusted | Pending | Not trusted | Needs webhook docs or dashboard callback proof | Quarantine for webhook-only mode |
 | `vaksms` | Supported; live balance returned | Not confirmed; supplied docs are polling/read endpoints | Route exists but not trusted | Pending | Not trusted | Factory fixed; needs webhook docs | Quarantine for webhook-only mode |
 | `smspool` | Supported; live balance returned | Not confirmed in reviewed docs | Route exists but not trusted | Pending | Not trusted | Needs webhook docs or account-manager confirmation | Quarantine for webhook-only mode |
+
+## Live Run 2026-05-26
+
+Provider order ids and phone numbers were intentionally omitted from this file. Raw command output was scrubbed by `scripts/live_provider_verification.py`.
+
+| Provider | Service/country tested | Result | Cancel/refund result | Notes |
+| --- | --- | --- | --- | --- |
+| `textverified` | `apple` / `US` | Order created | Cancel succeeded | Webhook delivery still requires a real SMS or dashboard test event captured as `processed`. |
+| `telabot` | `Apple` / `US` | Order created | Reject succeeded | No SMS arrived during this run, so webhook remains unproven. |
+| `pvadeals` | low-cost US service | Order created | Provider returned flag/cancel success | Treat as cancel path verified, not a proven refund settlement. |
+| `herosms` | `gp` / `US` | No order; provider returned `NO_NUMBERS` | Not applicable | Adapter now preserves `NO_NUMBERS` instead of falling back to an invalid no-country request. |
+| `nonvoip` | low-cost UK service id via US request path | Order created | Refund returned `Not sufficient` | `get_messages` shows no SMS yet. Do not trust immediate auto-refund for this provider until clarified. |
+| `smsready` | `PayPal` / `United States` | Not reached | Not applicable | Local attempts failed connecting to `api.sms-ready.com:443`; retry from Railway/prod network. |
+
+## Error Taxonomy
+
+The shared normalizer returns legacy uppercase `code` plus API-facing `taxonomy_code`:
+
+| Taxonomy code | Meaning | Typical raw examples |
+| --- | --- | --- |
+| `provider_balance_low` | Provider account cannot pay for the operation | `Insufficient balance`, `Not sufficient`, `no_balance` |
+| `provider_no_stock` | Provider has no number for the requested service/country | `NO_NUMBERS`, `out of stock`, `unavailable` |
+| `provider_auth_error` | Bad or unauthorized provider credential | `Wrong token`, `bad_key`, `unauthorized` |
+| `provider_timeout` | Retryable upstream/network timeout class | `timeout`, `request_error`, temporary failures |
+| `provider_unknown_error` | Raw response is not classified yet | Provider `500`, unexpected validation or malformed response |
 
 ## Findings So Far
 
@@ -51,6 +76,8 @@ The script prints JSON lines and scrubs secrets. It checks balance support, serv
 - `pvapins` balance parsing is covered by tests and live adapter checks returned a numeric value.
 - non-VoIP negative probes with invalid ids returned provider `500 Internal Server Error`; this must remain `PROVIDER_ERROR`, not provider balance.
 - non-VoIP documented insufficient-funds text is `Not sufficient`; it maps to `PROVIDER_BALANCE_LOW`.
+- non-VoIP live immediate `refund_number` after a successful order returned `Not sufficient`; do not assume no-code refund is production-safe for this provider yet.
+- HeroSMS `US` now resolves to provider country id `187` in price output. Buy failures for exhausted inventory remain `NO_NUMBERS`/`provider_no_stock`.
 - Authenticated provider webhook routes now return HTTP 200 for `order_not_found` so provider dashboards do not disable callbacks after valid test/race events.
 
 ## Next Live Steps

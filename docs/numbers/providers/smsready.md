@@ -76,3 +76,8 @@ Normalizer:
 - Account dashboard callback URL configuration must be verified.
 - Need one real `new_sms` event and one LTR-related event sample in `provider_webhook_events`.
 - Account balance endpoint is not present in the supplied SMSReady docs. The adapter can price, buy, cancel, resend, and rent, but balance should be treated as unsupported unless SMSReady support provides a documented balance command.
+
+## Live Notes
+
+- 2026-05-26: local dry-run attempts failed to connect to `api.sms-ready.com:443` with a network-name error before price/order calls could complete.
+- Retry this provider from Railway/production networking before marking it live-ready.

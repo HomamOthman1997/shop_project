@@ -79,3 +79,8 @@ Normalizer:
 - One real webhook event captured in `provider_webhook_events`.
 - Whether HeroSMS signs webhooks or only relies on source IP/account settings.
 
+## Live Notes
+
+- 2026-05-26: `getPrices` for a low-cost US service succeeded and exposed provider country id `187`.
+- 2026-05-26: live buy attempt for that service returned `NO_NUMBERS`; this is classified as `provider_no_stock`.
+- The adapter must not retry temporary buys without a numeric `country`, because HeroSMS rejects no-country buy calls with a misleading validation error.

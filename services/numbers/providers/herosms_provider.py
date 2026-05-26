@@ -386,6 +386,9 @@ class HeroSMSProvider(BaseProvider):
 
         provider_country_iso: str | None = None
         provider_country: str | None = None
+        if mapped_country is not None:
+            provider_country = str(mapped_country)
+            provider_country_iso = await self._hero_country_id_to_iso(mapped_country)
         if mapped_country is None and isinstance(data, dict):
             best_country_id: str | None = None
             best_price: float | None = None
@@ -429,6 +432,20 @@ class HeroSMSProvider(BaseProvider):
         mapped_country = await self._resolve_country(country)
         if mapped_country is None:
             return {"success": False, "raw": {"title": "BAD_COUNTRY", "details": "country is required"}}
+        mapped_country = str(mapped_country).strip()
+        if mapped_country and not mapped_country.isdigit():
+            price_probe = await self.get_price(service, country=country, state=state)
+            probe_country = str(price_probe.get("provider_country") or "").strip() if isinstance(price_probe, dict) else ""
+            if probe_country.isdigit():
+                mapped_country = probe_country
+        if mapped_country and not mapped_country.isdigit():
+            return {
+                "success": False,
+                "raw": {
+                    "title": "BAD_COUNTRY",
+                    "details": f"HeroSMS requires numeric country id, got {mapped_country!r}",
+                },
+            }
 
         service_candidates: list[str] = [str(service or "").strip()]
         norm_service = _norm(str(service or ""))
@@ -468,13 +485,6 @@ class HeroSMSProvider(BaseProvider):
             if ok and order_id and number:
                 return {"success": True, "order_id": order_id, "number": number, "raw": raw}
             last_raw = raw
-
-            # Fallback: when country is temporarily exhausted, retry once without country pin.
-            if mapped_country is not None and self._looks_no_numbers_error(raw):
-                ok2, raw2, order_id2, number2 = await _try_buy(svc, None)
-                if ok2 and order_id2 and number2:
-                    return {"success": True, "order_id": order_id2, "number": number2, "raw": raw2}
-                last_raw = raw2
 
         return {"success": False, "raw": last_raw}
 

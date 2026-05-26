@@ -140,6 +140,48 @@ async def test_get_price_maps_common_country_code(monkeypatch):
     res = await provider.get_price("go", country="1")
     assert res["success"] is True
     assert res["price"] == 0.6
+    assert res["provider_country"] == "187"
+    assert res["provider_country_iso"] == "US"
+
+
+@pytest.mark.asyncio
+async def test_buy_number_rejects_unresolved_non_numeric_country(monkeypatch):
+    provider = HeroSMSProvider()
+
+    async def fake_request(action, **params):
+        if action == "getCountries":
+            return 200, []
+        if action == "getPrices":
+            return 200, {}
+        raise AssertionError("buy should not send a non-numeric HeroSMS country")
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    res = await provider.buy_number("go", country="Unknown Country")
+    assert res["success"] is False
+    assert res["raw"]["title"] == "BAD_COUNTRY"
+
+
+@pytest.mark.asyncio
+async def test_buy_number_preserves_country_no_numbers(monkeypatch):
+    provider = HeroSMSProvider()
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_request(action, **params):
+        calls.append((action, params))
+        if action == "getCountries":
+            return 200, [
+                {"id": 187, "eng": "USA", "visible": 1},
+            ]
+        if action in {"getNumberV2", "getNumber"}:
+            assert str(params.get("country")) == "187"
+            return 200, "NO_NUMBERS"
+        return 200, {}
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    res = await provider.buy_number("gp", country="US")
+    assert res["success"] is False
+    assert res["raw"] == "NO_NUMBERS"
+    assert not any(action == "getNumberV2" and "country" not in params for action, params in calls)
 
 
 @pytest.mark.asyncio

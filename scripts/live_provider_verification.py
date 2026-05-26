@@ -32,7 +32,7 @@ def _scrub(value: Any) -> Any:
 
 
 def _emit(event: str, **payload: Any) -> None:
-    print(json.dumps({"event": event, **_scrub(payload)}, ensure_ascii=False, default=str))
+    print(json.dumps({"event": event, **_scrub(payload)}, ensure_ascii=True, default=str))
 
 
 def _as_float(value: Any) -> float | None:
@@ -42,7 +42,17 @@ def _as_float(value: Any) -> float | None:
         return None
 
 
+def _sample_catalog(catalog: Any, limit: int = 10) -> Any:
+    if isinstance(catalog, list):
+        return catalog[:limit]
+    if isinstance(catalog, dict):
+        return {key: catalog[key] for key in list(catalog.keys())[:limit]}
+    return catalog
+
+
 def _pick_candidate(rows: Any, *, max_price: float | None = None, min_price: float | None = None) -> dict[str, Any] | None:
+    if isinstance(rows, dict):
+        rows = list(rows.values())
     if not isinstance(rows, list):
         return None
     candidates: list[tuple[float, dict[str, Any]]] = []
@@ -52,15 +62,26 @@ def _pick_candidate(rows: Any, *, max_price: float | None = None, min_price: flo
         service = str(
             row.get("service_id")
             or row.get("id")
+            or row.get("serviceName")
             or row.get("service_name")
             or row.get("name")
+            or row.get("description")
             or row.get("full_name")
             or row.get("app_name")
             or ""
         ).strip()
         if not service:
             continue
-        price = _as_float(row.get("price") or row.get("deduct") or row.get("rate") or row.get("cost")) or 0.0
+        price = (
+            _as_float(row.get("price"))
+            or _as_float(row.get("STRprice"))
+            or _as_float(row.get("deduct"))
+            or _as_float(row.get("rate"))
+            or _as_float(row.get("cost"))
+            or 0.0
+        )
+        if price <= 0:
+            continue
         if max_price is not None and price > max_price:
             continue
         if min_price is not None and price < min_price:
@@ -91,7 +112,13 @@ async def verify_provider(args: argparse.Namespace) -> int:
 
     catalog: Any = None
     ok, catalog = await _maybe(provider, "list_services", timeout=args.timeout)
-    _emit("service_catalog", provider=args.provider, ok=ok, count=len(catalog) if isinstance(catalog, list) else None, sample=catalog[:10] if isinstance(catalog, list) else catalog)
+    _emit(
+        "service_catalog",
+        provider=args.provider,
+        ok=ok,
+        count=len(catalog) if isinstance(catalog, (list, dict)) else None,
+        sample=_sample_catalog(catalog),
+    )
 
     service = args.service
     if not service:
@@ -120,13 +147,22 @@ async def verify_provider(args: argparse.Namespace) -> int:
         return 0
 
     ok, order = await _maybe(provider, "buy_number", service, country=args.country, timeout=args.timeout)
-    normalized = normalize_provider_error(order.get("raw") if isinstance(order, dict) else order)
+    order_success = bool(isinstance(order, dict) and order.get("success"))
+    normalized = None if order_success else normalize_provider_error(order.get("raw") if isinstance(order, dict) else order)
     _emit("purchase", provider=args.provider, ok=ok, service=service, country=args.country, result=order, normalized_error=normalized)
 
     order_id = str(order.get("order_id") or order.get("id") or "").strip() if isinstance(order, dict) else ""
     if order_id and not args.no_auto_cancel:
         ok, cancel = await _maybe(provider, "cancel", order_id, timeout=args.timeout)
-        _emit("auto_cancel", provider=args.provider, ok=ok, order_id=order_id, result=cancel, normalized_error=normalize_provider_error(cancel.get("raw") if isinstance(cancel, dict) else cancel))
+        cancel_success = bool(isinstance(cancel, dict) and cancel.get("success"))
+        _emit(
+            "auto_cancel",
+            provider=args.provider,
+            ok=ok,
+            order_id=order_id,
+            result=cancel,
+            normalized_error=None if cancel_success else normalize_provider_error(cancel.get("raw") if isinstance(cancel, dict) else cancel),
+        )
 
     return 0
 
