@@ -1,7 +1,7 @@
 # Numbers Provider Delivery Matrix
 
 Status: draft  
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 
 Goal: classify how each upstream Numbers provider delivers inbound OTP/SMS so the backend can run webhook-first without guessing provider payloads.
 
@@ -21,14 +21,14 @@ Goal: classify how each upstream Numbers provider delivers inbound OTP/SMS so th
 | --- | --- | --- | --- | --- | --- |
 | `smsready` | Exists, but no longer used for default refresh | Confirmed from supplied SMSReady docs: `new_sms` webhook with `order_id`, `number`, `code`, `full_sms` | Yes: `/api/v1/provider-webhooks/smsready` | Webhook confirmed and implemented | Configure dashboard webhook URL and token |
 | `pvadeals` | Exists, but no longer used for default refresh | Confirmed in official docs: `sms_received`, `number_purchased`, `number_flagged` webhooks | Yes: `/api/v1/provider-webhooks/pvadeals` | Webhook confirmed and implemented | Configure dashboard webhook URL and token |
-| `herosms` | Exists, but no longer used for default refresh | Probable: public HeroSMS client docs show `smsIncoming` webhook payload with `activationId`, `text`, `code` | Generic route: `/api/v1/provider-webhooks/herosms` | Route ready, provider-side setup needs live verification | Configure provider callback, then verify real `provider_webhook_events` |
-| `pvapins` | Exists, but no longer used for default refresh | Not confirmed from API page; docs emphasize polling `get_sms.php` | Generic route: `/api/v1/provider-webhooks/pvapins` | Route ready, provider webhook capability unconfirmed | Ask support or find account dashboard webhook settings |
-| `vaksms` | Exists, but no longer used for default refresh | Not confirmed; public API docs show `getSmsCode` polling path | Generic route: `/api/v1/provider-webhooks/vaksms` | Route ready, provider webhook capability unconfirmed | Ask support/docs for callback/webhook support |
-| `smsman` | Exists, but no longer used for default refresh | Not confirmed; public technical docs expose `getSMS` polling | Generic route: `/api/v1/provider-webhooks/smsman` | Route ready, provider webhook capability unconfirmed | Ask support/docs for callback/webhook support |
-| `smspool` | Exists, but no longer used for default refresh | Not confirmed from currently reviewed public docs | Generic route: `/api/v1/provider-webhooks/smspool` | Route ready, provider webhook capability unconfirmed | Check account/API docs or support |
-| `textverified` | Exists, but no longer used for default refresh | Not confirmed from currently reviewed public docs | Generic route: `/api/v1/provider-webhooks/textverified` | Route ready, provider webhook capability unconfirmed | Check API reference/account settings |
-| `telabot` | Exists, but no longer used for default refresh | Not confirmed from local docs/search | Generic route: `/api/v1/provider-webhooks/telabot` | Route ready, provider webhook capability unconfirmed | Check provider docs/support |
-| `smsman_s6` | Same backend as `smsman` | Same as `smsman` | Generic route: `/api/v1/provider-webhooks/smsman_s6` | Alias; follows `smsman` | Do not classify separately |
+| `herosms` | Exists, but no longer used for default refresh | Confirmed from supplied HeroSMS docs: incoming SMS webhook posts `activationId`, `service`, `text`, `code`, `country`, `receivedAt` | Generic route: `/api/v1/provider-webhooks/herosms` | Webhook confirmed and parser-compatible | Configure provider callback, then verify real `provider_webhook_events` |
+| `pvapins` | Exists, but no longer used for default refresh | Not confirmed from supplied PVAPins page; docs emphasize polling `get_sms.php`; latest rent request docs use `get_number.php` with `is_rent=1` | Generic route: `/api/v1/provider-webhooks/pvapins` | Public docs look polling-only; provider should be disabled/quarantined unless support confirms callbacks | Ask support or find account dashboard webhook settings |
+| `vaksms` | Exists, but no longer used for default refresh | Reviewed official V0/V1/V2 docs: no webhook/callback; SMS delivery uses `getStatus`, `getSmsCode`, `/user/check/{id}`, or rental inbox reads | Generic route: `/api/v1/provider-webhooks/vaksms` | Public docs look polling-only; provider should be disabled/quarantined unless support confirms callbacks | Ask support/docs for callback/webhook support before live cutover |
+| `nonvoip` | Exists, but no longer used for default refresh | Confirmed from supplied non-VoIP API reference: profile-level webhook sends order `id`, `number`, `code`, `message`, `date` | Generic route: `/api/v1/provider-webhooks/nonvoip` | Webhook confirmed and parser-compatible | Configure non-VoIP webhook URL and verify real `provider_webhook_events` |
+| `smspool` | Exists, but no longer used for default refresh | Reviewed official Postman collection: no webhook/callback entries; SMS delivery uses `sms/check`, rentals use `rental/retrieve_messages` | Generic route: `/api/v1/provider-webhooks/smspool` | Public docs look polling-only; provider should be disabled/quarantined unless support confirms callbacks | Ask support/account manager for webhook support |
+| `textverified` | Exists, but no longer used for default refresh | Confirmed in official v2 Swagger: `v2.sms.received` webhook with `data.reservationId`, `data.smsContent`, `data.parsedCode` | Generic route with TextVerified parser: `/api/v1/provider-webhooks/textverified` | Webhook confirmed and implemented | Configure TextVerified API Webhook Settings and verify signature/event processing |
+| `telabot` | Exists, but no longer used for default refresh | Confirmed from supplied Tell A Bot docs: webhook URL receives `incoming_message` posts with `id`, `reply`, `pin`, `service`, and retry behavior | Generic route: `/api/v1/provider-webhooks/telabot` | Webhook confirmed and parser-compatible | Configure Account -> Profile webhook URL and verify real `provider_webhook_events` |
+| `nonvoip_s6` | Same backend as `nonvoip` | Same as non-VoIP-backed `nonvoip` | Generic route: `/api/v1/provider-webhooks/nonvoip_s6` | Alias; follows `nonvoip` | Do not classify separately |
 
 ## Implementation State
 
@@ -45,11 +45,14 @@ Added:
 - Internal provider webhook audit API with replay support.
 - Customer webhook outbox/delivery worker.
 - Internal support review queue for auto-refund failures.
+- Shared rental no-SMS protection service: provider close/cancel, local wallet refund, background guard, and global sweep all read stored webhook state first and only use provider close APIs when a refund action is due.
+- Mini App purchase no longer has provider-direct fallback helpers; all temp/rental/voice purchases must go through shared API quote/order services.
 
 Not done:
 
 - Live provider dashboard configuration for all active providers.
-- Real callback verification for HeroSMS, SMSPool, TextVerified, SMS-Man, VAK-SMS, PVAPins, and Telabot.
+- Public/API docs do not currently confirm webhooks for SMSPool, VAK-SMS, and PVAPins.
+- HeroSMS, TextVerified, non-VoIP, and Tell A Bot have documented webhook support, but still need live account-level delivery verification.
 - Bespoke parser upgrades for providers whose real webhook payload does not fit the generic normalizer.
 
 ## Cutover Plan

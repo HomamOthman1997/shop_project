@@ -1,6 +1,6 @@
 # Numbers Mini App Migration Checklist
 
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 
 ## Status legend
@@ -21,37 +21,53 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 ## Already moved to the Mini App
 
 - [x] Temporary number price check and purchase
+  - Mini App price rows use the shared API quote-token format, purchase routes through `create_number_order_from_quote(...)`, legacy/non-API Mini App quote tokens are rejected, and old Mini App-only provider purchase helpers were removed.
+- [x] Country suggestions
+  - `country_suggestions_service` owns the shared cheap-country cache/ranking, the Mini App calls that service, and `/api/v1/numbers/country-suggestions` exposes the same behavior through `numbers:quotes`.
 - [x] Rental number price check and purchase
+  - Rental quote options use signed shared quote tokens, and purchase routes through the shared rental order creation path.
 - [x] Call number price check and purchase
+  - Voice quote rows use signed shared quote tokens, and purchase routes through the shared voice order creation path.
 - [x] Best-choice provider display
 - [x] Show other available providers
 - [x] Hide unavailable providers from the customer UI
 - [x] Provider success-rate display with star badge
 - [x] My numbers / active orders view
-- [x] Temporary order status refresh through the shared API service
+- [x] Mini App order payload uses the shared public API order payload as its base.
+  - Done means: provider obfuscation, public status, refund payload, action flags, and cost-hiding come from `order_service.public_order_payload(...)`; the Mini App layer only adds UI labels/detail rows, Mini App recording URL, refresh flags, and second-code display fields.
+- [x] Order status refresh through the shared API service
+  - Mini App refresh now calls `order_refresh_service.refresh_number_order(...)` for temporary, rental, and voice orders.
   - Refresh is webhook-first and does not poll providers when webhook delivery is active or global provider polling is disabled.
+  - The active orders screen does a user-triggered/status refresh only; the old JavaScript auto-poll timer was removed.
 - [x] Server-managed temporary refund flow
   - The Mini App no longer exposes a primary manual refund button for temp orders. Timeout/no-code refunds are handled by backend policy, provider-aware cancellation, wallet refund, and support-review escalation.
 - [x] Refund state display
   - Customers can see refunded/pending-refund state on the order receive card.
 - [x] Replacement number request
 - [x] Alternate provider retry with suggested price
-  - Backend tests now cover current-provider replacement and alternate-provider replacement.
-  - Alternate provider ranking now uses the same retry scoring helper as the Telegram flow.
+  - Mini App replacement/alternate actions now call the shared Numbers order service and use idempotency keys.
+  - Telegram replacement/alternate callbacks also call the same service with `source=numbers_telegram`; Telegram keeps only refund precheck, chat message update, and waiter queueing.
 - [x] Second-code request
   - Mini App now delegates to the API-level resend service. The order resets to waiting and the next code is expected through provider webhook delivery.
 - [x] Rental SMS display/action
-  - With provider polling disabled, rental SMS action reads stored webhook state instead of polling the provider.
+  - Rental SMS calls `order_rental_service` and reads stored webhook state instead of polling the provider.
 - [x] Rental finish action
 - [x] Rental renew action
 - [x] Rental wake action
 - [x] Rental notes/tags fetch
-- [x] Rental cancel/refund action when eligible and no SMS was received
+  - Rental finish/renew/wake/notes now call `order_rental_service`; the Mini App layer only handles Telegram auth and UI payload conversion.
+- [x] Rental refund protection is server-managed; the Mini App does not advertise a manual cancel action.
+  - Rental no-SMS guard/cancel/refund logic now delegates to `order_rental_protection_service`, the same backend service used by Telegram wrappers and API rental creation.
+  - The unused Mini App manual cancel route implementation and dead frontend cancel/refund copy were removed; `/mini/numbers/api/orders/{order_id}/cancel` remains unregistered.
 - [x] Call recording download when available
+  - Download uses `order_recording_service` and already-stored recording URIs only; it does not poll provider call status before downloading.
 - [x] Account screen
 - [x] Wallet activity with order subject when `order_id` is available
 - [x] Support ticket creation
 - [x] Language switching
+- [x] Numbers bot customer entry now opens the Mini App surface only
+  - `/start`, language selection, legacy cancel/back, stale `flow:type:*` callbacks, and empty My Numbers no longer route the real Numbers bot into Telegram ordering.
+  - Legacy temp/rental/voice Telegram order buttons require `NUMBERS_TELEGRAM_ORDER_FLOW_ENABLED=true`; the documented/default value is false.
 - [x] Sticky bottom tabs
 - [x] Two-column provider layout for non-best providers
 
@@ -90,9 +106,11 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 - [x] Confirm auto-refund behavior after timeout across providers.
   - Done means: no-code/no-call timeout checks provider first, refunds provider when needed, then refunds wallet idempotently.
 - [x] Confirm manual/admin-side provider refund sync.
-  - Done means: if provider/site already refunded or removed the activation, Mini App refresh/cancel can still close locally and credit the user when eligible.
+  - Done means: if provider/site already refunded or removed the activation, Mini App refresh/server-managed refund can still close locally and credit the user when eligible.
 - [x] Add visible order timeline/history for refund attempts.
   - Done means: customer sees that the app is checking provider/wallet instead of thinking the button is stuck. Mini App now includes recent backend order events when available.
+- [x] Remove dead Mini App manual cancel/action branches after shared-service consolidation.
+  - Done means: the Mini App rental action handlers no longer keep unreachable provider-direct fallback code after returning shared-service responses, and no unused customer cancel endpoint remains in `miniapp.py`.
 
 ### Wallet And Recharge
 

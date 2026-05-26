@@ -152,7 +152,7 @@ Percentages below are engineering closure estimates from the current codebase, n
 | Success-rate enrichment | `services/numbers/manager.py` | 84% | Strong but open | Solid, but still heuristic |
 | TextVerified specialized flow | `services/numbers/handlers/core_numbers.py`, `services/numbers/providers/textverified_provider.py` | 87% | Near closed | Strong |
 | SMSPool compatibility/fallbacks | `services/numbers/providers/smspool_provider.py` | 86% | Near closed | Strong |
-| SMS-Man provider | `services/numbers/providers/smsman_provider.py` | 82% | Strong but open | Strong enough, still provider-risk dependent |
+| Non-VoIP provider | `services/numbers/providers/nonvoip_provider.py` | 82% | Strong but open | Strong enough, still provider-risk dependent |
 | TellABot provider | `services/numbers/providers/telabot_provider.py` | 78% | Open but usable | Sensitive to timeout/provider behavior |
 | HeroSMS provider | `services/numbers/providers/herosms_provider.py` | 81% | Strong but open | Strong enough |
 | Numbers inline search | `services/numbers/handlers/numbers_inline.py` | 85% | Near closed | Good enough |

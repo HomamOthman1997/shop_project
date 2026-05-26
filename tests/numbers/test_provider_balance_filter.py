@@ -30,7 +30,7 @@ async def test_get_all_prices_filters_provider_with_insufficient_balance(monkeyp
     monkeypatch.setattr(
         manager,
         "PROVIDERS",
-        {"smspool": _LowBalanceProvider(), "smsman": _EnoughBalanceProvider()},
+        {"smspool": _LowBalanceProvider(), "nonvoip": _EnoughBalanceProvider()},
         raising=False,
     )
     monkeypatch.setattr(manager, "get_provider_service_resolution_dynamic", _fake_provider_resolution)
@@ -39,8 +39,8 @@ async def test_get_all_prices_filters_provider_with_insufficient_balance(monkeyp
 
     prices = await manager.get_all_prices("paypal", "1", None)
     assert "smspool" not in prices
-    assert "smsman" in prices
-    assert prices["smsman"]["base_price"] == 0.55
+    assert "nonvoip" in prices
+    assert prices["nonvoip"]["base_price"] == 0.55
 
 
 @pytest.mark.asyncio

@@ -32,7 +32,7 @@ _SUCCESS_RATE_DISPLAY_MIN_ATTEMPTS = max(
     1,
     int(getattr(settings, "numbers_success_rate_display_min_attempts", 5) or 5),
 )
-_HIDDEN_TEMP_PROVIDER_CODES = {"smsman", "smsman_s6"}
+_HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
 
 
 def _format_success_rate(value: float | int | str | None, attempts: int | None = None) -> str:
@@ -233,35 +233,37 @@ def _button_label(text: str, *, icon_id: str | None = None) -> str:
 
 
 def number_type_kb(lang: str, *, show_cancel: bool = True) -> InlineKeyboardMarkup:
-    rows = [
-        *(
-            [[button]]
-            if (button := _numbers_miniapp_button(lang)) is not None
-            else []
-        ),
-        [
-            InlineKeyboardButton(
-                text=_button_label(t(lang, "temp_numbers"), icon_id=_ICON_TEMP_NUMBERS),
-                callback_data="flow:type:temp",
-                style="primary",
-                icon_custom_emoji_id=_ICON_TEMP_NUMBERS,
-            ),
-            InlineKeyboardButton(
-                text=_button_label(t(lang, "rental_numbers"), icon_id=_ICON_RENTAL_NUMBERS),
-                callback_data="flow:type:rental",
-                style="success",
-                icon_custom_emoji_id=_ICON_RENTAL_NUMBERS,
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                text=_button_label(_numbers_text(lang, "🇺🇸 US Call Number", "🇺🇸 رقم اتصال أمريكي"), icon_id=_ICON_CALL_NUMBER),
-                callback_data="flow:type:voice",
-                style="danger",
-                icon_custom_emoji_id=_ICON_CALL_NUMBER,
-            )
-        ],
-    ]
+    miniapp_button = _numbers_miniapp_button(lang)
+    rows = [[miniapp_button]] if miniapp_button is not None else []
+    if bool(getattr(settings, "numbers_telegram_order_flow_enabled", False)):
+        rows.extend(
+            [
+                [
+                    InlineKeyboardButton(
+                        text=_button_label(t(lang, "temp_numbers"), icon_id=_ICON_TEMP_NUMBERS),
+                        callback_data="flow:type:temp",
+                        style="primary",
+                        icon_custom_emoji_id=_ICON_TEMP_NUMBERS,
+                    ),
+                    InlineKeyboardButton(
+                        text=_button_label(t(lang, "rental_numbers"), icon_id=_ICON_RENTAL_NUMBERS),
+                        callback_data="flow:type:rental",
+                        style="success",
+                        icon_custom_emoji_id=_ICON_RENTAL_NUMBERS,
+                    ),
+                ],
+                [
+                    InlineKeyboardButton(
+                        text=_button_label(_numbers_text(lang, "US Call Number", "رقم اتصال أمريكي"), icon_id=_ICON_CALL_NUMBER),
+                        callback_data="flow:type:voice",
+                        style="danger",
+                        icon_custom_emoji_id=_ICON_CALL_NUMBER,
+                    )
+                ],
+            ]
+        )
+    if not rows:
+        rows = [[InlineKeyboardButton(text=t(lang, "btn_support"), callback_data="support:open")]]
     if show_cancel:
         rows.append(
             [

@@ -28,13 +28,18 @@ async def refresh_number_order(order: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(order, dict) or not order.get("_id"):
         raise NumbersOrderError("order_not_found", "Order was not found.", status=404)
 
-    mode = str(order.get("number_mode") or "temp").strip().lower()
-    if mode != "temp":
-        raise NumbersOrderError("unsupported_order_mode", "This order mode does not support refresh yet.", status=409)
-
     current = await get_order(order["_id"]) or order
+    mode = str(current.get("number_mode") or order.get("number_mode") or "temp").strip().lower()
     if str(current.get("status") or "").strip().lower() in _CLOSED_STATUSES:
         return {"ok": True, "order": public_order_payload(current)}
+    if mode in {"rental", "voice"}:
+        now = _utc_now()
+        patch = {"api_last_refresh_at": now, "api_last_refresh_mode": "provider_webhook"}
+        await update_order_details(current["_id"], patch)
+        refreshed = await get_order(current["_id"]) or {**current, **patch}
+        return {"ok": True, "order": public_order_payload(refreshed), "message": "Waiting for provider webhook."}
+    if mode != "temp":
+        raise NumbersOrderError("unsupported_order_mode", "This order mode does not support refresh yet.", status=409)
 
     if _has_received_code(current):
         return {"ok": True, "order": public_order_payload(current)}

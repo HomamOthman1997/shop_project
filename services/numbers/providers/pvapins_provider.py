@@ -550,10 +550,10 @@ class PVAPinsProvider(BaseProvider):
         app, operator = self._split_operator(str(kwargs.get("provider_app") or service))
         if not app:
             return {"success": False, "raw": "service_not_found"}
-        params: dict[str, Any] = {"app": app, "country": country_name}
+        params: dict[str, Any] = {"app": app, "country": country_name, "is_rent": 1}
         if operator:
             params["operator"] = operator
-        status, payload = await self._request("rent.php", **params)
+        status, payload = await self._request("get_number.php", **params)
         number = self._extract_number(payload)
         if status != 200 or not number:
             return {"success": False, "raw": payload}

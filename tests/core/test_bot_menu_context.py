@@ -146,14 +146,15 @@ def test_numbers_menu_is_numbers_only(monkeypatch):
 
     monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", False, raising=False)
 
-    labels = [btn.text for row in numbers_main_menu("en").keyboard for btn in row]
+    labels = [btn.text for row in numbers_main_menu("en").inline_keyboard for btn in row]
 
     assert labels == [
-        t("en", "btn_my_numbers"),
         t("en", "user_settings_my_account"),
+        t("en", "btn_add_balance"),
         t("en", "btn_support"),
-        t("en", "btn_more_services"),
     ]
+    callbacks = [btn.callback_data for row in numbers_main_menu("en").inline_keyboard for btn in row]
+    assert callbacks == ["uset:open", "uset:recharge", "support:open"]
     assert t("en", "btn_services") not in labels
     assert t("en", "btn_create_bot") not in labels
     assert t("en", "btn_proxies") not in labels
@@ -169,12 +170,12 @@ def test_numbers_menu_adds_miniapp_button_when_enabled(monkeypatch):
     monkeypatch.delenv("RAILWAY_STATIC_URL", raising=False)
 
     kb = numbers_main_menu("en")
-    first_button = kb.keyboard[0][0]
+    first_button = kb.inline_keyboard[0][0]
 
     assert first_button.text == "Open Numbers App"
     assert first_button.web_app is not None
     assert first_button.web_app.url == "https://numbers.example.com/mini/numbers"
-    assert kb.keyboard[1][0].text == t("en", "btn_my_numbers")
+    assert kb.inline_keyboard[1][0].callback_data == "uset:open"
 
 
 @pytest.mark.asyncio
@@ -213,9 +214,9 @@ async def test_menu_for_current_bot_uses_numbers_menu(monkeypatch):
     monkeypatch.setattr(bot_menu_context, "is_reseller_owned_bot", _false)
 
     kb = await bot_menu_context.menu_for_current_bot("ar", 123)
-    labels = [btn.text for row in kb.keyboard for btn in row]
+    labels = [btn.text for row in kb.inline_keyboard for btn in row]
 
-    assert labels == [btn.text for row in numbers_main_menu("ar").keyboard for btn in row]
+    assert labels == [btn.text for row in numbers_main_menu("ar").inline_keyboard for btn in row]
 
 
 @pytest.mark.asyncio

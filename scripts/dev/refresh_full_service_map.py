@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from services.numbers.providers.herosms_provider import HeroSMSProvider
-from services.numbers.providers.smsman_provider import SMSManProvider
+from services.numbers.providers.nonvoip_provider import NonVoipProvider
 from services.numbers.core.session_manager import SessionManager
 from services.numbers.data import smspool_services, telabot_services, textverified_services
 from services.numbers.service_families import normalize_service_key
@@ -87,7 +87,7 @@ async def _iter_herosms_rows() -> list[tuple[str, Any]]:
 
 
 async def _iter_nonvoip_rows() -> list[tuple[str, Any]]:
-    provider = SMSManProvider()
+    provider = NonVoipProvider()
     rows: list[tuple[str, Any]] = []
     try:
         services = await provider.list_services(force_refresh=True)
@@ -117,7 +117,7 @@ async def main() -> None:
         "telabot": 0,
         "textverified": 0,
         "herosms": 0,
-        "smsman": 0,
+        "nonvoip": 0,
     }
 
     for row in smspool_services.DATA:
@@ -147,9 +147,9 @@ async def main() -> None:
         stats["herosms"] += 1
 
     for name, sid in await _iter_nonvoip_rows():
-        if _add_mapping(full_map, "smsman", name, sid):
+        if _add_mapping(full_map, "nonvoip", name, sid):
             changed += 1
-        stats["smsman"] += 1
+        stats["nonvoip"] += 1
 
     FULL_MAP_PATH.write_text(json.dumps(full_map, indent=2, ensure_ascii=False), encoding="utf-8")
 

@@ -1,12 +1,12 @@
 import pytest
 
 from config import settings
-from services.numbers.providers.smsman_provider import SMSManProvider
+from services.numbers.providers.nonvoip_provider import NonVoipProvider
 
 
 @pytest.mark.asyncio
 async def test_resolve_service_code_by_name(monkeypatch):
-    provider = SMSManProvider()
+    provider = NonVoipProvider()
 
     async def fake_services(force_refresh=False):
         return [
@@ -21,7 +21,7 @@ async def test_resolve_service_code_by_name(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_resolve_service_code_does_not_fuzzy_match_unknown(monkeypatch):
-    provider = SMSManProvider()
+    provider = NonVoipProvider()
 
     async def fake_services(force_refresh=False):
         return [
@@ -36,8 +36,8 @@ async def test_resolve_service_code_does_not_fuzzy_match_unknown(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_price_parses_nested_payload(monkeypatch):
-    provider = SMSManProvider()
-    monkeypatch.setattr(settings, "smsman_price_currency", "USD")
+    provider = NonVoipProvider()
+    monkeypatch.setattr(settings, "nonvoip_price_currency", "USD")
 
     async def fake_resolve_country(country):
         assert country == "1"
@@ -63,7 +63,7 @@ async def test_get_price_parses_nested_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_buy_number_success(monkeypatch):
-    provider = SMSManProvider()
+    provider = NonVoipProvider()
 
     async def fake_resolve_country(country):
         return "187"
@@ -86,7 +86,7 @@ async def test_buy_number_success(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_buy_number_blocked_by_limits(monkeypatch):
-    provider = SMSManProvider()
+    provider = NonVoipProvider()
 
     async def fake_resolve_country(country):
         return "187"
@@ -106,7 +106,7 @@ async def test_buy_number_blocked_by_limits(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_sms_wait_and_code(monkeypatch):
-    provider = SMSManProvider()
+    provider = NonVoipProvider()
 
     calls = {"n": 0}
 
@@ -130,7 +130,7 @@ async def test_get_sms_wait_and_code(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cancel_fallback_to_close(monkeypatch):
-    provider = SMSManProvider()
+    provider = NonVoipProvider()
 
     calls: list[str] = []
 
@@ -149,7 +149,7 @@ async def test_cancel_fallback_to_close(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_balance_parses_float(monkeypatch):
-    provider = SMSManProvider()
+    provider = NonVoipProvider()
 
     async def fake_request(endpoint, **params):
         assert endpoint == "get-balance"

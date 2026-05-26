@@ -5,6 +5,7 @@ from typing import Any
 
 from database.orders_repo import create_order, extract_order_amounts, get_order, update_order_details, update_order_status
 from services.numbers.manager import PROVIDERS
+from services.numbers.order_charge_service import charge_order_or_raise
 from services.numbers.order_refresh_service import refresh_number_order
 from services.numbers.order_service import NumbersOrderError, public_order_payload
 from services.numbers.shared.events import _log_temp_event
@@ -89,6 +90,7 @@ async def request_number_order_resend(
         source="numbers_api",
         telegram_bot_id=None,
         refresh_order_fn=lambda item: _refresh_after_resend(item),
+        charge_order_fn=lambda **kwargs: charge_order_or_raise(lang="en", **kwargs),
     )
     if not result.get("ok"):
         code = str(result.get("code") or "resend_failed")

@@ -27,6 +27,8 @@ _ALLOWED_CUSTOMER_SCOPES = {
     "numbers:orders:create",
     "numbers:orders:refresh",
     "numbers:orders:resend",
+    "numbers:orders:replace",
+    "numbers:orders:rental",
     "webhooks:manage",
 }
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from aiohttp import web
 
-from database.financial_ledger import get_user_wallet_balance
+from database.financial_ledger import get_user_wallet_balance, list_user_wallet_entries
 from database.orders_repo import (
     get_user_number_order,
     list_api_temp_refund_support_reviews,
@@ -14,11 +15,28 @@ from database.orders_repo import (
 )
 from database.provider_webhook_repo import list_provider_webhook_events
 from database.user_repo import get_user
-from services.numbers.api_payloads import TEMP_QUOTE_PROVIDER_CODES, normalize_temp_quote_rows, numbers_bootstrap_payload
-from services.numbers.manager import get_all_prices
+from services.numbers.api_payloads import (
+    TEMP_QUOTE_PROVIDER_CODES,
+    VOICE_GENERIC_SERVICE,
+    normalize_rental_quote_rows,
+    normalize_temp_quote_rows,
+    normalize_voice_quote_rows,
+    numbers_bootstrap_payload,
+    voice_provider_offer_is_buyable,
+)
+from services.numbers.country_suggestions_service import country_suggestions_for_service
+from services.numbers.manager import get_all_prices, get_all_rental_prices, get_all_voice_prices
+from services.numbers.order_recording_service import download_voice_order_recording
 from services.numbers.order_refresh_service import refresh_number_order
+from services.numbers.order_rental_service import (
+    finish_rental_order,
+    renew_rental_order,
+    rental_notes_state,
+    rental_sms_state,
+    wake_rental_order,
+)
 from services.numbers.order_resend_service import request_number_order_resend
-from services.numbers.order_service import NumbersOrderError, create_temp_order_from_quote, public_order_payload
+from services.numbers.order_service import NumbersOrderError, create_number_order_from_quote, public_order_payload, request_replacement_order
 from services.numbers.provider_webhook_service import replay_provider_webhook_event
 from services.numbers.service_map import get_service_display_name, resolve_canonical_service_key
 from services.platform.api_auth import ApiAuthContext, require_api_auth
@@ -35,6 +53,8 @@ _NO_STORE_HEADERS = {
     "Pragma": "no-cache",
     "Expires": "0",
 }
+
+logger = logging.getLogger("numbers_api")
 
 
 async def health(_request: web.Request) -> web.Response:
@@ -63,6 +83,63 @@ def _iso_datetime(value) -> str | None:
     return None
 
 
+def _wallet_activity_kind(reason: object, category: object) -> str:
+    reason_text = str(reason or "").strip().lower()
+    category_text = str(category or "").strip().lower()
+    if category_text == "core_purchase" or reason_text.startswith("purchase_core_"):
+        return "numbers_purchase"
+    if category_text == "core_refund" or reason_text.startswith("refund_core_"):
+        return "numbers_refund"
+    if category_text == "recharge_credit" or reason_text == "recharge_request_accepted":
+        return "balance_recharge"
+    if category_text in {"manual_credit", "manual_adjustment"}:
+        return "balance_adjustment"
+    return "wallet_activity"
+
+
+def _wallet_activity_label(kind: str) -> str:
+    labels = {
+        "numbers_purchase": "Numbers purchase",
+        "numbers_refund": "Numbers refund",
+        "balance_recharge": "Balance recharge",
+        "balance_adjustment": "Balance adjustment",
+    }
+    return labels.get(kind, "Wallet activity")
+
+
+def _wallet_activity_payload(entries: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for entry in entries or []:
+        try:
+            amount = float(entry.get("amount") or 0.0)
+        except Exception:
+            amount = 0.0
+        try:
+            balance_after = float(entry.get("balance_after") or 0.0)
+        except Exception:
+            balance_after = 0.0
+        direction = str(entry.get("direction") or "").strip().lower()
+        if direction not in {"credit", "debit", "noop"}:
+            direction = ""
+        kind = _wallet_activity_kind(entry.get("reason"), entry.get("category"))
+        sign = "+" if amount > 0 else "-" if amount < 0 else ""
+        rows.append(
+            {
+                "id": str(entry.get("_id") or ""),
+                "kind": kind,
+                "label": _wallet_activity_label(kind),
+                "direction": direction,
+                "amount": amount,
+                "amount_label": f"{sign}{_format_money(abs(amount))}" if amount else _format_money(0),
+                "balance_after": balance_after,
+                "balance_label": _format_money(balance_after),
+                "created_at": _iso_datetime(entry.get("created_at")),
+                "order_id": str(entry.get("order_id") or ""),
+            }
+        )
+    return rows
+
+
 async def account(request: web.Request) -> web.Response:
     auth = await require_api_auth(request, "numbers:account:read")
     rate_limit = await _check_rate_limit(auth, bucket="numbers:account:read", limit=60)
@@ -72,6 +149,12 @@ async def account(request: web.Request) -> web.Response:
         user_doc = {}
     balance = await get_user_wallet_balance(auth.user_id, auth.reseller_id)
     language = str(user_doc.get("language") or "en").strip().lower()
+    try:
+        recent_entries = await list_user_wallet_entries(auth.user_id, auth.reseller_id, limit=8)
+        recent_activity = _wallet_activity_payload(recent_entries)
+    except Exception:
+        logger.exception("numbers api account wallet activity failed user=%s", auth.user_id)
+        recent_activity = []
 
     return web.json_response(
         {
@@ -88,6 +171,7 @@ async def account(request: web.Request) -> web.Response:
                 "currency": "USD",
                 "balance_label": _format_money(balance),
             },
+            "recent_activity": recent_activity,
         },
         headers=_response_headers(rate_limit),
     )
@@ -102,31 +186,96 @@ async def quotes(request: web.Request) -> web.Response:
     country = str(request.query.get("country") or "none").strip() or "none"
     state = str(request.query.get("state") or "none").strip() or "none"
 
-    if mode != "temp":
+    if mode not in {"temp", "rental", "voice"}:
         return _json_error("Unsupported mode.", status=400, code="unsupported_mode", rate_limit=rate_limit)
     if not service:
         return _json_error("Missing service.", status=400, code="missing_service", rate_limit=rate_limit)
-    if country != "1":
+    if mode == "voice":
+        country = "1"
+    elif country != "1":
         state = "none"
 
-    raw = await get_all_prices(
-        service,
-        country,
-        state,
-        ignore_balance=True,
-        with_success_rates=False,
-        provider_codes=TEMP_QUOTE_PROVIDER_CODES,
-    )
+    if mode == "rental":
+        raw = await get_all_rental_prices(service, country, with_success_rates=False)
+        providers = normalize_rental_quote_rows(raw, service=service, country=country, state=state)
+    elif mode == "voice":
+        raw = await _voice_quote_prices(service, country, state)
+        providers = normalize_voice_quote_rows(raw, service=service, country=country, state=state)
+    else:
+        raw = await get_all_prices(
+            service,
+            country,
+            state,
+            ignore_balance=True,
+            with_success_rates=False,
+            provider_codes=TEMP_QUOTE_PROVIDER_CODES,
+        )
+        providers = normalize_temp_quote_rows(raw, service=service, country=country, state=state)
     return web.json_response(
         {
             "ok": True,
-            "mode": "temp",
+            "mode": mode,
             "service": {"key": service, "label": get_service_display_name(service) or service},
             "country": country,
             "state": state,
-            "providers": normalize_temp_quote_rows(raw, service=service, country=country, state=state),
+            "providers": providers,
         },
         headers=_response_headers(rate_limit),
+    )
+
+
+async def country_suggestions(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:quotes")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:country-suggestions", limit=60)
+
+    mode = str(request.query.get("mode") or "temp").strip().lower()
+    service = resolve_canonical_service_key(str(request.query.get("service") or ""))
+    limit = _parse_limit(request, default=10, maximum=20)
+
+    if mode not in {"temp", "rental", "voice"}:
+        return _json_error("Unsupported mode.", status=400, code="unsupported_mode", rate_limit=rate_limit)
+    if not service:
+        return web.json_response(
+            {"ok": True, "mode": mode, "service": "", "countries": []},
+            headers=_response_headers(rate_limit),
+        )
+
+    rows = await country_suggestions_for_service(mode, service, limit)
+    return web.json_response(
+        {
+            "ok": True,
+            "mode": mode,
+            "service": service,
+            "countries": rows,
+        },
+        headers=_response_headers(rate_limit),
+    )
+
+
+async def _voice_quote_prices(service: str, country: str, state: str) -> dict[str, dict]:
+    raw = await get_all_voice_prices(service, country, state, ignore_balance=True)
+    if _has_voice_buyable_offer(raw):
+        return raw
+    if str(service or "").strip().lower() == VOICE_GENERIC_SERVICE:
+        return raw
+
+    fallback = await get_all_voice_prices(VOICE_GENERIC_SERVICE, "1", state, ignore_balance=True)
+    patched: dict[str, dict] = {}
+    for code, info in (fallback or {}).items():
+        if not isinstance(info, dict):
+            continue
+        item = dict(info)
+        item["voice_fallback_service"] = True
+        item["voice_requested_service"] = str(service or "")
+        patched[str(code or "").strip().lower()] = item
+    return patched
+
+
+def _has_voice_buyable_offer(raw: dict[str, dict] | None) -> bool:
+    return any(
+        voice_provider_offer_is_buyable(str(code or "").strip().lower(), info)
+        for code, info in (raw or {}).items()
+        if isinstance(info, dict)
     )
 
 
@@ -210,6 +359,128 @@ async def resend_order(request: web.Request) -> web.Response:
         return _json_error("Order was not found.", status=404, code="order_not_found", rate_limit=rate_limit)
     try:
         result = await request_number_order_resend(order, user_id=auth.user_id, reseller_id=auth.reseller_id)
+    except NumbersOrderError as exc:
+        return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+    return web.json_response(result, headers=_response_headers(rate_limit))
+
+
+async def replace_order(request: web.Request) -> web.Response:
+    return await _replacement_order(request, alternate_provider=False)
+
+
+async def alternate_provider_order(request: web.Request) -> web.Response:
+    return await _replacement_order(request, alternate_provider=True)
+
+
+async def _replacement_order(request: web.Request, *, alternate_provider: bool) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:replace")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:replace", limit=20)
+    order_id = str(request.match_info.get("order_id") or "").strip()
+    order = await get_user_number_order(order_id, auth.user_id, auth.reseller_id)
+    if not isinstance(order, dict):
+        return _json_error("Order was not found.", status=404, code="order_not_found", rate_limit=rate_limit)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    idempotency_key = str(request.headers.get("Idempotency-Key") or (body or {}).get("idempotency_key") or "").strip()
+    try:
+        result = await request_replacement_order(
+            order=order,
+            user_id=auth.user_id,
+            reseller_id=auth.reseller_id,
+            idempotency_key=idempotency_key,
+            lang=str((body or {}).get("language") or "en"),
+            alternate_provider=alternate_provider,
+        )
+    except NumbersOrderError as exc:
+        return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+    return web.json_response(result, headers=_response_headers(rate_limit))
+
+
+async def download_order_recording(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:read")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:read", limit=90)
+    order_id = str(request.match_info.get("order_id") or "").strip()
+    order = await get_user_number_order(order_id, auth.user_id, auth.reseller_id)
+    if not isinstance(order, dict):
+        return _json_error("Order was not found.", status=404, code="order_not_found", rate_limit=rate_limit)
+    try:
+        data = await download_voice_order_recording(order)
+    except NumbersOrderError as exc:
+        return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+
+    headers = {
+        **_response_headers(rate_limit),
+        "Content-Disposition": f'attachment; filename="{data["filename"]}"',
+    }
+    return web.Response(body=data["content"], content_type=data["content_type"], headers=headers)
+
+
+async def rental_sms_order(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:rental")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:rental", limit=30)
+    order = await _get_scoped_order(request, auth, rate_limit=rate_limit)
+    if isinstance(order, web.Response):
+        return order
+    try:
+        result = await rental_sms_state(order)
+    except NumbersOrderError as exc:
+        return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+    return web.json_response(result, headers=_response_headers(rate_limit))
+
+
+async def finish_rental(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:rental")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:rental", limit=30)
+    order = await _get_scoped_order(request, auth, rate_limit=rate_limit)
+    if isinstance(order, web.Response):
+        return order
+    try:
+        result = await finish_rental_order(order)
+    except NumbersOrderError as exc:
+        return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+    return web.json_response(result, headers=_response_headers(rate_limit))
+
+
+async def renew_rental(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:rental")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:rental", limit=30)
+    order = await _get_scoped_order(request, auth, rate_limit=rate_limit)
+    if isinstance(order, web.Response):
+        return order
+    try:
+        result = await renew_rental_order(
+            order=order,
+            user_id=auth.user_id,
+            idempotency_key=str(request.headers.get("Idempotency-Key") or "").strip(),
+        )
+    except NumbersOrderError as exc:
+        return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+    return web.json_response(result, headers=_response_headers(rate_limit))
+
+
+async def wake_rental(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:rental")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:rental", limit=30)
+    order = await _get_scoped_order(request, auth, rate_limit=rate_limit)
+    if isinstance(order, web.Response):
+        return order
+    try:
+        result = await wake_rental_order(order)
+    except NumbersOrderError as exc:
+        return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+    return web.json_response(result, headers=_response_headers(rate_limit))
+
+
+async def rental_notes(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:rental")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:rental", limit=30)
+    order = await _get_scoped_order(request, auth, rate_limit=rate_limit)
+    if isinstance(order, web.Response):
+        return order
+    try:
+        result = await rental_notes_state(order)
     except NumbersOrderError as exc:
         return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
     return web.json_response(result, headers=_response_headers(rate_limit))
@@ -304,6 +575,19 @@ def _refund_review_payload(order: dict) -> dict:
     }
 
 
+async def _get_scoped_order(
+    request: web.Request,
+    auth: ApiAuthContext,
+    *,
+    rate_limit: ApiRateLimitDecision,
+) -> dict | web.Response:
+    order_id = str(request.match_info.get("order_id") or "").strip()
+    order = await get_user_number_order(order_id, auth.user_id, auth.reseller_id)
+    if not isinstance(order, dict):
+        return _json_error("Order was not found.", status=404, code="order_not_found", rate_limit=rate_limit)
+    return order
+
+
 def _response_headers(rate_limit: ApiRateLimitDecision | None = None) -> dict[str, str]:
     headers = dict(_NO_STORE_HEADERS)
     if rate_limit is not None:
@@ -352,7 +636,7 @@ async def create_order(request: web.Request) -> web.Response:
 
     idempotency_key = str(request.headers.get("Idempotency-Key") or (body or {}).get("idempotency_key") or "").strip()
     try:
-        result = await create_temp_order_from_quote(
+        result = await create_number_order_from_quote(
             user_id=auth.user_id,
             reseller_id=auth.reseller_id,
             quote_token=quote_token,
@@ -367,6 +651,7 @@ async def create_order(request: web.Request) -> web.Response:
 def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/numbers/health", health)
     app.router.add_get("/api/v1/numbers/catalog/bootstrap", catalog_bootstrap)
+    app.router.add_get("/api/v1/numbers/country-suggestions", country_suggestions)
     app.router.add_get("/api/v1/numbers/account", account)
     app.router.add_get("/api/v1/numbers/quotes", quotes)
     app.router.add_get("/api/v1/numbers/orders", list_orders)
@@ -374,6 +659,14 @@ def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/numbers/orders", create_order)
     app.router.add_post("/api/v1/numbers/orders/{order_id}/refresh", refresh_order)
     app.router.add_post("/api/v1/numbers/orders/{order_id}/resend", resend_order)
+    app.router.add_post("/api/v1/numbers/orders/{order_id}/replace", replace_order)
+    app.router.add_post("/api/v1/numbers/orders/{order_id}/alternate", alternate_provider_order)
+    app.router.add_get("/api/v1/numbers/orders/{order_id}/recording", download_order_recording)
+    app.router.add_post("/api/v1/numbers/orders/{order_id}/rental/sms", rental_sms_order)
+    app.router.add_post("/api/v1/numbers/orders/{order_id}/rental/finish", finish_rental)
+    app.router.add_post("/api/v1/numbers/orders/{order_id}/rental/renew", renew_rental)
+    app.router.add_post("/api/v1/numbers/orders/{order_id}/rental/wake", wake_rental)
+    app.router.add_post("/api/v1/numbers/orders/{order_id}/rental/notes", rental_notes)
     app.router.add_get("/api/v1/numbers/ops/refund-reviews", list_refund_reviews)
     app.router.add_post("/api/v1/numbers/ops/refund-reviews/{order_id}/resolve", resolve_refund_review)
     app.router.add_get("/api/v1/numbers/ops/provider-webhook-events", list_provider_webhook_audit_events)

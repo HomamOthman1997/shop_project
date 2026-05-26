@@ -11,7 +11,7 @@ from config import settings
 from services.numbers.core.session_manager import SessionManager
 from services.numbers.manager import PROVIDERS
 from services.numbers.providers.herosms_provider import HeroSMSProvider
-from services.numbers.providers.smsman_provider import SMSManProvider
+from services.numbers.providers.nonvoip_provider import NonVoipProvider
 from services.numbers.providers.smspool_provider import SMSPoolProvider
 from services.numbers.providers.telabot_provider import TelabotProvider
 from services.numbers.providers.textverified_provider import TextVerifiedProvider
@@ -23,9 +23,9 @@ from services.numbers.service_map import (
 )
 
 
-BULK_PRICE_PROVIDERS: tuple[str, ...] = ("smspool", "telabot", "smsman")
+BULK_PRICE_PROVIDERS: tuple[str, ...] = ("smspool", "telabot", "nonvoip")
 DIRECT_PRICE_PROVIDERS: tuple[str, ...] = ("herosms",)
-ALL_PROVIDERS: tuple[str, ...] = ("smspool", "telabot", "textverified", "herosms", "smsman", "vaksms")
+ALL_PROVIDERS: tuple[str, ...] = ("smspool", "telabot", "textverified", "herosms", "nonvoip", "vaksms")
 
 
 def _as_float(value: Any) -> float | None:
@@ -84,8 +84,8 @@ async def _fetch_telabot_bulk_prices() -> dict[str, float]:
     return out
 
 
-async def _fetch_smsman_bulk_prices() -> dict[str, float]:
-    provider = SMSManProvider()
+async def _fetch_nonvoip_bulk_prices() -> dict[str, float]:
+    provider = NonVoipProvider()
     rows = await provider.list_services(force_refresh=True)
     out: dict[str, float] = {}
     for row in rows:
@@ -245,10 +245,10 @@ async def build_report() -> dict[str, Any]:
             if provider_code == "vaksms":
                 vak_requested_map[service_key] = mapped
 
-    smspool_prices, telabot_prices, smsman_prices, hero_prices = await asyncio.gather(
+    smspool_prices, telabot_prices, nonvoip_prices, hero_prices = await asyncio.gather(
         _fetch_smspool_bulk_prices(),
         _fetch_telabot_bulk_prices(),
-        _fetch_smsman_bulk_prices(),
+        _fetch_nonvoip_bulk_prices(),
         _fetch_hero_prices(hero_requested_map),
     )
     textverified_catalog = _build_textverified_coverage()
@@ -256,7 +256,7 @@ async def build_report() -> dict[str, Any]:
     bulk_price_index = _normalize_bulk_index()
     bulk_price_index["smspool"] = smspool_prices
     bulk_price_index["telabot"] = telabot_prices
-    bulk_price_index["smsman"] = smsman_prices
+    bulk_price_index["nonvoip"] = nonvoip_prices
 
     per_service_rows: list[dict[str, Any]] = []
     provider_summary: dict[str, dict[str, Any]] = {
@@ -398,7 +398,7 @@ async def build_report() -> dict[str, Any]:
             "textverified": "No bulk pricing endpoint is wired in the current provider layer. Coverage was measured, but prices were not bulk-compared.",
             "smspool": "Price comparison uses the cheapest available price per service across all countries from /request/pricing.",
             "herosms": "Prices were fetched per mapped service via getPrices because list_services does not expose price fields.",
-            "smsman": "Comparison reflects the current NonVoIP reseller endpoint only.",
+            "nonvoip": "Comparison reflects the current NonVoIP reseller endpoint only.",
             "vaksms": "Coverage uses exact normalized name matches from the official VAK-SMS docs service table; prices come from the stub getPrices endpoint and were converted from RUB to USD.",
         },
     }

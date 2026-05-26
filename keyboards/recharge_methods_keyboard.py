@@ -1,19 +1,17 @@
-﻿from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
 from utils.translations import t
 
 
 def recharge_methods_keyboard(methods=None, lang: str = "en"):
     methods = methods or []
-    rows = []
-    two = []
-    for title, _code in methods:
-        two.append(KeyboardButton(text=title))
-        if len(two) == 2:
-            rows.append(two)
-            two = []
-    if two:
-        rows.append(two)
+    rows: list[list[InlineKeyboardButton]] = []
+    for title, code in methods:
+        safe_code = str(code or title or "").strip()
+        if not safe_code:
+            continue
+        rows.append([InlineKeyboardButton(text=str(title or safe_code), callback_data=f"recharge:method:{safe_code}")])
 
-    rows.append([KeyboardButton(text=t(lang, "btn_back"))])
-    rows.append([KeyboardButton(text=t(lang, "btn_cancel"))])
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+    rows.append([InlineKeyboardButton(text=t(lang, "btn_back"), callback_data="recharge:back")])
+    rows.append([InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data="recharge:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

@@ -118,7 +118,7 @@ This checklist is for engineering closure, not marketing release status.
 - [x] Success-rate enrichment exists
 - [x] TextVerified specialized flow exists
 - [x] SMSPool compatibility/fallback exists
-- [x] SMS-Man provider integration exists
+- [x] Non-VoIP provider integration exists
 - [x] TellABot provider integration exists
 - [x] HeroSMS provider integration exists
 - [x] Numbers inline search exists

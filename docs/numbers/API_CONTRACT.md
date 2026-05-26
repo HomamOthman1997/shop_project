@@ -1,7 +1,7 @@
 # Numbers API Contract
 
 Status: draft, backed by the dedicated `services/numbers/api.py` route layer
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 
 ## Base Paths
 
@@ -31,6 +31,8 @@ API keys are stored hashed and must carry scopes. Current scopes:
 - `numbers:orders:create`
 - `numbers:orders:refresh`
 - `numbers:orders:resend`
+- `numbers:orders:replace`
+- `numbers:orders:rental`
 - `numbers:account:read`
 - `webhooks:manage`
 - `numbers:support:review` for internal/support API keys only.
@@ -60,15 +62,33 @@ Stable error codes currently emitted by the versioned API:
 - `unsupported_mode`
 - `invalid_quote`
 - `expired_quote`
+- `quote_expired`
+- `unsupported_quote_mode`
+- `offer_unavailable`
 - `provider_unavailable`
 - `provider_price_changed`
 - `insufficient_balance`
+- `provider_failed`
 - `provider_purchase_failed`
 - `provider_not_available`
 - `missing_scopes`
+- `invalid_mode`
+- `unsupported_order_mode`
 - `invalid_owner`
+- `missing_idempotency_key`
+- `replace_unavailable`
+- `alternate_unavailable`
+- `order_closed`
+- `provider_order_missing`
+- `finish_failed`
+- `renew_not_supported`
+- `renew_failed`
+- `wake_failed`
+- `notes_not_supported`
 - `key_not_found`
 - `order_not_found`
+- `recording_not_ready`
+- `recording_download_failed`
 - `missing_resolution`
 - `review_not_found`
 - `invalid_reseller`
@@ -88,11 +108,14 @@ Authenticated API responses include:
 Current limits:
 
 - `numbers:quotes`: 120 requests per minute.
+- `numbers:country-suggestions`: 60 requests per minute.
 - `numbers:account:read`: 60 requests per minute.
 - `numbers:orders:read`: 90 requests per minute.
 - `numbers:orders:create`: 30 requests per minute.
 - `numbers:orders:refresh`: 60 requests per minute.
 - `numbers:orders:resend`: 30 requests per minute.
+- `numbers:orders:replace`: 20 requests per minute.
+- `numbers:orders:rental`: 30 requests per minute.
 - `webhooks:manage`: 30 requests per minute.
 - `numbers:support:review`: 60 requests per minute.
 - `api_keys:manage`: 30 requests per minute.
@@ -116,7 +139,7 @@ Body:
 ```json
 {
   "name": "customer bot",
-  "scopes": ["numbers:account:read", "numbers:quotes", "numbers:orders:read", "numbers:orders:create", "numbers:orders:refresh", "numbers:orders:resend", "webhooks:manage"]
+  "scopes": ["numbers:account:read", "numbers:quotes", "numbers:orders:read", "numbers:orders:create", "numbers:orders:refresh", "numbers:orders:resend", "numbers:orders:replace", "numbers:orders:rental", "webhooks:manage"]
 }
 ```
 
@@ -214,7 +237,7 @@ The backend matches `requestId` to `provider_order_id`, extracts the OTP from `m
 
 `POST /api/v1/provider-webhooks/{provider}?token=<provider-webhook-token>`
 
-Consumes generic provider SMS callbacks for providers whose payload contains common order/code fields such as `provider_order_id`, `order_id`, `activationId`, `requestId`, `code`, `otp`, `full_sms`, `text`, `message.text`, or `data.message`. This route is intentionally generic so provider dashboards can be switched to webhook delivery without adding a bespoke route for every provider.
+Consumes generic provider SMS callbacks for providers whose payload contains common order/code fields such as `provider_order_id`, `order_id`, `activationId`, `requestId`, `reservationId`, `code`, `otp`, `pin`, `parsedCode`, `full_sms`, `text`, `reply`, `message`, `message.text`, `data.message`, or `data.smsContent`. This route is intentionally generic so provider dashboards can be switched to webhook delivery without adding a bespoke route for every provider.
 
 Provider webhook processing now updates temporary orders and rental orders by `provider + provider_order_id`, logs an inbound audit event, and forwards customer-facing `numbers.order.sms` webhooks. Provider support and remaining verification work are tracked in `docs/numbers/PROVIDER_DELIVERY_MATRIX.md`.
 
@@ -240,11 +263,28 @@ Returns selector metadata:
 
 ### Country Suggestions
 
+Versioned API path:
+
+`GET /api/v1/numbers/country-suggestions?mode=temp&service=telegram&limit=10`
+
 Mini App path:
 
 `GET /mini/numbers/api/country-suggestions?mode=temp&service=telegram`
 
-Returns ranked countries for a service/mode.
+Returns ranked countries for a service/mode. The versioned API requires `numbers:quotes`, accepts `mode=temp|rental|voice`, canonicalizes service aliases, caps `limit` at 20, and returns an empty list for missing services or voice mode. The ranking service is shared with the Mini App so public API clients and the Telegram Mini App see the same country suggestions.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "mode": "temp",
+  "service": "telegram",
+  "countries": [
+    {"code": "1", "name": "USA", "price": 0.44, "price_label": "$0.44"}
+  ]
+}
+```
 
 ### Account
 
@@ -253,13 +293,28 @@ Returns ranked countries for a service/mode.
 Returns user profile, wallet balance, and recent wallet activity.
 
 Currently returns API-safe identity and wallet balance:
+`recent_activity` contains sanitized ledger rows. It intentionally does not expose raw ledger `reason`, metadata, actor ids, provider names, or debug details.
 
 ```json
 {
   "ok": true,
   "user": {"id": 123, "username": "customer", "language": "en", "joined_at": "2026-05-25T12:00:00+00:00"},
   "reseller": {"id": 123},
-  "wallet": {"balance": 10.5, "currency": "USD", "balance_label": "$10.50"}
+  "wallet": {"balance": 10.5, "currency": "USD", "balance_label": "$10.50"},
+  "recent_activity": [
+    {
+      "id": "tx-1",
+      "kind": "numbers_purchase",
+      "label": "Numbers purchase",
+      "direction": "debit",
+      "amount": -0.44,
+      "amount_label": "-$0.44",
+      "balance_after": 10.5,
+      "balance_label": "$10.50",
+      "created_at": "2026-05-25T12:05:00+00:00",
+      "order_id": "order-id"
+    }
+  ]
 }
 ```
 
@@ -277,22 +332,41 @@ Body:
 
 `GET /api/v1/numbers/quotes?mode=temp&service=telegram&country=1&state=none`
 
-Returns normalized provider rows with public provider IDs only. Real provider names must not be exposed to customers.
+`GET /api/v1/numbers/quotes?mode=rental&service=telegram&country=1&state=NY`
+
+`GET /api/v1/numbers/quotes?mode=voice&service=telegram&country=1&state=CA`
+
+Returns normalized provider rows with public provider IDs and obfuscated display names only. Real provider names must not be exposed to customers. Quote tokens are signed but not encrypted, so they must carry only public provider IDs (`provider_id`), never internal provider codes.
 
 Currently supported modes:
 
 - `temp`
-
-Planned modes:
-
 - `rental`
 - `voice`
+
+Temporary and voice quote rows contain a direct `quote_token` per provider. Rental quote rows contain `options[]`; each rental option has its own `quote_token`, `duration_label`, `price_label`, and safe state/renewal metadata. Provider raw option payloads and internal provider codes are not returned.
+
+Voice quotes are US call-number quotes. The API normalizes voice quote country to `1` and supports optional US state targeting through `state`.
 
 ### Orders
 
 `GET /api/v1/numbers/orders`
 
 Returns recent temp, rental, and voice orders for the authenticated user.
+Order payloads expose `provider_id` plus an obfuscated `provider` display name. They must not expose internal provider codes.
+Order payloads must not expose internal cost fields such as `base_price` or `base_price_label`.
+Refund payload reasons are customer-safe only: `automatic_refund`, `refund_pending`, or empty string. Raw provider/refund diagnostics belong in internal logs or support-review endpoints, not public customer payloads.
+Voice order payloads include `calls_count`, `recording_available`, and `recording_url` when a recording exists. The recording URL points to the versioned backend endpoint, not the upstream provider URL.
+Rental order payloads include customer-safe rental metadata and action flags:
+
+- `duration_label`
+- `end_date`
+- `notes`
+- `tags`
+- `can_finish`
+- `can_renew`
+- `can_wake`
+- `can_notes`
 
 Query:
 
@@ -317,18 +391,27 @@ Response:
 
 `POST /api/v1/numbers/orders`
 
-Creates a temporary-number order from a `quote_token`.
+Creates a temporary-number, rental-number, or voice call-number order from a `quote_token`.
 
 Headers:
 
 - `Authorization: Bearer <api-key>` with `numbers:orders:create` scope.
-- `Idempotency-Key`: strongly recommended for every money-moving request.
+- `Idempotency-Key`: strongly recommended for temporary, rental, and voice orders.
 
 Body:
 
 ```json
 {"quote_token": "quoted-offer-token", "language": "en"}
 ```
+
+Rules:
+
+- `mode=temp` quote tokens create temporary-number orders.
+- `mode=rental` option quote tokens create rental-number orders.
+- `mode=voice` quote tokens create US call-number orders.
+- Rental creation charges the wallet, reserves the rental with the provider, stores webhook delivery/protection metadata, and returns the public order payload.
+- Voice creation charges the wallet, reserves a call-capable number through the provider, stores webhook delivery metadata, and returns the public order payload.
+- Quote tokens are revalidated against current provider prices/options before charge.
 
 Response:
 
@@ -341,6 +424,8 @@ Response:
 Refreshes order status/SMS/call state.
 
 For temporary-number orders, refresh is webhook-first. It never polls providers when the order is marked for provider webhook delivery or when global provider polling is disabled. On timeout, the backend runs the provider-aware auto-refund path and returns the current refund state.
+
+For rental and voice orders, refresh returns the current persisted state only and records `api_last_refresh_at` / `api_last_refresh_mode=provider_webhook`. It does not call provider polling APIs; delivery is expected through provider webhooks or already stored order state.
 
 Response:
 
@@ -360,11 +445,107 @@ Response:
 {"ok": true, "second_order_id": "billing-order-id", "order": {"id": "order-id", "public_status": "waiting", "can_resend": false}}
 ```
 
+`POST /api/v1/numbers/orders/{order_id}/replace`
+
+Requests a new temporary or voice number after the original order is closed/refunded/expired without a received code or call recording. This endpoint requires `numbers:orders:replace` and an `Idempotency-Key`.
+
+Rules:
+
+- Only `temp` and `voice` orders are accepted.
+- The original order lookup is scoped to the authenticated API key owner/reseller.
+- The backend revalidates the current provider offer before charging.
+- The replacement order stores `temp_retry_source_order_id` and `temp_retry_reason=replace_request`.
+
+Response:
+
+```json
+{"ok": true, "order": {"id": "replacement-order-id", "public_status": "waiting"}}
+```
+
+`POST /api/v1/numbers/orders/{order_id}/alternate`
+
+Requests a replacement temporary number from a different provider. This endpoint requires `numbers:orders:replace` and an `Idempotency-Key`.
+
+Rules:
+
+- Only `temp` orders are accepted.
+- If no alternate provider is already stored on the original order, the backend evaluates current quoteable providers and stores a customer-safe alternate suggestion.
+- Internal provider codes and raw provider metadata are not returned.
+- The replacement order stores `temp_retry_source_order_id` and `temp_retry_reason=alternate_provider_request`.
+
+Common replacement errors:
+
+- `400 invalid_mode` when the order mode is not supported.
+- `400 missing_idempotency_key` when `Idempotency-Key` is missing.
+- `404 order_not_found` when the order is missing or outside the caller scope.
+- `409 replace_unavailable` when the original order is not eligible.
+- `409 alternate_unavailable` when no alternate provider is available.
+- `409 provider_unavailable` when the selected provider offer is no longer buyable.
+
 `GET /api/v1/numbers/orders/{order_id}/recording`
 
 Downloads a call recording when available.
 
+Required scope: `numbers:orders:read`.
+
+Rules:
+
+- Order lookup is scoped to the authenticated API key owner/reseller.
+- Only `voice` orders are accepted.
+- The backend delegates validation, provider download, and attachment filename selection to `order_recording_service`, then returns a no-store attachment.
+
+Responses:
+
+- `200` with audio bytes and `Content-Disposition: attachment`.
+- `400 invalid_mode` when the order is not a voice order.
+- `404 order_not_found` when the order is missing or outside the caller scope.
+- `404 recording_not_ready` when no recording URI is stored yet.
+- `502 recording_download_failed` when the upstream recording download fails.
+
 There is no public customer refund/cancel endpoint. Refunds are server-managed: the backend verifies that no code was received, checks the provider/order timeout policy, attempts provider cancellation, refunds through the ledger, and leaves failures for support review.
+
+### Rental Actions
+
+These endpoints require `numbers:orders:rental` and are scoped to the authenticated API key owner/reseller.
+
+`POST /api/v1/numbers/orders/{order_id}/rental/sms`
+
+Returns the current stored rental SMS state. This endpoint is webhook-first/state-read only: it records `api_last_rental_sms_check_at` and `api_last_rental_sms_check_mode=provider_webhook`, but it does not poll upstream provider SMS APIs.
+
+Response:
+
+```json
+{"ok": true, "messages": ["Your code is 123456"], "order": {"id": "order-id", "mode": "rental"}}
+```
+
+`POST /api/v1/numbers/orders/{order_id}/rental/finish`
+
+Finishes/closes an active rental through the provider when supported, stores `rental_finished_at`, and returns a public order payload. Replays after a stored finish return the current finished state.
+
+`POST /api/v1/numbers/orders/{order_id}/rental/renew`
+
+Renews a renewable rental through the provider. This endpoint requires `Idempotency-Key`; repeated requests with the same key and order return the saved response without calling the provider again.
+
+Headers:
+
+- `Idempotency-Key`: required.
+
+`POST /api/v1/numbers/orders/{order_id}/rental/wake`
+
+Requests provider wake/reactivation for an active rental when supported.
+
+`POST /api/v1/numbers/orders/{order_id}/rental/notes`
+
+Loads provider notes/tags for an active rental when supported, stores sanitized notes/tags on the order, and returns only customer-safe `notes`, `tags`, and public order payload. Provider raw responses are never returned.
+
+Common rental action errors:
+
+- `400 invalid_mode` when the order is not rental.
+- `400 missing_idempotency_key` for renew without an idempotency key.
+- `404 order_not_found` when the order is missing or outside caller scope.
+- `409 order_closed` when the rental is no longer active.
+- `409 provider_order_missing` when provider reservation data is incomplete.
+- `409 finish_failed`, `renew_not_supported`, `renew_failed`, `wake_failed`, or `notes_not_supported` for provider capability/action failures.
 
 ## Support Operations Endpoints
 
@@ -409,7 +590,25 @@ Replays a stored provider webhook payload through the current parser and order m
 
 ### Mini App Action Equivalents
 
-The Mini App still exposes workflow-specific action endpoints under `/mini/numbers/api/orders/{order_id}/...` for replacement, alternate provider retry, rental SMS/finish/renew/wake/notes, and voice recordings. These are not public versioned customer API endpoints yet. Public API exposure should happen only after each action has a stable request/response contract, scope, rate limit, and provider capability matrix.
+The Mini App still exposes workflow-specific action endpoints under `/mini/numbers/api/orders/{order_id}/...` for UI-specific flows. Country suggestions, rental quote/create, voice quote/create, replacement/alternate-provider retry, rental SMS/finish/renew/wake/notes, and voice recording download are now available through the versioned API. Public API exposure for any remaining Mini App-only action should happen only after the action has a stable request/response contract, scope, rate limit, and provider capability matrix.
+
+Mini App purchase, refresh, replacement, alternate-provider, and rental action endpoints are UI wrappers over shared Numbers services. Mini App price rows use the same signed quote-token format for temp/rental/voice where possible, `/mini/numbers/api/purchase` routes those tokens through `create_number_order_from_quote(...)`, refresh routes through `order_refresh_service.refresh_number_order(...)`, rental SMS/finish/renew/wake/notes routes call `order_rental_service`, and rental no-SMS protection/cancel/refund guards call `order_rental_protection_service`. Action calls use Telegram `initData` authentication. Order responses start from `order_service.public_order_payload(...)` and then add only Mini App UI fields such as localized labels/detail rows, Mini App recording URL, refresh flags, and second-code price labels. Legacy/non-API Mini App quote tokens are rejected by the purchase route, and the old Mini App-only quote resolver/direct provider purchase helpers have been removed; direct provider purchase fallbacks must not be reintroduced.
+
+Telegram rental SMS/finish/renew/wake/notes callbacks use the same `order_rental_service` backend. Telegram-specific code should only handle callback ownership, localized messages, chat edits, and the temporary Hero no-SMS finish safety pre-check.
+
+API/Mini App order creation and Telegram temp/voice/rental purchase callbacks call `order_purchase_service` for provider reservation and provider-failure refund handling. Telegram-specific code should keep only state validation, wallet charge trigger, chat edits, localized messages, and waiter startup. Do not reintroduce provider adapter calls into Telegram, Mini App, or public API route handlers.
+
+Temporary replacement/alternate-provider order creation is centralized in `order_service.request_replacement_order(...)`. API, Mini App, and Telegram callbacks pass a client source (`numbers_api`, `numbers_miniapp`, or `numbers_telegram`) plus optional Telegram wait metadata. The service owns provider revalidation, alternate-provider selection, idempotent order creation, charging, provider provisioning, and replacement event logging. Telegram callbacks should not create replacement orders, charge wallets, or call provider provisioning directly.
+
+`order_service.py` owns quote resolution, order creation, replacement creation, idempotency, and customer webhook enqueueing. `order_lifecycle_service.py` owns the API/Mini App money-moving lifecycle for temp/voice/rental order creation: charge first, run provider provisioning second, preserve expected provider-failure refund semantics from `order_purchase_service`, and roll back unexpected post-charge provisioning exceptions through one shared path. `order_charge_service.py` owns wallet charge + charge-failure status/event handling; `order_purchase_service.py` owns provider reservation and expected provider-failure refund handling. API/Mini App order creation, API/Mini App temp resend, Telegram temp/voice/rental purchase/replacement callbacks, and Telegram second-code resend use the shared charge helper. Resend still keeps provider-resend-specific semantics in `shared/temp_second_code.py` through an injected `charge_order_fn`.
+
+Rental action events/check markers should include a client source. Versioned API calls use `numbers_api`; Mini App wrappers use `numbers_miniapp`; Telegram callbacks use `numbers_telegram`.
+
+`/mini/numbers/api/orders/{order_id}/cancel` is intentionally not registered. Customer cancellation/refund remains server-managed through timeout/provider-aware backend policy, not a manual Mini App API action.
+
+Mini App voice recording download is also webhook-first/state-read: it delegates to `order_recording_service`, downloads only a recording URI already stored on the order, and does not poll the upstream provider for call status during the download request. Telegram voice recording URI parsing and file sending use the same service.
+
+Telegram voice call waiting/manual check uses `order_voice_service` for provider call reads and recording URI extraction. This remains a Telegram notification wrapper, not a public API behavior. Versioned API and Mini App refresh routes must continue to read persisted state and must not poll provider call APIs.
 
 ## Mini App Only For Now
 
@@ -427,7 +626,6 @@ Reason:
 
 ## Required Before Customer API Exposure
 
-- Idempotency keys for cancel/refund, replacement, and rental renewal.
-- Optional webhooks for order status and SMS events.
-- External docs with examples.
-- Contract tests that assert response shape for `/api/v1/numbers`.
+- External customer docs with copy/paste examples for temp, rental, voice, webhooks, and error handling.
+- Live provider webhook verification for every active upstream provider.
+- Contract tests should continue to assert response shape for every newly exposed `/api/v1/numbers` endpoint.

@@ -51,7 +51,7 @@ async def test_legacy_cancel_buy_rejects_non_owner(monkeypatch):
             "_id": order_id,
             "user_id": 111,
             "reseller_id": 111,
-            "provider": "smsman",
+            "provider": "nonvoip",
             "provider_order_id": "prov-1",
             "selling_price": 1.0,
             "base_price": 0.5,
@@ -96,7 +96,7 @@ async def test_legacy_resend_uses_user_scoped_order_loader(monkeypatch):
 
     monkeypatch.setattr(hb, "get_user", _fake_get_user)
     monkeypatch.setattr(hb, "_load_user_order", _fake_load_user_order)
-    monkeypatch.setitem(hb.PROVIDERS, "smsman", _Provider())
+    monkeypatch.setitem(hb.PROVIDERS, "nonvoip", _Provider())
 
     callback = _DummyCallback(f"buy:resend:{order_id}", user_id=222)
     await hb.resend_code(callback, _DummyState())

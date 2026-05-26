@@ -26,6 +26,7 @@ async def request_second_code_for_order(
     source: str,
     telegram_bot_id: int | None = None,
     refresh_order_fn: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
+    charge_order_fn: Callable[..., Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     if str((order or {}).get("number_mode") or "").strip().lower() != "temp":
         return {"ok": False, "code": "invalid_mode"}
@@ -107,25 +108,44 @@ async def request_second_code_for_order(
         details["telegram_bot_id"] = int(telegram_bot_id)
     await update_order_details_fn(second_order["_id"], details)
 
-    ok, msg = await financial_manager.process_core_purchase(
-        user_id=int(user_id),
-        order_id=second_order["_id"],
-        sale_price=extra_sale,
-        cost_price=extra_cost,
-        reseller_id=int(reseller_id),
-    )
-    if not ok:
-        await update_order_status_fn(second_order["_id"], "failed")
+    finance_error: str | None = None
+    if charge_order_fn is not None:
+        try:
+            await charge_order_fn(
+                order={**second_order, "number_mode": "temp"},
+                order_id=second_order["_id"],
+                user_id=int(user_id),
+                reseller_id=int(reseller_id),
+                final_price=extra_sale,
+                cost_price=extra_cost,
+                number_mode="temp",
+                source=source,
+            )
+        except Exception as exc:
+            finance_error = str(getattr(exc, "code", "") or getattr(exc, "public_message", "") or exc)
+    else:
+        ok, msg = await financial_manager.process_core_purchase(
+            user_id=int(user_id),
+            order_id=second_order["_id"],
+            sale_price=extra_sale,
+            cost_price=extra_cost,
+            reseller_id=int(reseller_id),
+        )
+        if not ok:
+            await update_order_status_fn(second_order["_id"], "failed")
+            finance_error = str(msg)
+
+    if finance_error:
         await log_temp_event_fn(
             order,
             "second_code_charge_failed",
             second_code_log_payload_fn(
                 order,
                 now=now,
-                extra={"extra_sale": extra_sale, "extra_cost": extra_cost, "finance_error": str(msg)},
+                extra={"extra_sale": extra_sale, "extra_cost": extra_cost, "finance_error": finance_error},
             ),
         )
-        return {"ok": False, "code": "finance_error", "finance_message": str(msg), "second_order_id": str(second_order["_id"])}
+        return {"ok": False, "code": "finance_error", "finance_message": finance_error, "second_order_id": str(second_order["_id"])}
 
     charged_at = _utc_now()
     await update_order_status_fn(second_order["_id"], "success")

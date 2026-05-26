@@ -23,26 +23,26 @@ def test_provider_public_ids_shift_pvadeals_and_vaksms():
     assert provider_display_name("vaksms") == "Foxtrot"
 
 
-def test_smsman_display_name_tracks_nonvoip_brand():
-    assert provider_public_id("smsman") == "S7"
-    assert provider_public_id("smsman_s6") == "S8"
-    assert provider_display_name("smsman") == "NonVoIP"
-    assert provider_display_name("smsman_s6") == "NonVoIP"
+def test_nonvoip_display_names_are_obfuscated():
+    assert provider_public_id("nonvoip") == "S7"
+    assert provider_public_id("nonvoip_s6") == "S8"
+    assert provider_display_name("nonvoip") == "Golf"
+    assert provider_display_name("nonvoip_s6") == "Hotel"
 
 
 def test_new_provider_display_names_are_obfuscated():
     assert provider_public_id("smsready") == "S9"
     assert provider_public_id("pvapins") == "S10"
-    assert provider_display_name("smsready") == "Golf"
-    assert provider_display_name("pvapins") == "Hotel"
+    assert provider_display_name("smsready") == "India"
+    assert provider_display_name("pvapins") == "Juliet"
 
 
-def test_provider_choice_kb_hides_smsman_lanes():
+def test_provider_choice_kb_hides_nonvoip_lanes():
     kb = provider_choice_kb(
         {
             "herosms": {"price": 0.6, "api_service_name": "go", "available_for_buy": True},
-            "smsman": {"price": 0.3, "api_service_name": "123", "available_for_buy": True},
-            "smsman_s6": {"price": 0.4, "api_service_name": "124", "available_for_buy": True},
+            "nonvoip": {"price": 0.3, "api_service_name": "123", "available_for_buy": True},
+            "nonvoip_s6": {"price": 0.4, "api_service_name": "124", "available_for_buy": True},
             "pvadeals": {
                 "price": 1.0,
                 "api_service_name": "abc",

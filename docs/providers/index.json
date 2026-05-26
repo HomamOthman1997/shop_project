@@ -54,11 +54,11 @@
     },
     {
       "public_id": "S4",
-      "code": "smsman",
-      "title": "SMS-Man",
-      "doc_type": "manual_spec",
-      "doc_path": "docs/providers/manual/smsman_api_reference.json",
-      "external_ref": "https://sms-man.com/api"
+      "code": "nonvoip",
+      "title": "Non-VoIP",
+      "doc_type": "local_reference",
+      "doc_path": "docs/numbers/providers/nonvoip.md",
+      "external_ref": "https://www.non-voip.com/api/reseller"
     },
     {
       "public_id": "S5",

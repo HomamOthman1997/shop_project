@@ -631,7 +631,7 @@ async def test_temp_wait_recovery_syncs_waiting_orders(monkeypatch):
         "user_id": 21,
         "status": "success",
         "number_mode": "temp",
-        "provider": "smsman",
+        "provider": "nonvoip",
         "provider_sms_delivery": "polling",
         "provider_order_id": "prov-1",
         "telegram_bot_id": 999,

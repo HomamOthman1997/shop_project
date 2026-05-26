@@ -15,7 +15,7 @@ TEMP_REFUND_RETRY_WINDOW_SEC = 900
 TEMP_REUSE_WARRANTY_FALLBACK_SEC = 900
 TEMP_REUSE_WARRANTY_SEC_BY_PROVIDER: dict[str, int] = {}
 TEMP_POLL_INTERVALS = {
-    "smsman": 6,
+    "nonvoip": 6,
     "smspool": 8,
     "textverified": 8,
     "herosms": 7,

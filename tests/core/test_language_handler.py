@@ -132,9 +132,8 @@ async def test_language_selection_keeps_channel_warning_for_reseller_bot(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_language_selection_opens_numbers_type_menu(monkeypatch):
+async def test_language_selection_opens_numbers_miniapp_inline_menu(monkeypatch):
     from keyboards import main_menu_kb
-    from services.numbers.keyboards import core_numbers_kb
 
     callback = DummyCallback(bot_id=879, user_id=654)
     state = DummyState()
@@ -156,22 +155,18 @@ async def test_language_selection_opens_numbers_type_menu(monkeypatch):
     monkeypatch.setattr(language_handler, "is_main_bot", fake_false)
     monkeypatch.setattr(language_handler, "is_digital_products_bot", fake_false)
     monkeypatch.setattr(language_handler, "is_card_ex_bot", fake_false)
-    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", False, raising=False)
-    monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", False, raising=False)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", True, raising=False)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_public_url", "https://numbers.example.com", raising=False)
     monkeypatch.setattr("handlers.start.menu_for_current_bot", fake_menu)
 
     await language_handler._apply_language(callback, "en", state)
 
     assert callback.answered is True
     assert state.cleared is True
-    assert state.data["lang"] == "en"
-    assert state.state.state == "NumberFlow:num_type"
-    assert callback.message.answers
-    assert callback.message.answers[0]["text"] == "Menu"
-    assert callback.message.answers[0]["reply_markup"].keyboard[0][0].text == "📦 My Numbers"
-    assert callback.message.stickers
-    assert callback.message.stickers[0]["reply_markup"].inline_keyboard[0][0].callback_data == "flow:type:temp"
-    assert all(
-        row[0].callback_data != "flow:cancel"
-        for row in callback.message.stickers[0]["reply_markup"].inline_keyboard
-    )
+    assert state.data == {}
+    assert state.state is None
+    assert len(callback.message.answers) == 2
+    assert callback.message.answers[0]["reply_markup"].__class__.__name__ == "ReplyKeyboardRemove"
+    assert callback.message.answers[1]["text"] == "Menu"
+    assert callback.message.answers[1]["reply_markup"].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"
+    assert callback.message.stickers == []

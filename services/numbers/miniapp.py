@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 
-import base64
 
 import hashlib
 
@@ -13,8 +12,6 @@ import json
 import logging
 
 import re
-
-import time
 
 from datetime import UTC, datetime, timedelta
 
@@ -74,18 +71,39 @@ from services.numbers.data.states_us import STATES_LIST
 
 from services.numbers.api_payloads import (
     QuoteTokenError as ApiQuoteTokenError,
+    normalize_rental_quote_rows as _api_normalize_rental_quote_rows,
     normalize_temp_quote_rows as _api_normalize_temp_quote_rows,
+    normalize_voice_quote_rows as _api_normalize_voice_quote_rows,
     verify_quote_token as _api_verify_quote_token,
+)
+from services.numbers.country_suggestions_service import (
+    _CHEAP_COUNTRY_CACHE,
+    country_suggestions_for_service as _shared_country_suggestions_for_service,
 )
 
 from services.numbers.order_refresh_service import refresh_number_order as _api_refresh_number_order
+from services.numbers.order_recording_service import (
+    download_voice_order_recording as _api_download_voice_order_recording,
+    voice_recording_uri_from_calls as _api_voice_recording_uri_from_calls,
+)
 from services.numbers.order_resend_service import request_number_order_resend as _api_request_number_order_resend
 from services.numbers.order_service import (
     NumbersOrderError as ApiNumbersOrderError,
-    create_temp_order_from_quote as _api_create_temp_order_from_quote,
+    create_number_order_from_quote as _api_create_number_order_from_quote,
+    enable_alternate_provider_suggestion as _api_enable_alternate_provider_suggestion,
+    public_order_payload as _api_public_order_payload,
+    request_replacement_order as _api_request_replacement_order,
 )
+from services.numbers.order_rental_service import (
+    finish_rental_order as _api_finish_rental_order,
+    rental_notes_state as _api_rental_notes_state,
+    rental_sms_state as _api_rental_sms_state,
+    renew_rental_order as _api_renew_rental_order,
+    wake_rental_order as _api_wake_rental_order,
+)
+from services.numbers import order_rental_protection_service as rental_protection_service
 
-from services.numbers.provider_delivery import provider_sms_delivery_strategy, provider_sms_polling_enabled
+from services.numbers.provider_delivery import provider_sms_polling_enabled
 
 from services.numbers.shared.events import (
 
@@ -107,8 +125,6 @@ from services.numbers.shared.temp_order import (
 
     _extract_new_sms_code,
 
-    _extract_provider_wait_timeout_sec,
-
     _format_wait_time_short,
 
     _is_retryable_provider_cancel,
@@ -118,10 +134,6 @@ from services.numbers.shared.temp_order import (
     _order_reuse_warranty_sec,
 
     _order_temp_timeout_sec,
-
-    _poll_interval_for_provider,
-
-    _provider_default_reuse_warranty_sec,
 
     _safe_code_text,
 
@@ -137,7 +149,7 @@ from services.numbers.shared.temp_order import (
 
 )
 
-from services.numbers.shared.rental_policy import _rental_deadline_at, _rental_no_sms_yet, _rental_protection_policy
+from services.numbers.shared.rental_policy import _rental_no_sms_yet, _rental_protection_policy
 
 from services.numbers.shared.provider_io import fetch_provider_sms, provider_resend
 
@@ -164,16 +176,9 @@ from services.numbers.shared.temp_refund import (
 )
 
 from services.numbers.shared.temp_second_code import request_second_code_for_order as _shared_request_second_code_for_order
-from services.numbers.shared.temp_replacement import (
-    pick_retry_provider as _shared_pick_retry_provider,
-    temp_replacement_fields as _shared_temp_replacement_fields,
-)
-
 from services.numbers.manager import (
 
     PROVIDERS,
-
-    buy_number_from_provider,
 
     finish_rental_from_provider,
 
@@ -183,19 +188,7 @@ from services.numbers.manager import (
 
     get_all_voice_prices,
 
-    get_calls_from_provider,
-
-    get_recording_from_provider,
-
     get_rental_sms_from_provider,
-
-    notes_tags_from_provider,
-
-    rent_number_from_provider,
-
-    renew_rental_from_provider,
-
-    wake_rental_from_provider,
 
 )
 
@@ -219,7 +212,7 @@ from utils.bot_menu_context import extract_bot_id_from_token, numbers_bot_url
 
 from utils.recharge_ui import owner_reseller_topup_review_kb
 
-from utils.provider_alias import provider_display_name, provider_public_id
+from utils.provider_alias import provider_code_from_public_id, provider_display_name, provider_public_id
 
 from utils.services_keyboard import DEFAULT_TOP_SERVICES, load_top_services
 
@@ -239,54 +232,6 @@ _NO_STORE_HEADERS = {
 
 }
 
-_CHEAP_COUNTRY_CACHE_TTL_SEC = 300
-
-_CHEAP_COUNTRY_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
-
-_CHEAP_COUNTRY_ISOS = (
-
-    "US",
-
-    "GB",
-
-    "DE",
-
-    "CA",
-
-    "FR",
-
-    "NL",
-
-    "PL",
-
-    "RO",
-
-    "CZ",
-
-    "ES",
-
-    "IT",
-
-    "BE",
-
-    "AT",
-
-    "CH",
-
-    "IE",
-
-    "PT",
-
-    "FI",
-
-    "NO",
-
-    "SE",
-
-    "DK",
-
-)
-
 _BOOTSTRAP_CACHE: dict[str, Any] = {"data": None}
 
 _PRICE_TIMEOUT_SEC = 34.0
@@ -304,9 +249,7 @@ _TEMP_PRICE_SCREEN_PROVIDER_CODES = (
 
 _MAX_PRICE_ROWS = 16
 
-_QUOTE_TTL_SEC = 300
-
-_HIDDEN_TEMP_PROVIDER_CODES = {"smsman", "smsman_s6"}
+_HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
 
 _SUPPORT_CATEGORIES = ("numbers", "user_balance")
 
@@ -443,6 +386,42 @@ def _json_error(message: str, *, status: int = 400, code: str = "bad_request", *
     payload.update(extra)
 
     return web.json_response(payload, status=status, headers=dict(_NO_STORE_HEADERS))
+
+async def _json_body(request: web.Request) -> dict[str, Any]:
+
+    try:
+
+        body = await request.json()
+
+    except Exception:
+
+        body = {}
+
+    return body if isinstance(body, dict) else {}
+
+def _miniapp_idempotency_key(
+
+    request: web.Request,
+
+    body: dict[str, Any],
+
+    *,
+
+    action: str,
+
+    user_id: int,
+
+    order_id: Any,
+
+) -> str:
+
+    supplied = str(request.headers.get("Idempotency-Key") or body.get("idempotency_key") or "").strip()
+
+    if supplied:
+
+        return supplied
+
+    return f"miniapp:{action}:{int(user_id)}:{str(order_id)}"
 
 def _format_joined_date(value: Any) -> str:
 
@@ -960,7 +939,7 @@ def _recharge_status_label(status: Any, lang: str) -> str:
 
         "processing": ("Processing", "قيد المعالجة"),
 
-        "need_more_proof": ("Needs another proof", "يحتاج إثبات إضافي"),
+        "need_more_proof": ("Needs another proof", "\u064a\u062d\u062a\u0627\u062c \u0625\u062b\u0628\u0627\u062a \u0625\u0636\u0627\u0641\u064a"),
 
         "accepted": ("Accepted", "تم القبول"),
 
@@ -1630,65 +1609,14 @@ async def _submit_support_ticket(
 
     }
 
-def _quote_secret() -> bytes:
-
-    tokens = _init_tokens()
-
-    seed = tokens[0] if tokens else "numbers-miniapp-local"
-
-    return hashlib.sha256(f"numbers-miniapp:{seed}".encode("utf-8")).digest()
-
-def _b64_encode(raw: bytes) -> str:
-
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-
-def _b64_decode(value: str) -> bytes:
-
-    padded = str(value or "") + ("=" * (-len(str(value or "")) % 4))
-
-    return base64.urlsafe_b64decode(padded.encode("ascii"))
-
-def _make_quote_token(payload: dict[str, Any]) -> str:
-
-    clean_payload = dict(payload or {})
-
-    clean_payload["exp"] = int(time.time()) + _QUOTE_TTL_SEC
-
-    body = _b64_encode(json.dumps(clean_payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
-
-    sig = hmac.new(_quote_secret(), body.encode("ascii"), hashlib.sha256).hexdigest()
-
-    return f"{body}.{sig}"
-
-def _verify_quote_token(token: str) -> dict[str, Any]:
-
-    raw = str(token or "").strip()
-
-    if "." not in raw:
-
-        raise web.HTTPBadRequest(text="invalid quote")
-
-    body, sig = raw.rsplit(".", 1)
-
-    expected = hmac.new(_quote_secret(), body.encode("ascii"), hashlib.sha256).hexdigest()
-
-    if not hmac.compare_digest(expected, sig):
-
-        raise web.HTTPBadRequest(text="bad quote")
-
-    try:
-
-        payload = json.loads(_b64_decode(body).decode("utf-8"))
-
-    except Exception as exc:
-
-        raise web.HTTPBadRequest(text="bad quote payload") from exc
-
-    if int(payload.get("exp") or 0) < int(time.time()):
-
-        raise web.HTTPBadRequest(text="quote expired")
-
-    return payload
+def _quote_provider_code(quote: dict[str, Any], *, allowed_codes: Any = None) -> str:
+    provider_code = str((quote or {}).get("provider") or "").strip().lower()
+    if provider_code:
+        return provider_code
+    return provider_code_from_public_id(
+        (quote or {}).get("provider_id"),
+        allowed_codes=allowed_codes or PROVIDERS.keys(),
+    )
 
 async def _log_number_event_from_order(
 
@@ -1784,9 +1712,9 @@ def _trust_message(lang: str, *, mode: str, wait_sec: int) -> str:
 
             lang,
 
-            "You already have an active number order. Wait for its code or cancel it first.",
+            "You already have an active number order. Wait for its code or timeout refund result.",
 
-            "عندك طلب رقم شغال حاليا. انتظر الكود أو ألغ الطلب بالأول.",
+            "\u0639\u0646\u062f\u0643 \u0637\u0644\u0628 \u0631\u0642\u0645 \u0634\u063a\u0627\u0644 \u062d\u0627\u0644\u064a\u0627. \u0627\u0646\u062a\u0638\u0631 \u0627\u0644\u0643\u0648\u062f \u0623\u0648 \u0646\u062a\u064a\u062c\u0629 \u0627\u0644\u0627\u0633\u062a\u0631\u062c\u0627\u0639 \u0628\u0639\u062f \u0627\u0646\u062a\u0647\u0627\u0621 \u0627\u0644\u0645\u0647\u0644\u0629.",
 
         )
 
@@ -2398,6 +2326,30 @@ async def _attach_order_events(payload: dict[str, Any], lang: str) -> dict[str, 
 
     return payload
 
+async def _miniapp_order_result(payload: dict[str, Any], lang: str) -> dict[str, Any]:
+
+    order_payload = payload.get("order") if isinstance(payload, dict) else None
+
+    order_id = str((order_payload or {}).get("id") or "").strip() if isinstance(order_payload, dict) else ""
+
+    if order_id:
+
+        try:
+
+            fresh_order = await get_order(order_id)
+
+        except Exception:
+
+            fresh_order = None
+
+        if isinstance(fresh_order, dict):
+
+            payload["order"] = await _order_payload_with_events(fresh_order, lang)
+
+            return payload
+
+    return await _attach_order_events(payload, lang)
+
 def _clean_aliases(values: Any) -> list[str]:
 
     seen: set[str] = set()
@@ -2440,167 +2392,14 @@ def _country_rows() -> list[dict[str, Any]]:
 
     return rows
 
-def _country_code_by_iso() -> dict[str, str]:
-
-    out: dict[str, str] = {}
-
-    for item in _country_rows():
-
-        code = str(item.get("code") or "").strip()
-
-        iso = str(item.get("iso") or "").strip().upper()
-
-        if code and iso:
-
-            out.setdefault(iso, code)
-
-    return out
-
-def _cheap_country_candidate_codes() -> list[str]:
-
-    by_iso = _country_code_by_iso()
-
-    out: list[str] = []
-
-    seen: set[str] = set()
-
-    for iso in _CHEAP_COUNTRY_ISOS:
-
-        code = by_iso.get(str(iso or "").upper())
-
-        if not code or code in seen:
-
-            continue
-
-        seen.add(code)
-
-        out.append(code)
-
-    return out
-
-def _best_available_country_price(prices: Any) -> float | None:
-
-    best: float | None = None
-
-    def visit(value: Any) -> None:
-
-        nonlocal best
-
-        if isinstance(value, dict):
-
-            if "price" in value:
-
-                try:
-
-                    price = float(value.get("price") or 0.0)
-
-                except Exception:
-
-                    price = 0.0
-
-                if price > 0 and (best is None or price < best):
-
-                    best = price
-
-            for nested in value.values():
-
-                if isinstance(nested, (dict, list, tuple)):
-
-                    visit(nested)
-
-        elif isinstance(value, (list, tuple)):
-
-            for nested in value:
-
-                visit(nested)
-
-    visit(prices)
-
-    return best
-
 async def _country_suggestions_for_service(mode: str, service: str, limit: int = 10) -> list[dict[str, Any]]:
-
-    service = resolve_canonical_service_key(str(service or ""))
-
-    mode = str(mode or "temp").strip().lower()
-
-    if not service or mode == "voice":
-
-        return []
-
-    cache_key = f"{mode}:{service}:{int(limit or 10)}"
-
-    now_ts = time.time()
-
-    cached = _CHEAP_COUNTRY_CACHE.get(cache_key)
-
-    if cached and (now_ts - cached[0]) <= _CHEAP_COUNTRY_CACHE_TTL_SEC:
-
-        return list(cached[1])[:limit]
-
-    candidates = _cheap_country_candidate_codes()
-
-    sem = asyncio.Semaphore(min(6, len(candidates) or 1))
-
-    async def fetch_country(country_code: str) -> dict[str, Any] | None:
-
-        async with sem:
-
-            try:
-
-                if mode == "rental":
-
-                    prices = await asyncio.wait_for(
-
-                        get_all_rental_prices(service, country_code, with_success_rates=False),
-
-                        timeout=4.5,
-
-                    )
-
-                else:
-
-                    prices = await asyncio.wait_for(
-
-                        get_all_prices(service, country_code, "none", ignore_balance=True, with_success_rates=False),
-
-                        timeout=4.5,
-
-                    )
-
-            except Exception:
-
-                return None
-
-            price = _best_available_country_price(prices)
-
-            if price is None:
-
-                return None
-
-            return {
-
-                "code": country_code,
-
-                "name": _country_name(country_code),
-
-                "price": float(price),
-
-                "price_label": _money(price),
-
-            }
-
-    rows = [row for row in await asyncio.gather(*(fetch_country(code) for code in candidates)) if row]
-
-    priority = {code: index for index, code in enumerate(candidates)}
-
-    rows.sort(key=lambda row: (priority.get(str(row.get("code") or ""), 999), float(row.get("price") or 0.0)))
-
-    selected = rows[:limit]
-
-    _CHEAP_COUNTRY_CACHE[cache_key] = (now_ts, selected)
-
-    return list(selected)
+    return await _shared_country_suggestions_for_service(
+        mode,
+        service,
+        limit,
+        get_temp_prices_fn=get_all_prices,
+        get_rental_prices_fn=get_all_rental_prices,
+    )
 
 def _state_rows() -> list[dict[str, Any]]:
 
@@ -2709,6 +2508,12 @@ def _bootstrap_payload() -> dict[str, Any]:
         "services": _service_rows(),
 
         "defaults": {"mode": "temp", "service": "", "country": "none", "state": "none"},
+        "client": {
+            "primary_surface": "miniapp",
+            "telegram_order_flow_enabled": bool(getattr(settings, "numbers_telegram_order_flow_enabled", False)),
+            "provider_sms_polling_enabled": provider_sms_polling_enabled(),
+            "manual_customer_refund_enabled": False,
+        },
 
         "links": {
 
@@ -3328,342 +3133,6 @@ def _miniapp_rental_option_candidates(
 
     return rows
 
-async def _resolve_rental_offer_from_quote(token: str) -> dict[str, Any]:
-
-    quote = _verify_quote_token(token)
-
-    if str(quote.get("mode") or "").strip().lower() != "rental":
-
-        raise web.HTTPBadRequest(text="invalid quote")
-
-    service = resolve_canonical_service_key(str(quote.get("service") or ""))
-
-    provider_code = str(quote.get("provider") or "").strip().lower()
-
-    country = str(quote.get("country") or "none").strip() or "none"
-
-    match_key = tuple(str(part) for part in (quote.get("option_key") or []))
-
-    if not service or not provider_code or not country or len(match_key) != 6:
-
-        raise web.HTTPBadRequest(text="invalid quote")
-
-    state = _rental_state_code_for_quote(str(quote.get("state") or match_key[4] or "none"))
-
-    prices = await asyncio.wait_for(
-
-        get_all_rental_prices(service, country, with_success_rates=False),
-
-        timeout=_PRICE_TIMEOUT_SEC,
-
-    )
-
-    provider_info = prices.get(provider_code)
-
-    if not isinstance(provider_info, dict):
-
-        raise web.HTTPBadRequest(text="provider unavailable")
-
-    api_service = str(provider_info.get("api_service_name") or "").strip()
-
-    if not api_service:
-
-        raise web.HTTPBadRequest(text="provider unavailable")
-
-    for option in _miniapp_rental_option_candidates(provider_code, provider_info, state=state):
-
-        if _rental_option_match_key(option) != match_key:
-
-            continue
-
-        if not _can_quote_rental_option(
-
-            mode="rental",
-
-            service=service,
-
-            country=country,
-
-            provider_code=provider_code,
-
-            provider_info=provider_info,
-
-            option=option,
-
-        ):
-
-            raise web.HTTPBadRequest(text="provider unavailable")
-
-        return {
-
-            "service": service,
-
-            "country": country,
-
-            "provider_code": provider_code,
-
-            "provider_info": provider_info,
-
-            "option": option,
-
-        }
-
-    raise web.HTTPBadRequest(text="option unavailable")
-
-async def _resolve_temp_offer_from_quote(token: str) -> dict[str, Any]:
-
-    quote = _verify_quote_token(token)
-
-    if str(quote.get("mode") or "temp").strip().lower() != "temp":
-
-        raise web.HTTPBadRequest(text="invalid quote")
-
-    service = resolve_canonical_service_key(str(quote.get("service") or ""))
-
-    provider_code = str(quote.get("provider") or "").strip().lower()
-
-    country = str(quote.get("country") or "none").strip() or "none"
-
-    state = str(quote.get("state") or "none").strip() or "none"
-
-    if country != "1":
-
-        state = "none"
-
-    if not service or not provider_code:
-
-        raise web.HTTPBadRequest(text="invalid quote")
-
-    if provider_code in _HIDDEN_TEMP_PROVIDER_CODES:
-
-        raise web.HTTPBadRequest(text="provider unavailable")
-
-    prices = await asyncio.wait_for(
-
-        get_all_prices(service, country, state, with_success_rates=False),
-
-        timeout=_PRICE_TIMEOUT_SEC,
-
-    )
-
-    info = prices.get(provider_code)
-
-    if not isinstance(info, dict):
-
-        raise web.HTTPBadRequest(text="provider unavailable")
-
-    if not _can_quote_temp_offer(
-
-        mode="temp",
-
-        service=service,
-
-        country=country,
-
-        state=state,
-
-        provider_code=provider_code,
-
-        info=info,
-
-    ):
-
-        raise web.HTTPBadRequest(text="provider unavailable")
-
-    return {
-
-        "service": service,
-
-        "country": country,
-
-        "state": state,
-
-        "provider_code": provider_code,
-
-        "info": info,
-
-    }
-
-async def _resolve_voice_offer_from_quote(token: str) -> dict[str, Any]:
-
-    quote = _verify_quote_token(token)
-
-    if str(quote.get("mode") or "").strip().lower() != "voice":
-
-        raise web.HTTPBadRequest(text="invalid quote")
-
-    service = resolve_canonical_service_key(str(quote.get("service") or ""))
-
-    provider_code = str(quote.get("provider") or "").strip().lower()
-
-    if not service or not provider_code:
-
-        raise web.HTTPBadRequest(text="invalid quote")
-
-    country = "1"
-
-    state = str(quote.get("state") or "none").strip() or "none"
-
-    prices = await asyncio.wait_for(
-
-        _get_miniapp_voice_prices(service, country, state, ignore_balance=True),
-
-        timeout=_PRICE_TIMEOUT_SEC,
-
-    )
-
-    info = prices.get(provider_code)
-
-    if not isinstance(info, dict):
-
-        raise web.HTTPBadRequest(text="provider unavailable")
-
-    if not _can_quote_voice_offer(
-
-        mode="voice",
-
-        service=service,
-
-        provider_code=provider_code,
-
-        info=info,
-
-    ):
-
-        raise web.HTTPBadRequest(text="provider unavailable")
-
-    return {
-
-        "service": service,
-
-        "country": country,
-
-        "state": state,
-
-        "provider_code": provider_code,
-
-        "info": info,
-
-    }
-
-def _order_public_status(order: dict[str, Any]) -> str:
-
-    mode = str(order.get("number_mode") or "").strip().lower()
-
-    status = str(order.get("status") or "").strip().lower()
-
-    if mode == "rental":
-
-        if status in {"cancelled", "refunded"} or order.get("rental_refunded_at"):
-
-            return "refunded"
-
-        if status in {"failed", "expired"}:
-
-            return status
-
-        if order.get("rental_finished_at"):
-
-            return "finished"
-
-        if int(order.get("rental_sms_count") or 0) > 0 or order.get("rental_sms_received_at"):
-
-            return "code_received"
-
-        return "waiting"
-
-    wait_state = str(order.get("temp_wait_state") or "").strip().lower()
-
-    if mode == "voice":
-
-        if status in {"cancelled", "refunded"} or wait_state in {"refunded", "auto_refunded"}:
-
-            return "refunded"
-
-        if status in {"failed", "expired"}:
-
-            return status
-
-        if order.get("voice_recording_uri") or wait_state == "call_received":
-
-            return "call_received"
-
-        if wait_state == "waiting_for_recording":
-
-            return "waiting_for_recording"
-
-        if wait_state == "refund_pending":
-
-            return "refund_pending"
-
-        return "waiting"
-
-    if status in {"cancelled", "refunded"} or wait_state in {"refunded", "auto_refunded"}:
-
-        return "refunded"
-
-    if status in {"failed", "expired"}:
-
-        return status
-
-    if _temp_second_code_waiting(order):
-
-        return "waiting"
-
-    if _temp_order_has_received_code(order):
-
-        return "code_received"
-
-    if wait_state == "refund_pending":
-
-        return "refund_pending"
-
-    return "waiting"
-
-def _order_refund_payload(order: dict[str, Any], public_status: str) -> dict[str, Any]:
-
-    refunded = public_status == "refunded"
-
-    pending = public_status == "refund_pending"
-
-    refunded_at = (
-
-        order.get("temp_refunded_at")
-
-        or order.get("rental_refunded_at")
-
-        or order.get("provider_refunded_at")
-
-        or order.get("provisioning_failure_at")
-
-    )
-
-    return {
-
-        "status": "refunded" if refunded else "pending" if pending else "none",
-
-        "refunded": bool(refunded),
-
-        "pending": bool(pending),
-
-        "reason": str(
-
-            order.get("temp_refund_reason")
-
-            or order.get("temp_refund_source")
-
-            or order.get("temp_provider_terminal_reason")
-
-            or order.get("rental_refund_reason")
-
-            or ""
-
-        ),
-
-        "refunded_at": refunded_at.isoformat() if isinstance(refunded_at, datetime) else None,
-
-    }
-
 def _temp_my_numbers_expires_at(order: dict[str, Any]) -> datetime | None:
 
     created_at = _coerce_utc_datetime((order or {}).get("created_at"))
@@ -3676,7 +3145,7 @@ def _temp_my_numbers_expires_at(order: dict[str, Any]) -> datetime | None:
 
 def _temp_my_numbers_active(order: dict[str, Any]) -> bool:
 
-    if str((order or {}).get("number_mode") or "").strip().lower() != "temp":
+    if str((order or {}).get("number_mode") or "temp").strip().lower() != "temp":
 
         return False
 
@@ -3706,72 +3175,6 @@ def _temp_resend_available(order: dict[str, Any]) -> bool:
 
     return _temp_my_numbers_active(order)
 
-def _temp_second_code_waiting(order: dict[str, Any]) -> bool:
-
-    if str((order or {}).get("number_mode") or "").strip().lower() != "temp":
-
-        return False
-
-    if str((order or {}).get("temp_wait_state") or "").strip().lower() != "waiting":
-
-        return False
-
-    second_requested_at = _coerce_utc_datetime((order or {}).get("temp_second_code_last_at"))
-
-    if not second_requested_at:
-
-        return False
-
-    last_sms_at = _coerce_utc_datetime((order or {}).get("temp_last_sms_at"))
-
-    return not last_sms_at or second_requested_at > last_sms_at
-
-def _temp_like_replace_available(order: dict[str, Any]) -> bool:
-
-    mode = str((order or {}).get("number_mode") or "").strip().lower()
-
-    if mode not in {"temp", "voice"}:
-
-        return False
-
-    status = str((order or {}).get("status") or "").strip().lower()
-
-    wait_state = str((order or {}).get("temp_wait_state") or "").strip().lower()
-
-    closed = status in {"cancelled", "refunded", "failed", "expired"} or wait_state in {"refunded", "auto_refunded"}
-
-    if not closed:
-
-        return False
-
-    if mode == "voice":
-
-        return not bool((order or {}).get("voice_recording_uri") or wait_state == "call_received")
-
-    return not _temp_order_has_received_code(order)
-
-def _rental_cancel_available(order: dict[str, Any]) -> bool:
-
-    if str((order or {}).get("number_mode") or "").strip().lower() != "rental":
-
-        return False
-
-    if _order_public_status(order) != "waiting":
-
-        return False
-
-    if not _rental_no_sms_yet(order):
-
-        return False
-
-    if str((order or {}).get("status") or "").strip().lower() in {"cancelled", "failed", "refunded", "expired"}:
-
-        return False
-
-    deadline_at = _rental_deadline_at(order)
-
-    return True if not deadline_at else _seconds_left_until(deadline_at) > 0
-
 def _second_code_price(order: dict[str, Any]) -> tuple[float, float]:
 
     sale_price, cost_price = extract_order_amounts(order)
@@ -3780,261 +3183,87 @@ def _second_code_price(order: dict[str, Any]) -> tuple[float, float]:
 
 def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
 
-    sale_price, cost_price = extract_order_amounts(order)
+    payload = dict(_api_public_order_payload(order))
 
-    mode = str(order.get("number_mode") or "temp").strip().lower() or "temp"
+    mode = str(payload.get("mode") or (order or {}).get("number_mode") or "temp").strip().lower() or "temp"
 
-    provider_code = _order_provider_code(order)
+    public_status = str(payload.get("public_status") or "waiting")
+
+    service_key = str(payload.get("service") or "")
+
+    sale_price, _cost_price = extract_order_amounts(order)
+
+    payload["service_label"] = _service_label(service_key)
+
+    payload["price"] = float(sale_price)
+
+    payload["price_label"] = _money(sale_price)
+
+    payload["details"] = _order_detail_rows(order, mode=mode, public_status=public_status)
+
+    payload["can_cancel"] = False
+
+    payload["cancel_wait_sec"] = 0
 
     if mode == "rental":
 
-        messages = [str(item) for item in (order.get("rental_sms_messages") or []) if str(item or "").strip()]
+        if (order or {}).get("rental_finished_at") and str((order or {}).get("status") or "").strip().lower() not in {"cancelled", "failed", "refunded", "expired"}:
 
-        rental_tags = [str(item) for item in (order.get("rental_tags") or []) if str(item or "").strip()]
+            payload["public_status"] = "finished"
 
-        public_status = _order_public_status(order)
+            public_status = "finished"
 
-        return {
+        payload["sms_count"] = len(payload.get("messages") or [])
 
-            "id": str(order.get("_id") or ""),
+        payload["can_refresh"] = public_status in {"waiting", "code_received"}
 
-            "mode": "rental",
+        payload["can_sms"] = public_status in {"waiting", "code_received"}
 
-            "status": str(order.get("status") or ""),
+        payload["can_cancel"] = False
 
-            "public_status": public_status,
-            "refund": _order_refund_payload(order, public_status),
+        payload["cancel_wait_sec"] = 0
 
-            "provider": provider_display_name(provider_code),
-
-            "provider_id": provider_public_id(provider_code),
-
-            "service": str(order.get("service_id") or "").replace(":rental", ""),
-
-            "service_label": _service_label(str(order.get("service_id") or "").replace(":rental", "")),
-
-            "country": str(order.get("rental_country") or ""),
-
-            "state": str(order.get("rental_state_code") or "none"),
-
-            "number": str(order.get("provider_number") or ""),
-
-            "code": messages[-1] if messages else "",
-
-            "codes": messages,
-
-            "messages": messages,
-
-            "sms_count": len(messages),
-
-            "notes": str(order.get("rental_notes") or ""),
-
-            "tags": rental_tags,
-
-            "details": _order_detail_rows(order, mode="rental", public_status=public_status),
-
-            "price": float(sale_price),
-
-            "price_label": _money(sale_price),
-
-            "base_price_label": _money(cost_price),
-
-            "duration_label": str(order.get("rental_duration_label") or ""),
-
-            "end_date": str(order.get("rental_end_date") or ""),
-
-            "can_refresh": public_status in {"waiting", "code_received"},
-
-            "can_sms": public_status in {"waiting", "code_received"},
-
-            "can_finish": public_status in {"waiting", "code_received"},
-
-            "can_renew": bool(order.get("rental_is_renewable")) and public_status in {"waiting", "code_received"},
-
-            "can_wake": public_status in {"waiting", "code_received"},
-
-            "can_notes": public_status in {"waiting", "code_received"},
-
-            "can_cancel": _rental_cancel_available(order),
-
-            "seconds_left": 0,
-
-            "cancel_wait_sec": 0,
-
-        }
-
-    elapsed = _temp_elapsed_sec(order)
-
-    timeout_sec = _order_temp_timeout_sec(order)
-
-    cancel_left = max(0, TEMP_CANCEL_AFTER_SEC - elapsed)
-
-    codes = [str(code) for code in (order.get("temp_codes") or []) if str(code or "").strip()]
+        return payload
 
     if mode == "voice":
 
-        public_status = _order_public_status(order)
+        order_id = str((order or {}).get("_id") or payload.get("id") or "")
 
-        recording_uri = str(order.get("voice_recording_uri") or "").strip()
+        if payload.get("recording_available") and order_id:
 
-        calls = [item for item in (order.get("voice_calls") or []) if isinstance(item, dict)]
+            payload["recording_url"] = f"/mini/numbers/api/orders/{order_id}/recording"
 
-        order_id = str(order.get("_id") or "")
+        payload["can_refresh"] = public_status in {"waiting", "waiting_for_recording", "refund_pending"}
 
-        return {
+        payload["can_cancel"] = False
 
-            "id": order_id,
+        payload["cancel_wait_sec"] = 0
 
-            "mode": "voice",
+        return payload
 
-            "status": str(order.get("status") or ""),
+    if public_status != "code_received":
 
-            "public_status": public_status,
-            "refund": _order_refund_payload(order, public_status),
-
-            "wait_state": str(order.get("temp_wait_state") or ""),
-
-            "provider": provider_display_name(provider_code),
-
-            "provider_id": provider_public_id(provider_code),
-
-            "service": str(order.get("temp_service_key") or order.get("service_id") or ""),
-
-            "service_label": _service_label(str(order.get("temp_service_key") or order.get("service_id") or "")),
-
-            "country": str(order.get("temp_country") or "1"),
-
-            "state": str(order.get("temp_state") or "none"),
-
-            "number": str(order.get("provider_number") or ""),
-
-            "code": "",
-
-            "codes": [],
-
-            "calls_count": int(order.get("voice_calls_count") or len(calls) or 0),
-
-            "recording_available": bool(recording_uri),
-
-            "recording_url": f"/mini/numbers/api/orders/{order_id}/recording" if recording_uri and order_id else "",
-
-            "details": _order_detail_rows(order, mode="voice", public_status=public_status),
-
-            "price": float(sale_price),
-
-            "price_label": _money(sale_price),
-
-            "base_price_label": _money(cost_price),
-
-            "elapsed_sec": int(elapsed),
-
-            "timeout_sec": int(timeout_sec),
-
-            "seconds_left": max(0, int(timeout_sec) - int(elapsed)),
-
-            "can_refresh": public_status in {"waiting", "waiting_for_recording", "refund_pending"},
-
-            "can_cancel": cancel_left <= 0 and public_status == "waiting",
-
-            "can_replace": _temp_like_replace_available(order),
-
-            "cancel_wait_sec": int(cancel_left),
-
-        }
-
-    public_status = _order_public_status(order)
-
-    display_code = str(order.get("temp_last_code") or (codes[-1] if codes else "")) if public_status == "code_received" else ""
+        payload["code"] = ""
 
     second_sale, _second_cost = _second_code_price(order)
 
-    can_second_code = bool(public_status == "code_received" and _temp_resend_available(order) and second_sale > 0)
+    can_second_code = bool(public_status == "code_received" and payload.get("can_resend") and second_sale > 0)
 
-    replace_available = _temp_like_replace_available(order)
+    payload["can_second_code"] = can_second_code
 
-    alternate_provider_code = str(order.get("temp_alternate_provider") or "").strip().lower()
+    payload["can_resend"] = can_second_code
 
-    current_provider_code = provider_code
+    payload["second_code_price"] = float(second_sale)
 
-    alternate_provider_enabled = bool(order.get("temp_alternate_enabled")) and bool(alternate_provider_code)
+    payload["second_code_price_label"] = _money(second_sale)
 
-    alternate_provider_available = bool(
+    payload["can_refresh"] = public_status in {"waiting", "code_received", "refund_pending"}
 
-        replace_available and alternate_provider_enabled and alternate_provider_code != current_provider_code
+    payload["can_cancel"] = False
 
-    )
+    payload["cancel_wait_sec"] = 0
 
-    return {
-
-        "id": str(order.get("_id") or ""),
-
-        "mode": "temp",
-
-        "status": str(order.get("status") or ""),
-
-        "public_status": public_status,
-        "refund": _order_refund_payload(order, public_status),
-
-        "wait_state": str(order.get("temp_wait_state") or ""),
-
-        "provider": provider_display_name(provider_code),
-
-        "provider_id": provider_public_id(provider_code),
-
-        "service": str(order.get("temp_service_key") or order.get("service_id") or ""),
-
-        "service_label": _service_label(str(order.get("temp_service_key") or order.get("service_id") or "")),
-
-        "country": str(order.get("temp_country") or ""),
-
-        "state": str(order.get("temp_state") or "none"),
-
-        "number": str(order.get("provider_number") or ""),
-
-        "code": display_code,
-
-        "codes": codes,
-
-        "details": _order_detail_rows(order, mode="temp", public_status=public_status),
-
-        "price": float(sale_price),
-
-        "price_label": _money(sale_price),
-
-        "base_price_label": _money(cost_price),
-
-        "can_second_code": can_second_code,
-        "can_resend": can_second_code,
-
-        "second_code_price": float(second_sale),
-
-        "second_code_price_label": _money(second_sale),
-
-        "second_code_count": int(order.get("temp_second_code_count") or 0),
-
-        "can_replace": replace_available,
-
-        "can_alternate_provider": alternate_provider_available,
-
-        "alternate_provider": provider_display_name(alternate_provider_code) if alternate_provider_available else "",
-
-        "alternate_provider_id": provider_public_id(alternate_provider_code) if alternate_provider_available else "",
-
-        "alternate_provider_price_label": _money(order.get("temp_alternate_price")) if alternate_provider_available else "",
-
-        "elapsed_sec": int(elapsed),
-
-        "timeout_sec": int(timeout_sec),
-
-        "seconds_left": max(0, int(timeout_sec) - int(elapsed)),
-
-        "can_refresh": public_status in {"waiting", "code_received", "refund_pending"},
-
-        "can_cancel": cancel_left <= 0 and not _temp_order_has_received_code(order) and public_status == "waiting",
-
-        "cancel_wait_sec": int(cancel_left),
-
-    }
+    return payload
 
 async def _finalize_temp_local_refund(
 
@@ -4352,567 +3581,9 @@ async def _refresh_temp_order(order: dict[str, Any]) -> dict[str, Any]:
 
     return await get_order(current["_id"]) or current
 
-_VOICE_RECORDING_KEYS = {
-    "recording",
-    "recordinguri",
-    "recordingurl",
-    "recordinghref",
-    "recordinglink",
-    "recordingdownloadurl",
-    "recordingdownloaduri",
-    "recordingdownloadlink",
-    "audiouri",
-    "audiourl",
-    "audiohref",
-    "audiolink",
-    "mp3url",
-    "wavurl",
-}
-
-
-def _voice_recording_key_matches(key: Any) -> bool:
-
-    normalized = re.sub(r"[^a-z0-9]+", "", str(key or "").strip().lower())
-
-    if normalized in _VOICE_RECORDING_KEYS:
-
-        return True
-
-    return bool(("recording" in normalized or "audio" in normalized) and any(part in normalized for part in ("uri", "url", "href", "link")))
-
-
-def _voice_recording_uri_from_value(value: Any, *, key: Any = "") -> str:
-
-    key_matches = _voice_recording_key_matches(key)
-
-    if isinstance(value, str):
-
-        return value.strip() if key_matches else ""
-
-    if isinstance(value, dict):
-
-        if key_matches:
-
-            for item_key, item_value in value.items():
-
-                normalized = re.sub(r"[^a-z0-9]+", "", str(item_key or "").strip().lower())
-
-                if normalized not in {"uri", "url", "href", "link", "downloaduri", "downloadurl", "downloadlink"}:
-
-                    continue
-
-                if isinstance(item_value, str) and item_value.strip():
-
-                    return item_value.strip()
-
-        for item_key, item_value in value.items():
-
-            if not _voice_recording_key_matches(item_key):
-
-                continue
-
-            if isinstance(item_value, str) and item_value.strip():
-
-                return item_value.strip()
-
-            nested = _voice_recording_uri_from_value(item_value, key=item_key)
-
-            if nested:
-
-                return nested
-
-        for item_key, item_value in value.items():
-
-            if not isinstance(item_value, (dict, list, tuple)):
-
-                continue
-
-            nested = _voice_recording_uri_from_value(item_value, key=item_key)
-
-            if nested:
-
-                return nested
-
-    if isinstance(value, (list, tuple)):
-
-        for item in value:
-
-            nested = _voice_recording_uri_from_value(item, key=key)
-
-            if nested:
-
-                return nested
-
-    return ""
-
-
 def _voice_recording_uri_from_calls(calls: Any) -> str:
 
-    if not isinstance(calls, list):
-
-        return ""
-
-    for call in calls:
-
-        if not isinstance(call, dict):
-
-            continue
-
-        recording_uri = _voice_recording_uri_from_value(call)
-
-        if recording_uri:
-
-            return recording_uri
-
-    return ""
-
-def _voice_recording_filename(content_type: str | None) -> str:
-
-    content_type = str(content_type or "").lower()
-
-    if "mpeg" in content_type or "mp3" in content_type:
-
-        return "call-recording.mp3"
-
-    if "wav" in content_type:
-
-        return "call-recording.wav"
-
-    if "ogg" in content_type:
-
-        return "call-recording.ogg"
-
-    if "mp4" in content_type or "m4a" in content_type:
-
-        return "call-recording.m4a"
-
-    return "call-recording.bin"
-
-async def _retry_pending_voice_refund(order: dict[str, Any], *, source: str) -> dict[str, Any]:
-
-    if not order or not order.get("_id"):
-
-        return order
-
-    provider = _order_provider_code(order)
-
-    provider_order_id = _order_provider_order_id(order)
-
-    if provider and provider_order_id:
-
-        calls_data = await get_calls_from_provider(
-
-            provider,
-
-            provider_order_id,
-
-            to_number=str(order.get("provider_number") or ""),
-
-        )
-
-        calls = [dict(item) for item in (calls_data.get("calls") or []) if isinstance(item, dict)]
-
-        recording_uri = _voice_recording_uri_from_calls(calls)
-
-        now = _utc_now()
-
-        await update_order_details(
-
-            order["_id"],
-
-            {
-
-                "temp_last_refresh_at": now,
-
-                "voice_last_check_at": now,
-
-                "voice_calls": calls[:5],
-
-                "voice_calls_count": len(calls),
-
-            },
-
-        )
-
-        if recording_uri:
-
-            await update_order_details(
-
-                order["_id"],
-
-                {
-
-                    "temp_wait_state": "call_received",
-
-                    "voice_call_received_at": now,
-
-                    "voice_recording_uri": recording_uri,
-
-                },
-
-            )
-
-            await _log_temp_event(order, "voice_call_received", {"has_recording": True, "source": source})
-
-            return await get_order(order["_id"]) or order
-
-        terminal_reason = _provider_terminal_refund_reason(
-
-            (calls_data or {}).get("raw"),
-
-            allow_missing=True,
-
-            allow_empty=True,
-
-        )
-
-        if terminal_reason:
-
-            result = await _finalize_temp_local_refund(
-
-                order_id=order["_id"],
-
-                order=order,
-
-                actor_user_id=int(order.get("user_id") or 0),
-
-                reason=f"{source}_{terminal_reason}",
-
-                provider_raw=(calls_data or {}).get("raw"),
-
-                provider_terminal_reason=terminal_reason,
-
-            )
-
-            if result.get("success"):
-
-                return await get_order(order["_id"]) or order
-
-            if _temp_refund_result_retryable(result):
-
-                return await _mark_temp_refund_pending(
-
-                    order_id=order["_id"],
-
-                    order=order,
-
-                    result=result,
-
-                    source=source,
-
-                )
-
-            return await get_order(order["_id"]) or order
-
-    result = await _cancel_and_refund_temp_order(
-
-        order_id=order["_id"],
-
-        order=order,
-
-        actor_user_id=int(order.get("user_id") or 0),
-
-        reason=source,
-
-        require_no_sms=True,
-
-        allow_provider_terminal_refund=True,
-
-        allow_empty_provider_refund=True,
-
-    )
-
-    if result.get("success"):
-
-        return await get_order(order["_id"]) or order
-
-    if _temp_refund_result_retryable(result):
-
-        return await _mark_temp_refund_pending(
-
-            order_id=order["_id"],
-
-            order=order,
-
-            result=result,
-
-            source=source,
-
-        )
-
-    return await get_order(order["_id"]) or order
-
-async def _refresh_voice_order(order: dict[str, Any]) -> dict[str, Any]:
-
-    if not order or not order.get("_id"):
-
-        return order
-
-    if str(order.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
-
-        return order
-
-    provider = _order_provider_code(order)
-
-    provider_order_id = _order_provider_order_id(order)
-
-    if not provider or not provider_order_id:
-
-        return order
-
-    current = await get_order(order["_id"]) or order
-
-    if str(current.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
-
-        return current
-
-    if str(current.get("temp_wait_state") or "").strip().lower() == "refund_pending":
-
-        return await _retry_pending_voice_refund(current, source="miniapp_voice_refund_retry")
-
-    if str(current.get("voice_recording_uri") or "").strip():
-
-        return current
-
-    now = _utc_now()
-
-    try:
-
-        calls_data = await get_calls_from_provider(
-
-            provider,
-
-            provider_order_id,
-
-            to_number=str(current.get("provider_number") or ""),
-
-        )
-
-    except Exception as exc:
-
-        await update_order_details(
-
-            current["_id"],
-
-            {
-
-                "temp_last_refresh_at": now,
-
-                "voice_last_check_failed_at": now,
-
-                "voice_last_check_error": str(exc),
-
-            },
-
-        )
-
-        return await get_order(current["_id"]) or current
-
-    calls = [dict(item) for item in (calls_data.get("calls") or []) if isinstance(item, dict)]
-
-    recording_uri = _voice_recording_uri_from_calls(calls)
-
-    patch: dict[str, Any] = {
-
-        "temp_last_refresh_at": now,
-
-        "voice_last_check_at": now,
-
-        "voice_calls": calls[:5],
-
-        "voice_calls_count": len(calls),
-
-    }
-
-    if recording_uri:
-
-        patch.update(
-
-            {
-
-                "temp_wait_state": "call_received",
-
-                "voice_call_received_at": now,
-
-                "voice_recording_uri": recording_uri,
-
-            }
-
-        )
-
-        await update_order_details(current["_id"], patch)
-
-        await _log_temp_event(
-
-            current,
-
-            "voice_call_received",
-
-            {"has_recording": True, "source": "numbers_miniapp_poll"},
-
-        )
-
-        return await get_order(current["_id"]) or {**current, **patch}
-
-    if calls and str(current.get("temp_wait_state") or "").strip().lower() != "waiting_for_recording":
-
-        patch.update(
-
-            {
-
-                "temp_wait_state": "waiting_for_recording",
-
-                "voice_call_received_at": current.get("voice_call_received_at") or now,
-
-            }
-
-        )
-
-    await update_order_details(current["_id"], patch)
-
-    current = await get_order(current["_id"]) or {**current, **patch}
-
-    if calls and str(patch.get("temp_wait_state") or "").strip().lower() == "waiting_for_recording":
-
-        await _log_temp_event(
-
-            current,
-
-            "voice_call_seen",
-
-            {"has_recording": False, "source": "numbers_miniapp_poll"},
-
-        )
-
-    timeout_reached = _temp_elapsed_sec(current) >= _order_temp_timeout_sec(current)
-
-    terminal_reason = _provider_terminal_refund_reason(
-
-        (calls_data or {}).get("raw"),
-
-        allow_missing=timeout_reached,
-
-        allow_empty=timeout_reached,
-
-    )
-
-    if terminal_reason:
-
-        if terminal_reason == "provider_already_refunded":
-
-            result = await _finalize_temp_local_refund(
-
-                order_id=current["_id"],
-
-                order=current,
-
-                actor_user_id=int(current.get("user_id") or 0),
-
-                reason=f"miniapp_voice_provider_{terminal_reason}",
-
-                provider_raw=(calls_data or {}).get("raw"),
-
-                provider_terminal_reason=terminal_reason,
-
-            )
-
-        else:
-
-            result = await _cancel_and_refund_temp_order(
-
-                order_id=current["_id"],
-
-                order=current,
-
-                actor_user_id=int(current.get("user_id") or 0),
-
-                reason=f"miniapp_voice_provider_{terminal_reason}",
-
-                require_no_sms=True,
-
-                allow_provider_terminal_refund=True,
-
-                allow_empty_provider_refund=True,
-
-            )
-
-        if result.get("success"):
-
-            return await get_order(current["_id"]) or current
-
-        current = await _mark_temp_refund_pending(
-
-            order_id=current["_id"],
-
-            order=current,
-
-            result=result,
-
-            source="numbers_miniapp_voice_provider_terminal",
-
-        )
-
-        return current
-
-    if not timeout_reached:
-
-        return current
-
-    result = await _cancel_and_refund_temp_order(
-
-        order_id=current["_id"],
-
-        order=current,
-
-        actor_user_id=int(current.get("user_id") or 0),
-
-        reason="miniapp_voice_timeout_auto_refund",
-
-        require_no_sms=True,
-
-        allow_provider_terminal_refund=True,
-
-        allow_empty_provider_refund=True,
-
-    )
-
-    if result.get("success"):
-
-        return await get_order(current["_id"]) or current
-
-    current = await _mark_temp_refund_pending(
-
-        order_id=current["_id"],
-
-        order=current,
-
-        result=result,
-
-        source="numbers_miniapp_voice_timeout",
-
-    )
-
-    await _log_temp_event(
-
-        current,
-
-        "voice_wait_timeout",
-
-        {
-
-            "timeout_sec": _order_temp_timeout_sec(current),
-
-            "auto_refund_failed": True,
-
-            "auto_refund_reason": str(result.get("reason") or ""),
-
-            "source": "numbers_miniapp",
-
-        },
-
-    )
-
-    return current
+    return _api_voice_recording_uri_from_calls(calls)
 
 def _second_code_log_payload(order: dict[str, Any], *, now: datetime, extra: dict[str, Any] | None = None) -> dict[str, Any]:
 
@@ -5048,549 +3719,35 @@ async def _request_second_code_for_order(
 
     return {"ok": False, "code": code, "message": message}
 
-def _pick_alternate_temp_provider(
-
-    prices: dict[str, Any],
-
-    *,
-
-    current_provider: str,
-
-    service: str,
-
-    country: str,
-
-    state: str,
-
-) -> tuple[str, dict[str, Any]] | None:
-    quoteable = {
-        str(code or "").strip().lower(): info
-        for code, info in (prices or {}).items()
-        if isinstance(info, dict)
-        and _can_quote_temp_offer(
-            mode="temp",
-            service=service,
-            country=country,
-            state=state,
-            provider_code=str(code or "").strip().lower(),
-            info=info,
-        )
-    }
-    return _shared_pick_retry_provider(
-        quoteable,
-        exclude_provider=current_provider,
-        hidden_provider_codes=_HIDDEN_TEMP_PROVIDER_CODES,
-    )
-
-async def _enable_alternate_provider_suggestion(
-
-    *,
-
-    order_id: Any,
-
-    order: dict[str, Any],
-
-    lang: str,
-
-) -> dict[str, Any] | None:
-
-    if str((order or {}).get("number_mode") or "").strip().lower() != "temp":
-
-        return None
-
-    if not _temp_like_replace_available(order):
-
-        return None
-
-    replacement = _shared_temp_replacement_fields(order)
-
-    service = str(replacement.get("service") or "")
-
-    current_provider = _order_provider_code(order)
-
-    country = str(replacement.get("country") or "none")
-
-    state = str(replacement.get("state") or "none")
-
-    if not service:
-
-        return None
-
-    try:
-
-        prices = await asyncio.wait_for(get_all_prices(service, country, state, with_success_rates=False), timeout=_PRICE_TIMEOUT_SEC)
-
-    except Exception:
-
-        return None
-
-    picked = _pick_alternate_temp_provider(
-
-        prices,
-
-        current_provider=current_provider,
-
-        service=service,
-
-        country=country,
-
-        state=state,
-
-    )
-
-    if not picked:
-
-        return None
-
-    provider_code, info = picked
-
-    try:
-
-        suggested_price = float(info.get("price") or 0.0)
-
-    except Exception:
-
-        suggested_price = 0.0
-
-    await update_order_details(
-
-        order_id,
-
-        {
-
-            "temp_alternate_enabled": True,
-
-            "temp_alternate_provider": provider_code,
-
-            "temp_alternate_api_service": str(info.get("api_service_name") or ""),
-
-            "temp_alternate_price": suggested_price,
-
-            "temp_alternate_base_price": float(info.get("base_price") or suggested_price),
-
-            "temp_alternate_suggested_at": _utc_now(),
-
-        },
-
-    )
-
-    await _log_temp_event(
-
-        order,
-
-        "alternate_provider_suggested",
-
-        {
-
-            "source": "numbers_miniapp",
-
-            "provider": provider_code,
-
-            "price": suggested_price,
-
-            "message_language": lang,
-
-        },
-
-    )
-
-    return {"provider": provider_code, "info": info, "price": suggested_price}
-
-async def _request_replacement_number(
-
-    *,
-
-    order_id: Any,
-
-    order: dict[str, Any],
-
-    user_id: int,
-
-    reseller_id: int,
-
-    lang: str,
-
-    alternate_provider: bool = False,
-
-) -> dict[str, Any]:
-
-    mode = str((order or {}).get("number_mode") or "").strip().lower()
-
-    if mode not in {"temp", "voice"}:
-
-        return {"ok": False, "code": "invalid_mode", "message": _text(lang, "This action is only for temporary numbers.", "هذا الإجراء خاص بالأرقام المؤقتة فقط.")}
-
-    if not _temp_like_replace_available(order):
-
-        return {"ok": False, "code": "replace_unavailable", "message": _text(lang, "A replacement is not available for this order.", "استبدال الرقم غير متاح لهذا الطلب.")}
-
-    replacement = _shared_temp_replacement_fields(order)
-
-    service = str(replacement.get("service") or "")
-
-    current_provider = _order_provider_code(order)
-
-    provider_code = current_provider
-
-    if alternate_provider and mode == "temp":
-
-        if not bool(order.get("temp_alternate_enabled")):
-
-            return {"ok": False, "code": "alternate_unavailable", "message": _text(lang, "No alternate provider is available for this order.", "لا يوجد مزود بديل متاح لهذا الطلب.")}
-
-        suggested_provider = str(order.get("temp_alternate_provider") or "").strip().lower()
-
-        if not suggested_provider or suggested_provider == current_provider:
-
-            return {"ok": False, "code": "alternate_unavailable", "message": _text(lang, "No alternate provider is available for this order.", "لا يوجد مزود بديل متاح لهذا الطلب.")}
-
-        provider_code = suggested_provider
-
-    country = str(replacement.get("country") or "none")
-
-    state = str(replacement.get("state") or "none")
-
-    if mode == "voice":
-
-        if alternate_provider:
-
-            return {"ok": False, "code": "alternate_unavailable", "message": _text(lang, "No alternate provider is available for this order.", "لا يوجد مزود بديل متاح لهذا الطلب.")}
-
-        country = "1"
-
-        state = "none"
-
-    if not service or (not provider_code and not alternate_provider):
-
-        return {"ok": False, "code": "replace_unavailable", "message": _text(lang, "A replacement is not available for this order.", "استبدال الرقم غير متاح لهذا الطلب.")}
-
-    if provider_code in _HIDDEN_TEMP_PROVIDER_CODES and not alternate_provider:
-
-        return {"ok": False, "code": "replace_unavailable", "message": _text(lang, "A replacement is not available for this order.", "استبدال الرقم غير متاح لهذا الطلب.")}
-
-    try:
-
-        if mode == "voice":
-
-            prices = await asyncio.wait_for(
-
-                _get_miniapp_voice_prices(service, "1", state, ignore_balance=True),
-
-                timeout=_PRICE_TIMEOUT_SEC,
-
-            )
-
-        else:
-
-            prices = await asyncio.wait_for(get_all_prices(service, country, state, with_success_rates=False), timeout=_PRICE_TIMEOUT_SEC)
-
-    except asyncio.TimeoutError:
-
-        return {"ok": False, "code": "provider_timeout", "message": _text(lang, "Provider checks took too long. Try again.", "فحص المزودين أخذ وقت طويل. جرّب مرة ثانية.")}
-
-    if alternate_provider:
-
-        info = prices.get(provider_code) if provider_code and provider_code != current_provider else None
-
-        if not isinstance(info, dict) or not _can_quote_temp_offer(
-
-            mode="temp",
-
-            service=service,
-
-            country=country,
-
-            state=state,
-
-            provider_code=provider_code,
-
-            info=info,
-
-        ):
-
-            return {"ok": False, "code": "alternate_unavailable", "message": _text(lang, "No alternate provider is available for this order.", "لا يوجد مزود بديل متاح لهذا الطلب.")}
-
-    else:
-
-        info = prices.get(provider_code)
-
-    if not isinstance(info, dict):
-
-        return {"ok": False, "code": "provider_unavailable", "message": _text(lang, "This provider is not available right now.", "هذا المزود غير متاح حالياً.")}
-
-    if mode == "voice":
-
-        can_buy = _can_quote_voice_offer(mode="voice", service=service, provider_code=provider_code, info=info)
-
-    else:
-
-        can_buy = _can_quote_temp_offer(
-
-            mode="temp",
-
-            service=service,
-
-            country=country,
-
-            state=state,
-
-            provider_code=provider_code,
-
-            info=info,
-
-        )
-
-    if not can_buy:
-
-        return {"ok": False, "code": "provider_unavailable", "message": _text(lang, "This provider is not available right now.", "هذا المزود غير متاح حالياً.")}
-
-    result = await _purchase_temp_offer(
-
-        user_id=int(user_id),
-
-        reseller_id=int(reseller_id),
-
-        lang=lang,
-
-        offer={
-
-            "service": service,
-
-            "country": country,
-
-            "state": state,
-
-            "provider_code": provider_code,
-
-            "info": info,
-
-        },
-
-        number_mode=mode,
-
-        source_order_id=str(order_id),
-
-        source_reason="alternate_provider_request" if alternate_provider else "replace_request",
-
-    )
-
-    if result.get("ok"):
-
-        await _log_temp_event(
-
-            order,
-
-            "replacement_requested",
-
-            {
-
-                "source": "numbers_miniapp",
-
-                "replacement_order_id": str((result.get("order") or {}).get("id") or ""),
-
-                "provider": provider_code,
-
-                "alternate_provider": bool(alternate_provider),
-
-            },
-
-        )
-
-    return result
-
 async def _sync_rental_sms_snapshot(order_id: Any, order: dict[str, Any]) -> dict[str, Any]:
-
-    provider = str(order.get("provider") or "").strip().lower()
-
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-
-    stored_messages = [str(item) for item in (order.get("rental_sms_messages") or []) if str(item or "").strip()]
-
-    if not provider_sms_polling_enabled():
-
-        return {
-
-            "success": True,
-
-            "has_sms": bool(stored_messages),
-
-            "messages": stored_messages,
-
-            "raw": "provider_sms_polling_disabled_waiting_for_webhook",
-
-            "polling_disabled": True,
-
-        }
-
-    if not provider or not provider_order_id:
-
-        return {"success": False, "has_sms": False, "messages": [], "raw": "provider_order_missing"}
-
-    try:
-
-        sms_data = await get_rental_sms_from_provider(provider, provider_order_id)
-
-    except Exception as exc:
-
-        return {"success": False, "has_sms": False, "messages": [], "raw": str(exc)}
-
-    messages = [str(item) for item in (sms_data.get("messages") or []) if str(item or "").strip()]
-
-    if messages:
-
-        await update_order_details(
-
-            order_id,
-
-            {
-
-                "rental_sms_received_at": _utc_now(),
-
-                "rental_sms_count": len(messages),
-
-                "rental_sms_messages": messages[:20],
-
-            },
-
-        )
-
-        await _log_rental_event(
-
-            order_id=order_id,
-
-            user_id=int(order.get("user_id") or 0),
-
-            provider=provider,
-
-            service_id=str(order.get("service_id") or ""),
-
-            event="code_received",
-
-            payload={"messages_count": len(messages), "source": "numbers_miniapp"},
-
-        )
-
-    return {"success": bool(sms_data.get("success")), "has_sms": bool(messages), "messages": messages, "raw": sms_data.get("raw")}
+    return await rental_protection_service.sync_rental_sms_snapshot(
+        order_id,
+        order,
+        provider_sms_polling_enabled_fn=provider_sms_polling_enabled,
+        get_rental_sms_from_provider_fn=get_rental_sms_from_provider,
+        update_order_details_fn=update_order_details,
+        log_rental_event_fn=_log_rental_event,
+        utc_now_fn=_utc_now,
+        sms_detected_event="code_received",
+        event_source="numbers_miniapp",
+        logger_obj=logger,
+    )
 
 async def _refresh_rental_order(order: dict[str, Any]) -> dict[str, Any]:
-
-    if not order or not order.get("_id"):
-
-        return order
-
-    if str(order.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
-
-        return order
-
-    await _sync_rental_sms_snapshot(order["_id"], order)
-
-    return await get_order(order["_id"]) or order
-
-async def _sync_rental_notes_tags_snapshot(order_id: Any, order: dict[str, Any]) -> dict[str, Any]:
-
-    provider = str(order.get("provider") or "").strip().lower()
-
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-
-    if not provider or not provider_order_id:
-
-        return {"success": False, "notes": "", "tags": [], "raw": "provider_order_missing"}
-
-    try:
-
-        data = await notes_tags_from_provider(provider, provider_order_id)
-
-    except Exception as exc:
-
-        return {"success": False, "notes": "", "tags": [], "raw": str(exc)}
-
-    if not bool(data.get("success")):
-
-        return {"success": False, "notes": "", "tags": [], "raw": data.get("raw")}
-
-    notes = str(data.get("notes") or "")
-
-    tags = [str(item) for item in (data.get("tags") or []) if str(item or "").strip()]
-
-    await update_order_details(
-
-        order_id,
-
-        {
-
-            "rental_notes": notes,
-
-            "rental_tags": tags[:20],
-
-            "rental_notes_tags_fetched_at": _utc_now(),
-
-        },
-
-    )
-
-    await _log_number_event_from_order(
-
+    return await rental_protection_service.refresh_rental_order(
         order,
-
-        "rental_notes_tags_fetched",
-
-        payload={"source": "numbers_miniapp", "tags_count": len(tags), "has_notes": bool(notes)},
-
-        number_mode="rental",
-
+        get_order_fn=get_order,
+        sync_rental_sms_snapshot_fn=_sync_rental_sms_snapshot,
     )
-
-    return {"success": True, "notes": notes, "tags": tags[:20], "raw": data.get("raw")}
 
 async def _provider_close_rental(order: dict[str, Any]) -> dict[str, Any]:
-
-    provider = str(order.get("provider") or "").strip().lower()
-
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-
-    if not provider or not provider_order_id:
-
-        return {"success": False, "reason": "provider_order_missing"}
-
-    policy = _rental_protection_policy(provider)
-
-    close_method = str(policy.get("close_method") or "finish").strip().lower()
-
-    last_raw: Any = None
-
-    for attempt in range(1, 4):
-
-        try:
-
-            if close_method == "cancel":
-
-                prov = PROVIDERS.get(provider)
-
-                if not prov or not hasattr(prov, "cancel"):
-
-                    return {"success": False, "reason": "provider_cancel_not_supported"}
-
-                close_res = await asyncio.wait_for(prov.cancel(provider_order_id), timeout=12.0)
-
-            else:
-
-                close_res = await asyncio.wait_for(finish_rental_from_provider(provider, provider_order_id), timeout=12.0)
-
-        except Exception as exc:
-
-            close_res = {"success": False, "raw": str(exc)}
-
-        last_raw = (close_res or {}).get("raw")
-
-        if bool((close_res or {}).get("success")):
-
-            return {"success": True, "raw": last_raw}
-
-        if attempt < 3:
-
-            await asyncio.sleep(float(attempt))
-
-    return {"success": False, "reason": "provider_close_failed", "raw": last_raw}
+    return await rental_protection_service.provider_close_rental(
+        order,
+        providers=PROVIDERS,
+        finish_rental_from_provider_fn=finish_rental_from_provider,
+        policy_fn=_rental_protection_policy,
+        sleep_fn=asyncio.sleep,
+    )
 
 async def _cancel_and_refund_rental_order(
 
@@ -5607,1252 +3764,41 @@ async def _cancel_and_refund_rental_order(
     require_no_sms: bool = False,
 
 ) -> dict[str, Any]:
-
-    if not order_id or not order:
-
-        return {"success": False, "reason": "order_not_found"}
-
-    status = str(order.get("status") or "").lower()
-
-    if status in {"cancelled", "failed", "refunded", "expired"}:
-
-        return {"success": False, "reason": "already_closed"}
-
-    provider = str(order.get("provider") or "").strip().lower()
-
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-
-    if not provider or not provider_order_id:
-
-        return {"success": False, "reason": "provider_order_missing"}
-
-    if require_no_sms:
-
-        sms_snapshot = await _sync_rental_sms_snapshot(order_id, order)
-
-        if sms_snapshot.get("has_sms"):
-
-            return {"success": False, "reason": "sms_received", "messages": sms_snapshot.get("messages") or []}
-
-    now = _utc_now()
-
-    await update_order_details(
-
-        order_id,
-
-        {
-
-            "rental_last_close_attempt_at": now,
-
-            "rental_last_close_reason": str(reason or "cancelled"),
-
-        },
-
-    )
-
-    await _log_number_event_from_order(
-
-        order,
-
-        "cancel_requested",
-
-        payload={"reason": str(reason or "cancelled"), "source": "numbers_miniapp"},
-
-        number_mode="rental",
-
-    )
-
-    close_res = await _provider_close_rental(order)
-
-    if not close_res.get("success"):
-
-        await update_order_details(
-
-            order_id,
-
-            {
-
-                "rental_last_close_error_at": _utc_now(),
-
-                "rental_last_close_error": str(close_res.get("reason") or "provider_close_failed"),
-
-                "rental_last_close_raw": close_res.get("raw"),
-
-            },
-
-        )
-
-        return {"success": False, "reason": str(close_res.get("reason") or "provider_close_failed"), "raw": close_res.get("raw")}
-
-    sale_price, cost_price = extract_order_amounts(order)
-
-    ok, msg = await FinancialManager.refund_core_purchase(
-
-        int(actor_user_id),
-
-        order_id,
-
-        sale_price,
-
-        cost_price,
-
-        reseller_id=int(order.get("reseller_id") or actor_user_id),
-
-    )
-
-    if not ok:
-
-        await update_order_details(
-
-            order_id,
-
-            {
-
-                "rental_last_close_error_at": _utc_now(),
-
-                "rental_last_close_error": "financial_refund_failed",
-
-                "rental_last_close_raw": msg,
-
-            },
-
-        )
-
-        return {"success": False, "reason": "financial_refund_failed", "raw": msg}
-
-    await update_order_status(order_id, "cancelled")
-
-    await update_order_details(
-
-        order_id,
-
-        {
-
-            "rental_cancelled_at": now,
-
-            "rental_refunded_at": now,
-
-            "rental_cancel_reason": str(reason or "cancelled"),
-
-            "rental_last_close_error_at": None,
-
-            "rental_last_close_error": None,
-
-            "rental_last_close_raw": close_res.get("raw"),
-
-        },
-
-    )
-
-    await _log_rental_event(
-
+    return await rental_protection_service.cancel_and_refund_rental_order(
         order_id=order_id,
-
-        user_id=int(order.get("user_id") or 0),
-
-        provider=provider,
-
-        service_id=str(order.get("service_id") or ""),
-
-        event="cancelled_refunded",
-
-        payload={"reason": str(reason or "cancelled"), "source": "numbers_miniapp"},
-
+        order=order,
+        actor_user_id=actor_user_id,
+        reason=reason,
+        require_no_sms=require_no_sms,
+        sync_rental_sms_snapshot_fn=_sync_rental_sms_snapshot,
+        provider_close_rental_fn=_provider_close_rental,
+        update_order_details_fn=update_order_details,
+        update_order_status_fn=update_order_status,
+        log_number_event_from_order_fn=_log_number_event_from_order,
+        log_rental_event_fn=_log_rental_event,
+        financial_manager_cls=FinancialManager,
+        extract_order_amounts_fn=extract_order_amounts,
+        utc_now_fn=_utc_now,
+        event_source="numbers_miniapp",
     )
-
-    await _log_number_event_from_order(
-
-        order,
-
-        "refund_success",
-
-        payload={"reason": str(reason or "cancelled"), "source": "numbers_miniapp"},
-
-        status_after="cancelled",
-
-        number_mode="rental",
-
-    )
-
-    return {"success": True, "reason": "ok"}
 
 async def _miniapp_rental_refund_guard(*, order_id: Any, actor_user_id: int) -> None:
-
-    order = await get_order(order_id)
-
-    if not order:
-
-        return
-
-    provider = str(order.get("provider") or "").strip().lower()
-
-    policy = _rental_protection_policy(provider)
-
-    start_dt = _coerce_utc_datetime(order.get("rental_started_at")) or _coerce_utc_datetime(order.get("created_at"))
-
-    if not start_dt:
-
-        return
-
-    cutoff_dt = _coerce_utc_datetime(order.get("rental_safe_cutoff_at"))
-
-    if cutoff_dt:
-
-        cutoff_ts = cutoff_dt.timestamp()
-
-    else:
-
-        deadline_sec = policy.get("refund_deadline_sec")
-
-        if not deadline_sec:
-
-            return
-
-        cutoff_ts = start_dt.timestamp() + int(deadline_sec) - max(30, int(policy.get("safe_cutoff_sec") or 60))
-
-    wait_sec = max(0, int(cutoff_ts - _utc_now().timestamp()))
-
-    if wait_sec > 0:
-
-        await asyncio.sleep(wait_sec)
-
-    latest = await get_order(order_id)
-
-    if not latest or not _rental_no_sms_yet(latest):
-
-        return
-
-    if str(latest.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
-
-        return
-
-    sms_snapshot = await _sync_rental_sms_snapshot(order_id, latest)
-
-    if sms_snapshot.get("has_sms"):
-
-        return
-
-    result = await _cancel_and_refund_rental_order(
-
+    await rental_protection_service.rental_refund_guard(
         order_id=order_id,
-
-        order=latest,
-
-        actor_user_id=int(actor_user_id),
-
-        reason=f"{provider}_miniapp_guard_no_sms_timeout",
-
-        require_no_sms=True,
-
+        actor_user_id=actor_user_id,
+        get_order_fn=get_order,
+        sync_rental_sms_snapshot_fn=_sync_rental_sms_snapshot,
+        cancel_and_refund_rental_order_fn=_cancel_and_refund_rental_order,
+        log_number_event_from_order_fn=_log_number_event_from_order,
+        log_rental_event_fn=_log_rental_event,
+        policy_fn=_rental_protection_policy,
+        no_sms_yet_fn=_rental_no_sms_yet,
+        utc_now_fn=_utc_now,
+        sleep_fn=asyncio.sleep,
+        deadline_event_source="numbers_miniapp_rental_guard",
+        auto_event_source="numbers_miniapp_rental_guard",
+        cancel_reason_suffix="miniapp_guard_no_sms_timeout",
     )
-
-    if result.get("success"):
-
-        await _log_number_event_from_order(
-
-            latest,
-
-            "auto_protection_triggered",
-
-            payload={"source": "numbers_miniapp_rental_guard"},
-
-            status_after="cancelled",
-
-            number_mode="rental",
-
-        )
-
-async def _purchase_temp_offer(
-
-    *,
-
-    user_id: int,
-
-    reseller_id: int,
-
-    lang: str,
-
-    offer: dict[str, Any],
-
-    number_mode: str = "temp",
-
-    source_order_id: str | None = None,
-
-    source_reason: str | None = None,
-
-) -> dict[str, Any]:
-
-    number_mode = "voice" if str(number_mode or "").strip().lower() == "voice" else "temp"
-
-    service = str(offer.get("service") or "").strip()
-
-    country = str(offer.get("country") or "none").strip() or "none"
-
-    state = str(offer.get("state") or "none").strip() or "none"
-
-    provider_code = str(offer.get("provider_code") or "").strip().lower()
-
-    info = offer.get("info") if isinstance(offer.get("info"), dict) else {}
-
-    api_service = str(info.get("api_service_name") or "").strip()
-
-    final_price = float(info.get("price") or 0.0)
-
-    cost_price = float(info.get("base_price") or final_price)
-
-    if not service or not provider_code or not api_service or final_price <= 0:
-
-        return {"ok": False, "code": "invalid_offer", "message": _text(lang, "This offer is no longer available.", "هذا العرض لم يعد متاحا.")}
-
-    trust_gate = await _evaluate_temp_trust_gate(
-
-        user_id=int(user_id),
-
-        service_id=service,
-
-        provider_code=provider_code,
-
-    )
-
-    if not bool(trust_gate.get("allowed")):
-
-        return {
-
-            "ok": False,
-
-            "code": "trust_blocked",
-
-            "message": _trust_message(
-
-                lang,
-
-                mode=str(trust_gate.get("mode") or "purchase"),
-
-                wait_sec=int(trust_gate.get("wait_sec") or 0),
-
-            ),
-
-        }
-
-    order = await create_order(
-
-        user_id=user_id,
-
-        reseller_id=reseller_id,
-
-        service_id=service,
-
-        selling_price=final_price,
-
-        base_price=cost_price,
-
-    )
-
-    order_id = order["_id"]
-
-    await update_order_details(
-
-        order_id,
-
-        {
-
-            "number_mode": number_mode,
-
-            "source": "numbers_miniapp",
-
-            "telegram_bot_id": None,
-
-            "provisioning_state": "awaiting_charge",
-
-            "provisioning_provider": provider_code,
-
-            "provisioning_service": api_service,
-
-            "provisioning_country": None if country == "none" else country,
-
-            "provisioning_state_code": None if state == "none" else state,
-
-            "provisioning_created_at": _utc_now(),
-
-            "temp_retry_source_order_id": str(source_order_id or "") or None,
-
-            "temp_retry_reason": str(source_reason or "") or None,
-
-        },
-
-    )
-
-    order.update(
-
-        {
-
-            "number_mode": number_mode,
-
-            "provisioning_provider": provider_code,
-
-            "provisioning_country": None if country == "none" else country,
-
-            "provisioning_state_code": None if state == "none" else state,
-
-        }
-
-    )
-
-    await _log_number_event_from_order(
-
-        order,
-
-        "order_created",
-
-        payload={"source": "numbers_miniapp", "source_order_id": source_order_id, "source_reason": source_reason},
-
-        number_mode=number_mode,
-
-    )
-
-    ok, message = await FinancialManager.process_core_purchase(
-
-        user_id=user_id,
-
-        order_id=order_id,
-
-        sale_price=final_price,
-
-        cost_price=cost_price,
-
-        reseller_id=reseller_id,
-
-    )
-
-    if not ok:
-
-        await update_order_status(order_id, "failed")
-
-        await _log_number_event_from_order(
-
-            order,
-
-            "wallet_charge_failed",
-
-            payload={"message": str(message), "source": "numbers_miniapp"},
-
-            status_after="failed",
-
-            number_mode=number_mode,
-
-        )
-
-        return {"ok": False, "code": str(message), "message": finance_error_public_text(lang, str(message))}
-
-    try:
-
-        await update_order_details(
-
-            order_id,
-
-            {
-
-                "provisioning_state": "charged_pending_provider",
-
-                "provisioning_charged_at": _utc_now(),
-
-            },
-
-        )
-
-        await _log_number_event_from_order(order, "wallet_charged", status_after="paid", number_mode=number_mode)
-
-        provider_country = str(info.get("provider_country") or country or "").strip()
-
-        req_country = None if provider_country == "none" else provider_country
-
-        req_state = None if state == "none" else state
-
-        purchase_options = {
-
-            "reuse_mode": True,
-
-            "_audit_requested_service": service,
-
-            "source": "numbers_miniapp",
-
-        }
-
-        if source_reason:
-
-            purchase_options["retry_reason"] = str(source_reason)
-
-        if number_mode == "voice":
-
-            purchase_options["capability"] = "voice"
-
-        buy_res = await buy_number_from_provider(
-
-            provider_code=provider_code,
-
-            api_service_name=api_service,
-
-            country=req_country,
-
-            state=req_state,
-
-            dry_run=False,
-
-            purchase_options=purchase_options,
-
-        )
-
-        if not buy_res or not buy_res.get("success"):
-
-            refund_ok, _refund_msg = await FinancialManager.refund_core_purchase(
-
-                user_id,
-
-                order_id,
-
-                final_price,
-
-                cost_price,
-
-                reseller_id=reseller_id,
-
-            )
-
-            await update_order_status(order_id, "refunded" if refund_ok else "failed")
-
-            await update_order_details(
-
-                order_id,
-
-                {
-
-                    "provisioning_state": "provider_failed_refunded" if refund_ok else "provider_failed_refund_error",
-
-                    "provisioning_failure_at": _utc_now(),
-
-                },
-
-            )
-
-            await _log_number_event_from_order(
-
-                {**order, "provider": provider_code, "status": "paid"},
-
-                "provider_buy_failed",
-
-                payload={"raw": buy_res.get("raw") if isinstance(buy_res, dict) else "provider_no_response", "source": "numbers_miniapp"},
-
-                status_after="refunded" if refund_ok else "failed",
-
-                number_mode=number_mode,
-
-            )
-
-            return {
-
-                "ok": False,
-
-                "code": "provider_failed",
-
-                "message": _text(lang, "Provider could not reserve the number. Your balance was refunded.", "المزود لم يستطع حجز الرقم. تم إرجاع الرصيد."),
-
-            }
-
-        provider_order_id = str(buy_res.get("order_id") or "").strip()
-
-        number = str(buy_res.get("number") or "").strip()
-
-        provider_pool = str(buy_res.get("pool") or "").strip() or None
-
-        interval_sec = _poll_interval_for_provider(provider_code)
-
-        provider_timeout_sec = _extract_provider_wait_timeout_sec(buy_res)
-
-        if provider_timeout_sec:
-
-            provider_timeout_sec = min(TEMP_WAIT_TIMEOUT_SEC, int(provider_timeout_sec))
-
-        now = datetime.now(UTC)
-
-        reuse_warranty_sec = _provider_default_reuse_warranty_sec(provider_code)
-
-        reuse_until = datetime.fromtimestamp(now.timestamp() + int(reuse_warranty_sec), tz=UTC)
-
-        await update_order_details(
-
-            order_id,
-
-            {
-
-                "provider_order_id": provider_order_id,
-
-                "provider": provider_code,
-
-                "provider_sms_delivery": provider_sms_delivery_strategy(provider_code) if number_mode == "temp" else "polling",
-
-                "provider_number": number,
-
-                "provider_pool": provider_pool,
-
-                "number_mode": number_mode,
-
-                "voice_enabled": number_mode == "voice",
-
-                "temp_api_service": api_service,
-
-                "temp_country": None if country == "none" else country,
-
-                "temp_state": None if state == "none" else state,
-
-                "temp_service_key": service,
-
-                "temp_reuse_warranty_until": reuse_until,
-
-                "temp_reuse_warranty_sec": reuse_warranty_sec,
-
-                "temp_wait_interval_sec": interval_sec,
-
-                "temp_wait_timeout_sec": provider_timeout_sec if provider_timeout_sec else TEMP_WAIT_TIMEOUT_SEC,
-
-                "temp_last_refresh_at": None,
-
-                "temp_replace_enabled": False,
-
-                "temp_codes": [],
-
-                "temp_codes_count": 0,
-
-                "temp_wait_state": "waiting_for_call" if number_mode == "voice" else "waiting",
-
-                "temp_wait_started_at": now,
-
-                "provisioning_state": "provisioned",
-
-                "provisioned_at": now,
-
-            },
-
-        )
-
-        await update_order_status(order_id, "success")
-
-        await _log_number_event_from_order(
-
-            {
-
-                **order,
-
-                "_id": order_id,
-
-                "provider": provider_code,
-
-                "provider_order_id": provider_order_id,
-
-                "provider_number": number,
-
-                "temp_country": None if country == "none" else country,
-
-                "temp_state": None if state == "none" else state,
-
-                "status": "paid",
-
-            },
-
-            "provider_buy_success",
-
-            payload={"provider_pool": provider_pool, "source": "numbers_miniapp"},
-
-            status_after="success",
-
-            number_mode=number_mode,
-
-        )
-
-        await _log_temp_event(
-
-            {
-
-                "_id": order_id,
-
-                "user_id": user_id,
-
-                "provider": provider_code,
-
-                "service_id": service,
-
-                "temp_country": None if country == "none" else country,
-
-                "temp_state": None if state == "none" else state,
-
-                "temp_api_service": api_service,
-
-            },
-
-            "purchase_success",
-
-            {
-
-                "sale_price": final_price,
-
-                "base_price": cost_price,
-
-                "provider_order_id": provider_order_id,
-
-                "provider_pool": provider_pool,
-
-                "source": "numbers_miniapp",
-
-            },
-
-        )
-
-        fresh_order = await get_order(order_id) or order
-
-        return {"ok": True, "order": _order_payload(fresh_order)}
-
-    except Exception:
-
-        logger.exception("numbers miniapp purchase failed after charge for order=%s", order_id)
-
-        refund_ok, _refund_msg = await FinancialManager.refund_core_purchase(
-
-            user_id,
-
-            order_id,
-
-            final_price,
-
-            cost_price,
-
-            reseller_id=reseller_id,
-
-        )
-
-        await update_order_status(order_id, "refunded" if refund_ok else "failed")
-
-        await update_order_details(
-
-            order_id,
-
-            {
-
-                "provisioning_state": "provider_failed_refunded" if refund_ok else "provider_failed_refund_error",
-
-                "provisioning_failure_at": _utc_now(),
-
-            },
-
-        )
-
-        return {
-
-            "ok": False,
-
-            "code": "provider_failed",
-
-            "message": _text(lang, "Provider could not reserve the number. Your balance was refunded.", "المزود لم يستطع حجز الرقم. تم إرجاع الرصيد."),
-
-        }
-
-async def _purchase_rental_offer(
-
-    *,
-
-    user_id: int,
-
-    reseller_id: int,
-
-    lang: str,
-
-    offer: dict[str, Any],
-
-) -> dict[str, Any]:
-
-    service = str(offer.get("service") or "").strip()
-
-    country = str(offer.get("country") or "none").strip() or "none"
-
-    provider_code = str(offer.get("provider_code") or "").strip().lower()
-
-    provider_info = offer.get("provider_info") if isinstance(offer.get("provider_info"), dict) else {}
-
-    selected = offer.get("option") if isinstance(offer.get("option"), dict) else {}
-
-    api_service = str(selected.get("api_service_name") or provider_info.get("api_service_name") or "").strip()
-
-    try:
-
-        duration = int(selected.get("duration") or 0)
-
-    except Exception:
-
-        duration = 0
-
-    try:
-
-        final_price = float(selected.get("price") or 0.0)
-
-    except Exception:
-
-        final_price = 0.0
-
-    try:
-
-        cost_price = float(selected.get("base_price", final_price) or final_price)
-
-    except Exception:
-
-        cost_price = final_price
-
-    if not service or not provider_code or not api_service or not country or duration <= 0 or final_price <= 0:
-
-        return {"ok": False, "code": "invalid_offer", "message": _text(lang, "This offer is no longer available.", "هذا العرض لم يعد متاحا.")}
-
-    order = await create_order(
-
-        user_id=user_id,
-
-        reseller_id=reseller_id,
-
-        service_id=f"{service}:rental",
-
-        selling_price=final_price,
-
-        base_price=cost_price,
-
-    )
-
-    order_id = order["_id"]
-
-    state_code = str(selected.get("state_code") or "none")
-
-    await update_order_details(
-
-        order_id,
-
-        {
-
-            "number_mode": "rental",
-
-            "source": "numbers_miniapp",
-
-            "telegram_bot_id": None,
-
-            "provisioning_state": "awaiting_charge",
-
-            "provisioning_provider": provider_code,
-
-            "provisioning_service": api_service,
-
-            "provisioning_country": country,
-
-            "provisioning_state_code": state_code,
-
-            "provisioning_duration_hours": int(duration),
-
-            "provisioning_created_at": _utc_now(),
-
-        },
-
-    )
-
-    order.update(
-
-        {
-
-            "number_mode": "rental",
-
-            "provisioning_provider": provider_code,
-
-            "provisioning_country": country,
-
-            "provisioning_state_code": state_code,
-
-        }
-
-    )
-
-    await _log_number_event_from_order(
-
-        order,
-
-        "order_created",
-
-        payload={"duration_hours": int(duration), "source": "numbers_miniapp"},
-
-        number_mode="rental",
-
-    )
-
-    ok, message = await FinancialManager.process_core_purchase(
-
-        user_id=user_id,
-
-        order_id=order_id,
-
-        sale_price=final_price,
-
-        cost_price=cost_price,
-
-        reseller_id=reseller_id,
-
-    )
-
-    if not ok:
-
-        await update_order_status(order_id, "failed")
-
-        await _log_number_event_from_order(
-
-            order,
-
-            "wallet_charge_failed",
-
-            payload={"message": str(message), "source": "numbers_miniapp"},
-
-            status_after="failed",
-
-            number_mode="rental",
-
-        )
-
-        return {"ok": False, "code": str(message), "message": finance_error_public_text(lang, str(message))}
-
-    try:
-
-        await update_order_details(
-
-            order_id,
-
-            {
-
-                "provisioning_state": "charged_pending_provider",
-
-                "provisioning_charged_at": _utc_now(),
-
-            },
-
-        )
-
-        await _log_number_event_from_order(order, "wallet_charged", status_after="paid", number_mode="rental")
-
-        option_meta = {
-
-            key: selected.get(key)
-
-            for key in (
-
-                "rental_id",
-
-                "duration_days",
-
-                "country_name",
-
-                "tv_with_state",
-
-                "state_code",
-
-                "tv_duration_key",
-
-                "tv_is_renewable",
-
-                "provider_duration",
-
-                "provider_app",
-
-            )
-
-            if selected.get(key) not in (None, "")
-
-        }
-
-        rent_res = await rent_number_from_provider(
-
-            provider_code=provider_code,
-
-            api_service_name=api_service,
-
-            country=country,
-
-            duration=duration,
-
-            option_meta=option_meta,
-
-        )
-
-        if not rent_res or not rent_res.get("success"):
-
-            refund_ok, _refund_msg = await FinancialManager.refund_core_purchase(
-
-                user_id,
-
-                order_id,
-
-                final_price,
-
-                cost_price,
-
-                reseller_id=reseller_id,
-
-            )
-
-            await update_order_status(order_id, "refunded" if refund_ok else "failed")
-
-            await update_order_details(
-
-                order_id,
-
-                {
-
-                    "provisioning_state": "provider_failed_refunded" if refund_ok else "provider_failed_refund_error",
-
-                    "provisioning_failure_at": _utc_now(),
-
-                },
-
-            )
-
-            await _log_number_event_from_order(
-
-                {**order, "provider": provider_code, "status": "paid"},
-
-                "provider_rent_failed",
-
-                payload={"raw": rent_res.get("raw") if isinstance(rent_res, dict) else "provider_no_response", "source": "numbers_miniapp"},
-
-                status_after="refunded" if refund_ok else "failed",
-
-                number_mode="rental",
-
-            )
-
-            return {
-
-                "ok": False,
-
-                "code": "provider_failed",
-
-                "message": _text(lang, "Provider could not reserve the rental. Your balance was refunded.", "المزود لم يستطع حجز الإيجار. تم إرجاع الرصيد."),
-
-            }
-
-        provider_order_id = str(rent_res.get("order_id") or "").strip()
-
-        number = str(rent_res.get("number") or "").strip()
-
-        is_renewable = bool(selected.get("tv_is_renewable"))
-
-        billing_cycle_label = str(selected.get("rental_billing_cycle_label") or "")
-
-        if is_renewable and not billing_cycle_label:
-
-            billing_cycle_label = "Auto renew"
-
-        protection_policy = _rental_protection_policy(provider_code)
-
-        rental_started_at = _utc_now()
-
-        rental_deadline_at = None
-
-        rental_safe_cutoff_at = None
-
-        provider_refund_deadline_at = _coerce_utc_datetime(rent_res.get("refund_refundable_until"))
-
-        provider_can_refund = rent_res.get("refund_can_refund")
-
-        if provider_refund_deadline_at and provider_can_refund is not False:
-
-            rental_deadline_at = provider_refund_deadline_at
-
-            rental_safe_cutoff_at = datetime.fromtimestamp(
-
-                rental_deadline_at.timestamp() - max(30, int(protection_policy.get("safe_cutoff_sec") or 60)),
-
-                tz=UTC,
-
-            )
-
-        elif protection_policy.get("refund_deadline_sec"):
-
-            rental_deadline_at = datetime.fromtimestamp(
-
-                rental_started_at.timestamp() + int(protection_policy["refund_deadline_sec"]),
-
-                tz=UTC,
-
-            )
-
-            rental_safe_cutoff_at = datetime.fromtimestamp(
-
-                rental_deadline_at.timestamp() - max(30, int(protection_policy.get("safe_cutoff_sec") or 60)),
-
-                tz=UTC,
-
-            )
-
-        await update_order_details(
-
-            order_id,
-
-            {
-
-                "provider_order_id": provider_order_id,
-
-                "provider": provider_code,
-
-                "provider_number": number,
-
-                "number_mode": "rental",
-
-                "rental_started_at": rental_started_at,
-
-                "rental_duration_hours": duration,
-
-                "rental_duration_label": _rental_duration_label(selected),
-
-                "rental_country": country,
-
-                "rental_country_name": str(selected.get("country_name") or ""),
-
-                "rental_cost": rent_res.get("price"),
-
-                "rental_end_date": rent_res.get("end_date"),
-
-                "rental_is_renewable": is_renewable,
-
-                "rental_billing_cycle_label": billing_cycle_label if is_renewable else "-",
-
-                "rental_billing_cycle_id": rent_res.get("billing_cycle_id"),
-
-                "rental_state_code": state_code,
-
-                "rental_refund_deadline_at": rental_deadline_at,
-
-                "rental_safe_cutoff_at": rental_safe_cutoff_at,
-
-                "provisioning_state": "provisioned",
-
-                "provisioned_at": _utc_now(),
-
-                "rental_protection_policy": {
-
-                    "provider": provider_code,
-
-                    "close_method": protection_policy.get("close_method"),
-
-                    "refund_deadline_sec": protection_policy.get("refund_deadline_sec"),
-
-                    "safe_cutoff_sec": protection_policy.get("safe_cutoff_sec"),
-
-                    "provider_can_refund": provider_can_refund,
-
-                    "provider_refund_deadline_at": provider_refund_deadline_at,
-
-                },
-
-            },
-
-        )
-
-        await update_order_status(order_id, "success")
-
-        await _log_number_event_from_order(
-
-            {
-
-                **order,
-
-                "_id": order_id,
-
-                "provider": provider_code,
-
-                "provider_order_id": provider_order_id,
-
-                "provider_number": number,
-
-                "rental_country": country,
-
-                "rental_state_code": state_code,
-
-                "status": "paid",
-
-            },
-
-            "provider_rent_success",
-
-            payload={"duration_hours": int(duration), "source": "numbers_miniapp"},
-
-            status_after="success",
-
-            number_mode="rental",
-
-        )
-
-        await _log_rental_event(
-
-            order_id=order_id,
-
-            user_id=user_id,
-
-            provider=provider_code,
-
-            service_id=f"{service}:rental",
-
-            event="purchase_success",
-
-            payload={"duration_hours": int(duration), "provider_order_id": provider_order_id, "source": "numbers_miniapp"},
-
-        )
-
-        asyncio.create_task(_miniapp_rental_refund_guard(order_id=order_id, actor_user_id=int(user_id)))
-
-        fresh_order = await get_order(order_id) or order
-
-        return {"ok": True, "order": _order_payload(fresh_order)}
-
-    except Exception:
-
-        logger.exception("numbers miniapp rental purchase failed after charge for order=%s", order_id)
-
-        refund_ok, _refund_msg = await FinancialManager.refund_core_purchase(
-
-            user_id,
-
-            order_id,
-
-            final_price,
-
-            cost_price,
-
-            reseller_id=reseller_id,
-
-        )
-
-        await update_order_status(order_id, "refunded" if refund_ok else "failed")
-
-        await update_order_details(
-
-            order_id,
-
-            {
-
-                "provisioning_state": "provider_failed_refunded" if refund_ok else "provider_failed_refund_error",
-
-                "provisioning_failure_at": _utc_now(),
-
-            },
-
-        )
-
-        return {
-
-            "ok": False,
-
-            "code": "provider_failed",
-
-            "message": _text(lang, "Provider could not reserve the rental. Your balance was refunded.", "المزود لم يستطع حجز الإيجار. تم إرجاع الرصيد."),
-
-        }
 
 def _normalize_provider_rows(
 
@@ -6884,225 +3830,35 @@ def _normalize_provider_rows(
 
         )
 
-    rows: list[dict[str, Any]] = []
+    if mode == "rental":
 
-    recommended_code = _miniapp_recommended_provider_code(data, mode)
+        return _api_normalize_rental_quote_rows(
 
-    for code, info in sorted((data or {}).items(), key=lambda item: _provider_sort_key(str(item[0]))):
+            data,
 
-        if not isinstance(info, dict):
+            service=str(service or ""),
 
-            continue
+            country=str(country or "none"),
 
-        code = str(code or "").strip().lower()
-
-        if mode == "temp" and code in _HIDDEN_TEMP_PROVIDER_CODES:
-
-            continue
-
-        available = bool(info.get("available_for_buy", True))
-
-        options = []
-
-        if mode == "rental":
-
-            for normalized_option in _miniapp_rental_option_candidates(code, info, state=state):
-
-                option_quote = ""
-
-                if _can_quote_rental_option(
-
-                    mode=mode,
-
-                    service=service,
-
-                    country=country,
-
-                    provider_code=code,
-
-                    provider_info=info,
-
-                    option=normalized_option,
-
-                ):
-
-                    option_quote = _make_quote_token(
-
-                        {
-
-                            "mode": "rental",
-
-                            "service": str(service or ""),
-
-                            "country": str(country or "none"),
-
-                            "state": str(normalized_option.get("state_code") or state or "none"),
-
-                            "provider": code,
-
-                            "option_key": list(_rental_option_match_key(normalized_option)),
-
-                        }
-
-                    )
-
-                if not option_quote:
-
-                    continue
-
-                option_state = str(normalized_option.get("state_code") or "none").strip()
-
-                option_payload = {
-
-                    "duration": str(normalized_option.get("duration") or normalized_option.get("label") or normalized_option.get("hours") or "").strip(),
-
-                    "duration_label": _rental_duration_label(normalized_option),
-
-                    "price": float(normalized_option.get("price") or 0.0),
-
-                    "price_label": _money(normalized_option.get("price")),
-
-                    "quote_token": option_quote,
-
-                    "state_code": option_state if option_state else "none",
-
-                }
-
-                if "tv_is_renewable" in normalized_option:
-
-                    option_payload["renewable"] = bool(normalized_option.get("tv_is_renewable"))
-
-                if "tv_with_state" in normalized_option:
-
-                    option_payload["with_state"] = bool(normalized_option.get("tv_with_state"))
-
-                options.append(option_payload)
-
-        quote_token = ""
-
-        if _can_quote_temp_offer(
-
-            mode=mode,
-
-            service=service,
-
-            country=country,
-
-            state=state,
-
-            provider_code=code,
-
-            info=info,
-
-        ):
-
-            quote_token = _make_quote_token(
-
-                {
-
-                    "mode": "temp",
-
-                    "service": str(service or ""),
-
-                    "country": str(country or "none"),
-
-                    "state": str(state or "none"),
-
-                    "provider": code,
-
-                }
-
-            )
-
-        elif _can_quote_voice_offer(
-
-            mode=mode,
-
-            service=service,
-
-            provider_code=code,
-
-            info=info,
-
-        ):
-
-            quote_token = _make_quote_token(
-
-                {
-
-                    "mode": "voice",
-
-                    "service": str(service or ""),
-
-                    "country": "1",
-
-                    "state": str(state or "none"),
-
-                    "provider": code,
-
-                }
-
-            )
-
-        if mode == "rental":
-
-            options.sort(key=lambda option: float(option.get("price") or 9999))
-
-        if mode == "rental" and not options:
-
-            continue
-
-        if mode in {"temp", "voice"} and (not available or not quote_token):
-
-            continue
-
-        if mode == "rental":
-
-            available = bool(options)
-
-        success_value = info.get("recommended_success_rate") if info.get("recommended_success_rate") is not None else info.get("success_rate", 100)
-
-        success_attempts = _success_attempt_count(info)
-
-        provider_state_code = str(info.get("provider_state_code") or "").strip().upper()
-
-        provider_country_iso = str(info.get("provider_country_iso") or "").strip().upper()
-
-        rows.append(
-
-            {
-
-                "provider": provider_display_name(code),
-
-                "provider_id": provider_public_id(code),
-
-                "location_tag": provider_state_code or provider_country_iso,
-
-                "price": float(options[0]["price"] if mode == "rental" and options else info.get("price") or 0.0),
-
-                "price_label": _money(options[0]["price"] if mode == "rental" and options else info.get("price")),
-
-                "success_rate": _success_rate(success_value, success_attempts),
-
-                "success_attempts": int(success_attempts),
-
-                "available": available,
-
-                "quote_token": quote_token,
-
-                "options": options,
-
-                "recommended": code == recommended_code,
-
-                "voice_fallback": bool(info.get("voice_fallback_service")),
-
-            }
+            state=str(state or "none"),
 
         )
 
-    rows.sort(key=lambda row: (not row.get("recommended"), float(row.get("price") or 9999), str(row.get("provider_id") or "")))
+    if mode == "voice":
 
-    return rows[:_MAX_PRICE_ROWS]
+        return _api_normalize_voice_quote_rows(
+
+            data,
+
+            service=str(service or ""),
+
+            country=str(country or "1"),
+
+            state=str(state or "none"),
+
+        )
+
+    return []
 
 def _provider_debug_rows(data: dict[str, Any], mode: str) -> list[dict[str, Any]]:
 
@@ -7681,39 +4437,11 @@ async def purchase_temp(request: web.Request) -> web.Response:
 
         return _json_error(_text(lang, "Missing quote.", "العرض غير موجود."), status=400, code="missing_quote")
 
-    api_temp_quote = False
-
     try:
-
-        try:
-
-            quote_payload = _api_verify_quote_token(token)
-
-            quote_mode = str(quote_payload.get("mode") or "temp").strip().lower()
-
-            api_temp_quote = quote_mode == "temp"
-
-        except ApiQuoteTokenError:
-
-            quote_payload = _verify_quote_token(token)
-
-            quote_mode = str(quote_payload.get("mode") or "temp").strip().lower()
-
-        if quote_mode == "rental":
-
-            offer = await _resolve_rental_offer_from_quote(token)
-
-        elif quote_mode == "voice":
-
-            offer = await _resolve_voice_offer_from_quote(token)
-
-        elif not api_temp_quote:
-
-            offer = await _resolve_temp_offer_from_quote(token)
-
-        else:
-
-            offer = {}
+        quote_payload = _api_verify_quote_token(token)
+        quote_mode = str(quote_payload.get("mode") or "temp").strip().lower()
+        if quote_mode not in {"temp", "rental", "voice"}:
+            raise web.HTTPBadRequest(text="invalid_quote_mode")
 
     except asyncio.TimeoutError:
 
@@ -7738,38 +4466,14 @@ async def purchase_temp(request: web.Request) -> web.Response:
             code=str(exc.text or "invalid_quote"),
 
         )
-
-    if quote_mode == "rental":
-
-        result = await _purchase_rental_offer(
-
-            user_id=int(auth["user_id"]),
-
-            reseller_id=int(auth["user_id"]),
-
-            lang=lang,
-
-            offer=offer,
-
+    except ApiQuoteTokenError:
+        return _json_error(
+            _text(lang, "This offer is no longer available.", "\u0647\u0630\u0627 \u0627\u0644\u0639\u0631\u0636 \u0644\u0645 \u064a\u0639\u062f \u0645\u062a\u0627\u062d\u0627."),
+            status=400,
+            code="invalid_quote",
         )
 
-    elif quote_mode == "voice":
-
-        result = await _purchase_temp_offer(
-
-            user_id=int(auth["user_id"]),
-
-            reseller_id=int(auth["user_id"]),
-
-            lang=lang,
-
-            offer=offer,
-
-            number_mode="voice",
-
-        )
-
-    elif api_temp_quote:
+    if quote_mode == "temp":
 
         trust_gate = await _evaluate_temp_trust_gate(
 
@@ -7777,7 +4481,7 @@ async def purchase_temp(request: web.Request) -> web.Response:
 
             service_id=str(quote_payload.get("service") or ""),
 
-            provider_code=str(quote_payload.get("provider") or ""),
+            provider_code=_quote_provider_code(quote_payload, allowed_codes=_TEMP_PRICE_SCREEN_PROVIDER_CODES),
 
         )
 
@@ -7803,45 +4507,35 @@ async def purchase_temp(request: web.Request) -> web.Response:
 
         else:
 
-            try:
-
-                api_result = await _api_create_temp_order_from_quote(
-
-                    user_id=int(auth["user_id"]),
-
-                    reseller_id=int(auth["user_id"]),
-
-                    quote_token=token,
-
-                    idempotency_key=str((body or {}).get("idempotency_key") or ""),
-
-                    lang=lang,
-
-                )
-
-                order_id = str(((api_result.get("order") or {}).get("id") if isinstance(api_result, dict) else "") or "")
-
-                fresh_order = await get_order(order_id) if order_id else None
-
-                result = {"ok": True, "order": _order_payload(fresh_order or {})}
-
-            except ApiNumbersOrderError as exc:
-
-                result = {"ok": False, "code": exc.code, "message": exc.message}
+            result = None
 
     else:
 
-        result = await _purchase_temp_offer(
+        result = None
 
-            user_id=int(auth["user_id"]),
+    if result is None:
 
-            reseller_id=int(auth["user_id"]),
+        try:
 
-            lang=lang,
+            api_result = await _api_create_number_order_from_quote(
 
-            offer=offer,
+                user_id=int(auth["user_id"]),
 
-        )
+                reseller_id=int(auth["user_id"]),
+
+                quote_token=token,
+
+                idempotency_key=str(request.headers.get("Idempotency-Key") or (body or {}).get("idempotency_key") or ""),
+
+                lang=lang,
+
+            )
+
+            result = await _miniapp_order_result(dict(api_result or {"ok": True}), lang)
+
+        except ApiNumbersOrderError as exc:
+
+            result = {"ok": False, "code": exc.code, "message": exc.message}
 
     if not result.get("ok"):
 
@@ -7889,21 +4583,17 @@ async def refresh_order(request: web.Request) -> web.Response:
 
         return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
 
+    api_result: dict[str, Any] = {}
+
     try:
 
-        number_mode = str(order.get("number_mode") or "").strip().lower()
+        api_result = await _api_refresh_number_order(order)
+        refreshed = await get_order(order_id) or order
 
-        if number_mode == "rental":
+    except ApiNumbersOrderError as exc:
 
-            refreshed = await _refresh_rental_order(order)
-
-        elif number_mode == "voice":
-
-            refreshed = await _refresh_voice_order(order)
-
-        else:
-
-            refreshed = await _refresh_temp_order(order)
+        refreshed = await get_order(order_id) or order
+        return _json_error(exc.message, status=exc.status, code=exc.code, order=await _order_payload_with_events(refreshed, lang))
 
     except Exception:
 
@@ -7911,7 +4601,11 @@ async def refresh_order(request: web.Request) -> web.Response:
 
         refreshed = order
 
-    payload: dict[str, Any] = {"ok": True, "order": await _order_payload_with_events(refreshed, lang)}
+    payload: dict[str, Any] = {
+        "ok": True,
+        "order": await _order_payload_with_events(refreshed, lang),
+        "message": str((api_result or {}).get("message") or ""),
+    }
 
     try:
 
@@ -7943,53 +4637,43 @@ async def download_recording(request: web.Request) -> web.Response:
 
     except Exception:
 
-        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+        return _json_error(_text(lang, "Order not found.", "????? ??? ?????."), status=404, code="order_not_found")
 
     order = await get_order(order_id)
 
     if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
 
-        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+        return _json_error(_text(lang, "Order not found.", "????? ??? ?????."), status=404, code="order_not_found")
 
-    if str(order.get("number_mode") or "").strip().lower() != "voice":
-
-        return _json_error(_text(lang, "This action is only for call numbers.", "هذا الإجراء خاص بأرقام الاتصال فقط."), status=400, code="invalid_mode")
-
-    refreshed = await _refresh_voice_order(order)
-
-    recording_uri = str((refreshed or {}).get("voice_recording_uri") or "").strip()
-
-    provider = _order_provider_code(refreshed or {})
-
-    if not provider or not recording_uri:
-
-        return _json_error(_text(lang, "No call recording is available yet.", "لا يوجد تسجيل مكالمة حاليا."), status=404, code="recording_not_ready")
+    refreshed = await get_order(order_id) or order
 
     try:
 
-        data = await get_recording_from_provider(provider, recording_uri)
+        data = await _api_download_voice_order_recording(refreshed)
 
-    except Exception:
+    except ApiNumbersOrderError as exc:
 
-        logger.exception("numbers miniapp recording download failed: order=%s", raw_id)
+        messages = {
 
-        data = {"success": False}
+            "invalid_mode": _text(lang, "This action is only for call numbers.", "??? ??????? ??? ?????? ??????? ???."),
 
-    if not isinstance(data, dict) or not data.get("success") or not data.get("content"):
+            "recording_not_ready": _text(lang, "No call recording is available yet.", "?? ???? ????? ?????? ?????."),
 
-        return _json_error(_text(lang, "Could not download the recording right now.", "تعذر تحميل التسجيل حاليا."), status=502, code="recording_download_failed")
+            "recording_download_failed": _text(lang, "Could not download the recording right now.", "???? ????? ??????? ?????."),
 
-    content_type = str(data.get("content_type") or "application/octet-stream")
+        }
+
+        return _json_error(messages.get(exc.code, exc.message), status=exc.status, code=exc.code)
 
     headers = {
 
         **_NO_STORE_HEADERS,
 
-        "Content-Disposition": f'attachment; filename="{_voice_recording_filename(content_type)}"',
+        "Content-Disposition": f'attachment; filename="{data["filename"]}"',
 
     }
 
-    return web.Response(body=bytes(data.get("content") or b""), content_type=content_type, headers=headers)
+    return web.Response(body=data["content"], content_type=data["content_type"], headers=headers)
 
 async def request_second_code(request: web.Request) -> web.Response:
 
@@ -8095,29 +4779,45 @@ async def replace_order(request: web.Request) -> web.Response:
 
         return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
 
-    result = await _request_replacement_number(
+    body = await _json_body(request)
 
-        order_id=order_id,
+    try:
 
-        order=order,
+        result = await _api_request_replacement_order(
 
-        user_id=int(auth["user_id"]),
+            order=order,
 
-        reseller_id=int(auth["user_id"]),
+            user_id=int(auth["user_id"]),
 
-        lang=lang,
+            reseller_id=int(auth["user_id"]),
 
-        alternate_provider=False,
+            idempotency_key=_miniapp_idempotency_key(
 
-    )
+                request,
 
-    if not result.get("ok"):
+                body,
 
-        failure_code = str(result.get("code") or "")
+                action="replace",
 
-        if failure_code in {"provider_unavailable", "provider_failed", "provider_timeout", "invalid_offer"}:
+                user_id=int(auth["user_id"]),
 
-            suggestion = await _enable_alternate_provider_suggestion(order_id=order_id, order=order, lang=lang)
+                order_id=order_id,
+
+            ),
+
+            lang=lang,
+
+            alternate_provider=False,
+
+        )
+
+    except ApiNumbersOrderError as exc:
+
+        failure_code = str(exc.code or "")
+
+        if failure_code in {"provider_unavailable", "provider_failed", "provider_timeout", "invalid_offer", "offer_unavailable"}:
+
+            suggestion = await _api_enable_alternate_provider_suggestion(order_id=str(order_id), order=order, lang=lang)
 
             if suggestion:
 
@@ -8151,19 +4851,13 @@ async def replace_order(request: web.Request) -> web.Response:
 
                 )
 
-        status = 402 if failure_code == "INSUFFICIENT_USER_BALANCE" else 409
-
-        if failure_code in {"order_not_found", "invalid_mode"}:
-
-            status = 404 if failure_code == "order_not_found" else 400
-
         refreshed = await get_order(order_id) or order
 
         return _json_error(
 
-            str(result.get("message") or ""),
+            exc.message,
 
-            status=status,
+            status=int(getattr(exc, "status", 409) or 409),
 
             code=failure_code or "replace_failed",
 
@@ -8171,7 +4865,7 @@ async def replace_order(request: web.Request) -> web.Response:
 
         )
 
-    result = await _attach_order_events(result, lang)
+    result = await _miniapp_order_result(result, lang)
 
     try:
 
@@ -8213,45 +4907,55 @@ async def alternate_order(request: web.Request) -> web.Response:
 
         return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
 
-    result = await _request_replacement_number(
+    body = await _json_body(request)
 
-        order_id=order_id,
+    try:
 
-        order=order,
+        result = await _api_request_replacement_order(
 
-        user_id=int(auth["user_id"]),
+            order=order,
 
-        reseller_id=int(auth["user_id"]),
+            user_id=int(auth["user_id"]),
 
-        lang=lang,
+            reseller_id=int(auth["user_id"]),
 
-        alternate_provider=True,
+            idempotency_key=_miniapp_idempotency_key(
 
-    )
+                request,
 
-    if not result.get("ok"):
+                body,
 
-        status = 402 if str(result.get("code")) == "INSUFFICIENT_USER_BALANCE" else 409
+                action="alternate",
 
-        if str(result.get("code")) in {"order_not_found", "invalid_mode"}:
+                user_id=int(auth["user_id"]),
 
-            status = 404 if str(result.get("code")) == "order_not_found" else 400
+                order_id=order_id,
+
+            ),
+
+            lang=lang,
+
+            alternate_provider=True,
+
+        )
+
+    except ApiNumbersOrderError as exc:
 
         refreshed = await get_order(order_id) or order
 
         return _json_error(
 
-            str(result.get("message") or ""),
+            exc.message,
 
-            status=status,
+            status=int(getattr(exc, "status", 409) or 409),
 
-            code=str(result.get("code") or "alternate_failed"),
+            code=str(exc.code or "alternate_failed"),
 
             order=await _order_payload_with_events(refreshed, lang),
 
         )
 
-    result = await _attach_order_events(result, lang)
+    result = await _miniapp_order_result(result, lang)
 
     try:
 
@@ -8293,51 +4997,29 @@ async def rental_sms_order(request: web.Request) -> web.Response:
 
         return _json_error(_text(lang, "Order not found.", "\u0627\u0644\u0637\u0644\u0628 \u063a\u064a\u0631 \u0645\u0648\u062c\u0648\u062f."), status=404, code="order_not_found")
 
-    if str(order.get("number_mode") or "").strip().lower() != "rental":
+    try:
 
-        return _json_error(
+        result = await _api_rental_sms_state(order, source="numbers_miniapp")
 
-            _text(lang, "This action is only for rentals.", "\u0647\u0630\u0627 \u0627\u0644\u0625\u062c\u0631\u0627\u0621 \u062e\u0627\u0635 \u0628\u0627\u0644\u0625\u064a\u062c\u0627\u0631 \u0641\u0642\u0637."),
+    except ApiNumbersOrderError as exc:
 
-            status=400,
+        refreshed = await get_order(order_id) or order
 
-            code="invalid_mode",
+        return _json_error(exc.message, status=exc.status, code=exc.code, order=await _order_payload_with_events(refreshed, lang))
 
-        )
+    result = await _miniapp_order_result(dict(result), lang)
 
-    result = await _sync_rental_sms_snapshot(order_id, order)
+    result["message"] = (
 
-    refreshed = await get_order(order_id) or order
+        _text(lang, "Rental SMS loaded.", "\u062a\u0645 \u062a\u062d\u0645\u064a\u0644 \u0631\u0633\u0627\u0626\u0644 SMS.")
 
-    if not result.get("has_sms"):
+        if result.get("messages")
 
-        code = "no_sms_yet" if result.get("success") else "sms_check_failed"
-
-        message = _text(lang, "No SMS yet.", "\u0644\u0627 \u064a\u0648\u062c\u062f SMS \u0628\u0639\u062f.")
-
-        if not result.get("success"):
-
-            message = _text(lang, "Could not check rental SMS right now.", "\u062a\u0639\u0630\u0631 \u0641\u062d\u0635 \u0631\u0633\u0627\u0626\u0644 SMS \u062d\u0627\u0644\u064a\u0627.")
-
-        return _json_error(message, status=409, code=code, order=await _order_payload_with_events(refreshed, lang))
-
-    return web.json_response(
-
-        {
-
-            "ok": True,
-
-            "message": _text(lang, "Rental SMS loaded.", "\u062a\u0645 \u062a\u062d\u0645\u064a\u0644 \u0631\u0633\u0627\u0626\u0644 SMS."),
-
-            "messages": result.get("messages") or [],
-
-            "order": await _order_payload_with_events(refreshed, lang),
-
-        },
-
-        headers=dict(_NO_STORE_HEADERS),
+        else _text(lang, "Waiting for provider webhook.", "\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0648\u064a\u0628 \u0647\u0648\u0643 \u0627\u0644\u0645\u0632\u0648\u062f.")
 
     )
+
+    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
 
 async def finish_order(request: web.Request) -> web.Response:
 
@@ -8363,57 +5045,22 @@ async def finish_order(request: web.Request) -> web.Response:
 
         return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
 
-    if str(order.get("number_mode") or "").strip().lower() != "rental":
-
-        return _json_error(_text(lang, "This action is only for rentals.", "هذا الإجراء خاص بالإيجار فقط."), status=400, code="invalid_mode")
-
-    provider = str(order.get("provider") or "").strip().lower()
-
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-
-    if not provider or not provider_order_id:
-
-        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
-
     try:
 
-        finish_res = await finish_rental_from_provider(provider, provider_order_id)
+        result = await _api_finish_rental_order(order, source="numbers_miniapp")
 
-        ok = bool(finish_res.get("success"))
+    except ApiNumbersOrderError as exc:
 
-    except Exception:
+        refreshed = await get_order(order_id) or order
 
-        finish_res = {"success": False}
+        return _json_error(exc.message, status=exc.status, code=exc.code, order=await _order_payload_with_events(refreshed, lang))
 
-        ok = False
+    result = await _miniapp_order_result(dict(result), lang)
 
-    if not ok:
+    result["message"] = _text(lang, "Rental finished.", "\u062a\u0645 \u0625\u0646\u0647\u0627\u0621 \u0627\u0644\u0625\u064a\u062c\u0627\u0631.")
 
-        await _log_number_event_from_order(order, "rental_finish_failed", payload={"source": "numbers_miniapp"}, number_mode="rental")
+    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
 
-        return _json_error(_text(lang, "Could not finish this rental right now.", "تعذر إنهاء هذا الإيجار حاليا."), status=409, code="finish_failed")
-
-    await update_order_details(order_id, {"rental_finished_at": _utc_now(), "rental_finish_raw": finish_res.get("raw")})
-
-    await _log_number_event_from_order(order, "rental_finished", payload={"source": "numbers_miniapp"}, status_after=str(order.get("status") or "success"), number_mode="rental")
-
-    refreshed = await get_order(order_id) or order
-
-    return web.json_response(
-
-        {
-
-            "ok": True,
-
-            "message": _text(lang, "Rental finished.", "تم إنهاء الإيجار."),
-
-            "order": await _order_payload_with_events(refreshed, lang),
-
-        },
-
-        headers=dict(_NO_STORE_HEADERS),
-
-    )
 
 async def renew_order(request: web.Request) -> web.Response:
 
@@ -8439,65 +5086,45 @@ async def renew_order(request: web.Request) -> web.Response:
 
         return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
 
-    if str(order.get("number_mode") or "").strip().lower() != "rental":
-
-        return _json_error(_text(lang, "This action is only for rentals.", "هذا الإجراء خاص بالإيجار فقط."), status=400, code="invalid_mode")
-
-    if not bool(order.get("rental_is_renewable")):
-
-        return _json_error(_text(lang, "Renew is not supported for this rental.", "التجديد غير مدعوم لهذا الإيجار."), status=409, code="renew_not_supported")
-
-    provider = str(order.get("provider") or "").strip().lower()
-
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-
-    if not provider or not provider_order_id:
-
-        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+    body = await _json_body(request)
 
     try:
 
-        renew_res = await renew_rental_from_provider(provider, provider_order_id)
+        result = await _api_renew_rental_order(
 
-        ok = bool(renew_res.get("success"))
+            order=order,
 
-    except Exception:
+            user_id=int(auth["user_id"]),
 
-        logger.exception("numbers miniapp rental renew failed: order=%s", raw_id)
+            idempotency_key=_miniapp_idempotency_key(
 
-        renew_res = {"success": False}
+                request,
 
-        ok = False
+                body,
 
-    if not ok:
+                action="renew",
 
-        await _log_number_event_from_order(order, "rental_renew_failed", payload={"source": "numbers_miniapp"}, number_mode="rental")
+                user_id=int(auth["user_id"]),
+
+                order_id=order_id,
+
+            ),
+            source="numbers_miniapp",
+
+        )
+
+    except ApiNumbersOrderError as exc:
 
         refreshed = await get_order(order_id) or order
 
-        return _json_error(_text(lang, "Could not renew this rental right now.", "تعذر تجديد هذا الإيجار حاليا."), status=409, code="renew_failed", order=await _order_payload_with_events(refreshed, lang))
+        return _json_error(exc.message, status=exc.status, code=exc.code, order=await _order_payload_with_events(refreshed, lang))
 
-    await update_order_details(order_id, {"rental_last_renew_at": _utc_now(), "rental_last_renew_raw": renew_res.get("raw")})
+    result = await _miniapp_order_result(dict(result), lang)
 
-    await _log_number_event_from_order(order, "rental_renewed", payload={"raw": renew_res.get("raw"), "source": "numbers_miniapp"}, number_mode="rental")
+    result["message"] = _text(lang, "Rental renewed.", "\u062a\u0645 \u062a\u062c\u062f\u064a\u062f \u0627\u0644\u0625\u064a\u062c\u0627\u0631.")
 
-    refreshed = await _refresh_rental_order(await get_order(order_id) or order)
+    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
 
-    return web.json_response(
-
-        {
-
-            "ok": True,
-
-            "message": _text(lang, "Rental renewed.", "تم تجديد الإيجار."),
-
-            "order": await _order_payload_with_events(refreshed, lang),
-
-        },
-
-        headers=dict(_NO_STORE_HEADERS),
-
-    )
 
 async def wake_order(request: web.Request) -> web.Response:
 
@@ -8523,61 +5150,22 @@ async def wake_order(request: web.Request) -> web.Response:
 
         return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
 
-    if str(order.get("number_mode") or "").strip().lower() != "rental":
-
-        return _json_error(_text(lang, "This action is only for rentals.", "هذا الإجراء خاص بالإيجار فقط."), status=400, code="invalid_mode")
-
-    provider = str(order.get("provider") or "").strip().lower()
-
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-
-    if not provider or not provider_order_id:
-
-        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
-
     try:
 
-        wake_res = await wake_rental_from_provider(provider, provider_order_id)
+        result = await _api_wake_rental_order(order, source="numbers_miniapp")
 
-        ok = bool(wake_res.get("success"))
-
-    except Exception:
-
-        logger.exception("numbers miniapp rental wake failed: order=%s", raw_id)
-
-        wake_res = {"success": False}
-
-        ok = False
-
-    if not ok:
-
-        await _log_number_event_from_order(order, "rental_wake_failed", payload={"source": "numbers_miniapp"}, number_mode="rental")
+    except ApiNumbersOrderError as exc:
 
         refreshed = await get_order(order_id) or order
 
-        return _json_error(_text(lang, "Could not wake this rental right now.", "تعذر تنشيط هذا الإيجار حاليا."), status=409, code="wake_failed", order=await _order_payload_with_events(refreshed, lang))
+        return _json_error(exc.message, status=exc.status, code=exc.code, order=await _order_payload_with_events(refreshed, lang))
 
-    await update_order_details(order_id, {"rental_last_wake_at": _utc_now(), "rental_last_wake_raw": wake_res.get("raw")})
+    result = await _miniapp_order_result(dict(result), lang)
 
-    await _log_number_event_from_order(order, "rental_wake_ok", payload={"raw": wake_res.get("raw"), "source": "numbers_miniapp"}, number_mode="rental")
+    result["message"] = _text(lang, "Rental wake requested.", "\u062a\u0645 \u0637\u0644\u0628 \u062a\u0646\u0634\u064a\u0637 \u0627\u0644\u0625\u064a\u062c\u0627\u0631.")
 
-    refreshed = await _refresh_rental_order(await get_order(order_id) or order)
+    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
 
-    return web.json_response(
-
-        {
-
-            "ok": True,
-
-            "message": _text(lang, "Rental wake requested.", "تم طلب تنشيط الإيجار."),
-
-            "order": await _order_payload_with_events(refreshed, lang),
-
-        },
-
-        headers=dict(_NO_STORE_HEADERS),
-
-    )
 
 async def notes_order(request: web.Request) -> web.Response:
 
@@ -8603,241 +5191,22 @@ async def notes_order(request: web.Request) -> web.Response:
 
         return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
 
-    if str(order.get("number_mode") or "").strip().lower() != "rental":
-
-        return _json_error(_text(lang, "This action is only for rentals.", "هذا الإجراء خاص بالإيجار فقط."), status=400, code="invalid_mode")
-
-    result = await _sync_rental_notes_tags_snapshot(order_id, order)
-
-    refreshed = await get_order(order_id) or order
-
-    if not result.get("success"):
-
-        return _json_error(
-
-            _text(lang, "Notes and tags are not available for this rental.", "الملاحظات والتاغات غير متاحة لهذا الإيجار."),
-
-            status=409,
-
-            code="notes_not_supported",
-
-            order=await _order_payload_with_events(refreshed, lang),
-
-        )
-
-    return web.json_response(
-
-        {
-
-            "ok": True,
-
-            "message": _text(lang, "Notes and tags loaded.", "تم تحميل الملاحظات والتاغات."),
-
-            "notes": str(result.get("notes") or ""),
-
-            "tags": result.get("tags") or [],
-
-            "order": await _order_payload_with_events(refreshed, lang),
-
-        },
-
-        headers=dict(_NO_STORE_HEADERS),
-
-    )
-
-async def cancel_order(request: web.Request) -> web.Response:
-
-    auth = _require_auth(request)
-
-    user_doc = await _load_or_create_user(auth)
-
-    lang = _lang_from_user(user_doc, auth)
-
-    raw_id = str(request.match_info.get("order_id") or "").strip()
-
     try:
 
-        order_id = ObjectId(raw_id)
+        result = await _api_rental_notes_state(order, source="numbers_miniapp")
 
-    except Exception:
-
-        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
-
-    order = await get_order(order_id)
-
-    if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
-
-        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
-
-    if str(order.get("number_mode") or "").strip().lower() == "rental":
-
-        result = await _cancel_and_refund_rental_order(
-
-            order_id=order_id,
-
-            order=order,
-
-            actor_user_id=int(auth["user_id"]),
-
-            reason="miniapp_user_cancel",
-
-            require_no_sms=True,
-
-        )
+    except ApiNumbersOrderError as exc:
 
         refreshed = await get_order(order_id) or order
 
-        if not result.get("success"):
+        return _json_error(exc.message, status=exc.status, code=exc.code, order=await _order_payload_with_events(refreshed, lang))
 
-            return _json_error(
+    result = await _miniapp_order_result(dict(result), lang)
 
-                _text(lang, "Could not cancel this rental right now.", "تعذر إلغاء هذا الإيجار حاليا."),
+    result["message"] = _text(lang, "Notes and tags loaded.", "\u062a\u0645 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0645\u0644\u0627\u062d\u0638\u0627\u062a \u0648\u0627\u0644\u062a\u0627\u063a\u0627\u062a.")
 
-                status=409,
+    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
 
-                code=str(result.get("reason") or "cancel_failed"),
-
-                order=await _order_payload_with_events(refreshed, lang),
-
-            )
-
-        return web.json_response(
-
-            {
-
-                "ok": True,
-
-                "message": _text(lang, "Rental cancelled and refunded.", "تم إلغاء الإيجار وإرجاع الرصيد."),
-
-                "order": await _order_payload_with_events(refreshed, lang),
-
-            },
-
-            headers=dict(_NO_STORE_HEADERS),
-
-        )
-
-    if _temp_elapsed_sec(order) < TEMP_CANCEL_AFTER_SEC:
-
-        retry_after = max(1, TEMP_CANCEL_AFTER_SEC - _temp_elapsed_sec(order))
-
-        return _json_error(
-
-            _text(lang, f"You can cancel after {retry_after} seconds.", f"فيني ألغي بعد {retry_after} ثانية."),
-
-            status=409,
-
-            code="cancel_wait",
-
-            retry_after=retry_after,
-
-        )
-
-    result = await _cancel_and_refund_temp_order(
-
-        order_id=order_id,
-
-        order=order,
-
-        actor_user_id=int(auth["user_id"]),
-
-        reason="miniapp_user_cancel",
-
-        require_no_sms=True,
-
-        allow_provider_terminal_refund=_temp_elapsed_sec(order) >= _order_temp_timeout_sec(order),
-
-        allow_empty_provider_refund=_temp_elapsed_sec(order) >= _order_temp_timeout_sec(order),
-
-    )
-
-    if not result.get("success"):
-
-        refreshed = await get_order(order_id) or order
-
-        if _temp_refund_result_retryable(result):
-
-            refreshed = await _mark_temp_refund_pending(
-
-                order_id=order_id,
-
-                order=refreshed,
-
-                result=result,
-
-                source="numbers_miniapp_user_cancel",
-
-            )
-
-            return web.json_response(
-
-                {
-
-                    "ok": True,
-
-                    "message": _text(
-
-                        lang,
-
-                        "Refund is pending. We will keep retrying.",
-
-                        "الاسترجاع قيد المعالجة. رح نضل نعيد المحاولة.",
-
-                    ),
-
-                    "order": await _order_payload_with_events(refreshed, lang),
-
-                },
-
-                headers=dict(_NO_STORE_HEADERS),
-
-            )
-
-        return _json_error(
-
-            _text(lang, "Could not cancel this order right now.", "تعذر إلغاء الطلب حاليا."),
-
-            status=409,
-
-            code=str(result.get("reason") or "cancel_failed"),
-
-            order=await _order_payload_with_events(refreshed, lang),
-
-        )
-
-    refreshed = await get_order(order_id) or order
-
-    balance_payload: dict[str, Any] = {}
-
-    try:
-
-        balance = await get_user_wallet_balance(int(auth["user_id"]), int(auth["user_id"]))
-
-        balance_payload["balance"] = float(balance)
-
-        balance_payload["balance_label"] = _money(balance)
-
-    except Exception:
-
-        pass
-
-    return web.json_response(
-
-        {
-
-            "ok": True,
-
-            "message": _text(lang, "Order cancelled and refunded.", "تم إلغاء الطلب وإرجاع الرصيد."),
-
-            "order": await _order_payload_with_events(refreshed, lang),
-
-            **balance_payload,
-
-        },
-
-        headers=dict(_NO_STORE_HEADERS),
-
-    )
 
 def register_numbers_routes(app: web.Application) -> None:
 

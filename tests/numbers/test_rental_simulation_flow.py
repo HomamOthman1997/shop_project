@@ -111,6 +111,15 @@ async def test_simulated_temp_purchase_success_flow(monkeypatch):
         calls["wallet_charge"] = dict(kwargs)
         return True, "OK"
 
+    async def _fake_charge_order_or_raise(**kwargs):
+        calls["wallet_charge"] = {
+            "sale_price": kwargs["final_price"],
+            "cost_price": kwargs["cost_price"],
+            "user_id": kwargs["user_id"],
+            "order_id": kwargs["order_id"],
+            "reseller_id": kwargs["reseller_id"],
+        }
+
     async def _fake_buy_number_from_provider(**kwargs):
         calls["buy_provider"] = dict(kwargs)
         return {
@@ -119,6 +128,34 @@ async def test_simulated_temp_purchase_success_flow(monkeypatch):
             "number": "+15550002222",
             "pool": "main",
             "reuse_warranty_sec": 900,
+        }
+
+    async def _fake_provision_charged_temp_order(**kwargs):
+        buy_res = await _fake_buy_number_from_provider(
+            provider_code=kwargs["provider_code"],
+            api_service_name=kwargs["api_service"],
+            country=kwargs["country"],
+            state=kwargs["state"],
+            dry_run=False,
+            purchase_options=kwargs.get("purchase_options") or {},
+        )
+        await _fake_update_order_details(
+            kwargs["order_id"],
+            {
+                "provider_order_id": buy_res["order_id"],
+                "provider": kwargs["provider_code"],
+                "provider_number": buy_res["number"],
+                "provider_pool": buy_res["pool"],
+                "number_mode": kwargs.get("number_mode", "temp"),
+                "temp_reuse_warranty_sec": buy_res["reuse_warranty_sec"],
+            },
+        )
+        await _fake_update_order_status(kwargs["order_id"], "success")
+        return {
+            "provider_order_id": buy_res["order_id"],
+            "number": buy_res["number"],
+            "interval_sec": 5,
+            "reuse_warranty_sec": buy_res["reuse_warranty_sec"],
         }
 
     async def _fake_log_number_event_from_order(order, event, **kwargs):
@@ -156,8 +193,8 @@ async def test_simulated_temp_purchase_success_flow(monkeypatch):
     monkeypatch.setattr(hb, "create_order", _fake_create_order)
     monkeypatch.setattr(hb, "update_order_details", _fake_update_order_details)
     monkeypatch.setattr(hb, "update_order_status", _fake_update_order_status)
-    monkeypatch.setattr(hb.FinancialManager, "process_core_purchase", classmethod(lambda cls, **kwargs: _fake_process_core_purchase(**kwargs)))
-    monkeypatch.setattr(hb, "buy_number_from_provider", _fake_buy_number_from_provider)
+    monkeypatch.setattr(hb, "charge_order_or_raise", _fake_charge_order_or_raise)
+    monkeypatch.setattr(hb, "provision_charged_temp_order", _fake_provision_charged_temp_order)
     monkeypatch.setattr(hb, "_log_number_event_from_order", _fake_log_number_event_from_order)
     monkeypatch.setattr(hb, "_log_temp_event", _fake_log_temp_event)
     monkeypatch.setattr(hb, "_safe_edit_message", _fake_safe_edit_message)
@@ -210,7 +247,7 @@ async def test_hidden_temp_provider_is_rejected_server_side(monkeypatch):
     state = _DummyState(
         {
             "available_prices": {
-                "smsman": {
+                "nonvoip": {
                     "price": 0.3,
                     "base_price": 0.2,
                     "api_service_name": "gmail",
@@ -219,7 +256,7 @@ async def test_hidden_temp_provider_is_rejected_server_side(monkeypatch):
             }
         }
     )
-    callback = _DummyCallback("buy_provider:smsman")
+    callback = _DummyCallback("buy_provider:nonvoip")
 
     await hb.provider_selected(callback, state)
 
@@ -283,6 +320,15 @@ async def test_simulated_temp_second_code_flow(monkeypatch):
     async def _fake_process_core_purchase(**kwargs):
         calls["wallet_charge"] = dict(kwargs)
         return True, "OK"
+
+    async def _fake_charge_order_or_raise(**kwargs):
+        calls["wallet_charge"] = {
+            "sale_price": kwargs["final_price"],
+            "cost_price": kwargs["cost_price"],
+            "user_id": kwargs["user_id"],
+            "order_id": kwargs["order_id"],
+            "reseller_id": kwargs["reseller_id"],
+        }
 
     async def _fake_log_temp_event(order_obj, event, payload):
         calls.setdefault("temp_events", []).append((event, payload))
@@ -396,9 +442,10 @@ async def test_simulated_rental_fetch_sms_finish_and_wake(monkeypatch):
     async def _fake_load_user_order(raw_id, user_id):
         return order_id, dict(order)
 
-    async def _fake_get_rental_sms_from_provider(provider, provider_order_id):
-        calls["sms_provider"] = (provider, provider_order_id)
-        return {"success": True, "messages": ["265464", "871122"]}
+    async def _fake_rental_sms_state(order_obj, *, source=""):
+        calls["sms_service"] = (order_obj["provider"], order_obj["provider_order_id"])
+        calls["sms_source"] = source
+        return {"ok": True, "messages": ["265464", "871122"], "order": dict(order_obj)}
 
     async def _fake_update_order_details(raw_order_id, patch):
         calls["details"].append((str(raw_order_id), dict(patch)))
@@ -412,44 +459,51 @@ async def test_simulated_rental_fetch_sms_finish_and_wake(monkeypatch):
     async def _fake_log_rental_event(**kwargs):
         calls["events"].append(kwargs.get("event"))
 
-    async def _fake_finish_rental_from_provider(provider, provider_order_id):
-        calls["finish_provider"] = (provider, provider_order_id)
-        return {"success": True, "raw": {"ok": True}}
+    async def _fake_finish_rental_order(order_obj, *, source=""):
+        calls["finish_service"] = (order_obj["provider"], order_obj["provider_order_id"])
+        calls["finish_source"] = source
+        calls.setdefault("number_events", []).append("rental_finished")
+        return {"ok": True, "order": dict(order_obj)}
 
-    async def _fake_wake_rental_from_provider(provider, provider_order_id):
-        calls["wake_provider"] = (provider, provider_order_id)
-        return {"success": True, "raw": {"ok": True}}
+    async def _fake_wake_rental_order(order_obj, *, source=""):
+        calls["wake_service"] = (order_obj["provider"], order_obj["provider_order_id"])
+        calls["wake_source"] = source
+        calls.setdefault("number_events", []).append("rental_wake_ok")
+        return {"ok": True, "order": dict(order_obj)}
 
     async def _fake_log_number_event_from_order(order_obj, event, **kwargs):
         calls.setdefault("number_events", []).append(event)
 
     monkeypatch.setattr(hb, "get_user", _fake_get_user)
     monkeypatch.setattr(hb, "_load_user_order", _fake_load_user_order)
-    monkeypatch.setattr(hb, "get_rental_sms_from_provider", _fake_get_rental_sms_from_provider)
+    monkeypatch.setattr(hb, "rental_sms_state", _fake_rental_sms_state)
     monkeypatch.setattr(hb, "update_order_details", _fake_update_order_details)
     monkeypatch.setattr(hb, "get_order", _fake_get_order)
     monkeypatch.setattr(hb, "_maybe_send_purchase_charge_confirmed_notice", _fake_notice)
     monkeypatch.setattr(hb, "_log_rental_event", _fake_log_rental_event)
-    monkeypatch.setattr(hb, "finish_rental_from_provider", _fake_finish_rental_from_provider)
-    monkeypatch.setattr(hb, "wake_rental_from_provider", _fake_wake_rental_from_provider)
+    monkeypatch.setattr(hb, "finish_rental_order", _fake_finish_rental_order)
+    monkeypatch.setattr(hb, "wake_rental_order", _fake_wake_rental_order)
     monkeypatch.setattr(hb, "_log_number_event_from_order", _fake_log_number_event_from_order)
     monkeypatch.setattr(hb, "_safe_callback_answer", lambda *args, **kwargs: __import__("asyncio").sleep(0, result=True))
 
     sms_callback = _DummyCallback(f"rent:sms:{order_id}")
     await hb.rent_fetch_sms(sms_callback)
 
-    assert calls["sms_provider"] == ("textverified", "lr_101")
+    assert calls["sms_service"] == ("textverified", "lr_101")
+    assert calls["sms_source"] == "numbers_telegram"
     assert any("rental_sms_count" in patch for _, patch in calls["details"])
     assert sms_callback.message.answers[-1]["text"].count("- ") == 2
 
     finish_callback = _DummyCallback(f"rent:finish:{order_id}")
     await hb.rent_finish(finish_callback)
-    assert calls["finish_provider"] == ("textverified", "lr_101")
+    assert calls["finish_service"] == ("textverified", "lr_101")
+    assert calls["finish_source"] == "numbers_telegram"
     assert "rental_finished" in calls["number_events"]
 
     wake_callback = _DummyCallback(f"rent:wake:{order_id}")
     await hb.rent_wake(wake_callback)
-    assert calls["wake_provider"] == ("textverified", "lr_101")
+    assert calls["wake_service"] == ("textverified", "lr_101")
+    assert calls["wake_source"] == "numbers_telegram"
     assert "rental_wake_ok" in calls["number_events"]
 
 
@@ -507,6 +561,15 @@ async def test_simulated_rental_purchase_then_renew_after_two_hours(monkeypatch)
         calls["wallet_charge"] = dict(kwargs)
         return True, "OK"
 
+    async def _fake_charge_order_or_raise(**kwargs):
+        calls["wallet_charge"] = {
+            "sale_price": kwargs["final_price"],
+            "cost_price": kwargs["cost_price"],
+            "user_id": kwargs["user_id"],
+            "order_id": kwargs["order_id"],
+            "reseller_id": kwargs["reseller_id"],
+        }
+
     async def _fake_rent_number_from_provider(provider_code, api_service_name, country, duration, option_meta=None):
         calls["rent_provider"] = {
             "provider_code": provider_code,
@@ -525,6 +588,32 @@ async def test_simulated_rental_purchase_then_renew_after_two_hours(monkeypatch)
             "refund_can_refund": True,
         }
 
+    async def _fake_provision_charged_rental_order(**kwargs):
+        rent_res = await _fake_rent_number_from_provider(
+            kwargs["provider_code"],
+            kwargs["api_service"],
+            kwargs["country"],
+            kwargs["duration"],
+            kwargs.get("option_meta") or {},
+        )
+        await _fake_update_order_details(
+            kwargs["order_id"],
+            {
+                "provider_order_id": rent_res["order_id"],
+                "provider": kwargs["provider_code"],
+                "provider_number": rent_res["number"],
+                "number_mode": "rental",
+                "rental_is_renewable": kwargs.get("is_renewable", False),
+                "rental_billing_cycle_id": rent_res["billing_cycle_id"],
+                "rental_end_date": rent_res["end_date"],
+            },
+        )
+        await _fake_update_order_status(kwargs["order_id"], "success")
+        return {
+            "provider_order_id": rent_res["order_id"],
+            "number": rent_res["number"],
+        }
+
     async def _fake_log_number_event_from_order(order, event, **kwargs):
         calls["events"].append((event, kwargs))
 
@@ -539,9 +628,16 @@ async def test_simulated_rental_purchase_then_renew_after_two_hours(monkeypatch)
         assert user_id == 7417429062
         return order_id, dict(persisted_order)
 
-    async def _fake_renew_rental_from_provider(provider_code, activation_id):
-        calls["renew_provider"] = {"provider_code": provider_code, "activation_id": activation_id}
-        return {"success": True, "raw": {"ok": True, "renewedAt": "2026-03-31T04:00:00Z"}}
+    async def _fake_renew_rental_order(*, order, user_id, idempotency_key, source=""):
+        calls["renew_service"] = {
+            "provider_code": order["provider"],
+            "activation_id": order["provider_order_id"],
+            "user_id": user_id,
+            "idempotency_key": idempotency_key,
+            "source": source,
+        }
+        await _fake_update_order_details(order["_id"], {"rental_last_renew_at": datetime.now(UTC)})
+        return {"ok": True, "order": dict(order)}
 
     async def _fake_rental_refund_guard(**kwargs):
         calls["guard"] = dict(kwargs)
@@ -551,14 +647,14 @@ async def test_simulated_rental_purchase_then_renew_after_two_hours(monkeypatch)
     monkeypatch.setattr(hb, "create_order", _fake_create_order)
     monkeypatch.setattr(hb, "update_order_details", _fake_update_order_details)
     monkeypatch.setattr(hb, "update_order_status", _fake_update_order_status)
-    monkeypatch.setattr(hb.FinancialManager, "process_core_purchase", classmethod(lambda cls, **kwargs: _fake_process_core_purchase(**kwargs)))
-    monkeypatch.setattr(hb, "rent_number_from_provider", _fake_rent_number_from_provider)
+    monkeypatch.setattr(hb, "charge_order_or_raise", _fake_charge_order_or_raise)
+    monkeypatch.setattr(hb, "provision_charged_rental_order", _fake_provision_charged_rental_order)
     monkeypatch.setattr(hb, "_log_number_event_from_order", _fake_log_number_event_from_order)
     monkeypatch.setattr(hb, "_log_rental_event", _fake_log_rental_event)
     monkeypatch.setattr(hb, "_best_effort_edit_text", _fake_best_effort_edit_text)
     monkeypatch.setattr(hb, "_safe_callback_answer", lambda *args, **kwargs: __import__("asyncio").sleep(0, result=True))
     monkeypatch.setattr(hb, "_load_user_order", _fake_load_user_order)
-    monkeypatch.setattr(hb, "renew_rental_from_provider", _fake_renew_rental_from_provider)
+    monkeypatch.setattr(hb, "renew_rental_order", _fake_renew_rental_order)
     monkeypatch.setattr(hb, "_rental_refund_guard", _fake_rental_refund_guard)
 
     purchase_state = _DummyState(
@@ -599,6 +695,9 @@ async def test_simulated_rental_purchase_then_renew_after_two_hours(monkeypatch)
     renew_callback = _DummyCallback(f"rent:renew:{order_id}")
     await hb.rent_renew(renew_callback)
 
-    assert calls["renew_provider"] == {"provider_code": "textverified", "activation_id": "lr_001"}
+    assert calls["renew_service"]["provider_code"] == "textverified"
+    assert calls["renew_service"]["activation_id"] == "lr_001"
+    assert calls["renew_service"]["idempotency_key"] == f"telegram:rental_renew:7417429062:{order_id}"
+    assert calls["renew_service"]["source"] == "numbers_telegram"
     renew_detail_patches = [patch for _, patch in calls["details"] if "rental_last_renew_at" in patch]
     assert renew_detail_patches, "renew flow should persist rental_last_renew_at"

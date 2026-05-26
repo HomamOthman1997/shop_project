@@ -9,7 +9,7 @@ import asyncio
 from keyboards.language_kb import language_keyboard
 from keyboards.subscription_kb import subscription_keyboard
 from keyboards.reseller_main_menu import reseller_main_menu
-from keyboards.main_menu_kb import numbers_main_menu
+from keyboards.main_menu_kb import numbers_main_menu, numbers_miniapp_url
 from utils.permissions import is_reseller
 from utils.bot_menu_context import (
     extract_bot_id_from_token,
@@ -24,7 +24,6 @@ from database.user_repo import get_user, create_user, set_user_reseller_for_bot,
 from database.bots_repo import get_bot_settings, get_reseller_id_for_bot
 from database.mongo import db
 from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_message_guard
-from services.numbers.handlers.core_numbers import send_number_type_entry
 from utils.translations import t
 from config import settings
 from utils.reseller_setup_guard import get_reseller_setup_status, render_reseller_setup_notice
@@ -137,13 +136,20 @@ async def _notify_active_temp_order_if_any(message: types.Message, lang: str) ->
     else:
         kind = t(lang, "start_active_numbers_rental")
     text = f"{kind}\n{t(lang, 'start_active_numbers_continue_note')}"
+    rows: list[list[types.InlineKeyboardButton]] = []
+    miniapp_url = numbers_miniapp_url()
+    if bool(getattr(settings, "numbers_miniapp_enabled", False)) and miniapp_url:
+        rows.append(
+            [
+                types.InlineKeyboardButton(
+                    text="Open Numbers App" if not str(lang or "").lower().startswith("ar") else "فتح تطبيق الأرقام",
+                    web_app=types.WebAppInfo(url=miniapp_url),
+                )
+            ]
+        )
     await message.answer(
         text,
-        reply_markup=types.InlineKeyboardMarkup(
-            inline_keyboard=[
-                [types.InlineKeyboardButton(text=t(lang, "numbers"), callback_data="flow:type:temp")]
-            ]
-        ),
+        reply_markup=types.InlineKeyboardMarkup(inline_keyboard=rows) if rows else None,
     )
 
 
@@ -159,6 +165,7 @@ def _notify_active_temp_order_background(message: types.Message, lang: str) -> N
 
 async def _refresh_numbers_reply_keyboard(message: types.Message, *, lang: str) -> None:
     try:
+        await _hide_reply_keyboard(message, lang)
         await message.answer(t(lang, "numbers_keyboard_ready"), reply_markup=numbers_main_menu(lang))
     except Exception:
         pass
@@ -166,7 +173,6 @@ async def _refresh_numbers_reply_keyboard(message: types.Message, *, lang: str) 
 
 async def _open_numbers_start_menu(message: types.Message, state: FSMContext, *, lang: str) -> None:
     await _refresh_numbers_reply_keyboard(message, lang=lang)
-    await send_number_type_entry(message, state, lang=lang)
 
 
 async def _start_create_bot_flow(message: types.Message, state: FSMContext, *, lang: str) -> None:

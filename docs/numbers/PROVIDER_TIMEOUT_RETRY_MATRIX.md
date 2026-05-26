@@ -1,6 +1,6 @@
 # Provider Timeout and Retry Matrix
 
-Last updated: 2026-03-23
+Last updated: 2026-05-25
 
 ## Numbers providers
 
@@ -10,7 +10,11 @@ Last updated: 2026-03-23
 | TextVerified | `numbers_provider_timeout_sec` | `numbers_textverified_rental_timeout_sec` (default 8s, manager-capped) | tighter timeout to protect UI responsiveness |
 | TellABot | `numbers_provider_timeout_sec` | N/A | same global timeout path |
 | HeroSMS | `numbers_provider_timeout_sec` | `numbers_rental_provider_timeout_sec` | same global timeout path |
-| SMS-Man | `numbers_provider_timeout_sec` | N/A | same global timeout path |
+| non-VoIP | `numbers_provider_timeout_sec` | N/A | same global timeout path; `nonvoip_s6` is an alias lane |
+| PVADeals | provider-specific manager timeout floor | `numbers_rental_provider_timeout_sec` | adapter retries selected 429 responses with bounded delay |
+| SMSReady | provider-specific manager timeout floor | `numbers_rental_provider_timeout_sec` | same global timeout path |
+| PVAPins | provider-specific manager timeout floor | `numbers_rental_provider_timeout_sec` | same global timeout path |
+| VAK-SMS | provider-specific manager timeout floor | N/A | same global timeout path |
 
 ## Backoff policy
 

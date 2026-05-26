@@ -34,7 +34,7 @@ const state = {
   supportCategories: [],
   supportBotUrl: null,
   rechargeUrl: null,
-  orderPollTimer: null,
+  client: {},
   providerRows: [],
   serviceMenuOpen: false,
   countryMenuOpen: false,
@@ -51,7 +51,6 @@ const state = {
   rechargeSubmitting: false,
 };
 
-const ORDER_POLL_INTERVAL_MS = 12000;
 const QUICK_COUNTRY_ISOS = ["US", "GB", "DE", "FR"];
 const QUICK_STATE_CODES = ["CA", "NY", "TX", "FL", "WA"];
 
@@ -156,7 +155,6 @@ const copy = {
     noOrders: "لا توجد أرقام حاليا",
     buy: "شراء",
     refresh: "تحديث",
-    cancel: "إلغاء واسترجاع",
     tryAnother: "رقم بديل",
     alternateProvider: "مزود بديل",
     confirmTryAnother: "تأكيد طلب رقم بديل؟",
@@ -189,7 +187,6 @@ const copy = {
     afterBalance: "الرصيد بعد العملية",
     refunded: "تم الاسترجاع",
     refundPending: "بانتظار الاسترجاع",
-    cancelWait: "الإلغاء بعد",
     left: "متبقي",
     finish: "إنهاء",
     finished: "منتهي",
@@ -273,7 +270,6 @@ const copy = {
     noOrders: "No numbers right now",
     buy: "Buy",
     refresh: "Refresh",
-    cancel: "Cancel & refund",
     tryAnother: "Try another",
     alternateProvider: "Alternate provider",
     confirmTryAnother: "Confirm replacement number request?",
@@ -306,7 +302,6 @@ const copy = {
     afterBalance: "Balance after",
     refunded: "Refunded",
     refundPending: "Refund pending",
-    cancelWait: "Cancel after",
     left: "left",
     finish: "Finish",
     finished: "Finished",
@@ -421,7 +416,6 @@ Object.assign(copy.ar, {
   noOrders: "لا توجد أرقام حالياً",
   buy: "شراء",
   refresh: "تحديث",
-  cancel: "إلغاء واسترجاع",
   tryAnother: "رقم بديل",
   alternateProvider: "مزود بديل",
   confirmTryAnother: "تأكيد طلب رقم بديل؟",
@@ -459,7 +453,6 @@ Object.assign(copy.ar, {
   working: "جاري التنفيذ",
   pleaseWait: "يرجى الانتظار.",
   checkingOrder: "جاري فحص الطلب",
-  cancelWait: "الإلغاء بعد",
   left: "متبقي",
   finish: "إنهاء",
   finished: "منتهي",
@@ -592,7 +585,10 @@ function headers(extra = {}) {
 async function api(path, options = {}) {
   const response = await fetch(path, {
     method: options.method || "GET",
-    headers: headers(options.body ? { "Content-Type": "application/json" } : {}),
+    headers: headers({
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {}),
+    }),
     body: options.body ? JSON.stringify(options.body) : undefined,
     cache: "no-store",
   });
@@ -797,8 +793,6 @@ function setView(view) {
   renderViewTabs();
   if (view === "orders") {
     refreshOrders({ quiet: true });
-  } else {
-    clearOrderPoll();
   }
   if (view === "buy") resetBuyStatus();
   if (view === "account") loadAccount();
@@ -1470,22 +1464,6 @@ function renderOrderTimeline(order) {
   return timeline;
 }
 
-function clearOrderPoll() {
-  if (state.orderPollTimer) {
-    window.clearTimeout(state.orderPollTimer);
-    state.orderPollTimer = null;
-  }
-}
-
-function orderNeedsPolling(order) {
-  if (!order || order.can_refresh === false) return false;
-  return ["waiting", "waiting_for_recording", "refund_pending"].includes(order.public_status);
-}
-
-function scheduleOrderPoll() {
-  clearOrderPoll();
-}
-
 function askConfirm(message) {
   return new Promise((resolve) => {
     if (tg?.showConfirm) {
@@ -1709,11 +1687,9 @@ function renderActiveOrders(rows = state.activeOrders) {
   state.activeOrders = rows || [];
   if (!state.activeOrders.length) {
     els.activeOrders.replaceChildren(emptyState(canUseTelegramAuth() ? t("noOrders") : t("authRequired")));
-    clearOrderPoll();
     return;
   }
   els.activeOrders.replaceChildren(...state.activeOrders.map(renderOrderCard));
-  scheduleOrderPoll();
   return;
 }
 
@@ -1730,7 +1706,6 @@ async function refreshOrders({ quiet = false } = {}) {
     renderActiveOrders(payload.orders || []);
   } catch (error) {
     if (!quiet) els.statusLine.textContent = error.message || t("error");
-    scheduleOrderPoll();
   }
 }
 
@@ -1780,7 +1755,11 @@ async function rentalProviderAction(orderId, action, button) {
   button.disabled = true;
   showBusy(t("working"), t("pleaseWait"));
   try {
-    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/${action}`, { method: "POST", body: {} });
+    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/${action}`, {
+      method: "POST",
+      body: {},
+      headers: { "Idempotency-Key": `miniapp-rental-${action}-${orderId}` },
+    });
     const next = state.activeOrders.filter((item) => item.id !== orderId);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
     els.statusLine.textContent = payload.message || "";
@@ -1823,7 +1802,11 @@ async function replaceOrder(order, button) {
   button.disabled = true;
   showBusy(t("working"), t("pleaseWait"));
   try {
-    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/replace`, { method: "POST", body: {} });
+    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/replace`, {
+      method: "POST",
+      body: {},
+      headers: { "Idempotency-Key": `miniapp-replace-${order.id}` },
+    });
     const next = state.activeOrders.filter((item) => item.id !== order.id);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
     if (payload.balance_label) {
@@ -1846,7 +1829,11 @@ async function alternateOrder(order, button) {
   button.disabled = true;
   showBusy(t("working"), t("pleaseWait"));
   try {
-    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/alternate`, { method: "POST", body: {} });
+    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/alternate`, {
+      method: "POST",
+      body: {},
+      headers: { "Idempotency-Key": `miniapp-alternate-${order.id}` },
+    });
     const next = state.activeOrders.filter((item) => item.id !== order.id);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
     if (payload.balance_label) {
@@ -1950,9 +1937,13 @@ async function buyProvider(row, button) {
   showBusy(t("purchasing"), t("pleaseWait"));
   els.statusLine.textContent = t("purchasing");
   try {
+    const purchaseKey = window.crypto?.randomUUID
+      ? window.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = await api("/mini/numbers/api/purchase", {
       method: "POST",
       body: { quote_token: row.quote_token },
+      headers: { "Idempotency-Key": `miniapp-purchase-${purchaseKey}` },
     });
     if (payload.balance_label) {
       els.sessionPill.textContent = payload.balance_label;
@@ -2582,6 +2573,7 @@ async function boot() {
   state.services = payload.services || [];
   state.countries = payload.countries || [];
   state.states = payload.states_us || [];
+  state.client = payload.client || {};
   state.mode = ["temp", "rental", "voice"].includes(payload.defaults?.mode) ? payload.defaults.mode : "temp";
   state.modeSelections = {
     temp: {

@@ -140,3 +140,128 @@ async def test_generic_provider_webhook_normalizes_common_sms_payload(monkeypatc
     assert calls["apply"]["provider_order_id"] == "hero-activation-1"
     assert calls["apply"]["code"] == "991122"
     assert calls["apply"]["full_sms"] == "Your code is 991122"
+
+
+@pytest.mark.asyncio
+async def test_textverified_provider_webhook_normalizes_sms_received(monkeypatch):
+    calls = {}
+    monkeypatch.setattr(provider_webhooks, "_configured_provider_webhook_token", lambda: "secret")
+
+    async def fake_apply_provider_temp_sms_webhook(**kwargs):
+        calls["apply"] = kwargs
+        return {"ok": True, "reason": "code_received", "order": {"id": "order-1"}}
+
+    monkeypatch.setattr(provider_webhooks, "apply_provider_temp_sms_webhook", fake_apply_provider_temp_sms_webhook)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/provider-webhooks/textverified?token=secret",
+        match_info={"provider": "textverified"},
+        headers={"Content-Type": "application/json", "X-Webhook-Signature": "HMAC-SHA512=test"},
+    )
+    request._read_bytes = json.dumps(
+        {
+            "attempt": 1,
+            "event": "v2.sms.received",
+            "id": "evt_1",
+            "idempotencyKey": "evt_1:1",
+            "occurredAt": "2026-05-25T12:00:00Z",
+            "data": {
+                "from": "Example",
+                "to": "+15555550100",
+                "createdAt": "2026-05-25T12:00:00Z",
+                "smsContent": "Your code is 445566",
+                "parsedCode": "445566",
+                "encrypted": False,
+                "reservationId": "tv-reservation-1",
+            },
+        }
+    ).encode("utf-8")
+
+    response = await provider_webhooks.generic_provider_webhook(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["ok"] is True
+    assert calls["apply"]["provider_code"] == "textverified"
+    assert calls["apply"]["provider_order_id"] == "tv-reservation-1"
+    assert calls["apply"]["code"] == "445566"
+    assert calls["apply"]["full_sms"] == "Your code is 445566"
+
+
+@pytest.mark.asyncio
+async def test_generic_provider_webhook_normalizes_nonvoip_payload(monkeypatch):
+    calls = {}
+    monkeypatch.setattr(provider_webhooks, "_configured_provider_webhook_token", lambda: "secret")
+
+    async def fake_apply_provider_temp_sms_webhook(**kwargs):
+        calls["apply"] = kwargs
+        return {"ok": True, "reason": "code_received", "order": {"id": "order-1"}}
+
+    monkeypatch.setattr(provider_webhooks, "apply_provider_temp_sms_webhook", fake_apply_provider_temp_sms_webhook)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/provider-webhooks/nonvoip?token=secret",
+        match_info={"provider": "nonvoip"},
+        headers={"Content-Type": "application/json"},
+    )
+    request._read_bytes = json.dumps(
+        {
+            "id": 3255,
+            "number": "14753XXXX",
+            "code": "32156",
+            "message": "Your verification code is 32156",
+            "date": "2020-06-25T16:47:54.086Z",
+        }
+    ).encode("utf-8")
+
+    response = await provider_webhooks.generic_provider_webhook(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["ok"] is True
+    assert calls["apply"]["provider_code"] == "nonvoip"
+    assert calls["apply"]["provider_order_id"] == "3255"
+    assert calls["apply"]["code"] == "32156"
+    assert calls["apply"]["full_sms"] == "Your verification code is 32156"
+
+
+@pytest.mark.asyncio
+async def test_generic_provider_webhook_normalizes_tellabot_payload(monkeypatch):
+    calls = {}
+    monkeypatch.setattr(provider_webhooks, "_configured_provider_webhook_token", lambda: "secret")
+
+    async def fake_apply_provider_temp_sms_webhook(**kwargs):
+        calls["apply"] = kwargs
+        return {"ok": True, "reason": "code_received", "order": {"id": "order-1"}}
+
+    monkeypatch.setattr(provider_webhooks, "apply_provider_temp_sms_webhook", fake_apply_provider_temp_sms_webhook)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/provider-webhooks/telabot?token=secret",
+        match_info={"provider": "telabot"},
+        headers={"Content-Type": "application/json"},
+    )
+    request._read_bytes = json.dumps(
+        {
+            "event": "incoming_message",
+            "id": "10000001",
+            "timestamp": "1600108956",
+            "date_time": "2020-09-14 14:42:36 EDT",
+            "from": "22000",
+            "to": "18503814729",
+            "service": "Google",
+            "price": 1.20,
+            "reply": "G-804036 is your Google verification code.",
+            "pin": "G-804036",
+        }
+    ).encode("utf-8")
+
+    response = await provider_webhooks.generic_provider_webhook(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["ok"] is True
+    assert calls["apply"]["provider_code"] == "telabot"
+    assert calls["apply"]["provider_order_id"] == "10000001"
+    assert calls["apply"]["code"] == "G-804036"
+    assert calls["apply"]["full_sms"] == "G-804036 is your Google verification code."

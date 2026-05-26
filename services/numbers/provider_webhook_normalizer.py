@@ -26,6 +26,8 @@ def normalize_provider_sms_webhook(provider_code: str, payload: dict[str, Any] |
         return _normalize_smsready(raw)
     if provider == "pvadeals":
         return _normalize_pvadeals(raw)
+    if provider == "textverified":
+        return _normalize_textverified(raw)
     return _normalize_generic(provider, raw)
 
 
@@ -58,6 +60,21 @@ def _normalize_pvadeals(payload: dict[str, Any]) -> ProviderSmsWebhook:
     )
 
 
+def _normalize_textverified(payload: dict[str, Any]) -> ProviderSmsWebhook:
+    event = str(payload.get("event") or "").strip()
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    ignored = "" if event == "v2.sms.received" else "unsupported_event"
+    return ProviderSmsWebhook(
+        provider_code="textverified",
+        event_type=event,
+        provider_order_id=str(data.get("reservationId") or data.get("reservation_id") or "").strip(),
+        code=str(data.get("parsedCode") or data.get("parsed_code") or "").strip(),
+        full_sms=str(data.get("smsContent") or data.get("sms_content") or "").strip(),
+        raw_event=payload,
+        ignored_reason=ignored,
+    )
+
+
 def _normalize_generic(provider_code: str, payload: dict[str, Any]) -> ProviderSmsWebhook:
     event = str(_first_value(payload, ("event", "type", "status", "action")) or "").strip()
     order_id = str(
@@ -72,12 +89,16 @@ def _normalize_generic(provider_code: str, payload: dict[str, Any]) -> ProviderS
                 "activationId",
                 "request_id",
                 "requestId",
+                "reservation_id",
+                "reservationId",
                 "id",
                 "message.order_id",
                 "message.orderId",
                 "message.id",
                 "data.order_id",
                 "data.orderId",
+                "data.reservation_id",
+                "data.reservationId",
                 "data.id",
             ),
         )
@@ -92,10 +113,14 @@ def _normalize_generic(provider_code: str, payload: dict[str, Any]) -> ProviderS
                 "smsCode",
                 "otp",
                 "pin",
+                "parsed_code",
+                "parsedCode",
                 "message.code",
                 "message.otp",
                 "data.code",
                 "data.otp",
+                "data.parsed_code",
+                "data.parsedCode",
             ),
         )
         or ""
@@ -108,14 +133,23 @@ def _normalize_generic(provider_code: str, payload: dict[str, Any]) -> ProviderS
                 "fullSms",
                 "sms",
                 "text",
+                "smsContent",
                 "message_text",
                 "messageText",
                 "message.full_sms",
                 "message.text",
                 "message.message",
+                "message",
+                "body",
+                "content",
+                "reply",
                 "data.full_sms",
                 "data.text",
                 "data.message",
+                "data.body",
+                "data.content",
+                "data.smsContent",
+                "data.reply",
             ),
         )
         or ""

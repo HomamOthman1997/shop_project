@@ -25,10 +25,10 @@ class ProviderFactory:
                 from .providers.herosms_provider import HeroSMSProvider
 
                 cls._instances[name] = HeroSMSProvider()
-            elif name == "smsman":
-                from .providers.smsman_provider import SMSManProvider
+            elif name == "nonvoip":
+                from .providers.nonvoip_provider import NonVoipProvider
 
-                cls._instances[name] = SMSManProvider()
+                cls._instances[name] = NonVoipProvider()
             elif name == "pvadeals":
                 from .providers.pvadeals_provider import PVADealsProvider
 

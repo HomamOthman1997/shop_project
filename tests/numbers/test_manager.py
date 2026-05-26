@@ -43,7 +43,7 @@ def _patch_providers(monkeypatch):
     monkeypatch.setitem(manager.PROVIDERS, 'telabot', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'textverified', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'herosms', DummyProvider())
-    monkeypatch.setitem(manager.PROVIDERS, 'smsman', DummyProvider())
+    monkeypatch.setitem(manager.PROVIDERS, 'nonvoip', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'pvadeals', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'smsready', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'pvapins', DummyProvider())
@@ -220,13 +220,13 @@ async def test_dynamic_provider_name_matches_composite_smspool_service(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_dynamic_provider_name_smsman_uses_family_aliases(monkeypatch):
-    class _SMSManDummy:
+async def test_dynamic_provider_name_nonvoip_uses_family_aliases(monkeypatch):
+    class _NonVoipDummy:
         async def resolve_service_code(self, value):
             return "1371" if str(value).lower() == "claudeaianthropic" else None
 
-    monkeypatch.setitem(manager.PROVIDERS, "smsman", _SMSManDummy())
-    assert await manager.get_provider_service_name_dynamic("claude", "smsman") == "1371"
+    monkeypatch.setitem(manager.PROVIDERS, "nonvoip", _NonVoipDummy())
+    assert await manager.get_provider_service_name_dynamic("claude", "nonvoip") == "1371"
 
 
 @pytest.mark.asyncio
@@ -258,13 +258,13 @@ def test_business_approved_commercial_variants_only():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_provider_name_smsman(monkeypatch):
-    class _SMSManDummy:
+async def test_dynamic_provider_name_nonvoip(monkeypatch):
+    class _NonVoipDummy:
         async def resolve_service_code(self, value):
             return "77" if str(value).lower() == "telegram" else None
 
-    monkeypatch.setitem(manager.PROVIDERS, "smsman", _SMSManDummy())
-    assert await manager.get_provider_service_name_dynamic("telegram", "smsman") == "77"
+    monkeypatch.setitem(manager.PROVIDERS, "nonvoip", _NonVoipDummy())
+    assert await manager.get_provider_service_name_dynamic("telegram", "nonvoip") == "77"
 
 
 @pytest.mark.asyncio
@@ -312,19 +312,19 @@ async def test_get_all_prices(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_all_prices_exposes_smsman_s6_placeholder_in_testing_mode(monkeypatch):
-    class _SMSManDummy:
+async def test_get_all_prices_exposes_nonvoip_s6_placeholder_in_testing_mode(monkeypatch):
+    class _NonVoipDummy:
         async def get_price_variants(self, service, country=None, state=None, limit=2):
             return []
 
-    monkeypatch.setitem(manager.PROVIDERS, "smsman", _SMSManDummy())
+    monkeypatch.setitem(manager.PROVIDERS, "nonvoip", _NonVoipDummy())
     monkeypatch.setattr(manager.settings, "numbers_show_all_providers_for_testing", True)
 
     result = await manager.get_all_prices("gmail", "1", None)
-    assert "smsman" in result
-    assert "smsman_s6" in result
-    assert result["smsman_s6"]["testing_visible"] is True
-    assert result["smsman_s6"]["provider_reason"] == "second_lane_unavailable"
+    assert "nonvoip" in result
+    assert "nonvoip_s6" in result
+    assert result["nonvoip_s6"]["testing_visible"] is True
+    assert result["nonvoip_s6"]["provider_reason"] == "second_lane_unavailable"
 
 
 @pytest.mark.asyncio
@@ -650,7 +650,7 @@ async def test_get_all_rental_prices_smspool_open_only(monkeypatch):
 def test_provider_capability_matrix_rules():
     assert manager.provider_allows_temp("herosms", state_selected=False) is True
     assert manager.provider_allows_temp("herosms", state_selected=True) is False
-    assert manager.provider_allows_temp("smsman", state_selected=True) is False
+    assert manager.provider_allows_temp("nonvoip", state_selected=True) is False
     assert manager.provider_allows_temp("telabot", state_selected=True) is True
     assert manager.provider_allows_temp("pvadeals", state_selected=False) is True
     assert manager.provider_allows_temp("pvadeals", state_selected=True) is False
@@ -832,7 +832,7 @@ def test_config_settings():
     assert hasattr(settings, "telabot_user")
     assert hasattr(settings, "tv_user")
     assert hasattr(settings, "herosms_key")
-    assert hasattr(settings, "smsman_key")
+    assert hasattr(settings, "nonvoip_key")
     assert hasattr(settings, "pvadeals_key")
     assert hasattr(settings, "smsready_key")
     assert hasattr(settings, "pvapins_key")
@@ -1905,12 +1905,12 @@ def test_data_wrappers_import():
     assert isinstance(service_map.DATA, dict)
 
 
-def test_provider_factory_smsman():
+def test_provider_factory_nonvoip():
     from services.numbers.provider_factory import ProviderFactory
-    from services.numbers.providers.smsman_provider import SMSManProvider
+    from services.numbers.providers.nonvoip_provider import NonVoipProvider
 
-    inst = ProviderFactory.get("smsman")
-    assert isinstance(inst, SMSManProvider)
+    inst = ProviderFactory.get("nonvoip")
+    assert isinstance(inst, NonVoipProvider)
 
 
 def test_provider_factory_new_provider_integrations():

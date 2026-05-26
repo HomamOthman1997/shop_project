@@ -8,12 +8,11 @@
   - `docs/providers/raw/smspool_postman_documenter.html`
   - `docs/providers/raw/smspool_postman_collection.json`
 
-## SMS-Man (S4)
-- Official URL: https://sms-man.com/api
-- Direct automated fetch still blocked in this environment (HTTP 403 / Cloudflare challenge).
-- Integrated from user-provided v2 + compatible dumps into:
-  - `docs/providers/manual/smsman_api_reference.json`
-- Merged strategy saved: v2 primary + compatible additions (getStatusV2 + legacy setStatus semantics).
+## Non-VoIP (S4)
+- Current local reference:
+  - `docs/numbers/providers/nonvoip.md`
+- Current adapter:
+  - `services/numbers/providers/nonvoip_provider.py`
 
 ## Tell A Bot (S5)
 - Command reference integrated locally:

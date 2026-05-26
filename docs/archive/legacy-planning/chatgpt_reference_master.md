@@ -107,7 +107,7 @@ D) Numbers
   - textverified
   - herosms
   - telabot
-  - smsman
+  - nonvoip
 - Current feature coverage includes:
   - temp purchase
   - rental purchase
@@ -247,9 +247,8 @@ Current locally tracked provider references:
 - HeroSMS:
   - docs/providers/manual/herosms_api_reference.json
   - docs/providers/raw/herosms_openapi_en.json
-- SMS-Man:
-  - docs/providers/manual/smsman_api_reference.json
-  - docs/providers/smsman_api_notes.md
+- Non-VoIP:
+  - docs/numbers/providers/nonvoip.md
 - Tellabot:
   - docs/providers/manual/telabot_api_reference.json
 

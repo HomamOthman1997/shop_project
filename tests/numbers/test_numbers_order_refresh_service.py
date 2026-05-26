@@ -131,8 +131,42 @@ async def test_refresh_number_order_does_not_poll_webhook_provider(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_refresh_number_order_rejects_unsupported_modes():
-    with pytest.raises(order_refresh_service.NumbersOrderError) as exc:
-        await order_refresh_service.refresh_number_order({"_id": "order-1", "number_mode": "rental"})
+async def test_refresh_number_order_returns_rental_or_voice_state_without_provider_poll(monkeypatch):
+    calls = {}
+    order = {
+        "_id": "rental-1",
+        "status": "success",
+        "number_mode": "rental",
+        "provider": "pvadeals",
+        "provider_order_id": "provider-rental",
+        "service_id": "telegram:rental",
+        "rental_country": "1",
+        "rental_sms_count": 1,
+        "rental_last_code": "112233",
+    }
 
-    assert exc.value.code == "unsupported_order_mode"
+    async def fake_get_order(order_id):
+        if calls.get("patch"):
+            return {**order, **calls["patch"]}
+        return order
+
+    async def fake_update_order_details(order_id, patch):
+        calls["patch"] = patch
+
+    async def fake_fetch_provider_sms(*args, **kwargs):
+        calls["fetch"] = True
+        return {"success": True, "messages": []}
+
+    monkeypatch.setattr(order_refresh_service, "get_order", fake_get_order)
+    monkeypatch.setattr(order_refresh_service, "update_order_details", fake_update_order_details)
+    monkeypatch.setattr(order_refresh_service, "fetch_provider_sms", fake_fetch_provider_sms)
+    monkeypatch.setattr(order_refresh_service, "_utc_now", lambda: datetime(2026, 5, 25, 12, 1, tzinfo=UTC))
+
+    result = await order_refresh_service.refresh_number_order(order)
+
+    assert "fetch" not in calls
+    assert calls["patch"]["api_last_refresh_mode"] == "provider_webhook"
+    assert result["message"] == "Waiting for provider webhook."
+    assert result["order"]["mode"] == "rental"
+    assert result["order"]["public_status"] == "code_received"
+    assert result["order"]["code"] == "112233"

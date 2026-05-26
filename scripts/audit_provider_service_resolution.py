@@ -5,7 +5,7 @@ from services.numbers.manager import get_provider_service_resolution_dynamic
 from services.numbers.service_map import list_service_keys
 
 
-CATALOG_PROVIDERS = ("smspool", "telabot", "textverified", "herosms", "smsman")
+CATALOG_PROVIDERS = ("smspool", "telabot", "textverified", "herosms", "nonvoip")
 
 
 async def main() -> None:

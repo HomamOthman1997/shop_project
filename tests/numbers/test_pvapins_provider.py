@@ -95,7 +95,7 @@ async def test_pvapins_rental_flow(monkeypatch):
             return 200, [{"id": 58, "full_name": "USA"}]
         if endpoint == "load_apps.php":
             return 200, [{"id": 2333, "app_name": "Rent GPay GPlay GVoice", "deduct": "10.00"}]
-        if endpoint == "rent.php":
+        if endpoint == "get_number.php" and params.get("is_rent") == 1:
             return 200, {"data": "12817437990", "code": 100}
         if endpoint == "load_rent_code.php":
             return 200, [{"from": "22000", "message": "Use code 418494 only in Google Voice app"}]
@@ -123,8 +123,8 @@ async def test_pvapins_rental_flow(monkeypatch):
 
     rent_country_call = [call for call in calls if call[0] == "load_countries.php"][0]
     assert rent_country_call[2] == {"is_rent": 1}
-    rent_call = [call for call in calls if call[0] == "rent.php"][0]
-    assert rent_call[2] == {"app": "Rent GPay GPlay GVoice", "country": "USA"}
+    rent_call = [call for call in calls if call[0] == "get_number.php" and call[2].get("is_rent") == 1][0]
+    assert rent_call[2] == {"app": "Rent GPay GPlay GVoice", "country": "USA", "is_rent": 1}
 
 
 @pytest.mark.asyncio

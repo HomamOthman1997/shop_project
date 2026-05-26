@@ -31,6 +31,7 @@ from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_callb
 from services.numbers.service_families import normalize_service_key
 from services.numbers.states.core_numbers_states import NumberFlow
 from services.numbers.data import tv_area_codes
+from keyboards.main_menu_kb import numbers_main_menu
 from utils.bot_menu_context import is_numbers_bot, menu_for_current_bot
 from utils.provider_alias import provider_public_id
 from utils.translations import t
@@ -236,6 +237,38 @@ async def _resolve_usd_to_syp_rate() -> float:
     return fallback if fallback > 0 else 118.0
 
 
+def _telegram_order_flow_enabled() -> bool:
+    return bool(getattr(settings, "numbers_telegram_order_flow_enabled", False))
+
+
+def _event_bot(event) -> object | None:
+    return getattr(event, "bot", None) or getattr(getattr(event, "message", None), "bot", None)
+
+
+async def _is_current_numbers_bot(event) -> bool:
+    bot = _event_bot(event)
+    if bot is None:
+        return False
+    try:
+        bot_id = (await bot.get_me()).id
+    except Exception:
+        return False
+    return await is_numbers_bot(int(bot_id))
+
+
+async def _should_use_miniapp_surface(event) -> bool:
+    return (not _telegram_order_flow_enabled()) and await _is_current_numbers_bot(event)
+
+
+async def _send_numbers_miniapp_entry(message: types.Message, state: FSMContext, *, lang: str) -> None:
+    await state.clear()
+    try:
+        await message.answer(t(lang, "keyboard_cleanup_placeholder"), reply_markup=types.ReplyKeyboardRemove())
+    except Exception:
+        pass
+    await message.answer(t(lang, "numbers_keyboard_ready"), reply_markup=numbers_main_menu(lang))
+
+
 async def _return_to_main_menu(callback: types.CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     if not callback.message:
@@ -250,7 +283,7 @@ async def _return_to_main_menu(callback: types.CallbackQuery, state: FSMContext)
         pass
 
     if await is_numbers_bot(bot_id):
-        await send_number_type_entry(callback.message, state, lang=lang)
+        await _send_numbers_miniapp_entry(callback.message, state, lang=lang)
         return
 
     await callback.message.answer(t(lang, "main_menu"), reply_markup=await menu_for_current_bot(lang, bot_id))
@@ -967,6 +1000,9 @@ async def numbers_menu(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = user.get("language", "en") if user else "en"
     await state.clear()
+    if await _should_use_miniapp_surface(message):
+        await _send_numbers_miniapp_entry(message, state, lang=lang)
+        return
     bot_id = (await message.bot.get_me()).id
     if not await is_numbers_bot(bot_id):
         await _hide_reply_keyboard(message, lang)
@@ -977,6 +1013,11 @@ async def numbers_menu(message: types.Message, state: FSMContext):
 async def choose_number_type(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
+    if await _should_use_miniapp_surface(callback):
+        if callback.message:
+            await _send_numbers_miniapp_entry(callback.message, state, lang=lang)
+        await _safe_callback_answer(callback)
+        return
     num_type = callback.data.split(":")[-1]
     if num_type == "perm":
         num_type = "rental"
@@ -993,6 +1034,11 @@ async def choose_number_type(callback: types.CallbackQuery, state: FSMContext):
 async def rental_add_number(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
+    if await _should_use_miniapp_surface(callback):
+        if callback.message:
+            await _send_numbers_miniapp_entry(callback.message, state, lang=lang)
+        await _safe_callback_answer(callback)
+        return
     await _show_number_type_entry(callback.message, state, lang=lang)
 
 
@@ -1000,6 +1046,11 @@ async def rental_add_number(callback: types.CallbackQuery, state: FSMContext):
 async def rental_menu(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
+    if await _should_use_miniapp_surface(callback):
+        if callback.message:
+            await _send_numbers_miniapp_entry(callback.message, state, lang=lang)
+        await _safe_callback_answer(callback)
+        return
     await _show_service_entry(callback.message, state, lang=lang, num_type="rental")
 
 
@@ -1007,6 +1058,11 @@ async def rental_menu(callback: types.CallbackQuery, state: FSMContext):
 async def back_from_country_entry(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "en")
+    if await _should_use_miniapp_surface(callback):
+        if callback.message:
+            await _send_numbers_miniapp_entry(callback.message, state, lang=lang)
+        await _safe_callback_answer(callback)
+        return
     num_type = data.get("num_type", "temp")
     if data.get("service"):
         await _show_service_entry(callback.message, state, lang=lang, num_type=num_type)

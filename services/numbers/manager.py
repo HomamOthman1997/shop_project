@@ -38,7 +38,7 @@ from services.numbers.manager_resolution import (
 from services.numbers.pricing_policy import temp_sale_price
 from services.numbers.virtual_policy import apply_virtual_offer_policy
 from services.numbers.providers.herosms_provider import HeroSMSProvider
-from services.numbers.providers.smsman_provider import SMSManProvider
+from services.numbers.providers.nonvoip_provider import NonVoipProvider
 from services.numbers.providers.smspool_provider import SMSPoolProvider
 from services.numbers.providers.telabot_provider import TelabotProvider
 from services.numbers.providers.textverified_provider import TextVerifiedProvider
@@ -55,20 +55,20 @@ from services.numbers.service_map import (
 
 logger = logging.getLogger("numbers_manager")
 
-_SMSMAN_PROVIDER = SMSManProvider()
+_NONVOIP_PROVIDER = NonVoipProvider()
 
 PROVIDERS: dict[str, Any] = {
     "smspool": SMSPoolProvider(),
     "telabot": TelabotProvider(),
     "textverified": TextVerifiedProvider(),
     "herosms": HeroSMSProvider(),
-    "smsman": _SMSMAN_PROVIDER,
+    "nonvoip": _NONVOIP_PROVIDER,
     "pvadeals": PVADealsProvider(),
     "smsready": SMSReadyProvider(),
     "pvapins": PVAPinsProvider(),
     "vaksms": VAKSMSProvider(),
     # Virtual second lane for the same backend provider (second-best offer).
-    "smsman_s6": _SMSMAN_PROVIDER,
+    "nonvoip_s6": _NONVOIP_PROVIDER,
 }
 
 
@@ -147,7 +147,7 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {
         "supports_state_temp": True,
         "supports_state_rental": False,
     },
-    "smsman": {
+    "nonvoip": {
         "supports_temp": True,
         "supports_rental": False,
         "supports_unlimited_rental": False,
@@ -182,7 +182,7 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {
         "supports_state_temp": False,
         "supports_state_rental": False,
     },
-    "smsman_s6": {
+    "nonvoip_s6": {
         "supports_temp": True,
         "supports_rental": False,
         "supports_unlimited_rental": False,
@@ -623,7 +623,7 @@ async def get_provider_service_resolution_dynamic(service_key: str, provider_cod
             resolution["provider_reason"] = "service_not_supported"
             return _cache_and_return(resolution)
 
-        if provider_code in {"herosms", "smsman", "vaksms", "smsready", "pvapins"}:
+        if provider_code in {"herosms", "nonvoip", "vaksms", "smsready", "pvapins"}:
             mapped = get_service_provider_map(norm_target).get(provider_code)
             if mapped:
                 resolution["resolved_provider_service"] = str(mapped)
@@ -701,8 +701,8 @@ async def get_all_prices(
                 else None
             )
 
-            # NonVoIP lane split: expose two virtual lanes (S5 cheapest + S6 second cheapest).
-            if code == "smsman":
+            # NonVoIP lane split: expose two virtual lanes (S7 cheapest + S8 second cheapest).
+            if code == "nonvoip":
                 query = _service_display_name(service_key) or str(service_key or "")
                 c_code = str(country) if country and country != "none" else None
                 s_code = str(state) if state and state != "none" else None
@@ -988,7 +988,7 @@ async def get_all_prices(
     tasks = [
         asyncio.create_task(fetch_single_provider(code, p))
         for code, p in PROVIDERS.items()
-        if code != "smsman_s6" and (not allowed_provider_codes or str(code).strip().lower() in allowed_provider_codes)
+        if code != "nonvoip_s6" and (not allowed_provider_codes or str(code).strip().lower() in allowed_provider_codes)
     ]
     if soft_timeout_sec and soft_timeout_sec > 0:
         done, pending = await asyncio.wait(tasks, timeout=float(soft_timeout_sec))
@@ -1007,10 +1007,10 @@ async def get_all_prices(
         if data:
             results[code] = data
             second_lane = data.pop("__second_lane", None) if isinstance(data, dict) else None
-            if code == "smsman" and isinstance(second_lane, dict):
-                results["smsman_s6"] = second_lane
-            elif code == "smsman" and show_all_for_testing and "smsman_s6" not in results:
-                results["smsman_s6"] = {
+            if code == "nonvoip" and isinstance(second_lane, dict):
+                results["nonvoip_s6"] = second_lane
+            elif code == "nonvoip" and show_all_for_testing and "nonvoip_s6" not in results:
+                results["nonvoip_s6"] = {
                     "success": False,
                     "price": 0.0,
                     "base_price": 0.0,
@@ -1039,7 +1039,7 @@ async def get_all_rental_prices(service_key: str, country: str | None, *, with_s
             provider_supports_rental(code)
             or (is_unlimited and provider_supports_unlimited_rental(code))
         )
-        and code != "smsman_s6"
+        and code != "nonvoip_s6"
     )
     async def fetch_single_provider(code: str, provider_obj):
         if code not in rental_provider_codes:

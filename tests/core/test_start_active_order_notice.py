@@ -54,6 +54,8 @@ async def test_notify_active_temp_order_message_does_not_reference_missing_butto
     monkeypatch.setattr(start, "_has_active_temp_order", _fake_has_temp)
     monkeypatch.setattr(start, "_has_active_rental_order", _fake_has_rental)
     monkeypatch.setattr(start, "_should_show_active_numbers_notice", _fake_show_notice)
+    monkeypatch.setattr(start.settings, "numbers_miniapp_enabled", True, raising=False)
+    monkeypatch.setattr(start, "numbers_miniapp_url", lambda: "https://numbers.example.com/mini/numbers")
 
     message = _DummyMessage()
     await start._notify_active_temp_order_if_any(message, "en")
@@ -62,7 +64,8 @@ async def test_notify_active_temp_order_message_does_not_reference_missing_butto
     text, reply_markup = message.answers[0]
     assert "Use the buttons below" not in text
     assert "Tap Numbers below" in text
-    assert reply_markup.inline_keyboard[0][0].callback_data == "flow:type:temp"
+    assert reply_markup.inline_keyboard[0][0].callback_data is None
+    assert reply_markup.inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"
 
 
 @pytest.mark.asyncio
@@ -111,13 +114,12 @@ async def test_numbers_start_guards_skip_digital_and_card_bots(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
+async def test_open_numbers_start_menu_shows_miniapp_inline_menu_without_number_flow(monkeypatch):
     from handlers import start
     from keyboards import main_menu_kb
-    from services.numbers.keyboards import core_numbers_kb
 
-    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", False, raising=False)
-    monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", False, raising=False)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", True, raising=False)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_public_url", "https://numbers.example.com", raising=False)
 
     class _DummyState:
         def __init__(self):
@@ -147,20 +149,24 @@ async def test_open_numbers_start_menu_sets_number_type_state(monkeypatch):
 
     await start._open_numbers_start_menu(message, state, lang="en")
 
-    assert state.data["lang"] == "en"
-    assert state.state.state == "NumberFlow:num_type"
-    assert message.answers
-    assert message.answers[0][0] == "Menu"
-    assert message.answers[0][1].keyboard[0][0].text == "📦 My Numbers"
-    assert message.stickers
-    assert message.stickers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"
-    assert all(row[0].callback_data != "flow:cancel" for row in message.stickers[0][1].inline_keyboard)
+    assert state.data == {}
+    assert state.state is None
+    assert len(message.answers) == 2
+    assert message.answers[0][1].__class__.__name__ == "ReplyKeyboardRemove"
+    assert message.answers[1][0] == "Menu"
+    assert message.answers[1][1].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"
+    assert [row[0].callback_data for row in message.answers[1][1].inline_keyboard[1:]] == [
+        "uset:open",
+        "uset:recharge",
+        "support:open",
+    ]
+    assert message.stickers == []
 
 
 @pytest.mark.asyncio
-async def test_numbers_bot_cancel_returns_to_number_type_entry(monkeypatch):
+async def test_numbers_bot_cancel_returns_to_miniapp_inline_menu(monkeypatch):
     from services.numbers.handlers import core_numbers
-    from services.numbers.keyboards import core_numbers_kb
+    from keyboards import main_menu_kb
 
     async def fake_get_user(_user_id):
         return {"language": "en"}
@@ -213,14 +219,114 @@ async def test_numbers_bot_cancel_returns_to_number_type_entry(monkeypatch):
     monkeypatch.setattr(core_numbers, "get_user", fake_get_user)
     monkeypatch.setattr(core_numbers, "is_numbers_bot", fake_true)
     monkeypatch.setattr(core_numbers, "_handle_rental_exit_callback_guard", fake_rental_guard)
-    monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", False, raising=False)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", True, raising=False)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_public_url", "https://numbers.example.com", raising=False)
 
     await core_numbers.back_to_main(callback, state)
 
     assert state.cleared is True
-    assert state.data["lang"] == "en"
-    assert state.state.state == "NumberFlow:num_type"
+    assert state.data == {}
+    assert state.state is None
     assert message.deleted is True
-    assert message.stickers
-    assert message.answers == []
-    assert message.stickers[0][1].inline_keyboard[0][0].callback_data == "flow:type:temp"
+    assert message.stickers == []
+    assert len(message.answers) == 2
+    assert message.answers[0][1].__class__.__name__ == "ReplyKeyboardRemove"
+    assert message.answers[1][1].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"
+
+
+@pytest.mark.asyncio
+async def test_stale_number_type_callback_returns_to_miniapp_menu(monkeypatch):
+    from services.numbers.handlers import core_numbers
+    from keyboards import main_menu_kb
+
+    async def fake_true(_bot_id):
+        return True
+
+    monkeypatch.setattr(core_numbers, "is_numbers_bot", fake_true)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", True, raising=False)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_public_url", "https://numbers.example.com", raising=False)
+
+    class _DummyState:
+        def __init__(self):
+            self.data = {"lang": "en"}
+            self.cleared = False
+            self.state = None
+
+        async def get_data(self):
+            return dict(self.data)
+
+        async def clear(self):
+            self.data.clear()
+            self.cleared = True
+
+        async def update_data(self, **kwargs):
+            self.data.update(kwargs)
+
+        async def set_state(self, state):
+            self.state = state
+
+    class _DummyBot:
+        async def get_me(self):
+            return SimpleNamespace(id=879)
+
+    class _DummyMessage:
+        def __init__(self):
+            self.bot = _DummyBot()
+            self.answers = []
+
+        async def answer(self, text, reply_markup=None):
+            self.answers.append((text, reply_markup))
+
+    class _DummyCallback:
+        data = "flow:type:temp"
+
+        def __init__(self):
+            self.bot = _DummyBot()
+            self.message = _DummyMessage()
+            self.answered = False
+
+        async def answer(self, **_kwargs):
+            self.answered = True
+
+    callback = _DummyCallback()
+    state = _DummyState()
+
+    await core_numbers.choose_number_type(callback, state)
+
+    assert callback.answered is True
+    assert state.cleared is True
+    assert state.state is None
+    assert len(callback.message.answers) == 2
+    assert callback.message.answers[0][1].__class__.__name__ == "ReplyKeyboardRemove"
+    assert callback.message.answers[1][1].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"
+
+
+@pytest.mark.asyncio
+async def test_empty_my_numbers_offers_miniapp_not_telegram_add(monkeypatch):
+    from services.numbers.handlers import core_numbers_buy
+    from keyboards import main_menu_kb
+
+    async def _empty_orders(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(core_numbers_buy, "list_user_open_temp_and_voice_orders", _empty_orders)
+    monkeypatch.setattr(core_numbers_buy, "list_user_rental_orders", _empty_orders)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_enabled", True, raising=False)
+    monkeypatch.setattr(main_menu_kb.settings, "numbers_miniapp_public_url", "https://numbers.example.com", raising=False)
+
+    class _DummyMessage:
+        def __init__(self):
+            self.answers = []
+
+        async def answer(self, text, reply_markup=None):
+            self.answers.append((text, reply_markup))
+
+    message = _DummyMessage()
+
+    await core_numbers_buy._show_my_numbers(message, 55, "en")
+
+    assert len(message.answers) == 1
+    markup = message.answers[0][1]
+    callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
+    assert "flow:rental:add" not in callbacks
+    assert markup.inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"

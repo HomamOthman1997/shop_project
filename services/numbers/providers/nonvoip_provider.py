@@ -9,7 +9,7 @@ from services.numbers.core.session_manager import SessionManager
 
 from .base_provider import BaseProvider
 
-logger = logging.getLogger("smsman")
+logger = logging.getLogger("nonvoip")
 
 
 def _as_float(value: Any) -> float | None:
@@ -28,12 +28,8 @@ def _strip_tail_variant(value: str) -> str:
     return re.sub(r"\d+$", "", _norm(value))
 
 
-class SMSManProvider(BaseProvider):
-    """
-    Compatibility provider slot:
-    - Kept under "smsman" code to avoid changing existing manager mappings.
-    - Internally talks to the new NonVoIP API command set.
-    """
+class NonVoipProvider(BaseProvider):
+    """Non-VoIP reseller provider adapter."""
 
     DEFAULT_BASE = "https://www.non-voip.com/api/reseller"
 
@@ -44,11 +40,7 @@ class SMSManProvider(BaseProvider):
 
     @property
     def base_url(self) -> str:
-        base = (
-            getattr(settings, "nonvoip_base_url", None)
-            or settings.smsman_base_url
-            or self.DEFAULT_BASE
-        )
+        base = settings.nonvoip_base_url or self.DEFAULT_BASE
         normalized = str(base).strip().rstrip("/")
         if normalized.startswith("https://non-voip.com/"):
             return normalized.replace("https://non-voip.com/", "https://www.non-voip.com/", 1)
@@ -57,11 +49,7 @@ class SMSManProvider(BaseProvider):
         return normalized
 
     def _api_key(self) -> Optional[str]:
-        key = (
-            getattr(settings, "nonvoip_key", None)
-            or settings.smsman_key
-            or ""
-        )
+        key = settings.nonvoip_key or ""
         key = str(key).strip()
         return key or None
 

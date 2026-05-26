@@ -68,7 +68,7 @@ async def test_cancel_and_refund_temp_order_success(monkeypatch):
     async def _fake_log_temp_event(order, event, payload=None):
         calls["event"] = {"event": event, "payload": payload or {}}
 
-    monkeypatch.setitem(hb.PROVIDERS, "smsman", _DummyProvider())
+    monkeypatch.setitem(hb.PROVIDERS, "nonvoip", _DummyProvider())
     monkeypatch.setattr(hb, "FinancialManager", _DummyFinancialManager)
     monkeypatch.setattr(hb, "update_order_status", _fake_update_order_status)
     monkeypatch.setattr(hb, "update_order_details", _fake_update_order_details)
@@ -79,7 +79,7 @@ async def test_cancel_and_refund_temp_order_success(monkeypatch):
         "status": "success",
         "user_id": 123,
         "reseller_id": 456,
-        "provider": "smsman",
+        "provider": "nonvoip",
         "provider_order_id": "prov-123",
         "selling_price": 1.8,
         "base_price": 1.2,
@@ -189,9 +189,24 @@ async def test_confirm_buy_does_not_retry_without_state(monkeypatch):
     async def _fake_best_effort(*args, **kwargs):
         return None
 
+    async def _fake_charge_order_or_raise(**kwargs):
+        return None
+
     async def _fake_buy_number_from_provider(**kwargs):
         calls["buy"].append(kwargs)
         return {"success": False, "raw": "state_not_available"}
+
+    async def _fake_provision_charged_temp_order(**kwargs):
+        await _fake_buy_number_from_provider(
+            provider_code=kwargs["provider_code"],
+            api_service_name=kwargs["api_service"],
+            country=kwargs["country"],
+            state=kwargs["state"],
+            dry_run=False,
+            purchase_options=kwargs.get("purchase_options") or {},
+        )
+        await _fake_update_order_status(kwargs["order_id"], "refunded")
+        raise hb.ProviderProvisioningError("state_not_available", refund_ok=True, raw="state_not_available")
 
     class _DummyBot:
         async def get_me(self):
@@ -249,7 +264,8 @@ async def test_confirm_buy_does_not_retry_without_state(monkeypatch):
     monkeypatch.setattr(hb, "FinancialManager", _DummyFinancialManager)
     monkeypatch.setattr(hb, "get_user_wallet_balance", _fake_balance)
     monkeypatch.setattr(hb, "_best_effort_edit_text", _fake_best_effort)
-    monkeypatch.setattr(hb, "buy_number_from_provider", _fake_buy_number_from_provider)
+    monkeypatch.setattr(hb, "charge_order_or_raise", _fake_charge_order_or_raise)
+    monkeypatch.setattr(hb, "provision_charged_temp_order", _fake_provision_charged_temp_order)
     monkeypatch.setattr(hb, "menu_for_current_bot", lambda *args, **kwargs: __import__("asyncio").sleep(0, result="MENU_KB"))
 
     callback = _DummyCallback()

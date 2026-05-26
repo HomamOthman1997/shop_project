@@ -1362,7 +1362,6 @@ async def _catalog_payload() -> dict[str, Any]:
         bool(getattr(settings, key, "") or "")
         for key in (
             "smspool_key",
-            "smsman_key",
             "nonvoip_key",
             "herosms_key",
             "pvadeals_key",

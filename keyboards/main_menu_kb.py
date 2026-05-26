@@ -1,6 +1,6 @@
 import os
 
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 
 from config import settings
 from utils.translations import t
@@ -66,6 +66,10 @@ def _numbers_miniapp_url() -> str:
     return f"{base}/mini/numbers" if base else ""
 
 
+def numbers_miniapp_url() -> str:
+    return _numbers_miniapp_url()
+
+
 def main_menu(lang: str) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text=t(lang, "btn_services"))],
@@ -86,30 +90,27 @@ def main_menu(lang: str) -> ReplyKeyboardMarkup:
     )
 
 
-def numbers_main_menu(lang: str) -> ReplyKeyboardMarkup:
+def numbers_main_menu(lang: str) -> InlineKeyboardMarkup:
     miniapp_url = _numbers_miniapp_url()
     miniapp_ready = bool(getattr(settings, "numbers_miniapp_enabled", False)) and bool(miniapp_url)
-    keyboard = [
-        *(
-            [[_kb_button(_label(lang, "Open Numbers App", "فتح تطبيق الأرقام"), web_app=WebAppInfo(url=miniapp_url))]]
-            if miniapp_ready
-            else []
-        ),
+    inline_keyboard: list[list[InlineKeyboardButton]] = []
+    if miniapp_ready:
+        inline_keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=_label(lang, "Open Numbers App", "فتح تطبيق الأرقام"),
+                    web_app=WebAppInfo(url=miniapp_url),
+                )
+            ]
+        )
+    inline_keyboard.extend(
         [
-            _kb_button(t(lang, "btn_my_numbers")),
-        ],
-        [
-            _kb_button(t(lang, "user_settings_my_account"), icon_id=_ICON_ACCOUNT),
-            _kb_button(t(lang, "btn_support"), icon_id=_ICON_SUPPORT),
-        ],
-        [
-            _kb_button(t(lang, "btn_more_services")),
-        ],
-    ]
-    return ReplyKeyboardMarkup(
-        keyboard=keyboard,
-        resize_keyboard=True,
+            [InlineKeyboardButton(text=t(lang, "user_settings_my_account"), callback_data="uset:open")],
+            [InlineKeyboardButton(text=t(lang, "btn_add_balance"), callback_data="uset:recharge")],
+            [InlineKeyboardButton(text=t(lang, "btn_support"), callback_data="support:open")],
+        ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
 def reseller_user_main_menu(lang: str) -> ReplyKeyboardMarkup:

@@ -27,6 +27,7 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     routes = {(route.method, route.resource.canonical) for route in app.router.routes()}
     assert ("GET", "/api/v1/numbers/health") in routes
     assert ("GET", "/api/v1/numbers/catalog/bootstrap") in routes
+    assert ("GET", "/api/v1/numbers/country-suggestions") in routes
     assert ("GET", "/api/v1/numbers/account") in routes
     assert ("GET", "/api/v1/numbers/quotes") in routes
     assert ("GET", "/api/v1/numbers/orders") in routes
@@ -34,6 +35,14 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     assert ("POST", "/api/v1/numbers/orders") in routes
     assert ("POST", "/api/v1/numbers/orders/{order_id}/refresh") in routes
     assert ("POST", "/api/v1/numbers/orders/{order_id}/resend") in routes
+    assert ("POST", "/api/v1/numbers/orders/{order_id}/replace") in routes
+    assert ("POST", "/api/v1/numbers/orders/{order_id}/alternate") in routes
+    assert ("GET", "/api/v1/numbers/orders/{order_id}/recording") in routes
+    assert ("POST", "/api/v1/numbers/orders/{order_id}/rental/sms") in routes
+    assert ("POST", "/api/v1/numbers/orders/{order_id}/rental/finish") in routes
+    assert ("POST", "/api/v1/numbers/orders/{order_id}/rental/renew") in routes
+    assert ("POST", "/api/v1/numbers/orders/{order_id}/rental/wake") in routes
+    assert ("POST", "/api/v1/numbers/orders/{order_id}/rental/notes") in routes
     assert ("GET", "/api/v1/numbers/ops/refund-reviews") in routes
     assert ("POST", "/api/v1/numbers/ops/refund-reviews/{order_id}/resolve") in routes
     assert ("GET", "/api/v1/numbers/ops/provider-webhook-events") in routes
@@ -66,10 +75,69 @@ async def test_numbers_api_catalog_bootstrap_has_core_selectors():
     assert payload["ok"] is True
     assert payload["version"] == "v1"
     assert payload["defaults"] == {"mode": "temp", "service": "", "country": "none", "state": "none"}
+    assert payload["client"] == {
+        "primary_surface": "miniapp",
+        "telegram_order_flow_enabled": False,
+        "provider_sms_polling_enabled": False,
+        "manual_customer_refund_enabled": False,
+    }
     assert [item["key"] for item in payload["modes"]] == ["temp", "rental", "voice"]
     assert any(item["key"] == "telegram" for item in payload["services"])
     assert any(item["code"] == "1" for item in payload["countries"])
     assert any(item["code"] == "none" for item in payload["states_us"])
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_country_suggestions_uses_quotes_scope(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_check_rate_limit(auth, *, bucket, limit, window_seconds=60):
+        calls["rate_limit"] = (bucket, limit)
+        return await allow_rate_limit(auth, bucket=bucket, limit=limit, window_seconds=window_seconds)
+
+    async def fake_country_suggestions(mode, service, limit=10):
+        calls["suggestions"] = (mode, service, limit)
+        return [{"code": "44", "name": "United Kingdom", "price": 0.22, "price_label": "$0.22"}]
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", fake_check_rate_limit)
+    monkeypatch.setattr(api, "country_suggestions_for_service", fake_country_suggestions)
+
+    request = make_mocked_request("GET", "/api/v1/numbers/country-suggestions?mode=temp&service=gmail&limit=6")
+
+    response = await api.country_suggestions(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:quotes"
+    assert calls["rate_limit"] == ("numbers:country-suggestions", 60)
+    assert calls["suggestions"] == ("temp", "gmail", 6)
+    assert payload == {
+        "ok": True,
+        "mode": "temp",
+        "service": "gmail",
+        "countries": [{"code": "44", "name": "United Kingdom", "price": 0.22, "price_label": "$0.22"}],
+    }
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_country_suggestions_rejects_bad_mode(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+
+    request = make_mocked_request("GET", "/api/v1/numbers/country-suggestions?mode=bad&service=gmail")
+
+    response = await api.country_suggestions(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 400
+    assert payload["code"] == "unsupported_mode"
 
 
 @pytest.mark.asyncio
@@ -93,10 +161,37 @@ async def test_numbers_api_account_returns_wallet_snapshot(monkeypatch):
         calls["wallet"] = (user_id, reseller_id)
         return 12.5
 
+    async def fake_list_user_wallet_entries(user_id, reseller_id, limit=8):
+        calls["activity"] = (user_id, reseller_id, limit)
+        return [
+            {
+                "_id": "tx-1",
+                "direction": "debit",
+                "amount": -0.44,
+                "reason": "purchase_core_user_debit",
+                "category": "core_purchase",
+                "balance_after": 12.5,
+                "created_at": datetime(2026, 5, 25, 12, 5, tzinfo=UTC),
+                "order_id": "order-1",
+                "metadata": {"provider": "textverified", "debug": "hidden"},
+            },
+            {
+                "_id": "tx-2",
+                "direction": "credit",
+                "amount": 1.0,
+                "reason": "refund_core_user_credit",
+                "category": "core_refund",
+                "balance_after": 12.94,
+                "created_at": datetime(2026, 5, 25, 12, 10, tzinfo=UTC),
+                "order_id": "order-1",
+            },
+        ]
+
     monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
     monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
     monkeypatch.setattr(api, "get_user", fake_get_user)
     monkeypatch.setattr(api, "get_user_wallet_balance", fake_get_user_wallet_balance)
+    monkeypatch.setattr(api, "list_user_wallet_entries", fake_list_user_wallet_entries)
     request = make_mocked_request("GET", "/api/v1/numbers/account")
 
     response = await api.account(request)
@@ -108,6 +203,22 @@ async def test_numbers_api_account_returns_wallet_snapshot(monkeypatch):
     assert payload["user"]["username"] == "customer"
     assert payload["user"]["language"] == "ar"
     assert payload["wallet"] == {"balance": 12.5, "currency": "USD", "balance_label": "$12.50"}
+    assert calls["activity"] == (123, 456, 8)
+    assert payload["recent_activity"][0] == {
+        "id": "tx-1",
+        "kind": "numbers_purchase",
+        "label": "Numbers purchase",
+        "direction": "debit",
+        "amount": -0.44,
+        "amount_label": "-$0.44",
+        "balance_after": 12.5,
+        "balance_label": "$12.50",
+        "created_at": "2026-05-25T12:05:00+00:00",
+        "order_id": "order-1",
+    }
+    assert payload["recent_activity"][1]["kind"] == "numbers_refund"
+    assert "reason" not in payload["recent_activity"][0]
+    assert "metadata" not in payload["recent_activity"][0]
     assert response.headers["X-RateLimit-Bucket"] == "numbers:account:read"
 
 
@@ -136,7 +247,7 @@ async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
                 "recommended_success_rate": 91,
                 "success_attempts": 5,
             },
-            "smsman": {
+            "nonvoip": {
                 "price": 0.01,
                 "api_service_name": "telegram",
                 "available_for_buy": True,
@@ -169,6 +280,116 @@ async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
     assert payload["providers"][0]["provider"] != "textverified"
     assert payload["providers"][0]["price_label"] == "$0.44"
     assert payload["providers"][0]["quote_token"]
+    quote = api_payloads.verify_quote_token(payload["providers"][0]["quote_token"])
+    assert quote["provider_id"] == payload["providers"][0]["provider_id"]
+    assert "provider" not in quote
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:quotes"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_rental_quotes_return_signed_options(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=123, scopes=(required_scope,))
+
+    async def fake_get_all_rental_prices(service, country, with_success_rates=True):
+        calls["args"] = {
+            "service": service,
+            "country": country,
+            "with_success_rates": with_success_rates,
+        }
+        return {
+            "textverified": {
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "options": [
+                    {
+                        "duration": 24,
+                        "duration_label": "1d",
+                        "price": 4.0,
+                        "base_price": 3.0,
+                        "tv_duration_key": "oneDay",
+                        "tv_is_renewable": False,
+                    }
+                ],
+            }
+        }
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_all_rental_prices", fake_get_all_rental_prices)
+    request = make_mocked_request("GET", "/api/v1/numbers/quotes?mode=rental&service=telegram&country=1&state=NY")
+
+    response = await api.quotes(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:quotes"
+    assert calls["args"] == {"service": "telegram", "country": "1", "with_success_rates": False}
+    assert payload["ok"] is True
+    assert payload["mode"] == "rental"
+    assert payload["providers"][0]["provider"] == "Bravo"
+    assert payload["providers"][0]["provider_id"].startswith("S")
+    assert payload["providers"][0]["options"][0]["price"] == 6.0
+    assert payload["providers"][0]["options"][0]["with_state"] is True
+    quote = api_payloads.verify_quote_token(payload["providers"][0]["options"][0]["quote_token"])
+    assert quote["mode"] == "rental"
+    assert quote["provider_id"] == payload["providers"][0]["provider_id"]
+    assert quote["state"] == "NY"
+    assert "provider" not in quote
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:quotes"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_voice_quotes_return_signed_token(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=123, scopes=(required_scope,))
+
+    async def fake_get_all_voice_prices(service, country, state, ignore_balance=False):
+        calls["args"] = {
+            "service": service,
+            "country": country,
+            "state": state,
+            "ignore_balance": ignore_balance,
+        }
+        return {
+            "textverified": {
+                "price": 0.66,
+                "base_price": 0.5,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "voice_capable": True,
+                "success_attempts": 6,
+                "success_rate": 92,
+            }
+        }
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_all_voice_prices", fake_get_all_voice_prices)
+    request = make_mocked_request("GET", "/api/v1/numbers/quotes?mode=voice&service=telegram&country=1&state=CA")
+
+    response = await api.quotes(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:quotes"
+    assert calls["args"] == {"service": "telegram", "country": "1", "state": "CA", "ignore_balance": True}
+    assert payload["ok"] is True
+    assert payload["mode"] == "voice"
+    assert payload["country"] == "1"
+    assert payload["providers"][0]["provider"] == "Bravo"
+    assert payload["providers"][0]["provider_id"] == "S2"
+    assert payload["providers"][0]["price_label"] == "$0.66"
+    assert payload["providers"][0]["quote_token"]
+    quote = api_payloads.verify_quote_token(payload["providers"][0]["quote_token"])
+    assert quote["mode"] == "voice"
+    assert quote["provider_id"] == "S2"
+    assert quote["state"] == "CA"
+    assert "provider" not in quote
     assert response.headers["X-RateLimit-Bucket"] == "numbers:quotes"
 
 
@@ -191,6 +412,7 @@ async def test_numbers_api_list_orders_combines_number_modes(monkeypatch):
                 "temp_country": "1",
                 "temp_state": "CA",
                 "provider_public_id": "S01",
+                "provider": "textverified",
                 "provider_number": "15550001111",
                 "selling_price": 1.25,
                 "base_price": 1.0,
@@ -233,6 +455,8 @@ async def test_numbers_api_list_orders_combines_number_modes(monkeypatch):
     assert calls["rentals"] == (123, 5)
     assert [item["id"] for item in payload["orders"]] == ["rent-1", "temp-1", "voice-1"]
     assert payload["orders"][1]["provider_id"] == "S01"
+    assert payload["orders"][1]["provider"] == "Bravo"
+    assert payload["orders"][1]["provider"] != "textverified"
     assert "base_price" not in payload["orders"][1]
     assert response.headers["X-RateLimit-Bucket"] == "numbers:orders:read"
 
@@ -278,6 +502,7 @@ async def test_numbers_api_get_order_detail_is_owner_scoped(monkeypatch):
             "status": "success",
             "number_mode": "temp",
             "temp_service_key": "telegram",
+            "provider": "textverified",
             "provider_number": "15550001111",
             "selling_price": 1.25,
             "base_price": 0.5,
@@ -294,6 +519,7 @@ async def test_numbers_api_get_order_detail_is_owner_scoped(monkeypatch):
     assert calls["auth_scope"] == "numbers:orders:read"
     assert calls["get"] == ("order-1", 123, 456)
     assert payload["order"]["id"] == "order-1"
+    assert payload["order"]["provider"] == "Bravo"
     assert payload["order"]["number"] == "15550001111"
     assert "base_price" not in payload["order"]
 
@@ -382,13 +608,217 @@ async def test_numbers_api_resend_order_uses_resend_service(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_numbers_api_replace_order_uses_replacement_service(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        calls["get"] = (order_id, user_id, reseller_id)
+        return {"_id": order_id, "user_id": user_id, "reseller_id": reseller_id, "number_mode": "temp"}
+
+    async def fake_request_replacement_order(**kwargs):
+        calls["replace"] = kwargs
+        return {"ok": True, "order": {"id": "replacement-1"}}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    monkeypatch.setattr(api, "request_replacement_order", fake_request_replacement_order)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/numbers/orders/order-1/replace",
+        headers={"Content-Type": "application/json", "Idempotency-Key": "replace-1"},
+        match_info={"order_id": "order-1"},
+    )
+    request._read_bytes = json.dumps({"language": "en"}).encode("utf-8")
+
+    response = await api.replace_order(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:orders:replace"
+    assert calls["get"] == ("order-1", 123, 456)
+    assert calls["replace"]["idempotency_key"] == "replace-1"
+    assert calls["replace"]["alternate_provider"] is False
+    assert payload == {"ok": True, "order": {"id": "replacement-1"}}
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:orders:replace"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_alternate_order_sets_alternate_flag(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        return {"_id": order_id, "user_id": user_id, "reseller_id": reseller_id, "number_mode": "temp"}
+
+    async def fake_request_replacement_order(**kwargs):
+        calls["replace"] = kwargs
+        return {"ok": True, "order": {"id": "alternate-1"}}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    monkeypatch.setattr(api, "request_replacement_order", fake_request_replacement_order)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/numbers/orders/order-1/alternate",
+        headers={"Idempotency-Key": "alternate-1"},
+        match_info={"order_id": "order-1"},
+    )
+
+    response = await api.alternate_provider_order(request)
+
+    assert response.status == 200
+    assert calls["replace"]["alternate_provider"] is True
+    assert calls["replace"]["idempotency_key"] == "alternate-1"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_download_recording_is_owner_scoped(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        calls["get"] = (order_id, user_id, reseller_id)
+        return {
+            "_id": order_id,
+            "user_id": user_id,
+            "reseller_id": reseller_id,
+            "number_mode": "voice",
+            "provider": "textverified",
+            "voice_recording_uri": "/api/pub/v2/calls/call-1/recording",
+        }
+
+    async def fake_download_voice_order_recording(order):
+        calls["download"] = (order["provider"], order["voice_recording_uri"])
+        return {"content": b"audio-bytes", "content_type": "audio/mpeg", "filename": "call-recording.mp3"}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    monkeypatch.setattr(api, "download_voice_order_recording", fake_download_voice_order_recording)
+    request = make_mocked_request("GET", "/api/v1/numbers/orders/order-1/recording", match_info={"order_id": "order-1"})
+
+    response = await api.download_order_recording(request)
+
+    assert calls["auth_scope"] == "numbers:orders:read"
+    assert calls["get"] == ("order-1", 123, 456)
+    assert calls["download"] == ("textverified", "/api/pub/v2/calls/call-1/recording")
+    assert response.status == 200
+    assert response.body == b"audio-bytes"
+    assert response.content_type == "audio/mpeg"
+    assert response.headers["Content-Disposition"] == 'attachment; filename="call-recording.mp3"'
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:orders:read"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_download_recording_returns_not_ready(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        return {"_id": order_id, "number_mode": "voice", "provider": "textverified"}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    request = make_mocked_request("GET", "/api/v1/numbers/orders/order-1/recording", match_info={"order_id": "order-1"})
+
+    response = await api.download_order_recording(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 404
+    assert payload["code"] == "recording_not_ready"
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:orders:read"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_rental_sms_uses_rental_service(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        calls["get"] = (order_id, user_id, reseller_id)
+        return {"_id": order_id, "user_id": user_id, "reseller_id": reseller_id, "number_mode": "rental"}
+
+    async def fake_rental_sms_state(order):
+        calls["service"] = order
+        return {"ok": True, "messages": ["Code 123"], "order": {"id": order["_id"], "mode": "rental"}}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    monkeypatch.setattr(api, "rental_sms_state", fake_rental_sms_state)
+    request = make_mocked_request("POST", "/api/v1/numbers/orders/rental-1/rental/sms", match_info={"order_id": "rental-1"})
+
+    response = await api.rental_sms_order(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:orders:rental"
+    assert calls["get"] == ("rental-1", 123, 456)
+    assert calls["service"]["_id"] == "rental-1"
+    assert payload == {"ok": True, "messages": ["Code 123"], "order": {"id": "rental-1", "mode": "rental"}}
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:orders:rental"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_renew_rental_requires_scoped_order_and_passes_idempotency(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        calls["get"] = (order_id, user_id, reseller_id)
+        return {"_id": order_id, "user_id": user_id, "reseller_id": reseller_id, "number_mode": "rental"}
+
+    async def fake_renew_rental_order(**kwargs):
+        calls["renew"] = kwargs
+        return {"ok": True, "order": {"id": kwargs["order"]["_id"], "mode": "rental"}}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    monkeypatch.setattr(api, "renew_rental_order", fake_renew_rental_order)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/numbers/orders/rental-1/rental/renew",
+        headers={"Idempotency-Key": "renew-1"},
+        match_info={"order_id": "rental-1"},
+    )
+
+    response = await api.renew_rental(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:orders:rental"
+    assert calls["get"] == ("rental-1", 123, 456)
+    assert calls["renew"]["user_id"] == 123
+    assert calls["renew"]["idempotency_key"] == "renew-1"
+    assert calls["renew"]["order"]["_id"] == "rental-1"
+    assert payload == {"ok": True, "order": {"id": "rental-1", "mode": "rental"}}
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:orders:rental"
+
+
+@pytest.mark.asyncio
 async def test_numbers_api_quotes_reject_unsupported_modes(monkeypatch):
     async def fake_require_api_auth(request, required_scope):
         return api_auth_context(key_id="key-1", user_id=123, reseller_id=123, scopes=(required_scope,))
 
     monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
     monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
-    request = make_mocked_request("GET", "/api/v1/numbers/quotes?mode=rental&service=telegram&country=1")
+    request = make_mocked_request("GET", "/api/v1/numbers/quotes?mode=unknown&service=telegram&country=1")
 
     response = await api.quotes(request)
     payload = json.loads(response.text)
@@ -420,13 +850,13 @@ async def test_numbers_api_create_order_uses_order_service(monkeypatch):
         calls["auth_scope"] = required_scope
         return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
 
-    async def fake_create_temp_order_from_quote(**kwargs):
+    async def fake_create_number_order_from_quote(**kwargs):
         calls.update(kwargs)
         return {"ok": True, "order": {"id": "order-1"}}
 
     monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
     monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
-    monkeypatch.setattr(api, "create_temp_order_from_quote", fake_create_temp_order_from_quote)
+    monkeypatch.setattr(api, "create_number_order_from_quote", fake_create_number_order_from_quote)
     request = make_mocked_request(
         "POST",
         "/api/v1/numbers/orders",

@@ -4,7 +4,7 @@ from services.numbers.providers.error_normalizer import normalize_provider_error
 from services.numbers.providers.herosms_provider import HeroSMSProvider
 from services.numbers.providers.pvapins_provider import PVAPinsProvider
 from services.numbers.providers.smsready_provider import SMSReadyProvider
-from services.numbers.providers.smsman_provider import SMSManProvider
+from services.numbers.providers.nonvoip_provider import NonVoipProvider
 from services.numbers.providers.smspool_provider import SMSPoolProvider
 from services.numbers.providers.telabot_provider import TelabotProvider
 from services.numbers.providers.textverified_provider import TextVerifiedProvider
@@ -15,7 +15,7 @@ def test_provider_contract_methods_exist():
         SMSPoolProvider(),
         TextVerifiedProvider(),
         HeroSMSProvider(),
-        SMSManProvider(),
+        NonVoipProvider(),
         SMSReadyProvider(),
         PVAPinsProvider(),
         TelabotProvider(),

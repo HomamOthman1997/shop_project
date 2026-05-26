@@ -91,10 +91,12 @@ def _as_utc(dt: datetime | None) -> datetime | None:
     return dt.astimezone(UTC)
 
 
-def _pay_nav_kb(lang: str) -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=t(lang, "btn_back"))], [KeyboardButton(text=t(lang, "btn_cancel"))]],
-        resize_keyboard=True,
+def _pay_nav_kb(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_back"), callback_data="recharge:back")],
+            [InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data="recharge:cancel")],
+        ]
     )
 
 
@@ -1038,6 +1040,91 @@ async def _start_recharge_flow(message: types.Message, state: FSMContext, *, use
     await message.answer(t(lang, "recharge_choose_method"), reply_markup=recharge_methods_keyboard(view, lang=lang))
 
 
+async def _select_recharge_method(message: types.Message, state: FSMContext, selected: dict, flow_lang: str) -> None:
+    raw_target = str(selected.get("target") or "").strip()
+    targets_block = f"<code>{escape(raw_target or '-')}</code>"
+
+    rendered_instructions = str(selected.get("instructions") or "")
+    currency_code = str(selected.get("currency", "USD")).upper()
+    effective_rate = await _effective_recharge_per_credit(selected)
+    try:
+        rendered_instructions = rendered_instructions.format(
+            target=raw_target or "-",
+            support=selected.get("support", "@support"),
+            per_credit=effective_rate,
+            currency=currency_code,
+        )
+    except Exception:
+        pass
+    if raw_target:
+        rendered_instructions = rendered_instructions.replace(raw_target, "").strip()
+
+    method_title = escape(str(selected.get("title") or selected.get("code") or t(flow_lang, "payment_plain")))
+    currency = escape(currency_code)
+    is_ar_flow = str(flow_lang or "").lower().startswith("ar")
+    target_label = "بيانات الدفع" if is_ar_flow else "Payment target"
+    currency_label = "العملة" if is_ar_flow else "Currency"
+    instructions = (
+        f"<b>{method_title}</b>\n"
+        f"{currency_label}: <b>{currency}</b>\n"
+        f"{_recharge_rate_line(flow_lang, effective_rate, currency)}\n\n"
+        f"{target_label}:\n"
+        f"{targets_block}\n\n"
+        f"{escape(rendered_instructions)}"
+    ).strip()
+
+    await state.update_data(recharge_method=selected)
+    await state.set_state(RechargeFlow.waiting_amount)
+    await message.answer(instructions, reply_markup=_pay_nav_kb(flow_lang), parse_mode="HTML")
+    await message.answer(t(flow_lang, "send_amount_now"))
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("recharge:method:"))
+async def recharge_method_callback(callback: types.CallbackQuery, state: FSMContext):
+    if not callback.message:
+        await callback.answer()
+        return
+    data = await state.get_data()
+    code = str((callback.data or "").split(":", 2)[2]).strip()
+    methods = data.get("recharge_methods") or []
+    selected = next((m for m in methods if str(m.get("code") or "").strip() == code), None)
+    flow_lang = data.get("recharge_lang", "en")
+    if not selected:
+        await callback.answer(t(flow_lang, "choose_payment_method_from_keyboard"), show_alert=True)
+        return
+    await _select_recharge_method(callback.message, state, selected, flow_lang)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "recharge:cancel")
+async def recharge_cancel_callback(callback: types.CallbackQuery, state: FSMContext):
+    if not callback.message:
+        await callback.answer()
+        return
+    await state.clear()
+    await _return_main_menu(callback.message, callback.from_user.id)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "recharge:back")
+async def recharge_back_callback(callback: types.CallbackQuery, state: FSMContext):
+    if not callback.message:
+        await callback.answer()
+        return
+    data = await state.get_data()
+    current_state = await state.get_state()
+    lang = data.get("recharge_lang", "en")
+    if current_state == RechargeFlow.waiting_method.state:
+        await state.clear()
+        await _return_main_menu(callback.message, callback.from_user.id)
+    else:
+        methods = data.get("recharge_methods") or []
+        view = [(m.get("title", m.get("code")), m.get("code")) for m in methods]
+        await state.set_state(RechargeFlow.waiting_method)
+        await callback.message.answer(t(lang, "choose_recharge_method"), reply_markup=recharge_methods_keyboard(view, lang=lang))
+    await callback.answer()
+
+
 @router.message(RechargeFlow.waiting_method)
 async def ask_recharge_amount(message: types.Message, state: FSMContext):
     text = (message.text or "").strip()
@@ -1082,43 +1169,7 @@ async def ask_recharge_amount(message: types.Message, state: FSMContext):
     if not selected:
         return await message.answer(t(data.get("recharge_lang", "en"), "choose_payment_method_from_keyboard"))
 
-    raw_target = str(selected.get("target") or "").strip()
-    targets_block = f"<code>{escape(raw_target or '-')}</code>"
-
-    rendered_instructions = str(selected.get("instructions") or "")
-    currency_code = str(selected.get("currency", "USD")).upper()
-    effective_rate = await _effective_recharge_per_credit(selected)
-    try:
-        rendered_instructions = rendered_instructions.format(
-            target=raw_target or "-",
-            support=selected.get("support", "@support"),
-            per_credit=effective_rate,
-            currency=currency_code,
-        )
-    except Exception:
-        pass
-    if raw_target:
-        rendered_instructions = rendered_instructions.replace(raw_target, "").strip()
-
-    method_title = escape(str(selected.get("title") or selected.get("code") or t(flow_lang, "payment_plain")))
-    currency = escape(currency_code)
-    rate = effective_rate
-    is_ar_flow = str(flow_lang or "").lower().startswith("ar")
-    target_label = "بيانات الدفع" if is_ar_flow else "Payment target"
-    currency_label = "العملة" if is_ar_flow else "Currency"
-    instructions = (
-        f"<b>{method_title}</b>\n"
-        f"{currency_label}: <b>{currency}</b>\n"
-        f"{_recharge_rate_line(flow_lang, rate, currency)}\n\n"
-        f"{target_label}:\n"
-        f"{targets_block}\n\n"
-        f"{escape(rendered_instructions)}"
-    ).strip()
-
-    await state.update_data(recharge_method=selected)
-    await state.set_state(RechargeFlow.waiting_amount)
-    await message.answer(instructions, reply_markup=_pay_nav_kb(flow_lang), parse_mode="HTML")
-    await message.answer(t(flow_lang, "send_amount_now"))
+    await _select_recharge_method(message, state, selected, flow_lang)
 
 
 @router.message(RechargeFlow.waiting_amount)
@@ -1501,6 +1552,18 @@ async def support_category_selected(callback: types.CallbackQuery, state: FSMCon
             _support_session_intro(lang, category),
             reply_markup=_support_session_inline_kb(lang),
         )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "support:open")
+async def support_open_callback(callback: types.CallbackQuery, state: FSMContext):
+    if not callback.message:
+        await callback.answer()
+        return
+    await state.clear()
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "en")
+    await _open_support_menu_message(callback.message, lang)
     await callback.answer()
 
 

@@ -61,6 +61,7 @@ def test_number_type_kb_removes_free_emoji_when_custom_icon_is_set(monkeypatch):
     monkeypatch.setattr(core_numbers_kb, "_ICON_RENTAL_NUMBERS", "custom-rental")
     monkeypatch.setattr(core_numbers_kb, "_ICON_CALL_NUMBER", "custom-call")
     monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", False, raising=False)
+    monkeypatch.setattr(core_numbers_kb.settings, "numbers_telegram_order_flow_enabled", True, raising=False)
 
     kb = number_type_kb("en", show_cancel=False)
 
@@ -74,6 +75,7 @@ def test_number_type_kb_removes_free_emoji_when_custom_icon_is_set(monkeypatch):
 
 def test_number_type_kb_shows_miniapp_button_when_url_is_available(monkeypatch):
     monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", True, raising=False)
+    monkeypatch.setattr(core_numbers_kb.settings, "numbers_telegram_order_flow_enabled", False, raising=False)
     monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_public_url", "https://numbers.example.com", raising=False)
     monkeypatch.setattr(core_numbers_kb.settings, "digital_products_miniapp_public_url", "", raising=False)
     monkeypatch.delenv("RAILWAY_PUBLIC_DOMAIN", raising=False)
@@ -85,6 +87,10 @@ def test_number_type_kb_shows_miniapp_button_when_url_is_available(monkeypatch):
     assert first_button.text == "Open Numbers App"
     assert first_button.web_app is not None
     assert first_button.web_app.url == "https://numbers.example.com/mini/numbers"
+    callbacks = [button.callback_data for row in kb.inline_keyboard for button in row if button.callback_data]
+    assert "flow:type:temp" not in callbacks
+    assert "flow:type:rental" not in callbacks
+    assert "flow:type:voice" not in callbacks
 
 
 @pytest.mark.asyncio
@@ -316,6 +322,7 @@ async def test_rental_add_number_returns_to_number_type_selection(monkeypatch):
     from services.numbers.keyboards import core_numbers_kb
 
     monkeypatch.setattr(core_numbers_kb.settings, "numbers_miniapp_enabled", False, raising=False)
+    monkeypatch.setattr(core_numbers_kb.settings, "numbers_telegram_order_flow_enabled", True, raising=False)
 
     class _Message:
         def __init__(self):

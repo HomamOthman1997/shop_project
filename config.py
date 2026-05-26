@@ -1,4 +1,4 @@
-﻿from typing import Optional
+from typing import Optional
 from datetime import UTC, datetime
 import os
 from pathlib import Path
@@ -35,8 +35,9 @@ class Settings(BaseSettings):
     tv_key: Optional[str] = None
     herosms_key: Optional[str] = None
     herosms_base_url: str = "https://hero-sms.com/stubs/handler_api.php"
-    smsman_key: Optional[str] = None
-    smsman_base_url: str = "https://api.sms-man.com/control"
+    nonvoip_key: Optional[str] = None
+    nonvoip_email: Optional[str] = None
+    nonvoip_base_url: str = "https://www.non-voip.com/api/reseller"
     pvadeals_key: Optional[str] = None
     pvadeals_base_url: str = "https://prod-v3.pvadeals.com/v3/api"
     smsready_key: Optional[str] = None
@@ -49,18 +50,13 @@ class Settings(BaseSettings):
     vaksms_site_base_url: str = "https://vak-sms.com/backend"
     vaksms_stub_base_url: str = "https://vak-sms.com/stubs/handler_api.php"
     vaksms_rub_to_usd_rate: float = 0.0112
-    # Optional NonVoIP replacement for smsman slot.
-    # If set, provider uses these values first and falls back to SMSMAN_*.
-    nonvoip_key: Optional[str] = None
-    nonvoip_base_url: Optional[str] = None
-    nonvoip_email: Optional[str] = None
-    # SMS-Man price feed currency handling.
+    # Non-VoIP price feed currency handling.
     # Supported values:
     # - RUB: provider returns Russian rubles and we convert to USD
     # - USD: provider already returns USD
     # - CENTS_USD: provider returns USD cents (e.g. 53 => 0.53$)
-    smsman_price_currency: str = "RUB"
-    smsman_rub_to_usd_rate: float = 0.0112
+    nonvoip_price_currency: str = "RUB"
+    nonvoip_rub_to_usd_rate: float = 0.0112
     numbers_service_markup_percent: float = 0.0
     # Optional JSON override for temporary-number floors.
     # Example: {"whatsapp":{"*":1.0,"US":1.5},"telegram":{"*":0.75,"US":0.9}}
@@ -72,7 +68,11 @@ class Settings(BaseSettings):
     numbers_show_all_providers_for_testing: bool = False
     numbers_provider_webhook_token: Optional[str] = None
     numbers_provider_sms_polling_enabled: bool = False
-    # Temporary testing hook: JSON object like {"smspool": 5, "smsman": 10.5}
+    # Legacy escape hatch only. Customer ordering on the real Numbers bot should
+    # go through the Mini App; keep this false unless intentionally testing the
+    # old Telegram FSM purchase flow.
+    numbers_telegram_order_flow_enabled: bool = False
+    # Temporary testing hook: JSON object like {"smspool": 5, "nonvoip": 10.5}
     # to simulate provider balances without querying the upstream provider.
     numbers_provider_balance_simulation: Optional[str] = None
     numbers_provider_balance_cache_ttl_sec: int = 90

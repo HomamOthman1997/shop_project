@@ -7,10 +7,10 @@ This file is generated from source code and is intended to prevent docs/runtime 
 | Provider | Temp | Rental | Unlimited rental | State temp | State rental | In RENTAL_PROVIDER_CODES |
 |---|---:|---:|---:|---:|---:|---:|
 | herosms | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
+| nonvoip | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| nonvoip_s6 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | pvadeals | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
 | pvapins | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
-| smsman | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| smsman_s6 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | smspool | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ |
 | smsready | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | telabot | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |

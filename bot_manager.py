@@ -1964,13 +1964,13 @@ async def main() -> None:
     await _run_startup_bootstraps()
 
     logging.info(
-        "loaded settings: admin_token=%s main_token=%s numbers_token=%s smspool_key=%s herosms_key=%s smsman_key=%s",
+        "loaded settings: admin_token=%s main_token=%s numbers_token=%s smspool_key=%s herosms_key=%s nonvoip_key=%s",
         bool(settings.bot_admin_token),
         bool(settings.bot_main_token),
         bool(getattr(settings, "bot_numbers_token", "")),
         bool(settings.smspool_key),
         bool(settings.herosms_key),
-        bool(settings.smsman_key),
+        bool(settings.nonvoip_key),
     )
 
     try:

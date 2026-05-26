@@ -10,7 +10,7 @@ from typing import Any
 from aiogram import BaseMiddleware, Router, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from bson import ObjectId
 
 from config import settings
@@ -99,11 +99,7 @@ from services.numbers.shared.temp_refund import (
     cancel_and_refund_temp_order as _shared_cancel_and_refund_temp_order,
 )
 from services.numbers.shared.temp_second_code import request_second_code_for_order as _shared_request_second_code_for_order
-from services.numbers.shared.temp_replacement import (
-    pick_retry_provider as _shared_pick_retry_provider,
-    provider_retry_score as _shared_provider_retry_score,
-    temp_replacement_fields as _shared_temp_replacement_fields,
-)
+from services.numbers.shared.temp_replacement import temp_replacement_fields as _shared_temp_replacement_fields
 from services.numbers.handlers.temp_waiter_runtime import (
     queue_temp_waiter as _queue_temp_waiter_impl,
     send_temp_timeout_state as _send_temp_timeout_state_impl,
@@ -113,6 +109,8 @@ from services.numbers.handlers.recovery_runtime import (
     run_temp_wait_recovery_sweep as _run_temp_wait_recovery_sweep_impl,
     run_unprovisioned_number_order_recovery_sweep as _run_unprovisioned_number_order_recovery_sweep_impl,
 )
+from services.numbers import order_rental_protection_service as rental_protection_service
+from services.numbers.order_charge_service import OrderChargeError, charge_order_or_raise
 from services.numbers.shared.events import (
     _log_number_event_from_order as _log_number_event_from_order_impl,
     _log_rental_event as _log_rental_event_impl,
@@ -132,19 +130,27 @@ from services.numbers.keyboards.core_numbers_kb import (
 )
 from services.numbers.manager import (
     PROVIDERS,
-    buy_number_from_provider,
     finish_rental_from_provider,
-    get_all_prices,
-    get_calls_from_provider,
-    get_recording_from_provider,
     get_rental_info_from_provider,
     get_rental_sms_from_provider,
-    notes_tags_from_provider,
-    rent_number_from_provider,
-    renew_rental_from_provider,
-    wake_rental_from_provider,
 )
+from services.numbers.order_purchase_service import (
+    ProviderProvisioningError,
+    provision_charged_rental_order,
+    provision_charged_temp_order,
+)
+from services.numbers.order_rental_service import (
+    finish_rental_order,
+    renew_rental_order,
+    rental_notes_state,
+    rental_sms_state,
+    wake_rental_order,
+)
+from services.numbers.order_service import NumbersOrderError, request_replacement_order
+from services.numbers.order_recording_service import download_voice_order_recording, voice_recording_uri_from_calls
+from services.numbers.order_voice_service import voice_call_recording_state
 from services.numbers.states.core_numbers_states import NumberFlow
+from keyboards.main_menu_kb import numbers_miniapp_url
 from utils.financial_manager import FinancialManager
 from utils.bot_menu_context import menu_for_current_bot
 from utils.core_service_guard import finance_error_public_text
@@ -171,7 +177,7 @@ router.callback_query.middleware(_CallbackContextMiddleware())
 TEMP_REFUND_RETRY_INTERVAL_SEC = 45
 RENTAL_OWNER_ALERT_WINDOW_SEC = 180
 TEMP_MY_NUMBERS_RETENTION_DAYS = 5
-_HIDDEN_TEMP_PROVIDER_CODES = {"smsman", "smsman_s6"}
+_HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
 
 
 def _main_reseller_bot_link() -> str | None:
@@ -878,32 +884,24 @@ def _voice_received_text(lang: str, order: dict, *, recording_sent: bool) -> str
     )
 
 
-def _voice_recording_filename(content_type: str | None) -> str:
-    content_type = str(content_type or "").lower()
-    if "mpeg" in content_type or "mp3" in content_type:
-        return "call-recording.mp3"
-    if "wav" in content_type:
-        return "call-recording.wav"
-    if "ogg" in content_type:
-        return "call-recording.ogg"
-    if "mp4" in content_type or "m4a" in content_type:
-        return "call-recording.m4a"
-    return "call-recording.bin"
-
-
 async def _send_voice_recording_file(*, bot, chat_id: int, provider_code: str, recording_uri: str, lang: str) -> bool:
     try:
-        data = await get_recording_from_provider(provider_code, recording_uri)
+        data = await download_voice_order_recording(
+            {
+                "number_mode": "voice",
+                "provider": provider_code,
+                "voice_recording_uri": recording_uri,
+            }
+        )
     except Exception:
         logger.exception("voice recording download failed")
         return False
-    if not isinstance(data, dict) or not data.get("success") or not data.get("content"):
+    if not isinstance(data, dict) or not data.get("content"):
         return False
-    content = bytes(data.get("content") or b"")
+    content = bytes(data["content"])
     if not content:
         return False
-    content_type = str(data.get("content_type") or "")
-    file = BufferedInputFile(content, filename=_voice_recording_filename(content_type))
+    file = BufferedInputFile(content, filename=str(data.get("filename") or "call-recording.bin"))
     caption = _numbers_text(lang, "Call recording", "تسجيل المكالمة")
     try:
         await bot.send_document(chat_id=chat_id, document=file, caption=caption)
@@ -911,18 +909,6 @@ async def _send_voice_recording_file(*, bot, chat_id: int, provider_code: str, r
     except Exception:
         logger.exception("voice recording telegram send failed")
         return False
-
-
-def _provider_retry_score(info: dict, cheapest: float) -> float:
-    return _shared_provider_retry_score(info, cheapest)
-
-
-def _pick_retry_provider(prices: dict, *, exclude_provider: str | None = None) -> tuple[str, dict] | None:
-    return _shared_pick_retry_provider(
-        prices,
-        exclude_provider=exclude_provider,
-        hidden_provider_codes=_HIDDEN_TEMP_PROVIDER_CODES,
-    )
 
 
 async def _safe_callback_answer(
@@ -1454,172 +1440,53 @@ async def _maybe_send_purchase_charge_confirmed_notice(
 
 
 def _rental_protection_policy(provider_code: str | None) -> dict[str, Any]:
-    return _policy_rental_protection_policy(
-        provider_code,
-        rental_watch_poll_sec=getattr(settings, "numbers_rental_watch_poll_sec", 30),
-        rental_guard_fallback_sync_window_sec=getattr(
-            settings,
-            "numbers_rental_guard_fallback_sync_window_sec",
-            RENTAL_EXIT_GUARD_FALLBACK_SYNC_WINDOW_SEC,
-        ),
-        rental_safe_cutoff_sec=getattr(settings, "numbers_rental_safe_cutoff_sec", 60),
-        hero_cancel_window_sec=getattr(settings, "numbers_hero_rental_cancel_window_sec", HERO_RENTAL_CANCEL_WINDOW_SEC),
-        smspool_refund_window_sec=getattr(settings, "numbers_smspool_rental_refund_window_sec", None),
-        textverified_refund_window_sec=getattr(settings, "numbers_textverified_rental_refund_window_sec", None),
-    )
+    return rental_protection_service.rental_protection_policy(provider_code)
 
 
 def _is_within_hero_rental_cancel_window(order: dict | None) -> bool:
-    return _policy_is_within_hero_rental_cancel_window(
-        order,
-        hero_cancel_window_sec=getattr(
-            settings,
-            "numbers_hero_rental_cancel_window_sec",
-            HERO_RENTAL_CANCEL_WINDOW_SEC,
-        ),
-    )
+    return rental_protection_service.is_within_hero_rental_cancel_window(order)
 
 
 def _rental_deadline_at(order: dict | None) -> datetime | None:
-    order = dict(order or {})
-    order.setdefault("rental_protection_policy", _rental_protection_policy(order.get("provider")))
-    return _policy_rental_deadline_at(order)
+    return rental_protection_service.rental_deadline_at(order)
 
 
 def _rental_safe_cutoff_at(order: dict | None) -> datetime | None:
-    order = dict(order or {})
-    order.setdefault("rental_protection_policy", _rental_protection_policy(order.get("provider")))
-    return _policy_rental_safe_cutoff_at(order)
+    return rental_protection_service.rental_safe_cutoff_at(order)
 
 
 async def _sync_rental_sms_snapshot(order_id, order: dict | None) -> dict[str, Any]:
-    order = order or {}
-    provider = str(order.get("provider") or "").strip().lower()
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-    stored_messages = [str(x) for x in (order.get("rental_sms_messages") or []) if x not in (None, "")]
-    if not provider_sms_polling_enabled():
-        return {
-            "success": True,
-            "messages": stored_messages,
-            "has_sms": bool(stored_messages),
-            "raw": "provider_sms_polling_disabled_waiting_for_webhook",
-            "polling_disabled": True,
-        }
-    if not provider or not provider_order_id:
-        return {"success": False, "messages": [], "has_sms": False, "reason": "provider_order_missing"}
-
-    try:
-        sms_data = await get_rental_sms_from_provider(provider, provider_order_id)
-    except Exception as exc:
-        return {"success": False, "messages": [], "has_sms": False, "raw": str(exc)}
-
-    messages = [str(x) for x in (sms_data.get("messages") or []) if x not in (None, "")]
-    has_sms = bool(messages)
-    if has_sms:
-        now = _utc_now()
-        try:
-            await update_order_details(
-                order_id,
-                {
-                    "rental_sms_received_at": now,
-                    "rental_sms_count": len(messages),
-                    "rental_last_sms_sync_at": now,
-                },
-            )
-        except Exception:
-            logger.exception("failed to persist rental sms snapshot: order=%s", order_id)
-        try:
-            await _log_rental_event(
-                order_id=order_id,
-                user_id=int(order.get("user_id") or 0),
-                provider=provider,
-                service_id=str(order.get("service_id") or ""),
-                event="guard_sms_detected",
-                payload={"messages_count": len(messages)},
-            )
-        except Exception:
-            pass
-    elif sms_data.get("success"):
-        try:
-            await update_order_details(order_id, {"rental_last_sms_sync_at": _utc_now()})
-        except Exception:
-            pass
-    return {"success": bool(sms_data.get("success")), "messages": messages, "has_sms": has_sms, "raw": sms_data.get("raw")}
+    return await rental_protection_service.sync_rental_sms_snapshot(
+        order_id,
+        order,
+        provider_sms_polling_enabled_fn=provider_sms_polling_enabled,
+        get_rental_sms_from_provider_fn=get_rental_sms_from_provider,
+        update_order_details_fn=update_order_details,
+        log_rental_event_fn=_log_rental_event,
+        utc_now_fn=_utc_now,
+        logger_obj=logger,
+    )
 
 
 async def _sync_rental_protection_snapshot(order_id, order: dict | None) -> dict[str, Any]:
-    order = order or {}
-    provider = str(order.get("provider") or "").strip().lower()
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-    if not provider or not provider_order_id:
-        return {"success": False, "reason": "provider_order_missing"}
-
-    try:
-        info = await get_rental_info_from_provider(provider, provider_order_id)
-    except Exception as exc:
-        return {"success": False, "reason": "provider_info_failed", "raw": str(exc)}
-
-    refund_deadline_at = _coerce_utc_datetime(info.get("refund_refundable_until"))
-    end_date = _coerce_utc_datetime(info.get("end_date"))
-    provider_can_refund = info.get("refund_can_refund")
-    patch: dict[str, Any] = {"rental_last_policy_sync_at": _utc_now()}
-    if end_date:
-        patch["rental_end_date"] = end_date
-    if refund_deadline_at and provider_can_refund is not False:
-        patch["rental_refund_deadline_at"] = refund_deadline_at
-        patch["rental_safe_cutoff_at"] = datetime.fromtimestamp(
-            refund_deadline_at.timestamp() - max(30, int(_rental_protection_policy(provider).get("safe_cutoff_sec") or 60)),
-            tz=UTC,
-        )
-    protection_policy = dict(order.get("rental_protection_policy") or {})
-    if provider_can_refund is not None:
-        protection_policy["provider_can_refund"] = bool(provider_can_refund)
-        patch["rental_provider_can_refund"] = bool(provider_can_refund)
-    if refund_deadline_at:
-        protection_policy["provider_refund_deadline_at"] = refund_deadline_at
-    if protection_policy:
-        patch["rental_protection_policy"] = protection_policy
-    if len(patch) > 1:
-        with suppress(Exception):
-            await update_order_details(order_id, patch)
-    return {
-        "success": bool(info.get("success")),
-        "refund_deadline_at": refund_deadline_at,
-        "provider_can_refund": provider_can_refund,
-        "end_date": end_date,
-        "raw": info.get("raw"),
-    }
+    return await rental_protection_service.sync_rental_protection_snapshot(
+        order_id,
+        order,
+        get_rental_info_from_provider_fn=get_rental_info_from_provider,
+        update_order_details_fn=update_order_details,
+        policy_fn=_rental_protection_policy,
+        utc_now_fn=_utc_now,
+    )
 
 
 async def _provider_close_rental(order: dict) -> dict[str, Any]:
-    provider = str(order.get("provider") or "").strip().lower()
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-    if not provider or not provider_order_id:
-        return {"success": False, "reason": "provider_order_missing"}
-
-    policy = _rental_protection_policy(provider)
-    close_method = str(policy.get("close_method") or "finish").strip().lower()
-    last_raw: Any = None
-    for attempt in range(1, 4):
-        try:
-            if close_method == "cancel":
-                prov = PROVIDERS.get(provider)
-                if not prov or not hasattr(prov, "cancel"):
-                    return {"success": False, "reason": "provider_cancel_not_supported"}
-                close_res = await asyncio.wait_for(prov.cancel(provider_order_id), timeout=12.0)
-            else:
-                close_res = await asyncio.wait_for(
-                    finish_rental_from_provider(provider, provider_order_id),
-                    timeout=12.0,
-                )
-        except Exception as exc:
-            close_res = {"success": False, "raw": str(exc)}
-        last_raw = (close_res or {}).get("raw")
-        if bool((close_res or {}).get("success")):
-            return {"success": True, "raw": last_raw}
-        if attempt < 3:
-            await asyncio.sleep(float(attempt))
-    return {"success": False, "reason": "provider_close_failed", "raw": last_raw}
+    return await rental_protection_service.provider_close_rental(
+        order,
+        providers=PROVIDERS,
+        finish_rental_from_provider_fn=finish_rental_from_provider,
+        policy_fn=_rental_protection_policy,
+        sleep_fn=asyncio.sleep,
+    )
 
 
 async def _cancel_and_refund_rental_order(
@@ -1630,116 +1497,22 @@ async def _cancel_and_refund_rental_order(
     reason: str,
     require_no_sms: bool = False,
 ) -> dict:
-    if not order_id or not order:
-        return {"success": False, "reason": "order_not_found"}
-    status = str(order.get("status") or "").lower()
-    if status in {"cancelled", "failed", "refunded", "expired"}:
-        return {"success": False, "reason": "already_closed"}
-    provider = str(order.get("provider") or "").strip().lower()
-    provider_order_id = str(order.get("provider_order_id") or "").strip()
-    if not provider or not provider_order_id:
-        return {"success": False, "reason": "provider_order_missing"}
-    now = _utc_now()
-    await _log_number_event_from_order(
-        order,
-        "cancel_requested",
-        payload={"reason": str(reason or "cancelled")},
-        number_mode="rental",
-    )
-    with suppress(Exception):
-        await update_order_details(
-            order_id,
-            {
-                "rental_last_close_attempt_at": now,
-                "rental_last_close_reason": str(reason or "cancelled"),
-            },
-        )
-    if require_no_sms:
-        sms_snapshot = await _sync_rental_sms_snapshot(order_id, order)
-        if sms_snapshot.get("has_sms"):
-            return {
-                "success": False,
-                "reason": "sms_received",
-                "messages": sms_snapshot.get("messages") or [],
-            }
-
-    close_res = await _provider_close_rental(order)
-    if not close_res.get("success"):
-        await _log_number_event_from_order(
-            order,
-            "provider_close_failed",
-            payload={"raw": close_res.get("raw"), "reason": str(close_res.get("reason") or "provider_close_failed")},
-            number_mode="rental",
-        )
-        with suppress(Exception):
-            await update_order_details(
-                order_id,
-                {
-                    "rental_last_close_error_at": _utc_now(),
-                    "rental_last_close_error": str(close_res.get("reason") or "provider_close_failed"),
-                    "rental_last_close_raw": close_res.get("raw"),
-                },
-            )
-        return {
-            "success": False,
-            "reason": str(close_res.get("reason") or "provider_close_failed"),
-            "raw": close_res.get("raw"),
-        }
-
-    sale_price, cost_price = extract_order_amounts(order)
-    ok, msg = await FinancialManager.refund_core_purchase(
-        int(actor_user_id),
-        order_id,
-        sale_price,
-        cost_price,
-        reseller_id=int(order.get("reseller_id") or actor_user_id),
-    )
-    if not ok:
-        await _log_number_event_from_order(
-            order,
-            "refund_failed",
-            payload={"raw": msg, "reason": str(reason or "cancelled")},
-            number_mode="rental",
-        )
-        with suppress(Exception):
-            await update_order_details(
-                order_id,
-                {
-                    "rental_last_close_error_at": _utc_now(),
-                    "rental_last_close_error": "financial_refund_failed",
-                    "rental_last_close_raw": msg,
-                },
-            )
-        return {"success": False, "reason": "financial_refund_failed", "raw": msg}
-
-    await update_order_status(order_id, "cancelled")
-    await update_order_details(
-        order_id,
-        {
-            "rental_cancelled_at": now,
-            "rental_refunded_at": now,
-            "rental_cancel_reason": str(reason or "cancelled"),
-            "rental_last_close_error_at": None,
-            "rental_last_close_error": None,
-            "rental_last_close_raw": close_res.get("raw"),
-        },
-    )
-    await _log_rental_event(
+    return await rental_protection_service.cancel_and_refund_rental_order(
         order_id=order_id,
-        user_id=int(order.get("user_id") or 0),
-        provider=provider,
-        service_id=str(order.get("service_id") or ""),
-        event="cancelled_refunded",
-        payload={"reason": str(reason or "cancelled")},
+        order=order,
+        actor_user_id=actor_user_id,
+        reason=reason,
+        require_no_sms=require_no_sms,
+        sync_rental_sms_snapshot_fn=_sync_rental_sms_snapshot,
+        provider_close_rental_fn=_provider_close_rental,
+        update_order_details_fn=update_order_details,
+        update_order_status_fn=update_order_status,
+        log_number_event_from_order_fn=_log_number_event_from_order,
+        log_rental_event_fn=_log_rental_event,
+        financial_manager_cls=FinancialManager,
+        extract_order_amounts_fn=extract_order_amounts,
+        utc_now_fn=_utc_now,
     )
-    await _log_number_event_from_order(
-        order,
-        "refund_success",
-        payload={"reason": str(reason or "cancelled")},
-        status_after="cancelled",
-        number_mode="rental",
-    )
-    return {"success": True, "reason": "ok"}
 
 
 async def _rental_refund_guard(
@@ -1747,90 +1520,20 @@ async def _rental_refund_guard(
     order_id,
     actor_user_id: int,
 ) -> None:
-    order = await get_order(order_id)
-    if not order:
-        return
-    provider = str(order.get("provider") or "").strip().lower()
-    policy = _rental_protection_policy(provider)
-    deadline_sec = policy.get("refund_deadline_sec")
-    poll_sec = max(20, int(policy.get("watch_poll_sec") or 30))
-    fallback_sync_window_sec = max(300, int(policy.get("fallback_sync_window_sec") or RENTAL_EXIT_GUARD_FALLBACK_SYNC_WINDOW_SEC))
-
-    if provider in {"textverified", "smspool"}:
-        with suppress(Exception):
-            await _sync_rental_protection_snapshot(order_id, order)
-            order = await get_order(order_id) or order
-
-    start_dt = _to_utc_datetime(order.get("rental_started_at")) or _to_utc_datetime(order.get("created_at"))
-    if not start_dt:
-        return
-    deadline_ts = start_dt.timestamp() + int(deadline_sec) if deadline_sec else None
-    cutoff_ts = None
-    if deadline_ts:
-        cutoff_ts = deadline_ts - max(30, int(policy.get("safe_cutoff_sec") or 60))
-    sync_until_ts = deadline_ts or (start_dt.timestamp() + fallback_sync_window_sec)
-
-    if cutoff_ts:
-        wait_sec = max(0, int(cutoff_ts - _utc_now().timestamp()))
-        if wait_sec > 0:
-            await asyncio.sleep(wait_sec)
-
-    while _utc_now().timestamp() <= sync_until_ts:
-        latest = await get_order(order_id)
-        if not latest:
-            return
-        if str(latest.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
-            return
-        if not _rental_no_sms_yet(latest):
-            return
-
-        sms_snapshot = await _sync_rental_sms_snapshot(order_id, latest)
-        if sms_snapshot.get("has_sms"):
-            return
-
-        now_ts = _utc_now().timestamp()
-        if cutoff_ts and now_ts >= cutoff_ts:
-            await _log_number_event_from_order(
-                latest,
-                "deadline_reached",
-                payload={"source": "rental_guard"},
-                number_mode="rental",
-            )
-            result = await _cancel_and_refund_rental_order(
-                order_id=order_id,
-                order=latest,
-                actor_user_id=int(actor_user_id),
-                reason=f"{provider}_guard_no_sms_timeout",
-                require_no_sms=True,
-            )
-            if result.get("success"):
-                await _log_number_event_from_order(
-                    latest,
-                    "auto_protection_triggered",
-                    payload={"source": "rental_guard"},
-                    status_after="cancelled",
-                    number_mode="rental",
-                )
-                await _log_rental_event(
-                    order_id=order_id,
-                    user_id=int(latest.get("user_id") or 0),
-                    provider=provider,
-                    service_id=str(latest.get("service_id") or ""),
-                    event="auto_cancel_refund_guard_success",
-                    payload={},
-                )
-                return
-            if result.get("reason") == "sms_received":
-                return
-            await asyncio.sleep(10)
-            continue
-
-        if not deadline_ts:
-            await asyncio.sleep(poll_sec)
-            continue
-
-        next_wait = min(poll_sec, max(5, int(cutoff_ts - now_ts))) if cutoff_ts else poll_sec
-        await asyncio.sleep(max(5, next_wait))
+    await rental_protection_service.rental_refund_guard(
+        order_id=order_id,
+        actor_user_id=actor_user_id,
+        get_order_fn=get_order,
+        sync_rental_sms_snapshot_fn=_sync_rental_sms_snapshot,
+        cancel_and_refund_rental_order_fn=_cancel_and_refund_rental_order,
+        sync_rental_protection_snapshot_fn=_sync_rental_protection_snapshot,
+        log_number_event_from_order_fn=_log_number_event_from_order,
+        log_rental_event_fn=_log_rental_event,
+        policy_fn=_rental_protection_policy,
+        no_sms_yet_fn=_rental_no_sms_yet,
+        utc_now_fn=_utc_now,
+        sleep_fn=asyncio.sleep,
+    )
 
 
 async def run_rental_protection_sweep(
@@ -1838,113 +1541,24 @@ async def run_rental_protection_sweep(
     limit: int = 200,
     alert_threshold_sec: int | None = None,
 ) -> dict[str, Any]:
-    threshold_sec = max(
-        60,
-        int(
-            alert_threshold_sec
-            or getattr(settings, "numbers_rental_owner_alert_window_sec", RENTAL_OWNER_ALERT_WINDOW_SEC)
-            or RENTAL_OWNER_ALERT_WINDOW_SEC
-        ),
+    return await rental_protection_service.run_rental_protection_sweep(
+        limit=limit,
+        alert_threshold_sec=alert_threshold_sec,
+        list_open_rental_orders_without_sms_fn=list_open_rental_orders_without_sms,
+        get_order_fn=get_order,
+        sync_rental_sms_snapshot_fn=_sync_rental_sms_snapshot,
+        cancel_and_refund_rental_order_fn=_cancel_and_refund_rental_order,
+        sync_rental_protection_snapshot_fn=_sync_rental_protection_snapshot,
+        update_order_details_fn=update_order_details,
+        log_number_event_from_order_fn=_log_number_event_from_order,
+        log_rental_event_fn=_log_rental_event,
+        no_sms_yet_fn=_rental_no_sms_yet,
+        safe_cutoff_at_fn=_rental_safe_cutoff_at,
+        deadline_at_fn=_rental_deadline_at,
+        close_failed_alert_text_fn=_rental_close_failed_alert_text,
+        near_cutoff_alert_text_fn=_rental_near_cutoff_alert_text,
+        utc_now_fn=_utc_now,
     )
-    orders = await list_open_rental_orders_without_sms(limit=int(limit))
-    stats = {
-        "checked": 0,
-        "synced_sms": 0,
-        "auto_cancelled": 0,
-        "close_failures": 0,
-        "alerts": [],
-    }
-    now_dt = _utc_now()
-    for order in orders:
-        stats["checked"] += 1
-        order_id = order.get("_id")
-        if not order_id or not _rental_no_sms_yet(order):
-            continue
-
-        sms_snapshot = await _sync_rental_sms_snapshot(order_id, order)
-        if sms_snapshot.get("has_sms"):
-            stats["synced_sms"] += 1
-            continue
-
-        latest = await get_order(order_id)
-        if not latest or not _rental_no_sms_yet(latest):
-            continue
-
-        provider_code = str(latest.get("provider") or "").strip().lower()
-        if provider_code in {"textverified", "smspool"}:
-            await _sync_rental_protection_snapshot(order_id, latest)
-            latest = await get_order(order_id) or latest
-
-        cutoff_at = _rental_safe_cutoff_at(latest)
-        deadline_at = _rental_deadline_at(latest)
-        provider_code = str(latest.get("provider") or "").strip().lower()
-        provider_label = provider_public_id(provider_code)
-
-        if cutoff_at and now_dt >= cutoff_at:
-            await _log_number_event_from_order(
-                latest,
-                "deadline_reached",
-                payload={"source": "rental_global_sweep"},
-                number_mode="rental",
-            )
-            result = await _cancel_and_refund_rental_order(
-                order_id=order_id,
-                order=latest,
-                actor_user_id=int(latest.get("user_id") or 0),
-                reason=f"{provider_code}_global_guard_no_sms_timeout",
-                require_no_sms=True,
-            )
-            if result.get("success"):
-                stats["auto_cancelled"] += 1
-                await _log_number_event_from_order(
-                    latest,
-                    "auto_protection_triggered",
-                    payload={"source": "rental_global_sweep"},
-                    status_after="cancelled",
-                    number_mode="rental",
-                )
-                await _log_rental_event(
-                    order_id=order_id,
-                    user_id=int(latest.get("user_id") or 0),
-                    provider=provider_code,
-                    service_id=str(latest.get("service_id") or ""),
-                    event="auto_cancel_refund_global_guard_success",
-                    payload={},
-                )
-                continue
-            if result.get("reason") == "sms_received":
-                continue
-            stats["close_failures"] += 1
-            close_fail_alert_sent_at = _to_utc_datetime(latest.get("rental_close_failure_alert_sent_at"))
-            if close_fail_alert_sent_at is None:
-                alert_text = _rental_close_failed_alert_text(
-                    order_id=order_id,
-                    provider_label=provider_label,
-                    user_id=latest.get("user_id"),
-                    reason=str(result.get("reason") or "provider_close_failed"),
-                )
-                stats["alerts"].append({"kind": "close_failed", "order_id": str(order_id), "text": alert_text})
-                with suppress(Exception):
-                    await update_order_details(order_id, {"rental_close_failure_alert_sent_at": now_dt})
-            continue
-
-        if deadline_at:
-            seconds_left = _seconds_left_until(deadline_at)
-            alert_sent_at = _to_utc_datetime(latest.get("rental_cutoff_alert_sent_at"))
-            if 0 < seconds_left <= threshold_sec and alert_sent_at is None:
-                cutoff_txt = deadline_at.strftime("%Y-%m-%d %H:%M:%S UTC")
-                alert_text = _rental_near_cutoff_alert_text(
-                    order_id=order_id,
-                    provider_label=provider_label,
-                    user_id=latest.get("user_id"),
-                    deadline=cutoff_txt,
-                    seconds_left=seconds_left,
-                )
-                stats["alerts"].append({"kind": "near_cutoff", "order_id": str(order_id), "text": alert_text})
-                with suppress(Exception):
-                    await update_order_details(order_id, {"rental_cutoff_alert_sent_at": now_dt})
-
-    return stats
 
 
 async def run_temp_wait_recovery_sweep(*, bot, limit: int = 200) -> dict[str, Any]:
@@ -2063,15 +1677,7 @@ async def _queue_temp_waiter(bot, order: dict, lang: str, is_second_code: bool =
 
 
 def _voice_recording_uri_from_calls(calls: Any) -> str:
-    if not isinstance(calls, list):
-        return ""
-    for call in calls:
-        if not isinstance(call, dict):
-            continue
-        recording_uri = str(call.get("recordingUri") or call.get("recordingUrl") or "").strip()
-        if recording_uri:
-            return recording_uri
-    return ""
+    return voice_recording_uri_from_calls(calls)
 
 
 async def _mark_voice_call_received_and_notify(
@@ -2147,9 +1753,12 @@ async def _start_voice_waiter(*, bot, order: dict, lang: str) -> None:
             return
         if str(current.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
             return
-        calls_data = await get_calls_from_provider(provider_code, provider_order_id, to_number=str(current.get("provider_number") or ""))
-        calls = calls_data.get("calls") or []
-        recording_uri = _voice_recording_uri_from_calls(calls)
+        try:
+            call_state = await voice_call_recording_state(current)
+        except NumbersOrderError:
+            call_state = {"calls": [], "recording_uri": ""}
+        calls = call_state.get("calls") or []
+        recording_uri = str(call_state.get("recording_uri") or "")
         if recording_uri:
             await _mark_voice_call_received_and_notify(
                 bot=bot,
@@ -2190,12 +1799,19 @@ async def _show_my_numbers(target: types.Message | types.CallbackQuery, user_id:
     orders = [order for order in [*temp_voice_orders, *rental_orders] if _is_manageable_my_number(order)]
     if not orders:
         text = t(lang, "my_numbers_empty")
-        markup = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text=t(lang, "rental_add_number"), callback_data="flow:rental:add")],
-                [InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:main:back")],
-            ]
-        )
+        miniapp_url = numbers_miniapp_url()
+        rows: list[list[InlineKeyboardButton]] = []
+        if bool(getattr(settings, "numbers_miniapp_enabled", False)) and miniapp_url:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text="Open Numbers App" if not str(lang or "").lower().startswith("ar") else "فتح تطبيق الأرقام",
+                        web_app=WebAppInfo(url=miniapp_url),
+                    )
+                ]
+            )
+        rows.append([InlineKeyboardButton(text=t(lang, "back"), callback_data="flow:main:back")])
+        markup = InlineKeyboardMarkup(inline_keyboard=rows)
         if isinstance(target, types.CallbackQuery):
             await target.message.edit_text(text, reply_markup=markup)
         else:
@@ -2268,12 +1884,12 @@ async def voice_check_now(callback: types.CallbackQuery):
     calls = order.get("voice_calls") or []
     if not recording_uri:
         try:
-            calls_data = await get_calls_from_provider(provider, provider_order_id, to_number=str(order.get("provider_number") or ""))
+            call_state = await voice_call_recording_state(order)
         except Exception as exc:
             logger.warning("Manual voice call check failed for order %s: %s", order_oid, exc)
             return await _safe_callback_answer(callback, provider_generic_error(lang), show_alert=True)
-        calls = calls_data.get("calls") or []
-        recording_uri = _voice_recording_uri_from_calls(calls)
+        calls = call_state.get("calls") or []
+        recording_uri = str(call_state.get("recording_uri") or "")
 
     if recording_uri:
         await _mark_voice_call_received_and_notify(
@@ -2667,38 +2283,26 @@ async def rent_confirm_process(callback: types.CallbackQuery, state: FSMContext)
     )
     await _log_number_event_from_order(order, "order_created", payload={"duration_hours": int(duration)}, number_mode="rental")
 
-    ok, message = await FinancialManager.process_core_purchase(
-        user_id=user_id,
-        order_id=order_id,
-        sale_price=final_price,
-        cost_price=cost_price,
-        reseller_id=reseller_id,
-    )
-    if not ok:
-        await update_order_status(order_id, "failed")
-        await _log_number_event_from_order(order, "wallet_charge_failed", payload={"message": str(message)}, status_after="failed", number_mode="rental")
+    try:
+        await charge_order_or_raise(
+            order=order,
+            order_id=order_id,
+            user_id=user_id,
+            reseller_id=reseller_id,
+            final_price=float(final_price),
+            cost_price=float(cost_price),
+            lang=lang,
+            number_mode="rental",
+            source="numbers_telegram",
+        )
+    except OrderChargeError as exc:
         await state.update_data(rent_confirm_inflight=False)
         inflight_locked = False
-        return await _safe_callback_answer(finance_error_public_text(lang, str(message)), show_alert=True)
+        return await _safe_callback_answer(exc.public_message, show_alert=True)
 
     await _best_effort_edit_text(callback.message, t(lang, "processing_order"))
-    await _log_number_event_from_order(order, "wallet_charged", status_after="paid", number_mode="rental")
 
     try:
-        await update_order_details(
-            order_id,
-            {
-                "provisioning_state": "charged_pending_provider",
-                "provisioning_charged_at": _utc_now(),
-            },
-        )
-        await _log_number_event_from_order(
-            {**order, "provider": provider_code, "status": "paid"},
-            "provider_rent_started",
-            payload={"api_service": str(api_service), "duration_hours": int(duration)},
-            status_after="paid",
-            number_mode="rental",
-        )
         option_meta = {
             key: selected.get(key)
             for key in (
@@ -2714,156 +2318,40 @@ async def rent_confirm_process(callback: types.CallbackQuery, state: FSMContext)
             )
             if selected.get(key) not in (None, "")
         }
-        rent_res = await rent_number_from_provider(
-            provider_code=provider_code,
-            api_service_name=str(api_service),
-            country=country,
-            duration=duration,
-            option_meta=option_meta,
-        )
-        if not rent_res or not rent_res.get("success"):
-            refund_ok, _refund_msg = await FinancialManager.refund_core_purchase(
-                user_id,
-                order_id,
-                final_price,
-                cost_price,
-                reseller_id=reseller_id,
-            )
-            await update_order_status(order_id, "refunded" if refund_ok else "failed")
-            await update_order_details(
-                order_id,
-                {
-                    "provisioning_state": "provider_failed_refunded" if refund_ok else "provider_failed_refund_error",
-                    "provisioning_failure_at": _utc_now(),
-                },
-            )
-            await _log_number_event_from_order(
-                {**order, "provider": provider_code, "status": "paid"},
-                "provider_rent_failed",
-                payload={"raw": rent_res.get("raw") if rent_res else "provider_no_response"},
-                status_after="refunded" if refund_ok else "failed",
-                number_mode="rental",
-            )
-            await _log_number_event_from_order(
-                {**order, "provider": provider_code, "status": "paid"},
-                "refund_success" if refund_ok else "refund_failed",
-                payload={"source": "provider_rent_failed"},
-                status_after="refunded" if refund_ok else "failed",
-                number_mode="rental",
-            )
-            if refund_ok:
-                try:
-                    current_balance = await get_user_wallet_balance(user_id, reseller_id)
-                    await callback.message.answer(
-                        _purchase_refunded_notice_text(
-                            lang,
-                            amount=float(final_price),
-                            balance=float(current_balance),
-                        )
-                    )
-                except Exception:
-                    pass
-            err = rent_res.get("raw", "provider_error") if rent_res else "provider_no_response"
-            raise RuntimeError(_provider_error_text(err))
-
-        provider_order_id = str(rent_res.get("order_id"))
-        number = str(rent_res.get("number"))
-        protection_policy = _rental_protection_policy(provider_code)
-        rental_started_at = _utc_now()
-        rental_deadline_at = None
-        rental_safe_cutoff_at = None
-        provider_refund_deadline_at = _coerce_utc_datetime(rent_res.get("refund_refundable_until"))
-        provider_can_refund = rent_res.get("refund_can_refund")
-        if provider_refund_deadline_at and provider_can_refund is not False:
-            rental_deadline_at = provider_refund_deadline_at
-            rental_safe_cutoff_at = datetime.fromtimestamp(
-                rental_deadline_at.timestamp() - max(30, int(protection_policy.get("safe_cutoff_sec") or 60)),
-                tz=UTC,
-            )
-        elif protection_policy.get("refund_deadline_sec"):
-            rental_deadline_at = datetime.fromtimestamp(
-                rental_started_at.timestamp() + int(protection_policy["refund_deadline_sec"]),
-                tz=UTC,
-            )
-            rental_safe_cutoff_at = datetime.fromtimestamp(
-                rental_deadline_at.timestamp() - max(30, int(protection_policy.get("safe_cutoff_sec") or 60)),
-                tz=UTC,
-            )
-        await update_order_details(
-            order_id,
-            {
-                "provider_order_id": provider_order_id,
-                "provider": provider_code,
-                "provider_number": number,
-                "number_mode": "rental",
-                "rental_started_at": rental_started_at,
-                "rental_duration_hours": duration,
-                "rental_duration_label": _duration_text(selected, lang),
-                "rental_country": country,
-                "rental_country_name": country_name,
-                "rental_cost": rent_res.get("price"),
-                "rental_end_date": rent_res.get("end_date"),
-                "rental_is_renewable": bool(is_renewable),
-                "rental_billing_cycle_label": billing_cycle_label if is_renewable else "-",
-                "rental_billing_cycle_id": rent_res.get("billing_cycle_id"),
-                "rental_state_code": str(selected.get("state_code") or "none"),
-                "rental_refund_deadline_at": rental_deadline_at,
-                "rental_safe_cutoff_at": rental_safe_cutoff_at,
-                "telegram_bot_id": int(bot_id),
-                "provisioning_state": "provisioned",
-                "provisioned_at": _utc_now(),
-                "rental_protection_policy": {
-                    "provider": provider_code,
-                    "close_method": protection_policy.get("close_method"),
-                    "refund_deadline_sec": protection_policy.get("refund_deadline_sec"),
-                    "safe_cutoff_sec": protection_policy.get("safe_cutoff_sec"),
-                    "provider_can_refund": provider_can_refund,
-                    "provider_refund_deadline_at": provider_refund_deadline_at,
-                },
-            },
-        )
-        await update_order_status(order_id, "success")
-        await _log_number_event_from_order(
-            {
-                **order,
-                "_id": order_id,
-                "provider": provider_code,
-                "provider_order_id": provider_order_id,
-                "provider_number": number,
-                "rental_country": country,
-                "rental_state_code": str(selected.get("state_code") or "none"),
-                "status": "paid",
-            },
-            "provider_rent_success",
-            payload={"duration_hours": int(duration)},
-            status_after="success",
-            number_mode="rental",
-        )
-        await _log_rental_event(
+        provisioned = await provision_charged_rental_order(
+            order=order,
             order_id=order_id,
             user_id=user_id,
-            provider=provider_code,
-            service_id=f"{service_name}:rental",
-            event="purchase_success",
-            payload={
-                "duration_hours": int(duration),
-                "provider_order_id": provider_order_id,
-            },
+            reseller_id=reseller_id,
+            provider_code=provider_code,
+            api_service=str(api_service),
+            country=country,
+            service_name=service_name,
+            duration=duration,
+            duration_label=_duration_text(selected, lang),
+            country_name=country_name,
+            final_price=float(final_price),
+            cost_price=float(cost_price),
+            option_meta=option_meta,
+            is_renewable=bool(is_renewable),
+            billing_cycle_label=billing_cycle_label if is_renewable else "-",
+            telegram_bot_id=int(bot_id),
+            source="numbers_telegram",
         )
 
         duration_text = _duration_text(selected, lang)
-        asyncio.create_task(
-            _rental_refund_guard(
-                order_id=order_id,
-                actor_user_id=int(user_id),
-            )
+        rental_protection_service.schedule_rental_refund_guard(
+            order_id=order_id,
+            actor_user_id=int(user_id),
+            guard_fn=_rental_refund_guard,
+            logger_obj=logger,
         )
         try:
             await _best_effort_edit_text(
                 callback.message,
                 t(lang, "rental_purchase_complete").format(
-                    number=_format_number_for_copy_html(number, country),
-                    order_id=provider_order_id,
+                    number=_format_number_for_copy_html(str(provisioned.get("number") or ""), country),
+                    order_id=str(provisioned.get("provider_order_id") or ""),
                     provider=provider_public_id(provider_code),
                     duration=duration_text,
                 ),
@@ -2881,6 +2369,18 @@ async def rent_confirm_process(callback: types.CallbackQuery, state: FSMContext)
             logger.warning("Provider rental failed for user %s: %s", user_id, err_text)
         else:
             logger.exception("Provider rental failed for user %s: %s", user_id, err_text)
+        if isinstance(exc, ProviderProvisioningError) and exc.refund_ok:
+            try:
+                current_balance = await get_user_wallet_balance(user_id, reseller_id)
+                await callback.message.answer(
+                    _purchase_refunded_notice_text(
+                        lang,
+                        amount=float(final_price),
+                        balance=float(current_balance),
+                    )
+                )
+            except Exception:
+                pass
         await _show_purchase_failed_then_main_menu(callback.message, state, lang)
         state_cleared = True
         inflight_locked = False
@@ -2899,15 +2399,10 @@ async def rent_fetch_sms(callback: types.CallbackQuery):
     if not order_oid or not order:
         return await _safe_callback_answer(t(lang, "invalid_order_info"), show_alert=True)
 
-    provider = str(order.get("provider") or "")
-    provider_order_id = str(order.get("provider_order_id") or "")
-    if not provider or not provider_order_id:
-        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
-
     try:
-        sms_data = await get_rental_sms_from_provider(provider, provider_order_id)
-    except Exception:
-        sms_data = {"success": False, "messages": []}
+        sms_data = await rental_sms_state(order, source="numbers_telegram")
+    except NumbersOrderError:
+        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
 
     messages = sms_data.get("messages") or []
     if not messages:
@@ -2932,15 +2427,6 @@ async def rent_fetch_sms(callback: types.CallbackQuery):
         lang=lang,
     )
 
-    await _log_rental_event(
-        order_id=order_oid,
-        user_id=int(callback.from_user.id),
-        provider=provider,
-        service_id=str(order.get("service_id") or ""),
-        event="code_received",
-        payload={"messages_count": len(messages)},
-    )
-
     lines = "\n".join([f"- {m}" for m in messages[:8]])
     await callback.message.answer(t(lang, "rental_sms_list").format(messages=lines))
     await _safe_callback_answer(t(lang, "updated_plain"))
@@ -2956,14 +2442,9 @@ async def rent_finish(callback: types.CallbackQuery):
     if not order_oid or not order:
         return await _safe_callback_answer(t(lang, "invalid_order_info"), show_alert=True)
 
-    provider = str(order.get("provider") or "")
-    provider_order_id = str(order.get("provider_order_id") or "")
-    if not provider or not provider_order_id:
-        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
-
     # Hero rental safety: if no SMS arrived and we are still inside the provider's
     # cancellation window, perform cancel+refund instead of finish.
-    if provider == "herosms" and _rental_no_sms_yet(order) and _is_within_hero_rental_cancel_window(order):
+    if str(order.get("provider") or "").strip().lower() == "herosms" and _rental_no_sms_yet(order) and _is_within_hero_rental_cancel_window(order):
         cancel_refund = await _cancel_and_refund_rental_order(
             order_id=order_oid,
             order=order,
@@ -2976,21 +2457,10 @@ async def rent_finish(callback: types.CallbackQuery):
         return await _safe_callback_answer(t(lang, "rental_finish_failed"), show_alert=True)
 
     try:
-        finish_res = await finish_rental_from_provider(provider, provider_order_id)
-        ok = bool(finish_res.get("success"))
-    except Exception:
-        ok = False
-
-    if ok:
-        await update_order_details(
-            order_oid,
-            {"rental_finished_at": datetime.now(UTC)},
-        )
-        await _log_number_event_from_order(order, "rental_finished", status_after=str(order.get("status") or "success"), number_mode="rental")
+        await finish_rental_order(order, source="numbers_telegram")
         return await _safe_callback_answer(t(lang, "rental_finished"), show_alert=True)
-
-    await _log_number_event_from_order(order, "rental_finish_failed", number_mode="rental")
-    return await _safe_callback_answer(t(lang, "rental_finish_failed"), show_alert=True)
+    except NumbersOrderError:
+        return await _safe_callback_answer(t(lang, "rental_finish_failed"), show_alert=True)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("rent:renew:"))
@@ -3004,21 +2474,16 @@ async def rent_renew(callback: types.CallbackQuery):
     if not bool(order.get("rental_is_renewable")):
         return await _safe_callback_answer(t(lang, "rental_action_not_supported"), show_alert=True)
 
-    provider = str(order.get("provider") or "")
-    provider_order_id = str(order.get("provider_order_id") or "")
-    if not provider or not provider_order_id:
-        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
-
     try:
-        res = await renew_rental_from_provider(provider, provider_order_id)
-        if bool(res.get("success")):
-            await update_order_details(order_oid, {"rental_last_renew_at": datetime.now(UTC)})
-            await _log_number_event_from_order(order, "rental_renewed", payload={"raw": res.get("raw")}, number_mode="rental")
-            return await _safe_callback_answer(t(lang, "rental_renewed"), show_alert=True)
-    except Exception:
-        pass
-    await _log_number_event_from_order(order, "rental_renew_failed", number_mode="rental")
-    return await _safe_callback_answer(t(lang, "rental_renew_failed"), show_alert=True)
+        await renew_rental_order(
+            order=order,
+            user_id=int(callback.from_user.id),
+            idempotency_key=f"telegram:rental_renew:{int(callback.from_user.id)}:{str(order_oid)}",
+            source="numbers_telegram",
+        )
+        return await _safe_callback_answer(t(lang, "rental_renewed"), show_alert=True)
+    except NumbersOrderError:
+        return await _safe_callback_answer(t(lang, "rental_renew_failed"), show_alert=True)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("rent:wake:"))
@@ -3030,21 +2495,11 @@ async def rent_wake(callback: types.CallbackQuery):
     if not order_oid or not order:
         return await _safe_callback_answer(t(lang, "invalid_order_info"), show_alert=True)
 
-    provider = str(order.get("provider") or "")
-    provider_order_id = str(order.get("provider_order_id") or "")
-    if not provider or not provider_order_id:
-        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
-
     try:
-        res = await wake_rental_from_provider(provider, provider_order_id)
-        if bool(res.get("success")):
-            await update_order_details(order_oid, {"rental_last_wake_at": datetime.now(UTC)})
-            await _log_number_event_from_order(order, "rental_wake_ok", payload={"raw": res.get("raw")}, number_mode="rental")
-            return await _safe_callback_answer(t(lang, "rental_wake_ok"), show_alert=True)
-    except Exception:
-        pass
-    await _log_number_event_from_order(order, "rental_wake_failed", number_mode="rental")
-    return await _safe_callback_answer(t(lang, "rental_wake_failed"), show_alert=True)
+        await wake_rental_order(order, source="numbers_telegram")
+        return await _safe_callback_answer(t(lang, "rental_wake_ok"), show_alert=True)
+    except NumbersOrderError:
+        return await _safe_callback_answer(t(lang, "rental_wake_failed"), show_alert=True)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("rent:notes:"))
@@ -3056,16 +2511,9 @@ async def rent_notes_tags(callback: types.CallbackQuery):
     if not order:
         return await _safe_callback_answer(t(lang, "invalid_order_info"), show_alert=True)
 
-    provider = str(order.get("provider") or "")
-    provider_order_id = str(order.get("provider_order_id") or "")
-    if not provider or not provider_order_id:
-        return await _safe_callback_answer(t(lang, "order_not_found"), show_alert=True)
-
     try:
-        res = await notes_tags_from_provider(provider, provider_order_id)
-    except Exception:
-        res = {"success": False}
-    if not res.get("success"):
+        res = await rental_notes_state(order, source="numbers_telegram")
+    except NumbersOrderError:
         return await _safe_callback_answer(t(lang, "rental_action_not_supported"), show_alert=True)
 
     notes = str(res.get("notes") or "-")
@@ -3253,179 +2701,60 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
     )
     await _log_number_event_from_order(order, "order_created", number_mode=number_mode)
 
-    ok, message = await FinancialManager.process_core_purchase(
-        user_id=user_id,
-        order_id=order_id,
-        sale_price=final_price,
-        cost_price=cost_price,
-        reseller_id=reseller_id,
-    )
-    if not ok:
-        await update_order_status(order_id, "failed")
-        await _log_number_event_from_order(order, "wallet_charge_failed", payload={"message": str(message)}, status_after="failed", number_mode=number_mode)
+    try:
+        await charge_order_or_raise(
+            order=order,
+            order_id=order_id,
+            user_id=user_id,
+            reseller_id=reseller_id,
+            final_price=float(final_price),
+            cost_price=float(cost_price),
+            lang=lang,
+            number_mode=number_mode,
+            source="numbers_telegram",
+        )
+    except OrderChargeError as exc:
         await state.update_data(buy_confirm_inflight=False)
         inflight_locked = False
-        return await _safe_callback_answer(finance_error_public_text(lang, str(message)), show_alert=True)
+        return await _safe_callback_answer(exc.public_message, show_alert=True)
 
     await _best_effort_edit_text(callback.message, t(lang, "processing_order"))
-    await _log_number_event_from_order(order, "wallet_charged", status_after="paid", number_mode=number_mode)
 
     try:
-        await update_order_details(
-            order_id,
-            {
-                "provisioning_state": "charged_pending_provider",
-                "provisioning_charged_at": _utc_now(),
-            },
-        )
         purchase_options = {
             "reuse_mode": True,
             "_audit_requested_service": str(order.get("temp_service_key") or order.get("service_id") or ""),
         }
         if number_mode == "voice":
             purchase_options["capability"] = "voice"
-        await _log_number_event_from_order(
-            {**order, "provider": provider_code, "status": "paid"},
-            "provider_buy_started",
-            payload={"api_service": str(api_service)},
-            status_after="paid",
-            number_mode=number_mode,
-        )
         req_country = None if provider_country == "none" else provider_country
         req_state = None if state_code == "none" else state_code
 
-        buy_res = await buy_number_from_provider(
+        provisioned = await provision_charged_temp_order(
+            order=order,
+            order_id=order_id,
+            user_id=user_id,
+            reseller_id=reseller_id,
             provider_code=provider_code,
-            api_service_name=api_service,
+            api_service=api_service,
             country=req_country,
             state=req_state,
-            dry_run=False,
+            service_name=service_name,
+            final_price=float(final_price),
+            cost_price=float(cost_price),
+            number_mode=number_mode,
+            source="numbers_telegram",
+            telegram_wait={
+                "chat_id": callback.message.chat.id,
+                "message_id": callback.message.message_id,
+                "bot_id": int(bot_id),
+            },
             purchase_options=purchase_options,
         )
-        if not buy_res or not buy_res.get("success"):
-            refund_ok, _refund_msg = await FinancialManager.refund_core_purchase(
-                user_id,
-                order_id,
-                final_price,
-                cost_price,
-                reseller_id=reseller_id,
-            )
-            await update_order_status(order_id, "refunded" if refund_ok else "failed")
-            await update_order_details(
-                order_id,
-                {
-                    "provisioning_state": "provider_failed_refunded" if refund_ok else "provider_failed_refund_error",
-                    "provisioning_failure_at": _utc_now(),
-                },
-            )
-            await _log_number_event_from_order(
-                {**order, "provider": provider_code, "status": "paid"},
-                "provider_buy_failed",
-                payload={"raw": buy_res.get("raw") if buy_res else "provider_no_response"},
-                status_after="refunded" if refund_ok else "failed",
-                number_mode=number_mode,
-            )
-            await _log_number_event_from_order(
-                {**order, "provider": provider_code, "status": "paid"},
-                "refund_success" if refund_ok else "refund_failed",
-                payload={"source": "provider_buy_failed"},
-                status_after="refunded" if refund_ok else "failed",
-                number_mode=number_mode,
-            )
-            if refund_ok:
-                try:
-                    current_balance = await get_user_wallet_balance(user_id, reseller_id)
-                    await callback.message.answer(
-                        _purchase_refunded_notice_text(
-                            lang,
-                            amount=float(final_price),
-                            balance=float(current_balance),
-                        )
-                    )
-                except Exception:
-                    pass
-            err = buy_res.get("raw", "provider_error") if buy_res else "provider_no_response"
-            if buy_res and isinstance(buy_res, dict) and isinstance(buy_res.get("normalized_error"), dict):
-                normalized = buy_res.get("normalized_error") or {}
-                err = normalized.get("message") or err
-            raise RuntimeError(_provider_error_text(err))
-
-        provider_order_id = buy_res.get("order_id")
-        number = buy_res.get("number")
-        provider_pool = str(buy_res.get("pool") or "").strip() or None
-        interval_sec = _poll_interval_for_provider(str(provider_code))
-        provider_timeout_sec = _extract_provider_wait_timeout_sec(buy_res)
-        if provider_timeout_sec:
-            provider_timeout_sec = min(TEMP_WAIT_TIMEOUT_SEC, int(provider_timeout_sec))
-        now = _utc_now()
-        reuse_until = None
-        reuse_warranty_sec = _resolve_reuse_warranty_sec(provider_code, buy_res)
-        reuse_until = datetime.fromtimestamp(now.timestamp() + int(reuse_warranty_sec), tz=UTC)
-
-        await update_order_details(
-            order_id,
-            {
-                "provider_order_id": provider_order_id,
-                "provider": provider_code,
-                "provider_number": number,
-                "provider_pool": provider_pool,
-                "number_mode": number_mode,
-                "voice_enabled": number_mode == "voice",
-                "temp_api_service": str(api_service),
-                "temp_country": None if country == "none" else country,
-                "temp_state": None if state_code == "none" else state_code,
-                "temp_service_key": str(service_name),
-                "temp_reuse_warranty_until": reuse_until,
-                "temp_reuse_warranty_sec": reuse_warranty_sec,
-                "temp_wait_chat_id": callback.message.chat.id,
-                "temp_wait_message_id": callback.message.message_id,
-                "temp_wait_bot_id": int(bot_id),
-                "temp_wait_interval_sec": interval_sec,
-                "temp_wait_timeout_sec": provider_timeout_sec if provider_timeout_sec else TEMP_WAIT_TIMEOUT_SEC,
-                "temp_last_refresh_at": None,
-                "temp_replace_enabled": False,
-                "temp_codes": [],
-                "temp_codes_count": 0,
-                "temp_wait_state": "waiting_for_call" if number_mode == "voice" else "waiting",
-                "temp_wait_started_at": now,
-                "provisioning_state": "provisioned",
-                "provisioned_at": now,
-            },
-        )
-        await update_order_status(order_id, "success")
-        await _log_number_event_from_order(
-            {
-                **order,
-                "_id": order_id,
-                "provider": provider_code,
-                "provider_order_id": provider_order_id,
-                "provider_number": number,
-                "temp_country": None if country == "none" else country,
-                "temp_state": None if state_code == "none" else state_code,
-                "status": "paid",
-            },
-            "provider_buy_success",
-            payload={"provider_pool": provider_pool},
-            status_after="success",
-            number_mode=number_mode,
-        )
-
-        await _log_temp_event(
-            {
-                "_id": order_id,
-                "user_id": user_id,
-                "provider": provider_code,
-                "service_id": service_name,
-            },
-            "purchase_success",
-            {
-                "resend_enabled": True,
-                "sale_price": final_price,
-                "base_price": cost_price,
-                "provider_order_id": str(provider_order_id),
-                "provider_pool": provider_pool,
-            },
-        )
+        provider_order_id = provisioned.get("provider_order_id")
+        number = provisioned.get("number")
+        interval_sec = int(provisioned.get("interval_sec") or TEMP_POLL_INTERVALS[0])
+        reuse_warranty_sec = int(provisioned.get("reuse_warranty_sec") or TEMP_REUSE_WARRANTY_FALLBACK_SEC)
 
         # Reload order snapshot and start auto-wait flow.
         fresh_order = await get_order(order_id)
@@ -3469,6 +2798,18 @@ async def confirm_buy_process(callback: types.CallbackQuery, state: FSMContext):
             logger.warning("Provider buy failed for user %s: %s", user_id, err_text)
         else:
             logger.exception("Provider buy failed for user %s: %s", user_id, err_text)
+        if isinstance(exc, ProviderProvisioningError) and exc.refund_ok:
+            try:
+                current_balance = await get_user_wallet_balance(user_id, reseller_id)
+                await callback.message.answer(
+                    _purchase_refunded_notice_text(
+                        lang,
+                        amount=float(final_price),
+                        balance=float(current_balance),
+                    )
+                )
+            except Exception:
+                pass
         await _show_purchase_failed_then_main_menu(callback.message, state, lang)
         state_cleared = True
         inflight_locked = False
@@ -3612,11 +2953,10 @@ async def _request_replacement_temp_number(
     service_name: str,
     country: Any,
     state_code: Any,
-    final_price: float,
-    cost_price: float,
     source_reason: str,
 ) -> None:
-    if not provider_code or not api_service:
+    alternate_provider = source_reason == "alternate_provider_request"
+    if not alternate_provider and (not provider_code or not api_service):
         return await _safe_callback_answer(t(lang, "temp_replace_unavailable"), show_alert=True)
 
     if str(order.get("status") or "").lower() not in {"cancelled", "failed", "refunded", "expired"}:
@@ -3630,139 +2970,67 @@ async def _request_replacement_temp_number(
         if not result.get("success"):
             return await _safe_callback_answer(t(lang, "temp_cancel_failed"), show_alert=True)
 
-    trust_gate = await _evaluate_temp_trust_gate(
-        user_id=int(callback.from_user.id),
-        service_id=service_name,
-        provider_code=provider_code,
-    )
-    if not bool(trust_gate.get("allowed")):
-        return await _safe_callback_answer(
-            _trust_alert_text(
-                lang,
-                mode=str(trust_gate.get("mode") or "purchase"),
-                wait_sec=int(trust_gate.get("wait_sec") or 0),
-            ),
-            show_alert=True,
+    if provider_code:
+        trust_gate = await _evaluate_temp_trust_gate(
+            user_id=int(callback.from_user.id),
+            service_id=service_name,
+            provider_code=provider_code,
         )
+        if not bool(trust_gate.get("allowed")):
+            return await _safe_callback_answer(
+                _trust_alert_text(
+                    lang,
+                    mode=str(trust_gate.get("mode") or "purchase"),
+                    wait_sec=int(trust_gate.get("wait_sec") or 0),
+                ),
+                show_alert=True,
+            )
 
     bot_id = (await callback.message.bot.get_me()).id
     reseller_id = await _resolve_user_reseller(callback.from_user.id, bot_id)
-    new_order = await create_order(
-        user_id=callback.from_user.id,
-        reseller_id=reseller_id,
-        service_id=service_name,
-        selling_price=final_price,
-        base_price=cost_price,
-    )
-    new_order_id = new_order["_id"]
-    await update_order_details(
-        new_order_id,
-        {
-            "number_mode": "temp",
-            "telegram_bot_id": int(bot_id),
-            "provisioning_state": "awaiting_charge",
-            "provisioning_provider": str(provider_code),
-            "provisioning_service": str(api_service),
-            "provisioning_country": country,
-            "provisioning_state_code": state_code,
-            "provisioning_created_at": _utc_now(),
-            "temp_retry_source_order_id": str(order_oid),
-            "temp_retry_reason": source_reason,
-        },
-    )
-    ok, msg = await FinancialManager.process_core_purchase(
-        user_id=callback.from_user.id,
-        order_id=new_order_id,
-        sale_price=final_price,
-        cost_price=cost_price,
-        reseller_id=reseller_id,
-    )
-    if not ok:
-        await update_order_status(new_order_id, "failed")
-        return await _safe_callback_answer(finance_error_public_text(lang, str(msg)), show_alert=True)
-
-    await update_order_details(
-        new_order_id,
-        {
-            "provisioning_state": "charged_pending_provider",
-            "provisioning_charged_at": _utc_now(),
-        },
-    )
-    purchase_options = {
-        "reuse_mode": True,
-        "_audit_requested_service": str(order.get("temp_service_key") or order.get("service_id") or ""),
-        "retry_reason": source_reason,
-    }
-    buy_res = await buy_number_from_provider(
-        provider_code=provider_code,
-        api_service_name=api_service,
-        country=country,
-        state=state_code,
-        dry_run=False,
-        purchase_options=purchase_options,
-    )
-    if not buy_res or not buy_res.get("success"):
-        refund_ok, _refund_msg = await FinancialManager.refund_core_purchase(
-            callback.from_user.id,
-            new_order_id,
-            final_price,
-            cost_price,
-            reseller_id=reseller_id,
-        )
-        await update_order_details(
-            new_order_id,
-            {
-                "provisioning_state": "provider_failed_refunded" if refund_ok else "provider_failed_refund_error",
-                "provisioning_failure_at": _utc_now(),
+    try:
+        result = await request_replacement_order(
+            order=order,
+            user_id=int(callback.from_user.id),
+            reseller_id=int(reseller_id),
+            idempotency_key=f"telegram:{source_reason}:{int(callback.from_user.id)}:{str(order_oid)}",
+            lang=lang,
+            alternate_provider=alternate_provider,
+            source="numbers_telegram",
+            telegram_bot_id=int(bot_id),
+            telegram_wait={
+                "chat_id": callback.message.chat.id,
+                "message_id": callback.message.message_id,
+                "bot_id": int(bot_id),
             },
         )
-        await update_order_status(new_order_id, "refunded" if refund_ok else "failed")
+    except NumbersOrderError as exc:
+        if exc.code in {"insufficient_balance", "charge_failed"}:
+            return await _safe_callback_answer(exc.message, show_alert=True)
+        if exc.code in {"provider_failed", "provider_unavailable", "offer_unavailable", "alternate_unavailable"}:
+            return await _safe_callback_answer(t(lang, "temp_replace_failed"), show_alert=True)
+        return await _safe_callback_answer(t(lang, "temp_replace_unavailable"), show_alert=True)
+
+    new_order_id = str((result.get("order") or {}).get("id") or "")
+    if not new_order_id:
         return await _safe_callback_answer(t(lang, "temp_replace_failed"), show_alert=True)
 
-    interval_sec = _poll_interval_for_provider(provider_code)
-    provider_timeout_sec = _extract_provider_wait_timeout_sec(buy_res)
-    if provider_timeout_sec:
-        provider_timeout_sec = min(TEMP_WAIT_TIMEOUT_SEC, int(provider_timeout_sec))
-    now = _utc_now()
-    reuse_warranty_sec = _resolve_reuse_warranty_sec(provider_code, buy_res)
-    reuse_until = datetime.fromtimestamp(now.timestamp() + int(reuse_warranty_sec), tz=UTC)
+    fresh = await get_order(new_order_id)
+    if not fresh:
+        return await _safe_callback_answer(t(lang, "temp_replace_failed"), show_alert=True)
 
-    await update_order_details(
-        new_order_id,
-        {
-            "provider_order_id": str(buy_res.get("order_id") or ""),
-            "provider": provider_code,
-            "provider_number": str(buy_res.get("number") or ""),
-            "provider_pool": str(buy_res.get("pool") or "").strip() or None,
-            "number_mode": "temp",
-            "temp_api_service": api_service,
-            "temp_country": country,
-            "temp_state": state_code,
-            "temp_service_key": service_name,
-            "temp_reuse_warranty_until": reuse_until,
-            "temp_reuse_warranty_sec": reuse_warranty_sec,
-            "temp_wait_chat_id": callback.message.chat.id,
-            "temp_wait_message_id": callback.message.message_id,
-            "temp_wait_bot_id": int(bot_id),
-            "temp_wait_interval_sec": interval_sec,
-            "temp_wait_timeout_sec": provider_timeout_sec if provider_timeout_sec else TEMP_WAIT_TIMEOUT_SEC,
-            "temp_last_refresh_at": None,
-            "temp_replace_enabled": False,
-            "temp_codes": [],
-            "temp_codes_count": 0,
-            "provisioning_state": "provisioned",
-            "provisioned_at": _utc_now(),
-        },
-    )
-    await update_order_status(new_order_id, "success")
+    provider_for_text = str(fresh.get("provider") or fresh.get("provisioning_provider") or provider_code)
+    number = str(fresh.get("phone_number") or fresh.get("number") or "")
+    interval_sec = _poll_interval_for_provider(provider_for_text)
+    reuse_warranty_sec = _order_reuse_warranty_sec(fresh) or TEMP_REUSE_WARRANTY_FALLBACK_SEC
     await _safe_edit_message(
         callback.message.bot,
         chat_id=callback.message.chat.id,
         message_id=callback.message.message_id,
         text=_temp_waiting_text(
             lang=lang,
-            provider_code=provider_code,
-            number=str(buy_res.get("number") or ""),
+            provider_code=provider_for_text,
+            number=number,
             country_code=str(country),
             interval_sec=interval_sec,
             elapsed_sec=0,
@@ -3772,9 +3040,7 @@ async def _request_replacement_temp_number(
         reply_markup=None,
         parse_mode="HTML",
     )
-    fresh = await get_order(new_order_id)
-    if fresh:
-        await _queue_temp_waiter(bot=callback.message.bot, order=fresh, lang=lang, is_second_code=False)
+    await _queue_temp_waiter(bot=callback.message.bot, order=fresh, lang=lang, is_second_code=False)
     return await _safe_callback_answer(t(lang, "temp_replace_success"), show_alert=True)
 
 
@@ -3795,8 +3061,6 @@ async def temp_replace_number(callback: types.CallbackQuery):
     service_name = str(replacement.get("service") or "")
     country = replacement.get("raw_country")
     state_code = replacement.get("raw_state")
-    final_price, cost_price = extract_order_amounts(order)
-
     return await _request_replacement_temp_number(
         callback=callback,
         order_oid=order_oid,
@@ -3807,8 +3071,6 @@ async def temp_replace_number(callback: types.CallbackQuery):
         service_name=service_name,
         country=country,
         state_code=state_code,
-        final_price=final_price,
-        cost_price=cost_price,
         source_reason="replace_request",
     )
 
@@ -3828,28 +3090,7 @@ async def temp_try_alternate_provider(callback: types.CallbackQuery):
     service_name = str(replacement.get("service") or "")
     country = replacement.get("raw_country")
     state_code = replacement.get("raw_state")
-    current_provider = str(replacement.get("provider") or "")
     if not service_name:
-        return await _safe_callback_answer(t(lang, "temp_replace_unavailable"), show_alert=True)
-
-    prices = await get_all_prices(service_name, country, state_code)
-    picked = _pick_retry_provider(prices, exclude_provider=current_provider)
-    if not picked:
-        return await _safe_callback_answer(
-            _numbers_text(lang, "No alternate provider is available for this choice.", "لا يوجد مزود بديل متاح لهذا الخيار."),
-            show_alert=True,
-        )
-    provider_code, provider_info = picked
-    try:
-        final_price = float(provider_info.get("price") or 0)
-    except Exception:
-        final_price = 0.0
-    try:
-        cost_price = float(provider_info.get("base_price") or final_price)
-    except Exception:
-        cost_price = final_price
-    api_service = str(provider_info.get("api_service_name") or "").strip()
-    if final_price <= 0 or not api_service:
         return await _safe_callback_answer(t(lang, "temp_replace_unavailable"), show_alert=True)
 
     return await _request_replacement_temp_number(
@@ -3857,13 +3098,11 @@ async def temp_try_alternate_provider(callback: types.CallbackQuery):
         order_oid=order_oid,
         order=order,
         lang=lang,
-        provider_code=provider_code,
-        api_service=api_service,
+        provider_code="",
+        api_service="",
         service_name=service_name,
         country=country,
         state_code=state_code,
-        final_price=final_price,
-        cost_price=cost_price,
         source_reason="alternate_provider_request",
     )
 
@@ -3920,6 +3159,7 @@ async def temp_second_code(callback: types.CallbackQuery):
         source="telegram",
         telegram_bot_id=int(bot_id),
         refresh_order_fn=None,
+        charge_order_fn=lambda **kwargs: charge_order_or_raise(lang=lang, **kwargs),
     )
     if not result.get("ok"):
         if str(result.get("code") or "") == "finance_error":
@@ -4048,7 +3288,3 @@ async def resend_code(callback: types.CallbackQuery, state: FSMContext):
     except Exception:
         pass
     return await _safe_callback_answer(callback, t(lang, "resend_failed"), show_alert=True)
-
-
-
-

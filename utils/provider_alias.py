@@ -11,8 +11,8 @@ _PROVIDER_PUBLIC_IDS: dict[str, str] = {
     "telabot": "S4",
     "pvadeals": "S5",
     "vaksms": "S6",
-    "smsman": "S7",
-    "smsman_s6": "S8",
+    "nonvoip": "S7",
+    "nonvoip_s6": "S8",
     "smsready": "S9",
     "pvapins": "S10",
     # Proxy providers are also hidden behind the same public IDs.
@@ -28,10 +28,10 @@ _PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "S4": "Delta",
     "S5": "Echo",
     "S6": "Foxtrot",
-    "S7": "NonVoIP",
-    "S8": "NonVoIP",
-    "S9": "Golf",
-    "S10": "Hotel",
+    "S7": "Golf",
+    "S8": "Hotel",
+    "S9": "India",
+    "S10": "Juliet",
 }
 
 _GENERIC_PROVIDER_ERROR = {
@@ -45,6 +45,22 @@ def provider_public_id(provider_code: Any) -> str:
     if not code:
         return "S5"
     return _PROVIDER_PUBLIC_IDS.get(code, "S5")
+
+
+def provider_code_from_public_id(public_id: Any, *, allowed_codes: Any = None) -> str:
+    public = str(public_id or "").strip().upper()
+    if not public:
+        return ""
+    allowed = {
+        str(code or "").strip().lower()
+        for code in (allowed_codes or _PROVIDER_PUBLIC_IDS.keys())
+        if str(code or "").strip()
+    }
+    for provider_code, mapped_public in _PROVIDER_PUBLIC_IDS.items():
+        code = str(provider_code or "").strip().lower()
+        if code in allowed and str(mapped_public or "").strip().upper() == public:
+            return code
+    return ""
 
 
 def provider_display_name(provider_code: Any) -> str:
