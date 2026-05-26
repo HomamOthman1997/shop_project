@@ -69,6 +69,35 @@ The shared normalizer returns legacy uppercase `code` plus API-facing `taxonomy_
 | `provider_timeout` | Retryable upstream/network timeout class | `timeout`, `request_error`, temporary failures |
 | `provider_unknown_error` | Raw response is not classified yet | Provider `500`, unexpected validation or malformed response |
 
+## Production Readiness Gate
+
+Runtime policy lives in `services/numbers/provider_readiness.py` and is exposed through:
+
+```text
+GET /api/v1/numbers/ops/provider-readiness
+```
+
+Policy effects:
+
+- quote APIs hide providers where `quote_enabled=false`;
+- order creation rejects quote tokens where `purchase_enabled=false` before wallet charge;
+- no-code auto-refund skips providers where `auto_refund_enabled=false` and sends the order to support review;
+- provider webhook audit events remain the source of truth for moving `webhook_verified` to true.
+
+Current policy summary:
+
+| Provider | Status | Quote | Purchase | Auto-refund |
+| --- | --- | --- | --- | --- |
+| `textverified` | `webhook_pending` | yes | yes | yes |
+| `telabot` | `webhook_pending` | yes | yes | yes |
+| `pvadeals` | `webhook_pending` | yes | yes | yes |
+| `herosms` | `webhook_pending` | yes | yes | yes |
+| `nonvoip` | `refund_risk` | yes | yes | no |
+| `smsready` | `disabled` | no | no | no |
+| `pvapins` | `quarantine` | no | no | no |
+| `vaksms` | `quarantine` | no | no | no |
+| `smspool` | `quarantine` | no | no | no |
+
 ## Findings So Far
 
 - `smsready` and `nonvoip` do not expose account balance endpoints in the supplied docs. Their adapters intentionally return `None` for balance.

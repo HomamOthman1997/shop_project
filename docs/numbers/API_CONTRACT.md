@@ -584,6 +584,12 @@ Query:
 - `status`: optional event status filter: `processed`, `duplicate`, `ignored`, `unmatched`.
 - `limit`: 1-200, default 50.
 
+`GET /api/v1/numbers/ops/provider-readiness`
+
+Lists the production readiness policy for every upstream provider. The response includes `status`, `quote_enabled`, `purchase_enabled`, `auto_refund_enabled`, `webhook_documented`, `webhook_verified`, and the latest webhook audit event unless `include_events=0` is passed.
+
+The quote and order APIs enforce this policy server-side. Quarantined providers are not returned to customers, and disabled-provider quote tokens are rejected before wallet charge or provider calls.
+
 `POST /api/v1/numbers/ops/provider-webhook-events/{event_id}/replay`
 
 Replays a stored provider webhook payload through the current parser and order matching logic. This is intended for `unmatched` or `ignored` events after a parser/mapping fix. It does not call the upstream provider and does not poll SMS.

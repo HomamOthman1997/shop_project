@@ -36,6 +36,7 @@ from services.numbers.manager_resolution import (
     _service_resolution_snapshot,
 )
 from services.numbers.pricing_policy import temp_sale_price
+from services.numbers.provider_readiness import provider_quote_enabled, readiness_block_payload
 from services.numbers.virtual_policy import apply_virtual_offer_policy
 from services.numbers.providers.herosms_provider import HeroSMSProvider
 from services.numbers.providers.nonvoip_provider import NonVoipProvider
@@ -687,6 +688,8 @@ async def get_all_prices(
     state_selected = bool(state and str(state).strip().lower() != "none")
     async def fetch_single_provider(code, provider_obj):
         try:
+            if not provider_quote_enabled(code, mode="temp"):
+                return (code, readiness_block_payload(code, mode="temp") if show_all_for_testing else None)
             if not provider_allows_temp(code, state_selected=state_selected):
                 return (code, None)
             resolution = _service_resolution_snapshot(service_key, code)
@@ -1044,6 +1047,8 @@ async def get_all_rental_prices(service_key: str, country: str | None, *, with_s
     async def fetch_single_provider(code: str, provider_obj):
         if code not in rental_provider_codes:
             return (code, None)
+        if not provider_quote_enabled(code, mode="rental"):
+            return (code, readiness_block_payload(code, mode="rental") if show_all_for_testing else None)
         resolution = _service_resolution_snapshot(service_key, code)
         if not hasattr(provider_obj, "get_rental_prices"):
             if show_all_for_testing:

@@ -13,6 +13,7 @@ def due_order(**overrides):
         "user_id": 123,
         "status": "success",
         "number_mode": "temp",
+        "provider": "textverified",
         "created_at": now - timedelta(seconds=901),
         "temp_wait_started_at": now - timedelta(seconds=901),
         "temp_wait_timeout_sec": 900,
@@ -77,6 +78,23 @@ async def test_auto_refund_marks_support_review_on_provider_failure(monkeypatch)
     assert result["refunded"] is False
     assert result["reason"] == "provider_cancel_failed"
     assert result["support_review_required"] is True
+
+
+@pytest.mark.asyncio
+async def test_auto_refund_sends_refund_risk_provider_to_support_review(monkeypatch):
+    calls = {}
+
+    async def fake_update_order_details(order_id, patch):
+        calls["support_patch"] = (order_id, patch)
+
+    monkeypatch.setattr(order_auto_refund_service, "update_order_details", fake_update_order_details)
+
+    result = await order_auto_refund_service.auto_refund_temp_order_if_due(due_order(provider="nonvoip"))
+
+    assert result["refunded"] is False
+    assert result["support_review_required"] is True
+    assert result["reason"] == "auto_refund_disabled_refund_risk"
+    assert calls["support_patch"][0] == "order-1"
 
 
 @pytest.mark.asyncio

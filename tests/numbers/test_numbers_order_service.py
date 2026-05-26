@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from services.numbers import order_service
+from services.numbers import api_payloads
 from services.numbers.api_payloads import make_quote_token, rental_option_match_key
 
 
@@ -337,6 +338,8 @@ async def test_create_temp_order_marks_smsready_as_webhook_delivery(monkeypatch)
     monkeypatch.setattr(order_service, "charge_order_or_raise", fake_charge_order_or_raise)
     monkeypatch.setattr(order_service, "provision_charged_temp_order", fake_provision_charged_temp_order)
     monkeypatch.setattr(order_service, "get_order", fake_get_order)
+    monkeypatch.setattr(order_service, "provider_purchase_enabled", lambda provider, mode="temp": True)
+    monkeypatch.setattr(api_payloads, "provider_purchase_enabled", lambda provider, mode="temp": True)
     monkeypatch.setattr(order_service, "_log_number_event_from_order", fake_noop)
     monkeypatch.setattr(order_service, "_log_temp_event", fake_noop)
     monkeypatch.setattr(order_service, "enqueue_event_for_user", fake_noop)

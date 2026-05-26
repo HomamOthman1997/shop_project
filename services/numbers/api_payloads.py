@@ -8,6 +8,7 @@ import time
 from typing import Any
 
 from config import settings
+from services.numbers.provider_readiness import provider_purchase_enabled
 from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.data.states_us import STATES_LIST
 from services.numbers.service_map import (
@@ -250,6 +251,8 @@ def _provider_buyable_for_temp(provider_code: str, info: dict[str, Any]) -> bool
     code = str(provider_code or "").strip().lower()
     if not code or code in HIDDEN_TEMP_PROVIDER_CODES:
         return False
+    if not provider_purchase_enabled(code, mode="temp"):
+        return False
     if not isinstance(info, dict) or not bool(info.get("available_for_buy", True)):
         return False
     if not str(info.get("api_service_name") or "").strip():
@@ -352,6 +355,8 @@ def rental_option_is_buyable(
         return False
     if provider_code not in RENTAL_QUOTE_PROVIDER_CODES:
         return False
+    if not provider_purchase_enabled(provider_code, mode="rental"):
+        return False
     if not isinstance(provider_info, dict) or not bool(provider_info.get("available_for_buy", True)):
         return False
     if not str(provider_info.get("api_service_name") or "").strip():
@@ -367,6 +372,8 @@ def rental_option_is_buyable(
 def voice_provider_offer_is_buyable(provider_code: str, info: dict[str, Any]) -> bool:
     code = str(provider_code or "").strip().lower()
     if code not in VOICE_QUOTE_PROVIDER_CODES:
+        return False
+    if not provider_purchase_enabled(code, mode="voice"):
         return False
     if not isinstance(info, dict) or not bool(info.get("available_for_buy", True)):
         return False

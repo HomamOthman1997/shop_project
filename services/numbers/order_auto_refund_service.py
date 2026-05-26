@@ -5,6 +5,7 @@ from typing import Any, Awaitable, Callable
 from database.orders_repo import list_api_temp_orders_for_auto_refund, update_order_details
 from services.numbers.order_cancel_service import cancel_number_order
 from services.numbers.order_service import public_order_payload
+from services.numbers.provider_readiness import provider_readiness
 from services.numbers.shared.temp_order import _order_temp_timeout_sec, _temp_elapsed_sec, _temp_order_has_received_code, _utc_now
 from services.numbers.shared.temp_refund import temp_refund_result_retryable
 
@@ -43,6 +44,18 @@ async def auto_refund_temp_order_if_due(
     user_id = int(order.get("user_id") or 0)
     if user_id <= 0:
         return {"ok": False, "refunded": False, "reason": "missing_user_id", "order": public_order_payload(order)}
+
+    provider_code = str(order.get("provider") or order.get("provisioning_provider") or "").strip().lower()
+    readiness = provider_readiness(provider_code)
+    if not readiness.auto_refund_enabled:
+        await _mark_support_review(order, f"auto_refund_disabled_{readiness.status}")
+        return {
+            "ok": True,
+            "refunded": False,
+            "support_review_required": True,
+            "reason": f"auto_refund_disabled_{readiness.status}",
+            "order": public_order_payload(order),
+        }
 
     try:
         result = await cancel_number_order(

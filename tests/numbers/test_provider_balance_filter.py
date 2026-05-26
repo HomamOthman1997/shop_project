@@ -6,6 +6,13 @@ import pytest
 sys.path.insert(0, os.getcwd())
 
 
+@pytest.fixture(autouse=True)
+def _allow_test_provider_readiness(monkeypatch):
+    from services.numbers import manager
+
+    monkeypatch.setattr(manager, "provider_quote_enabled", lambda provider, mode="temp": True)
+
+
 @pytest.mark.asyncio
 async def test_get_all_prices_filters_provider_with_insufficient_balance(monkeypatch):
     from services.numbers import manager

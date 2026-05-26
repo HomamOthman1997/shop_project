@@ -33,6 +33,7 @@ from services.numbers.order_lifecycle_service import (
 )
 from services.numbers.order_rental_protection_service import schedule_rental_refund_guard
 from services.numbers.provider_delivery import provider_sms_delivery_strategy
+from services.numbers.provider_readiness import provider_purchase_enabled, provider_readiness
 from services.numbers.shared.events import _log_number_event_from_order, _log_temp_event
 from services.numbers.shared.temp_order import (
     TEMP_WAIT_TIMEOUT_SEC,
@@ -331,6 +332,13 @@ async def _resolve_temp_offer_from_quote(quote_token: str) -> dict[str, Any]:
         )
     if not service or not provider_code:
         raise NumbersOrderError("invalid_quote", "This quote is incomplete.", status=400)
+    if not provider_purchase_enabled(provider_code, mode="temp"):
+        readiness = provider_readiness(provider_code)
+        raise NumbersOrderError(
+            "provider_not_ready",
+            readiness.reason or "This provider is not ready for production orders.",
+            status=409,
+        )
 
     prices = await get_all_prices(
         service,
@@ -371,6 +379,13 @@ async def _resolve_rental_offer_from_quote(quote_token: str) -> dict[str, Any]:
     match_key = tuple(str(part) for part in (quote.get("option_key") or []))
     if not service or not country or not provider_code or len(match_key) != 6:
         raise NumbersOrderError("invalid_quote", "This quote is incomplete.", status=400)
+    if not provider_purchase_enabled(provider_code, mode="rental"):
+        readiness = provider_readiness(provider_code)
+        raise NumbersOrderError(
+            "provider_not_ready",
+            readiness.reason or "This provider is not ready for production orders.",
+            status=409,
+        )
 
     state = rental_state_code_for_quote(str(quote.get("state") or match_key[4] or "none"))
     prices = await get_all_rental_prices(service, country, with_success_rates=False)
@@ -445,6 +460,13 @@ async def _resolve_voice_offer_from_quote(quote_token: str) -> dict[str, Any]:
     state = str(quote.get("state") or "none").strip() or "none"
     if not service or not provider_code:
         raise NumbersOrderError("invalid_quote", "This quote is incomplete.", status=400)
+    if not provider_purchase_enabled(provider_code, mode="voice"):
+        readiness = provider_readiness(provider_code)
+        raise NumbersOrderError(
+            "provider_not_ready",
+            readiness.reason or "This provider is not ready for production orders.",
+            status=409,
+        )
 
     prices = await _voice_quote_prices(service, country, state)
     info = prices.get(provider_code)

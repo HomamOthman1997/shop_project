@@ -38,6 +38,7 @@ from services.numbers.order_rental_service import (
 from services.numbers.order_resend_service import request_number_order_resend
 from services.numbers.order_service import NumbersOrderError, create_number_order_from_quote, public_order_payload, request_replacement_order
 from services.numbers.provider_webhook_service import replay_provider_webhook_event
+from services.numbers.provider_readiness import provider_readiness_rows
 from services.numbers.service_map import get_service_display_name, resolve_canonical_service_key
 from services.platform.api_auth import ApiAuthContext, require_api_auth
 from services.platform.api_rate_limits import (
@@ -551,6 +552,24 @@ async def list_provider_webhook_audit_events(request: web.Request) -> web.Respon
     return web.json_response({"ok": True, "events": rows}, headers=_response_headers(rate_limit))
 
 
+async def provider_readiness_status(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:support:review")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:support:review", limit=60)
+    include_events = str(request.query.get("include_events") or "1").strip().lower() not in {"0", "false", "no"}
+    rows = provider_readiness_rows()
+    if include_events:
+        enriched = []
+        for row in rows:
+            provider = str(row.get("provider") or "").strip()
+            events = await list_provider_webhook_events(provider=provider, limit=1)
+            item = dict(row)
+            item["last_webhook_event"] = events[0] if events else None
+            item["real_webhook_processed"] = bool(events and str(events[0].get("status") or "") == "processed")
+            enriched.append(item)
+        rows = enriched
+    return web.json_response({"ok": True, "providers": rows}, headers=_response_headers(rate_limit))
+
+
 async def replay_provider_webhook_audit_event(request: web.Request) -> web.Response:
     auth = await require_api_auth(request, "numbers:support:review")
     rate_limit = await _check_rate_limit(auth, bucket="numbers:support:review", limit=60)
@@ -669,5 +688,6 @@ def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/numbers/orders/{order_id}/rental/notes", rental_notes)
     app.router.add_get("/api/v1/numbers/ops/refund-reviews", list_refund_reviews)
     app.router.add_post("/api/v1/numbers/ops/refund-reviews/{order_id}/resolve", resolve_refund_review)
+    app.router.add_get("/api/v1/numbers/ops/provider-readiness", provider_readiness_status)
     app.router.add_get("/api/v1/numbers/ops/provider-webhook-events", list_provider_webhook_audit_events)
     app.router.add_post("/api/v1/numbers/ops/provider-webhook-events/{event_id}/replay", replay_provider_webhook_audit_event)

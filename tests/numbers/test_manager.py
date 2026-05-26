@@ -48,6 +48,7 @@ def _patch_providers(monkeypatch):
     monkeypatch.setitem(manager.PROVIDERS, 'smsready', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'pvapins', DummyProvider())
     monkeypatch.setitem(manager.PROVIDERS, 'vaksms', DummyProvider())
+    monkeypatch.setattr(manager, "provider_quote_enabled", lambda code, mode="temp": True)
 
 
 def test_service_name_lookup():

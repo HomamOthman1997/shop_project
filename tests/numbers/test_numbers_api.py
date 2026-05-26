@@ -45,6 +45,7 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     assert ("POST", "/api/v1/numbers/orders/{order_id}/rental/notes") in routes
     assert ("GET", "/api/v1/numbers/ops/refund-reviews") in routes
     assert ("POST", "/api/v1/numbers/ops/refund-reviews/{order_id}/resolve") in routes
+    assert ("GET", "/api/v1/numbers/ops/provider-readiness") in routes
     assert ("GET", "/api/v1/numbers/ops/provider-webhook-events") in routes
     assert ("POST", "/api/v1/numbers/ops/provider-webhook-events/{event_id}/replay") in routes
 
