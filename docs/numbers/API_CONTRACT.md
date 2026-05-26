@@ -590,6 +590,18 @@ Lists the production readiness policy for every upstream provider. The response 
 
 The quote and order APIs enforce this policy server-side. Quarantined providers are not returned to customers, and disabled-provider quote tokens are rejected before wallet charge or provider calls.
 
+Runtime override:
+
+- Env var: `NUMBERS_PROVIDER_READINESS_OVERRIDES`
+- JSON object keyed by provider code.
+- Supported fields: `status`, `quote_enabled`, `purchase_enabled`, `auto_refund_enabled`, `webhook_documented`, `webhook_verified`, `reason`.
+
+Example:
+
+```json
+{"smsready":{"status":"webhook_pending","quote_enabled":true,"purchase_enabled":true,"auto_refund_enabled":true,"reason":"verified from Railway network"}}
+```
+
 `POST /api/v1/numbers/ops/provider-webhook-events/{event_id}/replay`
 
 Replays a stored provider webhook payload through the current parser and order matching logic. This is intended for `unmatched` or `ignored` events after a parser/mapping fix. It does not call the upstream provider and does not poll SMS.

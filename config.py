@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     numbers_show_all_providers_for_testing: bool = False
     numbers_provider_webhook_token: Optional[str] = None
     numbers_provider_sms_polling_enabled: bool = False
+    # JSON runtime override for provider readiness gates.
+    # Example: {"smsready":{"status":"webhook_pending","quote_enabled":true,"purchase_enabled":true}}
+    numbers_provider_readiness_overrides: Optional[str] = None
     # Legacy escape hatch only. Customer ordering on the real Numbers bot should
     # go through the Mini App; keep this false unless intentionally testing the
     # old Telegram FSM purchase flow.

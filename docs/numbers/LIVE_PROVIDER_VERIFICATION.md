@@ -77,6 +77,12 @@ Runtime policy lives in `services/numbers/provider_readiness.py` and is exposed 
 GET /api/v1/numbers/ops/provider-readiness
 ```
 
+Production can override this policy without a code deploy through `NUMBERS_PROVIDER_READINESS_OVERRIDES`, for example:
+
+```json
+{"smsready":{"status":"webhook_pending","quote_enabled":true,"purchase_enabled":true,"auto_refund_enabled":true,"reason":"verified from Railway network"}}
+```
+
 Policy effects:
 
 - quote APIs hide providers where `quote_enabled=false`;

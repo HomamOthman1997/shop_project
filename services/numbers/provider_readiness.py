@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
+
+from config import settings
 
 
 @dataclass(frozen=True)
@@ -147,7 +150,17 @@ def provider_readiness(provider_code: str) -> ProviderReadiness:
     code = str(provider_code or "").strip().lower()
     if not code:
         return _DEFAULT
-    return _POLICY.get(code, ProviderReadiness(**{**_DEFAULT.to_dict(), "provider": code}))
+    base = _POLICY.get(code, ProviderReadiness(**{**_DEFAULT.to_dict(), "provider": code}))
+    override = _override_for_provider(code)
+    if not override:
+        return base
+    data = base.to_dict()
+    allowed = set(data.keys()) - {"provider"}
+    for key, value in override.items():
+        if key in allowed:
+            data[key] = _coerce_override_value(key, value)
+    data["provider"] = code
+    return ProviderReadiness(**data)
 
 
 def provider_quote_enabled(provider_code: str, *, mode: str = "temp") -> bool:
@@ -179,4 +192,35 @@ def readiness_block_payload(provider_code: str, *, mode: str = "temp") -> dict[s
 
 
 def provider_readiness_rows() -> list[dict[str, Any]]:
-    return [row.to_dict() for _, row in sorted(_POLICY.items())]
+    codes = set(_POLICY.keys()) | set(_readiness_overrides().keys())
+    return [provider_readiness(code).to_dict() for code in sorted(codes)]
+
+
+def _readiness_overrides() -> dict[str, dict[str, Any]]:
+    raw = str(getattr(settings, "numbers_provider_readiness_overrides", "") or "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for provider, value in parsed.items():
+        code = str(provider or "").strip().lower()
+        if code and isinstance(value, dict):
+            out[code] = value
+    return out
+
+
+def _override_for_provider(provider_code: str) -> dict[str, Any]:
+    return _readiness_overrides().get(str(provider_code or "").strip().lower(), {})
+
+
+def _coerce_override_value(key: str, value: Any) -> Any:
+    if key in {"quote_enabled", "purchase_enabled", "auto_refund_enabled", "webhook_documented", "webhook_verified"}:
+        if isinstance(value, bool):
+            return value
+        return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+    return str(value or "").strip()
