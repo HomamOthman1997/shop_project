@@ -74,7 +74,7 @@ async def refresh_number_order(order: dict[str, Any]) -> dict[str, Any]:
     provider_order_id = order_provider_order_id(current)
     if not provider or not provider_order_id:
         raise NumbersOrderError("order_not_refreshable", "This order cannot be refreshed.", status=409)
-    if order_uses_provider_sms_webhook(current) or not provider_sms_polling_enabled():
+    if order_uses_provider_sms_webhook(current) or not provider_sms_polling_enabled(provider):
         now = _utc_now()
         await update_order_details(current["_id"], {"temp_last_refresh_at": now, "temp_last_refresh_mode": "provider_webhook"})
         refreshed = await get_order(current["_id"]) or {**current, "temp_last_refresh_at": now, "temp_last_refresh_mode": "provider_webhook"}

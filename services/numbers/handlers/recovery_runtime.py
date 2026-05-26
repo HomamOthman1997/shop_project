@@ -93,13 +93,13 @@ async def run_temp_wait_recovery_sweep(
         if wait_state == "code_received":
             continue
 
-        if order_uses_provider_sms_webhook(latest) or not provider_sms_polling_enabled():
-            stats["webhook_waiting"] = int(stats.get("webhook_waiting") or 0) + 1
-            continue
-
         provider = str(latest.get("provider") or "").strip()
         provider_order_id = str(latest.get("provider_order_id") or "").strip()
         if not provider or not provider_order_id:
+            continue
+
+        if order_uses_provider_sms_webhook(latest) or not provider_sms_polling_enabled(provider):
+            stats["webhook_waiting"] = int(stats.get("webhook_waiting") or 0) + 1
             continue
 
         seen_codes = set(str(x) for x in (latest.get("temp_codes") or []) if x not in (None, ""))

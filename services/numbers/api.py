@@ -6,6 +6,7 @@ from datetime import datetime
 from aiohttp import web
 
 from database.financial_ledger import get_user_wallet_balance, list_user_wallet_entries
+from database.owner_payment_settings_repo import get_owner_payment_methods
 from database.orders_repo import (
     get_user_number_order,
     list_api_temp_refund_support_reviews,
@@ -24,7 +25,13 @@ from services.numbers.api_payloads import (
     numbers_bootstrap_payload,
     voice_provider_offer_is_buyable,
 )
+from services.numbers.api_docs import render_numbers_api_docs
+from services.numbers.api_schema import numbers_openapi_schema
 from services.numbers.country_suggestions_service import country_suggestions_for_service
+from services.numbers.customer_flows import (
+    SUPPORT_CATEGORIES,
+    recharge_methods_payload as shared_recharge_methods_payload,
+)
 from services.numbers.manager import get_all_prices, get_all_rental_prices, get_all_voice_prices
 from services.numbers.order_recording_service import download_voice_order_recording
 from services.numbers.order_refresh_service import refresh_number_order
@@ -57,6 +64,12 @@ _NO_STORE_HEADERS = {
 
 logger = logging.getLogger("numbers_api")
 
+_SUPPORT_CATEGORY_LABELS = {
+    "numbers": "Numbers orders",
+    "user_balance": "Balance and payments",
+}
+_SUPPORT_CATEGORIES = tuple((key, _SUPPORT_CATEGORY_LABELS.get(key, key.replace("_", " ").title())) for key in SUPPORT_CATEGORIES)
+
 
 async def health(_request: web.Request) -> web.Response:
     return web.json_response(
@@ -74,8 +87,86 @@ async def catalog_bootstrap(_request: web.Request) -> web.Response:
     return web.json_response(numbers_bootstrap_payload(), headers=dict(_NO_STORE_HEADERS))
 
 
+async def openapi_schema(_request: web.Request) -> web.Response:
+    return web.json_response(numbers_openapi_schema(), headers=dict(_NO_STORE_HEADERS))
+
+
+async def api_docs(_request: web.Request) -> web.Response:
+    return web.Response(
+        text=render_numbers_api_docs(),
+        content_type="text/html",
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
 def _format_money(value: float) -> str:
     return f"${float(value or 0):.2f}"
+
+
+def _format_credit_rate(value: float) -> str:
+    amount = float(value or 0.0)
+    text = f"{amount:.4f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def _api_action(
+    key: str,
+    *,
+    enabled: bool,
+    endpoint: str,
+    method: str = "GET",
+    label: str = "",
+    reason: str = "",
+) -> dict:
+    return {
+        "key": key,
+        "enabled": bool(enabled),
+        "label": label or key,
+        "endpoint": endpoint,
+        "method": method.upper(),
+        "reason": "" if enabled else (reason or "disabled"),
+    }
+
+
+async def _api_recharge_per_credit(method: dict) -> float:
+    direct = method.get("per_credit")
+    if direct not in {None, ""}:
+        try:
+            value = float(direct)
+            if value > 0:
+                return value
+        except Exception:
+            pass
+    currency = str(method.get("currency") or "USD").strip().upper()
+    if currency == "USD":
+        return 1.0
+    rate = await get_owner_exchange_rate(currency)
+    try:
+        value = float(rate)
+    except Exception:
+        value = 0.0
+    return value if value > 0 else 1.0
+
+
+def _render_recharge_instructions(method: dict, *, rate: float) -> str:
+    template = str(method.get("instructions") or "").strip()
+    target = str(method.get("target") or method.get("address") or "").strip()
+    support = str(method.get("support") or "").strip()
+    if template:
+        try:
+            return template.format(target=target, support=support, rate=_format_credit_rate(rate))
+        except Exception:
+            return template
+    parts = []
+    if target:
+        parts.append(f"Send payment to {target}.")
+    if support:
+        parts.append(f"Contact support at {support} after payment.")
+    return " ".join(parts)
+
+
+async def _recharge_methods_payload() -> list[dict]:
+    return await shared_recharge_methods_payload("en", methods=await get_owner_payment_methods())
 
 
 def _iso_datetime(value) -> str | None:
@@ -173,6 +264,67 @@ async def account(request: web.Request) -> web.Response:
                 "balance_label": _format_money(balance),
             },
             "recent_activity": recent_activity,
+        },
+        headers=_response_headers(rate_limit),
+    )
+
+
+async def recharge_options(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:account:read")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:recharge", limit=60)
+
+    balance = await get_user_wallet_balance(auth.user_id, auth.reseller_id)
+    methods = await _recharge_methods_payload()
+    return web.json_response(
+        {
+            "ok": True,
+            "wallet": {
+                "balance": float(balance),
+                "currency": "USD",
+                "balance_label": _format_money(balance),
+            },
+            "methods": methods,
+            "actions": {
+                "submit_recharge": _api_action(
+                    "submit_recharge",
+                    enabled=False,
+                    endpoint="/api/v1/numbers/recharge/submit",
+                    method="POST",
+                    label="Submit recharge proof",
+                    reason="miniapp_only",
+                )
+            },
+            "capabilities": {
+                "submit_recharge_proof": False,
+                "reason": "Recharge proof upload still requires the authenticated Telegram Mini App review flow.",
+            },
+        },
+        headers=_response_headers(rate_limit),
+    )
+
+
+async def support_options(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:account:read")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:support", limit=60)
+
+    return web.json_response(
+        {
+            "ok": True,
+            "categories": [{"key": key, "label": label} for key, label in _SUPPORT_CATEGORIES],
+            "actions": {
+                "submit_ticket": _api_action(
+                    "submit_ticket",
+                    enabled=False,
+                    endpoint="/api/v1/numbers/support/ticket",
+                    method="POST",
+                    label="Submit support ticket",
+                    reason="miniapp_only",
+                )
+            },
+            "capabilities": {
+                "submit_ticket": False,
+                "reason": "Support ticket replies still depend on Telegram chat threads.",
+            },
         },
         headers=_response_headers(rate_limit),
     )
@@ -669,9 +821,13 @@ async def create_order(request: web.Request) -> web.Response:
 
 def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/numbers/health", health)
+    app.router.add_get("/api/v1/numbers/docs", api_docs)
+    app.router.add_get("/api/v1/numbers/openapi.json", openapi_schema)
     app.router.add_get("/api/v1/numbers/catalog/bootstrap", catalog_bootstrap)
     app.router.add_get("/api/v1/numbers/country-suggestions", country_suggestions)
     app.router.add_get("/api/v1/numbers/account", account)
+    app.router.add_get("/api/v1/numbers/recharge", recharge_options)
+    app.router.add_get("/api/v1/numbers/support", support_options)
     app.router.add_get("/api/v1/numbers/quotes", quotes)
     app.router.add_get("/api/v1/numbers/orders", list_orders)
     app.router.add_get("/api/v1/numbers/orders/{order_id}", get_order_detail)

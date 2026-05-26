@@ -40,9 +40,9 @@ The script prints JSON lines and scrubs secrets. It checks balance support, serv
 | `herosms` | Supported; live balance returned | Confirmed incoming SMS webhook | Passed | Attempted; provider returned `NO_NUMBERS` for low-cost US service | Pending | `NO_NUMBERS` maps to `provider_no_stock`; numeric country mapping fixed/preserved | Use after one real webhook event |
 | `telabot` | Supported; live balance returned as provider payload | Confirmed: `incoming_message` | Passed | Passed: low-cost order created and immediate reject succeeded | Pending | Purchase/reject success path verified; priority/no-stock samples still useful | Use after one real webhook event |
 | `nonvoip` | Unsupported by supplied docs | Confirmed profile webhook | Passed | Passed: low-cost order created; immediate refund returned `Not sufficient` | Pending | `Not sufficient` maps to `provider_balance_low`; provider `500` remains unknown/provider error | Quarantine immediate auto-refund until refund semantics are clarified |
-| `pvapins` | Supported; adapter parser verified | Not confirmed; supplied docs emphasize polling | Route exists but not trusted | Pending | Not trusted | Needs webhook docs or dashboard callback proof | Quarantine for webhook-only mode |
-| `vaksms` | Supported; live balance returned | Not confirmed; supplied docs are polling/read endpoints | Route exists but not trusted | Pending | Not trusted | Factory fixed; needs webhook docs | Quarantine for webhook-only mode |
-| `smspool` | Supported; live balance returned | Not confirmed in reviewed docs | Route exists but not trusted | Pending | Not trusted | Needs webhook docs or account-manager confirmation | Quarantine for webhook-only mode |
+| `pvapins` | Supported; adapter parser verified | Confirmed unavailable by account/docs | Generic route exists but normal delivery is polling | Not applicable | Polling required | Explicit polling exception; no webhook expected | Verify polling/no-code refund live |
+| `vaksms` | Supported; live balance returned | Confirmed unavailable by account/docs | Generic route exists but normal delivery is polling | Not applicable | Polling required | Factory fixed; no webhook expected | Verify polling/no-code refund live |
+| `smspool` | Supported; live balance returned | Confirmed unavailable by account/docs | Generic route exists but normal delivery is polling | Not applicable | Polling required | No webhook expected | Verify polling/no-code refund live |
 
 ## Live Run 2026-05-26
 
@@ -100,15 +100,16 @@ Current policy summary:
 | `herosms` | `webhook_pending` | yes | yes | yes |
 | `nonvoip` | `refund_risk` | yes | yes | no |
 | `smsready` | `disabled` | no | no | no |
-| `pvapins` | `quarantine` | no | no | no |
-| `vaksms` | `quarantine` | no | no | no |
-| `smspool` | `quarantine` | no | no | no |
+| `pvapins` | `polling_required` | yes | yes | no |
+| `vaksms` | `polling_required` | yes | yes | no |
+| `smspool` | `polling_required` | yes | yes | no |
 
 ## Findings So Far
 
 - `smsready` and `nonvoip` do not expose account balance endpoints in the supplied docs. Their adapters intentionally return `None` for balance.
 - `vaksms` is now registered in `ProviderFactory`.
 - `pvapins` balance parsing is covered by tests and live adapter checks returned a numeric value.
+- `pvapins`, `vaksms`, and `smspool` are confirmed polling-only for current accounts and are explicit provider-level polling exceptions. They should not require `NUMBERS_PROVIDER_SMS_POLLING_ENABLED=true` globally.
 - non-VoIP negative probes with invalid ids returned provider `500 Internal Server Error`; this must remain `PROVIDER_ERROR`, not provider balance.
 - non-VoIP documented insufficient-funds text is `Not sufficient`; it maps to `PROVIDER_BALANCE_LOW`.
 - non-VoIP live immediate `refund_number` after a successful order returned `Not sufficient`; do not assume no-code refund is production-safe for this provider yet.

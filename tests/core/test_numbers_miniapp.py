@@ -21,12 +21,17 @@ def test_numbers_bootstrap_payload_has_core_filters():
     payload = miniapp._bootstrap_payload()
 
     assert payload["defaults"] == {"mode": "temp", "service": "", "country": "none", "state": "none"}
-    assert payload["client"] == {
-        "primary_surface": "miniapp",
-        "telegram_order_flow_enabled": False,
-        "provider_sms_polling_enabled": False,
-        "manual_customer_refund_enabled": False,
-    }
+    assert payload["client"]["primary_surface"] == "miniapp"
+    assert payload["client"]["telegram_order_flow_enabled"] is False
+    assert payload["client"]["provider_sms_polling_enabled"] is False
+    assert payload["client"]["manual_customer_refund_enabled"] is False
+    assert [item["key"] for item in payload["client"]["tabs"]] == ["buy", "orders", "recharge", "account", "support"]
+    assert payload["client"]["actions"]["orders"]["endpoint"] == "/mini/numbers/api/orders"
+    assert payload["client"]["actions"]["country_suggestions"]["endpoint"] == "/mini/numbers/api/country-suggestions"
+    assert payload["client"]["actions"]["purchase"]["endpoint"] == "/mini/numbers/api/purchase"
+    assert payload["client"]["actions"]["purchase"]["method"] == "POST"
+    assert payload["client"]["actions"]["submit_recharge"]["method"] == "POST"
+    assert payload["client"]["features"]["server_managed_refunds"] is True
     assert [item["key"] for item in payload["modes"]] == ["temp", "rental", "voice"]
     us_country = next(item for item in payload["countries"] if item["code"] == "1")
     any_state = next(item for item in payload["states_us"] if item["code"] == "none")
@@ -80,7 +85,7 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
 
     rows = miniapp._normalize_provider_rows(
         {
-            "alpha_provider": {
+            "textverified": {
                 "price": 1.25,
                 "base_price": 1.0,
                 "api_service_name": "telegram",
@@ -90,7 +95,7 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
                 "context_success_attempts": 5,
                 "provider_state_code": "CA",
             },
-            "beta_provider": {
+            "telabot": {
                 "price": 0,
                 "available_for_buy": False,
                 "provider_reason": "provider_balance_low",
@@ -111,6 +116,9 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
     assert len(rows) == 1
     assert rows[0]["available"] is True
     assert rows[0]["recommended"] is True
+    assert rows[0]["purchase_action"]["enabled"] is True
+    assert rows[0]["purchase_action"]["endpoint"] == "/mini/numbers/api/purchase"
+    assert rows[0]["purchase_action"]["body"]["quote_token"] == rows[0]["quote_token"]
 
 
 @pytest.mark.asyncio
@@ -348,6 +356,8 @@ def test_numbers_rental_options_include_signed_quotes(monkeypatch):
 
     option = rows[0]["options"][0]
     assert option["duration_label"] == "2h"
+    assert option["purchase_action"]["enabled"] is True
+    assert option["purchase_action"]["body"]["quote_token"] == option["quote_token"]
     quote = miniapp._api_verify_quote_token(option["quote_token"])
     assert quote["mode"] == "rental"
     assert quote["service"] == "google"
@@ -417,6 +427,8 @@ def test_numbers_voice_rows_include_signed_quote(monkeypatch):
     assert quote["service"] == "attapoll"
     assert quote["country"] == "1"
     assert quote["state"] == "none"
+    assert rows[0]["purchase_action"]["endpoint"] == "/mini/numbers/api/purchase"
+    assert rows[0]["purchase_action"]["body"]["quote_token"] == rows[0]["quote_token"]
 
 
 def test_numbers_price_rows_mark_best_choice_and_hide_unavailable(monkeypatch):
@@ -574,6 +586,8 @@ def test_numbers_voice_rows_preserve_selected_state_in_quote(monkeypatch):
 
     assert quote["mode"] == "voice"
     assert quote["state"] == "NY"
+    assert rows[0]["purchase_action"]["method"] == "POST"
+    assert rows[0]["purchase_action"]["body"]["quote_token"] == rows[0]["quote_token"]
 
 
 def test_numbers_voice_order_payload_exposes_recording_download():
@@ -598,6 +612,9 @@ def test_numbers_voice_order_payload_exposes_recording_download():
     assert payload["public_status"] == "call_received"
     assert payload["recording_available"] is True
     assert payload["recording_url"] == "/mini/numbers/api/orders/voice-order-id/recording"
+    assert payload["actions"]["preview_recording"]["enabled"] is True
+    assert payload["actions"]["preview_recording"]["method"] == "GET"
+    assert payload["actions"]["download_recording"]["endpoint"] == "/mini/numbers/api/orders/voice-order-id/recording"
     assert "base_price_label" not in payload
 
 
@@ -706,6 +723,15 @@ def test_numbers_temp_order_payload_exposes_second_code_action():
     assert details["provider"] == "Bravo"
     assert details["country"] == "United States"
     assert details["reuseUntil"].endswith("UTC")
+    assert payload["actions"]["copy_number"]["enabled"] is True
+    assert payload["actions"]["copy_number"]["method"] == "CLIENT"
+    assert payload["actions"]["copy_code"]["enabled"] is True
+    assert payload["actions"]["refresh"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/refresh"
+    assert payload["actions"]["refresh"]["busy_label_key"] == "checkingOrder"
+    assert payload["actions"]["second_code"]["enabled"] is True
+    assert payload["actions"]["second_code"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/second-code"
+    assert payload["actions"]["second_code"]["confirm_label_key"] == "confirmSecondCode"
+    assert payload["actions"]["second_code"]["success_label_key"] == "secondCodeRequested"
 
 
 def test_numbers_temp_order_payload_uses_provisioning_provider_fallback():
@@ -766,6 +792,8 @@ def test_numbers_temp_second_code_pending_hides_old_code():
     assert payload["public_status"] == "waiting"
     assert payload["code"] == ""
     assert payload["can_second_code"] is False
+    assert payload["actions"]["copy_code"]["enabled"] is False
+    assert payload["actions"]["second_code"]["enabled"] is False
 
 
 def test_numbers_refund_pending_temp_order_can_refresh():
@@ -1796,6 +1824,15 @@ def test_numbers_rental_order_payload_exposes_renew_and_wake_actions():
     assert payload["notes"] == "Keep alive"
     assert payload["tags"] == ["vip", "login"]
     assert "base_price_label" not in payload
+    assert payload["actions"]["rental_sms"]["endpoint"] == "/mini/numbers/api/orders/rental-order-id/sms"
+    assert payload["actions"]["rental_sms"]["idempotency_key"] == "miniapp-rental-sms-rental-order-id"
+    assert payload["actions"]["rental_renew"]["enabled"] is True
+    assert payload["actions"]["rental_renew"]["confirm_label_key"] == "renew"
+    assert payload["actions"]["rental_renew"]["idempotency_key"] == "miniapp-rental-renew-rental-order-id"
+    assert payload["actions"]["rental_wake"]["enabled"] is True
+    assert payload["actions"]["rental_notes"]["enabled"] is True
+    assert payload["actions"]["rental_finish"]["endpoint"] == "/mini/numbers/api/orders/rental-order-id/finish"
+    assert payload["actions"]["rental_finish"]["confirm_label_key"] == "finish"
     details = {item["key"]: item["value"] for item in payload["details"]}
     assert details["provider"] == "Bravo"
     assert details["country"] == "United States"
@@ -1889,11 +1926,12 @@ def test_numbers_miniapp_frontend_has_no_order_auto_polling():
     assert "ORDER_POLL_INTERVAL_MS" not in source
     assert "orderNeedsPolling" not in source
     assert "scheduleOrderPoll" not in source
-    assert "options.headers || {}" in source
+    assert "orderActionHeaders(order, key, options.headers)" in source
+    assert "orderActionIdempotencyKey(order, key)" in source
     assert "miniapp-purchase-" in source
-    assert "miniapp-rental-" in source
-    assert "miniapp-replace-" in source
-    assert "miniapp-alternate-" in source
+    assert "miniapp-rental-" not in source
+    assert "miniapp-replace-" not in source
+    assert "miniapp-alternate-" not in source
     assert "state.client = payload.client || {}" in source
 
 

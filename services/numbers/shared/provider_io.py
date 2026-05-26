@@ -6,7 +6,7 @@ from services.numbers.provider_delivery import provider_sms_polling_enabled
 
 
 async def fetch_provider_sms(providers: dict[str, Any], provider_code: str, provider_order_id: str) -> dict:
-    if not provider_sms_polling_enabled():
+    if not provider_sms_polling_enabled(provider_code):
         return {
             "success": True,
             "messages": [],

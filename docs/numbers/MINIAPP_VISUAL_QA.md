@@ -15,6 +15,7 @@ Use this checklist after each Railway deploy that touches `/mini/numbers`.
 - [ ] Provider cards keep provider name, star badge, price, and Buy button separated.
 - [ ] Best provider takes the full row.
 - [ ] Other providers render two per row without overflow.
+- [ ] Temp/voice Buy buttons and rental option buttons execute the backend `purchase_action` payload.
 - [ ] Country cannot be opened before service selection.
 - [ ] State appears only for United States and resets when switching modes.
 - [ ] Call number locks country to United States.
@@ -27,6 +28,8 @@ Use this checklist after each Railway deploy that touches `/mini/numbers`.
 - [ ] Resend/second-code action appears only after a code is received and shows the resend price.
 - [ ] Refund state is visible when an order is refunded or pending support review.
 - [ ] No primary manual refund button appears for temporary orders.
+- [ ] Order action buttons match the backend `actions` payload; disabled/unavailable actions do not render, and button execution uses the backend-provided endpoint/method.
+- [ ] Order actions still work if the frontend has no local knowledge of `/mini/numbers/api/orders/{id}/...` paths or action idempotency keys; endpoints, confirmation labels, busy labels, success labels, and idempotency keys come from the order payload.
 - [ ] Call number waiting state shows timeline and Check call action.
 - [ ] Call recording can be played in-app and downloaded.
 - [ ] Rental number shows SMS, finish, renew, wake, and notes actions when supported.
@@ -42,6 +45,8 @@ Use this checklist after each Railway deploy that touches `/mini/numbers`.
 
 ## Account And Support
 
+- [ ] Bottom tabs render from the bootstrap `client.tabs` payload and still show Buy, Orders, Recharge, Account, and Support.
+- [ ] Country suggestions, prices, purchase, Account, Orders, Recharge, Support, language, recharge submit, and support submit calls use the backend `client.actions` endpoint/method contract where they are not order-specific actions.
 - [ ] Bottom Recharge tab opens the in-app recharge form.
 - [ ] Recharge methods, payment target, rate, amount input, proof upload, and submit button render without overlap.
 - [ ] Recharge request submit creates a pending request and updates the recent recharge list.

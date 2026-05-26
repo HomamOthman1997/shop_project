@@ -1,6 +1,6 @@
 # SMSPool Provider API
 
-Status: adapter documented; public docs reviewed as polling-only  
+Status: confirmed polling-only for current account; enabled through provider-level polling exception
 Adapter: `services/numbers/providers/smspool_provider.py`  
 Provider code: `smspool`
 
@@ -45,11 +45,11 @@ SMSPool is not listed as normal finite rental in manager capabilities, but the a
 | Rental info | POST form fallback | `/rental/info`, fallback `/rental/retrieve` | `key`, `rental_code` |
 | Rental refund/finish | POST form fallback | `/rental/refund`, fallback `/rental/refund.php` | `key`, `rental_code` |
 
-## Webhooks
+## Delivery Strategy
 
-No webhook/callback entry was found in the reviewed SMSPool Postman collection. Current implementation still has a generic inbound route, but SMSPool should be treated as polling-only until support confirms callbacks.
+No webhook/callback entry was found in the reviewed SMSPool Postman collection, and the account was confirmed to have no webhook support. SMSPool must be treated as polling-only.
 
-Local route if support gives a payload:
+Local generic route exists only for future compatibility:
 
 ```text
 POST /api/v1/provider-webhooks/smspool
@@ -57,7 +57,5 @@ POST /api/v1/provider-webhooks/smspool
 
 ## Missing Or Needs Live Verification
 
-- SMSPool webhook/callback docs, if they exist.
 - Rental refund response examples and refund window policy.
 - Whether `/sms/check` returns a stable message array for all products or can return a single text/code field.
-

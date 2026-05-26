@@ -21,10 +21,6 @@ from typing import Any
 
 from urllib.parse import parse_qsl
 
-from aiogram import Bot
-
-from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
-
 from aiohttp import web
 
 from bson import ObjectId
@@ -35,8 +31,6 @@ from database import number_events_repo, temp_number_stats_repo
 
 from database.financial_ledger import get_user_wallet_balance, list_user_wallet_entries
 from database.mongo import db
-from database.owner_payment_settings_repo import get_owner_exchange_rate, get_owner_payment_methods
-
 from database.orders_repo import (
 
     create_order,
@@ -57,12 +51,6 @@ from database.orders_repo import (
 
 )
 
-from database.recharge_repo import create_recharge_request
-
-from database.support_tickets_repo import create_support_ticket, has_open_support_ticket, set_ticket_delivery
-
-from database.support_topics_repo import get_support_target
-
 from database.user_repo import create_user, get_user, update_user_language
 
 from services.numbers.data.countries import COUNTRIES_LIST
@@ -79,6 +67,23 @@ from services.numbers.api_payloads import (
 from services.numbers.country_suggestions_service import (
     _CHEAP_COUNTRY_CACHE,
     country_suggestions_for_service as _shared_country_suggestions_for_service,
+)
+from services.numbers.customer_flows import (
+    MAX_RECHARGE_PROOF_BYTES,
+    SUPPORT_CATEGORIES as _SHARED_SUPPORT_CATEGORIES,
+    currency_label as _shared_currency_label,
+    numbers_source_bot_id as _shared_numbers_source_bot_id,
+    recent_recharge_requests_payload as _shared_recent_recharge_requests_payload,
+    recharge_methods_payload as _shared_recharge_methods_payload,
+    recharge_per_credit as _shared_recharge_per_credit,
+    recharge_request_payload as _shared_recharge_request_payload,
+    recharge_status_label as _shared_recharge_status_label,
+    render_recharge_instructions as _shared_render_recharge_instructions,
+    submit_recharge_request as _shared_submit_recharge_request,
+    submit_support_ticket as _shared_submit_support_ticket,
+    support_bridge_token as _shared_support_bridge_token,
+    support_categories_payload as _shared_support_categories_payload,
+    support_category_label as _shared_support_category_label,
 )
 
 from services.numbers.order_refresh_service import refresh_number_order as _api_refresh_number_order
@@ -208,9 +213,7 @@ from utils.core_service_guard import finance_error_public_text
 
 from utils.financial_manager import FinancialManager
 
-from utils.bot_menu_context import extract_bot_id_from_token, numbers_bot_url
-
-from utils.recharge_ui import owner_reseller_topup_review_kb
+from utils.bot_menu_context import numbers_bot_url
 
 from utils.provider_alias import provider_code_from_public_id, provider_display_name, provider_public_id
 
@@ -251,13 +254,143 @@ _MAX_PRICE_ROWS = 16
 
 _HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
 
-_SUPPORT_CATEGORIES = ("numbers", "user_balance")
+_SUPPORT_CATEGORIES = _SHARED_SUPPORT_CATEGORIES
 
 _TEMP_MY_NUMBERS_RETENTION_DAYS = 5
 
 _VOICE_GENERIC_SERVICE = "servicenotlistedvoice"
 
 _TEXTVERIFIED_RENTAL_STATE_SURCHARGE = 2.0
+
+_MINIAPP_SURFACE_TABS = (
+    ("buy", "tabBuy", "buy", False),
+    ("orders", "tabOrders", "orders", True),
+    ("recharge", "tabRecharge", "recharge", True),
+    ("account", "tabAccount", "account", True),
+    ("support", "tabSupport", "support", True),
+)
+
+
+def _miniapp_surface_tabs() -> list[dict[str, Any]]:
+    return [
+        {
+            "key": key,
+            "label_key": label_key,
+            "icon": icon,
+            "enabled": True,
+            "requires_auth": requires_auth,
+        }
+        for key, label_key, icon, requires_auth in _MINIAPP_SURFACE_TABS
+    ]
+
+
+def _miniapp_surface_action(
+    key: str,
+    endpoint: str,
+    *,
+    method: str = "GET",
+    enabled: bool = True,
+    requires_auth: bool = True,
+    label_key: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    return {
+        "key": key,
+        "enabled": bool(enabled),
+        "label_key": label_key or key,
+        "endpoint": endpoint,
+        "method": method.upper(),
+        "requires_auth": bool(requires_auth),
+        "reason": reason if enabled else (reason or "disabled"),
+    }
+
+
+def _miniapp_surface_actions() -> dict[str, dict[str, Any]]:
+    return {
+        "bootstrap": _miniapp_surface_action(
+            "bootstrap",
+            "/mini/numbers/api/bootstrap",
+            requires_auth=False,
+            label_key="loading",
+        ),
+        "account": _miniapp_surface_action(
+            "account",
+            "/mini/numbers/api/account",
+            label_key="account",
+        ),
+        "change_language": _miniapp_surface_action(
+            "change_language",
+            "/mini/numbers/api/account/language",
+            method="POST",
+            label_key="language",
+        ),
+        "orders": _miniapp_surface_action(
+            "orders",
+            "/mini/numbers/api/orders",
+            label_key="tabOrders",
+        ),
+        "prices": _miniapp_surface_action(
+            "prices",
+            "/mini/numbers/api/prices",
+            requires_auth=False,
+            label_key="check",
+        ),
+        "country_suggestions": _miniapp_surface_action(
+            "country_suggestions",
+            "/mini/numbers/api/country-suggestions",
+            requires_auth=False,
+            label_key="country",
+        ),
+        "purchase": _miniapp_surface_action(
+            "purchase",
+            "/mini/numbers/api/purchase",
+            method="POST",
+            label_key="buy",
+        ),
+        "recharge": _miniapp_surface_action(
+            "recharge",
+            "/mini/numbers/api/recharge",
+            label_key="recharge",
+        ),
+        "submit_recharge": _miniapp_surface_action(
+            "submit_recharge",
+            "/mini/numbers/api/recharge/submit",
+            method="POST",
+            label_key="submitRecharge",
+        ),
+        "support": _miniapp_surface_action(
+            "support",
+            "/mini/numbers/api/support",
+            label_key="support",
+        ),
+        "submit_support_ticket": _miniapp_surface_action(
+            "submit_support_ticket",
+            "/mini/numbers/api/support/ticket",
+            method="POST",
+            label_key="sendSupport",
+        ),
+    }
+
+
+def _miniapp_surface_payload() -> dict[str, Any]:
+    return {
+        "primary_surface": "miniapp",
+        "telegram_order_flow_enabled": bool(getattr(settings, "numbers_telegram_order_flow_enabled", False)),
+        "provider_sms_polling_enabled": provider_sms_polling_enabled(),
+        "manual_customer_refund_enabled": False,
+        "tabs": _miniapp_surface_tabs(),
+        "actions": _miniapp_surface_actions(),
+        "features": {
+            "buy": True,
+            "orders": True,
+            "recharge": True,
+            "account": True,
+            "support": True,
+            "telegram_reply_keyboard_order_flow": False,
+            "server_managed_refunds": True,
+            "webhook_first_delivery": not provider_sms_polling_enabled(),
+        },
+    }
 
 _EXTRA_SERVICE_SEARCH_ALIASES: dict[str, tuple[str, ...]] = {
 
@@ -459,14 +592,6 @@ def _support_categories_payload(lang: str) -> list[dict[str, str]]:
 
     return [{"key": key, "label": _support_category_label(lang, key)} for key in _SUPPORT_CATEGORIES]
 
-def _support_bridge_token() -> str:
-
-    return str(getattr(settings, "bot_admin_token", "") or "").strip()
-
-def _numbers_source_bot_id() -> int:
-
-    return int(extract_bot_id_from_token(getattr(settings, "bot_numbers_token", "")) or 0)
-
 def _auth_profile(auth: dict[str, Any], user_doc: dict[str, Any] | None = None) -> dict[str, str]:
 
     tg_user = auth.get("user") if isinstance(auth.get("user"), dict) else {}
@@ -484,82 +609,6 @@ def _auth_profile(auth: dict[str, Any], user_doc: dict[str, Any] | None = None) 
         full_name = str((user_doc or {}).get("full_name") or "").strip()
 
     return {"username": username, "full_name": full_name}
-
-def _support_ticket_header_text(
-
-    *,
-
-    lang: str,
-
-    ticket_no: int,
-
-    category: str,
-
-    user_id: int,
-
-    username: str,
-
-    full_name: str,
-
-) -> str:
-
-    username_display = f"@{username}" if username else "-"
-
-    full_name_display = full_name or "-"
-
-    category_label = _support_category_label(lang, category)
-
-    if str(lang or "").lower().startswith("ar"):
-
-        return (
-
-            f"تذكرة دعم #{int(ticket_no or 0)}\n"
-
-            f"القسم: {category_label}\n"
-
-            f"المصدر: Numbers Mini App\n"
-
-            f"User ID: {int(user_id)}\n"
-
-            f"Username: {username_display}\n"
-
-            f"Name: {full_name_display}"
-
-        )
-
-    return (
-
-        f"Support ticket #{int(ticket_no or 0)}\n"
-
-        f"Category: {category_label}\n"
-
-        f"Source: Numbers Mini App\n"
-
-        f"User ID: {int(user_id)}\n"
-
-        f"Username: {username_display}\n"
-
-        f"Name: {full_name_display}"
-
-    )
-
-def _support_ticket_action_markup(ticket_id: str) -> InlineKeyboardMarkup:
-
-    return InlineKeyboardMarkup(
-
-        inline_keyboard=[
-
-            [
-
-                InlineKeyboardButton(text="Reply", callback_data=f"support:reply_ticket:{ticket_id}"),
-
-                InlineKeyboardButton(text="Solved", callback_data=f"support:solve_ticket:{ticket_id}"),
-
-            ]
-
-        ]
-
-    )
 
 def _ledger_reason_label(reason: Any, category: Any, lang: str) -> str:
 
@@ -796,84 +845,13 @@ def _ledger_activity_payload(
     return rows
 
 def _currency_label(amount: Any, currency: Any) -> str:
-
-    code = str(currency or "USD").strip().upper() or "USD"
-
-    try:
-
-        value = float(amount or 0.0)
-
-    except Exception:
-
-        value = 0.0
-
-    if code == "USD":
-
-        text = f"{value:.4f}".rstrip("0").rstrip(".")
-
-        return f"${text or '0'}"
-
-    if value.is_integer():
-
-        text = str(int(value))
-
-    else:
-
-        text = f"{value:.4f}".rstrip("0").rstrip(".")
-
-    return f"{text} {code}"
+    return _shared_currency_label(amount, currency)
 
 async def _recharge_per_credit(method: dict[str, Any]) -> float:
-
-    try:
-
-        per_credit = float(method.get("per_credit") or 0.0)
-
-    except Exception:
-
-        per_credit = 0.0
-
-    if per_credit > 0:
-
-        return per_credit
-
-    if str(method.get("currency") or "USD").strip().upper() == "SYP":
-
-        return float(await get_owner_exchange_rate())
-
-    return 1.0
+    return await _shared_recharge_per_credit(method)
 
 def _render_recharge_instructions(method: dict[str, Any], *, rate: float) -> str:
-
-    raw_target = str(method.get("target") or "").strip()
-
-    currency = str(method.get("currency") or "USD").strip().upper() or "USD"
-
-    instructions = str(method.get("instructions") or "").strip()
-
-    try:
-
-        instructions = instructions.format(
-
-            target=raw_target or "-",
-
-            support=method.get("support", "@support"),
-
-            per_credit=rate,
-
-            currency=currency,
-
-        )
-
-    except Exception:
-
-        pass
-
-    if raw_target:
-
-        instructions = instructions.replace(raw_target, "").strip()
-
-    return instructions
+    return _shared_render_recharge_instructions(method, rate=rate)
 
 async def _recharge_method_payload(method: dict[str, Any], lang: str) -> dict[str, Any]:
 
@@ -912,22 +890,7 @@ async def _recharge_method_payload(method: dict[str, Any], lang: str) -> dict[st
     }
 
 async def _recharge_methods_payload(lang: str) -> list[dict[str, Any]]:
-
-    rows = []
-
-    for method in await get_owner_payment_methods():
-
-        if not bool(method.get("enabled", True)):
-
-            continue
-
-        payload = await _recharge_method_payload(method, lang)
-
-        if payload["code"]:
-
-            rows.append(payload)
-
-    return rows
+    return await _shared_recharge_methods_payload(lang, text_fn=_text)
 
 def _recharge_status_label(status: Any, lang: str) -> str:
 
@@ -952,50 +915,23 @@ def _recharge_status_label(status: Any, lang: str) -> str:
     return _text(lang, en, ar)
 
 def _recharge_request_payload(req: dict[str, Any], lang: str) -> dict[str, Any]:
-
-    details = req.get("details") if isinstance(req.get("details"), dict) else {}
-
-    paid_amount = details.get("paid_amount")
-
-    paid_currency = str(details.get("paid_currency") or "USD").strip().upper() or "USD"
-
-    return {
-
-        "id": str(req.get("_id") or ""),
-
-        "method": str(req.get("method") or "-"),
-
-        "status": str(req.get("status") or "pending"),
-
-        "status_label": _recharge_status_label(req.get("status"), lang),
-
-        "credits": float(req.get("approved_amount") or req.get("amount") or 0.0),
-
-        "credits_label": _money(req.get("approved_amount") or req.get("amount") or 0.0),
-
-        "paid_label": _currency_label(paid_amount, paid_currency) if paid_amount is not None else "",
-
-        "created_at": _compact_datetime(req.get("created_at")),
-
-        "updated_at": _compact_datetime(req.get("updated_at")),
-
-        "delivery_ok": bool((req.get("delivery") or {}).get("delivered")),
-
-    }
+    return _shared_recharge_request_payload(
+        req,
+        lang,
+        money_fn=_money,
+        compact_datetime_fn=_compact_datetime,
+        text_fn=_text,
+    )
 
 async def _recent_recharge_requests_payload(user_id: int, lang: str, *, limit: int = 6) -> list[dict[str, Any]]:
-
-    rows = await db.recharge_requests.find(
-
-        {"user_id": int(user_id), "wallet_type": "user"},
-
-        sort=[("created_at", -1)],
-
-        limit=int(limit),
-
-    ).to_list(int(limit))
-
-    return [_recharge_request_payload(row, lang) for row in rows]
+    return await _shared_recent_recharge_requests_payload(
+        user_id,
+        lang,
+        limit=limit,
+        money_fn=_money,
+        compact_datetime_fn=_compact_datetime,
+        text_fn=_text,
+    )
 
 async def _recharge_payload(user_id: int, lang: str) -> dict[str, Any]:
 
@@ -1030,380 +966,6 @@ async def _recharge_payload(user_id: int, lang: str) -> dict[str, Any]:
         "bot_url": numbers_bot_url("balance"),
 
         "max_proof_bytes": 6 * 1024 * 1024,
-
-    }
-
-def _recharge_review_caption(
-
-    *,
-
-    request_id: str,
-
-    auth: dict[str, Any],
-
-    user_doc: dict[str, Any] | None,
-
-    req: dict[str, Any],
-
-    method: dict[str, Any],
-
-) -> str:
-
-    profile = _auth_profile(auth, user_doc)
-
-    username = f"@{profile['username']}" if profile.get("username") else "-"
-
-    full_name = profile.get("full_name") or "-"
-
-    details = req.get("details") if isinstance(req.get("details"), dict) else {}
-
-    return (
-
-        "Manual Payment Request\n\n"
-
-        f"Request ID: {request_id}\n"
-
-        f"User ID: {int(auth['user_id'])}\n"
-
-        f"Username: {username}\n"
-
-        f"Full name: {full_name}\n"
-
-        f"Source: Numbers Mini App\n"
-
-        f"Method: {method.get('title') or method.get('code') or req.get('method') or '-'}\n"
-
-        f"Paid Amount: {float(details.get('paid_amount') or 0.0):.4f} {details.get('paid_currency') or 'USD'}\n"
-
-        f"Credits Unit: $ credits\n"
-
-        f"Credited To User: {float(req.get('amount') or 0.0):.4f}\n"
-
-        f"Created At: {req.get('created_at')}"
-
-    )
-
-async def _notify_recharge_review_from_miniapp(
-
-    *,
-
-    auth: dict[str, Any],
-
-    user_doc: dict[str, Any],
-
-    req: dict[str, Any],
-
-    method: dict[str, Any],
-
-    proof_bytes: bytes,
-
-    proof_filename: str,
-
-    proof_content_type: str,
-
-) -> tuple[bool, str, int | None, int | None, int | None]:
-
-    token = _support_bridge_token()
-
-    target = await db.system_settings.find_one({"_id": "owner_notifications"}) or {}
-
-    chat_id = target.get("chat_id")
-
-    if not token or not isinstance(chat_id, int):
-
-        return False, "owner_notifications_not_configured", None, None, None
-
-    thread_id = target.get("message_thread_id")
-
-    kwargs: dict[str, Any] = {
-
-        "chat_id": int(chat_id),
-
-        "reply_markup": owner_reseller_topup_review_kb(str(req.get("_id"))),
-
-    }
-
-    if thread_id is not None:
-
-        kwargs["message_thread_id"] = int(thread_id)
-
-    caption = _recharge_review_caption(
-
-        request_id=str(req.get("_id")),
-
-        auth=auth,
-
-        user_doc=user_doc,
-
-        req=req,
-
-        method=method,
-
-    )
-
-    bot = Bot(token=token)
-
-    try:
-
-        upload = BufferedInputFile(proof_bytes, filename=proof_filename or "recharge-proof.jpg")
-
-        if str(proof_content_type or "").lower().startswith("image/"):
-
-            try:
-
-                sent = await bot.send_photo(photo=upload, caption=caption, **kwargs)
-
-            except Exception:
-
-                upload = BufferedInputFile(proof_bytes, filename=proof_filename or "recharge-proof.jpg")
-
-                sent = await bot.send_document(document=upload, caption=caption, **kwargs)
-
-        else:
-
-            sent = await bot.send_document(document=upload, caption=caption, **kwargs)
-
-        return (
-
-            True,
-
-            "owner_topic",
-
-            int(getattr(sent, "message_id", 0) or 0),
-
-            int(chat_id),
-
-            int(thread_id) if thread_id is not None else None,
-
-        )
-
-    except Exception as exc:
-
-        logger.exception("numbers miniapp recharge review delivery failed request=%s", req.get("_id"))
-
-        return False, f"owner_topic_send_failed:{exc}", None, None, None
-
-    finally:
-
-        await bot.session.close()
-
-async def _parse_recharge_submit_form(request: web.Request) -> tuple[dict[str, str], bytes, str, str]:
-
-    if not str(request.content_type or "").lower().startswith("multipart/"):
-
-        raise web.HTTPBadRequest(text="multipart form required")
-
-    reader = await request.multipart()
-
-    fields: dict[str, str] = {}
-
-    proof_bytes = b""
-
-    proof_filename = "recharge-proof.jpg"
-
-    proof_content_type = ""
-
-    max_size = 6 * 1024 * 1024
-
-    async for part in reader:
-
-        name = str(part.name or "").strip()
-
-        if name == "proof":
-
-            proof_filename = str(part.filename or proof_filename).strip() or proof_filename
-
-            proof_content_type = str(part.headers.get("Content-Type") or "").strip()
-
-            proof_bytes = await part.read(decode=False)
-
-            if len(proof_bytes) > max_size:
-
-                raise web.HTTPRequestEntityTooLarge(max_size=max_size, actual_size=len(proof_bytes))
-
-            continue
-
-        value = await part.text()
-
-        fields[name] = str(value or "").strip()
-
-    return fields, proof_bytes, proof_filename, proof_content_type
-
-async def _submit_recharge_request_from_miniapp(
-
-    *,
-
-    auth: dict[str, Any],
-
-    user_doc: dict[str, Any],
-
-    lang: str,
-
-    fields: dict[str, str],
-
-    proof_bytes: bytes,
-
-    proof_filename: str,
-
-    proof_content_type: str,
-
-) -> dict[str, Any]:
-
-    method_code = str(fields.get("method_code") or "").strip()
-
-    if not method_code:
-
-        return {"ok": False, "code": "missing_method", "message": _text(lang, "Choose a payment method.", "اختر طريقة دفع.")}
-
-    method_rows = [row for row in await get_owner_payment_methods() if bool(row.get("enabled", True))]
-
-    method = next((row for row in method_rows if str(row.get("code") or "").strip() == method_code), None)
-
-    if not method:
-
-        return {"ok": False, "code": "invalid_method", "message": _text(lang, "Choose a valid payment method.", "اختر طريقة دفع صحيحة.")}
-
-    if not proof_bytes:
-
-        return {"ok": False, "code": "missing_proof", "message": _text(lang, "Upload the payment proof image.", "ارفع صورة إثبات الدفع.")}
-
-    try:
-
-        paid_amount = float(str(fields.get("paid_amount") or "").replace(",", "."))
-
-    except Exception:
-
-        return {"ok": False, "code": "invalid_amount", "message": _text(lang, "Enter a valid paid amount.", "اكتب مبلغ الدفع بشكل صحيح.")}
-
-    if paid_amount <= 0:
-
-        return {"ok": False, "code": "invalid_amount", "message": _text(lang, "Paid amount must be greater than zero.", "مبلغ الدفع يجب أن يكون أكبر من صفر.")}
-
-    rate = await _recharge_per_credit(method)
-
-    credits = round(float(paid_amount) / float(rate or 1.0), 6)
-
-    user_id = int(auth["user_id"])
-
-    req = await create_recharge_request(
-
-        user_id=user_id,
-
-        method=str(method.get("title") or method.get("code") or "payment"),
-
-        amount=credits,
-
-        proof_file_id="",
-
-        reseller_id=user_id,
-
-        details={
-
-            "method_code": method.get("code"),
-
-            "paid_amount": float(paid_amount),
-
-            "paid_currency": str(method.get("currency") or "USD").upper(),
-
-            "per_credit": float(rate),
-
-            "credits": float(credits),
-
-            "wallet_scope": "main_bot",
-
-            "source": "numbers_miniapp",
-
-            "source_bot_id": _numbers_source_bot_id(),
-
-            "proof_filename": proof_filename,
-
-            "proof_content_type": proof_content_type,
-
-            "proof_size_bytes": len(proof_bytes),
-
-        },
-
-        wallet_type="user",
-
-    )
-
-    delivered, route, msg_id, chat_id, thread_id = await _notify_recharge_review_from_miniapp(
-
-        auth=auth,
-
-        user_doc=user_doc,
-
-        req=req,
-
-        method=method,
-
-        proof_bytes=proof_bytes,
-
-        proof_filename=proof_filename,
-
-        proof_content_type=proof_content_type,
-
-    )
-
-    await db.recharge_requests.update_one(
-
-        {"_id": req["_id"]},
-
-        {
-
-            "$set": {
-
-                "delivery.delivered": bool(delivered),
-
-                "delivery.route": route,
-
-                "delivery.message_id": msg_id,
-
-                "delivery.chat_id": chat_id,
-
-                "delivery.message_thread_id": thread_id,
-
-                "delivery.updated_at": datetime.now(UTC),
-
-            }
-
-        },
-
-    )
-
-    refreshed = await db.recharge_requests.find_one({"_id": req["_id"]}) or req
-
-    message = _text(
-
-        lang,
-
-        "Recharge request submitted. We will review it soon.",
-
-        "تم إرسال طلب الشحن. سنراجعه قريباً.",
-
-    )
-
-    if not delivered:
-
-        message = _text(
-
-            lang,
-
-            "Recharge request was saved, but delivery to review queue failed. Support can still follow it.",
-
-            "تم حفظ طلب الشحن، لكن تعذر إرساله لقائمة المراجعة. يمكن للدعم متابعته.",
-
-        )
-
-    return {
-
-        "ok": True,
-
-        "message": message,
-
-        "request": _recharge_request_payload(refreshed, lang),
-
-        "delivery_ok": bool(delivered),
 
     }
 
@@ -1468,144 +1030,11 @@ async def _account_payload(user_doc: dict[str, Any], auth: dict[str, Any]) -> di
         "recharge": await _recharge_payload(user_id, lang),
 
         "support_categories": _support_categories_payload(lang),
-
-    }
-
-async def _submit_support_ticket(
-
-    *,
-
-    auth: dict[str, Any],
-
-    user_doc: dict[str, Any],
-
-    lang: str,
-
-    category: str,
-
-    message: str,
-
-) -> dict[str, Any]:
-
-    category = str(category or "").strip().lower()
-
-    if category not in _SUPPORT_CATEGORIES:
-
-        return {"ok": False, "code": "invalid_category", "message": _text(lang, "Choose a valid support category.", "اختر قسم دعم صحيح.")}
-
-    message = " ".join(str(message or "").strip().split())
-
-    if len(message) < 3:
-
-        return {"ok": False, "code": "empty_message", "message": _text(lang, "Write a short message for support.", "اكتب رسالة قصيرة للدعم.")}
-
-    if len(message) > 3500:
-
-        message = message[:3500]
-
-    source_bot_id = _numbers_source_bot_id()
-
-    bridge_token = _support_bridge_token()
-
-    target = await get_support_target(category)
-
-    if source_bot_id <= 0 or not bridge_token or not target or not target.get("chat_id"):
-
-        return {"ok": False, "code": "support_not_configured", "message": _text(lang, "Support is not configured yet.", "الدعم غير مضبوط حالياً.")}
-
-    user_id = int(auth["user_id"])
-
-    if await has_open_support_ticket(scope="platform", owner_id=None, user_id=user_id, category=category):
-
-        return {"ok": False, "code": "open_ticket_exists", "message": _text(lang, "You already have an open support ticket in this category.", "عندك تذكرة دعم مفتوحة بهذا القسم.")}
-
-    profile = _auth_profile(auth, user_doc)
-
-    ticket = await create_support_ticket(
-
-        scope="platform",
-
-        owner_id=None,
-
-        source_bot_id=source_bot_id,
-
-        chat_id=user_id,
-
-        user_id=user_id,
-
-        username=profile["username"],
-
-        full_name=profile["full_name"],
-
-        category=category,
-
-        payload_count=1,
-
-    )
-
-    kwargs: dict[str, Any] = {"chat_id": int(target["chat_id"])}
-
-    if target.get("message_thread_id") is not None:
-
-        kwargs["message_thread_id"] = int(target["message_thread_id"])
-
-    ticket_id = str(ticket["_id"])
-
-    bridge_bot = Bot(token=bridge_token)
-
-    try:
-
-        header = await bridge_bot.send_message(
-
-            text=_support_ticket_header_text(
-
-                lang=lang,
-
-                ticket_no=int(ticket.get("ticket_no") or 0),
-
-                category=category,
-
-                user_id=user_id,
-
-                username=profile["username"],
-
-                full_name=profile["full_name"],
-
-            ),
-
-            reply_markup=_support_ticket_action_markup(ticket_id),
-
-            **kwargs,
-
-        )
-
-        await bridge_bot.send_message(text=message, **kwargs)
-
-        await set_ticket_delivery(
-
-            ticket_id,
-
-            target_chat_id=int(target["chat_id"]),
-
-            target_thread_id=int(target["message_thread_id"]) if target.get("message_thread_id") is not None else None,
-
-            header_message_id=int(header.message_id),
-
-        )
-
-    finally:
-
-        await bridge_bot.session.close()
-
-    return {
-
-        "ok": True,
-
-        "ticket_id": ticket_id,
-
-        "ticket_no": int(ticket.get("ticket_no") or 0),
-
-        "message": _text(lang, "Support ticket sent.", "تم إرسال تذكرة الدعم."),
+        "actions": {
+            key: value
+            for key, value in _miniapp_surface_actions().items()
+            if key in {"change_language", "recharge", "support", "orders"}
+        },
 
     }
 
@@ -2508,12 +1937,7 @@ def _bootstrap_payload() -> dict[str, Any]:
         "services": _service_rows(),
 
         "defaults": {"mode": "temp", "service": "", "country": "none", "state": "none"},
-        "client": {
-            "primary_surface": "miniapp",
-            "telegram_order_flow_enabled": bool(getattr(settings, "numbers_telegram_order_flow_enabled", False)),
-            "provider_sms_polling_enabled": provider_sms_polling_enabled(),
-            "manual_customer_refund_enabled": False,
-        },
+        "client": _miniapp_surface_payload(),
 
         "links": {
 
@@ -3181,6 +2605,96 @@ def _second_code_price(order: dict[str, Any]) -> tuple[float, float]:
 
     return round(max(0.0, float(sale_price)) / 2.0, 4), round(max(0.0, float(cost_price)) / 2.0, 4)
 
+
+def _miniapp_order_action(
+    *,
+    enabled: bool,
+    label_key: str,
+    endpoint: str = "",
+    method: str = "POST",
+    reason: str = "",
+    confirm_label_key: str = "",
+    busy_label_key: str = "working",
+    success_label_key: str = "",
+    idempotency_key: str = "",
+) -> dict[str, Any]:
+
+    return {
+
+        "enabled": bool(enabled),
+
+        "label_key": str(label_key or ""),
+
+        "endpoint": str(endpoint or ""),
+
+        "method": str(method or "POST").upper(),
+
+        "reason": str(reason or ""),
+
+        "confirm_label_key": str(confirm_label_key or ""),
+
+        "busy_label_key": str(busy_label_key or ""),
+
+        "success_label_key": str(success_label_key or ""),
+
+        "idempotency_key": str(idempotency_key or ""),
+
+    }
+
+
+def _miniapp_order_actions(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+
+    order_id = str((payload or {}).get("id") or "").strip()
+
+    base = f"/mini/numbers/api/orders/{order_id}" if order_id else ""
+
+    mode = str((payload or {}).get("mode") or "temp").strip().lower() or "temp"
+
+    refresh_label = "checkCall" if mode == "voice" else "refresh"
+
+    actions: dict[str, dict[str, Any]] = {
+
+        "copy_number": _miniapp_order_action(enabled=bool(payload.get("number")), label_key="copyNumber", endpoint="", method="CLIENT"),
+
+        "copy_code": _miniapp_order_action(enabled=bool(payload.get("code")), label_key="copyCode", endpoint="", method="CLIENT"),
+
+        "refresh": _miniapp_order_action(enabled=bool(payload.get("can_refresh", False)), label_key=refresh_label, endpoint=f"{base}/refresh" if base else "", busy_label_key="checkingOrder"),
+
+        "second_code": _miniapp_order_action(enabled=bool(payload.get("can_second_code") or payload.get("can_resend")), label_key="secondCode", endpoint=f"{base}/second-code" if base else "", confirm_label_key="confirmSecondCode", success_label_key="secondCodeRequested"),
+
+        "replace": _miniapp_order_action(enabled=bool(payload.get("can_replace")), label_key="tryAnother", endpoint=f"{base}/replace" if base else "", confirm_label_key="confirmTryAnother", success_label_key="replacementRequested", idempotency_key=f"miniapp-replace-{order_id}" if order_id else ""),
+
+        "alternate_provider": _miniapp_order_action(enabled=bool(payload.get("can_alternate_provider")), label_key="alternateProvider", endpoint=f"{base}/alternate" if base else "", confirm_label_key="confirmAlternateProvider", success_label_key="replacementRequested", idempotency_key=f"miniapp-alternate-{order_id}" if order_id else ""),
+
+        "preview_recording": _miniapp_order_action(enabled=bool(mode == "voice" and payload.get("recording_url")), label_key="playRecording", endpoint=str(payload.get("recording_url") or ""), method="GET"),
+
+        "download_recording": _miniapp_order_action(enabled=bool(mode == "voice" and payload.get("recording_url")), label_key="downloadRecording", endpoint=str(payload.get("recording_url") or ""), method="GET"),
+
+        "rental_sms": _miniapp_order_action(enabled=bool(mode == "rental" and payload.get("can_sms")), label_key="rentalSms", endpoint=f"{base}/sms" if base else "", idempotency_key=f"miniapp-rental-sms-{order_id}" if order_id else ""),
+
+        "rental_renew": _miniapp_order_action(enabled=bool(mode == "rental" and payload.get("can_renew")), label_key="renew", endpoint=f"{base}/renew" if base else "", confirm_label_key="renew", idempotency_key=f"miniapp-rental-renew-{order_id}" if order_id else ""),
+
+        "rental_wake": _miniapp_order_action(enabled=bool(mode == "rental" and payload.get("can_wake")), label_key="wake", endpoint=f"{base}/wake" if base else "", idempotency_key=f"miniapp-rental-wake-{order_id}" if order_id else ""),
+
+        "rental_notes": _miniapp_order_action(enabled=bool(mode == "rental" and payload.get("can_notes")), label_key="notesTags", endpoint=f"{base}/notes" if base else "", idempotency_key=f"miniapp-rental-notes-{order_id}" if order_id else ""),
+
+        "rental_finish": _miniapp_order_action(enabled=bool(mode == "rental" and payload.get("can_finish")), label_key="finish", endpoint=f"{base}/finish" if base else "", confirm_label_key="finish"),
+
+    }
+
+    if not base:
+
+        for action in actions.values():
+
+            if action["method"] != "CLIENT":
+
+                action["enabled"] = False
+
+                action["reason"] = "missing_order_id"
+
+    return actions
+
+
 def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
 
     payload = dict(_api_public_order_payload(order))
@@ -3223,6 +2737,8 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
 
         payload["cancel_wait_sec"] = 0
 
+        payload["actions"] = _miniapp_order_actions(payload)
+
         return payload
 
     if mode == "voice":
@@ -3238,6 +2754,8 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
         payload["can_cancel"] = False
 
         payload["cancel_wait_sec"] = 0
+
+        payload["actions"] = _miniapp_order_actions(payload)
 
         return payload
 
@@ -3262,6 +2780,8 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
     payload["can_cancel"] = False
 
     payload["cancel_wait_sec"] = 0
+
+    payload["actions"] = _miniapp_order_actions(payload)
 
     return payload
 
@@ -3818,7 +3338,7 @@ def _normalize_provider_rows(
 
     if mode == "temp":
 
-        return _api_normalize_temp_quote_rows(
+        return _attach_miniapp_purchase_actions(_api_normalize_temp_quote_rows(
 
             data,
 
@@ -3828,11 +3348,11 @@ def _normalize_provider_rows(
 
             state=str(state or "none"),
 
-        )
+        ))
 
     if mode == "rental":
 
-        return _api_normalize_rental_quote_rows(
+        return _attach_miniapp_purchase_actions(_api_normalize_rental_quote_rows(
 
             data,
 
@@ -3842,11 +3362,11 @@ def _normalize_provider_rows(
 
             state=str(state or "none"),
 
-        )
+        ))
 
     if mode == "voice":
 
-        return _api_normalize_voice_quote_rows(
+        return _attach_miniapp_purchase_actions(_api_normalize_voice_quote_rows(
 
             data,
 
@@ -3856,9 +3376,69 @@ def _normalize_provider_rows(
 
             state=str(state or "none"),
 
-        )
+        ))
 
     return []
+
+
+def _miniapp_purchase_action(quote_token: Any) -> dict[str, Any]:
+
+    token = str(quote_token or "").strip()
+
+    return {
+
+        "enabled": bool(token),
+
+        "label_key": "buy",
+
+        "endpoint": "/mini/numbers/api/purchase",
+
+        "method": "POST",
+
+        "body": {"quote_token": token} if token else {},
+
+        "reason": "" if token else "missing_quote_token",
+
+    }
+
+
+def _attach_miniapp_purchase_actions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+
+    patched_rows: list[dict[str, Any]] = []
+
+    for row in rows or []:
+
+        if not isinstance(row, dict):
+
+            continue
+
+        patched = dict(row)
+
+        if patched.get("quote_token"):
+
+            patched["purchase_action"] = _miniapp_purchase_action(patched.get("quote_token"))
+
+        if isinstance(patched.get("options"), list):
+
+            options: list[dict[str, Any]] = []
+
+            for option in patched.get("options") or []:
+
+                if not isinstance(option, dict):
+
+                    continue
+
+                option_payload = dict(option)
+
+                option_payload["purchase_action"] = _miniapp_purchase_action(option_payload.get("quote_token"))
+
+                options.append(option_payload)
+
+            patched["options"] = options
+
+        patched_rows.append(patched)
+
+    return patched_rows
 
 def _provider_debug_rows(data: dict[str, Any], mode: str) -> list[dict[str, Any]]:
 
@@ -4071,6 +3651,11 @@ async def recharge_info(request: web.Request) -> web.Response:
             "balance_label": _money(balance),
 
             "recharge": await _recharge_payload(int(auth["user_id"]), lang),
+            "actions": {
+                key: value
+                for key, value in _miniapp_surface_actions().items()
+                if key in {"submit_recharge", "recharge", "account"}
+            },
 
         },
 
@@ -4114,7 +3699,7 @@ async def recharge_submit(request: web.Request) -> web.Response:
 
         )
 
-    result = await _submit_recharge_request_from_miniapp(
+    result = await _shared_submit_recharge_request(
 
         auth=auth,
 
@@ -4129,6 +3714,16 @@ async def recharge_submit(request: web.Request) -> web.Response:
         proof_filename=proof_filename,
 
         proof_content_type=proof_content_type,
+
+        source="numbers_miniapp",
+
+        source_label="Numbers Mini App",
+
+        text_fn=_text,
+
+        money_fn=_money,
+
+        compact_datetime_fn=_compact_datetime,
 
     )
 
@@ -4151,6 +3746,11 @@ async def recharge_submit(request: web.Request) -> web.Response:
     result["balance_label"] = _money(balance)
 
     result["recharge"] = await _recharge_payload(int(auth["user_id"]), lang)
+    result["actions"] = {
+        key: value
+        for key, value in _miniapp_surface_actions().items()
+        if key in {"submit_recharge", "recharge", "account"}
+    }
 
     return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
 
@@ -4171,6 +3771,11 @@ async def support_info(request: web.Request) -> web.Response:
             "categories": _support_categories_payload(lang),
 
             "bot_url": numbers_bot_url("numbers"),
+            "actions": {
+                key: value
+                for key, value in _miniapp_surface_actions().items()
+                if key in {"submit_support_ticket", "support", "orders"}
+            },
 
         },
 
@@ -4194,7 +3799,7 @@ async def support_ticket(request: web.Request) -> web.Response:
 
         body = {}
 
-    result = await _submit_support_ticket(
+    result = await _shared_submit_support_ticket(
 
         auth=auth,
 
@@ -4205,6 +3810,10 @@ async def support_ticket(request: web.Request) -> web.Response:
         category=str((body or {}).get("category") or ""),
 
         message=str((body or {}).get("message") or ""),
+
+        source_label="Numbers Mini App",
+
+        text_fn=_text,
 
     )
 

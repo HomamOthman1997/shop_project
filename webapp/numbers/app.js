@@ -37,6 +37,8 @@ const state = {
   supportBotUrl: null,
   rechargeUrl: null,
   client: {},
+  tabs: [],
+  clientActions: {},
   providerRows: [],
   serviceMenuOpen: false,
   countryMenuOpen: false,
@@ -794,29 +796,63 @@ function iconSvg(name) {
 }
 
 function renderViewTabs() {
-  const tabs = [
-    ["buy", t("tabBuy"), "buy"],
-    ["orders", t("tabOrders"), "orders"],
-    ["recharge", t("tabRecharge"), "recharge"],
-    ["account", t("tabAccount"), "account"],
-    ["support", t("tabSupport"), "support"],
-  ];
+  const tabs = surfaceTabs();
   els.viewTabs.replaceChildren(
-    ...tabs.map(([key, label, iconName]) => {
+    ...tabs.map((tab) => {
+      const key = tab.key || "buy";
       const button = document.createElement("button");
       button.type = "button";
       button.className = `view-tab${state.view === key ? " active" : ""}`;
+      button.disabled = tab.enabled === false;
       const icon = document.createElement("span");
       icon.className = "nav-icon";
-      icon.innerHTML = iconSvg(iconName);
+      icon.innerHTML = iconSvg(tab.icon || key);
       const text = document.createElement("span");
       text.className = "nav-label";
-      text.textContent = label;
+      text.textContent = t(tab.label_key || `tab${key.charAt(0).toUpperCase()}${key.slice(1)}`);
       button.append(icon, text);
       button.addEventListener("click", () => setView(key));
       return button;
     })
   );
+}
+
+function fallbackSurfaceTabs() {
+  return [
+    { key: "buy", label_key: "tabBuy", icon: "buy", enabled: true, requires_auth: false },
+    { key: "orders", label_key: "tabOrders", icon: "orders", enabled: true, requires_auth: true },
+    { key: "recharge", label_key: "tabRecharge", icon: "recharge", enabled: true, requires_auth: true },
+    { key: "account", label_key: "tabAccount", icon: "account", enabled: true, requires_auth: true },
+    { key: "support", label_key: "tabSupport", icon: "support", enabled: true, requires_auth: true },
+  ];
+}
+
+function surfaceTabs() {
+  const rows = Array.isArray(state.tabs) && state.tabs.length ? state.tabs : fallbackSurfaceTabs();
+  return rows.filter((tab) => tab && tab.key && tab.enabled !== false);
+}
+
+function surfaceViewEnabled(view) {
+  return surfaceTabs().some((tab) => tab.key === view);
+}
+
+function clientAction(key, fallbackUrl = "", fallbackMethod = "GET") {
+  const actions = state.clientActions && typeof state.clientActions === "object" ? state.clientActions : {};
+  const action = actions[key] && typeof actions[key] === "object" ? actions[key] : {};
+  return {
+    enabled: action.enabled !== false,
+    endpoint: action.endpoint || fallbackUrl,
+    method: String(action.method || fallbackMethod || "GET").toUpperCase(),
+    reason: action.reason || "",
+  };
+}
+
+function clientActionEndpoint(key, fallbackUrl = "") {
+  return clientAction(key, fallbackUrl).endpoint || fallbackUrl;
+}
+
+function clientActionMethod(key, fallbackMethod = "GET") {
+  return clientAction(key, "", fallbackMethod).method || fallbackMethod;
 }
 
 function resetBuyStatus() {
@@ -832,6 +868,9 @@ function clearTransientStatus({ clearPriceFailure = true } = {}) {
 }
 
 function setView(view) {
+  if (!surfaceViewEnabled(view)) {
+    view = "buy";
+  }
   state.view = view;
   els.buyView.classList.toggle("hidden", view !== "buy");
   els.activeBand.classList.toggle("hidden", view !== "orders");
@@ -1353,7 +1392,7 @@ async function loadCountrySuggestions() {
   }
   try {
     const params = new URLSearchParams({ mode: state.mode, service: state.selectedService });
-    const payload = await api(`/mini/numbers/api/country-suggestions?${params.toString()}`);
+    const payload = await api(`${clientActionEndpoint("country_suggestions", "/mini/numbers/api/country-suggestions")}?${params.toString()}`);
     if (requestId !== state.countrySuggestionRequestId) return;
     const ranks = {};
     const prices = {};
@@ -1650,6 +1689,82 @@ function addOrderAction(actions, { label, className = "small-action", disabled =
   return button;
 }
 
+function orderAction(order, key) {
+  const actions = order && typeof order.actions === "object" && order.actions ? order.actions : {};
+  const action = actions[key];
+  return action && typeof action === "object" ? action : null;
+}
+
+function orderActionEnabled(order, key, fallback = false) {
+  const action = orderAction(order, key);
+  if (action && Object.prototype.hasOwnProperty.call(action, "enabled")) {
+    return Boolean(action.enabled);
+  }
+  return Boolean(fallback);
+}
+
+function orderActionEndpoint(order, key) {
+  const action = orderAction(order, key);
+  const endpoint = String(action?.endpoint || "").trim();
+  return endpoint || "";
+}
+
+function orderActionMethod(order, key, fallback = "POST") {
+  const action = orderAction(order, key);
+  return String(action?.method || fallback || "POST").toUpperCase();
+}
+
+function orderActionLabel(order, key, fallbackKey) {
+  const action = orderAction(order, key);
+  return t(action?.label_key || fallbackKey || key);
+}
+
+function orderActionMetaText(order, key, field, fallbackKey = "") {
+  const action = orderAction(order, key);
+  const labelKey = String(action?.[field] || fallbackKey || "").trim();
+  return labelKey ? t(labelKey) : "";
+}
+
+function orderActionIdempotencyKey(order, key) {
+  const action = orderAction(order, key);
+  return String(action?.idempotency_key || "").trim();
+}
+
+function orderActionHeaders(order, key, existing = {}) {
+  const headers = { ...(existing || {}) };
+  const idempotencyKey = orderActionIdempotencyKey(order, key);
+  if (idempotencyKey && !headers["Idempotency-Key"]) {
+    headers["Idempotency-Key"] = idempotencyKey;
+  }
+  return headers;
+}
+
+async function apiOrderAction(order, key, options = {}) {
+  const endpoint = orderActionEndpoint(order, key);
+  if (!endpoint) throw new Error(t("error"));
+  return api(endpoint, {
+    method: orderActionMethod(order, key, options.method || "POST"),
+    body: options.body || {},
+    headers: orderActionHeaders(order, key, options.headers),
+  });
+}
+
+function purchaseAction(row) {
+  const action = row && typeof row.purchase_action === "object" && row.purchase_action ? row.purchase_action : {};
+  const fallbackToken = String(row?.quote_token || "").trim();
+  if (action && Object.prototype.hasOwnProperty.call(action, "enabled") && !action.enabled) {
+    return action;
+  }
+  return {
+    enabled: Object.prototype.hasOwnProperty.call(action, "enabled") ? Boolean(action.enabled) : Boolean(fallbackToken),
+    label_key: action.label_key || "buy",
+    endpoint: action.endpoint || clientActionEndpoint("purchase", "/mini/numbers/api/purchase"),
+    method: String(action.method || "POST").toUpperCase(),
+    body: action.body && typeof action.body === "object" ? action.body : (fallbackToken ? { quote_token: fallbackToken } : {}),
+    reason: action.reason || "",
+  };
+}
+
 function renderOrderCard(order) {
   const card = document.createElement("article");
   card.className = `order-card order-card-v2 ${orderTone(order)}`;
@@ -1704,50 +1819,52 @@ function renderOrderCard(order) {
 
   const actions = document.createElement("div");
   actions.className = "order-actions order-actions-v2";
-  if (order.number) {
-    addOrderAction(actions, { label: t("copyNumber"), className: "small-action secondary-small", onClick: (button) => copyText(order.number, button) });
+  if (orderActionEnabled(order, "copy_number", Boolean(order.number))) {
+    addOrderAction(actions, { label: orderActionLabel(order, "copy_number", "copyNumber"), className: "small-action secondary-small", onClick: (button) => copyText(order.number, button) });
   }
-  if (order.code) {
-    addOrderAction(actions, { label: t("copyCode"), className: "small-action secondary-small", onClick: (button) => copyText(order.code, button) });
+  if (orderActionEnabled(order, "copy_code", Boolean(order.code))) {
+    addOrderAction(actions, { label: orderActionLabel(order, "copy_code", "copyCode"), className: "small-action secondary-small", onClick: (button) => copyText(order.code, button) });
   }
-  if (order.can_refresh !== false) {
-    addOrderAction(actions, { label: order.mode === "voice" ? t("checkCall") : t("refresh"), onClick: (button) => refreshSingleOrder(order.id, button) });
+  if (orderActionEnabled(order, "refresh", order.can_refresh !== false)) {
+    addOrderAction(actions, { label: orderActionLabel(order, "refresh", order.mode === "voice" ? "checkCall" : "refresh"), onClick: (button) => refreshSingleOrder(order, button) });
   }
-  if (order.mode === "temp" && (order.can_second_code || order.can_resend)) {
+  if (order.mode === "temp" && orderActionEnabled(order, "second_code", order.can_second_code || order.can_resend)) {
     addOrderAction(actions, {
-      label: `${t("secondCode")} ${order.second_code_price_label || ""}`.trim(),
+      label: `${orderActionLabel(order, "second_code", "secondCode")} ${order.second_code_price_label || ""}`.trim(),
       className: "small-action primary-small",
       onClick: (button) => requestSecondCode(order, button),
     });
   }
-  if ((order.mode === "temp" || order.mode === "voice") && order.can_replace) {
-    addOrderAction(actions, { label: t("tryAnother"), className: "small-action secondary-small", onClick: (button) => replaceOrder(order, button) });
+  if ((order.mode === "temp" || order.mode === "voice") && orderActionEnabled(order, "replace", order.can_replace)) {
+    addOrderAction(actions, { label: orderActionLabel(order, "replace", "tryAnother"), className: "small-action secondary-small", onClick: (button) => replaceOrder(order, button) });
   }
-  if (order.mode === "temp" && order.can_alternate_provider) {
+  if (order.mode === "temp" && orderActionEnabled(order, "alternate_provider", order.can_alternate_provider)) {
     addOrderAction(actions, {
-      label: [t("alternateProvider"), order.alternate_provider_id, order.alternate_provider_price_label].filter(Boolean).join(" "),
+      label: [orderActionLabel(order, "alternate_provider", "alternateProvider"), order.alternate_provider_id, order.alternate_provider_price_label].filter(Boolean).join(" "),
       className: "small-action secondary-small",
       onClick: (button) => alternateOrder(order, button),
     });
   }
-  if (order.mode === "voice" && order.recording_url) {
-    addOrderAction(actions, { label: t("playRecording"), className: "small-action secondary-small", onClick: (button) => previewRecording(order, button, main) });
-    addOrderAction(actions, { label: t("downloadRecording"), onClick: (button) => downloadRecording(order, button) });
+  if (order.mode === "voice" && orderActionEnabled(order, "preview_recording", Boolean(order.recording_url))) {
+    addOrderAction(actions, { label: orderActionLabel(order, "preview_recording", "playRecording"), className: "small-action secondary-small", onClick: (button) => previewRecording(order, button, main) });
   }
-  if (order.mode === "rental" && order.can_sms) {
-    addOrderAction(actions, { label: t("rentalSms"), onClick: (button) => rentalProviderAction(order.id, "sms", button) });
+  if (order.mode === "voice" && orderActionEnabled(order, "download_recording", Boolean(order.recording_url))) {
+    addOrderAction(actions, { label: orderActionLabel(order, "download_recording", "downloadRecording"), onClick: (button) => downloadRecording(order, button) });
   }
-  if (order.mode === "rental" && order.can_renew) {
-    addOrderAction(actions, { label: t("renew"), onClick: (button) => rentalProviderAction(order.id, "renew", button) });
+  if (order.mode === "rental" && orderActionEnabled(order, "rental_sms", order.can_sms)) {
+    addOrderAction(actions, { label: orderActionLabel(order, "rental_sms", "rentalSms"), onClick: (button) => rentalProviderAction(order, "rental_sms", button) });
   }
-  if (order.mode === "rental" && order.can_wake) {
-    addOrderAction(actions, { label: t("wake"), className: "small-action secondary-small", onClick: (button) => rentalProviderAction(order.id, "wake", button) });
+  if (order.mode === "rental" && orderActionEnabled(order, "rental_renew", order.can_renew)) {
+    addOrderAction(actions, { label: orderActionLabel(order, "rental_renew", "renew"), onClick: (button) => rentalProviderAction(order, "rental_renew", button) });
   }
-  if (order.mode === "rental" && order.can_notes) {
-    addOrderAction(actions, { label: t("notesTags"), className: "small-action secondary-small", onClick: (button) => rentalProviderAction(order.id, "notes", button) });
+  if (order.mode === "rental" && orderActionEnabled(order, "rental_wake", order.can_wake)) {
+    addOrderAction(actions, { label: orderActionLabel(order, "rental_wake", "wake"), className: "small-action secondary-small", onClick: (button) => rentalProviderAction(order, "rental_wake", button) });
   }
-  if (order.mode === "rental" && order.can_finish) {
-    addOrderAction(actions, { label: t("finish"), className: "danger-action", onClick: (button) => finishOrder(order.id, button) });
+  if (order.mode === "rental" && orderActionEnabled(order, "rental_notes", order.can_notes)) {
+    addOrderAction(actions, { label: orderActionLabel(order, "rental_notes", "notesTags"), className: "small-action secondary-small", onClick: (button) => rentalProviderAction(order, "rental_notes", button) });
+  }
+  if (order.mode === "rental" && orderActionEnabled(order, "rental_finish", order.can_finish)) {
+    addOrderAction(actions, { label: orderActionLabel(order, "rental_finish", "finish"), className: "danger-action", onClick: (button) => finishOrder(order, button) });
   }
 
   card.append(main, actions);
@@ -1770,7 +1887,7 @@ async function refreshOrders({ quiet = false } = {}) {
     return;
   }
   try {
-    const payload = await api("/mini/numbers/api/orders");
+    const payload = await api(clientActionEndpoint("orders", "/mini/numbers/api/orders"));
     if (payload.balance_label) {
       els.sessionPill.textContent = payload.balance_label;
     }
@@ -1780,12 +1897,16 @@ async function refreshOrders({ quiet = false } = {}) {
   }
 }
 
-async function refreshSingleOrder(orderId, button) {
+async function refreshSingleOrder(order, button) {
+  const orderId = order?.id || "";
   if (!orderId) return;
   button.disabled = true;
-  showBusy(t("checkingOrder"), t("pleaseWait"));
+  showBusy(orderActionMetaText(order, "refresh", "busy_label_key", "checkingOrder"), t("pleaseWait"));
   try {
-    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/refresh`, { method: "POST", body: {} });
+    const payload = await apiOrderAction(
+      order,
+      "refresh"
+    );
     const next = state.activeOrders.filter((item) => item.id !== orderId);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
     if (payload.balance_label) {
@@ -1799,14 +1920,18 @@ async function refreshSingleOrder(orderId, button) {
   }
 }
 
-async function finishOrder(orderId, button) {
+async function finishOrder(order, button) {
+  const orderId = order?.id || "";
   if (!orderId) return;
-  const confirmed = await askConfirm(t("finish"));
+  const confirmed = await askConfirm(orderActionMetaText(order, "rental_finish", "confirm_label_key", "finish"));
   if (!confirmed) return;
   button.disabled = true;
-  showBusy(t("working"), t("pleaseWait"));
+  showBusy(orderActionMetaText(order, "rental_finish", "busy_label_key", "working"), t("pleaseWait"));
   try {
-    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/finish`, { method: "POST", body: {} });
+    const payload = await apiOrderAction(
+      order,
+      "rental_finish"
+    );
     const next = state.activeOrders.filter((item) => item.id !== orderId);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
     els.statusLine.textContent = payload.message || "";
@@ -1819,18 +1944,16 @@ async function finishOrder(orderId, button) {
   }
 }
 
-async function rentalProviderAction(orderId, action, button) {
-  if (!orderId || !action) return;
-  const confirmed = action === "renew" ? await askConfirm(t("renew")) : true;
+async function rentalProviderAction(order, actionKey, button) {
+  const orderId = order?.id || "";
+  if (!orderId || !actionKey) return;
+  const confirmText = orderActionMetaText(order, actionKey, "confirm_label_key", "");
+  const confirmed = confirmText ? await askConfirm(confirmText) : true;
   if (!confirmed) return;
   button.disabled = true;
-  showBusy(t("working"), t("pleaseWait"));
+  showBusy(orderActionMetaText(order, actionKey, "busy_label_key", "working"), t("pleaseWait"));
   try {
-    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(orderId)}/${action}`, {
-      method: "POST",
-      body: {},
-      headers: { "Idempotency-Key": `miniapp-rental-${action}-${orderId}` },
-    });
+    const payload = await apiOrderAction(order, actionKey);
     const next = state.activeOrders.filter((item) => item.id !== orderId);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
     els.statusLine.textContent = payload.message || "";
@@ -1845,18 +1968,21 @@ async function rentalProviderAction(orderId, action, button) {
 
 async function requestSecondCode(order, button) {
   if (!order?.id) return;
-  const confirmed = await askConfirm(`${t("confirmSecondCode")} ${order.second_code_price_label || ""}`);
+  const confirmed = await askConfirm(`${orderActionMetaText(order, "second_code", "confirm_label_key", "confirmSecondCode")} ${order.second_code_price_label || ""}`.trim());
   if (!confirmed) return;
   button.disabled = true;
-  showBusy(t("working"), t("pleaseWait"));
+  showBusy(orderActionMetaText(order, "second_code", "busy_label_key", "working"), t("pleaseWait"));
   try {
-    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/second-code`, { method: "POST", body: {} });
+    const payload = await apiOrderAction(
+      order,
+      "second_code"
+    );
     const next = state.activeOrders.filter((item) => item.id !== order.id);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
     if (payload.balance_label) {
       els.sessionPill.textContent = payload.balance_label;
     }
-    els.statusLine.textContent = payload.message || t("secondCodeRequested");
+    els.statusLine.textContent = payload.message || orderActionMetaText(order, "second_code", "success_label_key", "secondCodeRequested");
   } catch (error) {
     els.statusLine.textContent = error.message || t("error");
     await refreshOrders({ quiet: true });
@@ -1868,22 +1994,18 @@ async function requestSecondCode(order, button) {
 
 async function replaceOrder(order, button) {
   if (!order?.id) return;
-  const confirmed = await askConfirm(t("confirmTryAnother"));
+  const confirmed = await askConfirm(orderActionMetaText(order, "replace", "confirm_label_key", "confirmTryAnother"));
   if (!confirmed) return;
   button.disabled = true;
-  showBusy(t("working"), t("pleaseWait"));
+  showBusy(orderActionMetaText(order, "replace", "busy_label_key", "working"), t("pleaseWait"));
   try {
-    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/replace`, {
-      method: "POST",
-      body: {},
-      headers: { "Idempotency-Key": `miniapp-replace-${order.id}` },
-    });
+    const payload = await apiOrderAction(order, "replace");
     const next = state.activeOrders.filter((item) => item.id !== order.id);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
     if (payload.balance_label) {
       els.sessionPill.textContent = payload.balance_label;
     }
-    els.statusLine.textContent = payload.message || t("replacementRequested");
+    els.statusLine.textContent = payload.message || orderActionMetaText(order, "replace", "success_label_key", "replacementRequested");
   } catch (error) {
     els.statusLine.textContent = error.message || t("error");
     await refreshOrders({ quiet: true });
@@ -1895,22 +2017,18 @@ async function replaceOrder(order, button) {
 
 async function alternateOrder(order, button) {
   if (!order?.id) return;
-  const confirmed = await askConfirm([t("confirmAlternateProvider"), order.alternate_provider_id, order.alternate_provider_price_label].filter(Boolean).join(" "));
+  const confirmed = await askConfirm([orderActionMetaText(order, "alternate_provider", "confirm_label_key", "confirmAlternateProvider"), order.alternate_provider_id, order.alternate_provider_price_label].filter(Boolean).join(" "));
   if (!confirmed) return;
   button.disabled = true;
-  showBusy(t("working"), t("pleaseWait"));
+  showBusy(orderActionMetaText(order, "alternate_provider", "busy_label_key", "working"), t("pleaseWait"));
   try {
-    const payload = await api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/alternate`, {
-      method: "POST",
-      body: {},
-      headers: { "Idempotency-Key": `miniapp-alternate-${order.id}` },
-    });
+    const payload = await apiOrderAction(order, "alternate_provider");
     const next = state.activeOrders.filter((item) => item.id !== order.id);
     renderActiveOrders([payload.order, ...next].filter(Boolean));
     if (payload.balance_label) {
       els.sessionPill.textContent = payload.balance_label;
     }
-    els.statusLine.textContent = payload.message || t("replacementRequested");
+    els.statusLine.textContent = payload.message || orderActionMetaText(order, "alternate_provider", "success_label_key", "replacementRequested");
   } catch (error) {
     els.statusLine.textContent = error.message || t("error");
     await refreshOrders({ quiet: true });
@@ -1921,10 +2039,11 @@ async function alternateOrder(order, button) {
 }
 
 async function downloadRecording(order, button) {
-  if (!order?.recording_url) return;
+  const url = orderActionEndpoint(order, "download_recording");
+  if (!url) return;
   button.disabled = true;
   try {
-    const response = await fetch(order.recording_url, {
+    const response = await fetch(url, {
       headers: headers(),
       cache: "no-store",
     });
@@ -1955,7 +2074,8 @@ async function downloadRecording(order, button) {
 }
 
 async function previewRecording(order, button, container) {
-  if (!order?.recording_url || !container) return;
+  const url = orderActionEndpoint(order, "preview_recording");
+  if (!url || !container) return;
   const existing = container.querySelector(`[data-recording-preview="${order.id}"]`);
   if (existing) {
     existing.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -1967,8 +2087,8 @@ async function previewRecording(order, button, container) {
     button.textContent = t("loading");
   }
   try {
-    const response = await fetch(order.recording_url, {
-      headers: authHeaders(),
+    const response = await fetch(url, {
+      headers: headers(),
       cache: "no-store",
     });
     if (!response.ok) throw new Error(t("error"));
@@ -2002,6 +2122,11 @@ async function buyProvider(row, button) {
     els.statusLine.textContent = t("authRequired");
     return;
   }
+  const action = purchaseAction(row);
+  if (!action.enabled || !action.endpoint) {
+    els.statusLine.textContent = t("error");
+    return;
+  }
   const confirmed = await askConfirm(`${t("confirmBuy")} ${row.price_label || ""}`);
   if (!confirmed) return;
   button.disabled = true;
@@ -2011,9 +2136,9 @@ async function buyProvider(row, button) {
     const purchaseKey = window.crypto?.randomUUID
       ? window.crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const payload = await api("/mini/numbers/api/purchase", {
-      method: "POST",
-      body: { quote_token: row.quote_token },
+    const payload = await api(action.endpoint, {
+      method: action.method || "POST",
+      body: action.body || {},
       headers: { "Idempotency-Key": `miniapp-purchase-${purchaseKey}` },
     });
     if (payload.balance_label) {
@@ -2104,12 +2229,13 @@ function renderProviders(rows, { preserve = false } = {}) {
       const options = document.createElement("div");
       options.className = "option-row";
       row.options.forEach((option) => {
-        const pill = document.createElement(state.mode === "rental" && option.quote_token ? "button" : "span");
+        const optionAction = purchaseAction(option);
+        const pill = document.createElement(state.mode === "rental" && optionAction.enabled ? "button" : "span");
         pill.className = "option-pill";
         if (pill.tagName === "BUTTON") {
           pill.type = "button";
           pill.classList.add("buyable");
-          pill.addEventListener("click", () => buyProvider({ ...row, price_label: option.price_label, quote_token: option.quote_token }, pill));
+          pill.addEventListener("click", () => buyProvider({ ...row, ...option, price_label: option.price_label, purchase_action: optionAction }, pill));
         }
         const optionText = state.mode === "rental" ? rentalOptionLabel(option) : `${option.duration_label || option.duration || t("options")} ${option.price_label}`;
         pill.textContent = pill.tagName === "BUTTON" ? `${t("buy")} ${optionText}` : optionText;
@@ -2118,7 +2244,8 @@ function renderProviders(rows, { preserve = false } = {}) {
       main.append(options);
     }
 
-    if ((state.mode === "temp" || state.mode === "voice") && row.quote_token) {
+    const rowPurchaseAction = purchaseAction(row);
+    if ((state.mode === "temp" || state.mode === "voice") && rowPurchaseAction.enabled) {
       const actions = document.createElement("div");
       actions.className = "provider-actions";
       const price = document.createElement("div");
@@ -2128,7 +2255,7 @@ function renderProviders(rows, { preserve = false } = {}) {
       buy.type = "button";
       buy.className = "small-action";
       buy.textContent = t("buy");
-      buy.addEventListener("click", () => buyProvider(row, buy));
+      buy.addEventListener("click", () => buyProvider({ ...row, purchase_action: rowPurchaseAction }, buy));
       actions.append(price, buy);
       card.append(main, actions);
     } else {
@@ -2256,7 +2383,7 @@ async function submitRechargeForm(form, statusNode) {
   showBusy(t("submittingRecharge"), t("pleaseWait"));
   statusNode.textContent = t("submittingRecharge");
   try {
-    const payload = await apiForm("/mini/numbers/api/recharge/submit", formData);
+    const payload = await apiForm(clientActionEndpoint("submit_recharge", "/mini/numbers/api/recharge/submit"), formData);
     state.accountNotice = payload.message || t("rechargeSubmitted");
     if (payload.balance_label) {
       els.sessionPill.textContent = payload.balance_label;
@@ -2507,7 +2634,8 @@ async function loadRecharge() {
   }
   els.rechargeDetails?.replaceChildren(emptyState(t("loadingAccount")));
   try {
-    const payload = await api("/mini/numbers/api/recharge");
+    const payload = await api(clientActionEndpoint("recharge", "/mini/numbers/api/recharge"));
+    state.clientActions = { ...state.clientActions, ...(payload.actions || {}) };
     state.recharge = payload;
     if (payload.balance_label) {
       els.sessionPill.textContent = payload.balance_label;
@@ -2525,7 +2653,8 @@ async function loadAccount() {
   }
   els.accountDetails.replaceChildren(emptyState(t("loadingAccount")));
   try {
-    const payload = await api("/mini/numbers/api/account");
+    const payload = await api(clientActionEndpoint("account", "/mini/numbers/api/account"));
+    state.clientActions = { ...state.clientActions, ...(payload.actions || {}) };
     if (payload.user?.language) {
       applyLanguage(payload.user.language);
       renderViewTabs();
@@ -2544,10 +2673,11 @@ async function changeLanguage(language, button) {
   }
   button.disabled = true;
   try {
-    const payload = await api("/mini/numbers/api/account/language", {
-      method: "POST",
+    const payload = await api(clientActionEndpoint("change_language", "/mini/numbers/api/account/language"), {
+      method: clientActionMethod("change_language", "POST"),
       body: { language },
     });
+    state.clientActions = { ...state.clientActions, ...(payload.actions || {}) };
     applyLanguage(payload.user?.language || language, { persist: true });
     renderViewTabs();
     renderModes();
@@ -2615,11 +2745,12 @@ async function loadSupportInfo() {
   }
   setSupportFormEnabled(true);
   try {
-    const payload = await api("/mini/numbers/api/support");
+    const payload = await api(clientActionEndpoint("support", "/mini/numbers/api/support"));
+    state.clientActions = { ...state.clientActions, ...(payload.actions || {}) };
     state.supportBotUrl = payload.bot_url || state.supportBotUrl;
     renderSupportCategories(payload.categories || []);
     try {
-      const orders = await api("/mini/numbers/api/orders");
+      const orders = await api(clientActionEndpoint("orders", "/mini/numbers/api/orders"));
       renderSupportOrders(orders.orders || []);
     } catch (_error) {
       renderSupportOrders([]);
@@ -2651,8 +2782,8 @@ async function sendSupportTicket() {
   const message = [context, rawMessage].filter(Boolean).join("\n\n");
   els.sendSupportButton.disabled = true;
   try {
-    const payload = await api("/mini/numbers/api/support/ticket", {
-      method: "POST",
+    const payload = await api(clientActionEndpoint("submit_support_ticket", "/mini/numbers/api/support/ticket"), {
+      method: clientActionMethod("submit_support_ticket", "POST"),
       body: { category, message },
     });
     els.supportMessage.value = "";
@@ -2698,7 +2829,7 @@ async function checkPrices() {
       state: state.selectedState,
       _: String(Date.now()),
     });
-    const payload = await api(`/mini/numbers/api/prices?${params.toString()}`);
+    const payload = await api(`${clientActionEndpoint("prices", "/mini/numbers/api/prices")}?${params.toString()}`);
     if (requestId !== state.priceRequestId) return;
     const rows = payload.providers || [];
     if (payload.ok === false || !rows.length) {
@@ -2734,6 +2865,8 @@ async function boot() {
   state.countries = payload.countries || [];
   state.states = payload.states_us || [];
   state.client = payload.client || {};
+  state.tabs = Array.isArray(state.client.tabs) ? state.client.tabs : [];
+  state.clientActions = state.client.actions || {};
   state.mode = ["temp", "rental", "voice"].includes(payload.defaults?.mode) ? payload.defaults.mode : "temp";
   state.modeSelections = {
     temp: {

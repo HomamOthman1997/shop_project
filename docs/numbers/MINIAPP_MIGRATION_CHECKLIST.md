@@ -21,13 +21,13 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 ## Already moved to the Mini App
 
 - [x] Temporary number price check and purchase
-  - Mini App price rows use the shared API quote-token format, purchase routes through `create_number_order_from_quote(...)`, legacy/non-API Mini App quote tokens are rejected, and old Mini App-only provider purchase helpers were removed.
+  - Mini App price rows use the shared API quote-token format, expose a Mini App `purchase_action`, purchase routes through `create_number_order_from_quote(...)`, legacy/non-API Mini App quote tokens are rejected, and old Mini App-only provider purchase helpers were removed.
 - [x] Country suggestions
   - `country_suggestions_service` owns the shared cheap-country cache/ranking, the Mini App calls that service, and `/api/v1/numbers/country-suggestions` exposes the same behavior through `numbers:quotes`.
 - [x] Rental number price check and purchase
-  - Rental quote options use signed shared quote tokens, and purchase routes through the shared rental order creation path.
+  - Rental quote options use signed shared quote tokens, expose option-level `purchase_action`, and purchase routes through the shared rental order creation path.
 - [x] Call number price check and purchase
-  - Voice quote rows use signed shared quote tokens, and purchase routes through the shared voice order creation path.
+  - Voice quote rows use signed shared quote tokens, expose a Mini App `purchase_action`, and purchase routes through the shared voice order creation path.
 - [x] Best-choice provider display
 - [x] Show other available providers
 - [x] Hide unavailable providers from the customer UI
@@ -36,6 +36,18 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 - [x] Mini App order payload uses the shared public API order payload as its base.
   - Done means: provider obfuscation, public status, refund payload, action flags, and cost-hiding come from `order_service.public_order_payload(...)`; the Mini App layer only adds UI labels/detail rows, Mini App recording URL, refresh flags, and second-code display fields.
   - Current contract: public order payloads include `customer_state` with customer-safe state keys, tone, translation keys, webhook/refund flags, and `show_provider_identity=false`. The Mini App renders receive-state notes from that backend state instead of inferring provider behavior in JavaScript.
+- [x] Mini App order controls are server-driven.
+  - Done means: each order includes an `actions` object with enabled state, label key, endpoint, method, confirmation/busy/success label keys, and idempotency key for copy, refresh, second-code, replacement, alternate-provider, recording, and rental actions. The frontend renders buttons and executes server-backed actions from that contract, no longer builds order action URLs or idempotency keys locally, and uses old `can_*` booleans only as render compatibility fallback.
+- [x] Public API order action discovery for customer-built bots.
+  - Done means: public order payloads include `api_actions` with versioned `/api/v1/numbers/...` endpoints, required scopes, disabled reasons, and `requires_idempotency_key`, while Mini App UI continues to use its separate `actions` contract.
+- [x] Public API bootstrap action/capability discovery.
+  - Done means: `/api/v1/numbers/catalog/bootstrap` includes `api.capabilities` and `api.actions` so customer-built bots can discover endpoint templates, required scopes, disabled submit reasons, and idempotency requirements without reading Mini App internals.
+- [x] Public OpenAPI schema for the Numbers API.
+  - Done means: `/api/v1/numbers/openapi.json` returns an OpenAPI 3.1 contract generated from the API discovery catalog, includes paths/scopes/auth/idempotency requirements, and does not expose Mini App routes.
+- [x] Self-hosted public API docs for customer-built bots.
+  - Done means: `/api/v1/numbers/docs` returns a human-readable HTML reference generated from the runtime OpenAPI schema/action catalog, includes capabilities, endpoint rows, action discovery, scopes, and idempotency hints, and does not expose Mini App routes.
+- [x] Mini App shell/navigation is server-driven.
+  - Done means: bootstrap returns `client.tabs`, `client.actions`, and feature flags for the customer surface. The frontend renders tabs from the backend payload and uses action endpoint/method values for country suggestions, account, orders, prices, purchase, recharge, support, language switching, recharge proof submission, and support ticket submission.
 - [x] Order status refresh through the shared API service
   - Mini App refresh now calls `order_refresh_service.refresh_number_order(...)` for temporary, rental, and voice orders.
   - Refresh is webhook-first and does not poll providers when webhook delivery is active or global provider polling is disabled.
@@ -46,8 +58,14 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
   - Customers can see refunded/pending-refund state on the order receive card.
 - [x] Dedicated Mini App balance recharge surface.
   - Done means: recharge has its own bottom tab, reads `/mini/numbers/api/recharge`, submits proofs through `/mini/numbers/api/recharge/submit`, and no longer depends on opening a Telegram reply-keyboard flow for normal top-ups.
+- [x] Public API exposes read-only recharge discovery.
+  - Done means: `/api/v1/numbers/recharge` returns wallet balance, enabled payment methods, and an explicit disabled `submit_recharge` action while proof submission remains Mini App-only. API and Mini App payment-method payloads now share `services/numbers/customer_flows.py`.
 - [x] Mini App support can attach order context.
   - Done means: support loads recent orders through `/mini/numbers/api/orders`, lets the customer pick a related order, and prefixes the support message with customer-safe order context.
+- [x] Public API exposes read-only support discovery.
+  - Done means: `/api/v1/numbers/support` returns customer-safe support categories and an explicit disabled `submit_ticket` action while ticket submission remains Mini App-only. API and Mini App support category payloads now share `services/numbers/customer_flows.py`.
+- [x] Extract recharge/support submit business logic out of Mini App routes.
+  - Done means: `miniapp.py` keeps Telegram auth, multipart parsing, and response shaping, while `customer_flows.py` owns recharge request creation/review delivery metadata and support ticket creation/delivery. Public submit API endpoints remain disabled until non-Telegram proof/reply delivery exists.
 - [x] Replacement number request
 - [x] Alternate provider retry with suggested price
   - Mini App replacement/alternate actions now call the shared Numbers order service and use idempotency keys.
@@ -105,7 +123,8 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 - [x] Provider inbound webhook support for temp and rental codes.
   - Done means: provider callbacks update orders by `provider + provider_order_id`, log audit events, and enqueue customer-facing `numbers.order.sms` webhooks.
 - [x] Disable default provider SMS polling for Numbers code delivery.
-  - Done means: `numbers_provider_sms_polling_enabled` defaults to false, Mini App order refresh does not poll providers, and Telegram recovery/rental SMS paths respect the same gate.
+  - Done means: `numbers_provider_sms_polling_enabled` defaults to false, Mini App order refresh does not poll webhook-capable providers, and Telegram recovery/rental SMS paths respect the same gate.
+  - Approved exceptions: `pvapins`, `vaksms`, and `smspool` are confirmed polling-only providers and use provider-level polling without enabling global polling for everyone.
 - [x] Expand refund/recovery test matrix for temporary numbers and call numbers.
   - Cover: expired order, provider already refunded, missing activation, missing provider order id, empty provider response, provider 404/not found, provider cancel failed but retryable, provider cancel permanently failed, finance refund failed.
 - [x] Confirm auto-refund behavior after timeout across providers.

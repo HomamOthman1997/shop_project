@@ -11,9 +11,12 @@ def test_numbers_miniapp_has_recharge_surface_and_support_order_context():
     assert 'id="rechargeView"' in index
     assert 'id="rechargeDetails"' in index
     assert 'id="supportOrder"' in index
-    assert '["recharge", t("tabRecharge"), "recharge"]' in app
-    assert 'api("/mini/numbers/api/recharge")' in app
-    assert 'api("/mini/numbers/api/orders")' in app
+    assert "function surfaceTabs()" in app
+    assert "clientActionEndpoint(\"recharge\"" in app
+    assert 'clientActionEndpoint("recharge", "/mini/numbers/api/recharge")' in app
+    assert 'clientActionEndpoint("country_suggestions", "/mini/numbers/api/country-suggestions")' in app
+    assert 'clientActionEndpoint("purchase", "/mini/numbers/api/purchase")' in app
+    assert 'clientActionEndpoint("orders", "/mini/numbers/api/orders")' in app
     assert "renderSupportOrders" in app
 
 
@@ -22,5 +25,33 @@ def test_numbers_miniapp_customer_state_copy_and_rendering_exist():
 
     assert "function customerState(order)" in app
     assert "function renderOrderStateNote(order)" in app
+    assert "function orderActionEnabled(order, key" in app
     assert "waitForWebhook" in app
     assert "supportReviewQueued" in app
+
+
+def test_numbers_miniapp_recording_preview_uses_telegram_auth_headers():
+    app = (ROOT / "webapp" / "numbers" / "app.js").read_text(encoding="utf-8")
+
+    assert "authHeaders(" not in app
+    assert "headers: headers()" in app
+
+
+def test_numbers_miniapp_order_actions_use_backend_endpoints():
+    app = (ROOT / "webapp" / "numbers" / "app.js").read_text(encoding="utf-8")
+
+    assert "function apiOrderAction(order, key" in app
+    assert "function orderActionMetaText(order, key" in app
+    assert "function orderActionIdempotencyKey(order, key)" in app
+    assert "function purchaseAction(row)" in app
+    assert "function clientAction(key" in app
+    assert 'orderActionEndpoint(order, "download_recording"' in app
+    assert 'orderActionEndpoint(order, "preview_recording"' in app
+    assert 'api(action.endpoint' in app
+    assert 'api(`/mini/numbers/api/country-suggestions?' not in app
+    assert 'endpoint: action.endpoint || "/mini/numbers/api/purchase"' not in app
+    assert "/mini/numbers/api/orders/${" not in app
+    assert "fallbackEndpoint" not in app
+    assert 'api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/replace`' not in app
+    assert 'api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/alternate`' not in app
+    assert 'api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/second-code`' not in app

@@ -81,7 +81,7 @@ def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
         and alternate_provider_code
         and alternate_provider_code != provider_code
     )
-    return {
+    payload = {
         "id": str(order_id or ""),
         "status": str(order.get("status") or ""),
         "public_status": public_status,
@@ -135,6 +135,106 @@ def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
             can_alternate_provider=alternate_provider_available,
         ),
     }
+    payload["api_actions"] = _api_order_actions(payload)
+    return payload
+
+
+def _api_order_action(
+    *,
+    enabled: bool,
+    endpoint: str,
+    method: str = "POST",
+    scope: str = "",
+    reason: str = "",
+    requires_idempotency_key: bool = False,
+) -> dict[str, Any]:
+    return {
+        "enabled": bool(enabled),
+        "endpoint": str(endpoint or ""),
+        "method": str(method or "POST").upper(),
+        "scope": str(scope or ""),
+        "reason": "" if enabled else str(reason or ""),
+        "requires_idempotency_key": bool(requires_idempotency_key),
+    }
+
+
+def _api_order_actions(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    order_id = str((payload or {}).get("id") or "").strip()
+    base = f"/api/v1/numbers/orders/{order_id}" if order_id else ""
+    mode = str((payload or {}).get("mode") or "temp").strip().lower() or "temp"
+    missing_order_reason = "missing_order_id" if not order_id else ""
+    active_rental = mode == "rental" and bool(
+        payload.get("can_finish") or payload.get("can_renew") or payload.get("can_wake") or payload.get("can_notes")
+    )
+
+    actions = {
+        "refresh": _api_order_action(
+            enabled=bool(order_id and payload.get("can_refresh")),
+            endpoint=f"{base}/refresh" if base else "",
+            scope="numbers:orders:refresh",
+            reason=missing_order_reason or "not_refreshable",
+        ),
+        "resend": _api_order_action(
+            enabled=bool(order_id and payload.get("can_resend")),
+            endpoint=f"{base}/resend" if base else "",
+            scope="numbers:orders:resend",
+            reason=missing_order_reason or "resend_unavailable",
+            requires_idempotency_key=True,
+        ),
+        "replace": _api_order_action(
+            enabled=bool(order_id and payload.get("can_replace")),
+            endpoint=f"{base}/replace" if base else "",
+            scope="numbers:orders:replace",
+            reason=missing_order_reason or "replacement_unavailable",
+            requires_idempotency_key=True,
+        ),
+        "alternate_provider": _api_order_action(
+            enabled=bool(order_id and payload.get("can_alternate_provider")),
+            endpoint=f"{base}/alternate" if base else "",
+            scope="numbers:orders:replace",
+            reason=missing_order_reason or "alternate_unavailable",
+            requires_idempotency_key=True,
+        ),
+        "download_recording": _api_order_action(
+            enabled=bool(order_id and mode == "voice" and payload.get("recording_available")),
+            endpoint=f"{base}/recording" if base else "",
+            method="GET",
+            scope="numbers:orders:read",
+            reason=missing_order_reason or "recording_not_ready",
+        ),
+        "rental_sms": _api_order_action(
+            enabled=bool(order_id and active_rental),
+            endpoint=f"{base}/rental/sms" if base else "",
+            scope="numbers:orders:rental",
+            reason=missing_order_reason or "not_active_rental",
+        ),
+        "rental_finish": _api_order_action(
+            enabled=bool(order_id and mode == "rental" and payload.get("can_finish")),
+            endpoint=f"{base}/rental/finish" if base else "",
+            scope="numbers:orders:rental",
+            reason=missing_order_reason or "finish_unavailable",
+        ),
+        "rental_renew": _api_order_action(
+            enabled=bool(order_id and mode == "rental" and payload.get("can_renew")),
+            endpoint=f"{base}/rental/renew" if base else "",
+            scope="numbers:orders:rental",
+            reason=missing_order_reason or "renew_unavailable",
+            requires_idempotency_key=True,
+        ),
+        "rental_wake": _api_order_action(
+            enabled=bool(order_id and mode == "rental" and payload.get("can_wake")),
+            endpoint=f"{base}/rental/wake" if base else "",
+            scope="numbers:orders:rental",
+            reason=missing_order_reason or "wake_unavailable",
+        ),
+        "rental_notes": _api_order_action(
+            enabled=bool(order_id and mode == "rental" and payload.get("can_notes")),
+            endpoint=f"{base}/rental/notes" if base else "",
+            scope="numbers:orders:rental",
+            reason=missing_order_reason or "notes_unavailable",
+        ),
+    }
+    return actions
 
 
 def _public_order_status(order: dict[str, Any]) -> str:

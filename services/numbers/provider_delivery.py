@@ -8,20 +8,21 @@ WEBHOOK_SMS_PROVIDERS: frozenset[str] = frozenset(
     {
         "herosms",
         "pvadeals",
-        "pvapins",
         "nonvoip",
         "nonvoip_s6",
         "smsready",
-        "smspool",
         "telabot",
         "textverified",
-        "vaksms",
     }
 )
+
+POLLING_REQUIRED_SMS_PROVIDERS: frozenset[str] = frozenset({"pvapins", "smspool", "vaksms"})
 
 
 def provider_sms_delivery_strategy(provider_code: str | None) -> str:
     provider = str(provider_code or "").strip().lower()
+    if provider in POLLING_REQUIRED_SMS_PROVIDERS:
+        return "polling"
     return "webhook" if provider in WEBHOOK_SMS_PROVIDERS else "polling"
 
 
@@ -34,5 +35,8 @@ def order_uses_provider_sms_webhook(order: dict[str, Any] | None) -> bool:
     return provider_sms_delivery_strategy(provider) == "webhook"
 
 
-def provider_sms_polling_enabled() -> bool:
+def provider_sms_polling_enabled(provider_code: str | None = None) -> bool:
+    provider = str(provider_code or "").strip().lower()
+    if provider in POLLING_REQUIRED_SMS_PROVIDERS:
+        return True
     return bool(getattr(settings, "numbers_provider_sms_polling_enabled", False))

@@ -664,7 +664,7 @@ async def test_temp_wait_recovery_syncs_waiting_orders(monkeypatch):
     monkeypatch.setattr(hb, "get_user", _fake_get_user)
     monkeypatch.setattr(hb, "_fetch_provider_sms", _fake_fetch)
     monkeypatch.setattr(hb, "_sync_temp_wait_controls", _fake_sync)
-    monkeypatch.setattr(rr, "provider_sms_polling_enabled", lambda: True)
+    monkeypatch.setattr(rr, "provider_sms_polling_enabled", lambda provider=None: True)
 
     stats = await hb.run_temp_wait_recovery_sweep(bot=_DummyBot(), limit=10)
     assert stats["synced"] == 1

@@ -1,6 +1,6 @@
 # PVAPins Provider API
 
-Status: partial; current public docs show polling for SMS delivery  
+Status: confirmed polling-only for current account; enabled through provider-level polling exception
 Adapter: `services/numbers/providers/pvapins_provider.py`  
 Provider code: `pvapins`
 
@@ -57,15 +57,15 @@ Current adapter behavior:
 
 The rental management endpoints above came from the previously supplied PVAPins API page. If PVAPins has replaced them with newer endpoints, bring that section.
 
-## Webhooks
+## Delivery Strategy
 
-No PVAPins webhook was present in the supplied pages. The current page explicitly says to poll:
+No PVAPins webhook was present in the supplied pages, and the account was confirmed to have no webhook support. The current page explicitly says to poll:
 
 ```text
 get_sms.php
 ```
 
-Local generic route exists, but it should not be considered usable until PVAPins confirms callback support:
+Local generic route exists only for future compatibility, but normal delivery must use provider polling:
 
 ```text
 POST /api/v1/provider-webhooks/pvapins
@@ -73,7 +73,6 @@ POST /api/v1/provider-webhooks/pvapins
 
 ## Missing Or Needs Live Verification
 
-- PVAPins webhook/callback docs, if they exist.
 - Current full rental reference for SMS, info, reject, and renew endpoints.
 - One funded test to confirm `get_number.php` with `is_rent=1` returns the same shape we parse for rentals.
 - Local balance smoke tests require `PVAPINS_KEY`/`pvapins_key` to be configured in the current environment. If it is missing locally, the adapter correctly returns no balance even though Railway may have the key.

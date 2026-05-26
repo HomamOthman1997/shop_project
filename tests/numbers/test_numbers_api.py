@@ -26,9 +26,13 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
 
     routes = {(route.method, route.resource.canonical) for route in app.router.routes()}
     assert ("GET", "/api/v1/numbers/health") in routes
+    assert ("GET", "/api/v1/numbers/docs") in routes
+    assert ("GET", "/api/v1/numbers/openapi.json") in routes
     assert ("GET", "/api/v1/numbers/catalog/bootstrap") in routes
     assert ("GET", "/api/v1/numbers/country-suggestions") in routes
     assert ("GET", "/api/v1/numbers/account") in routes
+    assert ("GET", "/api/v1/numbers/recharge") in routes
+    assert ("GET", "/api/v1/numbers/support") in routes
     assert ("GET", "/api/v1/numbers/quotes") in routes
     assert ("GET", "/api/v1/numbers/orders") in routes
     assert ("GET", "/api/v1/numbers/orders/{order_id}") in routes
@@ -66,6 +70,47 @@ async def test_numbers_api_health():
 
 
 @pytest.mark.asyncio
+async def test_numbers_api_openapi_schema_exposes_public_contract():
+    request = make_mocked_request("GET", "/api/v1/numbers/openapi.json")
+
+    response = await api.openapi_schema(request)
+    payload = json.loads(response.text)
+
+    assert payload["openapi"] == "3.1.0"
+    assert payload["info"]["title"] == "Phantom Numbers API"
+    assert payload["servers"][0]["url"] == "/api/v1/numbers"
+    assert "/docs" in payload["paths"]
+    assert "/openapi.json" in payload["paths"]
+    assert "/catalog/bootstrap" in payload["paths"]
+    assert "/orders/{order_id}/refresh" in payload["paths"]
+    assert "x-required-scope" not in payload["paths"]["/docs"]["get"]
+    assert payload["paths"]["/orders"]["post"]["x-required-scope"] == "numbers:orders:create"
+    assert any(param["name"] == "Idempotency-Key" for param in payload["paths"]["/orders"]["post"]["parameters"])
+    assert payload["paths"]["/orders/{order_id}/rental/renew"]["post"]["x-required-scope"] == "numbers:orders:rental"
+    assert payload["components"]["securitySchemes"]["BearerAuth"]["type"] == "http"
+    assert payload["x-phantom-api-discovery"]["actions"]["submit_recharge"]["enabled"] is False
+    assert "/mini/" not in json.dumps(payload["paths"])
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_docs_renders_self_hosted_reference():
+    request = make_mocked_request("GET", "/api/v1/numbers/docs")
+
+    response = await api.api_docs(request)
+    text = response.text or ""
+
+    assert response.content_type == "text/html"
+    assert "Phantom Numbers API" in text
+    assert "Endpoint Reference" in text
+    assert "Action Catalog" in text
+    assert "/api/v1/numbers/openapi.json" in text
+    assert "/api/v1/numbers/orders/{order_id}/refresh" in text
+    assert "numbers:orders:create" in text
+    assert "miniapp_only" in text
+    assert "/mini/" not in text
+
+
+@pytest.mark.asyncio
 async def test_numbers_api_catalog_bootstrap_has_core_selectors():
     api_payloads.clear_numbers_api_payload_cache()
     request = make_mocked_request("GET", "/api/v1/numbers/catalog/bootstrap")
@@ -82,6 +127,20 @@ async def test_numbers_api_catalog_bootstrap_has_core_selectors():
         "provider_sms_polling_enabled": False,
         "manual_customer_refund_enabled": False,
     }
+    assert payload["api"]["base_path"] == "/api/v1/numbers"
+    assert payload["api"]["quote_ttl_sec"] == api_payloads.QUOTE_TTL_SEC
+    assert payload["api"]["actions"]["api_docs"]["endpoint"] == "/api/v1/numbers/docs"
+    assert payload["api"]["actions"]["openapi"]["endpoint"] == "/api/v1/numbers/openapi.json"
+    assert payload["api"]["capabilities"]["server_managed_refunds"] is True
+    assert payload["api"]["capabilities"]["manual_customer_refund_enabled"] is False
+    assert payload["api"]["actions"]["quotes"]["endpoint"] == "/api/v1/numbers/quotes"
+    assert payload["api"]["actions"]["quotes"]["scope"] == "numbers:quotes"
+    assert payload["api"]["actions"]["create_order"]["method"] == "POST"
+    assert payload["api"]["actions"]["create_order"]["requires_idempotency_key"] is True
+    assert payload["api"]["actions"]["resend_order"]["scope"] == "numbers:orders:resend"
+    assert payload["api"]["actions"]["submit_recharge"]["enabled"] is False
+    assert payload["api"]["actions"]["submit_recharge"]["reason"] == "miniapp_only"
+    assert "/mini/" not in json.dumps(payload["api"]["actions"])
     assert [item["key"] for item in payload["modes"]] == ["temp", "rental", "voice"]
     assert any(item["key"] == "telegram" for item in payload["services"])
     assert any(item["code"] == "1" for item in payload["countries"])
@@ -221,6 +280,76 @@ async def test_numbers_api_account_returns_wallet_snapshot(monkeypatch):
     assert "reason" not in payload["recent_activity"][0]
     assert "metadata" not in payload["recent_activity"][0]
     assert response.headers["X-RateLimit-Bucket"] == "numbers:account:read"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_recharge_returns_read_only_options(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_wallet_balance(user_id, reseller_id):
+        calls["wallet"] = (user_id, reseller_id)
+        return 7.25
+
+    async def fake_get_owner_payment_methods():
+        calls["methods"] = True
+        return [
+            {
+                "code": "usdt",
+                "title": "USDT",
+                "currency": "USD",
+                "per_credit": 1,
+                "target": "T_WALLET",
+                "support": "@support",
+                "instructions": "Send payment to {target}.",
+            },
+            {"code": "disabled", "enabled": False},
+        ]
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_wallet_balance", fake_get_user_wallet_balance)
+    monkeypatch.setattr(api, "get_owner_payment_methods", fake_get_owner_payment_methods)
+
+    request = make_mocked_request("GET", "/api/v1/numbers/recharge")
+
+    response = await api.recharge_options(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:account:read"
+    assert calls["wallet"] == (123, 456)
+    assert payload["wallet"]["balance_label"] == "$7.25"
+    assert payload["methods"][0]["code"] == "usdt"
+    assert payload["methods"][0]["target"] == "T_WALLET"
+    assert payload["actions"]["submit_recharge"]["enabled"] is False
+    assert payload["actions"]["submit_recharge"]["reason"] == "miniapp_only"
+    assert payload["capabilities"]["submit_recharge_proof"] is False
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_support_returns_read_only_contract(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+
+    request = make_mocked_request("GET", "/api/v1/numbers/support")
+
+    response = await api.support_options(request)
+    payload = json.loads(response.text)
+
+    assert calls["auth_scope"] == "numbers:account:read"
+    assert [row["key"] for row in payload["categories"]] == ["numbers", "user_balance"]
+    assert payload["actions"]["submit_ticket"]["enabled"] is False
+    assert payload["actions"]["submit_ticket"]["reason"] == "miniapp_only"
+    assert payload["capabilities"]["submit_ticket"] is False
 
 
 @pytest.mark.asyncio
@@ -523,6 +652,76 @@ async def test_numbers_api_get_order_detail_is_owner_scoped(monkeypatch):
     assert payload["order"]["provider"] == "Bravo"
     assert payload["order"]["number"] == "15550001111"
     assert "base_price" not in payload["order"]
+    assert payload["order"]["api_actions"]["refresh"]["endpoint"] == "/api/v1/numbers/orders/order-1/refresh"
+    assert payload["order"]["api_actions"]["refresh"]["scope"] == "numbers:orders:refresh"
+    assert payload["order"]["api_actions"]["resend"]["endpoint"] == "/api/v1/numbers/orders/order-1/resend"
+    assert payload["order"]["api_actions"]["resend"]["requires_idempotency_key"] is True
+    assert "/mini/" not in json.dumps(payload["order"]["api_actions"])
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_order_payload_exposes_rental_action_contract(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        return {
+            "_id": order_id,
+            "status": "success",
+            "number_mode": "rental",
+            "service_id": "telegram:rental",
+            "provider_order_id": "rent-1",
+            "provider_number": "15550001111",
+            "rental_country": "1",
+            "rental_is_renewable": True,
+        }
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    request = make_mocked_request("GET", "/api/v1/numbers/orders/rental-1", match_info={"order_id": "rental-1"})
+
+    response = await api.get_order_detail(request)
+    payload = json.loads(response.text)
+    actions = payload["order"]["api_actions"]
+
+    assert actions["rental_sms"]["enabled"] is True
+    assert actions["rental_sms"]["endpoint"] == "/api/v1/numbers/orders/rental-1/rental/sms"
+    assert actions["rental_renew"]["enabled"] is True
+    assert actions["rental_renew"]["scope"] == "numbers:orders:rental"
+    assert actions["rental_renew"]["requires_idempotency_key"] is True
+    assert actions["rental_finish"]["endpoint"] == "/api/v1/numbers/orders/rental-1/rental/finish"
+    assert "/mini/" not in json.dumps(actions)
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_order_payload_exposes_voice_recording_action(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_get_user_number_order(order_id, user_id, reseller_id):
+        return {
+            "_id": order_id,
+            "status": "success",
+            "number_mode": "voice",
+            "temp_service_key": "telegram",
+            "provider_number": "15550001111",
+            "voice_recording_uri": "https://recording.example/test.mp3",
+        }
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "check_api_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user_number_order", fake_get_user_number_order)
+    request = make_mocked_request("GET", "/api/v1/numbers/orders/voice-1", match_info={"order_id": "voice-1"})
+
+    response = await api.get_order_detail(request)
+    payload = json.loads(response.text)
+    action = payload["order"]["api_actions"]["download_recording"]
+
+    assert action["enabled"] is True
+    assert action["method"] == "GET"
+    assert action["scope"] == "numbers:orders:read"
+    assert action["endpoint"] == "/api/v1/numbers/orders/voice-1/recording"
 
 
 @pytest.mark.asyncio

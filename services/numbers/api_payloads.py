@@ -122,6 +122,162 @@ def service_rows() -> list[dict[str, Any]]:
     return services
 
 
+def _api_action(
+    key: str,
+    endpoint: str,
+    *,
+    method: str = "GET",
+    scope: str = "",
+    enabled: bool = True,
+    reason: str = "",
+    requires_idempotency_key: bool = False,
+) -> dict[str, Any]:
+    return {
+        "key": str(key or ""),
+        "enabled": bool(enabled),
+        "endpoint": str(endpoint or ""),
+        "method": str(method or "GET").upper(),
+        "scope": str(scope or ""),
+        "reason": "" if enabled else str(reason or ""),
+        "requires_idempotency_key": bool(requires_idempotency_key),
+    }
+
+
+def api_discovery_payload() -> dict[str, Any]:
+    return {
+        "base_path": "/api/v1/numbers",
+        "quote_ttl_sec": int(QUOTE_TTL_SEC),
+        "required_headers": {
+            "auth": "Authorization: Bearer <api_key>",
+            "idempotency": "Idempotency-Key for mutating create/resend/replace/renew calls",
+        },
+        "capabilities": {
+            "modes": ["temp", "rental", "voice"],
+            "provider_identity_public": False,
+            "provider_sms_polling_enabled": bool(getattr(settings, "numbers_provider_sms_polling_enabled", False)),
+            "manual_customer_refund_enabled": False,
+            "recharge_submit_enabled": False,
+            "support_ticket_submit_enabled": False,
+            "server_managed_refunds": True,
+            "customer_webhooks": True,
+        },
+        "actions": {
+            "api_docs": _api_action("api_docs", "/api/v1/numbers/docs", scope="public"),
+            "openapi": _api_action("openapi", "/api/v1/numbers/openapi.json", scope="public"),
+            "bootstrap": _api_action("bootstrap", "/api/v1/numbers/catalog/bootstrap", scope="public"),
+            "country_suggestions": _api_action(
+                "country_suggestions",
+                "/api/v1/numbers/country-suggestions",
+                scope="numbers:quotes",
+            ),
+            "account": _api_action("account", "/api/v1/numbers/account", scope="numbers:account:read"),
+            "recharge": _api_action("recharge", "/api/v1/numbers/recharge", scope="numbers:account:read"),
+            "support": _api_action("support", "/api/v1/numbers/support", scope="numbers:account:read"),
+            "quotes": _api_action("quotes", "/api/v1/numbers/quotes", scope="numbers:quotes"),
+            "orders": _api_action("orders", "/api/v1/numbers/orders", scope="numbers:orders:read"),
+            "create_order": _api_action(
+                "create_order",
+                "/api/v1/numbers/orders",
+                method="POST",
+                scope="numbers:orders:create",
+                requires_idempotency_key=True,
+            ),
+            "order_detail": _api_action(
+                "order_detail",
+                "/api/v1/numbers/orders/{order_id}",
+                scope="numbers:orders:read",
+            ),
+            "refresh_order": _api_action(
+                "refresh_order",
+                "/api/v1/numbers/orders/{order_id}/refresh",
+                method="POST",
+                scope="numbers:orders:refresh",
+            ),
+            "resend_order": _api_action(
+                "resend_order",
+                "/api/v1/numbers/orders/{order_id}/resend",
+                method="POST",
+                scope="numbers:orders:resend",
+                requires_idempotency_key=True,
+            ),
+            "replace_order": _api_action(
+                "replace_order",
+                "/api/v1/numbers/orders/{order_id}/replace",
+                method="POST",
+                scope="numbers:orders:replace",
+                requires_idempotency_key=True,
+            ),
+            "alternate_provider": _api_action(
+                "alternate_provider",
+                "/api/v1/numbers/orders/{order_id}/alternate",
+                method="POST",
+                scope="numbers:orders:replace",
+                requires_idempotency_key=True,
+            ),
+            "download_recording": _api_action(
+                "download_recording",
+                "/api/v1/numbers/orders/{order_id}/recording",
+                scope="numbers:orders:read",
+            ),
+            "rental_sms": _api_action(
+                "rental_sms",
+                "/api/v1/numbers/orders/{order_id}/rental/sms",
+                method="POST",
+                scope="numbers:orders:rental",
+            ),
+            "rental_finish": _api_action(
+                "rental_finish",
+                "/api/v1/numbers/orders/{order_id}/rental/finish",
+                method="POST",
+                scope="numbers:orders:rental",
+            ),
+            "rental_renew": _api_action(
+                "rental_renew",
+                "/api/v1/numbers/orders/{order_id}/rental/renew",
+                method="POST",
+                scope="numbers:orders:rental",
+                requires_idempotency_key=True,
+            ),
+            "rental_wake": _api_action(
+                "rental_wake",
+                "/api/v1/numbers/orders/{order_id}/rental/wake",
+                method="POST",
+                scope="numbers:orders:rental",
+            ),
+            "rental_notes": _api_action(
+                "rental_notes",
+                "/api/v1/numbers/orders/{order_id}/rental/notes",
+                method="POST",
+                scope="numbers:orders:rental",
+            ),
+            "customer_webhooks": _api_action(
+                "customer_webhooks",
+                "/api/v1/webhooks",
+                scope="webhooks:manage",
+            ),
+            "api_keys": _api_action(
+                "api_keys",
+                "/api/v1/api-keys",
+                scope="api_keys:manage",
+            ),
+            "submit_recharge": _api_action(
+                "submit_recharge",
+                "/api/v1/numbers/recharge/submit",
+                method="POST",
+                enabled=False,
+                reason="miniapp_only",
+            ),
+            "submit_support_ticket": _api_action(
+                "submit_support_ticket",
+                "/api/v1/numbers/support/ticket",
+                method="POST",
+                enabled=False,
+                reason="miniapp_only",
+            ),
+        },
+    }
+
+
 def numbers_bootstrap_payload() -> dict[str, Any]:
     cached = _BOOTSTRAP_CACHE.get("data")
     if isinstance(cached, dict):
@@ -145,6 +301,7 @@ def numbers_bootstrap_payload() -> dict[str, Any]:
             "provider_sms_polling_enabled": bool(getattr(settings, "numbers_provider_sms_polling_enabled", False)),
             "manual_customer_refund_enabled": False,
         },
+        "api": api_discovery_payload(),
         "links": {
             "numbers_bot": numbers_bot_url("numbers"),
             "recharge": numbers_bot_url("balance"),

@@ -37,11 +37,12 @@ def test_provider_readiness_rows_include_override_only_provider(monkeypatch):
     assert rows["newprovider"]["reason"] == "manual hold"
 
 
-def test_provider_readiness_quarantines_polling_only_providers():
-    assert provider_readiness("smspool").status == "quarantine"
-    assert provider_quote_enabled("smspool", mode="temp") is False
-    assert provider_purchase_enabled("vaksms", mode="temp") is False
+def test_provider_readiness_enables_confirmed_polling_only_providers():
+    assert provider_readiness("smspool").status == "polling_required"
+    assert provider_quote_enabled("smspool", mode="temp") is True
+    assert provider_purchase_enabled("vaksms", mode="temp") is True
     assert provider_readiness("pvapins").webhook_documented is False
+    assert provider_readiness("pvapins").auto_refund_enabled is True
 
 
 def test_provider_readiness_keeps_refund_risk_visible_but_not_auto_refundable():
