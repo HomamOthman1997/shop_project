@@ -57,7 +57,10 @@ async def _handle_provider_sms_webhook(request: web.Request, provider_code: str)
         full_sms=normalized.full_sms,
         raw_event=normalized.raw_event,
     )
-    status = 200 if result.get("ok") else 404 if result.get("reason") == "order_not_found" else 400
+    # Provider dashboards often disable webhooks after repeated non-2xx
+    # responses. Keep unmatched-but-authenticated events replayable in the
+    # audit log without making upstream delivery look failed.
+    status = 200 if result.get("ok") or result.get("reason") == "order_not_found" else 400
     return web.json_response(result, status=status, headers=dict(_NO_STORE_HEADERS))
 
 

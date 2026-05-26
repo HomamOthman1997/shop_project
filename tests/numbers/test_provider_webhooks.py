@@ -71,6 +71,38 @@ async def test_smsready_webhook_applies_new_sms(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_provider_webhook_acknowledges_valid_unmatched_event(monkeypatch):
+    monkeypatch.setattr(provider_webhooks, "_configured_provider_webhook_token", lambda: "secret")
+
+    async def fake_apply_provider_temp_sms_webhook(**kwargs):
+        return {"ok": False, "reason": "order_not_found"}
+
+    monkeypatch.setattr(provider_webhooks, "apply_provider_temp_sms_webhook", fake_apply_provider_temp_sms_webhook)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/provider-webhooks/smsready?token=secret",
+        headers={"Content-Type": "application/json"},
+    )
+    request._read_bytes = json.dumps(
+        {
+            "event": "new_sms",
+            "message": {
+                "order_id": 50,
+                "number": "18583056127",
+                "code": "245646",
+                "full_sms": "Here is your code: 245646",
+            },
+        }
+    ).encode("utf-8")
+
+    response = await provider_webhooks.smsready_webhook(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload == {"ok": False, "reason": "order_not_found"}
+
+
+@pytest.mark.asyncio
 async def test_pvadeals_webhook_applies_sms_received(monkeypatch):
     calls = {}
     monkeypatch.setattr(provider_webhooks, "_configured_provider_webhook_token", lambda: "secret")

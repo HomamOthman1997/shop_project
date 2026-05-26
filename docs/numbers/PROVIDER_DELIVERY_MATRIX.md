@@ -43,6 +43,7 @@ Added:
 - Provider delivery strategy registry.
 - Provider inbound webhook audit log: `provider_webhook_events`.
 - Internal provider webhook audit API with replay support.
+- Authenticated provider webhooks now acknowledge unmatched order events with HTTP 200 while keeping `reason=order_not_found` in the response/audit trail. This prevents provider dashboards from disabling callbacks after valid test/race events and keeps the event replayable.
 - Customer webhook outbox/delivery worker.
 - Internal support review queue for auto-refund failures.
 - Shared rental no-SMS protection service: provider close/cancel, local wallet refund, background guard, and global sweep all read stored webhook state first and only use provider close APIs when a refund action is due.
