@@ -41,6 +41,10 @@ class ProviderFactory:
                 from .providers.pvapins_provider import PVAPinsProvider
 
                 cls._instances[name] = PVAPinsProvider()
+            elif name == "vaksms":
+                from .providers.vaksms_provider import VAKSMSProvider
+
+                cls._instances[name] = VAKSMSProvider()
             else:
                 raise ValueError(f"Unknown provider '{name}'")
 

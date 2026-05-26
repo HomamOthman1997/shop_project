@@ -127,3 +127,10 @@ async def test_smsready_cancel_and_resend(monkeypatch):
     assert resend["success"] is True
     assert resend["order_id"] == "51"
     assert resend["number"] == "18583056127"
+
+
+@pytest.mark.asyncio
+async def test_smsready_balance_is_unsupported_by_supplied_docs():
+    provider = SMSReadyProvider()
+
+    assert await provider.get_balance() is None

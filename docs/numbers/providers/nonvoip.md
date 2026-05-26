@@ -34,7 +34,7 @@ Auth:
 | SMS polling fallback | `get-sms`, fallback `get_messages` | `request_id` or `order_id` |
 | Cancel | `set-status` with `reject`, fallback `close` | `id`, `status` |
 | Refund fallback | `refund_number` | `id` |
-| Balance | `get-balance` | account auth |
+| Transfer credit | `transfer_credit` | `email_to`, `amount`; reseller-only |
 
 ## Webhooks
 
@@ -62,3 +62,4 @@ Normalizer:
 - Account profile webhook URL setup confirmation.
 - One real webhook event for `nonvoip` and, if used, `nonvoip_s6`.
 - Exact current cancellation/refund response examples for both `set-status` and `refund_number`.
+- Account balance endpoint is not present in the supplied non-VoIP reseller docs. The adapter treats balance as unsupported unless non-VoIP support provides a documented command.

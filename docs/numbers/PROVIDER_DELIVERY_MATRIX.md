@@ -5,6 +5,8 @@ Last updated: 2026-05-26
 
 Goal: classify how each upstream Numbers provider delivers inbound OTP/SMS so the backend can run webhook-first without guessing provider payloads.
 
+Live provider testing is tracked in `docs/numbers/LIVE_PROVIDER_VERIFICATION.md`.
+
 ## Policy
 
 - New backend behavior is webhook-first: `numbers_provider_sms_polling_enabled=false` by default and refresh does not poll providers when the order is marked as webhook delivery.

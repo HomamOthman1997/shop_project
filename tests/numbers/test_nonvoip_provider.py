@@ -148,13 +148,12 @@ async def test_cancel_fallback_to_close(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_balance_parses_float(monkeypatch):
+async def test_get_balance_is_unsupported_by_supplied_docs(monkeypatch):
     provider = NonVoipProvider()
 
     async def fake_request(endpoint, **params):
-        assert endpoint == "get-balance"
-        return 200, {"balance": "799.70"}
+        raise AssertionError("non-VoIP docs do not include a balance endpoint")
 
     monkeypatch.setattr(provider, "_request", fake_request)
     bal = await provider.get_balance()
-    assert bal == 799.70
+    assert bal is None

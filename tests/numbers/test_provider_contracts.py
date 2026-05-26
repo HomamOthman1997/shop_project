@@ -32,7 +32,9 @@ def test_provider_contract_methods_exist():
     [
         ({"errorDescription": "Out of stock or unavailable."}, "OUT_OF_STOCK"),
         ({"message": "Insufficient balance, the price is: 0.48"}, "PROVIDER_BALANCE_LOW"),
+        ({"message": "Not sufficient"}, "PROVIDER_BALANCE_LOW"),
         ({"error_msg": "Wrong token!"}, "AUTH_ERROR"),
+        ({"statusCode": 500, "error": "Internal Server Error"}, "PROVIDER_ERROR"),
         ("temporarily unavailable", "TEMPORARY_FAILURE"),
     ],
 )

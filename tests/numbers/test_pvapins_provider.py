@@ -140,3 +140,17 @@ async def test_pvapins_rental_reject_error_is_not_success(monkeypatch):
 
     result = await provider.finish_rental(activation_id)
     assert result["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_pvapins_get_balance_parses_known_shapes(monkeypatch):
+    provider = PVAPinsProvider()
+
+    async def fake_request(endpoint, *, auth=True, **params):
+        assert endpoint == "get_balance.php"
+        assert auth is True
+        return 200, {"balance": "12.34"}
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+
+    assert await provider.get_balance() == 12.34

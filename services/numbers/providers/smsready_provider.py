@@ -279,6 +279,10 @@ class SMSReadyProvider(BaseProvider):
     async def get_sms(self, activation_id: str):
         return {"success": True, "messages": [], "raw": "smsready_webhook_only"}
 
+    async def get_balance(self) -> Optional[float]:
+        # SMSReady's supplied API reference has no account balance endpoint.
+        return None
+
     async def cancel(self, activation_id: str):
         status, payload = await self._request("POST", "refund-one-time-order/", order_id=activation_id)
         return {"success": self._ok(status, payload), "raw": payload}

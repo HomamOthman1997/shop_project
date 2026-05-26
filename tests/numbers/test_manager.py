@@ -1917,9 +1917,11 @@ def test_provider_factory_new_provider_integrations():
     from services.numbers.provider_factory import ProviderFactory
     from services.numbers.providers.pvapins_provider import PVAPinsProvider
     from services.numbers.providers.smsready_provider import SMSReadyProvider
+    from services.numbers.providers.vaksms_provider import VAKSMSProvider
 
     assert isinstance(ProviderFactory.get("smsready"), SMSReadyProvider)
     assert isinstance(ProviderFactory.get("pvapins"), PVAPinsProvider)
+    assert isinstance(ProviderFactory.get("vaksms"), VAKSMSProvider)
 
 # note: original_get could also be used if needed but manager directly calls ProviderFactory.get
 

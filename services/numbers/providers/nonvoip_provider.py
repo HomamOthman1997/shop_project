@@ -428,13 +428,7 @@ class NonVoipProvider(BaseProvider):
         return {"success": ok, "raw": data}
 
     async def get_balance(self) -> Optional[float]:
-        try:
-            _status, data = await self._request_compat("get-balance")
-        except Exception:
-            data = None
-        if isinstance(data, dict):
-            for key in ("balance", "amount", "value"):
-                parsed = _as_float(data.get(key))
-                if parsed is not None:
-                    return parsed
+        # The supplied non-VoIP reseller API reference lists service, order,
+        # reuse, message, refund, transfer_credit, and webhook commands only.
+        # There is no documented account balance command.
         return None

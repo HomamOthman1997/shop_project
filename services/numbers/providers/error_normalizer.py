@@ -17,7 +17,7 @@ def normalize_provider_error(raw: Any) -> dict[str, Any]:
         code = "OUT_OF_STOCK"
         category = "availability"
         retryable = True
-    elif any(marker in text for marker in ("insufficient balance", "no_balance", "balance_error", "low balance")):
+    elif any(marker in text for marker in ("insufficient balance", "not sufficient", "no_balance", "balance_error", "low balance")):
         code = "PROVIDER_BALANCE_LOW"
         category = "provider_balance"
         retryable = False

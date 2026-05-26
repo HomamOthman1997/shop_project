@@ -76,4 +76,4 @@ POST /api/v1/provider-webhooks/pvapins
 - PVAPins webhook/callback docs, if they exist.
 - Current full rental reference for SMS, info, reject, and renew endpoints.
 - One funded test to confirm `get_number.php` with `is_rent=1` returns the same shape we parse for rentals.
-
+- Local balance smoke tests require `PVAPINS_KEY`/`pvapins_key` to be configured in the current environment. If it is missing locally, the adapter correctly returns no balance even though Railway may have the key.
