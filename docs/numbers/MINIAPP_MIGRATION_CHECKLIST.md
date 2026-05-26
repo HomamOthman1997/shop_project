@@ -35,6 +35,7 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 - [x] My numbers / active orders view
 - [x] Mini App order payload uses the shared public API order payload as its base.
   - Done means: provider obfuscation, public status, refund payload, action flags, and cost-hiding come from `order_service.public_order_payload(...)`; the Mini App layer only adds UI labels/detail rows, Mini App recording URL, refresh flags, and second-code display fields.
+  - Current contract: public order payloads include `customer_state` with customer-safe state keys, tone, translation keys, webhook/refund flags, and `show_provider_identity=false`. The Mini App renders receive-state notes from that backend state instead of inferring provider behavior in JavaScript.
 - [x] Order status refresh through the shared API service
   - Mini App refresh now calls `order_refresh_service.refresh_number_order(...)` for temporary, rental, and voice orders.
   - Refresh is webhook-first and does not poll providers when webhook delivery is active or global provider polling is disabled.
@@ -43,6 +44,10 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
   - The Mini App no longer exposes a primary manual refund button for temp orders. Timeout/no-code refunds are handled by backend policy, provider-aware cancellation, wallet refund, and support-review escalation.
 - [x] Refund state display
   - Customers can see refunded/pending-refund state on the order receive card.
+- [x] Dedicated Mini App balance recharge surface.
+  - Done means: recharge has its own bottom tab, reads `/mini/numbers/api/recharge`, submits proofs through `/mini/numbers/api/recharge/submit`, and no longer depends on opening a Telegram reply-keyboard flow for normal top-ups.
+- [x] Mini App support can attach order context.
+  - Done means: support loads recent orders through `/mini/numbers/api/orders`, lets the customer pick a related order, and prefixes the support message with customer-safe order context.
 - [x] Replacement number request
 - [x] Alternate provider retry with suggested price
   - Mini App replacement/alternate actions now call the shared Numbers order service and use idempotency keys.
@@ -137,6 +142,8 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 
 - [x] Provider cards use best provider full-width and other providers two per row.
 - [x] Active order cards focus on receive state, code, resend availability, and refund status.
+- [x] Recharge is a first-class tab alongside buy, orders, account, and support.
+- [x] Support screen includes optional related-order context.
 - [x] Provider cards show public provider IDs instead of real provider names.
 - [ ] Test long provider names on real Telegram mobile webview.
   - Done means: no overlap with star badge, price, or buy button.
@@ -175,6 +182,6 @@ Scope: moving customer-facing Numbers Telegram flows into `/mini/numbers`
 
 1. Configure upstream provider dashboards to `https://phantom-app.net/api/v1/provider-webhooks/{provider}?token=...`.
 2. Run live webhook verification per provider and replay/fix unmatched callbacks.
-3. Wallet and recharge verification in live Telegram.
+3. Wallet and recharge verification in live Telegram through the dedicated Recharge tab.
 4. Branding/config audit on Railway.
 5. Deferred engineering cleanup.

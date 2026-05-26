@@ -42,8 +42,12 @@ Use this checklist after each Railway deploy that touches `/mini/numbers`.
 
 ## Account And Support
 
-- [ ] Balance pill opens recharge in Telegram.
-- [ ] Account recharge button opens the same recharge destination.
+- [ ] Bottom Recharge tab opens the in-app recharge form.
+- [ ] Recharge methods, payment target, rate, amount input, proof upload, and submit button render without overlap.
+- [ ] Recharge request submit creates a pending request and updates the recent recharge list.
+- [ ] Balance pill opens the in-app Recharge tab.
+- [ ] Account recharge shortcut opens the same in-app Recharge tab.
 - [ ] Wallet activity labels include service/order/source where available.
+- [ ] Support order selector lists recent customer-safe orders and does not expose provider names.
 - [ ] Support ticket submit shows a clear success/error message.
 - [ ] Bottom tabs stay pinned and readable after long scroll.

@@ -65,6 +65,8 @@ def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
     seconds_left = max(0, int(_order_timeout_sec(order)) - int(_temp_elapsed_sec(order)))
     can_resend = _order_resend_available(order, public_status=public_status)
     provider_code = str(order.get("provider") or order.get("provisioning_provider") or "").strip().lower()
+    provider_id = str(order.get("provider_public_id") or provider_public_id(provider_code))
+    sms_delivery = str(order.get("provider_sms_delivery") or provider_sms_delivery_strategy(provider_code))
     code = _order_last_code(order)
     codes = _order_codes(order)
     recording_available = bool(mode == "voice" and str(order.get("voice_recording_uri") or "").strip())
@@ -87,9 +89,9 @@ def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
         "service": str(order.get("temp_service_key") or order.get("service_id") or "").replace(":rental", ""),
         "country": str(order.get("temp_country") or order.get("rental_country") or "none"),
         "state": str(order.get("temp_state") or order.get("rental_state_code") or "none"),
-        "provider_id": str(order.get("provider_public_id") or provider_public_id(provider_code)),
+        "provider_id": provider_id,
         "provider": provider_display_name(provider_code),
-        "sms_delivery": str(order.get("provider_sms_delivery") or provider_sms_delivery_strategy(provider_code)),
+        "sms_delivery": sms_delivery,
         "number": str(order.get("provider_number") or ""),
         "selling_price": float(sale_price),
         "wait_state": str(order.get("temp_wait_state") or ""),
@@ -120,6 +122,18 @@ def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
         "can_wake": bool(active_rental),
         "can_notes": bool(active_rental),
         "refund": _refund_payload(order, public_status=public_status),
+        "customer_state": _customer_state_payload(
+            order,
+            public_status=public_status,
+            mode=mode,
+            sms_delivery=sms_delivery,
+            provider_id=provider_id,
+            code=code,
+            seconds_left=seconds_left,
+            can_resend=can_resend,
+            can_replace=replace_available,
+            can_alternate_provider=alternate_provider_available,
+        ),
     }
 
 
@@ -273,6 +287,108 @@ def public_refund_reason(*, public_status: str, refunded: bool = False, pending:
     if pending or status == "refund_pending":
         return "refund_pending"
     return ""
+
+
+def _customer_state_payload(
+    order: dict[str, Any],
+    *,
+    public_status: str,
+    mode: str,
+    sms_delivery: str,
+    provider_id: str,
+    code: str,
+    seconds_left: int,
+    can_resend: bool,
+    can_replace: bool,
+    can_alternate_provider: bool,
+) -> dict[str, Any]:
+    status = str(public_status or "waiting").strip().lower() or "waiting"
+    mode = str(mode or "temp").strip().lower() or "temp"
+    delivery = str(sms_delivery or "").strip().lower()
+    support_review_open = str(order.get("temp_refund_support_review_status") or "").strip().lower() == "open"
+    awaiting_webhook = bool(status == "waiting" and delivery == "webhook")
+
+    key = status
+    tone = "waiting"
+    status_label_key = "waiting"
+    receive_label_key = "waiting"
+    message_key = "waitForSms"
+    recommended_action_key = "refresh"
+
+    if mode == "voice":
+        status_label_key = "waitingCall"
+        receive_label_key = "waitingCall"
+        message_key = "waitForCall"
+        recommended_action_key = "checkCall"
+    elif mode == "rental":
+        message_key = "waitForRentalSms"
+        recommended_action_key = "rentalSms"
+
+    if awaiting_webhook:
+        key = "awaiting_provider_webhook" if mode != "voice" else "awaiting_call_webhook"
+        message_key = "waitForWebhook" if mode != "voice" else "waitForCallWebhook"
+    if status == "code_received":
+        key = "code_received"
+        tone = "success"
+        status_label_key = "code"
+        receive_label_key = "code"
+        message_key = "codeReady"
+        recommended_action_key = "copyCode"
+    elif status == "call_received":
+        key = "call_received"
+        tone = "success"
+        status_label_key = "callReceived"
+        receive_label_key = "recording"
+        message_key = "recordingReady"
+        recommended_action_key = "playRecording"
+    elif status == "waiting_for_recording":
+        key = "waiting_for_recording"
+        status_label_key = "recordingPending"
+        receive_label_key = "recordingPending"
+        message_key = "waitForRecording"
+        recommended_action_key = "checkCall"
+    elif status == "refund_pending":
+        key = "support_review_pending" if support_review_open else "refund_pending"
+        tone = "pending-refund"
+        status_label_key = "refundPending"
+        receive_label_key = "refundPending"
+        message_key = "supportReviewQueued" if support_review_open else "autoRefundChecking"
+        recommended_action_key = "openSupport" if support_review_open else "refresh"
+    elif status == "refunded":
+        key = "refunded"
+        tone = "refunded"
+        status_label_key = "refunded"
+        receive_label_key = "refunded"
+        message_key = "refundedToWallet"
+        recommended_action_key = "none"
+    elif status in {"failed", "expired"}:
+        key = status
+        tone = "danger"
+        status_label_key = "expired" if status == "expired" else "failed"
+        receive_label_key = status_label_key
+        message_key = "orderClosedNoCode"
+        recommended_action_key = "tryAnother" if can_replace or can_alternate_provider else "openSupport"
+
+    return {
+        "key": key,
+        "tone": tone,
+        "status_label_key": status_label_key,
+        "receive_label_key": receive_label_key,
+        "message_key": message_key,
+        "recommended_action_key": recommended_action_key,
+        "provider_reference": provider_id,
+        "show_provider_identity": False,
+        "awaiting_webhook": awaiting_webhook,
+        "auto_refund_managed": bool(mode in {"temp", "voice"} and status in {"waiting", "refund_pending", "refunded", "failed", "expired"}),
+        "manual_refund_available": False,
+        "support_review_open": support_review_open,
+        "can_copy_number": bool(str(order.get("provider_number") or "").strip()),
+        "can_copy_code": bool(str(code or "").strip()),
+        "can_request_second_code": bool(can_resend),
+        "can_request_replacement": bool(can_replace),
+        "can_request_alternate_provider": bool(can_alternate_provider),
+        "seconds_left": max(0, int(seconds_left or 0)),
+    }
 
 
 async def _idempotency_get(user_id: int, key: str) -> dict[str, Any] | None:

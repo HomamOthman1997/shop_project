@@ -31,7 +31,9 @@ const state = {
   loading: false,
   activeOrders: [],
   account: null,
+  recharge: null,
   supportCategories: [],
+  supportOrderRows: [],
   supportBotUrl: null,
   rechargeUrl: null,
   client: {},
@@ -95,11 +97,14 @@ const els = {
   activeOrders: document.getElementById("activeOrders"),
   accountView: document.getElementById("accountView"),
   accountDetails: document.getElementById("accountDetails"),
+  rechargeView: document.getElementById("rechargeView"),
+  rechargeDetails: document.getElementById("rechargeDetails"),
   langArButton: document.getElementById("langArButton"),
   langEnButton: document.getElementById("langEnButton"),
   rechargeButton: document.getElementById("rechargeButton"),
   supportView: document.getElementById("supportView"),
   supportCategory: document.getElementById("supportCategory"),
+  supportOrder: document.getElementById("supportOrder"),
   supportMessage: document.getElementById("supportMessage"),
   sendSupportButton: document.getElementById("sendSupportButton"),
   supportStatus: document.getElementById("supportStatus"),
@@ -114,6 +119,7 @@ const copy = {
     title: "الأرقام",
     tabBuy: "شراء",
     tabOrders: "طلباتي",
+    tabRecharge: "شحن",
     tabAccount: "حسابي",
     tabSupport: "الدعم",
     beforeOrder: "قبل الطلب",
@@ -203,10 +209,13 @@ const copy = {
     language: "اللغة",
     joined: "تاريخ الانضمام",
     recharge: "شراء",
+    rechargeTab: "شحن الرصيد",
     openingRecharge: "فتح الشحن",
     support: "الدعم",
     supportTitle: "فتح تذكرة دعم",
     supportCategory: "القسم",
+    supportOrder: "الطلب المرتبط",
+    noOrderContext: "بدون طلب محدد",
     supportMessage: "الرسالة",
     supportPlaceholder: "اكتب المشكلة أو رقم الطلب إن وجد",
     sendSupport: "إرسال تذكرة الدعم",
@@ -219,6 +228,7 @@ const copy = {
     title: "Numbers",
     tabBuy: "Buy",
     tabOrders: "My numbers",
+    tabRecharge: "Top up",
     tabAccount: "Account",
     tabSupport: "Support",
     beforeOrder: "Before ordering",
@@ -318,6 +328,7 @@ const copy = {
     language: "Language",
     joined: "Joined",
     recharge: "Recharge",
+    rechargeTab: "Top up balance",
     openingRecharge: "Opening recharge",
     rechargeTitle: "Top up balance",
     rechargeSubtitle: "Choose a payment method, enter the paid amount, and upload the proof inside the app.",
@@ -340,6 +351,8 @@ const copy = {
     support: "Support",
     supportTitle: "Open support ticket",
     supportCategory: "Category",
+    supportOrder: "Related order",
+    noOrderContext: "No specific order",
     supportMessage: "Message",
     supportPlaceholder: "Describe the issue or include an order number",
     sendSupport: "Send support ticket",
@@ -348,6 +361,20 @@ const copy = {
     openBot: "Open bot",
     refundWorking: "Refund in progress",
     refundWait: "Checking provider and wallet. Please wait.",
+    waitForSms: "Waiting for the SMS. Refunds are handled automatically if no code arrives.",
+    waitForWebhook: "Waiting for the provider webhook. No polling is running in the app.",
+    waitForCall: "Waiting for the call.",
+    waitForCallWebhook: "Waiting for the provider call webhook.",
+    waitForRecording: "Call detected. Waiting for the recording to be attached.",
+    waitForRentalSms: "Waiting for rental SMS.",
+    codeReady: "Code received. Copy it and continue.",
+    recordingReady: "Recording is ready.",
+    autoRefundChecking: "Automatic refund is being checked by the server.",
+    supportReviewQueued: "This order needs support review before a refund decision.",
+    refundedToWallet: "Refund completed to your wallet.",
+    orderClosedNoCode: "Order closed without a received code.",
+    failed: "Failed",
+    expired: "Expired",
     working: "Working",
     pleaseWait: "Please wait.",
     checkingOrder: "Checking order",
@@ -365,6 +392,7 @@ Object.assign(copy.ar, {
   title: "الأرقام",
   tabBuy: "شراء",
   tabOrders: "طلباتي",
+  tabRecharge: "شحن",
   tabAccount: "حسابي",
   tabSupport: "الدعم",
   beforeOrder: "قبل الطلب",
@@ -450,6 +478,20 @@ Object.assign(copy.ar, {
   refundPending: "بانتظار الاسترجاع",
   refundWorking: "جاري الاسترجاع",
   refundWait: "عم نفحص المزود والمحفظة، يرجى الانتظار.",
+  waitForSms: "\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0627\u0644\u0631\u0633\u0627\u0644\u0629. \u0627\u0644\u0627\u0633\u062a\u0631\u062c\u0627\u0639 \u064a\u062a\u0645 \u062a\u0644\u0642\u0627\u0626\u064a\u0627\u064b \u0625\u0630\u0627 \u0644\u0645 \u064a\u0635\u0644 \u0643\u0648\u062f.",
+  waitForWebhook: "\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0648\u064a\u0628 \u0647\u0648\u0643 \u0627\u0644\u0627\u0633\u062a\u0644\u0627\u0645. \u0627\u0644\u062a\u0637\u0628\u064a\u0642 \u0644\u0627 \u064a\u0639\u0645\u0644 \u0628\u0648\u0644\u064a\u0646\u063a.",
+  waitForCall: "\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0627\u0644\u0645\u0643\u0627\u0644\u0645\u0629.",
+  waitForCallWebhook: "\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0648\u064a\u0628 \u0647\u0648\u0643 \u0627\u0644\u0645\u0643\u0627\u0644\u0645\u0629.",
+  waitForRecording: "\u062a\u0645 \u0631\u0635\u062f \u0627\u0644\u0645\u0643\u0627\u0644\u0645\u0629\u060c \u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0627\u0644\u062a\u0633\u062c\u064a\u0644.",
+  waitForRentalSms: "\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0625\u064a\u062c\u0627\u0631.",
+  codeReady: "\u0648\u0635\u0644 \u0627\u0644\u0643\u0648\u062f. \u0627\u0646\u0633\u062e\u0647 \u0648\u0643\u0645\u0644.",
+  recordingReady: "\u0627\u0644\u062a\u0633\u062c\u064a\u0644 \u062c\u0627\u0647\u0632.",
+  autoRefundChecking: "\u0627\u0644\u0633\u064a\u0631\u0641\u0631 \u064a\u0641\u062d\u0635 \u0627\u0644\u0627\u0633\u062a\u0631\u062c\u0627\u0639 \u062a\u0644\u0642\u0627\u0626\u064a\u0627\u064b.",
+  supportReviewQueued: "\u0647\u0630\u0627 \u0627\u0644\u0637\u0644\u0628 \u0628\u062d\u0627\u062c\u0629 \u0645\u0631\u0627\u062c\u0639\u0629 \u062f\u0639\u0645 \u0642\u0628\u0644 \u0642\u0631\u0627\u0631 \u0627\u0644\u0627\u0633\u062a\u0631\u062c\u0627\u0639.",
+  refundedToWallet: "\u062a\u0645 \u0625\u0631\u062c\u0627\u0639 \u0627\u0644\u0631\u0635\u064a\u062f \u0644\u0645\u062d\u0641\u0638\u062a\u0643.",
+  orderClosedNoCode: "\u0627\u0646\u062a\u0647\u0649 \u0627\u0644\u0637\u0644\u0628 \u0628\u062f\u0648\u0646 \u0643\u0648\u062f.",
+  failed: "\u0641\u0634\u0644",
+  expired: "\u0645\u0646\u062a\u0647\u064a",
   working: "جاري التنفيذ",
   pleaseWait: "يرجى الانتظار.",
   checkingOrder: "جاري فحص الطلب",
@@ -469,6 +511,7 @@ Object.assign(copy.ar, {
   language: "اللغة",
   joined: "تاريخ الانضمام",
   recharge: "شراء",
+  rechargeTab: "شحن الرصيد",
   openingRecharge: "فتح الشحن",
   rechargeTitle: "شحن الرصيد",
   rechargeSubtitle: "اختر طريقة الدفع وأرسل المبلغ والإثبات من داخل التطبيق.",
@@ -491,6 +534,8 @@ Object.assign(copy.ar, {
   support: "الدعم",
   supportTitle: "فتح تذكرة دعم",
   supportCategory: "القسم",
+  supportOrder: "الطلب المرتبط",
+  noOrderContext: "بدون طلب محدد",
   supportMessage: "الرسالة",
   supportPlaceholder: "اكتب المشكلة أو رقم الطلب إن وجد",
   sendSupport: "إرسال تذكرة الدعم",
@@ -697,9 +742,9 @@ function rechargeUrl() {
 
 function openRecharge() {
   state.accountNotice = "";
-  setView("account");
+  setView("recharge");
   window.setTimeout(() => {
-    els.accountView?.scrollIntoView({ behavior: "smooth", block: "start" });
+    els.rechargeView?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, 0);
 }
 
@@ -736,6 +781,7 @@ function finishBoot() {
 const ICONS = {
   buy: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12l-1 12H7L6 7Z"></path><path d="M9 7a3 3 0 0 1 6 0"></path></svg>',
   orders: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h11"></path><path d="M8 12h11"></path><path d="M8 18h11"></path><path d="M4 6h.01"></path><path d="M4 12h.01"></path><path d="M4 18h.01"></path></svg>',
+  recharge: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M17 8H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6"></path></svg>',
   account: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"></path><circle cx="12" cy="7" r="4"></circle></svg>',
   support: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 16 0v4a2 2 0 0 1-2 2h-2"></path><path d="M4 12v3a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 2Z"></path><path d="M20 12v3a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2Z"></path><path d="M13 18h3"></path></svg>',
   temp: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2"></rect><path d="M10 17h4"></path></svg>',
@@ -751,6 +797,7 @@ function renderViewTabs() {
   const tabs = [
     ["buy", t("tabBuy"), "buy"],
     ["orders", t("tabOrders"), "orders"],
+    ["recharge", t("tabRecharge"), "recharge"],
     ["account", t("tabAccount"), "account"],
     ["support", t("tabSupport"), "support"],
   ];
@@ -789,12 +836,14 @@ function setView(view) {
   els.buyView.classList.toggle("hidden", view !== "buy");
   els.activeBand.classList.toggle("hidden", view !== "orders");
   els.accountView.classList.toggle("hidden", view !== "account");
+  els.rechargeView?.classList.toggle("hidden", view !== "recharge");
   els.supportView.classList.toggle("hidden", view !== "support");
   renderViewTabs();
   if (view === "orders") {
     refreshOrders({ quiet: true });
   }
   if (view === "buy") resetBuyStatus();
+  if (view === "recharge") loadRecharge();
   if (view === "account") loadAccount();
   if (view === "support") loadSupportInfo();
 }
@@ -1395,12 +1444,18 @@ function formatDuration(seconds) {
   return rest ? `${hours}h ${rest}m` : `${hours}h`;
 }
 
+function customerState(order) {
+  return order && typeof order.customer_state === "object" && order.customer_state ? order.customer_state : {};
+}
+
 function statusLabel(order) {
   const status = String(order.public_status || "");
+  const display = customerState(order);
+  if (status === "finished") return t("finished");
+  if (display.status_label_key) return t(display.status_label_key);
   if (status === "code_received") return t("code");
   if (status === "refunded") return t("refunded");
   if (status === "refund_pending") return t("refundPending");
-  if (status === "finished") return t("finished");
   if (order.mode === "voice" && status === "call_received") return t("callReceived");
   if (order.mode === "voice" && status === "waiting_for_recording") return t("recordingPending");
   if (order.mode === "voice") return t("waitingCall");
@@ -1520,6 +1575,8 @@ function emptyState(text) {
 function orderTone(order) {
   const status = String(order?.public_status || "");
   if (status === "code_received" || status === "call_received" || status === "finished") return "success";
+  const displayTone = String(customerState(order).tone || "");
+  if (["success", "refunded", "pending-refund", "danger", "waiting"].includes(displayTone)) return displayTone;
   if (status === "refunded") return "refunded";
   if (status === "refund_pending") return "pending-refund";
   if (status === "failed" || status === "expired") return "danger";
@@ -1548,9 +1605,10 @@ function appendOrderFact(parent, label, value) {
 function renderReceivePanel(order) {
   const panel = document.createElement("div");
   panel.className = `receive-panel ${orderTone(order)}`;
+  const display = customerState(order);
   const label = document.createElement("span");
   label.className = "receive-label";
-  label.textContent = statusLabel(order);
+  label.textContent = display.receive_label_key ? t(display.receive_label_key) : statusLabel(order);
   const value = document.createElement("strong");
   value.className = "receive-value";
   if (order.code) {
@@ -1568,6 +1626,17 @@ function renderReceivePanel(order) {
   }
   panel.append(label, value);
   return panel;
+}
+
+function renderOrderStateNote(order) {
+  const key = String(customerState(order).message_key || "");
+  if (!key) return null;
+  const text = t(key);
+  if (!text || text === key) return null;
+  const note = document.createElement("p");
+  note.className = `order-state-note ${orderTone(order)}`;
+  note.textContent = text;
+  return note;
 }
 
 function addOrderAction(actions, { label, className = "small-action", disabled = false, onClick }) {
@@ -1604,6 +1673,8 @@ function renderOrderCard(order) {
   status.textContent = statusLabel(order);
   header.append(titleWrap, status);
   main.append(header, renderReceivePanel(order));
+  const stateNote = renderOrderStateNote(order);
+  if (stateNote) main.append(stateNote);
 
   const facts = document.createElement("div");
   facts.className = "order-facts";
@@ -2190,15 +2261,27 @@ async function submitRechargeForm(form, statusNode) {
     if (payload.balance_label) {
       els.sessionPill.textContent = payload.balance_label;
     }
-    await loadAccount();
+    await loadCurrentRechargeSurface();
   } catch (error) {
     state.accountNotice = error.message || t("error");
-    renderAccount(state.account);
+    if (state.view === "recharge") {
+      renderRecharge(state.recharge);
+    } else {
+      renderAccount(state.account);
+    }
   } finally {
     state.rechargeSubmitting = false;
     if (button) button.disabled = false;
     hideBusy();
   }
+}
+
+async function loadCurrentRechargeSurface() {
+  if (state.view === "recharge") {
+    await loadRecharge();
+    return;
+  }
+  await loadAccount();
 }
 
 function rechargeActionCard(payload) {
@@ -2240,12 +2323,7 @@ function rechargeActionCard(payload) {
     const empty = document.createElement("p");
     empty.className = "order-meta";
     empty.textContent = t("noPaymentMethods");
-    const botButton = document.createElement("button");
-    botButton.type = "button";
-    botButton.className = "small-action";
-    botButton.textContent = t("openRechargeBot");
-    botButton.addEventListener("click", openRechargeBot);
-    card.append(header, intro, empty, botButton);
+    card.append(header, intro, empty);
     return card;
   }
 
@@ -2314,12 +2392,6 @@ function rechargeActionCard(payload) {
   submit.className = "primary-action";
   submit.textContent = t("submitRecharge");
 
-  const botButton = document.createElement("button");
-  botButton.type = "button";
-  botButton.className = "secondary-action";
-  botButton.textContent = t("openRechargeBot");
-  botButton.addEventListener("click", openRechargeBot);
-
   form.append(
     methodField,
     paymentTargetBlock(method),
@@ -2328,7 +2400,6 @@ function rechargeActionCard(payload) {
     amountField,
     proofField,
     submit,
-    botButton,
     status
   );
   form.addEventListener("submit", (event) => {
@@ -2384,15 +2455,67 @@ function renderAccount(payload) {
   renderSupportCategories();
   const cards = [
     ...(state.accountNotice ? [accountNoticeCard(state.accountNotice)] : []),
-    rechargeActionCard(payload),
     infoCard(t("userId"), String(user.id || "-")),
     infoCard(t("username"), user.username ? `@${user.username}` : "-"),
     infoCard(t("language"), user.language_label || user.language || "-"),
     infoCard(t("joined"), user.joined_at || "-"),
+    accountShortcutCard(t("rechargeTab"), payload.balance_label || "-", t("recharge"), openRecharge),
     rechargeRequestsCard(payload.recharge?.requests || []),
     activityCard(payload.recent_activity || []),
   ];
   els.accountDetails.replaceChildren(...cards);
+}
+
+function accountShortcutCard(title, value, actionLabel, onClick) {
+  const card = document.createElement("div");
+  card.className = "settings-action-card account-shortcut-card";
+  const copy = document.createElement("div");
+  const label = document.createElement("span");
+  label.className = "info-label";
+  label.textContent = title;
+  const strong = document.createElement("strong");
+  strong.className = "info-value";
+  strong.textContent = value || "-";
+  copy.append(label, strong);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "small-action";
+  button.textContent = actionLabel;
+  button.addEventListener("click", onClick);
+  card.append(copy, button);
+  return card;
+}
+
+function renderRecharge(payload) {
+  state.recharge = payload;
+  if (!payload) {
+    els.rechargeDetails?.replaceChildren(emptyState(t("authRequired")));
+    return;
+  }
+  const cards = [
+    ...(state.accountNotice ? [accountNoticeCard(state.accountNotice)] : []),
+    rechargeActionCard(payload),
+    rechargeRequestsCard(payload.recharge?.requests || []),
+  ];
+  els.rechargeDetails?.replaceChildren(...cards);
+}
+
+async function loadRecharge() {
+  if (!canUseTelegramAuth()) {
+    renderRecharge(null);
+    return;
+  }
+  els.rechargeDetails?.replaceChildren(emptyState(t("loadingAccount")));
+  try {
+    const payload = await api("/mini/numbers/api/recharge");
+    state.recharge = payload;
+    if (payload.balance_label) {
+      els.sessionPill.textContent = payload.balance_label;
+    }
+    renderRecharge(payload);
+  } catch (error) {
+    els.rechargeDetails?.replaceChildren(emptyState(error.message || t("error")));
+  }
 }
 
 async function loadAccount() {
@@ -2456,8 +2579,28 @@ function renderSupportCategories(categories = state.supportCategories) {
   els.supportCategory.replaceChildren(...options);
 }
 
+function renderSupportOrders(rows = state.supportOrderRows) {
+  state.supportOrderRows = Array.isArray(rows) ? rows : [];
+  if (!els.supportOrder) return;
+  const options = [];
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = t("noOrderContext");
+  options.push(empty);
+  state.supportOrderRows.slice(0, 12).forEach((order) => {
+    const option = document.createElement("option");
+    option.value = order.id || "";
+    const service = order.service_label || order.service || "";
+    const status = statusLabel(order);
+    option.textContent = [service, order.number, status].filter(Boolean).join(" · ");
+    options.push(option);
+  });
+  els.supportOrder.replaceChildren(...options);
+}
+
 function setSupportFormEnabled(enabled) {
   els.supportCategory.disabled = !enabled;
+  if (els.supportOrder) els.supportOrder.disabled = !enabled;
   els.supportMessage.disabled = !enabled;
   els.sendSupportButton.disabled = !enabled;
   els.supportView?.classList.toggle("support-locked", !enabled);
@@ -2475,6 +2618,12 @@ async function loadSupportInfo() {
     const payload = await api("/mini/numbers/api/support");
     state.supportBotUrl = payload.bot_url || state.supportBotUrl;
     renderSupportCategories(payload.categories || []);
+    try {
+      const orders = await api("/mini/numbers/api/orders");
+      renderSupportOrders(orders.orders || []);
+    } catch (_error) {
+      renderSupportOrders([]);
+    }
     if (!els.supportStatus.textContent) els.supportStatus.textContent = "";
   } catch (error) {
     els.supportStatus.textContent = error.message || t("error");
@@ -2488,7 +2637,18 @@ async function sendSupportTicket() {
     return;
   }
   const category = els.supportCategory.value || "numbers";
-  const message = els.supportMessage.value.trim();
+  const selectedOrderId = String(els.supportOrder?.value || "").trim();
+  const selectedOrder = state.supportOrderRows.find((order) => String(order.id || "") === selectedOrderId);
+  const rawMessage = els.supportMessage.value.trim();
+  const context = selectedOrder
+    ? [
+        `Order: ${selectedOrder.id}`,
+        selectedOrder.service_label ? `Service: ${selectedOrder.service_label}` : "",
+        selectedOrder.number ? `Number: ${selectedOrder.number}` : "",
+        selectedOrder.public_status ? `Status: ${selectedOrder.public_status}` : "",
+      ].filter(Boolean).join("\n")
+    : "";
+  const message = [context, rawMessage].filter(Boolean).join("\n\n");
   els.sendSupportButton.disabled = true;
   try {
     const payload = await api("/mini/numbers/api/support/ticket", {

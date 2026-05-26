@@ -356,7 +356,21 @@ Returns recent temp, rental, and voice orders for the authenticated user.
 Order payloads expose `provider_id` plus an obfuscated `provider` display name. They must not expose internal provider codes.
 Order payloads must not expose internal cost fields such as `base_price` or `base_price_label`.
 Refund payload reasons are customer-safe only: `automatic_refund`, `refund_pending`, or empty string. Raw provider/refund diagnostics belong in internal logs or support-review endpoints, not public customer payloads.
+Order payloads include `customer_state`, the canonical customer-facing state for the public API and Mini App UI. Clients should use this object instead of inferring webhook, code, refund, or support-review behavior from provider-specific fields.
 Voice order payloads include `calls_count`, `recording_available`, and `recording_url` when a recording exists. The recording URL points to the versioned backend endpoint, not the upstream provider URL.
+
+`customer_state` fields:
+
+- `key`: stable UI state such as `awaiting_provider_webhook`, `code_received`, `refund_pending`, `support_review_pending`, `refunded`, `waiting_for_recording`, or `call_received`.
+- `tone`: one of `waiting`, `success`, `pending-refund`, `refunded`, or `danger`.
+- `status_label_key`, `receive_label_key`, `message_key`, `recommended_action_key`: translation keys for API clients and the Mini App.
+- `provider_reference`: the public route id (`S1`, `S2`, ...), never the upstream provider name.
+- `show_provider_identity`: always `false` for customer payloads.
+- `awaiting_webhook`: true when the backend expects provider webhook delivery instead of app polling.
+- `auto_refund_managed`: true when timeout/no-code refund handling is server-managed.
+- `manual_refund_available`: currently always `false`; there is no customer manual refund endpoint.
+- `support_review_open`: true only when support must review a refund case.
+
 Rental order payloads include customer-safe rental metadata and action flags:
 
 - `duration_label`
@@ -610,7 +624,7 @@ Replays a stored provider webhook payload through the current parser and order m
 
 The Mini App still exposes workflow-specific action endpoints under `/mini/numbers/api/orders/{order_id}/...` for UI-specific flows. Country suggestions, rental quote/create, voice quote/create, replacement/alternate-provider retry, rental SMS/finish/renew/wake/notes, and voice recording download are now available through the versioned API. Public API exposure for any remaining Mini App-only action should happen only after the action has a stable request/response contract, scope, rate limit, and provider capability matrix.
 
-Mini App purchase, refresh, replacement, alternate-provider, and rental action endpoints are UI wrappers over shared Numbers services. Mini App price rows use the same signed quote-token format for temp/rental/voice where possible, `/mini/numbers/api/purchase` routes those tokens through `create_number_order_from_quote(...)`, refresh routes through `order_refresh_service.refresh_number_order(...)`, rental SMS/finish/renew/wake/notes routes call `order_rental_service`, and rental no-SMS protection/cancel/refund guards call `order_rental_protection_service`. Action calls use Telegram `initData` authentication. Order responses start from `order_service.public_order_payload(...)` and then add only Mini App UI fields such as localized labels/detail rows, Mini App recording URL, refresh flags, and second-code price labels. Legacy/non-API Mini App quote tokens are rejected by the purchase route, and the old Mini App-only quote resolver/direct provider purchase helpers have been removed; direct provider purchase fallbacks must not be reintroduced.
+Mini App purchase, refresh, replacement, alternate-provider, recharge, support, and rental action endpoints are UI wrappers over shared backend services. Mini App price rows use the same signed quote-token format for temp/rental/voice where possible, `/mini/numbers/api/purchase` routes those tokens through `create_number_order_from_quote(...)`, refresh routes through `order_refresh_service.refresh_number_order(...)`, recharge reads `/mini/numbers/api/recharge` and submits payment proof through `/mini/numbers/api/recharge/submit`, support can attach customer-safe order context from `/mini/numbers/api/orders`, rental SMS/finish/renew/wake/notes routes call `order_rental_service`, and rental no-SMS protection/cancel/refund guards call `order_rental_protection_service`. Action calls use Telegram `initData` authentication. Order responses start from `order_service.public_order_payload(...)` and then add only Mini App UI fields such as localized labels/detail rows, Mini App recording URL, refresh flags, and second-code price labels. Legacy/non-API Mini App quote tokens are rejected by the purchase route, and the old Mini App-only quote resolver/direct provider purchase helpers have been removed; direct provider purchase fallbacks must not be reintroduced.
 
 Telegram rental SMS/finish/renew/wake/notes callbacks use the same `order_rental_service` backend. Telegram-specific code should only handle callback ownership, localized messages, chat edits, and the temporary Hero no-SMS finish safety pre-check.
 

@@ -139,6 +139,63 @@ def test_public_order_payload_uses_customer_safe_refund_reason():
     assert "base_price" not in refunded
 
 
+def test_public_order_payload_includes_customer_state_without_provider_names():
+    payload = order_service.public_order_payload(
+        {
+            "_id": "temp-waiting",
+            "number_mode": "temp",
+            "status": "success",
+            "temp_wait_state": "waiting",
+            "temp_service_key": "telegram",
+            "temp_country": "1",
+            "provider": "textverified",
+            "provider_sms_delivery": "webhook",
+            "provider_number": "+15551234567",
+            "provider_order_id": "provider-1",
+            "selling_price": 0.44,
+        }
+    )
+
+    state = payload["customer_state"]
+    assert state["key"] == "awaiting_provider_webhook"
+    assert state["tone"] == "waiting"
+    assert state["message_key"] == "waitForWebhook"
+    assert state["awaiting_webhook"] is True
+    assert state["auto_refund_managed"] is True
+    assert state["manual_refund_available"] is False
+    assert state["show_provider_identity"] is False
+    assert state["provider_reference"] == payload["provider_id"]
+    assert "textverified" not in str(state).lower()
+
+
+def test_public_order_payload_customer_state_marks_support_review_refund():
+    payload = order_service.public_order_payload(
+        {
+            "_id": "temp-review",
+            "number_mode": "temp",
+            "status": "success",
+            "temp_wait_state": "refund_pending",
+            "temp_refund_support_review_status": "open",
+            "temp_service_key": "telegram",
+            "temp_country": "1",
+            "provider": "nonvoip",
+            "provider_sms_delivery": "webhook",
+            "provider_number": "+15551234567",
+            "provider_order_id": "provider-1",
+            "selling_price": 0.44,
+        }
+    )
+
+    state = payload["customer_state"]
+    assert payload["public_status"] == "refund_pending"
+    assert state["key"] == "support_review_pending"
+    assert state["tone"] == "pending-refund"
+    assert state["message_key"] == "supportReviewQueued"
+    assert state["support_review_open"] is True
+    assert state["manual_refund_available"] is False
+    assert "nonvoip" not in str(state).lower()
+
+
 @pytest.mark.asyncio
 async def test_create_temp_order_from_quote_success(monkeypatch):
     calls = {"details": [], "statuses": [], "events": [], "temp_events": []}

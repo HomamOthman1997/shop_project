@@ -354,6 +354,7 @@ h2 {
 .active-band,
 .result-band,
 .account-band,
+.recharge-band,
 .support-band {
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -470,6 +471,7 @@ h2 {
 .result-band,
 .active-band,
 .account-band,
+.recharge-band,
 .support-band {
   margin-top: 12px;
   padding: 15px 14px;
@@ -1209,6 +1211,37 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.order-state-note {
+  margin: 8px 0 0;
+  border: 1px solid rgba(107, 182, 255, 0.2);
+  border-radius: var(--radius-sm);
+  background: rgba(107, 182, 255, 0.07);
+  color: var(--muted);
+  padding: 8px 9px;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+.order-state-note.success {
+  border-color: rgba(48, 208, 162, 0.24);
+  background: rgba(48, 208, 162, 0.08);
+  color: #c9f9ea;
+}
+
+.order-state-note.pending-refund,
+.order-state-note.refunded {
+  border-color: rgba(242, 191, 93, 0.28);
+  background: rgba(242, 191, 93, 0.09);
+  color: #ffe0a3;
+}
+
+.order-state-note.danger {
+  border-color: rgba(255, 120, 117, 0.28);
+  background: var(--danger-soft);
+  color: #ffc9c7;
+}
+
 .order-facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1777,6 +1810,7 @@ h2 {
   .result-band,
   .active-band,
   .account-band,
+  .recharge-band,
   .support-band {
     width: 100%;
     max-width: calc(100vw - 20px);
@@ -1870,7 +1904,7 @@ h2 {
     left: 0;
     right: auto;
     bottom: 0;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 5px;
     border: 1px solid rgba(157, 174, 194, 0.18);
     border-bottom: 0;
@@ -1891,8 +1925,8 @@ h2 {
     justify-content: center;
     min-width: 0;
     flex-direction: column;
-    gap: 3px;
-    padding: 5px 3px;
+    gap: 2px;
+    padding: 5px 2px;
     border-radius: var(--radius-sm);
   }
 
@@ -1908,7 +1942,7 @@ h2 {
   }
 
   .nav-label {
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1.1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2003,6 +2037,7 @@ h2 {
   .result-band,
   .active-band,
   .account-band,
+  .recharge-band,
   .support-band {
     padding: 12px;
   }
