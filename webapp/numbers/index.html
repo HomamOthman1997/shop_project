@@ -2,17 +2,13 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>PHANTOM NUMBERS</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
       body.app-booting {
         margin: 0;
         overflow: hidden;
-        background: #f5f7fa;
+        background: #0d1118;
       }
 
       body.app-booting .app-shell {
@@ -23,11 +19,12 @@
         position: fixed;
         inset: 0;
         z-index: 100;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #f5f7fa;
-        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #0d1118;
+        color: #f4f7fb;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
 
       body:not(.app-booting) .boot-splash {
@@ -35,54 +32,18 @@
       }
 
       .boot-card {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 12px;
-        padding: 32px;
+        display: grid;
+        justify-items: center;
+        gap: 10px;
+        width: min(260px, 100%);
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 8px;
+        background: #151b24;
+        padding: 22px 18px;
         text-align: center;
       }
-
-      .boot-logo {
-        width: 56px;
-        height: 56px;
-        border-radius: 12px;
-        background: linear-gradient(135deg, #0891b2, #06b6d4);
-        color: white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 18px;
-        font-weight: 700;
-        position: relative;
-      }
-
-      .boot-logo::after {
-        content: "";
-        position: absolute;
-        inset: -4px;
-        border: 2px solid transparent;
-        border-top-color: #0891b2;
-        border-radius: 16px;
-        animation: spin 800ms linear infinite;
-      }
-
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
-
-      .boot-card strong {
-        font-size: 16px;
-        font-weight: 700;
-        color: #1f2937;
-      }
-
-      .boot-card span {
-        font-size: 13px;
-        color: #6b7280;
-      }
     </style>
-    <link rel="stylesheet" href="/mini/numbers/static/styles.css?v=20260527-pro-ui" />
+    <link rel="stylesheet" href="/mini/numbers/static/styles.css?v=20260527-box-card2" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body class="app-booting">
@@ -93,220 +54,200 @@
         <span>جاري تجهيز التطبيق</span>
       </div>
     </div>
-
     <main class="app-shell">
-      <!-- Header -->
-      <header class="topbar">
-        <div>
+      <aside class="app-nav">
+        <header class="topbar">
           <div class="brand-mark" aria-hidden="true">PH</div>
-          <h1>PHANTOM NUMBERS</h1>
-        </div>
-        <button class="balance-pill" id="sessionPill" type="button">
-          <span id="balanceAmount">$0.00</span>
-        </button>
-      </header>
+          <div>
+            <p class="eyebrow" data-i18n="eyebrow">PHANTOM NUMBERS</p>
+            <h1 data-i18n="title">Numbers</h1>
+          </div>
+          <button class="balance-pill" id="sessionPill" type="button">$0.00</button>
+        </header>
 
-      <!-- Main Content -->
-      <div class="content-shell">
-        <!-- Buy View -->
+        <nav class="view-tabs" id="viewTabs" aria-label="Numbers sections"></nav>
+      </aside>
+
+      <section class="content-shell">
         <section class="view-panel" id="buyView">
-          <!-- Order Form Card -->
-          <section class="control-band" id="controlBand">
+          <section class="command-strip" aria-label="Numbers status">
+            <article class="command-card primary">
+              <span data-i18n="balance">Balance</span>
+              <strong id="summaryBalance">$0.00</strong>
+            </article>
+            <article class="command-card">
+              <span data-i18n="orderMode">Mode</span>
+              <strong id="summaryMode">Temporary SMS</strong>
+            </article>
+            <article class="command-card">
+              <span data-i18n="activeOrdersMetric">Active</span>
+              <strong id="summaryOrders">0</strong>
+            </article>
+          </section>
+
+          <section class="control-band" id="controlBand" aria-label="Number order filters">
             <div class="console-heading">
-              <h2 data-i18n="numberType">نوع الرقم</h2>
+              <div>
+                <p class="eyebrow" data-i18n="orderConsole">Order console</p>
+                <h2 data-i18n="orderConsoleTitle">Choose service and check provider prices</h2>
+              </div>
             </div>
 
-            <!-- Mode Switch Tabs -->
-            <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="نوع الرقم"></div>
+            <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="Mode"></div>
 
-            <!-- Service Field -->
             <div class="field-grid" id="fieldGrid">
               <label class="field service-field">
-                <span data-i18n="service">الخدمة</span>
+                <span data-i18n="service">Service</span>
                 <button class="select-trigger" id="serviceTrigger" type="button" aria-haspopup="listbox" aria-expanded="false">
-                  <span id="serviceLabel" data-i18n="searchService">ابحث عن خدمة (Google, WhatsApp, Telegram)</span>
+                  <span id="serviceLabel" data-i18n="chooseService">Choose service</span>
                 </button>
                 <div class="service-menu hidden" id="serviceMenu">
-                  <input id="serviceSearch" type="search" placeholder="ابحث عن خدمة..." autocomplete="off" />
+                  <input id="serviceSearch" type="search" autocomplete="off" />
                   <div class="service-options" id="servicesList" role="listbox"></div>
                 </div>
               </label>
 
-              <!-- Popular Services -->
-              <div class="quick-row" id="quickServices">
-                <button class="quick-chip" type="button" data-i18n="mostPopular">الأكثر طلباً</button>
-              </div>
-
-              <!-- Country Field -->
-              <label class="field country-field" id="countryField">
-                <span data-i18n="country">الدولة</span>
+              <label class="field country-field hidden" id="countryField">
+                <span data-i18n="country">Country</span>
                 <button class="select-trigger" id="countryTrigger" type="button" aria-haspopup="listbox" aria-expanded="false">
-                  <span id="countryLabel">🇺🇸 الولايات المتحدة</span>
+                  <span id="countryLabel" data-i18n="chooseCountry">Any country</span>
                 </button>
                 <div class="select-menu hidden" id="countryMenu">
-                  <input id="countrySearch" type="search" placeholder="ابحث عن دولة..." autocomplete="off" />
+                  <input id="countrySearch" type="search" autocomplete="off" />
                   <div class="select-options" id="countryList" role="listbox"></div>
                 </div>
                 <select class="native-select-shadow" id="countrySelect" tabindex="-1" aria-hidden="true"></select>
               </label>
 
-              <!-- State Field -->
               <label class="field state-field hidden" id="stateField">
-                <span data-i18n="stateOptional">الولاية (اختياري)</span>
+                <span data-i18n="state">State</span>
                 <button class="select-trigger" id="stateTrigger" type="button" aria-haspopup="listbox" aria-expanded="false">
-                  <span id="stateLabel" data-i18n="chooseState">اختر ولاية</span>
+                  <span id="stateLabel" data-i18n="chooseState">Any state</span>
                 </button>
                 <div class="select-menu hidden" id="stateMenu">
-                  <input id="stateSearch" type="search" placeholder="ابحث عن ولاية..." autocomplete="off" />
+                  <input id="stateSearch" type="search" autocomplete="off" />
                   <div class="select-options" id="stateList" role="listbox"></div>
                 </div>
                 <select class="native-select-shadow" id="stateSelect" tabindex="-1" aria-hidden="true"></select>
+                <small class="field-hint" id="stateHint" data-i18n="stateHint">Leaving the state unset usually provides more options and better prices. Adding a custom state may increase the number price by 20%.</small>
               </label>
             </div>
 
-            <!-- Prices Updated Status -->
-            <div class="prices-status" id="pricesStatus">
-              <span data-i18n="pricesUpdated">أسعار محدثة الآن</span>
-            </div>
+            <div class="quick-row hidden" id="quickServices"></div>
 
-            <!-- Check Prices Button -->
-            <button class="primary-action" id="quoteButton" type="button" data-i18n="checkPrices">
-              فحص الأسعار
+            <button class="primary-action" id="quoteButton" type="button" data-i18n="check">
+              Check prices
             </button>
             <div id="statusLine" class="status-line"></div>
           </section>
 
-          <!-- Best Offers Section -->
+          <section class="intro-band compact" id="introBand" aria-label="Before ordering">
+            <div>
+              <p class="eyebrow" data-i18n="beforeOrder">Before ordering</p>
+              <h2 data-i18n="introTitle">Read this before requesting a number</h2>
+            </div>
+            <div class="notice-list">
+              <p data-i18n="introNotice1">Choose the exact service before buying. The number is reserved for the selected service only.</p>
+              <p data-i18n="introNotice2">Leaving the state unset usually provides more options and better prices.</p>
+              <p data-i18n="introNotice3">If no code or call arrives, the app checks the provider and handles the refund flow automatically when eligible.</p>
+            </div>
+            <button class="primary-action" id="requestNumberButton" type="button" data-i18n="requestNumber">
+              Request number
+            </button>
+          </section>
+
           <section class="result-band hidden" id="resultBand" aria-live="polite">
             <div class="result-header">
-              <h2 data-i18n="bestOffers">أفضل العروض</h2>
-              <span class="count-pill" id="resultCount">
-                <span data-i18n="availableOffers">عروض متاحة</span>
-              </span>
+              <div>
+                <p class="eyebrow" data-i18n="providers">Providers</p>
+                <h2 id="selectionTitle" data-i18n="chooseService">Choose service</h2>
+                <p class="success-legend hidden" id="successLegend" data-i18n="successLegend">★ = success rate</p>
+              </div>
+              <span class="count-pill" id="resultCount">0</span>
             </div>
-            
-            <!-- Table Header -->
-            <div class="provider-table-header">
-              <span data-i18n="provider">المزود</span>
-              <span data-i18n="price">السعر</span>
-              <span data-i18n="successRate">معدل النجاح</span>
-              <span></span>
-            </div>
-            
             <div class="provider-list" id="providerList"></div>
           </section>
 
-          <!-- Recent Orders Preview -->
           <section class="recent-orders-band hidden" id="recentOrdersBand" aria-live="polite">
             <div class="result-header">
-              <h2 data-i18n="recentOrders">طلباتي الأخيرة</h2>
-              <button class="ghost-link" id="recentOrdersButton" type="button" data-i18n="viewAll">عرض الكل</button>
+              <div>
+                <p class="eyebrow" data-i18n="active">Active orders</p>
+                <h2 data-i18n="recentOrdersTitle">Recent orders</h2>
+              </div>
+              <button class="ghost-link" id="recentOrdersButton" type="button" data-i18n="viewAllOrders">View all</button>
             </div>
             <div class="recent-orders-list" id="recentOrdersPreview"></div>
           </section>
-
-          <!-- Intro Tips - Hidden by default -->
-          <section class="intro-band hidden" id="introBand">
-            <div class="notice-list">
-              <p data-i18n="introNotice1">اختر الخدمة المطلوبة بدقة. الرقم يعمل للخدمة المحددة فقط.</p>
-              <p data-i18n="introNotice2">عدم استخدام ولاية محددة يساعد على الحصول على سعر أرخص.</p>
-              <p data-i18n="introNotice3">إذا لم يصل الكود، التطبيق يتابع الاسترجاع تلقائياً.</p>
-            </div>
-          </section>
         </section>
 
-        <!-- My Orders View -->
-        <section class="view-panel hidden" id="activeBand" aria-live="polite">
-          <div class="result-header">
-            <h2 data-i18n="myOrders">طلباتي</h2>
+        <section class="active-band view-panel hidden" id="activeBand" aria-live="polite">
+        <div class="result-header">
+          <div>
+            <p class="eyebrow" data-i18n="active">Active orders</p>
+            <h2 data-i18n="numbersList">My numbers</h2>
           </div>
-          <div class="active-list" id="activeOrders"></div>
+        </div>
+        <div class="active-list" id="activeOrders"></div>
         </section>
 
-        <!-- Recharge View -->
-        <section class="view-panel hidden" id="rechargeView" aria-live="polite">
-          <div class="recharge-band">
-            <div class="result-header">
-              <h2 data-i18n="rechargeTitle">شحن الرصيد</h2>
-            </div>
-            <div class="info-grid" id="rechargeDetails"></div>
+        <section class="account-band view-panel hidden" id="accountView" aria-live="polite">
+        <div class="result-header">
+          <div>
+            <p class="eyebrow" data-i18n="account">Account</p>
+            <h2 data-i18n="accountTitle">My account</h2>
           </div>
+        </div>
+        <div class="info-grid" id="accountDetails"></div>
+        <div class="account-actions">
+          <button class="small-action" id="langArButton" type="button">AR</button>
+          <button class="small-action" id="langEnButton" type="button">EN</button>
+          <button class="secondary-action hidden" id="rechargeButton" type="button" data-i18n="recharge">Recharge</button>
+        </div>
         </section>
 
-        <!-- Account View -->
-        <section class="view-panel hidden" id="accountView" aria-live="polite">
-          <div class="account-band">
-            <div class="result-header">
-              <h2 data-i18n="accountTitle">حسابي</h2>
-            </div>
-            <div class="info-grid" id="accountDetails"></div>
-            <div class="account-actions">
-              <button class="secondary-action" id="langArButton" type="button">العربية</button>
-              <button class="secondary-action" id="langEnButton" type="button">English</button>
-            </div>
+        <section class="recharge-band view-panel hidden" id="rechargeView" aria-live="polite">
+        <div class="result-header">
+          <div>
+            <p class="eyebrow" data-i18n="recharge">Recharge</p>
+            <h2 data-i18n="rechargeTitle">Top up balance</h2>
           </div>
+        </div>
+        <div class="info-grid" id="rechargeDetails"></div>
         </section>
 
-        <!-- Support View -->
-        <section class="view-panel hidden" id="supportView" aria-live="polite">
-          <div class="support-band">
-            <div class="result-header">
-              <h2 data-i18n="supportTitle">الدعم الفني</h2>
-            </div>
-            <div class="field support-field">
-              <span data-i18n="supportCategory">القسم</span>
-              <select id="supportCategory"></select>
-            </div>
-            <div class="field support-field">
-              <span data-i18n="supportOrder">الطلب المرتبط</span>
-              <select id="supportOrder"></select>
-            </div>
-            <label class="field support-field">
-              <span data-i18n="supportMessage">الرسالة</span>
-              <textarea id="supportMessage" rows="4" placeholder="اكتب رسالتك هنا..."></textarea>
-            </label>
-            <button class="primary-action" id="sendSupportButton" type="button" data-i18n="sendSupport">
-              إرسال
-            </button>
-            <div id="supportStatus" class="status-line"></div>
+        <section class="support-band view-panel hidden" id="supportView" aria-live="polite">
+        <div class="result-header">
+          <div>
+            <p class="eyebrow" data-i18n="support">Support</p>
+            <h2 data-i18n="supportTitle">Open support ticket</h2>
           </div>
+        </div>
+        <div class="field support-field">
+          <span data-i18n="supportCategory">Category</span>
+          <select id="supportCategory"></select>
+        </div>
+        <div class="field support-field">
+          <span data-i18n="supportOrder">Related order</span>
+          <select id="supportOrder"></select>
+        </div>
+        <label class="field support-field">
+          <span data-i18n="supportMessage">Message</span>
+          <textarea id="supportMessage" rows="4"></textarea>
+        </label>
+        <button class="primary-action" id="sendSupportButton" type="button" data-i18n="sendSupport">
+          Send support ticket
+        </button>
+        <div id="supportStatus" class="status-line"></div>
         </section>
-      </div>
-
-      <!-- Bottom Navigation -->
-      <nav class="bottom-nav" id="bottomNav">
-        <button class="nav-item active" data-view="buy" type="button">
-          <svg viewBox="0 0 24 24"><path d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
-          <span data-i18n="tabBuy">شراء</span>
-        </button>
-        <button class="nav-item" data-view="orders" type="button">
-          <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
-          <span data-i18n="tabOrders">طلباتي</span>
-        </button>
-        <button class="nav-item" data-view="recharge" type="button">
-          <svg viewBox="0 0 24 24"><path d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
-          <span data-i18n="tabRecharge">شحن</span>
-        </button>
-        <button class="nav-item" data-view="account" type="button">
-          <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z"/></svg>
-          <span data-i18n="tabAccount">حسابي</span>
-        </button>
-        <button class="nav-item" data-view="support" type="button">
-          <svg viewBox="0 0 24 24"><path d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-          <span data-i18n="tabSupport">الدعم</span>
-        </button>
-      </nav>
+      </section>
     </main>
-
-    <!-- Busy Overlay -->
     <div class="busy-overlay hidden" id="busyOverlay" role="status" aria-live="polite">
       <div class="busy-panel">
         <span class="busy-spinner" aria-hidden="true"></span>
-        <strong id="busyTitle">جاري التنفيذ</strong>
-        <small id="busyText">يرجى الانتظار</small>
+        <strong id="busyTitle">Working</strong>
+        <small id="busyText">Please wait</small>
       </div>
     </div>
-
-    <script src="/mini/numbers/static/app.js?v=20260527-pro-ui"></script>
+    <script src="/mini/numbers/static/app.js?v=20260527-box-card2"></script>
   </body>
 </html>
