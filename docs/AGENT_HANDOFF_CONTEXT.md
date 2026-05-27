@@ -3,7 +3,7 @@
 This file is a compact project memory for future Codex/AI sessions. It should be referenced instead of pasting the full conversation.
 
 Last updated:
-- 2026-05-26
+- 2026-05-27
 
 ## Current Product Direction
 
@@ -76,6 +76,8 @@ Current in-flight Numbers consolidation:
 - Provider inbound callbacks should use `https://phantom-app.net/api/v1/provider-webhooks/{provider}?token=<provider-webhook-token>` for webhook-capable providers. Do not configure provider webhook URLs for `pvapins`, `vaksms`, or `smspool`; their normal SMS delivery path is polling.
 - Provider webhook processing updates temporary and rental orders, logs provider webhook audit events, and queues customer-facing `numbers.order.sms` webhooks.
 - The active order UI is centered on receive status, code, resend availability, and refund status; no primary manual temp refund button should be reintroduced.
+- Numbers Mini App buyer UI is being matched to the supplied PHANTOM NUMBERS reference: Telegram status pill, PHANTOM/NUMBERS header, wallet badge, compact order filters, provider table, recent orders, and pinned bottom tabs.
+- Customer-facing provider rows in the Mini App must use public aliases only (`BRAVO`, `HOTEL`, `ALPHA`, etc. / short codes such as `BR`, `HT`, `AL`). Do not render real provider names in buyer UI, support selectors, order cards, or customer API payloads.
 - Latest local validation for Numbers after public payload and voice recording service consolidation:
   - `python -m pytest tests/numbers tests/core/test_numbers_miniapp.py -q` passed with `418 passed`.
   - `python -m py_compile services/numbers/api_docs.py services/numbers/api_schema.py services/numbers/api_payloads.py services/numbers/order_service.py services/numbers/customer_flows.py services/numbers/api.py services/numbers/miniapp.py` passed.

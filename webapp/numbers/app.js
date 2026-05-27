@@ -1974,7 +1974,7 @@ function renderOrderCard(order) {
   title.textContent = order.service_label || order.service || "";
   const meta = document.createElement("p");
   meta.className = "order-meta";
-  meta.textContent = [order.provider_id, order.price_label].filter(Boolean).join(" · ");
+  meta.textContent = [orderProviderAlias(order), order.price_label].filter(Boolean).join(" · ");
   titleWrap.append(title, meta);
   const status = document.createElement("span");
   status.className = `order-status-badge ${orderTone(order)}`;
@@ -2033,7 +2033,7 @@ function renderOrderCard(order) {
   }
   if (order.mode === "temp" && orderActionEnabled(order, "alternate_provider", order.can_alternate_provider)) {
     addOrderAction(actions, {
-      label: [orderActionLabel(order, "alternate_provider", "alternateProvider"), order.alternate_provider_id, order.alternate_provider_price_label].filter(Boolean).join(" "),
+      label: [orderActionLabel(order, "alternate_provider", "alternateProvider"), order.alternate_provider_price_label].filter(Boolean).join(" "),
       className: "small-action secondary-small",
       onClick: (button) => alternateOrder(order, button),
     });
@@ -2100,7 +2100,7 @@ function renderRecentOrdersPreview(rows = state.activeOrders) {
     const title = document.createElement("strong");
     title.textContent = order.service_label || order.service || "-";
     const meta = document.createElement("small");
-    meta.textContent = [order.number, order.code || order.provider_id].filter(Boolean).join(" · ");
+    meta.textContent = [order.number, order.code || statusLabel(order)].filter(Boolean).join(" · ");
     main.append(title, meta);
 
     const price = document.createElement("b");
@@ -2247,7 +2247,7 @@ async function replaceOrder(order, button) {
 
 async function alternateOrder(order, button) {
   if (!order?.id) return;
-  const confirmed = await askConfirm([orderActionMetaText(order, "alternate_provider", "confirm_label_key", "confirmAlternateProvider"), order.alternate_provider_id, order.alternate_provider_price_label].filter(Boolean).join(" "));
+  const confirmed = await askConfirm([orderActionMetaText(order, "alternate_provider", "confirm_label_key", "confirmAlternateProvider"), order.alternate_provider_price_label].filter(Boolean).join(" "));
   if (!confirmed) return;
   button.disabled = true;
   showBusy(orderActionMetaText(order, "alternate_provider", "busy_label_key", "working"), t("pleaseWait"));
@@ -2410,7 +2410,41 @@ function providerSuccessText(row) {
   if (!rate || rate === "-" || /^n\/?a$/i.test(rate)) {
     return "";
   }
-  return `\u2605 ${rate}`;
+  return `${rate}`;
+}
+
+const PUBLIC_PROVIDER_ALIASES = [
+  { code: "BR", name: "BRAVO" },
+  { code: "HT", name: "HOTEL" },
+  { code: "AL", name: "ALPHA" },
+  { code: "DL", name: "DELTA" },
+  { code: "EC", name: "ECHO" },
+  { code: "NV", name: "NOVA" },
+  { code: "OR", name: "ORBIT" },
+  { code: "PX", name: "PIXEL" },
+];
+
+function providerAlias(seed = 0) {
+  let aliasIndex = Number(seed);
+  if (!Number.isFinite(aliasIndex)) {
+    aliasIndex = String(seed || "")
+      .split("")
+      .reduce((total, char) => total + char.charCodeAt(0), 0);
+  }
+  aliasIndex = Math.abs(Math.trunc(aliasIndex));
+  return PUBLIC_PROVIDER_ALIASES[aliasIndex % PUBLIC_PROVIDER_ALIASES.length] || PUBLIC_PROVIDER_ALIASES[0];
+}
+
+function providerPublicName(_row, index = 0) {
+  return providerAlias(index).name;
+}
+
+function providerInitials(_row, index = 0) {
+  return providerAlias(index).code;
+}
+
+function orderProviderAlias(order) {
+  return providerAlias(order?.provider_public_alias || order?.provider_id || order?.provider || order?.id || 0).name;
 }
 
 function renderProviders(rows, { preserve = false } = {}) {
@@ -2424,7 +2458,7 @@ function renderProviders(rows, { preserve = false } = {}) {
     return;
   }
 
-  const cards = allRows.map((row) => {
+  const cards = allRows.map((row, index) => {
     const card = document.createElement("article");
     card.className = "provider-card";
 
@@ -2436,20 +2470,17 @@ function renderProviders(rows, { preserve = false } = {}) {
 
     const name = document.createElement("p");
     name.className = "provider-name";
-    name.textContent = row.provider_id || row.provider;
+    name.textContent = providerInitials(row, index);
 
     const successBadge = document.createElement("span");
     successBadge.className = "success-badge";
     successBadge.title = t("successLegend");
     successBadge.textContent = providerSuccessText(row);
     header.append(name);
-    if (successBadge.textContent) {
-      header.append(successBadge);
-    }
 
     const meta = document.createElement("p");
     meta.className = "provider-meta";
-    const details = [];
+    const details = [providerPublicName(row, index)];
     if (row.location_tag) details.push(`[${row.location_tag}]`);
     if (row.voice_fallback) details.push(t("voiceFallback"));
     meta.textContent = details.join(" · ");
@@ -2487,12 +2518,20 @@ function renderProviders(rows, { preserve = false } = {}) {
       buy.textContent = t("buy");
       buy.addEventListener("click", () => buyProvider({ ...row, purchase_action: rowPurchaseAction }, buy));
       actions.append(price, buy);
-      card.append(main, actions);
+      const star = document.createElement("span");
+      star.className = "provider-star";
+      star.setAttribute("aria-hidden", "true");
+      star.textContent = "☆";
+      card.append(star, main, successBadge, actions);
     } else {
       const price = document.createElement("div");
       price.className = "provider-price";
       price.textContent = state.mode === "rental" && row.options?.length ? row.options[0].price_label : row.price_label;
-      card.append(main, price);
+      const star = document.createElement("span");
+      star.className = "provider-star";
+      star.setAttribute("aria-hidden", "true");
+      star.textContent = "☆";
+      card.append(star, main, successBadge, price);
     }
     return card;
   });

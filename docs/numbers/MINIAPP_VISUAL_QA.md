@@ -13,6 +13,13 @@ Use this checklist after each Railway deploy that touches `/mini/numbers`.
 - Validation: `python -m pytest tests/numbers/test_numbers_miniapp_static.py tests/core/test_numbers_miniapp.py -q` passed with `62 passed`.
 - Follow-up reference pass: the Mini App shell was tightened to match the provided PHANTOM NUMBERS mockup more closely: PHANTOM header, wallet badge, single order card, segmented number type control, search-style service selector, USA/state selectors, and bottom tab bar. Cache bust: `v=20260526-reference-ui`. Latest screenshot: `C:\Users\CyberZone\AppData\Local\Temp\numbers-miniapp-reference-clean.png`.
 
+## Latest Local QA - 2026-05-27
+
+- Tightened the customer-facing `/mini/numbers` shell toward the supplied PHANTOM NUMBERS reference: Telegram status pill, PHANTOM/NUMBERS header stack, wallet badge, compact order card, request-type segment, search field with popular chip, country/state selectors, and bottom tab bar.
+- Provider rows now render customer-safe aliases only (`BRAVO`, `HOTEL`, `ALPHA`, etc. with short codes such as `BR`, `HT`, `AL`). Real provider names must not appear anywhere in the buyer UI.
+- Browser QA used the in-app browser against `http://127.0.0.1:8091/mini/numbers?qa=exact-mockup`; page loaded without console errors and the service selector interaction opened correctly.
+- Validation target: rerun `python -m pytest tests/numbers/test_numbers_miniapp_static.py tests/core/test_numbers_miniapp.py -q` before deploy.
+
 ## Devices
 
 - [ ] Telegram mobile, Arabic user language
@@ -23,7 +30,8 @@ Use this checklist after each Railway deploy that touches `/mini/numbers`.
 
 - [ ] First load shows splash until the app is ready.
 - [ ] Arabic screens are RTL and contain no English fallback text.
-- [ ] Provider cards keep provider name, star badge, price, and Buy button separated.
+- [ ] Provider cards keep provider alias, success rate, price, and Buy button separated.
+- [ ] Provider cards expose only public aliases, never real provider names or IDs.
 - [ ] Best provider takes the full row.
 - [ ] Other providers render two per row without overflow.
 - [ ] Temp/voice Buy buttons and rental option buttons execute the backend `purchase_action` payload.
