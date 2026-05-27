@@ -1070,7 +1070,7 @@ function updateCommandSummary() {
 
 function setView(view) {
   if (!surfaceViewEnabled(view)) {
-    view = "buy";
+  view = "buy";
   }
   state.view = view;
   els.buyView.classList.toggle("hidden", view !== "buy");
@@ -1079,8 +1079,17 @@ function setView(view) {
   els.rechargeView?.classList.toggle("hidden", view !== "recharge");
   els.supportView.classList.toggle("hidden", view !== "support");
   renderViewTabs();
+  
+  // Update bottom navigation active state
+  const bottomNav = document.getElementById("bottomNav");
+  if (bottomNav) {
+    bottomNav.querySelectorAll(".nav-item").forEach((item) => {
+      item.classList.toggle("active", item.dataset.view === view);
+    });
+  }
+  
   if (view === "orders") {
-    refreshOrders({ quiet: true });
+  refreshOrders({ quiet: true });
   }
   if (view === "buy") resetBuyStatus();
   if (view === "recharge") loadRecharge();
@@ -2461,101 +2470,99 @@ function promptServiceBeforeBuy(button) {
 
 function renderProviders(rows, { preserve = false } = {}) {
   if (!preserve) {
-    state.providerRows = rows || [];
+  state.providerRows = rows || [];
   }
   const allRows = preserve ? state.providerRows : rows || [];
   const displayRows = allRows.length ? allRows : (!state.pricesChecked && !state.loading && !state.priceCheckFailed ? referenceOfferRows() : []);
   els.resultCount.textContent = String(displayRows.length);
   if (!displayRows.length) {
-    els.providerList.replaceChildren();
-    return;
+  els.providerList.replaceChildren();
+  return;
   }
-
+  
   const cards = displayRows.map((row, index) => {
-    const card = document.createElement("article");
-    card.className = "provider-card";
-
-    const main = document.createElement("div");
-    main.className = "provider-main";
-
-    const header = document.createElement("div");
-    header.className = "provider-header";
-
-    const name = document.createElement("p");
-    name.className = "provider-name";
-    name.textContent = providerInitials(row, index);
-
-    const successBadge = document.createElement("span");
-    successBadge.className = "success-badge";
-    successBadge.title = t("successLegend");
-    successBadge.textContent = providerSuccessText(row);
-    header.append(name);
-
-    const meta = document.createElement("p");
-    meta.className = "provider-meta";
-    const details = [providerPublicName(row, index)];
-    if (row.location_tag) details.push(`[${row.location_tag}]`);
-    if (row.voice_fallback) details.push(t("voiceFallback"));
-    meta.textContent = details.join(" · ");
-
-    main.append(header, meta);
-    if (row.options?.length) {
-      const options = document.createElement("div");
-      options.className = "option-row";
-      row.options.forEach((option) => {
-        const optionAction = purchaseAction(option);
-        const pill = document.createElement(state.mode === "rental" && optionAction.enabled ? "button" : "span");
-        pill.className = "option-pill";
-        if (pill.tagName === "BUTTON") {
-          pill.type = "button";
-          pill.classList.add("buyable");
-          pill.addEventListener("click", () => buyProvider({ ...row, ...option, price_label: option.price_label, purchase_action: optionAction }, pill));
-        }
-        const optionText = state.mode === "rental" ? rentalOptionLabel(option) : `${option.duration_label || option.duration || t("options")} ${option.price_label}`;
-        pill.textContent = pill.tagName === "BUTTON" ? `${t("buy")} ${optionText}` : optionText;
-        options.append(pill);
-      });
-      main.append(options);
-    }
-
-    const rowPurchaseAction = purchaseAction(row);
-    if (row.placeholder || ((state.mode === "temp" || state.mode === "voice") && rowPurchaseAction.enabled)) {
-      const actions = document.createElement("div");
-      actions.className = "provider-actions";
-      const price = document.createElement("div");
-      price.className = "action-price";
-      price.textContent = row.price_label;
-      const buy = document.createElement("button");
-      buy.type = "button";
-      buy.className = "small-action";
-      buy.textContent = t("buy");
-      buy.addEventListener("click", () => {
-        if (row.placeholder) {
-          promptServiceBeforeBuy(buy);
-        } else {
-          buyProvider({ ...row, purchase_action: rowPurchaseAction }, buy);
-        }
-      });
-      actions.append(price, buy);
-      const star = document.createElement("span");
-      star.className = "provider-star";
-      star.setAttribute("aria-hidden", "true");
-      star.textContent = "☆";
-      card.append(star, main, successBadge, actions);
-    } else {
-      const price = document.createElement("div");
-      price.className = "provider-price";
-      price.textContent = state.mode === "rental" && row.options?.length ? row.options[0].price_label : row.price_label;
-      const star = document.createElement("span");
-      star.className = "provider-star";
-      star.setAttribute("aria-hidden", "true");
-      star.textContent = "☆";
-      card.append(star, main, successBadge, price);
-    }
-    return card;
+  const card = document.createElement("article");
+  card.className = "provider-card";
+  if (index === 0) card.classList.add("recommended");
+  
+  // Provider Info (Logo + Name)
+  const header = document.createElement("div");
+  header.className = "provider-header";
+  
+  const logo = document.createElement("div");
+  logo.className = "provider-logo";
+  logo.textContent = providerInitials(row, index);
+  logo.style.background = getProviderColor(index);
+  
+  const info = document.createElement("div");
+  info.className = "provider-info";
+  
+  const name = document.createElement("span");
+  name.className = "provider-name";
+  name.textContent = providerInitials(row, index);
+  
+  const id = document.createElement("span");
+  id.className = "provider-id";
+  id.textContent = providerPublicName(row, index);
+  
+  info.append(name, id);
+  header.append(logo, info);
+  
+  // Price
+  const price = document.createElement("div");
+  price.className = "provider-price";
+  price.textContent = state.mode === "rental" && row.options?.length ? row.options[0].price_label : row.price_label;
+  
+  // Success Badge
+  const successBadge = document.createElement("div");
+  successBadge.className = "success-badge";
+  
+  const rate = document.createElement("span");
+  rate.className = "rate";
+  rate.textContent = providerSuccessText(row);
+  
+  const label = document.createElement("span");
+  label.className = "label";
+  label.textContent = t("success");
+  
+  successBadge.append(rate, label);
+  
+  // Actions
+  const actions = document.createElement("div");
+  actions.className = "provider-actions";
+  
+  const rowPurchaseAction = purchaseAction(row);
+  const buy = document.createElement("button");
+  buy.type = "button";
+  buy.className = "small-action";
+  if (index === 0) buy.classList.add("primary");
+  buy.textContent = t("buy");
+  buy.addEventListener("click", () => {
+  if (row.placeholder) {
+  promptServiceBeforeBuy(buy);
+  } else {
+  buyProvider({ ...row, purchase_action: rowPurchaseAction }, buy);
+  }
+  });
+  actions.append(buy);
+  
+  card.append(header, price, successBadge, actions);
+  return card;
   });
 
   els.providerList.replaceChildren(...cards);
+}
+
+function getProviderColor(index) {
+  const colors = [
+    "linear-gradient(135deg, #3b82f6, #1d4ed8)",
+    "linear-gradient(135deg, #8b5cf6, #6d28d9)",
+    "linear-gradient(135deg, #06b6d4, #0891b2)",
+    "linear-gradient(135deg, #10b981, #059669)",
+    "linear-gradient(135deg, #f59e0b, #d97706)",
+    "linear-gradient(135deg, #ef4444, #dc2626)",
+  ];
+  return colors[index % colors.length];
 }
 
 function infoCard(label, value) {
@@ -3216,6 +3223,34 @@ async function boot() {
   els.rechargeButton.addEventListener("click", openRecharge);
   els.recentOrdersButton?.addEventListener("click", () => setView("orders"));
   els.sendSupportButton.addEventListener("click", sendSupportTicket);
+  
+  // Bottom Navigation
+  const bottomNav = document.getElementById("bottomNav");
+  if (bottomNav) {
+    bottomNav.addEventListener("click", (event) => {
+      const navItem = event.target.closest(".nav-item");
+      if (!navItem) return;
+      const viewKey = navItem.dataset.view;
+      if (!viewKey) return;
+      
+      // Update active state
+      bottomNav.querySelectorAll(".nav-item").forEach((item) => {
+        item.classList.toggle("active", item === navItem);
+      });
+      
+      // Map view keys to internal view names
+      const viewMap = {
+        buy: "buy",
+        orders: "orders",
+        recharge: "recharge",
+        account: "account",
+        support: "support",
+      };
+      
+      const targetView = viewMap[viewKey] || "buy";
+      setView(targetView);
+    });
+  }
 }
 
 boot().catch(() => {
