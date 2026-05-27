@@ -11,6 +11,7 @@ Use this checklist after each Railway deploy that touches `/mini/numbers`.
   - Desktop: `C:\Users\CyberZone\AppData\Local\Temp\numbers-miniapp-desktop.png`
   - Mobile 390x844: `C:\Users\CyberZone\AppData\Local\Temp\numbers-miniapp-mobile-6.png`
 - Validation: `python -m pytest tests/numbers/test_numbers_miniapp_static.py tests/core/test_numbers_miniapp.py -q` passed with `62 passed`.
+- Follow-up reference pass: the Mini App shell was tightened to match the provided PHANTOM NUMBERS mockup more closely: PHANTOM header, wallet badge, single order card, segmented number type control, search-style service selector, USA/state selectors, and bottom tab bar. Cache bust: `v=20260526-reference-ui`. Latest screenshot: `C:\Users\CyberZone\AppData\Local\Temp\numbers-miniapp-reference-clean.png`.
 
 ## Devices
 

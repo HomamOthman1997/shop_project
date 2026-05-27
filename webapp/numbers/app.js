@@ -1,8 +1,8 @@
 const tg = window.Telegram?.WebApp;
 
 const MODE_SELECTION_DEFAULTS = {
-  temp: { service: "", country: "none", state: "none" },
-  rental: { service: "", country: "none", state: "none" },
+  temp: { service: "", country: "1", state: "none" },
+  rental: { service: "", country: "1", state: "none" },
   voice: { service: "", country: "1", state: "none" },
 };
 
@@ -1350,7 +1350,7 @@ function updateSelectorLabels() {
 
 function setSelectorMenuOpen(kind, open) {
   const isCountry = kind === "country";
-  if (open && !state.selectedService && (isCountry || kind === "state")) {
+  if (open && !state.selectedService && kind === "state") {
     els.statusLine.textContent = t("chooseServiceFirst");
     return;
   }
@@ -1381,11 +1381,6 @@ function setSelectorMenuOpen(kind, open) {
 }
 
 function setCountrySelection(code) {
-  if (!state.selectedService) {
-    els.statusLine.textContent = t("chooseServiceFirst");
-    setSelectorMenuOpen("country", false);
-    return;
-  }
   state.selectedCountry = state.mode === "voice" ? "1" : code || "none";
   state.priceCheckFailed = false;
   if (state.selectedCountry !== "1") {
@@ -1549,7 +1544,7 @@ function renderSelectors() {
 
 function updateStateVisibility() {
   const hasService = Boolean(state.selectedService);
-  const showCountry = hasService;
+  const showCountry = true;
   const showState = hasService && state.selectedCountry === "1";
   els.countryField?.classList.toggle("hidden", !showCountry);
   els.stateField.classList.toggle("hidden", !showState);
@@ -3110,7 +3105,7 @@ async function boot() {
     temp: {
       ...defaultModeSelection("temp"),
       service: payload.defaults?.service || "",
-      country: payload.defaults?.country || "none",
+      country: payload.defaults?.country && payload.defaults.country !== "none" ? payload.defaults.country : "1",
       state: payload.defaults?.state || "none",
     },
     rental: defaultModeSelection("rental"),

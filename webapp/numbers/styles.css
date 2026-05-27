@@ -2862,3 +2862,576 @@ h3 {
     min-width: 0;
   }
 }
+
+/* 2026-05-26 image-matched Telegram Mini App pass. This is intentionally
+   the last visual layer: match the provided PHANTOM NUMBERS mobile mockup. */
+:root {
+  --mock-bg: #fbfdff;
+  --mock-line: #d9e1e8;
+  --mock-line-strong: #c7d3db;
+  --mock-text: #102338;
+  --mock-muted: #5e7188;
+  --mock-soft: #f7fafc;
+  --mock-teal: #009f9a;
+  --mock-teal-2: #00b7b0;
+  --mock-shadow: 0 8px 24px rgba(17, 35, 56, 0.09);
+}
+
+html,
+body {
+  background: #eef7f5;
+}
+
+body {
+  color: var(--mock-text);
+  background:
+    linear-gradient(180deg, #ffffff 0, #ffffff 94px, #eef7f5 95px, #fbfdff 260px),
+    var(--mock-bg);
+}
+
+.app-shell {
+  display: block;
+  width: min(100%, 430px);
+  max-width: 430px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 0 14px calc(86px + env(safe-area-inset-bottom));
+}
+
+.app-nav {
+  position: static;
+  margin: 0 -14px 12px;
+}
+
+.topbar {
+  position: relative;
+  display: grid;
+  grid-template-columns: 34px 48px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 88px;
+  border: 0;
+  border-bottom: 1px solid var(--mock-line);
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+  padding: 14px 16px;
+  direction: ltr;
+}
+
+.topbar::before {
+  content: "";
+  width: 28px;
+  height: 20px;
+  background:
+    radial-gradient(circle at 26px 4px, #38bf4f 0 4px, transparent 4.5px),
+    linear-gradient(#263c52 0 0) 0 2px / 22px 3px no-repeat,
+    linear-gradient(#263c52 0 0) 0 9px / 26px 3px no-repeat,
+    linear-gradient(#263c52 0 0) 0 16px / 18px 3px no-repeat;
+}
+
+.brand-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 17px 20px, #ffffff 0 3px, transparent 3.5px),
+    radial-gradient(circle at 31px 20px, #ffffff 0 3px, transparent 3.5px),
+    linear-gradient(135deg, #00afa9, #0bc5bd);
+  color: transparent;
+  box-shadow: none;
+}
+
+.topbar > div:not(.brand-mark) {
+  margin-inline-start: 0;
+  min-width: 0;
+}
+
+.topbar .eyebrow {
+  display: block;
+  max-width: 118px;
+  overflow: hidden;
+  color: #1aa7a4;
+  font-size: 0;
+  font-weight: 800;
+  letter-spacing: 0.38em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.topbar .eyebrow::before {
+  content: "NUMBERS";
+  font-size: 13px;
+}
+
+.topbar h1 {
+  margin: 0;
+  max-width: 168px;
+  overflow: hidden;
+  color: #102338;
+  font-size: 0;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.topbar h1::before {
+  content: "PHANTOM";
+  font-size: 24px;
+}
+
+.balance-pill {
+  min-width: 106px;
+  min-height: 48px;
+  border: 1px solid var(--mock-line);
+  border-radius: 11px;
+  background:
+    linear-gradient(90deg, transparent calc(100% - 42px), rgba(0, 159, 154, 0.1) calc(100% - 42px)),
+    #ffffff;
+  color: #102338;
+  font-size: 18px;
+  font-weight: 950;
+  box-shadow: 0 2px 8px rgba(17, 35, 56, 0.06);
+}
+
+.balance-pill::after {
+  content: "الرصيد";
+  display: block;
+  color: #243a51;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.1;
+}
+
+.command-strip {
+  display: none !important;
+}
+
+.content-shell,
+.view-panel,
+#buyView {
+  width: 100%;
+  max-width: 100%;
+}
+
+#buyView {
+  gap: 12px;
+}
+
+.control-band {
+  border: 1px solid var(--mock-line);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: var(--mock-shadow);
+  padding: 12px;
+}
+
+.console-heading {
+  display: block;
+  border: 0;
+  padding: 0;
+  margin-bottom: 10px;
+  text-align: right;
+}
+
+.console-heading .eyebrow {
+  color: var(--mock-teal);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.console-heading h2 {
+  margin-top: 4px;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  border: 1px solid #bfcbd4;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 0;
+  overflow: hidden;
+}
+
+.mode-button {
+  min-height: 48px;
+  border: 0;
+  border-inline-start: 1px solid #c7d3db;
+  border-radius: 0;
+  background: #ffffff;
+  color: #50647b;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.mode-button:last-child {
+  border-inline-start: 0;
+}
+
+.mode-button.active {
+  background: linear-gradient(135deg, var(--mock-teal), var(--mock-teal-2));
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(3, 68, 76, 0.28);
+}
+
+.mode-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.field-grid,
+.field-grid.service-only,
+.field-grid.service-country,
+.field-grid.service-country-state {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.service-field {
+  grid-column: 1 / -1;
+}
+
+.state-field,
+.country-field {
+  grid-column: auto;
+}
+
+.country-field.hidden {
+  display: grid !important;
+}
+
+.state-field.hidden {
+  display: grid !important;
+}
+
+.field span {
+  color: #182b40;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: right;
+}
+
+.select-trigger {
+  min-height: 50px;
+  border: 1px solid var(--mock-line);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #102338;
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.75);
+}
+
+.service-field .select-trigger {
+  padding-inline: 48px 14px;
+  color: #9aa4b0;
+  font-size: 16px;
+}
+
+.service-field {
+  position: relative;
+}
+
+.service-field::after {
+  content: "⌕";
+  position: absolute;
+  left: 17px;
+  bottom: 12px;
+  color: #24394f;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.quick-row {
+  display: flex !important;
+  position: absolute;
+}
+
+.quick-row::before {
+  content: "🔥\Aالأكثر طلبا";
+  white-space: pre;
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 54px;
+  border: 1px solid var(--mock-line);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #718197;
+  font-size: 11px;
+  font-weight: 800;
+  transform: translateY(-67px);
+}
+
+.primary-action {
+  min-height: 52px;
+  margin-top: 12px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--mock-teal), var(--mock-teal-2));
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 950;
+  box-shadow: 0 12px 24px rgba(0, 159, 154, 0.18);
+}
+
+.status-line {
+  min-height: 18px;
+  color: #5f7188;
+  text-align: right;
+}
+
+.status-line:empty::before {
+  content: "● أسعار محدثة الآن";
+  color: #39b45f;
+  font-size: 12px;
+}
+
+.intro-band {
+  display: none !important;
+}
+
+.result-band,
+.active-band,
+.recent-orders-band {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.result-header {
+  margin: 4px 0 8px;
+}
+
+.result-header .eyebrow,
+.success-legend,
+.count-pill {
+  display: none !important;
+}
+
+.result-header h2,
+.active-band .result-header h2,
+.recent-orders-band .result-header h2 {
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.provider-list {
+  display: grid;
+  gap: 7px;
+}
+
+.provider-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) 82px 76px;
+  min-height: 56px;
+  border: 1px solid #e1e7ec;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 4px 10px rgba(17, 35, 56, 0.045);
+  padding: 8px 12px;
+}
+
+.provider-card:first-child {
+  border-color: rgba(0, 159, 154, 0.42);
+  background: #f6fffd;
+}
+
+.provider-main {
+  min-width: 0;
+}
+
+.provider-header {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.provider-name {
+  color: var(--mock-teal);
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.provider-name::first-letter {
+  color: var(--mock-teal);
+}
+
+.success-badge {
+  order: 2;
+  width: 48px;
+  border: 0;
+  background: transparent;
+  color: #102338;
+  font-size: 15px;
+}
+
+.success-badge::after {
+  content: " نجاح";
+  display: block;
+  color: #50647b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.provider-meta {
+  margin-top: 0;
+  color: #40536a;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.provider-actions {
+  display: contents !important;
+}
+
+.action-price,
+.provider-price {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  justify-self: center;
+  color: #102338;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.provider-actions .small-action {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: center;
+  justify-self: stretch;
+  min-width: 64px;
+  min-height: 36px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--mock-teal), var(--mock-teal-2));
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.provider-card:not(:first-child) .provider-actions .small-action {
+  border: 1px solid #dfe6eb;
+  background: #ffffff;
+  color: var(--mock-teal);
+}
+
+.recent-orders-band {
+  display: block;
+  margin-top: 18px;
+}
+
+.recent-orders-band .result-header {
+  display: flex;
+}
+
+.recent-orders-list:empty::before {
+  content: "لا توجد طلبات أخيرة بعد";
+  display: block;
+  border: 1px solid #e1e7ec;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #7b8a9d;
+  padding: 16px;
+  text-align: center;
+}
+
+.order-card,
+.recent-order-row {
+  border: 1px solid #e1e7ec;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 4px 10px rgba(17, 35, 56, 0.045);
+}
+
+.view-tabs {
+  position: fixed;
+  z-index: 60;
+  left: 50%;
+  right: auto;
+  bottom: 0;
+  width: min(100vw, 430px);
+  max-width: 430px;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  border: 1px solid #dce4ea;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -8px 22px rgba(17, 35, 56, 0.08);
+  padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
+  backdrop-filter: blur(14px);
+}
+
+.view-tab {
+  min-height: 50px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #54677f;
+  font-size: 12px;
+}
+
+.view-tab.active {
+  background: #e8fbf8;
+  color: var(--mock-teal);
+}
+
+.nav-icon {
+  background: transparent;
+}
+
+@media (min-width: 431px) {
+  .app-shell {
+    border-inline: 1px solid #eef2f4;
+    box-shadow: 0 18px 48px rgba(17, 35, 56, 0.08);
+  }
+}
+
+@media (max-width: 430px) {
+  .app-shell {
+    width: 100%;
+    max-width: 100%;
+    padding-inline: 14px;
+    margin: 0;
+  }
+
+  .app-nav {
+    margin-inline: -14px;
+  }
+
+  .topbar {
+    min-height: 86px;
+    margin: 0;
+    padding-inline: 16px;
+  }
+
+  .topbar > div:not(.brand-mark) {
+    margin-inline-start: 0;
+  }
+
+  .balance-pill {
+    min-width: 96px;
+  }
+
+  .field-grid,
+  .field-grid.service-only,
+  .field-grid.service-country,
+  .field-grid.service-country-state {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .provider-card {
+    grid-template-columns: minmax(0, 1.1fr) 76px 66px;
+    padding-inline: 10px;
+  }
+}

@@ -129,6 +129,7 @@ Current in-flight Numbers consolidation:
 Latest completed work:
 - Numbers Mini App frontend premium pass:
   - `/mini/numbers` now has a light, product-grade customer UI with a PH brand mark, status summary cards, cleaner order console, refined provider/order cards, recent-orders preview, and improved mobile bottom navigation.
+  - Follow-up reference pass tightened the UI toward the provided PHANTOM NUMBERS mockup: PHANTOM header, wallet badge, single order card, segmented number-type control, search-style service selector, default USA country selector, state selector, and bottom tab bar. Asset cache bust is now `v=20260526-reference-ui`; latest local screenshot is `C:\Users\CyberZone\AppData\Local\Temp\numbers-miniapp-reference-clean.png`.
   - Arabic UI copy was repaired with clean UTF-8 labels after the old Arabic table rendered as mojibake in browser QA.
   - Static asset versions were bumped to `v=20260526-premium-ui`.
   - Local visual QA used the built-in browser plus Edge headless screenshots:
