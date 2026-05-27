@@ -43,7 +43,7 @@
         text-align: center;
       }
     </style>
-    <link rel="stylesheet" href="/mini/numbers/static/styles.css?v=20260526-recharge-tab" />
+    <link rel="stylesheet" href="/mini/numbers/static/styles.css?v=20260526-premium-ui" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body class="app-booting">
@@ -57,6 +57,7 @@
     <main class="app-shell">
       <aside class="app-nav">
         <header class="topbar">
+          <div class="brand-mark" aria-hidden="true">PH</div>
           <div>
             <p class="eyebrow" data-i18n="eyebrow">PHANTOM NUMBERS</p>
             <h1 data-i18n="title">Numbers</h1>
@@ -69,6 +70,21 @@
 
       <section class="content-shell">
         <section class="view-panel" id="buyView">
+          <section class="command-strip" aria-label="Numbers status">
+            <article class="command-card primary">
+              <span data-i18n="balance">Balance</span>
+              <strong id="summaryBalance">Mini App</strong>
+            </article>
+            <article class="command-card">
+              <span data-i18n="orderMode">Mode</span>
+              <strong id="summaryMode">Temporary SMS</strong>
+            </article>
+            <article class="command-card">
+              <span data-i18n="activeOrdersMetric">Active</span>
+              <strong id="summaryOrders">0</strong>
+            </article>
+          </section>
+
           <section class="control-band" id="controlBand" aria-label="Number order filters">
             <div class="console-heading">
               <div>
@@ -151,6 +167,17 @@
             </div>
             <div class="provider-list" id="providerList"></div>
           </section>
+
+          <section class="recent-orders-band hidden" id="recentOrdersBand" aria-live="polite">
+            <div class="result-header">
+              <div>
+                <p class="eyebrow" data-i18n="active">Active orders</p>
+                <h2 data-i18n="recentOrdersTitle">Recent orders</h2>
+              </div>
+              <button class="ghost-link" id="recentOrdersButton" type="button" data-i18n="viewAllOrders">View all</button>
+            </div>
+            <div class="recent-orders-list" id="recentOrdersPreview"></div>
+          </section>
         </section>
 
         <section class="active-band view-panel hidden" id="activeBand" aria-live="polite">
@@ -221,6 +248,6 @@
         <small id="busyText">Please wait</small>
       </div>
     </div>
-    <script src="/mini/numbers/static/app.js?v=20260526-recharge-tab"></script>
+    <script src="/mini/numbers/static/app.js?v=20260526-premium-ui"></script>
   </body>
 </html>

@@ -95,8 +95,14 @@ const els = {
   selectionTitle: document.getElementById("selectionTitle"),
   successLegend: document.getElementById("successLegend"),
   sessionPill: document.getElementById("sessionPill"),
+  summaryBalance: document.getElementById("summaryBalance"),
+  summaryMode: document.getElementById("summaryMode"),
+  summaryOrders: document.getElementById("summaryOrders"),
   activeBand: document.getElementById("activeBand"),
   activeOrders: document.getElementById("activeOrders"),
+  recentOrdersBand: document.getElementById("recentOrdersBand"),
+  recentOrdersPreview: document.getElementById("recentOrdersPreview"),
+  recentOrdersButton: document.getElementById("recentOrdersButton"),
   accountView: document.getElementById("accountView"),
   accountDetails: document.getElementById("accountDetails"),
   rechargeView: document.getElementById("rechargeView"),
@@ -191,6 +197,8 @@ const copy = {
     detailCalls: "المكالمات",
     detailRetry: "محاولات الاسترجاع",
     recentActivity: "آخر الحركات",
+    recentOrdersTitle: "طلباتي الأخيرة",
+    viewAllOrders: "عرض الكل",
     noActivity: "لا توجد حركات بعد",
     afterBalance: "الرصيد بعد العملية",
     refunded: "تم الاسترجاع",
@@ -310,6 +318,8 @@ const copy = {
     detailCalls: "Calls",
     detailRetry: "Refund retries",
     recentActivity: "Recent activity",
+    recentOrdersTitle: "Recent orders",
+    viewAllOrders: "View all",
     noActivity: "No activity yet",
     afterBalance: "Balance after",
     refunded: "Refunded",
@@ -551,6 +561,180 @@ Object.assign(copy.ar, {
   optionRenewable: "\u0642\u0627\u0628\u0644 \u0644\u0644\u062a\u062c\u062f\u064a\u062f",
   optionSingle: "\u0645\u0631\u0629 \u0648\u0627\u062d\u062f\u0629",
   optionState: "\u0648\u0644\u0627\u064a\u0629",
+});
+
+Object.assign(copy.ar, {
+  eyebrow: "PHANTOM NUMBERS",
+  title: "الأرقام",
+  tabBuy: "شراء",
+  tabOrders: "طلباتي",
+  tabRecharge: "شحن",
+  tabAccount: "حسابي",
+  tabSupport: "الدعم",
+  beforeOrder: "قبل الطلب",
+  introTitle: "تنبيهات مهمة قبل طلب الرقم",
+  introNotice1: "اختر الخدمة المطلوبة بدقة. الرقم يعمل للخدمة المحددة فقط.",
+  introNotice2: "ترك الولاية بدون تحديد يعطي غالبا خيارات أكثر وسعرا أفضل.",
+  introNotice3: "إذا لم يصل الكود أو المكالمة، السيرفر يفحص المزود ويتابع الاسترجاع تلقائيا عند توفر الشروط.",
+  orderConsole: "لوحة الطلب",
+  orderConsoleTitle: "اختر الخدمة وافحص أسعار المزودين",
+  orderMode: "الوضع",
+  activeOrdersMetric: "نشطة",
+  requestNumber: "طلب رقم",
+  service: "الخدمة",
+  chooseService: "اختر الخدمة",
+  chooseServiceFirst: "اختر الخدمة أولا",
+  country: "الدولة",
+  chooseCountry: "أي دولة",
+  searchCountry: "ابحث عن دولة",
+  state: "الولاية",
+  chooseState: "أي ولاية",
+  searchState: "ابحث عن ولاية",
+  stateHint: "ترك الولاية بدون تحديد يعطي غالبا خيارات أكثر وسعرا أفضل. اختيار ولاية محددة قد يزيد السعر 20%.",
+  check: "فحص الأسعار",
+  providers: "المزودون",
+  successLegend: "★ تعني نسبة نجاح المزود",
+  loading: "جاري فحص المزودين",
+  loadingPhaseFast: "جاري فحص المزودين الأسرع",
+  loadingPhaseSlow: "بانتظار المزودين الأبطأ قليلا",
+  loadingPhaseFinal: "جاري تجهيز أفضل الأسعار المتاحة",
+  ready: "اختر الخدمة والدولة ثم افحص السعر",
+  empty: "لا توجد عروض متاحة لهذا الاختيار",
+  emptyVoice: "لا يوجد رقم اتصال متاح لهذه الخدمة حاليا.",
+  error: "تعذر تحميل البيانات حاليا",
+  temp: "أرقام مؤقتة",
+  rental: "أرقام للإيجار",
+  voice: "رقم اتصال",
+  success: "نجاح",
+  base: "التكلفة",
+  options: "خيارات",
+  unavailable: "غير متاح",
+  active: "طلبات نشطة",
+  numbersList: "أرقامي",
+  waiting: "بانتظار الكود",
+  waitingCall: "بانتظار المكالمة",
+  callDetected: "تم رصد المكالمة",
+  recordingPending: "بانتظار تجهيز التسجيل",
+  callReceived: "وصلت المكالمة",
+  recording: "تسجيل المكالمة",
+  playRecording: "تشغيل التسجيل",
+  downloadRecording: "تحميل التسجيل",
+  noOrders: "لا توجد أرقام حاليا",
+  buy: "شراء",
+  refresh: "تحديث",
+  tryAnother: "رقم بديل",
+  alternateProvider: "مزود بديل",
+  confirmTryAnother: "تأكيد طلب رقم بديل؟",
+  confirmAlternateProvider: "تأكيد طلب رقم من مزود بديل؟",
+  replacementRequested: "تم طلب رقم بديل",
+  secondCode: "كود ثاني",
+  confirmSecondCode: "تأكيد طلب كود ثاني؟",
+  secondCodeRequested: "تم طلب كود ثاني",
+  purchasing: "جاري تنفيذ الطلب",
+  purchased: "تم حجز الرقم",
+  authRequired: "افتح التطبيق من تيليغرام للمتابعة",
+  confirmBuy: "تأكيد شراء الرقم؟",
+  code: "الكود",
+  number: "الرقم",
+  copyCode: "نسخ الكود",
+  copyNumber: "نسخ الرقم",
+  copied: "تم النسخ",
+  detailProvider: "المزود",
+  detailCountry: "الدولة",
+  detailState: "الولاية",
+  detailCreated: "تاريخ الطلب",
+  detailReuseUntil: "نافذة الكود الثاني",
+  detailSecondCodes: "أكواد إضافية",
+  detailDuration: "المدة",
+  detailEnds: "النهاية",
+  detailCalls: "المكالمات",
+  detailRetry: "محاولات الاسترجاع",
+  recentActivity: "آخر الحركات",
+  recentOrdersTitle: "طلباتي الأخيرة",
+  viewAllOrders: "عرض الكل",
+  noActivity: "لا توجد حركات بعد",
+  afterBalance: "الرصيد بعد العملية",
+  refunded: "تم الاسترجاع",
+  refundPending: "بانتظار الاسترجاع",
+  refundWorking: "جاري الاسترجاع",
+  refundWait: "عم نفحص المزود والمحفظة، يرجى الانتظار.",
+  waitForSms: "بانتظار الرسالة. الاسترجاع يتم تلقائيا إذا لم يصل كود.",
+  waitForWebhook: "بانتظار ويب هوك الاستلام. التطبيق لا يعمل بولينغ لهذا المزود.",
+  waitForCall: "بانتظار المكالمة.",
+  waitForCallWebhook: "بانتظار ويب هوك المكالمة.",
+  waitForRecording: "تم رصد المكالمة، بانتظار التسجيل.",
+  waitForRentalSms: "بانتظار رسالة الإيجار.",
+  codeReady: "وصل الكود. انسخه وكمل.",
+  recordingReady: "التسجيل جاهز.",
+  autoRefundChecking: "السيرفر يفحص الاسترجاع تلقائيا.",
+  supportReviewQueued: "هذا الطلب بحاجة مراجعة دعم قبل قرار الاسترجاع.",
+  refundedToWallet: "تم إرجاع الرصيد لمحفظتك.",
+  orderClosedNoCode: "انتهى الطلب بدون كود.",
+  failed: "فشل",
+  expired: "منتهي",
+  working: "جاري التنفيذ",
+  pleaseWait: "يرجى الانتظار.",
+  checkingOrder: "جاري فحص الطلب",
+  left: "متبقي",
+  finish: "إنهاء",
+  finished: "منتهي",
+  renew: "تجديد",
+  wake: "تنشيط",
+  notesTags: "ملاحظات",
+  notes: "ملاحظات",
+  tags: "وسوم",
+  account: "الحساب",
+  accountTitle: "حسابي",
+  balance: "الرصيد",
+  userId: "User ID",
+  username: "Username",
+  language: "اللغة",
+  joined: "تاريخ الانضمام",
+  recharge: "شحن",
+  rechargeTab: "شحن الرصيد",
+  openingRecharge: "فتح الشحن",
+  rechargeTitle: "شحن الرصيد",
+  rechargeSubtitle: "اختر طريقة الدفع وأرسل المبلغ والإثبات من داخل التطبيق.",
+  rechargeMethod: "طريقة الدفع",
+  choosePaymentMethod: "اختر طريقة الدفع",
+  paymentTarget: "بيانات الدفع",
+  paymentRate: "السعر",
+  paidAmount: "المبلغ المدفوع",
+  proofFile: "إثبات الدفع",
+  proofHint: "ارفع صورة التحويل أو لقطة إثبات الدفع.",
+  submitRecharge: "إرسال طلب الشحن",
+  submittingRecharge: "جاري إرسال طلب الشحن",
+  rechargeSubmitted: "تم إرسال طلب الشحن",
+  rechargeRequests: "طلبات الشحن",
+  noRechargeRequests: "لا توجد طلبات شحن بعد",
+  openRechargeBot: "فتح بوت الشحن",
+  refreshBalance: "تحديث الرصيد",
+  copiedPaymentTarget: "تم نسخ بيانات الدفع",
+  noPaymentMethods: "لا توجد طرق دفع متاحة حاليا",
+  support: "الدعم",
+  supportTitle: "فتح تذكرة دعم",
+  supportCategory: "القسم",
+  supportOrder: "الطلب المرتبط",
+  noOrderContext: "بدون طلب محدد",
+  supportMessage: "الرسالة",
+  supportPlaceholder: "اكتب المشكلة أو رقم الطلب إن وجد",
+  sendSupport: "إرسال تذكرة الدعم",
+  supportSent: "تم إرسال التذكرة",
+  loadingAccount: "جاري تحميل الحساب",
+  openBot: "فتح البوت",
+  voiceFallback: "رقم اتصال عام",
+  checkCall: "فحص المكالمة",
+  rentalSms: "جلب SMS",
+  noSmsYet: "لا يوجد SMS بعد",
+  optionRenewable: "قابل للتجديد",
+  optionSingle: "مرة واحدة",
+  optionState: "ولاية",
+});
+
+Object.assign(copy.en, {
+  orderMode: "Mode",
+  activeOrdersMetric: "Active",
+  successLegend: "★ means provider success rate",
 });
 
 function t(key) {
@@ -867,6 +1051,18 @@ function clearTransientStatus({ clearPriceFailure = true } = {}) {
   els.statusLine.textContent = "";
 }
 
+function updateCommandSummary() {
+  if (els.summaryBalance) {
+    els.summaryBalance.textContent = els.sessionPill?.textContent || "Mini App";
+  }
+  if (els.summaryMode) {
+    els.summaryMode.textContent = t(state.mode);
+  }
+  if (els.summaryOrders) {
+    els.summaryOrders.textContent = String((state.activeOrders || []).length);
+  }
+}
+
 function setView(view) {
   if (!surfaceViewEnabled(view)) {
     view = "buy";
@@ -888,6 +1084,7 @@ function setView(view) {
 }
 
 function renderBuyFlow() {
+  updateCommandSummary();
   els.controlBand?.classList.remove("hidden");
   els.introBand?.classList.remove("hidden");
   els.introBand?.classList.toggle("compact", state.orderFlowOpen);
@@ -1313,6 +1510,7 @@ function renderModes() {
         updateSelectorLabels();
         renderServiceOptions();
         renderModes();
+        updateCommandSummary();
         renderProviders([]);
       });
       return button;
@@ -1873,12 +2071,49 @@ function renderOrderCard(order) {
 
 function renderActiveOrders(rows = state.activeOrders) {
   state.activeOrders = rows || [];
+  updateCommandSummary();
   if (!state.activeOrders.length) {
     els.activeOrders.replaceChildren(emptyState(canUseTelegramAuth() ? t("noOrders") : t("authRequired")));
+    renderRecentOrdersPreview([]);
     return;
   }
   els.activeOrders.replaceChildren(...state.activeOrders.map(renderOrderCard));
+  renderRecentOrdersPreview(state.activeOrders);
   return;
+}
+
+function renderRecentOrdersPreview(rows = state.activeOrders) {
+  if (!els.recentOrdersBand || !els.recentOrdersPreview) return;
+  const previewRows = (rows || []).slice(0, 3);
+  els.recentOrdersBand.classList.toggle("hidden", !previewRows.length);
+  if (!previewRows.length) {
+    els.recentOrdersPreview.replaceChildren();
+    return;
+  }
+  const cards = previewRows.map((order) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `recent-order-row ${orderTone(order)}`;
+    item.addEventListener("click", () => setView("orders"));
+
+    const status = document.createElement("span");
+    status.className = `recent-order-status ${orderTone(order)}`;
+    status.textContent = statusLabel(order);
+
+    const main = document.createElement("span");
+    main.className = "recent-order-main";
+    const title = document.createElement("strong");
+    title.textContent = order.service_label || order.service || "-";
+    const meta = document.createElement("small");
+    meta.textContent = [order.number, order.code || order.provider_id].filter(Boolean).join(" · ");
+    main.append(title, meta);
+
+    const price = document.createElement("b");
+    price.textContent = order.price_label || "";
+    item.append(status, main, price);
+    return item;
+  });
+  els.recentOrdersPreview.replaceChildren(...cards);
 }
 
 async function refreshOrders({ quiet = false } = {}) {
@@ -2387,6 +2622,7 @@ async function submitRechargeForm(form, statusNode) {
     state.accountNotice = payload.message || t("rechargeSubmitted");
     if (payload.balance_label) {
       els.sessionPill.textContent = payload.balance_label;
+      updateCommandSummary();
     }
     await loadCurrentRechargeSurface();
   } catch (error) {
@@ -2576,6 +2812,7 @@ function renderAccount(payload) {
   }
   const user = payload.user;
   els.sessionPill.textContent = payload.balance_label || user.full_name || user.username || "Mini App";
+  updateCommandSummary();
   state.supportCategories = payload.support_categories || state.supportCategories;
   state.supportBotUrl = payload.links?.numbers_bot || state.supportBotUrl;
   state.rechargeUrl = payload.links?.recharge || state.rechargeUrl;
@@ -2860,6 +3097,7 @@ async function boot() {
   tg?.expand();
   setLanguage();
   els.sessionPill.textContent = tg?.initDataUnsafe?.user?.first_name || "Mini App";
+  updateCommandSummary();
   const payload = await api("/mini/numbers/api/bootstrap");
   state.services = payload.services || [];
   state.countries = payload.countries || [];
@@ -2923,6 +3161,7 @@ async function boot() {
   els.langEnButton.addEventListener("click", () => changeLanguage("en", els.langEnButton));
   els.sessionPill.addEventListener("click", openRecharge);
   els.rechargeButton.addEventListener("click", openRecharge);
+  els.recentOrdersButton?.addEventListener("click", () => setView("orders"));
   els.sendSupportButton.addEventListener("click", sendSupportTicket);
 }
 

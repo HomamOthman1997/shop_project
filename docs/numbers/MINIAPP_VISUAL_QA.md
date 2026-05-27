@@ -2,6 +2,16 @@
 
 Use this checklist after each Railway deploy that touches `/mini/numbers`.
 
+## Latest Local QA - 2026-05-26
+
+- Redesigned `/mini/numbers` with the premium light Mini App skin, brand mark, customer status summary, recent-orders preview, and refreshed provider/order/recharge/support surfaces.
+- Fixed Arabic UI rendering by overriding the corrupted legacy copy table with clean UTF-8 Arabic labels.
+- Cache-busted the Mini App assets with `v=20260526-premium-ui`.
+- Browser QA screenshots:
+  - Desktop: `C:\Users\CyberZone\AppData\Local\Temp\numbers-miniapp-desktop.png`
+  - Mobile 390x844: `C:\Users\CyberZone\AppData\Local\Temp\numbers-miniapp-mobile-6.png`
+- Validation: `python -m pytest tests/numbers/test_numbers_miniapp_static.py tests/core/test_numbers_miniapp.py -q` passed with `62 passed`.
+
 ## Devices
 
 - [ ] Telegram mobile, Arabic user language

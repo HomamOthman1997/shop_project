@@ -127,6 +127,14 @@ Current in-flight Numbers consolidation:
   - `node --check webapp/numbers/app.js` could not run locally because `node.exe` returned `Access is denied`.
 
 Latest completed work:
+- Numbers Mini App frontend premium pass:
+  - `/mini/numbers` now has a light, product-grade customer UI with a PH brand mark, status summary cards, cleaner order console, refined provider/order cards, recent-orders preview, and improved mobile bottom navigation.
+  - Arabic UI copy was repaired with clean UTF-8 labels after the old Arabic table rendered as mojibake in browser QA.
+  - Static asset versions were bumped to `v=20260526-premium-ui`.
+  - Local visual QA used the built-in browser plus Edge headless screenshots:
+    - `C:\Users\CyberZone\AppData\Local\Temp\numbers-miniapp-desktop.png`
+    - `C:\Users\CyberZone\AppData\Local\Temp\numbers-miniapp-mobile-6.png`
+  - Validation: `python -m pytest tests/numbers/test_numbers_miniapp_static.py tests/core/test_numbers_miniapp.py -q` passed with `62 passed`.
 - Numbers Telegram surface cleanup:
   - `numbers_main_menu(...)` is now an inline menu, not a ReplyKeyboard.
   - Numbers bot `/start`, post-language selection, and legacy cancel/back exits clear any reply keyboard and show only Mini App/account/top-up/support inline entries.

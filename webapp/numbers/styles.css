@@ -2055,3 +2055,810 @@ h2 {
     font-size: 10px;
   }
 }
+
+/* Premium light Mini App skin. Keep this layer last so the customer UI is
+   visibly product-grade without touching backend contracts. */
+:root {
+  color-scheme: light;
+  --bg: #f7fafc;
+  --bg-2: #eef6f5;
+  --panel: #ffffff;
+  --panel-2: #fbfdff;
+  --panel-3: #f2f7f8;
+  --band-strong: #ffffff;
+  --line: #d8e4e8;
+  --line-strong: #bfd3d8;
+  --text: #172334;
+  --text-strong: #071827;
+  --muted: #647487;
+  --muted-2: #8997a8;
+  --teal: #00a99d;
+  --teal-2: #018f84;
+  --blue: #2578d5;
+  --blue-2: #155fae;
+  --amber: #d78400;
+  --danger: #d33f49;
+  --success-soft: #e8fbf4;
+  --blue-soft: #eef6ff;
+  --amber-soft: #fff7e8;
+  --danger-soft: #fff0f1;
+  --shadow: 0 18px 44px rgba(15, 31, 45, 0.13);
+  --shadow-soft: 0 10px 28px rgba(15, 31, 45, 0.09);
+  --radius: 8px;
+  --radius-sm: 6px;
+}
+
+html,
+body {
+  background: var(--bg);
+}
+
+body {
+  color: var(--text);
+  background:
+    linear-gradient(180deg, #ffffff 0, #f8fbfc 148px, #eef7f6 149px, #f7fafc 360px),
+    var(--bg);
+}
+
+body::before {
+  background:
+    linear-gradient(rgba(12, 31, 47, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(12, 31, 47, 0.03) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.44), transparent 58%);
+}
+
+.boot-splash {
+  background: linear-gradient(180deg, #ffffff, #eef8f7);
+  color: var(--text);
+}
+
+.boot-card,
+.busy-panel {
+  background: #ffffff;
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.boot-logo,
+.brand-mark {
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #00a99d, #10c2b6);
+  color: #ffffff;
+  font-weight: 950;
+  box-shadow: 0 10px 22px rgba(0, 169, 157, 0.22);
+}
+
+.brand-mark {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.boot-logo {
+  border-color: rgba(0, 169, 157, 0.3);
+}
+
+.app-shell {
+  max-width: 1120px;
+  padding-top: calc(20px + env(safe-area-inset-top));
+}
+
+.app-nav {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.app-nav::before {
+  display: none;
+}
+
+.topbar {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-soft);
+  padding: 12px;
+  backdrop-filter: blur(16px);
+}
+
+.topbar h1 {
+  color: var(--text-strong);
+  font-size: 25px;
+  letter-spacing: 0.08em;
+}
+
+.eyebrow {
+  color: var(--teal-2);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.balance-pill,
+.count-pill {
+  border-color: #cce0e5;
+  background: #ffffff;
+  color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+}
+
+.view-tabs {
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.view-tab {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  min-height: 46px;
+}
+
+.view-tab:hover {
+  border-color: #d7e5e8;
+  background: #ffffff;
+  color: var(--text);
+}
+
+.view-tab.active {
+  border-color: #bce5df;
+  background: #e9fbf7;
+  color: var(--teal-2);
+}
+
+.nav-icon {
+  background: #eef4f6;
+  color: #7d8da1;
+}
+
+.view-tab.active .nav-icon {
+  background: #ffffff;
+  color: var(--teal-2);
+}
+
+.control-band,
+.intro-band,
+.active-band,
+.result-band,
+.account-band,
+.recharge-band,
+.support-band,
+.recent-orders-band {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-soft);
+}
+
+.command-strip {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.8fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.command-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 78px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.94);
+  padding: 13px 14px;
+  box-shadow: var(--shadow-soft);
+}
+
+.command-card::after {
+  content: "";
+  position: absolute;
+  inset: auto 14px 0;
+  height: 3px;
+  border-radius: 999px 999px 0 0;
+  background: #d9e8eb;
+}
+
+.command-card.primary {
+  border-color: rgba(0, 169, 157, 0.28);
+  background: linear-gradient(135deg, #e8fbf6, #ffffff 62%);
+}
+
+.command-card.primary::after {
+  background: linear-gradient(90deg, var(--teal), #39d6c6);
+}
+
+.command-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.command-card strong {
+  display: block;
+  margin-top: 10px;
+  color: var(--text-strong);
+  font-size: clamp(18px, 2.1vw, 26px);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+#buyView {
+  display: grid;
+  gap: 12px;
+}
+
+.control-band {
+  padding: 16px;
+}
+
+.console-heading {
+  border-bottom-color: #e7eef1;
+  padding-bottom: 12px;
+}
+
+.console-heading h2,
+h1,
+h2,
+h3 {
+  color: var(--text-strong);
+}
+
+.mode-switch {
+  border-color: #dbe8eb;
+  background: #f3f8f9;
+  padding: 3px;
+}
+
+.mode-button {
+  color: #6d7b8e;
+}
+
+.mode-button.active {
+  border-color: rgba(0, 169, 157, 0.32);
+  background: linear-gradient(135deg, #00a99d, #08b8ad);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(0, 169, 157, 0.18);
+}
+
+.field span {
+  color: #314254;
+  font-size: 12px;
+}
+
+.field input,
+.field select,
+.field textarea,
+.select-trigger,
+.recharge-field select,
+.recharge-field input {
+  border-color: #cfdde3;
+  background: #ffffff;
+  color: var(--text);
+}
+
+.select-trigger {
+  min-height: 48px;
+  font-weight: 820;
+}
+
+.select-trigger::after {
+  border-color: #7c8b9d;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus,
+.select-trigger:focus-visible {
+  border-color: rgba(0, 169, 157, 0.58);
+  box-shadow: 0 0 0 4px rgba(0, 169, 157, 0.11);
+}
+
+.service-menu,
+.select-menu {
+  border-color: #c7d9df;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.service-menu input,
+.select-menu input {
+  background: #f6fafb;
+}
+
+.service-option,
+.select-option {
+  color: var(--text);
+}
+
+.service-option.active,
+.service-option:hover,
+.select-option.active,
+.select-option:hover {
+  border-color: rgba(0, 169, 157, 0.28);
+  background: #eefbf8;
+}
+
+.quick-chip {
+  border-color: #d7e5e8;
+  background: #ffffff;
+  color: var(--text);
+}
+
+.quick-chip.active {
+  border-color: rgba(0, 169, 157, 0.4);
+  background: #e9fbf7;
+  color: var(--teal-2);
+}
+
+.primary-action {
+  border: 0;
+  background: linear-gradient(135deg, #009c92, #00b9ad);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(0, 169, 157, 0.22);
+}
+
+.primary-action:disabled {
+  background: #dce8e9;
+  color: #7d8a98;
+}
+
+.status-line,
+.success-legend,
+.field-hint {
+  color: var(--muted);
+}
+
+.intro-band.compact {
+  background: #f7fbfc;
+  border-style: dashed;
+}
+
+.notice-list p {
+  border-color: #dbe8eb;
+  background: #ffffff;
+  color: #405268;
+}
+
+.provider-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  direction: rtl;
+}
+
+.provider-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 74px;
+  border-color: #dbe8eb;
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 31, 45, 0.055);
+  direction: rtl;
+  padding: 12px 14px;
+}
+
+.provider-card:first-child {
+  border-color: rgba(0, 169, 157, 0.42);
+  background: linear-gradient(180deg, #f2fffc, #ffffff);
+}
+
+.provider-card::before {
+  inset: 0 0 0 auto;
+  width: 4px;
+  background: var(--teal);
+  opacity: 0.9;
+}
+
+.provider-card:not(:first-child)::before {
+  background: #d3e3e7;
+}
+
+.provider-header {
+  align-items: center;
+  margin-bottom: 3px;
+}
+
+.provider-name {
+  color: var(--text-strong);
+  font-size: 16px;
+}
+
+.provider-id {
+  border-color: #cce4e6;
+  background: #f0fbfa;
+  color: var(--teal-2);
+}
+
+.provider-meta,
+.order-meta {
+  color: var(--muted);
+}
+
+.success-badge {
+  border-color: #d9ead0;
+  background: #f2faed;
+  color: #3f7d33;
+}
+
+.provider-card .provider-actions {
+  grid-template-columns: auto auto;
+  justify-content: end;
+  align-items: center;
+  min-width: 156px;
+}
+
+.provider-card .provider-price {
+  justify-self: end;
+}
+
+.provider-price,
+.action-price {
+  color: var(--text-strong);
+  font-size: 19px;
+}
+
+.small-action {
+  border-color: rgba(0, 169, 157, 0.18);
+  background: #ecfbf8;
+  color: var(--teal-2);
+}
+
+.provider-actions .small-action {
+  min-width: 86px;
+  background: linear-gradient(135deg, #009c92, #00b9ad);
+  color: #ffffff;
+  border: 0;
+}
+
+.secondary-action,
+.small-action.secondary-small {
+  border-color: #d5e2e7;
+  background: #ffffff;
+  color: var(--text);
+}
+
+.danger-action {
+  border-color: #f1c7cb;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.active-list,
+.recent-orders-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.order-card,
+.info-card,
+.activity-card,
+.settings-action-card,
+.recharge-requests-card,
+.payment-target,
+.recharge-rate,
+.order-fact,
+.order-timeline-step,
+.order-state-note,
+.receive-panel,
+.empty-state,
+.recording-preview {
+  border-color: #dbe8eb;
+  background: #ffffff;
+}
+
+.order-card-v2 {
+  box-shadow: 0 8px 18px rgba(15, 31, 45, 0.055);
+}
+
+.order-status-badge {
+  background: #f6fafb;
+  color: var(--text);
+}
+
+.order-status-badge.success,
+.receive-panel.success,
+.order-state-note.success {
+  background: var(--success-soft);
+  color: #087a58;
+}
+
+.order-status-badge.waiting,
+.receive-panel,
+.order-state-note {
+  background: var(--blue-soft);
+  color: #1c5c9f;
+}
+
+.order-status-badge.pending-refund,
+.order-status-badge.refunded,
+.receive-panel.pending-refund,
+.receive-panel.refunded,
+.order-state-note.pending-refund,
+.order-state-note.refunded {
+  background: var(--amber-soft);
+  color: #8a5700;
+}
+
+.receive-value,
+.info-value,
+.order-fact strong,
+.order-detail strong,
+.recharge-rate strong {
+  color: var(--text-strong);
+}
+
+.receive-label,
+.order-fact span,
+.order-detail span,
+.info-label,
+.activity-row span,
+.recharge-intro p,
+.recharge-instructions,
+.recharge-status,
+.recharge-request-row span {
+  color: var(--muted);
+}
+
+.settings-action-card,
+.recharge-card {
+  background: linear-gradient(135deg, #effbf8, #ffffff);
+}
+
+.account-notice {
+  background: #e9fbf4;
+  color: #087a58;
+}
+
+.recent-orders-band {
+  margin-top: 12px;
+  padding: 15px 14px;
+}
+
+.ghost-link {
+  min-height: 34px;
+  border: 1px solid #cbe1e5;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  color: var(--teal-2);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.recent-order-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 62px;
+  border: 1px solid #dbe8eb;
+  border-radius: var(--radius);
+  background: #ffffff;
+  color: var(--text);
+  padding: 10px 12px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.recent-order-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 76px;
+  min-height: 28px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: #1c5c9f;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.recent-order-status.success {
+  background: var(--success-soft);
+  color: #087a58;
+}
+
+.recent-order-status.pending-refund,
+.recent-order-status.refunded {
+  background: var(--amber-soft);
+  color: #8a5700;
+}
+
+.recent-order-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.recent-order-main strong,
+.recent-order-main small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-order-main small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.recent-order-row b {
+  color: var(--text-strong);
+}
+
+.busy-overlay {
+  background: rgba(230, 239, 242, 0.72);
+}
+
+@media (max-width: 820px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    direction: rtl;
+    background:
+      linear-gradient(180deg, #ffffff 0, #ffffff 108px, #edf7f5 109px, #f7fafc 340px),
+      var(--bg);
+  }
+
+  .app-shell {
+    display: block;
+    width: min(100%, 390px);
+    max-width: 390px;
+    margin-left: 0;
+    margin-right: auto;
+    overflow-x: clip;
+    box-sizing: border-box;
+    padding: calc(10px + env(safe-area-inset-top)) 10px calc(82px + env(safe-area-inset-bottom));
+  }
+
+  .content-shell,
+  .view-panel,
+  #buyView,
+  .command-strip,
+  .control-band,
+  .intro-band,
+  .result-band,
+  .active-band,
+  .account-band,
+  .recharge-band,
+  .support-band,
+  .recent-orders-band {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .topbar {
+    min-height: 68px;
+    border-radius: 0;
+    border-inline: 0;
+    border-top: 0;
+    margin: -10px 0 10px;
+    box-shadow: 0 8px 22px rgba(15, 31, 45, 0.08);
+    padding: 12px 14px;
+  }
+
+  .brand-mark {
+    width: 42px;
+    height: 42px;
+  }
+
+  .topbar h1 {
+    font-size: 22px;
+  }
+
+  .command-strip {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    max-width: calc(100vw - 20px);
+  }
+
+  .command-card {
+    min-height: 72px;
+    padding: 12px;
+  }
+
+  .command-card.primary {
+    grid-column: 1 / -1;
+  }
+
+  .control-band,
+  .intro-band,
+  .result-band,
+  .active-band,
+  .account-band,
+  .recharge-band,
+  .support-band,
+  .recent-orders-band {
+    max-width: calc(100vw - 20px);
+    padding: 14px;
+  }
+
+  .intro-band.compact .notice-list {
+    grid-template-columns: 1fr;
+  }
+
+  .view-tabs {
+    border-color: #d7e5e8;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -14px 34px rgba(15, 31, 45, 0.12);
+    left: 0;
+    right: auto;
+    width: min(100vw, 390px);
+    max-width: 390px;
+    gap: 4px;
+    padding-inline: 6px;
+  }
+
+  .provider-list {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-card {
+    min-height: 72px;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .provider-card .provider-actions {
+    grid-template-columns: auto;
+    min-width: 104px;
+    justify-items: stretch;
+  }
+
+  .provider-actions .small-action {
+    width: 100%;
+  }
+
+  .recent-order-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .recent-order-status {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 390px) {
+  .command-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .control-band,
+  .intro-band,
+  .result-band,
+  .active-band,
+  .account-band,
+  .recharge-band,
+  .support-band,
+  .recent-orders-band {
+    padding: 12px;
+  }
+
+  .provider-card {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-card .provider-actions {
+    grid-template-columns: 1fr auto;
+    min-width: 0;
+  }
+}
