@@ -1,9 +1,19 @@
 const tg = window.Telegram?.WebApp;
 const urlParams = new URLSearchParams(window.location.search);
 
-if (tg || urlParams.get("telegram_runtime") === "1") {
+if (tg || urlParams.get("telegram_runtime") === "1" || urlParams.get("qa") === "exact-mockup") {
   document.body.classList.add("telegram-webapp-runtime");
 }
+
+function applyTelegramTheme() {
+  const scheme = String(tg?.colorScheme || "").toLowerCase();
+  const bg = String(tg?.themeParams?.bg_color || "").trim().toLowerCase();
+  const darkBg = /^#(?:0[0-9a-f]|1[0-9a-f]|2[0-9a-f])/.test(bg);
+  document.body.classList.toggle("telegram-dark", scheme === "dark" || darkBg || urlParams.get("theme") === "dark");
+}
+
+applyTelegramTheme();
+tg?.onEvent?.("themeChanged", applyTelegramTheme);
 
 const MODE_SELECTION_DEFAULTS = {
   temp: { service: "", country: "1", state: "none" },
@@ -1481,6 +1491,7 @@ function renderModes() {
       const button = document.createElement("button");
       button.type = "button";
       button.className = `mode-button${state.mode === key ? " active" : ""}`;
+      button.dataset.mode = key;
       const icon = document.createElement("span");
       icon.className = "mode-icon";
       icon.innerHTML = iconSvg(iconName);
@@ -2417,21 +2428,51 @@ function providerSuccessText(row) {
   return `${rate}`;
 }
 
+function isRecommendationTag(value = "") {
+  const tag = String(value || "").trim().toLowerCase();
+  return tag === "recommended" || tag === "recommend" || tag.includes("موصى");
+}
+
 const PUBLIC_PROVIDER_ALIASES = [
-  { code: "BR", name: "BRAVO" },
-  { code: "HT", name: "HOTEL" },
-  { code: "AL", name: "ALPHA" },
-  { code: "DL", name: "DELTA" },
-  { code: "EC", name: "ECHO" },
-  { code: "NV", name: "NOVA" },
-  { code: "OR", name: "ORBIT" },
-  { code: "PX", name: "PIXEL" },
+  { code: "S1", name: "Alpha" },
+  { code: "S2", name: "Bravo" },
+  { code: "S3", name: "Charlie" },
+  { code: "S4", name: "Delta" },
+  { code: "S5", name: "Echo" },
+  { code: "S6", name: "Foxtrot" },
+  { code: "S7", name: "Golf" },
+  { code: "S8", name: "Hotel" },
+  { code: "S9", name: "India" },
+  { code: "S10", name: "Juliet" },
 ];
 
+const PROVIDER_CODE_TO_PUBLIC_ID = {
+  herosms: "S1",
+  textverified: "S2",
+  smspool: "S3",
+  telabot: "S4",
+  pvadeals: "S5",
+  vaksms: "S6",
+  nonvoip: "S7",
+  nonvoip_s6: "S8",
+  smsready: "S9",
+  pvapins: "S10",
+  "9proxy": "S5",
+  "4g": "S5",
+  cyberyozh: "S6",
+};
+
+const REFERENCE_PROVIDER_IDS = ["S2", "S9", "S4", "S1", "S5", "S10"];
+
 function providerAlias(seed = 0) {
+  const normalized = String(seed || "").trim();
+  const publicId = (/^S\d+$/i.test(normalized) ? normalized.toUpperCase() : PROVIDER_CODE_TO_PUBLIC_ID[normalized.toLowerCase()]) || "";
+  if (publicId) {
+    return PUBLIC_PROVIDER_ALIASES.find((item) => item.code === publicId) || { code: publicId, name: publicId };
+  }
   let aliasIndex = Number(seed);
   if (!Number.isFinite(aliasIndex)) {
-    aliasIndex = String(seed || "")
+    aliasIndex = normalized
       .split("")
       .reduce((total, char) => total + char.charCodeAt(0), 0);
   }
@@ -2439,26 +2480,30 @@ function providerAlias(seed = 0) {
   return PUBLIC_PROVIDER_ALIASES[aliasIndex % PUBLIC_PROVIDER_ALIASES.length] || PUBLIC_PROVIDER_ALIASES[0];
 }
 
-function providerPublicName(_row, index = 0) {
-  return providerAlias(index).name;
+function providerPublicAlias(row, index = 0) {
+  return providerAlias(row?.provider_id || row?.provider_reference || row?.provider_public_id || row?.provider || row?.provider_code || (row?.placeholder ? REFERENCE_PROVIDER_IDS[index] : index));
 }
 
-function providerInitials(_row, index = 0) {
-  return providerAlias(index).code;
+function providerPublicName(row, index = 0) {
+  return providerPublicAlias(row, index).name;
+}
+
+function providerInitials(row, index = 0) {
+  return providerPublicAlias(row, index).code;
 }
 
 function orderProviderAlias(order) {
-  return providerAlias(order?.provider_public_alias || order?.provider_id || order?.provider || order?.id || 0).name;
+  return providerAlias(order?.provider_public_alias || order?.provider_public_id || order?.provider_id || order?.provider || order?.id || 0).name;
 }
 
 function referenceOfferRows() {
   return [
-    { placeholder: true, price_label: "$0.52", success_rate: "98%", location_tag: "موصى به" },
-    { placeholder: true, price_label: "$0.58", success_rate: "96%" },
-    { placeholder: true, price_label: "$0.60", success_rate: "95%" },
-    { placeholder: true, price_label: "$0.63", success_rate: "94%" },
-    { placeholder: true, price_label: "$0.68", success_rate: "93%" },
-    { placeholder: true, price_label: "$0.70", success_rate: "92%" },
+    { placeholder: true, provider_id: "S2", price_label: "$0.52", success_rate: "98%" },
+    { placeholder: true, provider_id: "S9", price_label: "$0.58", success_rate: "96%" },
+    { placeholder: true, provider_id: "S4", price_label: "$0.60", success_rate: "95%" },
+    { placeholder: true, provider_id: "S1", price_label: "$0.63", success_rate: "94%" },
+    { placeholder: true, provider_id: "S5", price_label: "$0.68", success_rate: "93%" },
+    { placeholder: true, provider_id: "S10", price_label: "$0.70", success_rate: "92%" },
   ];
 }
 
@@ -2474,80 +2519,99 @@ function renderProviders(rows, { preserve = false } = {}) {
   }
   const allRows = preserve ? state.providerRows : rows || [];
   const displayRows = allRows.length ? allRows : (!state.pricesChecked && !state.loading && !state.priceCheckFailed ? referenceOfferRows() : []);
-  els.resultCount.textContent = String(displayRows.length);
+  const offerCount = displayRows.length;
+  if (els.selectionTitle) {
+    els.selectionTitle.textContent = state.lang === "ar" ? "أفضل العروض" : "Best offers";
+  }
+  els.resultCount.textContent = state.lang === "ar" ? `${offerCount} عروض متاحة` : `${offerCount} offers`;
+  els.resultCount.dataset.count = String(displayRows.length);
   if (!displayRows.length) {
   els.providerList.replaceChildren();
   return;
   }
   
   const cards = displayRows.map((row, index) => {
-  const card = document.createElement("article");
-  card.className = "provider-card";
-  if (index === 0) card.classList.add("recommended");
-  
-  // Provider Info (Logo + Name)
-  const header = document.createElement("div");
-  header.className = "provider-header";
-  
-  const logo = document.createElement("div");
-  logo.className = "provider-logo";
-  logo.textContent = providerInitials(row, index);
-  logo.style.background = getProviderColor(index);
-  
-  const info = document.createElement("div");
-  info.className = "provider-info";
-  
-  const name = document.createElement("span");
-  name.className = "provider-name";
-  name.textContent = providerInitials(row, index);
-  
-  const id = document.createElement("span");
-  id.className = "provider-id";
-  id.textContent = providerPublicName(row, index);
-  
-  info.append(name, id);
-  header.append(logo, info);
-  
-  // Price
-  const price = document.createElement("div");
-  price.className = "provider-price";
-  price.textContent = state.mode === "rental" && row.options?.length ? row.options[0].price_label : row.price_label;
-  
-  // Success Badge
-  const successBadge = document.createElement("div");
-  successBadge.className = "success-badge";
-  
-  const rate = document.createElement("span");
-  rate.className = "rate";
-  rate.textContent = providerSuccessText(row);
-  
-  const label = document.createElement("span");
-  label.className = "label";
-  label.textContent = t("success");
-  
-  successBadge.append(rate, label);
-  
-  // Actions
-  const actions = document.createElement("div");
-  actions.className = "provider-actions";
-  
-  const rowPurchaseAction = purchaseAction(row);
-  const buy = document.createElement("button");
-  buy.type = "button";
-  buy.className = "small-action";
-  if (index === 0) buy.classList.add("primary");
-  buy.textContent = t("buy");
-  buy.addEventListener("click", () => {
-  if (row.placeholder) {
-  promptServiceBeforeBuy(buy);
-  } else {
-  buyProvider({ ...row, purchase_action: rowPurchaseAction }, buy);
-  }
-  });
-  actions.append(buy);
-  
-  card.append(header, price, successBadge, actions);
-  return card;
+    const card = document.createElement("article");
+    card.className = "provider-card";
+
+    const main = document.createElement("div");
+    main.className = "provider-main";
+
+    const header = document.createElement("div");
+    header.className = "provider-header";
+
+    const name = document.createElement("p");
+    name.className = "provider-name";
+    name.textContent = providerInitials(row, index);
+
+    const successBadge = document.createElement("span");
+    successBadge.className = "success-badge";
+    successBadge.title = t("successLegend");
+    successBadge.textContent = providerSuccessText(row);
+    header.append(name);
+
+    const meta = document.createElement("p");
+    meta.className = "provider-meta";
+    const details = [providerPublicName(row, index)];
+    if (row.location_tag && !isRecommendationTag(row.location_tag)) details.push(`[${row.location_tag}]`);
+    if (row.voice_fallback) details.push(t("voiceFallback"));
+    meta.textContent = details.join(" · ");
+
+    main.append(header, meta);
+    if (row.options?.length) {
+      const options = document.createElement("div");
+      options.className = "option-row";
+      row.options.forEach((option) => {
+        const optionAction = purchaseAction(option);
+        const pill = document.createElement(state.mode === "rental" && optionAction.enabled ? "button" : "span");
+        pill.className = "option-pill";
+        if (pill.tagName === "BUTTON") {
+          pill.type = "button";
+          pill.classList.add("buyable");
+          pill.addEventListener("click", () => buyProvider({ ...row, ...option, price_label: option.price_label, purchase_action: optionAction }, pill));
+        }
+        const optionText = state.mode === "rental" ? rentalOptionLabel(option) : `${option.duration_label || option.duration || t("options")} ${option.price_label}`;
+        pill.textContent = pill.tagName === "BUTTON" ? `${t("buy")} ${optionText}` : optionText;
+        options.append(pill);
+      });
+      main.append(options);
+    }
+
+    const rowPurchaseAction = purchaseAction(row);
+    if (row.placeholder || ((state.mode === "temp" || state.mode === "voice") && rowPurchaseAction.enabled)) {
+      const actions = document.createElement("div");
+      actions.className = "provider-actions";
+      const price = document.createElement("div");
+      price.className = "action-price";
+      price.textContent = row.price_label;
+      const buy = document.createElement("button");
+      buy.type = "button";
+      buy.className = "small-action";
+      buy.textContent = t("buy");
+      buy.addEventListener("click", () => {
+        if (row.placeholder) {
+          promptServiceBeforeBuy(buy);
+        } else {
+          buyProvider({ ...row, purchase_action: rowPurchaseAction }, buy);
+        }
+      });
+      actions.append(price, buy);
+      const star = document.createElement("span");
+      star.className = "provider-star";
+      star.setAttribute("aria-hidden", "true");
+      star.textContent = "☆";
+      card.append(star, main, successBadge, actions);
+    } else {
+      const price = document.createElement("div");
+      price.className = "provider-price";
+      price.textContent = state.mode === "rental" && row.options?.length ? row.options[0].price_label : row.price_label;
+      const star = document.createElement("span");
+      star.className = "provider-star";
+      star.setAttribute("aria-hidden", "true");
+      star.textContent = "☆";
+      card.append(star, main, successBadge, price);
+    }
+    return card;
   });
 
   els.providerList.replaceChildren(...cards);

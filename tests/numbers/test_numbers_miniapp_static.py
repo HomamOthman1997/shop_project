@@ -55,3 +55,29 @@ def test_numbers_miniapp_order_actions_use_backend_endpoints():
     assert 'api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/replace`' not in app
     assert 'api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/alternate`' not in app
     assert 'api(`/mini/numbers/api/orders/${encodeURIComponent(order.id)}/second-code`' not in app
+
+
+def test_numbers_miniapp_figma_skin_runtime_guards_are_present():
+    app = (ROOT / "webapp" / "numbers" / "app.js").read_text(encoding="utf-8")
+    css = (ROOT / "webapp" / "numbers" / "styles.css").read_text(encoding="utf-8")
+    index = (ROOT / "webapp" / "numbers" / "index.html").read_text(encoding="utf-8")
+
+    assert 'urlParams.get("qa") === "exact-mockup"' in app
+    assert "function applyTelegramTheme()" in app
+    assert 'tg?.onEvent?.("themeChanged", applyTelegramTheme)' in app
+    assert 'body.telegram-webapp-runtime.telegram-dark' in css
+    assert "2026-05-27 Figma production conversion" in css
+    assert "20260527-figma-production" in index
+
+
+def test_numbers_miniapp_provider_aliases_stay_customer_safe():
+    app = (ROOT / "webapp" / "numbers" / "app.js").read_text(encoding="utf-8")
+
+    assert '{ code: "S2", name: "Bravo" }' in app
+    assert 'textverified: "S2"' in app
+    assert 'smsready: "S9"' in app
+    assert "REFERENCE_PROVIDER_IDS" in app
+    assert "function isRecommendationTag" in app
+    assert "row.location_tag && !isRecommendationTag(row.location_tag)" in app
+    assert '{ code: "BR", name: "BRAVO" }' not in app
+    assert '{ code: "HT", name: "HOTEL" }' not in app

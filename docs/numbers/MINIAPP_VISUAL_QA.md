@@ -16,9 +16,16 @@ Use this checklist after each Railway deploy that touches `/mini/numbers`.
 ## Latest Local QA - 2026-05-27
 
 - Tightened the customer-facing `/mini/numbers` shell toward the supplied PHANTOM NUMBERS reference: Telegram status pill, PHANTOM/NUMBERS header stack, wallet badge, compact order card, request-type segment, search field with popular chip, country/state selectors, and bottom tab bar.
-- Provider rows now render customer-safe aliases only (`BRAVO`, `HOTEL`, `ALPHA`, etc. with short codes such as `BR`, `HT`, `AL`). Real provider names must not appear anywhere in the buyer UI.
+- Converted the Figma production frame into the live Mini App skin: compact 390px Telegram WebView layout, fixed bottom tabs, polished provider rows, and stable service picker overlay.
+- Provider rows now render customer-safe public IDs and aliases only (`S1`/`Alpha`, `S2`/`Bravo`, ... `S10`/`Juliet`). Real provider names must not appear anywhere in the buyer UI.
+- Added Telegram dark-theme adaptation through `Telegram.WebApp.colorScheme` / `themeParams`, with `?theme=dark` available for local visual QA.
+- Added static guards for the Figma skin, `qa=exact-mockup`, Telegram dark theme, and customer-safe provider aliases.
 - Browser QA used the in-app browser against `http://127.0.0.1:8091/mini/numbers?qa=exact-mockup`; page loaded without console errors and the service selector interaction opened correctly.
-- Validation target: rerun `python -m pytest tests/numbers/test_numbers_miniapp_static.py tests/core/test_numbers_miniapp.py -q` before deploy.
+- Browser QA also covered `http://127.0.0.1:8091/mini/numbers?qa=exact-mockup&theme=dark`; no horizontal overflow or console errors were observed.
+- Latest screenshots:
+  - Light 390x844: `C:\Users\CyberZone\AppData\Local\Temp\numbers-miniapp-reco-clean.png`
+  - Dark 390x844: `C:\Users\CyberZone\AppData\Local\Temp\numbers-miniapp-dark-theme2.png`
+- Validation: `python -m pytest tests/numbers/test_numbers_miniapp_static.py tests/core/test_numbers_miniapp.py -q` passed with `64 passed`.
 
 ## Devices
 
@@ -31,9 +38,9 @@ Use this checklist after each Railway deploy that touches `/mini/numbers`.
 - [ ] First load shows splash until the app is ready.
 - [ ] Arabic screens are RTL and contain no English fallback text.
 - [ ] Provider cards keep provider alias, success rate, price, and Buy button separated.
-- [ ] Provider cards expose only public aliases, never real provider names or IDs.
+- [ ] Provider cards expose only public IDs/aliases, never real provider names.
 - [ ] Best provider takes the full row.
-- [ ] Other providers render two per row without overflow.
+- [ ] Provider rows render without overflow at 390px Telegram WebView width.
 - [ ] Temp/voice Buy buttons and rental option buttons execute the backend `purchase_action` payload.
 - [ ] Country cannot be opened before service selection.
 - [ ] State appears only for United States and resets when switching modes.

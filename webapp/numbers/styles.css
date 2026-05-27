@@ -1233,3 +1233,774 @@ body.telegram-webapp-runtime .topbar {
     grid-template-columns: 1.5fr 1fr 1fr auto;
   }
 }
+
+/* 2026-05-27 Figma production conversion.
+   Matches the corporate Telegram Mini App frame while keeping Telegram chrome
+   out of the real webview and preserving server-driven tabs/actions. */
+body.telegram-webapp-runtime {
+  --pro-bg: #fbfcfd;
+  --pro-card: #ffffff;
+  --pro-line: #dde4ec;
+  --pro-line-strong: #bfd3dc;
+  --pro-text: #0e1d30;
+  --pro-muted: #586a81;
+  --pro-teal: #05a3a6;
+  --pro-teal-2: #0fb4b0;
+  --pro-soft: #f6f9fb;
+  --pro-glow: 0 8px 22px rgba(10, 20, 31, 0.13);
+  --pro-shadow: 0 2px 7px rgba(13, 23, 36, 0.07);
+  background: var(--pro-bg);
+  color: var(--pro-text);
+  overflow-x: hidden;
+}
+
+body.telegram-webapp-runtime .app-shell {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 430px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 0 15px calc(92px + env(safe-area-inset-bottom));
+  background: var(--pro-bg);
+}
+
+body.telegram-webapp-runtime .app-nav {
+  position: static;
+  margin: 0 -15px 16px;
+}
+
+body.telegram-webapp-runtime .topbar {
+  grid-template-columns: 34px 36px minmax(128px, 1fr) 102px;
+  gap: 8px;
+  min-height: 88px;
+  padding: 30px 18px 6px;
+  border-bottom: 1px solid var(--pro-line);
+  background: #fff;
+  box-shadow: none;
+}
+
+body.telegram-webapp-runtime .topbar::before {
+  width: 24px;
+  height: 22px;
+  align-self: center;
+  background:
+    radial-gradient(circle at 21px 2px, #23c04e 0 3px, transparent 3.5px),
+    linear-gradient(var(--pro-text) 0 0) 0 6px / 20px 2.5px no-repeat,
+    linear-gradient(var(--pro-text) 0 0) 0 14px / 20px 2.5px no-repeat,
+    linear-gradient(var(--pro-text) 0 0) 0 22px / 14px 2.5px no-repeat;
+}
+
+body.telegram-webapp-runtime .brand-mark {
+  width: 36px;
+  height: 36px;
+  align-self: center;
+  background:
+    radial-gradient(circle at 13px 16px, #fff 0 2.5px, transparent 3px),
+    radial-gradient(circle at 23px 16px, #fff 0 2.5px, transparent 3px),
+    linear-gradient(135deg, #029ea0, #12bab5);
+}
+
+body.telegram-webapp-runtime .topbar h1 {
+  max-width: 150px;
+  font-size: 0;
+  letter-spacing: 0;
+}
+
+body.telegram-webapp-runtime .topbar h1::before {
+  content: "PHANTOM";
+  color: #09192b;
+  font-size: 23px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+body.telegram-webapp-runtime .topbar .eyebrow {
+  max-width: 130px;
+  color: var(--pro-teal);
+  font-size: 0;
+  letter-spacing: 0.42em;
+}
+
+body.telegram-webapp-runtime .topbar .eyebrow::before {
+  content: "NUMBERS";
+  font-size: 10px;
+  font-weight: 650;
+}
+
+body.telegram-webapp-runtime .balance-pill {
+  position: relative;
+  width: 102px;
+  min-width: 102px;
+  min-height: 40px;
+  align-self: center;
+  padding: 5px 34px 5px 8px;
+  border-color: var(--pro-line);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, transparent calc(100% - 34px), rgba(5, 163, 166, 0.12) calc(100% - 34px)),
+    #fff;
+  color: var(--pro-text);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.2;
+  box-shadow: var(--pro-shadow);
+}
+
+body.telegram-webapp-runtime .balance-pill::before {
+  content: "";
+  position: absolute;
+  top: 13px;
+  right: 10px;
+  width: 20px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--pro-teal);
+}
+
+body.telegram-webapp-runtime .balance-pill::after {
+  margin-top: 1px;
+  color: var(--pro-text);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+body.telegram-webapp-runtime .content-shell,
+body.telegram-webapp-runtime .view-panel,
+body.telegram-webapp-runtime #buyView {
+  width: 100%;
+  max-width: 100%;
+}
+
+body.telegram-webapp-runtime #buyView {
+  gap: 14px;
+}
+
+body.telegram-webapp-runtime .intro-band,
+body.telegram-webapp-runtime .command-strip {
+  display: none !important;
+}
+
+body.telegram-webapp-runtime .control-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas:
+    "heading heading"
+    "modes modes"
+    "service service"
+    "state country"
+    "action action"
+    "status status";
+  gap: 8px 14px;
+  margin: 0;
+  padding: 18px 16px 10px;
+  border: 1px solid var(--pro-line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--pro-glow);
+}
+
+body.telegram-webapp-runtime .console-heading {
+  grid-area: heading;
+  display: block;
+  min-height: 40px;
+  text-align: right;
+}
+
+body.telegram-webapp-runtime .console-heading h2 {
+  font-size: 0;
+}
+
+body.telegram-webapp-runtime .console-heading h2::after {
+  content: "\0634\0631\0627\0621\0020\0631\0642\0645\0020\062c\062f\064a\062f";
+  display: block;
+  color: var(--pro-text);
+  font-size: 19px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+body.telegram-webapp-runtime .console-heading::after {
+  content: "\0627\062e\062a\064a\0627\0631\0020\0627\0644\062e\062f\0645\0629\0020\0648\0627\0644\062f\0648\0644\0629\0020\0642\0628\0644\0020\0639\0631\0636\0020\0627\0644\0633\0639\0631\0020\0627\0644\0646\0647\0627\0626\064a";
+  display: block;
+  margin-top: 3px;
+  color: var(--pro-muted);
+  font-size: 11px;
+  font-weight: 550;
+}
+
+body.telegram-webapp-runtime .mode-switch {
+  grid-area: modes;
+  height: 40px;
+  padding: 4px;
+  border-color: var(--pro-line);
+  border-radius: 10px;
+  background: var(--pro-soft);
+}
+
+body.telegram-webapp-runtime .mode-button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pro-muted);
+  font-size: 0;
+  font-weight: 850;
+}
+
+body.telegram-webapp-runtime .mode-button[data-mode="temp"]::after {
+  content: "\0645\0624\0642\062a";
+}
+
+body.telegram-webapp-runtime .mode-button[data-mode="rental"]::after {
+  content: "\0625\064a\062c\0627\0631";
+}
+
+body.telegram-webapp-runtime .mode-button[data-mode="voice"]::after {
+  content: "\0627\062a\0635\0627\0644";
+}
+
+body.telegram-webapp-runtime .mode-button::after {
+  font-size: 12px;
+}
+
+body.telegram-webapp-runtime .mode-button.active {
+  background: var(--pro-teal);
+  color: #fff;
+  box-shadow: none;
+}
+
+body.telegram-webapp-runtime .mode-icon {
+  display: none;
+}
+
+body.telegram-webapp-runtime .field-grid,
+body.telegram-webapp-runtime .field-grid.service-only,
+body.telegram-webapp-runtime .field-grid.service-country,
+body.telegram-webapp-runtime .field-grid.service-country-state {
+  display: contents;
+}
+
+body.telegram-webapp-runtime .service-field {
+  grid-area: service;
+}
+
+body.telegram-webapp-runtime .country-field {
+  grid-area: country;
+}
+
+body.telegram-webapp-runtime .state-field {
+  grid-area: state;
+}
+
+body.telegram-webapp-runtime .quick-row {
+  display: none !important;
+}
+
+body.telegram-webapp-runtime .field {
+  position: relative;
+  gap: 0;
+  direction: rtl;
+}
+
+body.telegram-webapp-runtime .field > span {
+  position: absolute;
+  top: -13px;
+  right: 8px;
+  z-index: 1;
+  padding: 0 4px;
+  background: #fff;
+  color: var(--pro-muted);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+body.telegram-webapp-runtime .select-trigger,
+body.telegram-webapp-runtime .service-field .select-trigger {
+  min-height: 42px;
+  padding: 7px 14px;
+  border: 1px solid var(--pro-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--pro-text);
+  font-size: 12px;
+  font-weight: 750;
+  box-shadow: none;
+}
+
+body.telegram-webapp-runtime .service-field .select-trigger {
+  min-height: 42px;
+  font-size: 13px;
+}
+
+body.telegram-webapp-runtime .control-band > .primary-action {
+  grid-area: action;
+  min-height: 46px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--pro-teal), var(--pro-teal-2));
+  color: #fff;
+  font-size: 0;
+  font-weight: 900;
+  box-shadow: var(--pro-shadow);
+}
+
+body.telegram-webapp-runtime .control-band > .primary-action::after {
+  content: "\0641\062d\0635\0020\0627\0644\0623\0633\0639\0627\0631";
+  font-size: 13px;
+}
+
+body.telegram-webapp-runtime .status-line {
+  grid-area: status;
+  min-height: 16px;
+  color: var(--pro-muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+body.telegram-webapp-runtime .status-line:empty::before {
+  content: "\0623\0633\0639\0627\0631\0020\0645\062d\062f\062b\0629\0020\00b7\0020quote TTL 5 \062f\0642\0627\0626\0642";
+}
+
+body.telegram-webapp-runtime .status-line::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-inline-start: 8px;
+  border-radius: 50%;
+  background: #27b35b;
+  vertical-align: 1px;
+}
+
+body.telegram-webapp-runtime .result-band {
+  display: block;
+  position: relative;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+body.telegram-webapp-runtime .result-band.hidden {
+  display: none;
+}
+
+body.telegram-webapp-runtime .result-band::before,
+body.telegram-webapp-runtime .provider-list::before {
+  content: none;
+  display: none;
+}
+
+body.telegram-webapp-runtime .result-header {
+  position: static;
+  inset: auto;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  min-height: 44px;
+  margin: 8px 0 8px;
+  direction: rtl;
+}
+
+body.telegram-webapp-runtime .result-header > div {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+body.telegram-webapp-runtime .result-header .eyebrow,
+body.telegram-webapp-runtime .success-legend {
+  display: none !important;
+}
+
+body.telegram-webapp-runtime .result-header h2 {
+  width: auto;
+  max-width: none;
+  margin: 0;
+  color: var(--pro-text);
+  font-size: 19px;
+  font-weight: 950;
+  line-height: 1.1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+body.telegram-webapp-runtime .result-header h2::before {
+  content: none;
+}
+
+body.telegram-webapp-runtime .count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 84px;
+  height: 24px;
+  border: 0;
+  border-radius: 12px;
+  background: #e5fcff;
+  color: var(--pro-teal);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+body.telegram-webapp-runtime .result-header .count-pill {
+  display: inline-flex !important;
+}
+
+body.telegram-webapp-runtime .count-pill::before {
+  content: none;
+}
+
+body.telegram-webapp-runtime .count-pill::after {
+  content: none;
+}
+
+body.telegram-webapp-runtime .provider-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+body.telegram-webapp-runtime .provider-card {
+  display: grid;
+  grid-template-columns: 78px 45px 70px minmax(72px, 1fr) 14px;
+  gap: 8px;
+  align-items: center;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--pro-line);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: var(--pro-shadow);
+  direction: ltr;
+}
+
+body.telegram-webapp-runtime .provider-card:first-child {
+  border-color: #6edbe0;
+  background: #f0ffff;
+  box-shadow: 0 3px 10px rgba(13, 23, 36, 0.1);
+}
+
+body.telegram-webapp-runtime .provider-card::before {
+  content: none;
+}
+
+body.telegram-webapp-runtime .provider-star {
+  grid-column: 5;
+  grid-row: 1;
+  color: var(--pro-muted);
+  font-size: 15px;
+  line-height: 1;
+  text-align: center;
+}
+
+body.telegram-webapp-runtime .provider-main {
+  grid-column: 4;
+  grid-row: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+body.telegram-webapp-runtime .provider-header {
+  justify-content: center;
+}
+
+body.telegram-webapp-runtime .provider-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+body.telegram-webapp-runtime .provider-card:nth-child(1) .provider-name,
+body.telegram-webapp-runtime .provider-card:nth-child(3n + 2) .provider-name {
+  color: var(--pro-teal);
+}
+
+body.telegram-webapp-runtime .provider-card:nth-child(3n) .provider-name {
+  color: #fa8505;
+}
+
+body.telegram-webapp-runtime .provider-card:nth-child(3n + 1) .provider-name {
+  color: #47abe0;
+}
+
+body.telegram-webapp-runtime .provider-meta {
+  margin: 4px 0 0;
+  color: var(--pro-muted);
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: none;
+}
+
+body.telegram-webapp-runtime .provider-card:first-child .provider-meta::before {
+  content: "\0645\0648\0635\0649";
+  display: inline-block;
+  margin-inline-end: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e3fae8;
+  color: #21b85c;
+  font-size: 9px;
+}
+
+body.telegram-webapp-runtime .success-badge {
+  grid-column: 2;
+  grid-row: 1;
+  display: block;
+  color: var(--pro-text);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.15;
+  text-align: center;
+}
+
+body.telegram-webapp-runtime .success-badge::after {
+  content: "\A\0646\062c\0627\062d";
+  white-space: pre;
+}
+
+body.telegram-webapp-runtime .provider-actions {
+  display: contents;
+}
+
+body.telegram-webapp-runtime .action-price,
+body.telegram-webapp-runtime .provider-price {
+  grid-column: 3;
+  grid-row: 1;
+  color: var(--pro-text);
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+}
+
+body.telegram-webapp-runtime .provider-card:first-child .action-price,
+body.telegram-webapp-runtime .provider-card:first-child .provider-price {
+  color: var(--pro-teal);
+}
+
+body.telegram-webapp-runtime .provider-actions .small-action {
+  grid-column: 1;
+  grid-row: 1;
+  width: 78px;
+  min-height: 28px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--pro-soft);
+  color: var(--pro-teal);
+  font-size: 13px;
+  font-weight: 900;
+  box-shadow: var(--pro-shadow);
+}
+
+body.telegram-webapp-runtime .provider-card:first-child .provider-actions .small-action {
+  background: var(--pro-teal);
+  color: #fff;
+}
+
+body.telegram-webapp-runtime .recent-orders-band {
+  margin-top: 18px;
+}
+
+body.telegram-webapp-runtime .view-tabs {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  width: min(100%, 430px);
+  max-width: none;
+  height: calc(72px + env(safe-area-inset-bottom));
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--pro-line);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -8px 22px rgba(10, 20, 31, 0.08);
+  direction: rtl;
+  margin: 0 auto;
+  transform: none;
+  backdrop-filter: blur(16px);
+}
+
+body.telegram-webapp-runtime .view-tab {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 52px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--pro-muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+body.telegram-webapp-runtime .view-tab.active {
+  color: var(--pro-teal);
+  background: transparent;
+  box-shadow: none;
+}
+
+body.telegram-webapp-runtime .view-tab.active::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  width: 62px;
+  height: 3px;
+  border-radius: 0 0 2px 2px;
+  background: var(--pro-teal);
+}
+
+body.telegram-webapp-runtime .nav-icon {
+  width: 22px;
+  height: 22px;
+}
+
+body.telegram-webapp-runtime .nav-icon svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.9;
+}
+
+body.telegram-webapp-runtime .service-menu,
+body.telegram-webapp-runtime .select-menu {
+  z-index: 80;
+  border-color: var(--pro-line);
+  border-radius: 10px;
+  box-shadow: var(--pro-glow);
+}
+
+body.telegram-webapp-runtime.telegram-dark {
+  --pro-bg: #0f151d;
+  --pro-card: #151d27;
+  --pro-line: #283545;
+  --pro-line-strong: #385064;
+  --pro-text: #eff6ff;
+  --pro-muted: #9fb0c4;
+  --pro-soft: #111a24;
+  --pro-glow: 0 8px 22px rgba(0, 0, 0, 0.34);
+  --pro-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
+  background: var(--pro-bg);
+}
+
+body.telegram-webapp-runtime.telegram-dark .app-shell,
+body.telegram-webapp-runtime.telegram-dark .topbar,
+body.telegram-webapp-runtime.telegram-dark .control-band,
+body.telegram-webapp-runtime.telegram-dark .provider-card,
+body.telegram-webapp-runtime.telegram-dark .select-trigger,
+body.telegram-webapp-runtime.telegram-dark .service-field .select-trigger,
+body.telegram-webapp-runtime.telegram-dark .service-menu,
+body.telegram-webapp-runtime.telegram-dark .select-menu {
+  background: var(--pro-card);
+  border-color: var(--pro-line);
+}
+
+body.telegram-webapp-runtime.telegram-dark .field > span {
+  background: var(--pro-card);
+}
+
+body.telegram-webapp-runtime.telegram-dark .topbar h1::before,
+body.telegram-webapp-runtime.telegram-dark .balance-pill,
+body.telegram-webapp-runtime.telegram-dark .select-trigger,
+body.telegram-webapp-runtime.telegram-dark .service-field .select-trigger,
+body.telegram-webapp-runtime.telegram-dark .select-trigger span,
+body.telegram-webapp-runtime.telegram-dark .service-field .select-trigger span,
+body.telegram-webapp-runtime.telegram-dark .provider-name,
+body.telegram-webapp-runtime.telegram-dark .success-badge,
+body.telegram-webapp-runtime.telegram-dark .action-price,
+body.telegram-webapp-runtime.telegram-dark .provider-price,
+body.telegram-webapp-runtime.telegram-dark .result-header h2 {
+  color: var(--pro-text);
+}
+
+body.telegram-webapp-runtime.telegram-dark .balance-pill {
+  border-color: var(--pro-line);
+  background:
+    linear-gradient(90deg, transparent calc(100% - 34px), rgba(5, 163, 166, 0.22) calc(100% - 34px)),
+    var(--pro-card);
+}
+
+body.telegram-webapp-runtime.telegram-dark .mode-switch,
+body.telegram-webapp-runtime.telegram-dark .provider-actions .small-action {
+  background: var(--pro-soft);
+}
+
+body.telegram-webapp-runtime.telegram-dark .provider-card:first-child {
+  background: rgba(5, 163, 166, 0.13);
+  border-color: rgba(110, 219, 224, 0.62);
+}
+
+body.telegram-webapp-runtime.telegram-dark .view-tabs {
+  border-color: var(--pro-line);
+  background: rgba(15, 21, 29, 0.94);
+  box-shadow: 0 -8px 22px rgba(0, 0, 0, 0.3);
+}
+
+body.telegram-webapp-runtime.telegram-dark .service-menu input,
+body.telegram-webapp-runtime.telegram-dark .select-menu input,
+body.telegram-webapp-runtime.telegram-dark textarea,
+body.telegram-webapp-runtime.telegram-dark select {
+  background: var(--pro-soft);
+  color: var(--pro-text);
+  border-color: var(--pro-line);
+}
+
+@media (max-width: 390px) {
+  body.telegram-webapp-runtime .app-shell {
+    max-width: 390px;
+    padding-inline: 14px;
+  }
+
+  body.telegram-webapp-runtime .app-nav {
+    margin-inline: -14px;
+  }
+
+  body.telegram-webapp-runtime .topbar {
+    grid-template-columns: 28px 34px minmax(118px, 1fr) 96px;
+    gap: 6px;
+    padding-inline: 16px;
+  }
+
+  body.telegram-webapp-runtime .topbar h1::before {
+    font-size: 21px;
+  }
+
+  body.telegram-webapp-runtime .topbar .eyebrow::before {
+    font-size: 9px;
+  }
+
+  body.telegram-webapp-runtime .balance-pill {
+    width: 96px;
+    min-width: 96px;
+    font-size: 12px;
+  }
+
+  body.telegram-webapp-runtime .control-band {
+    gap: 8px 12px;
+    padding: 17px 14px 10px;
+  }
+
+  body.telegram-webapp-runtime .console-heading {
+    min-height: 38px;
+  }
+
+  body.telegram-webapp-runtime .console-heading h2::after {
+    font-size: 18px;
+  }
+
+  body.telegram-webapp-runtime .provider-card {
+    grid-template-columns: 68px 40px 62px minmax(68px, 1fr) 14px;
+    gap: 7px;
+    padding-inline: 8px;
+  }
+
+  body.telegram-webapp-runtime .provider-actions .small-action {
+    width: 68px;
+  }
+
+  body.telegram-webapp-runtime .provider-name {
+    font-size: 15px;
+  }
+}
