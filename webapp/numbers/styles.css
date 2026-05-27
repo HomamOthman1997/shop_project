@@ -4342,3 +4342,211 @@ body {
     grid-template-columns: 20px minmax(62px, 1fr) 62px 52px 58px;
   }
 }
+
+/* Final Telegram runtime pass: these selectors intentionally live last so the
+   real Telegram webview is compact while browser preview can keep mock chrome. */
+body.telegram-webapp-runtime .app-shell::before,
+body.telegram-webapp-runtime .app-shell::after,
+body.telegram-webapp-runtime .app-nav::before {
+  content: none;
+  display: none;
+}
+
+body.telegram-webapp-runtime .app-shell {
+  width: min(100vw, 480px);
+}
+
+body.telegram-webapp-runtime .topbar {
+  min-height: 78px;
+  padding-top: 11px;
+  padding-bottom: 10px;
+}
+
+body.telegram-webapp-runtime .control-band {
+  position: relative;
+  display: block;
+  height: 268px;
+  gap: 0;
+  padding: 0;
+  border-radius: 14px;
+}
+
+body.telegram-webapp-runtime .console-heading,
+body.telegram-webapp-runtime .mode-switch,
+body.telegram-webapp-runtime .field-grid,
+body.telegram-webapp-runtime .service-field,
+body.telegram-webapp-runtime .country-field,
+body.telegram-webapp-runtime .state-field,
+body.telegram-webapp-runtime .quick-row,
+body.telegram-webapp-runtime .primary-action,
+body.telegram-webapp-runtime .status-line {
+  position: absolute;
+  margin: 0;
+}
+
+body.telegram-webapp-runtime .console-heading {
+  top: 18px;
+  right: 24px;
+  left: 24px;
+}
+
+body.telegram-webapp-runtime .console-heading .eyebrow {
+  display: none;
+}
+
+body.telegram-webapp-runtime .console-heading h2 {
+  font-size: 0;
+  line-height: 1;
+  text-align: right;
+}
+
+body.telegram-webapp-runtime .console-heading h2::before {
+  content: none;
+}
+
+body.telegram-webapp-runtime .console-heading h2::after {
+  content: "نوع الرقم";
+  font-size: 13px;
+  text-align: right;
+}
+
+body.telegram-webapp-runtime .mode-switch {
+  top: 56px;
+  left: 18px;
+  right: 18px;
+}
+
+body.telegram-webapp-runtime .mode-button {
+  min-height: 40px;
+  padding: 7px 8px;
+}
+
+body.telegram-webapp-runtime .select-trigger,
+body.telegram-webapp-runtime .service-field .select-trigger {
+  min-height: 40px;
+  padding: 6px 12px;
+}
+
+body.telegram-webapp-runtime .field {
+  gap: 3px;
+}
+
+body.telegram-webapp-runtime .field > span {
+  font-size: 12px;
+}
+
+body.telegram-webapp-runtime .field-grid,
+body.telegram-webapp-runtime .field-grid.service-only,
+body.telegram-webapp-runtime .field-grid.service-country,
+body.telegram-webapp-runtime .field-grid.service-country-state {
+  display: block;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+body.telegram-webapp-runtime .service-field {
+  top: 118px;
+  left: 106px;
+  right: 18px;
+}
+
+body.telegram-webapp-runtime .quick-row {
+  left: 18px;
+  top: 118px;
+}
+
+body.telegram-webapp-runtime .quick-row::before {
+  width: 56px;
+  height: 48px;
+  font-size: 10px;
+}
+
+body.telegram-webapp-runtime .state-field .field-hint {
+  display: none;
+}
+
+body.telegram-webapp-runtime .country-field,
+body.telegram-webapp-runtime .state-field {
+  top: 177px;
+  width: calc((100% - 52px) / 2);
+}
+
+body.telegram-webapp-runtime .country-field {
+  right: 18px;
+}
+
+body.telegram-webapp-runtime .state-field {
+  left: 18px;
+}
+
+body.telegram-webapp-runtime .primary-action {
+  left: 18px;
+  right: 18px;
+  bottom: 24px;
+  width: auto;
+  min-height: 44px;
+  font-size: 19px;
+}
+
+body.telegram-webapp-runtime .status-line {
+  right: 20px;
+  bottom: 4px;
+  left: 20px;
+  min-height: 14px;
+  font-size: 12px;
+  text-align: right;
+}
+
+body.telegram-webapp-runtime .result-band {
+  margin-top: 12px;
+}
+
+body.telegram-webapp-runtime .result-header {
+  margin-bottom: 8px;
+}
+
+body.telegram-webapp-runtime .provider-card {
+  min-height: 50px;
+}
+
+@media (max-width: 390px) {
+  body.telegram-webapp-runtime .topbar {
+    grid-template-columns: 24px 44px minmax(104px, 1fr) 104px;
+    padding-top: 10px;
+  }
+
+  body.telegram-webapp-runtime .field-grid,
+  body.telegram-webapp-runtime .field-grid.service-only,
+  body.telegram-webapp-runtime .field-grid.service-country,
+  body.telegram-webapp-runtime .field-grid.service-country-state {
+    display: block;
+  }
+
+  body.telegram-webapp-runtime .control-band {
+    height: 264px;
+  }
+
+  body.telegram-webapp-runtime .quick-row {
+    left: 14px;
+  }
+
+  body.telegram-webapp-runtime .service-field {
+    left: 96px;
+    right: 14px;
+  }
+
+  body.telegram-webapp-runtime .mode-switch,
+  body.telegram-webapp-runtime .primary-action {
+    left: 14px;
+    right: 14px;
+  }
+
+  body.telegram-webapp-runtime .country-field {
+    right: 14px;
+  }
+
+  body.telegram-webapp-runtime .state-field {
+    left: 14px;
+  }
+}

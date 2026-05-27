@@ -1,4 +1,9 @@
 const tg = window.Telegram?.WebApp;
+const urlParams = new URLSearchParams(window.location.search);
+
+if (tg || urlParams.get("telegram_runtime") === "1") {
+  document.body.classList.add("telegram-webapp-runtime");
+}
 
 const MODE_SELECTION_DEFAULTS = {
   temp: { service: "", country: "1", state: "none" },
@@ -1053,7 +1058,7 @@ function clearTransientStatus({ clearPriceFailure = true } = {}) {
 
 function updateCommandSummary() {
   if (els.summaryBalance) {
-    els.summaryBalance.textContent = els.sessionPill?.textContent || "Mini App";
+    els.summaryBalance.textContent = els.sessionPill?.textContent || "$0.00";
   }
   if (els.summaryMode) {
     els.summaryMode.textContent = t(state.mode);
@@ -3144,7 +3149,7 @@ async function boot() {
   tg?.ready();
   tg?.expand();
   setLanguage();
-  els.sessionPill.textContent = tg?.initDataUnsafe?.user?.first_name || "Mini App";
+  els.sessionPill.textContent = "$0.00";
   updateCommandSummary();
   const payload = await api("/mini/numbers/api/bootstrap");
   state.services = payload.services || [];
