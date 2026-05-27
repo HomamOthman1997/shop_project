@@ -4560,3 +4560,123 @@ body.telegram-webapp-runtime .provider-card {
     left: 14px;
   }
 }
+
+/* Box-model rebuild for the Telegram purchase card. This overrides the older
+   absolute-position pass with a real row/column layout so controls cannot
+   collide when Telegram changes viewport height or text metrics. */
+body.telegram-webapp-runtime .control-band {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas:
+    "heading heading heading"
+    "modes modes modes"
+    "quick service service"
+    "state state country"
+    "action action action"
+    "status status status";
+  gap: 8px 10px;
+  height: auto;
+  min-height: 0;
+  padding: 18px 18px 10px;
+  overflow: visible;
+  direction: ltr;
+}
+
+body.telegram-webapp-runtime .console-heading,
+body.telegram-webapp-runtime .mode-switch,
+body.telegram-webapp-runtime .field-grid,
+body.telegram-webapp-runtime .service-field,
+body.telegram-webapp-runtime .country-field,
+body.telegram-webapp-runtime .state-field,
+body.telegram-webapp-runtime .quick-row,
+body.telegram-webapp-runtime .primary-action,
+body.telegram-webapp-runtime .status-line {
+  position: static;
+  inset: auto;
+  margin: 0;
+  width: auto;
+}
+
+body.telegram-webapp-runtime .console-heading {
+  grid-area: heading;
+  min-height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  direction: rtl;
+}
+
+body.telegram-webapp-runtime .mode-switch {
+  grid-area: modes;
+  direction: rtl;
+}
+
+body.telegram-webapp-runtime .field-grid,
+body.telegram-webapp-runtime .field-grid.service-only,
+body.telegram-webapp-runtime .field-grid.service-country,
+body.telegram-webapp-runtime .field-grid.service-country-state {
+  display: contents;
+}
+
+body.telegram-webapp-runtime .service-field {
+  grid-area: service;
+  position: relative;
+  direction: rtl;
+}
+
+body.telegram-webapp-runtime .quick-row {
+  grid-area: quick;
+  align-self: end;
+  justify-self: stretch;
+  display: grid !important;
+  min-width: 0;
+  width: 100%;
+  direction: rtl;
+}
+
+body.telegram-webapp-runtime .quick-row::before {
+  width: 100%;
+  height: 50px;
+}
+
+body.telegram-webapp-runtime .country-field {
+  grid-area: country;
+  direction: rtl;
+}
+
+body.telegram-webapp-runtime .state-field {
+  grid-area: state;
+  direction: rtl;
+}
+
+body.telegram-webapp-runtime .primary-action {
+  grid-area: action;
+  width: 100%;
+  min-height: 48px;
+  direction: rtl;
+}
+
+body.telegram-webapp-runtime .status-line {
+  grid-area: status;
+  min-height: 14px;
+  text-align: right;
+  direction: rtl;
+}
+
+body.telegram-webapp-runtime .select-trigger,
+body.telegram-webapp-runtime .service-field .select-trigger {
+  min-height: 42px;
+}
+
+body.telegram-webapp-runtime .field > span {
+  min-height: 15px;
+  line-height: 1.2;
+}
+
+@media (max-width: 390px) {
+  body.telegram-webapp-runtime .control-band {
+    grid-template-columns: 68px minmax(0, 1fr) minmax(0, 1fr);
+    gap: 7px 8px;
+    padding: 16px 14px 9px;
+  }
+}
