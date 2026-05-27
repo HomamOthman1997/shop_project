@@ -4017,3 +4017,200 @@ body {
   bottom: 68px;
   margin: 0;
 }
+
+/* 2026-05-27 stability correction: exact visual structure without brittle
+   absolute stacking, so Telegram balance and translated labels cannot overlap. */
+.app-shell {
+  width: min(100vw, 430px);
+  padding-inline: 14px;
+}
+
+.app-nav {
+  margin-inline: -14px;
+}
+
+.topbar {
+  grid-template-columns: 30px 48px minmax(128px, 1fr) 112px;
+  gap: 8px;
+  padding: 38px 14px 12px;
+}
+
+.topbar h1::before {
+  font-size: clamp(23px, 6vw, 27px);
+}
+
+.topbar .eyebrow::before {
+  font-size: 12px;
+}
+
+.balance-pill {
+  width: 112px;
+  min-width: 112px;
+  max-width: 112px;
+  padding-inline: 8px 38px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 16px;
+}
+
+.balance-pill::before {
+  right: 7px;
+}
+
+.control-band {
+  display: grid;
+  grid-template-rows: auto auto auto auto auto;
+  gap: 9px;
+  height: auto;
+  min-height: 0;
+  padding: 18px 12px 14px;
+  overflow: visible;
+}
+
+.console-heading,
+.console-heading h2,
+.mode-switch,
+.field-grid,
+.service-field,
+.country-field,
+.state-field,
+.quick-row,
+.primary-action,
+.status-line {
+  position: static;
+  inset: auto;
+}
+
+.console-heading {
+  margin: 0;
+}
+
+.console-heading h2 {
+  text-align: right;
+}
+
+.field-grid,
+.field-grid.service-only,
+.field-grid.service-country,
+.field-grid.service-country-state {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px 10px;
+  margin: 0;
+  align-items: start;
+  direction: ltr;
+}
+
+.field {
+  direction: rtl;
+}
+
+.service-field {
+  grid-column: 2 / 4;
+  grid-row: 1;
+  position: relative;
+}
+
+.quick-row {
+  position: absolute;
+  left: 12px;
+  top: 126px;
+  display: grid !important;
+  height: auto;
+  min-height: 0;
+  justify-self: start;
+}
+
+.quick-row::before {
+  transform: none;
+  width: 60px;
+  height: 54px;
+}
+
+.country-field {
+  grid-column: 3;
+  grid-row: 2;
+  width: auto;
+}
+
+.state-field {
+  grid-column: 1 / 3;
+  grid-row: 2;
+  width: auto;
+}
+
+.state-field .field-hint {
+  display: block;
+  position: static;
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.primary-action {
+  width: 100%;
+  margin: 0;
+}
+
+.status-line {
+  min-height: 18px;
+  margin: -2px 2px 0;
+  text-align: right;
+}
+
+.result-band {
+  margin-top: 16px;
+}
+
+.provider-list {
+  gap: 6px;
+}
+
+.provider-card {
+  grid-template-columns: 22px minmax(72px, 1fr) 70px 58px 64px;
+  min-height: 52px;
+  padding: 6px 9px;
+}
+
+.provider-main {
+  align-self: center;
+}
+
+.success-badge {
+  font-size: 14px;
+}
+
+.recent-orders-band {
+  margin-top: 18px;
+}
+
+@media (max-width: 390px) {
+  .topbar {
+    grid-template-columns: 28px 44px minmax(104px, 1fr) 104px;
+    gap: 6px;
+    padding-inline: 10px;
+  }
+
+  .brand-mark {
+    width: 44px;
+    height: 44px;
+  }
+
+  .balance-pill {
+    width: 104px;
+    min-width: 104px;
+    max-width: 104px;
+    font-size: 14px;
+  }
+
+  .field-grid,
+  .field-grid.service-only,
+  .field-grid.service-country,
+  .field-grid.service-country-state {
+    grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .provider-card {
+    grid-template-columns: 20px minmax(62px, 1fr) 62px 52px 58px;
+  }
+}
