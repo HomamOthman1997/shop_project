@@ -1089,7 +1089,7 @@ function renderBuyFlow() {
   els.introBand?.classList.remove("hidden");
   els.introBand?.classList.toggle("compact", state.orderFlowOpen);
   els.requestNumberButton?.classList.toggle("hidden", state.orderFlowOpen);
-  els.resultBand?.classList.toggle("hidden", !state.pricesChecked);
+  els.resultBand?.classList.remove("hidden");
   els.successLegend?.classList.toggle("hidden", !state.pricesChecked);
   if (!state.pricesChecked && !state.loading && !state.priceCheckFailed && els.statusLine) {
     els.statusLine.textContent = "";
@@ -1350,10 +1350,6 @@ function updateSelectorLabels() {
 
 function setSelectorMenuOpen(kind, open) {
   const isCountry = kind === "country";
-  if (open && !state.selectedService && kind === "state") {
-    els.statusLine.textContent = t("chooseServiceFirst");
-    return;
-  }
   if (open && isCountry && state.mode === "voice") {
     return;
   }
@@ -1399,11 +1395,6 @@ function setCountrySelection(code) {
 }
 
 function setStateSelection(code) {
-  if (!state.selectedService) {
-    els.statusLine.textContent = t("chooseServiceFirst");
-    setSelectorMenuOpen("state", false);
-    return;
-  }
   state.selectedState = code || "none";
   state.priceCheckFailed = false;
   if (els.stateSearch) els.stateSearch.value = "";
@@ -1543,9 +1534,8 @@ function renderSelectors() {
 }
 
 function updateStateVisibility() {
-  const hasService = Boolean(state.selectedService);
   const showCountry = true;
-  const showState = hasService && state.selectedCountry === "1";
+  const showState = state.selectedCountry === "1";
   els.countryField?.classList.toggle("hidden", !showCountry);
   els.stateField.classList.toggle("hidden", !showState);
   els.countrySelect.disabled = !showCountry || state.mode === "voice";
@@ -2447,18 +2437,36 @@ function orderProviderAlias(order) {
   return providerAlias(order?.provider_public_alias || order?.provider_id || order?.provider || order?.id || 0).name;
 }
 
+function referenceOfferRows() {
+  return [
+    { placeholder: true, price_label: "$0.52", success_rate: "98%", location_tag: "موصى به" },
+    { placeholder: true, price_label: "$0.58", success_rate: "96%" },
+    { placeholder: true, price_label: "$0.60", success_rate: "95%" },
+    { placeholder: true, price_label: "$0.63", success_rate: "94%" },
+    { placeholder: true, price_label: "$0.68", success_rate: "93%" },
+    { placeholder: true, price_label: "$0.70", success_rate: "92%" },
+  ];
+}
+
+function promptServiceBeforeBuy(button) {
+  els.statusLine.textContent = t("chooseServiceFirst");
+  setServiceMenuOpen(true);
+  button?.blur?.();
+}
+
 function renderProviders(rows, { preserve = false } = {}) {
   if (!preserve) {
     state.providerRows = rows || [];
   }
   const allRows = preserve ? state.providerRows : rows || [];
-  els.resultCount.textContent = String(allRows.length);
-  if (!allRows.length) {
+  const displayRows = allRows.length ? allRows : (!state.pricesChecked && !state.loading && !state.priceCheckFailed ? referenceOfferRows() : []);
+  els.resultCount.textContent = String(displayRows.length);
+  if (!displayRows.length) {
     els.providerList.replaceChildren();
     return;
   }
 
-  const cards = allRows.map((row, index) => {
+  const cards = displayRows.map((row, index) => {
     const card = document.createElement("article");
     card.className = "provider-card";
 
@@ -2506,7 +2514,7 @@ function renderProviders(rows, { preserve = false } = {}) {
     }
 
     const rowPurchaseAction = purchaseAction(row);
-    if ((state.mode === "temp" || state.mode === "voice") && rowPurchaseAction.enabled) {
+    if (row.placeholder || ((state.mode === "temp" || state.mode === "voice") && rowPurchaseAction.enabled)) {
       const actions = document.createElement("div");
       actions.className = "provider-actions";
       const price = document.createElement("div");
@@ -2516,7 +2524,13 @@ function renderProviders(rows, { preserve = false } = {}) {
       buy.type = "button";
       buy.className = "small-action";
       buy.textContent = t("buy");
-      buy.addEventListener("click", () => buyProvider({ ...row, purchase_action: rowPurchaseAction }, buy));
+      buy.addEventListener("click", () => {
+        if (row.placeholder) {
+          promptServiceBeforeBuy(buy);
+        } else {
+          buyProvider({ ...row, purchase_action: rowPurchaseAction }, buy);
+        }
+      });
       actions.append(price, buy);
       const star = document.createElement("span");
       star.className = "provider-star";

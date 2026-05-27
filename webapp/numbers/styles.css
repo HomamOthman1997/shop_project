@@ -3462,7 +3462,7 @@ body {
   position: relative;
   width: min(100%, 430px);
   max-width: 430px;
-  padding: 46px 15px calc(86px + env(safe-area-inset-bottom));
+  padding: 0 15px calc(86px + env(safe-area-inset-bottom));
   background: #ffffff;
   overflow-x: hidden;
 }
@@ -3525,7 +3525,7 @@ body {
 .topbar {
   grid-template-columns: 34px 48px minmax(0, 1fr) auto;
   min-height: 88px;
-  padding: 13px 17px 12px;
+  padding: 38px 17px 12px;
   border-bottom: 1px solid #dbe4ea;
 }
 
@@ -3622,12 +3622,12 @@ body {
 .field-grid.service-only,
 .field-grid.service-country,
 .field-grid.service-country-state {
-  gap: 10px 20px;
-  margin-top: 14px;
+  gap: 8px 20px;
+  margin-top: 10px;
 }
 
 .field {
-  gap: 8px;
+  gap: 5px;
 }
 
 .field span {
@@ -3635,7 +3635,7 @@ body {
 }
 
 .service-field .select-trigger {
-  min-height: 50px;
+  min-height: 46px;
   padding-inline: 46px 12px;
   color: #a1aab5;
 }
@@ -3649,15 +3649,25 @@ body {
 }
 
 .select-trigger {
-  min-height: 50px;
+  min-height: 46px;
   border-color: #dce5eb;
   border-radius: 10px;
 }
 
+.state-field {
+  position: relative;
+  padding-bottom: 38px;
+}
+
 .state-field .field-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   max-width: 100%;
   text-align: center;
-  line-height: 1.35;
+  line-height: 1.25;
+  font-size: 10px;
 }
 
 .quick-row {
@@ -3697,19 +3707,71 @@ body {
 }
 
 .result-band {
+  position: relative;
   margin-top: 18px;
+  padding-top: 34px;
 }
 
-.result-header {
+.result-band::before {
+  content: "عروض متاحة";
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(0, 159, 154, .24);
+  border-radius: 8px;
+  background: #f4fffd;
+  color: #008f8a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.result-band > .result-header {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 28px;
+  margin: 0;
+}
+
+.recent-orders-band > .result-header,
+.active-band > .result-header {
+  position: static;
+  min-height: auto;
   margin: 0 0 8px;
 }
 
 .result-header h2,
 .recent-orders-band .result-header h2 {
   font-size: 20px;
+}
+
+#selectionTitle {
+  font-size: 0;
+}
+
+#selectionTitle::before {
+  content: "أفضل العروض";
+  font-size: 20px;
+}
+
+.provider-list::before {
+  content: "المزود                         السعر        معدل النجاح";
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 80px 78px;
+  align-items: center;
+  color: #607389;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 17px 2px;
+  white-space: pre;
 }
 
 .provider-list {
@@ -3719,8 +3781,8 @@ body {
 .provider-card {
   direction: ltr;
   grid-template-columns: 24px minmax(82px, 1fr) 76px 64px 72px;
-  min-height: 57px;
-  padding: 8px 10px;
+  min-height: 48px;
+  padding: 5px 10px;
   border-radius: 10px;
   border-color: #e0e8ee;
 }
@@ -3741,19 +3803,19 @@ body {
 .provider-name {
   min-width: 30px;
   text-align: right;
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .provider-meta {
   text-align: right;
-  font-size: 10px;
+  font-size: 9px;
   letter-spacing: .02em;
 }
 
 .provider-price,
 .action-price {
   color: #008f8a;
-  font-size: 17px;
+  font-size: 16px;
 }
 
 .success-badge::after {
@@ -3762,10 +3824,23 @@ body {
 
 .provider-actions .small-action {
   min-width: 63px;
-  min-height: 34px;
+  min-height: 32px;
+}
+
+.provider-card:first-child .provider-meta::before {
+  content: "موصى به";
+  display: inline-flex;
+  margin-inline-end: 5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #dcf7df;
+  color: #329d4f;
+  font-size: 9px;
+  font-weight: 800;
 }
 
 .recent-orders-band {
+  display: block !important;
   margin-top: 20px;
 }
 
@@ -3835,7 +3910,7 @@ body {
 .quick-row {
   position: absolute;
   left: 12px;
-  top: 133px;
+  top: 139px;
 }
 
 .quick-row::before {
@@ -3867,4 +3942,78 @@ body {
   .quick-row {
     top: 133px;
   }
+}
+
+/* Exact mockup positioning pass. */
+.control-band {
+  height: 260px;
+  padding: 0;
+}
+
+.console-heading h2 {
+  position: absolute;
+  top: 18px;
+  right: 25px;
+}
+
+.mode-switch {
+  position: absolute;
+  top: 54px;
+  left: 15px;
+  right: 15px;
+}
+
+.field-grid,
+.field-grid.service-only,
+.field-grid.service-country,
+.field-grid.service-country-state {
+  display: block;
+  margin: 0;
+}
+
+.service-field {
+  position: absolute;
+  top: 76px;
+  left: 96px;
+  right: 15px;
+  margin: 0 !important;
+}
+
+.country-field,
+.state-field {
+  position: absolute;
+  top: 123px;
+  width: calc((100% - 50px) / 2);
+  padding-bottom: 0;
+}
+
+.country-field {
+  right: 15px;
+}
+
+.state-field {
+  left: 15px;
+}
+
+.quick-row {
+  top: 97px;
+}
+
+.state-field .field-hint {
+  display: none;
+}
+
+.primary-action {
+  position: absolute;
+  left: 15px;
+  right: 15px;
+  bottom: 10px;
+  margin: 0;
+}
+
+.status-line {
+  position: absolute;
+  right: 18px;
+  bottom: 68px;
+  margin: 0;
 }
