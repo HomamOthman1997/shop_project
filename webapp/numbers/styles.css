@@ -2056,6 +2056,134 @@ h2 {
   }
 }
 
+/* 2026-05-27 Telegram WebView full-width refinement. */
+.app-shell {
+  width: min(100vw, 480px);
+  max-width: 480px;
+  padding-inline: 20px;
+}
+
+.app-nav {
+  margin-inline: -20px;
+}
+
+.topbar {
+  grid-template-columns: 32px 54px minmax(0, 1fr) 128px;
+  gap: 10px;
+  padding-inline: 20px;
+}
+
+.topbar h1::before {
+  font-size: clamp(26px, 7vw, 34px);
+}
+
+.topbar .eyebrow::before {
+  font-size: 14px;
+}
+
+.brand-mark {
+  width: 54px;
+  height: 54px;
+}
+
+.balance-pill {
+  width: 128px;
+  min-width: 128px;
+  max-width: 128px;
+  min-height: 52px;
+  font-size: 18px;
+}
+
+.control-band {
+  gap: 8px;
+  padding: 14px 14px 12px;
+}
+
+.mode-button {
+  min-height: 44px;
+}
+
+.select-trigger,
+.service-field .select-trigger {
+  min-height: 43px;
+}
+
+.field {
+  gap: 4px;
+}
+
+.field-grid,
+.field-grid.service-only,
+.field-grid.service-country,
+.field-grid.service-country-state {
+  grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 10px;
+}
+
+.quick-row {
+  left: 14px;
+  top: 118px;
+}
+
+.quick-row::before {
+  height: 52px;
+}
+
+.state-field .field-hint {
+  display: none;
+}
+
+.primary-action {
+  min-height: 48px;
+}
+
+.status-line {
+  min-height: 16px;
+  font-size: 12px;
+}
+
+.result-band {
+  margin-top: 14px;
+}
+
+.provider-card {
+  min-height: 50px;
+}
+
+.view-tabs {
+  width: min(100vw, 480px);
+  max-width: 480px;
+}
+
+@media (max-width: 430px) {
+  .app-shell {
+    max-width: 430px;
+    padding-inline: 14px;
+  }
+
+  .app-nav {
+    margin-inline: -14px;
+  }
+
+  .topbar {
+    grid-template-columns: 30px 48px minmax(0, 1fr) 112px;
+    gap: 8px;
+    padding-inline: 14px;
+  }
+
+  .brand-mark {
+    width: 48px;
+    height: 48px;
+  }
+
+  .balance-pill {
+    width: 112px;
+    min-width: 112px;
+    max-width: 112px;
+    font-size: 16px;
+  }
+}
+
 /* Premium light Mini App skin. Keep this layer last so the customer UI is
    visibly product-grade without touching backend contracts. */
 :root {
