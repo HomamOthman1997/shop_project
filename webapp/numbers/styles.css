@@ -4357,15 +4357,21 @@ body.telegram-webapp-runtime .app-shell {
 }
 
 body.telegram-webapp-runtime .topbar {
-  min-height: 78px;
-  padding-top: 11px;
-  padding-bottom: 10px;
+  min-height: 72px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+body.telegram-webapp-runtime .balance-pill::after {
+  content: "\0627\0644\0631\0635\064a\062f";
+  direction: rtl;
+  unicode-bidi: isolate;
 }
 
 body.telegram-webapp-runtime .control-band {
   position: relative;
   display: block;
-  height: 268px;
+  height: 316px;
   gap: 0;
   padding: 0;
   border-radius: 14px;
@@ -4405,7 +4411,10 @@ body.telegram-webapp-runtime .console-heading h2::before {
 }
 
 body.telegram-webapp-runtime .console-heading h2::after {
-  content: "نوع الرقم";
+  content: "\0646\0648\0639\0020\0627\0644\0631\0642\0645";
+  display: inline-block;
+  direction: rtl;
+  unicode-bidi: isolate;
   font-size: 13px;
   text-align: right;
 }
@@ -4446,14 +4455,14 @@ body.telegram-webapp-runtime .field-grid.service-country-state {
 }
 
 body.telegram-webapp-runtime .service-field {
-  top: 118px;
+  top: 126px;
   left: 106px;
   right: 18px;
 }
 
 body.telegram-webapp-runtime .quick-row {
   left: 18px;
-  top: 118px;
+  top: 126px;
 }
 
 body.telegram-webapp-runtime .quick-row::before {
@@ -4468,7 +4477,7 @@ body.telegram-webapp-runtime .state-field .field-hint {
 
 body.telegram-webapp-runtime .country-field,
 body.telegram-webapp-runtime .state-field {
-  top: 177px;
+  top: 190px;
   width: calc((100% - 52px) / 2);
 }
 
@@ -4483,7 +4492,8 @@ body.telegram-webapp-runtime .state-field {
 body.telegram-webapp-runtime .primary-action {
   left: 18px;
   right: 18px;
-  bottom: 24px;
+  top: 252px;
+  bottom: auto;
   width: auto;
   min-height: 44px;
   font-size: 19px;
@@ -4499,7 +4509,7 @@ body.telegram-webapp-runtime .status-line {
 }
 
 body.telegram-webapp-runtime .result-band {
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 body.telegram-webapp-runtime .result-header {
@@ -4524,7 +4534,7 @@ body.telegram-webapp-runtime .provider-card {
   }
 
   body.telegram-webapp-runtime .control-band {
-    height: 264px;
+    height: 310px;
   }
 
   body.telegram-webapp-runtime .quick-row {
