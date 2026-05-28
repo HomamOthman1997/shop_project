@@ -225,7 +225,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 _STATIC = _ROOT / "webapp" / "numbers"
 
-_STATIC_V2 = _ROOT / "webapp" / "numbers_v2"
+_STATIC_V2 = _ROOT / "webapp" / "numbers_v2_react" / "dist"
 
 _NO_STORE_HEADERS = {
 
@@ -580,7 +580,7 @@ def _support_category_label(lang: str, category: str) -> str:
 
     labels = {
 
-        "numbers": ("Numbers orders", "طلبات الأرقام"),
+        "numbers": ("Numbers orders", "ط��بات الأرقام"),
 
         "user_balance": ("Balance and payments", "الرصيد والدفع"),
 
