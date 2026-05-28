@@ -105,35 +105,15 @@ const providerAliases = [
 ];
 
 const aliasById = Object.fromEntries(providerAliases);
-const prefsKey = "phantom_numbers_v2_prefs_country_required";
+const RENTAL_UNLIMITED_SERVICE_KEY = "rental_unlimited";
+const TEMP_NOT_LISTED_SERVICE_KEY = "not_listed_generic";
+const hiddenServiceNeedles = ["my custom app", "mycustomapp"];
 const suggestedRegionIsos = new Set([
   "US", "GB", "IE", "FR", "DE", "NL", "BE", "LU", "CH", "AT", "IT", "ES", "PT",
   "SE", "NO", "DK", "FI", "IS", "PL", "CZ", "SK", "HU", "RO", "BG", "GR",
   "HR", "SI", "RS", "BA", "ME", "MK", "AL", "XK", "EE", "LV", "LT", "UA",
   "MD", "BY", "MT", "CY",
 ]);
-
-function loadPrefs() {
-  try {
-    return JSON.parse(localStorage.getItem(prefsKey) || "{}") || {};
-  } catch (_error) {
-    return {};
-  }
-}
-
-function savePrefs() {
-  const payload = {
-    mode: state.mode,
-    service: state.service,
-    country: state.country,
-    stateCode: state.stateCode,
-  };
-  try {
-    localStorage.setItem(prefsKey, JSON.stringify(payload));
-  } catch (_error) {
-    // Telegram WebView storage can be unavailable in strict privacy modes.
-  }
-}
 
 function applyRuntimeTheme() {
   const scheme = String(tg?.colorScheme || "").toLowerCase();
@@ -277,7 +257,51 @@ function formatProvider(row, index) {
 }
 
 function serviceLabel(key) {
+  if (key === RENTAL_UNLIMITED_SERVICE_KEY) return "Unlimited service";
+  if (key === TEMP_NOT_LISTED_SERVICE_KEY) return "Service Not Listed";
   return state.services.find((item) => item.key === key)?.label || state.services.find((item) => item.code === key)?.name || key || "اختر الخدمة";
+}
+
+function isHiddenService(row) {
+  const text = `${row.key || ""} ${row.code || ""} ${row.label || ""} ${row.name || ""}`.toLowerCase();
+  return hiddenServiceNeedles.some((needle) => text.includes(needle));
+}
+
+function servicePickerRows() {
+  const rows = state.services
+    .filter((row) => !isHiddenService(row))
+    .map((row) => ({
+      key: row.key || row.code,
+      title: row.label || row.name || row.key || row.code,
+      sub: row.category || "",
+    }));
+  if (state.mode !== "rental") return rows;
+  return [
+    {
+      key: RENTAL_UNLIMITED_SERVICE_KEY,
+      title: "Unlimited service",
+      sub: "Rental only - supported providers",
+      special: true,
+    },
+    ...rows.filter((row) => row.key !== RENTAL_UNLIMITED_SERVICE_KEY),
+  ];
+}
+
+function notListedServiceRow(query) {
+  return {
+    key: TEMP_NOT_LISTED_SERVICE_KEY,
+    title: "Service Not Listed",
+    sub: query ? `"${query}" - fallback service` : "Fallback service",
+    special: true,
+  };
+}
+
+function resetBuySelections({ mode = state.mode } = {}) {
+  state.service = "";
+  state.country = mode === "voice" ? "1" : "none";
+  state.stateCode = "none";
+  state.countrySuggestions = [];
+  clearPriceResults();
 }
 
 function countryLabel(code) {
@@ -343,13 +367,10 @@ function renderModes() {
       button.className = `segment${state.mode === mode.key ? " active" : ""}`;
       button.textContent = labels[mode.key] || mode.label || mode.key;
       button.addEventListener("click", () => {
+        if (state.mode === mode.key) return;
         state.mode = mode.key;
-        if (state.mode === "voice") state.country = "1";
-        state.countrySuggestions = [];
-        clearPriceResults();
-        savePrefs();
+        resetBuySelections({ mode: state.mode });
         renderBuy();
-        if (state.service && state.country === "none") loadCountrySuggestions();
       });
       return button;
     })
@@ -389,7 +410,6 @@ function renderCountrySuggestions() {
       state.country = row.code || "none";
       state.stateCode = state.country === "1" ? state.stateCode : "none";
       clearPriceResults();
-      savePrefs();
       renderBuy();
     });
     return button;
@@ -487,7 +507,7 @@ function openPicker(kind) {
     service: {
       kind: "service",
       title: "اختر الخدمة",
-      rows: state.services.map((row) => ({ key: row.key || row.code, title: row.label || row.name || row.key, sub: row.category || "" })),
+      rows: servicePickerRows(),
       onSelect: (key) => { state.service = key; clearPriceResults(); },
     },
     country: {
@@ -514,17 +534,19 @@ function openPicker(kind) {
 
 function renderPickerOptions() {
   const query = els.drawerSearch.value.trim().toLowerCase();
-  const rows = (state.picker?.rows || []).filter((row) => `${row.title} ${row.sub}`.toLowerCase().includes(query));
+  let rows = (state.picker?.rows || []).filter((row) => `${row.title} ${row.sub}`.toLowerCase().includes(query));
+  if (state.picker?.kind === "service" && state.mode !== "voice" && query && !rows.length) {
+    rows = [notListedServiceRow(els.drawerSearch.value.trim())];
+  }
   els.drawerList.replaceChildren(
     ...rows.slice(0, 80).map((row) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `picker-option${row.suggested ? " suggested" : ""}`;
+      button.className = `picker-option${row.suggested || row.special ? " suggested" : ""}`;
       button.innerHTML = `${row.title}${row.sub ? `<small>${row.sub}</small>` : ""}`;
       button.addEventListener("click", () => {
         const selectedKind = state.picker?.kind;
         state.picker.onSelect(row.key);
-        savePrefs();
         closePicker();
         renderBuy();
         if (selectedKind === "service") loadCountrySuggestions();
@@ -1232,10 +1254,15 @@ async function submitSupport(event) {
 }
 
 function setView(view) {
+  const wasView = state.view;
   state.view = view;
   document.querySelectorAll(".view").forEach((el) => el.classList.toggle("active", el.dataset.view === view));
   document.querySelectorAll(".nav-item, .menu-item").forEach((el) => el.classList.toggle("active", el.dataset.view === view));
   closeMenu();
+  if (view === "buy" && wasView !== "buy") {
+    resetBuySelections({ mode: state.mode });
+    renderBuy();
+  }
   if (view === "orders") loadOrders();
   if (view === "account") loadAccount();
   if (view === "recharge") loadRecharge();
@@ -1255,16 +1282,12 @@ async function boot() {
   state.states = bootstrap.states_us || [];
   state.clientActions = bootstrap.client?.actions || {};
   const defaults = bootstrap.defaults || {};
-  const prefs = loadPrefs();
-  state.mode = prefs.mode || (defaults.mode && defaults.mode !== "none" ? defaults.mode : "temp");
-  state.service = prefs.service || defaults.service || "";
-  state.country = prefs.country || (defaults.country && defaults.country !== "none" ? defaults.country : "none");
-  state.stateCode = prefs.stateCode || defaults.state || "none";
+  state.mode = defaults.mode && defaults.mode !== "none" ? defaults.mode : "temp";
+  resetBuySelections({ mode: state.mode });
   renderBuy();
   renderNav();
   renderSupportCategories();
   renderSupportOrders();
-  if (state.service && state.country === "none") loadCountrySuggestions();
   if (headers()["X-Telegram-Init-Data"]) {
     await Promise.allSettled([loadAccount(), loadOrders()]);
   }

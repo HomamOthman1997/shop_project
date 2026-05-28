@@ -113,7 +113,12 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "quick-actions" not in app
     assert "account-activity" in css
     assert 'actionFor("country_suggestions"' in app
-    assert "phantom_numbers_v2_prefs" in app
+    assert "RENTAL_UNLIMITED_SERVICE_KEY" in app
+    assert "TEMP_NOT_LISTED_SERVICE_KEY" in app
+    assert "function servicePickerRows()" in app
+    assert "function notListedServiceRow(query)" in app
+    assert "function resetBuySelections" in app
+    assert "hiddenServiceNeedles" in app
     assert "suggestedRegionIsos" in app
     assert "function isFastSuggestionCountry" in app
     assert "state.country === \"none\"" in app
