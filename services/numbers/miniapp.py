@@ -3574,6 +3574,22 @@ async def static_file_v2(request: web.Request) -> web.Response:
 
     return web.FileResponse(path)
 
+async def assets_file_v2(request: web.Request) -> web.Response:
+
+    name = str(request.match_info.get("name") or "")
+
+    if "/" in name or "\\" in name or not name:
+
+        raise web.HTTPNotFound()
+
+    path = _STATIC_V2 / "assets" / name
+
+    if not path.exists() or not path.is_file():
+
+        raise web.HTTPNotFound()
+
+    return web.FileResponse(path)
+
 async def bootstrap(request: web.Request) -> web.Response:
 
     _optional_auth(request)
@@ -4848,6 +4864,8 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_get("/mini/numbers-v2", index_v2)
 
     app.router.add_get("/mini/numbers-v2/static/{name}", static_file_v2)
+
+    app.router.add_get("/mini/numbers-v2/assets/{name}", assets_file_v2)
 
     app.router.add_get("/mini/numbers/api/bootstrap", bootstrap)
 
