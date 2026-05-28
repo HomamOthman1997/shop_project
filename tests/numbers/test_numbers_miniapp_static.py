@@ -117,7 +117,11 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "TEMP_NOT_LISTED_SERVICE_KEY" in app
     assert "function servicePickerRows()" in app
     assert "function notListedServiceRow(query)" in app
+    assert "function fetchPricePayload(service)" in app
+    assert "function shouldTryNotListedFallback()" in app
     assert "function resetBuySelections" in app
+    assert "state.fallbackOffer" in app
+    assert "fallback_service" in app
     assert "hiddenServiceNeedles" in app
     assert "state.mode === \"temp\" && query" in app
     assert "button.append(document.createTextNode" in app

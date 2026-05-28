@@ -16,6 +16,7 @@ const state = {
   suggestionsLoading: false,
   clientActions: {},
   offers: [],
+  fallbackOffer: null,
   hasCheckedPrices: false,
   orders: [],
   account: null,
@@ -490,10 +491,10 @@ function renderOffers() {
       providerEl.className = "offer-provider";
       providerEl.innerHTML = `<strong>${provider.id}</strong><small>${row.option_label || provider.name}</small>`;
 
-      if (row.recommended || index === 0 || row.available === false) {
+      if (row.fallback_service || row.recommended || index === 0 || row.available === false) {
         const tag = document.createElement("em");
         tag.className = `offer-tag${row.available === false ? " unavailable" : ""}`;
-        tag.textContent = row.available === false ? "غير متاح" : "مقترح";
+        tag.textContent = row.available === false ? "غير متاح" : (row.fallback_service ? "Service Not Listed" : "مقترح");
         providerEl.append(tag);
       }
       card.append(buy, rate, price, providerEl);
@@ -627,7 +628,24 @@ async function loadCountrySuggestions() {
 
 function clearPriceResults() {
   state.offers = [];
+  state.fallbackOffer = null;
   state.hasCheckedPrices = false;
+}
+
+async function fetchPricePayload(service) {
+  const action = actionFor("prices", "/mini/numbers/api/prices");
+  const qs = new URLSearchParams({
+    mode: state.mode,
+    service,
+    country: state.mode === "voice" ? "1" : (state.country === "any" ? "none" : state.country),
+    state: state.country === "1" ? state.stateCode : "none",
+    _: String(Date.now()),
+  });
+  return api(`${action.endpoint}?${qs}`);
+}
+
+function shouldTryNotListedFallback() {
+  return state.mode === "temp" && state.service && state.service !== TEMP_NOT_LISTED_SERVICE_KEY;
 }
 
 async function checkPrices() {
@@ -644,21 +662,31 @@ async function checkPrices() {
   setBusy(els.checkPrices, true);
   state.loading = true;
   state.hasCheckedPrices = true;
+  state.fallbackOffer = null;
   els.liveLine.textContent = "جاري فحص المزودين";
   state.offers = [];
   renderOffers();
   try {
-    const action = actionFor("prices", "/mini/numbers/api/prices");
-    const qs = new URLSearchParams({
-      mode: state.mode,
-      service: state.service,
-      country: state.mode === "voice" ? "1" : (state.country === "any" ? "none" : state.country),
-      state: state.country === "1" ? state.stateCode : "none",
-      _: String(Date.now()),
-    });
-    const payload = await api(`${action.endpoint}?${qs}`);
+    const payload = await fetchPricePayload(state.service);
     state.offers = payload.providers || [];
-    els.liveLine.textContent = state.offers.length ? "أسعار محدثة · quote TTL 5 دقائق" : (payload.message || "لا توجد عروض متاحة");
+    if (!state.offers.length && shouldTryNotListedFallback()) {
+      const fallbackPayload = await fetchPricePayload(TEMP_NOT_LISTED_SERVICE_KEY);
+      const fallbackProviders = fallbackPayload.providers || [];
+      if (fallbackProviders.length) {
+        state.fallbackOffer = {
+          requestedService: serviceLabel(state.service),
+          service: { ...(fallbackPayload.service || {}), key: TEMP_NOT_LISTED_SERVICE_KEY, label: serviceLabel(TEMP_NOT_LISTED_SERVICE_KEY) },
+        };
+        state.offers = fallbackProviders.map((row) => ({
+          ...row,
+          fallback_service: true,
+          service_label: state.fallbackOffer.service.label,
+        }));
+      }
+    }
+    els.liveLine.textContent = state.offers.length
+      ? (state.fallbackOffer ? "لم تتوفر أرقام للخدمة المحددة · هذه أسعار Service Not Listed كبديل" : "أسعار محدثة · quote TTL 5 دقائق")
+      : (payload.message || "لا توجد عروض متاحة");
   } catch (error) {
     els.liveLine.textContent = friendlyError(error);
     showToast(friendlyError(error), "danger");
@@ -672,12 +700,14 @@ async function checkPrices() {
 function openConfirm(row) {
   state.pendingPurchase = row;
   const provider = formatProvider(row, normalizedOffers().indexOf(row));
+  const serviceTitle = row.fallback_service ? (row.service_label || serviceLabel(TEMP_NOT_LISTED_SERVICE_KEY)) : serviceLabel(state.service);
   els.confirmBody.replaceChildren();
   const card = document.createElement("div");
   card.className = "info-card";
   card.innerHTML = `
-    <h3>${serviceLabel(state.service)}</h3>
+    <h3>${serviceTitle}</h3>
     <div class="meta-grid">
+      ${row.fallback_service ? `<div><span>بديل عن</span><strong>${state.fallbackOffer?.requestedService || serviceLabel(state.service)}</strong></div>` : ""}
       <div><span>المزود</span><strong>${provider.id} · ${provider.name}</strong></div>
       <div><span>السعر</span><strong>${row.price_label || "$0.00"}</strong></div>
       <div><span>النجاح</span><strong>${row.success_rate || "غير محدد"}</strong></div>
