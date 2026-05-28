@@ -119,6 +119,9 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function notListedServiceRow(query)" in app
     assert "function resetBuySelections" in app
     assert "hiddenServiceNeedles" in app
+    assert "state.mode === \"temp\" && query" in app
+    assert "button.append(document.createTextNode" in app
+    assert "requests.slice(0, 4)" not in app
     assert "suggestedRegionIsos" in app
     assert "function isFastSuggestionCountry" in app
     assert "state.country === \"none\"" in app

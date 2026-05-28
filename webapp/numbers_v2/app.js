@@ -291,7 +291,7 @@ function notListedServiceRow(query) {
   return {
     key: TEMP_NOT_LISTED_SERVICE_KEY,
     title: "Service Not Listed",
-    sub: query ? `"${query}" - fallback service` : "Fallback service",
+    sub: query ? `"${query}" - اخترها إذا لم تجد أرقاما للخدمة المطلوبة` : "خدمة احتياطية لها سعر عند مزودين محددين",
     special: true,
   };
 }
@@ -535,15 +535,23 @@ function openPicker(kind) {
 function renderPickerOptions() {
   const query = els.drawerSearch.value.trim().toLowerCase();
   let rows = (state.picker?.rows || []).filter((row) => `${row.title} ${row.sub}`.toLowerCase().includes(query));
-  if (state.picker?.kind === "service" && state.mode !== "voice" && query && !rows.length) {
-    rows = [notListedServiceRow(els.drawerSearch.value.trim())];
+  if (state.picker?.kind === "service" && state.mode === "temp" && query) {
+    rows = [
+      ...rows.filter((row) => row.key !== TEMP_NOT_LISTED_SERVICE_KEY),
+      notListedServiceRow(els.drawerSearch.value.trim()),
+    ];
   }
   els.drawerList.replaceChildren(
     ...rows.slice(0, 80).map((row) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = `picker-option${row.suggested || row.special ? " suggested" : ""}`;
-      button.innerHTML = `${row.title}${row.sub ? `<small>${row.sub}</small>` : ""}`;
+      button.append(document.createTextNode(row.title || ""));
+      if (row.sub) {
+        const sub = document.createElement("small");
+        sub.textContent = row.sub;
+        button.append(sub);
+      }
       button.addEventListener("click", () => {
         const selectedKind = state.picker?.kind;
         state.picker.onSelect(row.key);
@@ -1032,14 +1040,12 @@ function renderRecharge() {
     return;
   }
   const methods = payload.methods || [];
-  const requests = payload.requests || [];
   renderRechargeForm(methods);
   const methodsGrid = document.createElement("section");
   methodsGrid.className = "recharge-method-grid";
   methodsGrid.append(...methods.map(renderRechargeMethodCard));
   const cards = [
     ...(methods.length ? [methodsGrid] : []),
-    ...requests.slice(0, 4).map((request) => infoCard(request.status_label || "طلب شحن", request.credits_label || request.paid_label || "-")),
   ];
   els.rechargeContent.replaceChildren(...(cards.length ? cards : [emptyState("لا توجد طرق شحن مفعلة حالياً")]));
 }
