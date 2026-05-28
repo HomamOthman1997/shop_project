@@ -599,6 +599,11 @@ body:not(.app-booting) .boot-screen { display: none; }
   margin: 0;
   line-height: 1.55;
 }
+.recharge-method-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
 .recharge-method-card {
   width: 100%;
   display: grid;
@@ -611,10 +616,8 @@ body:not(.app-booting) .boot-screen { display: none; }
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
 }
 .method-main {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  gap: 6px;
 }
 .method-main h3 {
   margin-bottom: 3px;
@@ -627,13 +630,13 @@ body:not(.app-booting) .boot-screen { display: none; }
 }
 .method-main > strong {
   color: var(--accent);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.35;
-  text-align: left;
+  text-align: right;
 }
 .method-price-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 .method-price-grid div {
@@ -641,10 +644,6 @@ body:not(.app-booting) .boot-screen { display: none; }
   padding: 9px 10px;
   border-radius: 8px;
   background: var(--surface-soft);
-}
-.method-price-grid div:first-child,
-.method-price-grid div:last-child {
-  grid-column: 1 / -1;
 }
 .method-price-grid span {
   display: block;
@@ -658,6 +657,49 @@ body:not(.app-booting) .boot-screen { display: none; }
   overflow-wrap: anywhere;
   color: var(--text);
   font-size: 12px;
+}
+.account-activity {
+  display: grid;
+  gap: 8px;
+}
+.account-activity > h3 {
+  margin: 4px 0 2px;
+  font-size: 15px;
+}
+.activity-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.activity-row strong,
+.activity-row span {
+  display: block;
+}
+.activity-row strong {
+  font-size: 12px;
+}
+.activity-row span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.activity-row b {
+  color: var(--accent);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.activity-row.negative b {
+  color: var(--danger);
+}
+@media (max-width: 340px) {
+  .recharge-method-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .order-card {
   position: relative;

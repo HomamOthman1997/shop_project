@@ -107,6 +107,11 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function rechargeRateLabel(method)" in app
     assert "function renderRechargeMethodCard(method)" in app
     assert "recharge-method-card" in css
+    assert "recharge-method-grid" in css
+    assert "أي دولة" in app
+    assert "function renderAccountActivity(item)" in app
+    assert "quick-actions" not in app
+    assert "account-activity" in css
     assert 'actionFor("country_suggestions"' in app
     assert "phantom_numbers_v2_prefs" in app
     assert "suggestedRegionIsos" in app

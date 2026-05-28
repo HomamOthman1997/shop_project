@@ -282,6 +282,7 @@ function serviceLabel(key) {
 
 function countryLabel(code) {
   if (String(code) === "1") return "الولايات المتحدة · US";
+  if (String(code) === "any") return "أي دولة";
   if (String(code) === "none") return "اختر الدولة";
   const row = state.countries.find((item) => String(item.code) === String(code));
   return row ? `${row.name} · ${row.iso || row.code}` : "اختر الدولة";
@@ -540,6 +541,7 @@ function closePicker() {
 
 function countryPickerRows() {
   const seen = new Set();
+  const anyCountry = { key: "any", title: "أي دولة", sub: "بدون تحديد دولة" };
   const suggestions = (state.countrySuggestions || []).map((row) => {
     const key = String(row.code || "");
     if (!isFastSuggestionCountry({ ...row, code: key })) return null;
@@ -554,7 +556,7 @@ function countryPickerRows() {
   const countries = state.countries
     .filter((row) => !seen.has(String(row.code || "")))
     .map((row) => ({ key: row.code, title: countryLabel(row.code), sub: row.price_label || "" }));
-  return [...suggestions, ...countries];
+  return [anyCountry, ...suggestions, ...countries];
 }
 
 async function loadCountrySuggestions() {
@@ -620,7 +622,7 @@ async function checkPrices() {
     const qs = new URLSearchParams({
       mode: state.mode,
       service: state.service,
-      country: state.mode === "voice" ? "1" : state.country,
+      country: state.mode === "voice" ? "1" : (state.country === "any" ? "none" : state.country),
       state: state.country === "1" ? state.stateCode : "none",
       _: String(Date.now()),
     });
@@ -899,33 +901,40 @@ function renderAccount() {
   hero.className = "account-hero";
   const activeOrders = (state.orders || []).length;
   const rechargeRequests = (state.recharge?.requests || []).length;
+  const activity = payload.recent_activity || [];
   hero.innerHTML = `
     <span>الرصيد المتاح</span>
     <strong>${payload.balance_label || "-"}</strong>
     <p>${payload.user.username ? `@${payload.user.username}` : "Telegram Mini App"}</p>
   `;
-  const actions = document.createElement("div");
-  actions.className = "quick-actions";
-  [
-    ["شراء رقم", "buy"],
-    ["طلباتي", "orders"],
-    ["شحن الرصيد", "recharge"],
-    ["الدعم", "support"],
-  ].forEach(([label, view]) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = label;
-    button.addEventListener("click", () => setView(view));
-    actions.append(button);
-  });
+  const activityList = document.createElement("section");
+  activityList.className = "account-activity";
+  activityList.innerHTML = `<h3>سجل الرصيد والعمليات</h3>`;
+  const activityRows = activity.length
+    ? activity.map(renderAccountActivity)
+    : [emptyState("لا توجد عمليات مسجلة بعد")];
+  activityList.append(...activityRows);
   els.accountContent.replaceChildren(
     hero,
-    actions,
     infoCard("الطلبات النشطة", String(activeOrders)),
     infoCard("طلبات الشحن", String(rechargeRequests)),
     infoCard("User ID", String(payload.user.id || "-")),
-    infoCard("اللغة", payload.user.language_label || payload.user.language || "-")
+    infoCard("اللغة", payload.user.language_label || payload.user.language || "-"),
+    activityList
   );
+}
+
+function renderAccountActivity(item) {
+  const row = document.createElement("article");
+  row.className = `activity-row ${Number(item.amount || 0) >= 0 ? "positive" : "negative"}`;
+  row.innerHTML = `
+    <div>
+      <strong>${item.label || item.subject || "عملية"}</strong>
+      <span>${item.created_at || ""}</span>
+    </div>
+    <b>${item.amount_label || ""}</b>
+  `;
+  return row;
 }
 
 function infoCard(title, value) {
@@ -956,32 +965,6 @@ async function loadAccount() {
   renderSupportCategories();
 }
 
-function renderRecharge() {
-  if (state.viewLoading.recharge) {
-    els.rechargeForm.classList.add("hidden");
-    els.rechargeContent.replaceChildren(...loadingStack(3));
-    return;
-  }
-  const payload = state.recharge;
-  if (!payload) {
-    els.rechargeContent.replaceChildren(emptyState("افتح التطبيق من Telegram لشحن الرصيد"));
-    return;
-  }
-  const methods = payload.methods || [];
-  const requests = payload.requests || [];
-  renderRechargeForm(methods);
-  const cards = [
-    ...methods.map((method) => {
-      const card = document.createElement("div");
-      card.className = "method-card";
-      card.innerHTML = `<h3>${method.title || method.code || "طريقة دفع"}</h3><div class="meta-grid"><div><span>التفاصيل</span><strong>${method.target || "-"}</strong></div><div><span>السعر</span><strong>${method.rate_label || "-"}</strong></div></div>`;
-      return card;
-    }),
-    ...requests.slice(0, 4).map((request) => infoCard(request.status_label || "طلب شحن", request.credits_label || request.paid_label || "-")),
-  ];
-  els.rechargeContent.replaceChildren(...(cards.length ? cards : [emptyState("لا توجد طلبات شحن سابقة")]));
-}
-
 function rechargeRateLabel(method) {
   const rate = Number(method?.per_credit ?? method?.rate ?? 0);
   const currency = method?.currency || "USD";
@@ -1004,7 +987,7 @@ function renderRechargeMethodCard(method) {
     <div class="method-price-grid">
       <div><span>سعر الكريدت</span><strong>${method.rate_label || rechargeRateLabel(method)}</strong></div>
       <div><span>العملة</span><strong>${method.currency || "USD"}</strong></div>
-      <div><span>الوجهة</span><strong>${method.target || "-"}</strong></div>
+      <div><span>عنوان الدفع</span><strong>${method.target || "-"}</strong></div>
     </div>
   `;
   card.addEventListener("click", () => {
@@ -1029,8 +1012,11 @@ function renderRecharge() {
   const methods = payload.methods || [];
   const requests = payload.requests || [];
   renderRechargeForm(methods);
+  const methodsGrid = document.createElement("section");
+  methodsGrid.className = "recharge-method-grid";
+  methodsGrid.append(...methods.map(renderRechargeMethodCard));
   const cards = [
-    ...methods.map(renderRechargeMethodCard),
+    ...(methods.length ? [methodsGrid] : []),
     ...requests.slice(0, 4).map((request) => infoCard(request.status_label || "طلب شحن", request.credits_label || request.paid_label || "-")),
   ];
   els.rechargeContent.replaceChildren(...(cards.length ? cards : [emptyState("لا توجد طرق شحن مفعلة حالياً")]));
@@ -1086,7 +1072,7 @@ function updateRechargeMethodDetails() {
   }
   els.rechargeAmount.placeholder = method.currency || "USD";
   els.rechargeMethodDetails.innerHTML = `
-    <p>الوجهة: <strong>${method.target || "-"}</strong></p>
+    <p>عنوان الدفع: <strong>${method.target || "-"}</strong></p>
     <p>السعر: <strong>${method.rate_label || "-"}</strong></p>
     ${method.instructions ? `<p>${method.instructions}</p>` : ""}
   `;
