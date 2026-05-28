@@ -86,6 +86,7 @@ def test_numbers_miniapp_provider_aliases_stay_customer_safe():
 def test_numbers_miniapp_v2_uses_server_driven_contracts():
     app = (ROOT / "webapp" / "numbers_v2" / "app.js").read_text(encoding="utf-8")
     index = (ROOT / "webapp" / "numbers_v2" / "index.html").read_text(encoding="utf-8")
+    css = (ROOT / "webapp" / "numbers_v2" / "styles.css").read_text(encoding="utf-8")
 
     assert "/mini/numbers-v2/static/app.js" in index
     assert "state.clientActions = bootstrap.client?.actions || {}" in app
@@ -100,6 +101,10 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function loadCountrySuggestions()" in app
     assert 'actionFor("country_suggestions"' in app
     assert "phantom_numbers_v2_prefs" in app
+    assert "suggestedRegionIsos" in app
+    assert "function isFastSuggestionCountry" in app
+    assert "state.country === \"none\"" in app
+    assert "state-hidden" in css
     assert "/mini/numbers/api/orders/${" not in app
     assert "miniapp-replace-" not in app
     assert "miniapp-alternate-" not in app

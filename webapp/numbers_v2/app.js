@@ -6,7 +6,7 @@ const state = {
   view: "buy",
   mode: "temp",
   service: "",
-  country: "1",
+  country: "none",
   stateCode: "none",
   bootstrap: null,
   services: [],
@@ -100,7 +100,13 @@ const providerAliases = [
 ];
 
 const aliasById = Object.fromEntries(providerAliases);
-const prefsKey = "phantom_numbers_v2_prefs";
+const prefsKey = "phantom_numbers_v2_prefs_country_required";
+const suggestedRegionIsos = new Set([
+  "US", "GB", "IE", "FR", "DE", "NL", "BE", "LU", "CH", "AT", "IT", "ES", "PT",
+  "SE", "NO", "DK", "FI", "IS", "PL", "CZ", "SK", "HU", "RO", "BG", "GR",
+  "HR", "SI", "RS", "BA", "ME", "MK", "AL", "XK", "EE", "LV", "LT", "UA",
+  "MD", "BY", "MT", "CY",
+]);
 
 function loadPrefs() {
   try {
@@ -259,15 +265,26 @@ function serviceLabel(key) {
 
 function countryLabel(code) {
   if (String(code) === "1") return "الولايات المتحدة · US";
-  if (String(code) === "none") return "أي دولة";
+  if (String(code) === "none") return "اختر الدولة";
   const row = state.countries.find((item) => String(item.code) === String(code));
-  return row ? `${row.name} · ${row.iso || row.code}` : "أي دولة";
+  return row ? `${row.name} · ${row.iso || row.code}` : "اختر الدولة";
 }
 
 function stateLabel(code) {
   if (String(code) === "none") return "أي ولاية";
   const row = state.states.find((item) => String(item.code) === String(code));
   return row?.name || "أي ولاية";
+}
+
+function countryIso(code) {
+  const row = state.countries.find((item) => String(item.code) === String(code));
+  return String(row?.iso || "").toUpperCase();
+}
+
+function isFastSuggestionCountry(row) {
+  const code = String(row?.code || "");
+  const iso = String(row?.iso || countryIso(code)).toUpperCase();
+  return suggestedRegionIsos.has(iso);
 }
 
 function setBusy(button, busy) {
@@ -314,6 +331,7 @@ function renderModes() {
         state.offers = [];
         savePrefs();
         renderBuy();
+        if (state.service && state.country === "none") loadCountrySuggestions();
       });
       return button;
     })
@@ -325,15 +343,39 @@ function renderBuy() {
   els.serviceLabel.textContent = serviceLabel(state.service);
   els.countryLabel.textContent = state.mode === "voice" ? "الولايات المتحدة · US" : countryLabel(state.country);
   els.stateLabel.textContent = state.country === "1" ? stateLabel(state.stateCode) : "غير متاح";
-  els.stateButton.disabled = state.country !== "1";
-  hideCountrySuggestions();
+  const showState = state.country === "1";
+  els.stateButton.disabled = !showState;
+  els.stateButton.classList.toggle("hidden", !showState);
+  els.countryButton.parentElement?.classList.toggle("state-hidden", !showState);
+  renderCountrySuggestions();
   renderOffers();
 }
 
-function hideCountrySuggestions() {
+function renderCountrySuggestions() {
   if (!els.countrySuggestions) return;
-  els.countrySuggestions.classList.add("hidden");
-  els.countrySuggestions.replaceChildren();
+  const rows = state.service && state.mode !== "voice" && state.country === "none"
+    ? (state.countrySuggestions || []).filter(isFastSuggestionCountry).slice(0, 6)
+    : [];
+  if (!rows.length) {
+    els.countrySuggestions.classList.add("hidden");
+    els.countrySuggestions.replaceChildren();
+    return;
+  }
+  els.countrySuggestions.classList.remove("hidden");
+  els.countrySuggestions.replaceChildren(...rows.map((row) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "suggestion-chip";
+    button.textContent = [countryLabel(row.code), row.price_label].filter(Boolean).join(" · ");
+    button.addEventListener("click", () => {
+      state.country = row.code || "none";
+      state.stateCode = state.country === "1" ? state.stateCode : "none";
+      state.offers = [];
+      savePrefs();
+      renderBuy();
+    });
+    return button;
+  }));
 }
 
 function normalizedOffers() {
@@ -464,6 +506,7 @@ function renderPickerOptions() {
         savePrefs();
         closePicker();
         renderBuy();
+        if (selectedKind === "service") loadCountrySuggestions();
       });
       return button;
     })
@@ -479,6 +522,7 @@ function countryPickerRows() {
   const seen = new Set();
   const suggestions = (state.countrySuggestions || []).map((row) => {
     const key = String(row.code || "");
+    if (!isFastSuggestionCountry({ ...row, code: key })) return null;
     seen.add(key);
     return {
       key,
@@ -486,7 +530,7 @@ function countryPickerRows() {
       sub: ["مقترح", row.price_label].filter(Boolean).join(" · "),
       suggested: true,
     };
-  });
+  }).filter(Boolean);
   const countries = state.countries
     .filter((row) => !seen.has(String(row.code || "")))
     .map((row) => ({ key: row.code, title: countryLabel(row.code), sub: row.price_label || "" }));
@@ -515,7 +559,7 @@ async function loadCountrySuggestions() {
     });
     const payload = await api(`${action.endpoint}?${qs}`, { signal: controller.signal });
     mergeActions(payload);
-    state.countrySuggestions = payload.countries || [];
+    state.countrySuggestions = (payload.countries || []).filter(isFastSuggestionCountry);
   } catch (_error) {
     state.countrySuggestions = [];
   } finally {
@@ -525,6 +569,7 @@ async function loadCountrySuggestions() {
       state.picker.rows = countryPickerRows();
       renderPickerOptions();
     }
+    renderCountrySuggestions();
   }
 }
 
@@ -532,6 +577,11 @@ async function checkPrices() {
   if (!state.service) {
     els.liveLine.textContent = "اختر خدمة أولا";
     openPicker("service");
+    return;
+  }
+  if (state.mode !== "voice" && state.country === "none") {
+    els.liveLine.textContent = "اختر الدولة أولا";
+    openPicker("country");
     return;
   }
   setBusy(els.checkPrices, true);
@@ -1129,12 +1179,13 @@ async function boot() {
   const prefs = loadPrefs();
   state.mode = prefs.mode || (defaults.mode && defaults.mode !== "none" ? defaults.mode : "temp");
   state.service = prefs.service || defaults.service || "";
-  state.country = prefs.country || (defaults.country && defaults.country !== "none" ? defaults.country : "1");
+  state.country = prefs.country || (defaults.country && defaults.country !== "none" ? defaults.country : "none");
   state.stateCode = prefs.stateCode || defaults.state || "none";
   renderBuy();
   renderNav();
   renderSupportCategories();
   renderSupportOrders();
+  if (state.service && state.country === "none") loadCountrySuggestions();
   if (headers()["X-Telegram-Init-Data"]) {
     await Promise.allSettled([loadAccount(), loadOrders()]);
   }

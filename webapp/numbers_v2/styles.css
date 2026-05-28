@@ -241,6 +241,9 @@ body:not(.app-booting) .boot-screen { display: none; }
   gap: 10px;
   margin-top: 20px;
 }
+.field-row.state-hidden {
+  grid-template-columns: 1fr;
+}
 .field[disabled] {
   opacity: 0.52;
   cursor: not-allowed;
