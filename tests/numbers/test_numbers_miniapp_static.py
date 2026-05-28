@@ -104,6 +104,9 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function loadCountrySuggestions()" in app
     assert "function openMenu()" in app
     assert "function closeMenu()" in app
+    assert "function rechargeRateLabel(method)" in app
+    assert "function renderRechargeMethodCard(method)" in app
+    assert "recharge-method-card" in css
     assert 'actionFor("country_suggestions"' in app
     assert "phantom_numbers_v2_prefs" in app
     assert "suggestedRegionIsos" in app

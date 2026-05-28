@@ -982,6 +982,60 @@ function renderRecharge() {
   els.rechargeContent.replaceChildren(...(cards.length ? cards : [emptyState("لا توجد طلبات شحن سابقة")]));
 }
 
+function rechargeRateLabel(method) {
+  const rate = Number(method?.per_credit ?? method?.rate ?? 0);
+  const currency = method?.currency || "USD";
+  if (!Number.isFinite(rate) || rate <= 0) return "-";
+  return `1 credit = ${rate.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${currency}`;
+}
+
+function renderRechargeMethodCard(method) {
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = `method-card recharge-method-card${String(els.rechargeMethod.value || "") === String(method.code || "") ? " selected" : ""}`;
+  card.innerHTML = `
+    <div class="method-main">
+      <div>
+        <h3>${method.title || method.code || "طريقة دفع"}</h3>
+        <p>${method.currency || "USD"}</p>
+      </div>
+      <strong>${method.rate_label || rechargeRateLabel(method)}</strong>
+    </div>
+    <div class="method-price-grid">
+      <div><span>سعر الكريدت</span><strong>${method.rate_label || rechargeRateLabel(method)}</strong></div>
+      <div><span>العملة</span><strong>${method.currency || "USD"}</strong></div>
+      <div><span>الوجهة</span><strong>${method.target || "-"}</strong></div>
+    </div>
+  `;
+  card.addEventListener("click", () => {
+    els.rechargeMethod.value = method.code || "";
+    updateRechargeMethodDetails();
+    renderRecharge();
+  });
+  return card;
+}
+
+function renderRecharge() {
+  if (state.viewLoading.recharge) {
+    els.rechargeForm.classList.add("hidden");
+    els.rechargeContent.replaceChildren(...loadingStack(3));
+    return;
+  }
+  const payload = state.recharge;
+  if (!payload) {
+    els.rechargeContent.replaceChildren(emptyState("افتح التطبيق من Telegram لشحن الرصيد"));
+    return;
+  }
+  const methods = payload.methods || [];
+  const requests = payload.requests || [];
+  renderRechargeForm(methods);
+  const cards = [
+    ...methods.map(renderRechargeMethodCard),
+    ...requests.slice(0, 4).map((request) => infoCard(request.status_label || "طلب شحن", request.credits_label || request.paid_label || "-")),
+  ];
+  els.rechargeContent.replaceChildren(...(cards.length ? cards : [emptyState("لا توجد طرق شحن مفعلة حالياً")]));
+}
+
 async function loadRecharge() {
   setViewLoading("recharge", true);
   renderRecharge();
@@ -1011,7 +1065,7 @@ function renderRechargeForm(methods = []) {
     ...methods.map((method) => {
       const option = document.createElement("option");
       option.value = method.code || "";
-      option.textContent = method.title || method.code || "-";
+      option.textContent = `${method.title || method.code || "-"} · ${method.rate_label || rechargeRateLabel(method)}`;
       option.selected = option.value === current;
       return option;
     })

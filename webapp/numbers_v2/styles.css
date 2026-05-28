@@ -599,6 +599,66 @@ body:not(.app-booting) .boot-screen { display: none; }
   margin: 0;
   line-height: 1.55;
 }
+.recharge-method-card {
+  width: 100%;
+  display: grid;
+  gap: 12px;
+  color: var(--text);
+  text-align: right;
+}
+.recharge-method-card.selected {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+.method-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.method-main h3 {
+  margin-bottom: 3px;
+}
+.method-main p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+.method-main > strong {
+  color: var(--accent);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+}
+.method-price-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.method-price-grid div {
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+.method-price-grid div:first-child,
+.method-price-grid div:last-child {
+  grid-column: 1 / -1;
+}
+.method-price-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+}
+.method-price-grid strong {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 12px;
+}
 .order-card {
   position: relative;
   overflow: hidden;
