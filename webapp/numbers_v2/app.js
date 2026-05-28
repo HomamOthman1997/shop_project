@@ -16,6 +16,7 @@ const state = {
   suggestionsLoading: false,
   clientActions: {},
   offers: [],
+  hasCheckedPrices: false,
   orders: [],
   account: null,
   recharge: null,
@@ -32,6 +33,10 @@ const els = {
   boot: $("bootScreen"),
   balance: $("balanceLabel"),
   balanceButton: $("balanceButton"),
+  menuButton: $("menuButton"),
+  menuDrawer: $("menuDrawer"),
+  menuClose: $("menuClose"),
+  menuList: $("menuList"),
   modeSegments: $("modeSegments"),
   serviceButton: $("serviceButton"),
   serviceLabel: $("serviceLabel"),
@@ -328,7 +333,7 @@ function renderModes() {
         state.mode = mode.key;
         if (state.mode === "voice") state.country = "1";
         state.countrySuggestions = [];
-        state.offers = [];
+        clearPriceResults();
         savePrefs();
         renderBuy();
         if (state.service && state.country === "none") loadCountrySuggestions();
@@ -370,7 +375,7 @@ function renderCountrySuggestions() {
     button.addEventListener("click", () => {
       state.country = row.code || "none";
       state.stateCode = state.country === "1" ? state.stateCode : "none";
-      state.offers = [];
+      clearPriceResults();
       savePrefs();
       renderBuy();
     });
@@ -401,7 +406,7 @@ function normalizedOffers() {
 
 function renderOffers() {
   const rows = normalizedOffers();
-  els.offersCount.textContent = `${rows.length} عروض`;
+  els.offersCount.textContent = state.loading ? "جاري الفحص" : `${rows.length} عروض`;
   if (state.loading) {
     els.offerList.replaceChildren(...Array.from({ length: 4 }, () => {
       const card = document.createElement("article");
@@ -412,7 +417,10 @@ function renderOffers() {
     return;
   }
   if (!rows.length) {
-    const empty = emptyState(state.service ? "افحص الأسعار لعرض المزودين المتاحين" : "اختر خدمة ثم افحص الأسعار");
+    const emptyMessage = !state.hasCheckedPrices
+      ? (state.service ? "اختر الدولة ثم افحص الأسعار" : "اختر خدمة ثم دولة لعرض الأسعار")
+      : "لا توجد عروض متاحة لهذه الخيارات";
+    const empty = emptyState(emptyMessage);
     if (!state.service) {
       const button = document.createElement("button");
       button.className = "inline-action";
@@ -467,19 +475,19 @@ function openPicker(kind) {
       kind: "service",
       title: "اختر الخدمة",
       rows: state.services.map((row) => ({ key: row.key || row.code, title: row.label || row.name || row.key, sub: row.category || "" })),
-      onSelect: (key) => { state.service = key; state.offers = []; },
+      onSelect: (key) => { state.service = key; clearPriceResults(); },
     },
     country: {
       kind: "country",
       title: "اختر الدولة",
       rows: countryPickerRows(),
-      onSelect: (key) => { state.country = key; if (key !== "1") state.stateCode = "none"; state.offers = []; },
+      onSelect: (key) => { state.country = key; if (key !== "1") state.stateCode = "none"; clearPriceResults(); },
     },
     state: {
       kind: "state",
       title: "اختر الولاية",
       rows: state.states.map((row) => ({ key: row.code, title: row.name, sub: row.code })),
-      onSelect: (key) => { state.stateCode = key; state.offers = []; },
+      onSelect: (key) => { state.stateCode = key; clearPriceResults(); },
     },
   };
   state.picker = configs[kind];
@@ -573,6 +581,11 @@ async function loadCountrySuggestions() {
   }
 }
 
+function clearPriceResults() {
+  state.offers = [];
+  state.hasCheckedPrices = false;
+}
+
 async function checkPrices() {
   if (!state.service) {
     els.liveLine.textContent = "اختر خدمة أولا";
@@ -586,6 +599,7 @@ async function checkPrices() {
   }
   setBusy(els.checkPrices, true);
   state.loading = true;
+  state.hasCheckedPrices = true;
   els.liveLine.textContent = "جاري فحص المزودين";
   state.offers = [];
   renderOffers();
@@ -1076,17 +1090,29 @@ function renderNav() {
     { key: "support", label_key: "support", icon: "help" },
   ];
   const iconMap = { buy: "bag", orders: "list", recharge: "card", account: "user", support: "help" };
-  els.bottomNav.replaceChildren(
+  const navTarget = els.menuList || els.bottomNav;
+  if (!navTarget) return;
+  navTarget.replaceChildren(
     ...tabs.filter((tab) => tab.enabled !== false).map((tab) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `nav-item${state.view === tab.key ? " active" : ""}`;
+      button.className = `menu-item${state.view === tab.key ? " active" : ""}`;
       button.dataset.view = tab.key;
       const icon = iconMap[tab.icon] || iconMap[tab.key] || tab.icon || tab.key;
       button.innerHTML = `<span class="nav-icon ${icon}"></span><span>${tab.label || labelForKey(tab.label_key || tab.key)}</span>`;
       return button;
     })
   );
+}
+
+function openMenu() {
+  els.menuDrawer?.classList.remove("hidden");
+  els.menuButton?.setAttribute("aria-expanded", "true");
+}
+
+function closeMenu() {
+  els.menuDrawer?.classList.add("hidden");
+  els.menuButton?.setAttribute("aria-expanded", "false");
 }
 
 function renderSupportOrders() {
@@ -1156,7 +1182,8 @@ async function submitSupport(event) {
 function setView(view) {
   state.view = view;
   document.querySelectorAll(".view").forEach((el) => el.classList.toggle("active", el.dataset.view === view));
-  document.querySelectorAll(".nav-item").forEach((el) => el.classList.toggle("active", el.dataset.view === view));
+  document.querySelectorAll(".nav-item, .menu-item").forEach((el) => el.classList.toggle("active", el.dataset.view === view));
+  closeMenu();
   if (view === "orders") loadOrders();
   if (view === "account") loadAccount();
   if (view === "recharge") loadRecharge();
@@ -1209,8 +1236,13 @@ els.confirmPurchase.addEventListener("click", confirmPurchase);
 els.confirmDrawer.addEventListener("click", (event) => {
   if (event.target === els.confirmDrawer) closeConfirm();
 });
-els.bottomNav.addEventListener("click", (event) => {
-  const button = event.target.closest(".nav-item");
+els.menuButton?.addEventListener("click", openMenu);
+els.menuClose?.addEventListener("click", closeMenu);
+els.menuDrawer?.addEventListener("click", (event) => {
+  if (event.target === els.menuDrawer) closeMenu();
+});
+(els.menuList || els.bottomNav)?.addEventListener("click", (event) => {
+  const button = event.target.closest(".menu-item, .nav-item");
   if (button?.dataset.view) setView(button.dataset.view);
 });
 els.refreshOrders.addEventListener("click", loadOrders);

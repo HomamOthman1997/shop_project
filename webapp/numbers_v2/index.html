@@ -16,7 +16,7 @@
 
     <main class="mini-app" id="app">
       <header class="app-header">
-        <button class="icon-button menu-button" type="button" aria-label="القائمة">
+        <button class="icon-button menu-button" id="menuButton" type="button" aria-label="القائمة" aria-expanded="false" aria-controls="menuDrawer">
           <span></span><span></span><span></span>
         </button>
         <div class="brand">
@@ -120,14 +120,17 @@
         </form>
       </section>
 
-      <nav class="bottom-nav" id="bottomNav" aria-label="التنقل">
-        <button class="nav-item active" type="button" data-view="buy"><span class="nav-icon bag"></span><span>شراء</span></button>
-        <button class="nav-item" type="button" data-view="orders"><span class="nav-icon list"></span><span>طلباتي</span></button>
-        <button class="nav-item" type="button" data-view="recharge"><span class="nav-icon card"></span><span>شحن</span></button>
-        <button class="nav-item" type="button" data-view="account"><span class="nav-icon user"></span><span>حسابي</span></button>
-        <button class="nav-item" type="button" data-view="support"><span class="nav-icon help"></span><span>الدعم</span></button>
-      </nav>
     </main>
+
+    <div class="drawer menu-drawer hidden" id="menuDrawer" aria-live="polite">
+      <div class="drawer-card menu-card">
+        <header>
+          <h3>القائمة</h3>
+          <button class="icon-button close-button" id="menuClose" type="button" aria-label="إغلاق">×</button>
+        </header>
+        <div class="menu-list" id="menuList"></div>
+      </div>
+    </div>
 
     <div class="drawer hidden" id="pickerDrawer" aria-live="polite">
       <div class="drawer-card">

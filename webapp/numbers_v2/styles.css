@@ -52,7 +52,7 @@ body:not(.app-booting) .boot-screen { display: none; }
   max-width: 390px;
   min-height: 100vh;
   margin: 0 auto;
-  padding: 0 14px calc(92px + env(safe-area-inset-bottom));
+  padding: 0 14px calc(22px + env(safe-area-inset-bottom));
   background: var(--bg);
 }
 
@@ -64,9 +64,9 @@ body:not(.app-booting) .boot-screen { display: none; }
   grid-template-columns: 28px minmax(0, 1fr) 96px;
   align-items: center;
   gap: 12px;
-  min-height: 88px;
+  min-height: 72px;
   margin: 0 -14px;
-  padding: max(26px, env(safe-area-inset-top)) 16px 8px;
+  padding: max(14px, env(safe-area-inset-top)) 16px 10px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--bg) 94%, transparent);
   backdrop-filter: blur(18px);
@@ -762,6 +762,46 @@ body:not(.app-booting) .boot-screen { display: none; }
 .drawer-card h3 { margin: 0; font-size: 16px; font-weight: 950; }
 .close-button { font-size: 24px; line-height: 1; }
 .drawer-card .search-input { margin: 0 14px 10px; width: calc(100% - 28px); }
+.menu-drawer {
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: calc(58px + env(safe-area-inset-top)) 14px 0;
+}
+.menu-drawer .drawer-card {
+  width: min(278px, calc(100vw - 28px));
+  max-height: none;
+  margin-right: auto;
+  border-radius: 14px;
+}
+.menu-list {
+  display: grid;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+.menu-item {
+  width: 100%;
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 850;
+  text-align: right;
+}
+.menu-item.active {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent);
+}
+.menu-item .nav-icon {
+  width: 22px;
+  height: 22px;
+}
 .picker-list {
   max-height: 54vh;
   overflow: auto;
@@ -798,7 +838,7 @@ body:not(.app-booting) .boot-screen { display: none; }
 .toast {
   position: fixed;
   right: max(14px, calc((100vw - 390px) / 2 + 14px));
-  bottom: calc(84px + env(safe-area-inset-bottom));
+  bottom: calc(18px + env(safe-area-inset-bottom));
   left: max(14px, calc((100vw - 390px) / 2 + 14px));
   z-index: 90;
   min-height: 42px;
