@@ -641,7 +641,7 @@ async function fetchPricePayload(service) {
     state: state.country === "1" ? state.stateCode : "none",
     _: String(Date.now()),
   });
-  return api(`${action.endpoint}?${qs}`);
+  return api(`${action.endpoint}?${qs}`, { timeoutMs: 22000 });
 }
 
 function shouldTryNotListedFallback() {

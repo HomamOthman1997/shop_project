@@ -185,6 +185,10 @@ from services.numbers.manager import (
 
     PROVIDERS,
 
+    TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES,
+
+    TEMP_NOT_LISTED_SERVICE_KEY,
+
     finish_rental_from_provider,
 
     get_all_prices,
@@ -252,9 +256,15 @@ _TEMP_PRICE_SCREEN_PROVIDER_CODES = (
     "pvapins",
 )
 
+_TEMP_NOT_LISTED_PRICE_PROVIDER_CODES = tuple(TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES)
+
 _MAX_PRICE_ROWS = 16
 
 _HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
+
+
+def _is_temp_not_listed_service(service: str | None) -> bool:
+    return str(service or "").replace("_", "").strip().lower() == TEMP_NOT_LISTED_SERVICE_KEY.replace("_", "").lower()
 
 _SUPPORT_CATEGORIES = _SHARED_SUPPORT_CATEGORIES
 
@@ -3887,6 +3897,12 @@ async def prices(request: web.Request) -> web.Response:
 
         state = "none"
 
+    temp_provider_codes = (
+        _TEMP_NOT_LISTED_PRICE_PROVIDER_CODES
+        if _is_temp_not_listed_service(service)
+        else _TEMP_PRICE_SCREEN_PROVIDER_CODES
+    )
+
     try:
 
         if mode == "rental":
@@ -3919,7 +3935,8 @@ async def prices(request: web.Request) -> web.Response:
                     state,
                     ignore_balance=True,
                     with_success_rates=False,
-                    provider_codes=_TEMP_PRICE_SCREEN_PROVIDER_CODES,
+                    provider_codes=temp_provider_codes,
+                    soft_timeout_sec=_PRICE_SOFT_TIMEOUT_SEC,
                 ),
 
                 timeout=_PRICE_TIMEOUT_SEC,

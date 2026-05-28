@@ -125,13 +125,22 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
 async def test_numbers_prices_endpoint_skips_blocking_success_rates(monkeypatch):
     calls = {}
 
-    async def fake_get_all_prices(service, country, state, ignore_balance=False, with_success_rates=True, provider_codes=None):
+    async def fake_get_all_prices(
+        service,
+        country,
+        state,
+        ignore_balance=False,
+        with_success_rates=True,
+        provider_codes=None,
+        soft_timeout_sec=None,
+    ):
         calls["service"] = service
         calls["country"] = country
         calls["state"] = state
         calls["ignore_balance"] = ignore_balance
         calls["with_success_rates"] = with_success_rates
         calls["provider_codes"] = tuple(provider_codes or ())
+        calls["soft_timeout_sec"] = soft_timeout_sec
         return {
             "textverified": {
                 "price": 0.44,
@@ -156,8 +165,48 @@ async def test_numbers_prices_endpoint_skips_blocking_success_rates(monkeypatch)
         "ignore_balance": True,
         "with_success_rates": False,
         "provider_codes": miniapp._TEMP_PRICE_SCREEN_PROVIDER_CODES,
+        "soft_timeout_sec": miniapp._PRICE_SOFT_TIMEOUT_SEC,
     }
     assert payload["providers"][0]["success_rate"] == "91%"
+
+
+@pytest.mark.asyncio
+async def test_numbers_prices_endpoint_limits_not_listed_providers(monkeypatch):
+    calls = {}
+
+    async def fake_get_all_prices(
+        service,
+        country,
+        state,
+        ignore_balance=False,
+        with_success_rates=True,
+        provider_codes=None,
+        soft_timeout_sec=None,
+    ):
+        calls["service"] = service
+        calls["provider_codes"] = tuple(provider_codes or ())
+        calls["soft_timeout_sec"] = soft_timeout_sec
+        return {
+            "textverified": {
+                "price": 0.55,
+                "base_price": 0.5,
+                "api_service_name": "servicenotlisted",
+                "available_for_buy": True,
+            }
+        }
+
+    monkeypatch.setattr(miniapp, "get_all_prices", fake_get_all_prices)
+    request = make_mocked_request("GET", "/mini/numbers/api/prices?mode=temp&service=not_listed_generic&country=1&state=none")
+
+    response = await miniapp.prices(request)
+    payload = json.loads(response.text)
+
+    assert calls == {
+        "service": "notlistedgeneric",
+        "provider_codes": miniapp._TEMP_NOT_LISTED_PRICE_PROVIDER_CODES,
+        "soft_timeout_sec": miniapp._PRICE_SOFT_TIMEOUT_SEC,
+    }
+    assert payload["providers"][0]["price_label"] == "$0.55"
 
 
 def test_numbers_account_activity_payload_formats_ledger_rows():
