@@ -1895,6 +1895,8 @@ def test_register_numbers_routes_adds_public_endpoints():
     routes = {(route.method, route.resource.canonical) for route in app.router.routes()}
     assert ("GET", "/mini/numbers") in routes
     assert ("GET", "/mini/numbers/static/{name}") in routes
+    assert ("GET", "/mini/numbers-v2") in routes
+    assert ("GET", "/mini/numbers-v2/static/{name}") in routes
     assert ("GET", "/mini/numbers/api/bootstrap") in routes
     assert ("GET", "/mini/numbers/api/country-suggestions") in routes
     assert ("GET", "/mini/numbers/api/account") in routes

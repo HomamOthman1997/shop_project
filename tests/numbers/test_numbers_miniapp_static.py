@@ -81,3 +81,25 @@ def test_numbers_miniapp_provider_aliases_stay_customer_safe():
     assert "row.location_tag && !isRecommendationTag(row.location_tag)" in app
     assert '{ code: "BR", name: "BRAVO" }' not in app
     assert '{ code: "HT", name: "HOTEL" }' not in app
+
+
+def test_numbers_miniapp_v2_uses_server_driven_contracts():
+    app = (ROOT / "webapp" / "numbers_v2" / "app.js").read_text(encoding="utf-8")
+    index = (ROOT / "webapp" / "numbers_v2" / "index.html").read_text(encoding="utf-8")
+
+    assert "/mini/numbers-v2/static/app.js" in index
+    assert "state.clientActions = bootstrap.client?.actions || {}" in app
+    assert "state.bootstrap?.client?.tabs" in app
+    assert "row.purchase_action || actionFor" in app
+    assert "const action = order.actions?.[key]" in app
+    assert 'id="orderFilters"' in index
+    assert "function renderOrderFilters()" in app
+    assert "function orderBucket(order)" in app
+    assert "state.orderFilter" in app
+    assert 'id="countrySuggestions"' in index
+    assert "function loadCountrySuggestions()" in app
+    assert 'actionFor("country_suggestions"' in app
+    assert "phantom_numbers_v2_prefs" in app
+    assert "/mini/numbers/api/orders/${" not in app
+    assert "miniapp-replace-" not in app
+    assert "miniapp-alternate-" not in app

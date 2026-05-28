@@ -225,6 +225,8 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 _STATIC = _ROOT / "webapp" / "numbers"
 
+_STATIC_V2 = _ROOT / "webapp" / "numbers_v2"
+
 _NO_STORE_HEADERS = {
 
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
@@ -3536,6 +3538,10 @@ async def index(_request: web.Request) -> web.Response:
 
     return web.FileResponse(_STATIC / "index.html", headers=dict(_NO_STORE_HEADERS))
 
+async def index_v2(_request: web.Request) -> web.Response:
+
+    return web.FileResponse(_STATIC_V2 / "index.html", headers=dict(_NO_STORE_HEADERS))
+
 async def static_file(request: web.Request) -> web.Response:
 
     name = str(request.match_info.get("name") or "")
@@ -3545,6 +3551,22 @@ async def static_file(request: web.Request) -> web.Response:
         raise web.HTTPNotFound()
 
     path = _STATIC / name
+
+    if not path.exists() or not path.is_file():
+
+        raise web.HTTPNotFound()
+
+    return web.FileResponse(path)
+
+async def static_file_v2(request: web.Request) -> web.Response:
+
+    name = str(request.match_info.get("name") or "")
+
+    if "/" in name or "\\" in name or not name:
+
+        raise web.HTTPNotFound()
+
+    path = _STATIC_V2 / name
 
     if not path.exists() or not path.is_file():
 
@@ -4822,6 +4844,10 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_get("/mini/numbers", index)
 
     app.router.add_get("/mini/numbers/static/{name}", static_file)
+
+    app.router.add_get("/mini/numbers-v2", index_v2)
+
+    app.router.add_get("/mini/numbers-v2/static/{name}", static_file_v2)
 
     app.router.add_get("/mini/numbers/api/bootstrap", bootstrap)
 
