@@ -54,7 +54,7 @@ def _miniapp_base_url(*keys: str) -> str:
         return ""
     if not raw.startswith(("http://", "https://")):
         raw = f"https://{raw}"
-    for suffix in ("/mini/numbers", "/mini/digital", "/mini/cardex"):
+    for suffix in ("/mini/numbers-v2", "/mini/numbers", "/mini/digital", "/mini/cardex"):
         if raw.endswith(suffix):
             raw = raw[: -len(suffix)]
             break
@@ -63,7 +63,10 @@ def _miniapp_base_url(*keys: str) -> str:
 
 def _numbers_miniapp_url() -> str:
     base = _miniapp_base_url("numbers_miniapp_public_url", "digital_products_miniapp_public_url")
-    return f"{base}/mini/numbers" if base else ""
+    path = str(getattr(settings, "numbers_miniapp_path", "/mini/numbers-v2") or "/mini/numbers-v2").strip()
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return f"{base}{path}" if base else ""
 
 
 def numbers_miniapp_url() -> str:

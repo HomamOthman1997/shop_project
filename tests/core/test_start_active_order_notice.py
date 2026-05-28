@@ -55,7 +55,7 @@ async def test_notify_active_temp_order_message_does_not_reference_missing_butto
     monkeypatch.setattr(start, "_has_active_rental_order", _fake_has_rental)
     monkeypatch.setattr(start, "_should_show_active_numbers_notice", _fake_show_notice)
     monkeypatch.setattr(start.settings, "numbers_miniapp_enabled", True, raising=False)
-    monkeypatch.setattr(start, "numbers_miniapp_url", lambda: "https://numbers.example.com/mini/numbers")
+    monkeypatch.setattr(start, "numbers_miniapp_url", lambda: "https://numbers.example.com/mini/numbers-v2")
 
     message = _DummyMessage()
     await start._notify_active_temp_order_if_any(message, "en")
@@ -65,7 +65,7 @@ async def test_notify_active_temp_order_message_does_not_reference_missing_butto
     assert "Use the buttons below" not in text
     assert "Tap Numbers below" in text
     assert reply_markup.inline_keyboard[0][0].callback_data is None
-    assert reply_markup.inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"
+    assert reply_markup.inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers-v2"
 
 
 @pytest.mark.asyncio
@@ -154,7 +154,7 @@ async def test_open_numbers_start_menu_shows_miniapp_inline_menu_without_number_
     assert len(message.answers) == 2
     assert message.answers[0][1].__class__.__name__ == "ReplyKeyboardRemove"
     assert message.answers[1][0] == "Menu"
-    assert message.answers[1][1].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"
+    assert message.answers[1][1].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers-v2"
     assert [row[0].callback_data for row in message.answers[1][1].inline_keyboard[1:]] == [
         "uset:open",
         "uset:recharge",
@@ -231,7 +231,7 @@ async def test_numbers_bot_cancel_returns_to_miniapp_inline_menu(monkeypatch):
     assert message.stickers == []
     assert len(message.answers) == 2
     assert message.answers[0][1].__class__.__name__ == "ReplyKeyboardRemove"
-    assert message.answers[1][1].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"
+    assert message.answers[1][1].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers-v2"
 
 
 @pytest.mark.asyncio
@@ -298,7 +298,7 @@ async def test_stale_number_type_callback_returns_to_miniapp_menu(monkeypatch):
     assert state.state is None
     assert len(callback.message.answers) == 2
     assert callback.message.answers[0][1].__class__.__name__ == "ReplyKeyboardRemove"
-    assert callback.message.answers[1][1].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"
+    assert callback.message.answers[1][1].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers-v2"
 
 
 @pytest.mark.asyncio
@@ -329,4 +329,4 @@ async def test_empty_my_numbers_offers_miniapp_not_telegram_add(monkeypatch):
     markup = message.answers[0][1]
     callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
     assert "flow:rental:add" not in callbacks
-    assert markup.inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"
+    assert markup.inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers-v2"

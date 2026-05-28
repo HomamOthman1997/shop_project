@@ -165,6 +165,7 @@ class Settings(BaseSettings):
     digital_products_miniapp_port: int = _default_service_port()
     numbers_miniapp_enabled: bool = False
     numbers_miniapp_public_url: Optional[str] = None
+    numbers_miniapp_path: str = "/mini/numbers-v2"
     cardex_miniapp_enabled: bool = False
     cardex_miniapp_public_url: Optional[str] = None
     cardex_release_sweep_interval_sec: int = 600
