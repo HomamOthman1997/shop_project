@@ -117,7 +117,12 @@ async function apiFetch<T>(
 
 // Bootstrap - Get initial app data
 export async function fetchBootstrap(): Promise<BootstrapData> {
-  return apiFetch<BootstrapData>('/bootstrap');
+  const response = await apiFetch<BootstrapData | { ok: boolean; data: BootstrapData }>('/bootstrap');
+  // Handle both direct response and wrapped response
+  if ('data' in response && response.data) {
+    return response.data;
+  }
+  return response as BootstrapData;
 }
 
 // Country Suggestions
