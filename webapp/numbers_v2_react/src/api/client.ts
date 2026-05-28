@@ -95,6 +95,7 @@ async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const initData = getInitData();
+  console.log('[v0] API fetch:', endpoint, 'initData length:', initData.length);
   
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -102,25 +103,34 @@ async function apiFetch<T>(
     ...options.headers,
   };
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Network error' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+    console.log('[v0] API response status:', response.status);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Network error' }));
+      console.log('[v0] API error:', error);
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('[v0] API data:', data);
+    return data;
+  } catch (err) {
+    console.log('[v0] API fetch error:', err);
+    throw err;
   }
-
-  return response.json();
 }
 
 // Bootstrap - Get initial app data
 export async function fetchBootstrap(): Promise<BootstrapData> {
-  const response = await apiFetch<ApiResponse<BootstrapData> & BootstrapData>('/bootstrap');
-  if (!response.ok) {
-    throw new Error(response.message || 'Failed to load bootstrap data');
-  }
+  console.log('[v0] Fetching bootstrap from:', `${API_BASE}/bootstrap`);
+  const response = await apiFetch<BootstrapData>('/bootstrap');
+  console.log('[v0] Bootstrap response:', response);
   return response;
 }
 
