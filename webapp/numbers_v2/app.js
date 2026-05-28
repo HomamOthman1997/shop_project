@@ -227,6 +227,9 @@ function friendlyError(error) {
 
 async function api(endpoint, options = {}) {
   const requestHeaders = headers(options.headers || {});
+  const controller = new AbortController();
+  const timeoutMs = Number(options.timeoutMs || 12000);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   let body;
   if (options.body instanceof FormData) {
     body = options.body;
@@ -234,26 +237,35 @@ async function api(endpoint, options = {}) {
     requestHeaders["Content-Type"] = "application/json";
     body = JSON.stringify(options.body);
   }
-  const response = await fetch(endpoint, {
-    method: options.method || "GET",
-    headers: requestHeaders,
-    body,
-    signal: options.signal,
-  });
-  const text = await response.text();
-  let payload = {};
   try {
-    payload = text ? JSON.parse(text) : {};
-  } catch (_error) {
-    payload = { ok: false, message: text };
-  }
-  if (!response.ok) {
-    const error = new Error(payload.message || payload.error || text || `HTTP ${response.status}`);
-    error.payload = payload;
-    error.status = response.status;
+    const response = await fetch(endpoint, {
+      method: options.method || "GET",
+      headers: requestHeaders,
+      body,
+      signal: options.signal || controller.signal,
+    });
+    const text = await response.text();
+    let payload = {};
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch (_error) {
+      payload = { ok: false, message: text };
+    }
+    if (!response.ok) {
+      const error = new Error(payload.message || payload.error || text || `HTTP ${response.status}`);
+      error.payload = payload;
+      error.status = response.status;
+      throw error;
+    }
+    return payload;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("انتهت مهلة الاتصال. أعد فتح التطبيق أو حاول مرة أخرى.");
+    }
     throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
-  return payload;
 }
 
 function formatProvider(row, index) {
@@ -1251,8 +1263,14 @@ els.supportForm.addEventListener("submit", submitSupport);
 els.rechargeForm.addEventListener("submit", submitRecharge);
 els.rechargeMethod.addEventListener("change", updateRechargeMethodDetails);
 
+const bootWatchdog = window.setTimeout(() => {
+  document.body.classList.remove("app-booting");
+  els.offerList?.replaceChildren(emptyState("التطبيق تأخر بالتحميل. أعد المحاولة بعد لحظات."));
+}, 14000);
+
 boot().catch((error) => {
   els.offerList.replaceChildren(emptyState(error.message || "تعذر تحميل التطبيق"));
 }).finally(() => {
+  window.clearTimeout(bootWatchdog);
   document.body.classList.remove("app-booting");
 });
