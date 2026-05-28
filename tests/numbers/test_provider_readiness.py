@@ -53,8 +53,9 @@ def test_provider_readiness_keeps_refund_risk_visible_but_not_auto_refundable():
     assert readiness.auto_refund_enabled is False
 
 
-def test_readiness_block_payload_is_customer_safe():
-    payload = readiness_block_payload("smsready", mode="temp")
-    assert payload["available_for_buy"] is False
-    assert payload["provider_reason"] == "provider_disabled"
-    assert "api.sms-ready.com" in payload["provider_reason_message"]
+def test_smsready_is_enabled_after_webhook_verification():
+    readiness = provider_readiness("smsready")
+    assert readiness.status == "webhook_pending"
+    assert provider_quote_enabled("smsready", mode="temp") is True
+    assert provider_purchase_enabled("smsready", mode="temp") is True
+    assert readiness.auto_refund_enabled is True

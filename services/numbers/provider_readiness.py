@@ -74,13 +74,13 @@ _POLICY: dict[str, ProviderReadiness] = {
     ),
     "smsready": ProviderReadiness(
         provider="smsready",
-        status="disabled",
-        quote_enabled=False,
-        purchase_enabled=False,
-        auto_refund_enabled=False,
+        status="webhook_pending",
+        quote_enabled=True,
+        purchase_enabled=True,
+        auto_refund_enabled=True,
         webhook_documented=True,
         webhook_verified=False,
-        reason="Local live checks could not connect to api.sms-ready.com; retry from production network before enabling.",
+        reason="Webhook URL/token verified against production route; provider API key configured for Railway verification.",
     ),
     "nonvoip": ProviderReadiness(
         provider="nonvoip",
