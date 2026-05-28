@@ -119,6 +119,19 @@ TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES: dict[str, str] = {
     "pvadeals": "Website not in the list (Unknown)",
 }
 
+
+def is_temp_not_listed_service(service_key: str | None) -> bool:
+    return _normalize_key(service_key) == _normalize_key(TEMP_NOT_LISTED_SERVICE_KEY)
+
+
+def temp_not_listed_provider_codes() -> tuple[str, ...]:
+    return tuple(TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES)
+
+
+def temp_not_listed_provider_service_name(provider_code: str | None) -> str:
+    code = str(provider_code or "").strip().lower()
+    return str(TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES.get(code) or "").strip()
+
 PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {
     "herosms": {
         "supports_temp": True,
@@ -799,8 +812,8 @@ async def get_all_prices(
                     primary["__second_lane"] = dict(lanes[1])
                 return (code, primary)
 
-            if _normalize_key(service_key) == _normalize_key(TEMP_NOT_LISTED_SERVICE_KEY):
-                api_service_name = str(TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES.get(code) or "").strip()
+            if is_temp_not_listed_service(service_key):
+                api_service_name = temp_not_listed_provider_service_name(code)
                 resolution["resolved_provider_service"] = api_service_name
                 resolution["provider_reason"] = "resolved_not_listed_fallback" if api_service_name else "service_not_supported"
             else:

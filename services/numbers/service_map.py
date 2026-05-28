@@ -296,6 +296,10 @@ def get_service_entry(service_key: str) -> dict[str, Any] | None:
 
 
 def get_service_display_name(service_key: str) -> str | None:
+    canonical = resolve_canonical_service_key(service_key)
+    override = DISPLAY_NAME_OVERRIDES.get(canonical)
+    if override:
+        return str(override)
     entry = get_service_entry(service_key)
     if not entry:
         return None

@@ -146,6 +146,7 @@ DISPLAY_NAME_OVERRIDES: Dict[str, str] = {
     "hepsiburada": "Hepsiburada",
     "instagram": "Instagram / Threads",
     "openai": "OpenAI / ChatGPT",
+    "notlistedgeneric": "Service Not Listed",
     "samsclub": "Sam's Club",
     "swagbucks": "Swagbucks",
     "twitter": "Twitter / X",

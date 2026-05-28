@@ -185,8 +185,6 @@ from services.numbers.manager import (
 
     PROVIDERS,
 
-    TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES,
-
     TEMP_NOT_LISTED_SERVICE_KEY,
 
     finish_rental_from_provider,
@@ -198,6 +196,10 @@ from services.numbers.manager import (
     get_all_voice_prices,
 
     get_rental_sms_from_provider,
+
+    is_temp_not_listed_service,
+
+    temp_not_listed_provider_codes,
 
 )
 
@@ -256,15 +258,12 @@ _TEMP_PRICE_SCREEN_PROVIDER_CODES = (
     "pvapins",
 )
 
-_TEMP_NOT_LISTED_PRICE_PROVIDER_CODES = tuple(TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES)
+_TEMP_NOT_LISTED_PRICE_PROVIDER_CODES = temp_not_listed_provider_codes()
 
 _MAX_PRICE_ROWS = 16
 
 _HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
 
-
-def _is_temp_not_listed_service(service: str | None) -> bool:
-    return str(service or "").replace("_", "").strip().lower() == TEMP_NOT_LISTED_SERVICE_KEY.replace("_", "").lower()
 
 _SUPPORT_CATEGORIES = _SHARED_SUPPORT_CATEGORIES
 
@@ -3899,7 +3898,7 @@ async def prices(request: web.Request) -> web.Response:
 
     temp_provider_codes = (
         _TEMP_NOT_LISTED_PRICE_PROVIDER_CODES
-        if _is_temp_not_listed_service(service)
+        if is_temp_not_listed_service(service)
         else _TEMP_PRICE_SCREEN_PROVIDER_CODES
     )
 

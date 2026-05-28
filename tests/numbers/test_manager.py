@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, os.getcwd())
 
 from services.numbers import manager
-from services.numbers.service_map import get_provider_service_name, resolve_canonical_service_key
+from services.numbers.service_map import get_provider_service_name, get_service_display_name, resolve_canonical_service_key
 
 # we will replace manager.PROVIDERS in various tests with simple dummies
 
@@ -57,6 +57,7 @@ def test_service_name_lookup():
     assert result
     assert get_provider_service_name("telegram", "pvadeals") == "Telegram"
     assert get_provider_service_name("UNKNOWN", "foo") == "UNKNOWN"
+    assert get_service_display_name("notlistedgeneric") == "Service Not Listed"
 
 
 @pytest.mark.asyncio
@@ -310,6 +311,44 @@ async def test_get_all_prices(monkeypatch):
     res = await manager.get_all_prices('telegram', None, None)
     assert 'smspool' in res
     assert res['smspool']['price'] == 1.5375
+
+
+@pytest.mark.asyncio
+async def test_get_all_prices_maps_not_listed_names_per_provider(monkeypatch):
+    calls: dict[str, str] = {}
+
+    class RecordingProvider:
+        def __init__(self, code: str):
+            self.code = code
+
+        async def get_price(self, service, country=None, state=None):
+            calls[self.code] = str(service)
+            return {"success": True, "price": 0.25, "api_service_name": str(service)}
+
+    expected = {
+        "smspool": "817",
+        "textverified": "servicenotlisted",
+        "telabot": "Unknown",
+        "pvadeals": "Website not in the list (Unknown)",
+    }
+    for code in expected:
+        monkeypatch.setitem(manager.PROVIDERS, code, RecordingProvider(code))
+
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+
+    res = await manager.get_all_prices(
+        "notlistedgeneric",
+        "1",
+        "none",
+        ignore_balance=True,
+        provider_codes=tuple(expected),
+    )
+
+    assert manager.is_temp_not_listed_service("not_listed_generic")
+    assert manager.is_temp_not_listed_service("notlistedgeneric")
+    assert tuple(expected) == manager.temp_not_listed_provider_codes()
+    assert calls == expected
+    assert {code: row["api_service_name"] for code, row in res.items()} == expected
 
 
 @pytest.mark.asyncio
