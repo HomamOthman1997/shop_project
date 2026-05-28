@@ -75,7 +75,8 @@ class HeroSMSProvider(BaseProvider):
 
         try:
             session = await self._session()
-            async with session.get(self.base_url, params=query, timeout=20) as resp:
+            timeout_sec = 8 if action in {"getPrices", "serviceCountRent"} else 20
+            async with session.get(self.base_url, params=query, timeout=timeout_sec) as resp:
                 text = await resp.text()
                 if not text:
                     return resp.status, {}
@@ -84,6 +85,9 @@ class HeroSMSProvider(BaseProvider):
                 except Exception:
                     data = text.strip()
                 return resp.status, data
+        except TimeoutError as exc:
+            logger.warning("HeroSMS request timed out: action=%s", action)
+            return 0, {"title": "REQUEST_TIMEOUT", "details": str(exc)}
         except Exception as exc:
             logger.exception("HeroSMS request failed: action=%s", action)
             return 0, {"title": "REQUEST_ERROR", "details": str(exc)}
