@@ -329,7 +329,9 @@ async def test_get_all_prices_maps_not_listed_names_per_provider(monkeypatch):
         "smspool": "817",
         "textverified": "servicenotlisted",
         "telabot": "Unknown",
+        "herosms": "ot",
         "pvadeals": "Website not in the list (Unknown)",
+        "pvapins": "Anyother",
     }
     for code in expected:
         monkeypatch.setitem(manager.PROVIDERS, code, RecordingProvider(code))

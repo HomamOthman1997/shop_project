@@ -116,7 +116,9 @@ TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES: dict[str, str] = {
     "smspool": "817",
     "textverified": "servicenotlisted",
     "telabot": "Unknown",
+    "herosms": "ot",
     "pvadeals": "Website not in the list (Unknown)",
+    "pvapins": "Anyother",
 }
 
 
