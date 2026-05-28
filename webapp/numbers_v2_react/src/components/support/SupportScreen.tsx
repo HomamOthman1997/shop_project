@@ -13,7 +13,7 @@ export function SupportScreen() {
   });
 
   // Handle category click - opens Telegram support
-  const handleCategoryClick = (category: SupportCategory) => {
+  const handleCategoryClick = (_category: SupportCategory) => {
     haptic('selection');
     // For now, open Telegram support - in the future this could open a ticket form
     window.open('https://t.me/phantom_support', '_blank');

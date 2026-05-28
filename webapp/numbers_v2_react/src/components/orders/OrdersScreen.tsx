@@ -1,8 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { RefreshCw, ClipboardList } from 'lucide-react';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
-import { useAppStore, useOrdersStore } from '@/stores';
+import { useOrdersStore } from '@/stores';
 import { Header, ScreenContainer } from '@/components/layout';
 import { IconButton, SegmentedControl, EmptyState, toast } from '@/components/ui';
 import { OrderCardSkeleton } from '@/components/ui/Skeleton';
@@ -19,7 +19,7 @@ import {
   wakeRental,
   haptic,
 } from '@/api/client';
-import type { Order, OrderAction } from '@/types';
+import type { OrderAction } from '@/types';
 
 const modeOptions = [
   { value: 'all', label: 'الكل' },
@@ -79,26 +79,23 @@ export function OrdersScreen() {
   const handleOrderAction = useCallback(async (
     orderId: string,
     action: string,
-    actionData?: OrderAction
+    _actionData?: OrderAction
   ) => {
-    let result: Order | { messages: string[]; order: Order } | undefined;
-
     switch (action) {
       case 'second_code':
-        result = await resendCode(orderId);
+        await resendCode(orderId);
         toast.success('تم طلب كود جديد');
         break;
       case 'replace':
-        result = await replaceOrder(orderId);
+        await replaceOrder(orderId);
         toast.success('تم الاستبدال');
         break;
       case 'alternate_provider':
-        result = await alternateProvider(orderId);
+        await alternateProvider(orderId);
         toast.success('تم التبديل لمزود آخر');
         break;
       case 'rental_sms':
         const smsResult = await fetchRentalSms(orderId);
-        result = smsResult;
         if (smsResult.messages.length > 0) {
           toast.success(`${smsResult.messages.length} رسالة`);
         } else {
@@ -106,15 +103,15 @@ export function OrdersScreen() {
         }
         break;
       case 'rental_finish':
-        result = await finishRental(orderId);
+        await finishRental(orderId);
         toast.success('تم إنهاء الإيجار');
         break;
       case 'rental_renew':
-        result = await renewRental(orderId);
+        await renewRental(orderId);
         toast.success('تم التجديد');
         break;
       case 'rental_wake':
-        result = await wakeRental(orderId);
+        await wakeRental(orderId);
         toast.success('تم التنشيط');
         break;
       default:

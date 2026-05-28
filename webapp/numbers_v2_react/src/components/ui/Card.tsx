@@ -132,7 +132,7 @@ interface PullToRefreshProps {
   children: ReactNode;
 }
 
-export function PullToRefresh({ onRefresh, children }: PullToRefreshProps) {
+export function PullToRefresh({ children }: PullToRefreshProps) {
   // Simple wrapper - actual pull-to-refresh can be enhanced later
   return (
     <div className="min-h-full" onTouchEnd={() => {

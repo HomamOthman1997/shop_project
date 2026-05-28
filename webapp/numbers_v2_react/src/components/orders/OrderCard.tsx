@@ -1,4 +1,3 @@
-import { clsx } from 'clsx';
 import {
   Copy,
   RefreshCw,
@@ -9,13 +8,12 @@ import {
   Clock,
   CheckCircle,
   AlertCircle,
-  Loader2,
   Phone,
   Download,
   StickyNote,
 } from 'lucide-react';
 import { useState } from 'react';
-import { Button, IconButton, Badge, toast, Modal } from '@/components/ui';
+import { Button, IconButton, Badge, toast } from '@/components/ui';
 import { haptic } from '@/api/client';
 import type { Order, OrderAction } from '@/types';
 
@@ -27,7 +25,6 @@ interface OrderCardProps {
 }
 
 export function OrderCard({ order, onRefresh, onAction, isRefreshing }: OrderCardProps) {
-  const [expandedAction, setExpandedAction] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // Copy to clipboard
@@ -69,7 +66,7 @@ export function OrderCard({ order, onRefresh, onAction, isRefreshing }: OrderCar
 
   // Status badge
   const getStatusBadge = () => {
-    const { tone, status_label_key } = order.customer_state;
+    const { tone } = order.customer_state;
     const variants: Record<string, 'success' | 'warning' | 'danger' | 'muted' | 'default'> = {
       'success': 'success',
       'waiting': 'warning',

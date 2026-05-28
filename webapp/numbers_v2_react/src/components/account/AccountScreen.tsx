@@ -4,7 +4,7 @@ import { clsx } from 'clsx';
 import { useState } from 'react';
 import { useAppStore } from '@/stores';
 import { Header, ScreenContainer } from '@/components/layout';
-import { Card, Badge, toast } from '@/components/ui';
+import { Card, toast } from '@/components/ui';
 import { AccountSkeleton } from '@/components/ui/Skeleton';
 import { fetchAccount, updateLanguage, haptic } from '@/api/client';
 import type { WalletActivity } from '@/types';

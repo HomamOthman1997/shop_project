@@ -1,5 +1,5 @@
 import { clsx } from 'clsx';
-import { Loader2, ShoppingCart } from 'lucide-react';
+import { ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { QuoteCardSkeleton } from '@/components/ui/Skeleton';
 import type { ProviderQuote, RentalOption } from '@/types';

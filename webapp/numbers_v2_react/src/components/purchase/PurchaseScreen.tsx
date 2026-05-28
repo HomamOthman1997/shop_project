@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { ChevronDown, RefreshCw } from 'lucide-react';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
@@ -8,7 +8,7 @@ import { IconButton, toast } from '@/components/ui';
 import { ServiceSelector, CountrySelector, StateSelector } from './Selectors';
 import { QuoteList, ModeTabs } from './QuoteList';
 import { fetchQuotes, fetchCountrySuggestions, purchaseNumber, haptic } from '@/api/client';
-import type { ProviderQuote, CountrySuggestion, Order } from '@/types';
+import type { ProviderQuote } from '@/types';
 
 type SelectorView = 'none' | 'service' | 'country' | 'state';
 
@@ -28,7 +28,7 @@ export function PurchaseScreen() {
     setScreen,
   } = useAppStore();
 
-  const { isPurchasing, setIsPurchasing, purchaseError, setPurchaseError } = usePurchaseStore();
+  const { isPurchasing, setIsPurchasing, setPurchaseError } = usePurchaseStore();
   
   const [selectorView, setSelectorView] = useState<SelectorView>('none');
   const [purchasingToken, setPurchasingToken] = useState<string | null>(null);
@@ -69,7 +69,7 @@ export function PurchaseScreen() {
     setPurchaseError(null);
 
     try {
-      const order = await purchaseNumber(quoteToken);
+      await purchaseNumber(quoteToken);
       haptic('success');
       toast.success('تم الشراء بنجاح');
       // Navigate to orders screen
