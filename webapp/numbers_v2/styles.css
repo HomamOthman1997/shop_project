@@ -782,6 +782,12 @@ body:not(.app-booting) .boot-screen { display: none; }
   font-size: 10px;
   font-weight: 650;
 }
+.picker-option.suggested {
+  color: var(--accent);
+}
+.picker-option.suggested small {
+  color: var(--accent);
+}
 .confirm-card { padding-bottom: 14px; }
 .confirm-card .primary-button { width: calc(100% - 28px); margin-inline: 14px; }
 #confirmBody { padding: 0 14px 2px; }

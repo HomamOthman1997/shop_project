@@ -314,7 +314,6 @@ function renderModes() {
         state.offers = [];
         savePrefs();
         renderBuy();
-        loadCountrySuggestions();
       });
       return button;
     })
@@ -327,47 +326,14 @@ function renderBuy() {
   els.countryLabel.textContent = state.mode === "voice" ? "الولايات المتحدة · US" : countryLabel(state.country);
   els.stateLabel.textContent = state.country === "1" ? stateLabel(state.stateCode) : "غير متاح";
   els.stateButton.disabled = state.country !== "1";
-  renderCountrySuggestions();
+  hideCountrySuggestions();
   renderOffers();
 }
 
-function renderCountrySuggestions() {
+function hideCountrySuggestions() {
   if (!els.countrySuggestions) return;
-  if (!state.service || state.mode === "voice") {
-    els.countrySuggestions.classList.add("hidden");
-    els.countrySuggestions.replaceChildren();
-    return;
-  }
-  if (state.suggestionsLoading) {
-    els.countrySuggestions.classList.remove("hidden");
-    els.countrySuggestions.replaceChildren(...Array.from({ length: 3 }, () => {
-      const chip = document.createElement("span");
-      chip.className = "suggestion-chip skeleton-chip";
-      return chip;
-    }));
-    return;
-  }
-  const rows = (state.countrySuggestions || []).slice(0, 6);
-  if (!rows.length) {
-    els.countrySuggestions.classList.add("hidden");
-    els.countrySuggestions.replaceChildren();
-    return;
-  }
-  els.countrySuggestions.classList.remove("hidden");
-  els.countrySuggestions.replaceChildren(...rows.map((row) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = String(row.code) === String(state.country) ? "suggestion-chip active" : "suggestion-chip";
-    button.textContent = [row.name || countryLabel(row.code), row.price_label].filter(Boolean).join(" · ");
-    button.addEventListener("click", () => {
-      state.country = row.code || "none";
-      if (state.country !== "1") state.stateCode = "none";
-      state.offers = [];
-      savePrefs();
-      renderBuy();
-    });
-    return button;
-  }));
+  els.countrySuggestions.classList.add("hidden");
+  els.countrySuggestions.replaceChildren();
 }
 
 function normalizedOffers() {
@@ -464,7 +430,7 @@ function openPicker(kind) {
     country: {
       kind: "country",
       title: "اختر الدولة",
-      rows: state.countries.map((row) => ({ key: row.code, title: countryLabel(row.code), sub: row.price_label || "" })),
+      rows: countryPickerRows(),
       onSelect: (key) => { state.country = key; if (key !== "1") state.stateCode = "none"; state.offers = []; },
     },
     state: {
@@ -479,6 +445,7 @@ function openPicker(kind) {
   els.drawerSearch.value = "";
   renderPickerOptions();
   els.pickerDrawer.classList.remove("hidden");
+  if (kind === "country") loadCountrySuggestions();
   els.drawerSearch.focus();
 }
 
@@ -489,7 +456,7 @@ function renderPickerOptions() {
     ...rows.slice(0, 80).map((row) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "picker-option";
+      button.className = `picker-option${row.suggested ? " suggested" : ""}`;
       button.innerHTML = `${row.title}${row.sub ? `<small>${row.sub}</small>` : ""}`;
       button.addEventListener("click", () => {
         const selectedKind = state.picker?.kind;
@@ -497,7 +464,6 @@ function renderPickerOptions() {
         savePrefs();
         closePicker();
         renderBuy();
-        if (selectedKind === "service") loadCountrySuggestions();
       });
       return button;
     })
@@ -509,15 +475,35 @@ function closePicker() {
   els.pickerDrawer.classList.add("hidden");
 }
 
+function countryPickerRows() {
+  const seen = new Set();
+  const suggestions = (state.countrySuggestions || []).map((row) => {
+    const key = String(row.code || "");
+    seen.add(key);
+    return {
+      key,
+      title: countryLabel(key),
+      sub: ["مقترح", row.price_label].filter(Boolean).join(" · "),
+      suggested: true,
+    };
+  });
+  const countries = state.countries
+    .filter((row) => !seen.has(String(row.code || "")))
+    .map((row) => ({ key: row.code, title: countryLabel(row.code), sub: row.price_label || "" }));
+  return [...suggestions, ...countries];
+}
+
 async function loadCountrySuggestions() {
   if (!state.service || state.mode === "voice") {
     state.countrySuggestions = [];
     state.suggestionsLoading = false;
-    renderCountrySuggestions();
+    if (state.picker?.kind === "country") {
+      state.picker.rows = countryPickerRows();
+      renderPickerOptions();
+    }
     return;
   }
   state.suggestionsLoading = true;
-  renderCountrySuggestions();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 4500);
   try {
@@ -535,7 +521,10 @@ async function loadCountrySuggestions() {
   } finally {
     window.clearTimeout(timeout);
     state.suggestionsLoading = false;
-    renderCountrySuggestions();
+    if (state.picker?.kind === "country") {
+      state.picker.rows = countryPickerRows();
+      renderPickerOptions();
+    }
   }
 }
 
@@ -1146,7 +1135,6 @@ async function boot() {
   renderNav();
   renderSupportCategories();
   renderSupportOrders();
-  loadCountrySuggestions();
   if (headers()["X-Telegram-Init-Data"]) {
     await Promise.allSettled([loadAccount(), loadOrders()]);
   }
