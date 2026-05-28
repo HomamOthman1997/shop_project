@@ -95,7 +95,6 @@ async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const initData = getInitData();
-  console.log('[v0] API fetch:', endpoint, 'initData length:', initData.length);
   
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -103,35 +102,22 @@ async function apiFetch<T>(
     ...options.headers,
   };
 
-  try {
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers,
-    });
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    ...options,
+    headers,
+  });
 
-    console.log('[v0] API response status:', response.status);
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Network error' }));
-      console.log('[v0] API error:', error);
-      throw new Error(error.message || `HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    console.log('[v0] API data:', data);
-    return data;
-  } catch (err) {
-    console.log('[v0] API fetch error:', err);
-    throw err;
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Network error' }));
+    throw new Error(error.message || `HTTP ${response.status}`);
   }
+
+  return response.json();
 }
 
 // Bootstrap - Get initial app data
 export async function fetchBootstrap(): Promise<BootstrapData> {
-  console.log('[v0] Fetching bootstrap from:', `${API_BASE}/bootstrap`);
-  const response = await apiFetch<BootstrapData>('/bootstrap');
-  console.log('[v0] Bootstrap response:', response);
-  return response;
+  return apiFetch<BootstrapData>('/bootstrap');
 }
 
 // Country Suggestions

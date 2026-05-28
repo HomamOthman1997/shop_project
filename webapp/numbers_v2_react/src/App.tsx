@@ -40,8 +40,6 @@ function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => voi
 export default function App() {
   const { screen, isInitializing, setIsInitializing, setBootstrap, globalError, setGlobalError } = useAppStore();
 
-  console.log('[v0] App render - isInitializing:', isInitializing, 'globalError:', globalError);
-
   // Fetch bootstrap data
   const { data: bootstrap, error: bootstrapError, mutate } = useSWR(
     'bootstrap',
@@ -49,25 +47,19 @@ export default function App() {
     {
       revalidateOnFocus: false,
       onSuccess: (data) => {
-        console.log('[v0] Bootstrap success:', data);
         setBootstrap(data);
         setIsInitializing(false);
       },
       onError: (err) => {
-        console.log('[v0] Bootstrap error:', err);
         setGlobalError(err.message || 'فشل تحميل البيانات');
         setIsInitializing(false);
       },
     }
   );
 
-  console.log('[v0] Bootstrap data:', bootstrap, 'error:', bootstrapError);
-
   // Initialize Telegram WebApp
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
-    console.log('[v0] Telegram WebApp:', tg);
-    console.log('[v0] initData:', tg?.initData);
     if (tg) {
       tg.ready();
       tg.expand();
