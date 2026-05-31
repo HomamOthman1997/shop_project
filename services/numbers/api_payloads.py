@@ -8,9 +8,10 @@ import time
 from typing import Any
 
 from config import settings
-from services.numbers.provider_readiness import provider_purchase_enabled
 from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.data.states_us import STATES_LIST
+from services.numbers.provider_quality import provider_recommendation_bonus
+from services.numbers.provider_readiness import provider_purchase_enabled
 from services.numbers.service_map import (
     get_service_aliases,
     get_service_display_name,
@@ -563,7 +564,8 @@ def _recommended_temp_provider_code(data: dict[str, Any]) -> str:
             success_rate = float(success_value if attempts >= min_attempts else 100.0)
         except Exception:
             success_rate = 100.0
-        buyable.append((code, price, max(0.0, min(100.0, success_rate))))
+        adjusted_rate = max(0.0, min(100.0, success_rate + provider_recommendation_bonus(code)))
+        buyable.append((code, price, adjusted_rate))
     if not buyable:
         return ""
     buyable.sort(key=lambda row: (-row[2], row[1], _provider_sort_key(row[0])))

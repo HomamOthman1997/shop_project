@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from services.numbers.provider_quality import provider_recommendation_bonus
+
 
 def temp_replacement_fields(order: dict[str, Any] | None) -> dict[str, Any]:
     order = order or {}
@@ -50,7 +52,8 @@ def provider_retry_score(info: dict[str, Any], cheapest: float) -> float:
     price_ratio = price / cheapest if cheapest > 0 else 1.0
     price_penalty = min(22.0, max(0.0, price_ratio - 1.0) * 12.0)
     sample_bonus = min(4.0, (attempts + (context_attempts * 2)) * 0.25)
-    return rate - price_penalty + sample_bonus
+    provider = str(info.get("provider") or info.get("provider_code") or "").strip().lower()
+    return rate - price_penalty + sample_bonus + provider_recommendation_bonus(provider)
 
 
 def pick_retry_provider(
@@ -78,6 +81,7 @@ def pick_retry_provider(
         return None
     cheapest = min(price for _code, _info, price in buyable)
     for code, info, price in buyable:
-        candidates.append((-provider_retry_score(info, cheapest), price, code, info))
+        scored_info = {**info, "provider": code}
+        candidates.append((-provider_retry_score(scored_info, cheapest), price, code, info))
     candidates.sort(key=lambda row: (row[0], row[1], row[2]))
     return candidates[0][2], candidates[0][3]

@@ -523,6 +523,40 @@ def test_numbers_price_rows_mark_best_choice_and_hide_unavailable(monkeypatch):
     assert all("base_price_label" not in row for row in rows)
 
 
+def test_numbers_price_rows_prefer_classified_provider_over_unclassified_when_close(monkeypatch):
+    monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "numbers_success_rate_display_min_attempts", 1, raising=False)
+
+    rows = miniapp._normalize_provider_rows(
+        {
+            "smsready": {
+                "price": 0.1,
+                "base_price": 0.08,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "success_rate": 95,
+                "success_attempts": 20,
+            },
+            "telabot": {
+                "price": 0.11,
+                "base_price": 0.09,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "success_rate": 95,
+                "success_attempts": 20,
+            },
+        },
+        "temp",
+        service="telegram",
+        country="none",
+        state="none",
+    )
+
+    assert rows[0]["provider_id"] == "S4"
+    assert rows[0]["recommended"] is True
+
+
 def test_numbers_provider_debug_rows_explain_hidden_providers(monkeypatch):
     monkeypatch.setattr(miniapp.settings, "numbers_success_rate_display_min_attempts", 1, raising=False)
 

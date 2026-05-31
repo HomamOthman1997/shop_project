@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from html import escape
+
 from aiohttp import web
+
+from utils.bot_menu_context import card_ex_bot_url, digital_products_bot_url, numbers_bot_url
 
 _LANDING_HTML = """\
 <!DOCTYPE html>
@@ -224,10 +228,28 @@ _NO_STORE_HEADERS = {
 }
 
 
+def _landing_links() -> dict[str, str]:
+    return {
+        "numbers": numbers_bot_url("numbers") or "/mini/numbers",
+        "digital": digital_products_bot_url("store") or "/mini/digital",
+        "cardex": card_ex_bot_url("cards") or "/mini/cardex",
+    }
+
+
+def landing_page_html() -> str:
+    links = _landing_links()
+    return (
+        _LANDING_HTML
+        .replace('href="/mini/numbers"', f'href="{escape(links["numbers"], quote=True)}"')
+        .replace('href="/mini/digital"', f'href="{escape(links["digital"], quote=True)}"')
+        .replace('href="/mini/cardex"', f'href="{escape(links["cardex"], quote=True)}"')
+    )
+
+
 async def landing_page(_request: web.Request) -> web.Response:
     """Root landing page — lets users navigate to each mini-app service."""
     return web.Response(
-        text=_LANDING_HTML,
+        text=landing_page_html(),
         content_type="text/html",
         headers=dict(_NO_STORE_HEADERS),
     )

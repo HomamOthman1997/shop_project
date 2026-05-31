@@ -2391,6 +2391,48 @@ async def _notify_owner_manual_topup(
         pass
 
 
+async def _notify_owner_pending_game_topup(
+    *,
+    bot: types.Bot,
+    order: dict[str, Any],
+    item_name: str,
+    provider_code: str,
+    external_order_id: str,
+    game_name: str,
+    player_id: str,
+    server_id: str,
+    reason: str,
+) -> None:
+    player_data = {
+        "game": game_name,
+        "package": item_name,
+        "player_id": player_id,
+        "server_id": server_id,
+        "reason": reason,
+    }
+    await update_order_details(
+        order["_id"],
+        {
+            "provider_manual_review_required": True,
+            "provider_error": reason,
+            "fulfillment_mode": MANUAL_TOPUP_MODE,
+            "manual_fulfillment_required": True,
+            "manual_fulfillment_status": "pending",
+            "manual_item_name": item_name,
+            "number_mode": "digital_products",
+        },
+    )
+    await _notify_owner_manual_topup(
+        bot=bot,
+        order=order,
+        item_name=item_name,
+        provider_code=provider_code,
+        external_order_id=external_order_id,
+        player_data=player_data,
+        delivery_lines=[],
+    )
+
+
 def _order_query_id(value: str) -> Any:
     raw = str(value or "").strip()
     if ObjectId.is_valid(raw):
@@ -2503,6 +2545,52 @@ async def refund_manual_digital_topup(callback: types.CallbackQuery):
         except Exception:
             pass
     await callback.answer("Refunded")
+
+
+@router.message(lambda msg: bool(msg.text) and str(msg.text).strip().startswith("/recover_digital_order"))
+async def recover_manual_digital_order(message: types.Message):
+    if not _owner_action_allowed(int(message.from_user.id)):
+        return await message.answer("Unauthorized")
+    parts = str(message.text or "").strip().split(maxsplit=2)
+    if len(parts) < 2:
+        return await message.answer("Usage: /recover_digital_order <order_id> [item name]")
+
+    order_id = parts[1].strip()
+    item_name_override = parts[2].strip() if len(parts) >= 3 else ""
+    order = await _find_order_for_owner_action(order_id)
+    if not order:
+        return await message.answer("Order not found.")
+    if str(order.get("service_type") or "") != "core_digital_products" and str(order.get("number_mode") or "") != "digital_products":
+        return await message.answer("This is not a digital products order.")
+    if str(order.get("status") or "").strip().lower() in {"success", "done", "refunded", "failed", "cancelled"}:
+        return await message.answer(f"Order is already {order.get('status')}.")
+
+    provider_code = str(order.get("provider_code") or "").strip() or str(order.get("service_ref_id") or "provider").split(":", 1)[0]
+    external_order_id = str(order.get("provider_order_id") or "").strip()
+    game_id = str(order.get("game_id") or "").strip()
+    try:
+        display_game_name = _find_game_name(game_id, await get_catalog_snapshot(force=False)) if game_id else ""
+    except Exception:
+        display_game_name = ""
+    item_name = item_name_override or str(order.get("manual_item_name") or order.get("service_ref_id") or "Digital product")
+    player_id = str(order.get("player_id") or "").strip()
+    server_id = str(order.get("server_id") or "").strip()
+    await _notify_owner_pending_game_topup(
+        bot=message.bot,
+        order=order,
+        item_name=item_name,
+        provider_code=provider_code,
+        external_order_id=external_order_id,
+        game_name=display_game_name or game_id or "Digital product",
+        player_id=player_id,
+        server_id=server_id,
+        reason="Owner recovered missing manual fulfillment notification.",
+    )
+    await message.answer(
+        "Recovery notification sent.\n"
+        f"Order: {order_id}\n"
+        f"Provider order: {external_order_id or '-'}"
+    )
 
 
 def _load_usage() -> dict[str, int]:
@@ -5586,19 +5674,16 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
     )
 
     if not external_order_id:
-        await update_order_details(
-            order["_id"],
-            {
-                "provider_manual_review_required": True,
-                "provider_error": "MISSING_PROVIDER_ORDER_ID",
-            },
-        )
-        await _notify_owner_stock_issue(
+        await _notify_owner_pending_game_topup(
             bot=message.bot,
-            user_id=int(message.from_user.id),
-            reseller_id=int(reseller_id),
             item_name=name,
-            provider_error="G2Bulk accepted the request but did not return a verifiable order id.",
+            order=order,
+            provider_code=provider_code,
+            external_order_id="",
+            game_name=display_game_name,
+            player_id=player_id,
+            server_id=server_id,
+            reason="MISSING_PROVIDER_ORDER_ID",
         )
         await message.answer(
             _digital_game_order_summary_text(
@@ -5639,13 +5724,16 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
         return
 
     if not (status_resp is not None and _provider_status_is_success(status_resp)):
-        await update_order_details(order["_id"], {"provider_manual_review_required": True})
-        await _notify_owner_stock_issue(
+        await _notify_owner_pending_game_topup(
             bot=message.bot,
-            user_id=int(message.from_user.id),
-            reseller_id=int(reseller_id),
             item_name=name,
-            provider_error="Provider confirmation stayed pending after automatic polling.",
+            order=order,
+            provider_code=provider_code,
+            external_order_id=external_order_id,
+            game_name=display_game_name,
+            player_id=player_id,
+            server_id=server_id,
+            reason="Provider confirmation stayed pending after automatic polling.",
         )
         await message.answer(
             _digital_game_order_summary_text(

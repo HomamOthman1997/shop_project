@@ -6,6 +6,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from config import settings
 from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.manager import RENTAL_UNLIMITED_SERVICE_KEY
+from services.numbers.provider_quality import provider_recommendation_bonus
 from utils.provider_alias import provider_display_name, provider_public_id
 from utils.services_keyboard import build_services_keyboard
 from utils.translations import t
@@ -185,7 +186,7 @@ def _recommended_provider(prices: dict) -> tuple[str, dict] | None:
         price_ratio = price / cheapest if cheapest > 0 else 1.0
         price_penalty = min(22.0, max(0.0, price_ratio - 1.0) * 12.0)
         sample_bonus = min(4.0, (attempts + (context_attempts * 2)) * 0.25)
-        score = rate - price_penalty + sample_bonus
+        score = rate - price_penalty + sample_bonus + provider_recommendation_bonus(code)
         candidates.append(((-score, price, public_rank, public_id, code), code, info))
     candidates.sort(key=lambda row: row[0])
     return (candidates[0][1], candidates[0][2])
