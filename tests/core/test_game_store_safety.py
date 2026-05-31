@@ -11,6 +11,8 @@ from handlers.store_sections import (
     _apply_markup_decimal,
     _extract_voucher_lines,
     _notify_owner_pending_game_topup,
+    _notify_owner_manual_topup,
+    _owner_notification_routes,
     _poll_g2bulk_order_status,
     _provider_status_is_failure,
     _provider_status_is_success,
@@ -42,6 +44,16 @@ def test_extract_voucher_lines_reads_g2bulk_delivery_response():
             },
         }
     ) == ["ZJRBuUUf232b37Fdc2"]
+
+
+def test_owner_notification_routes_adds_owner_dm_fallback(monkeypatch):
+    import handlers.store_sections as store_sections
+
+    monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
+    assert _owner_notification_routes(-100123, 55) == [
+        (-100123, 55, "owner_notifications"),
+        (7417429062, None, "owner_dm_fallback"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -124,6 +136,42 @@ async def test_pending_game_topup_notifies_manual_fulfillment(monkeypatch):
     assert calls["notify"]["item_name"] == "1800 Uc Voucher"
     assert calls["notify"]["external_order_id"] == "ext-1"
     assert calls["notify"]["player_data"]["player_id"] == "5275962503"
+
+
+@pytest.mark.asyncio
+async def test_manual_topup_notification_falls_back_to_owner_dm(monkeypatch):
+    import handlers.store_sections as store_sections
+
+    async def fake_target():
+        return -100123, 55
+
+    monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
+    monkeypatch.setattr(store_sections, "_owner_notification_target", fake_target)
+
+    calls = []
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            calls.append(kwargs)
+            if kwargs["chat_id"] == -100123:
+                raise RuntimeError("missing channel access")
+            return SimpleNamespace(message_id=10)
+
+    sent = await _notify_owner_manual_topup(
+        bot=FakeBot(),
+        order={"_id": "order-1", "user_id": 123, "reseller_id": 456},
+        item_name="1800 UC Voucher",
+        provider_code="g2bulk",
+        external_order_id="252882",
+        player_data={"player_id": "5275962503"},
+        delivery_lines=["CODE-1"],
+    )
+
+    assert sent is True
+    assert calls[0]["chat_id"] == -100123
+    assert calls[0]["message_thread_id"] == 55
+    assert calls[1]["chat_id"] == 7417429062
+    assert "CODE-1" in calls[1]["text"]
 
 
 @pytest.mark.asyncio

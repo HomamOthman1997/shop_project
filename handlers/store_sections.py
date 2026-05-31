@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import re
 from datetime import UTC, datetime
@@ -85,6 +86,8 @@ from services.numbers.keyboards.core_numbers_kb import number_type_kb
 from services.numbers.states.core_numbers_states import NumberFlow
 from utils.core_service_guard import finance_error_public_text, guard_core_service_callback, guard_core_service_message
 from utils.financial_manager import FinancialManager
+
+logger = logging.getLogger(__name__)
 from utils.translations import t
 from utils.user_money import format_usd
 
@@ -2212,21 +2215,37 @@ async def _owner_notification_target() -> tuple[int | None, int | None]:
     target_thread_id = None
     try:
         doc = await db.system_settings.find_one({"_id": "owner_notifications"})
-        if isinstance((doc or {}).get("chat_id"), int):
-            target_chat_id = int(doc["chat_id"])
-            if isinstance(doc.get("message_thread_id"), int):
-                target_thread_id = int(doc["message_thread_id"])
+        raw_chat_id = (doc or {}).get("chat_id")
+        if raw_chat_id not in (None, ""):
+            target_chat_id = int(raw_chat_id)
+            raw_thread_id = (doc or {}).get("message_thread_id")
+            if raw_thread_id not in (None, ""):
+                target_thread_id = int(raw_thread_id)
     except Exception:
         target_chat_id = None
         target_thread_id = None
     if target_chat_id is None:
-        try:
-            owner_id = int(getattr(settings, "owner_id", 0) or 0)
-        except Exception:
-            owner_id = 0
+        owner_id = _settings_owner_id()
         if owner_id > 0:
             target_chat_id = owner_id
     return target_chat_id, target_thread_id
+
+
+def _settings_owner_id() -> int:
+    try:
+        return int(getattr(settings, "owner_id", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _owner_notification_routes(target_chat_id: int | None, target_thread_id: int | None) -> list[tuple[int, int | None, str]]:
+    routes: list[tuple[int, int | None, str]] = []
+    if target_chat_id is not None:
+        routes.append((int(target_chat_id), int(target_thread_id) if target_thread_id is not None else None, "owner_notifications"))
+    owner_id = _settings_owner_id()
+    if owner_id > 0 and all(not (chat_id == owner_id and thread_id is None) for chat_id, thread_id, _route in routes):
+        routes.append((owner_id, None, "owner_dm_fallback"))
+    return routes
 
 
 async def _notify_owner_stock_issue(
@@ -2238,21 +2257,21 @@ async def _notify_owner_stock_issue(
     provider_error: str,
 ) -> None:
     target_chat_id, target_thread_id = await _owner_notification_target()
-    if target_chat_id is None:
-        return
-    try:
-        await bot.send_message(
-            chat_id=int(target_chat_id),
-            message_thread_id=int(target_thread_id) if target_thread_id is not None else None,
-            text=t("en", "store_stock_issue_alert").format(
-                user_id=int(user_id),
-                reseller_id=int(reseller_id),
-                item_name=item_name,
-                provider_error=provider_error[:300],
-            ),
-        )
-    except Exception:
-        pass
+    for chat_id, thread_id, route in _owner_notification_routes(target_chat_id, target_thread_id):
+        try:
+            await bot.send_message(
+                chat_id=int(chat_id),
+                message_thread_id=int(thread_id) if thread_id is not None else None,
+                text=t("en", "store_stock_issue_alert").format(
+                    user_id=int(user_id),
+                    reseller_id=int(reseller_id),
+                    item_name=item_name,
+                    provider_error=provider_error[:300],
+                ),
+            )
+            return
+        except Exception as exc:
+            logger.warning("digital_owner_stock_issue_delivery_failed route=%s chat_id=%s thread_id=%s err=%s", route, chat_id, thread_id, exc)
 
 
 def _manual_pending_text(lang: str) -> str:
@@ -2397,18 +2416,18 @@ async def _notify_owner_manual_topup(
         delivery_lines=delivery_lines,
     )
     target_chat_id, target_thread_id = await _owner_notification_target()
-    if target_chat_id is None:
-        return False
-    try:
-        await bot.send_message(
-            chat_id=int(target_chat_id),
-            message_thread_id=int(target_thread_id) if target_thread_id is not None else None,
-            text=text,
-            reply_markup=markup,
-        )
-        return True
-    except Exception:
-        return False
+    for chat_id, thread_id, route in _owner_notification_routes(target_chat_id, target_thread_id):
+        try:
+            await bot.send_message(
+                chat_id=int(chat_id),
+                message_thread_id=int(thread_id) if thread_id is not None else None,
+                text=text,
+                reply_markup=markup,
+            )
+            return True
+        except Exception as exc:
+            logger.warning("digital_manual_topup_delivery_failed route=%s chat_id=%s thread_id=%s err=%s", route, chat_id, thread_id, exc)
+    return False
 
 
 def _manual_topup_notification_payload(
