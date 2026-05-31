@@ -251,3 +251,68 @@ async def test_recover_manual_digital_order_marks_completed_provider_order(monke
     assert any(call[1].get("provider_recovery_outcome") == "success" for call in calls["details"])
     assert "Provider order is already completed" in answers[-1]
     assert sent_messages
+
+
+@pytest.mark.asyncio
+async def test_resend_digital_delivery_allows_already_success_order(monkeypatch):
+    import handlers.store_sections as store_sections
+
+    order = {
+        "_id": "order-3",
+        "service_type": "core_digital_products",
+        "status": "success",
+        "provider_code": "g2bulk",
+        "provider_order_id": "252882",
+        "game_id": "pubgm",
+        "player_id": "5275962503",
+        "server_id": "",
+        "retail_amount": 21.63,
+        "user_id": 123,
+    }
+
+    async def fake_find_order(_order_id):
+        return order
+
+    async def fake_snapshot(force=False):
+        return {"games": [{"id": "pubgm", "name": "Pubg"}]}
+
+    async def fake_poll(**_kwargs):
+        return {
+            "status": 200,
+            "data": {"order": {"status": "COMPLETED"}},
+            "delivery_response": {"status": 200, "data": {"delivery_items": ["CODE-1"]}},
+        }
+
+    async def fake_noop(*_args, **_kwargs):
+        return None
+
+    async def fake_get_user(_user_id):
+        return {"language": "en"}
+
+    monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
+    monkeypatch.setattr(store_sections, "_find_order_for_owner_action", fake_find_order)
+    monkeypatch.setattr(store_sections, "get_catalog_snapshot", fake_snapshot)
+    monkeypatch.setattr(store_sections, "_poll_provider_order_status", fake_poll)
+    monkeypatch.setattr(store_sections, "update_order_status", fake_noop)
+    monkeypatch.setattr(store_sections, "update_order_details", fake_noop)
+    monkeypatch.setattr(store_sections, "get_user", fake_get_user)
+
+    answers = []
+    sent_messages = []
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            sent_messages.append(kwargs)
+
+    class FakeMessage:
+        text = "/resend_digital_delivery order-3"
+        from_user = SimpleNamespace(id=7417429062)
+        bot = FakeBot()
+
+        async def answer(self, text, **_kwargs):
+            answers.append(text)
+
+    await store_sections.recover_manual_digital_order(FakeMessage())
+
+    assert "Provider order is already completed" in answers[-1]
+    assert "CODE-1" in sent_messages[-1]["text"]

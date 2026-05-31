@@ -2610,13 +2610,16 @@ async def refund_manual_digital_topup(callback: types.CallbackQuery):
     await callback.answer("Refunded")
 
 
-@router.message(lambda msg: bool(msg.text) and str(msg.text).strip().startswith("/recover_digital_order"))
+@router.message(
+    lambda msg: bool(msg.text)
+    and str(msg.text).strip().split(maxsplit=1)[0] in {"/recover_digital_order", "/resend_digital_delivery"}
+)
 async def recover_manual_digital_order(message: types.Message):
     if not _owner_action_allowed(int(message.from_user.id)):
         return await message.answer("Unauthorized")
     parts = str(message.text or "").strip().split(maxsplit=2)
     if len(parts) < 2:
-        return await message.answer("Usage: /recover_digital_order <order_id> [item name]")
+        return await message.answer("Usage: /recover_digital_order <order_id> [item name]\nOr: /resend_digital_delivery <order_id> [item name]")
 
     order_id = parts[1].strip()
     item_name_override = parts[2].strip() if len(parts) >= 3 else ""
@@ -2625,7 +2628,7 @@ async def recover_manual_digital_order(message: types.Message):
         return await message.answer("Order not found.")
     if str(order.get("service_type") or "") != "core_digital_products" and str(order.get("number_mode") or "") != "digital_products":
         return await message.answer("This is not a digital products order.")
-    if str(order.get("status") or "").strip().lower() in {"success", "done", "refunded", "failed", "cancelled"}:
+    if str(order.get("status") or "").strip().lower() in {"refunded", "failed", "cancelled"}:
         return await message.answer(f"Order is already {order.get('status')}.")
 
     provider_code = str(order.get("provider_code") or "").strip() or str(order.get("service_ref_id") or "provider").split(":", 1)[0]
