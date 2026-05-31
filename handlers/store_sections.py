@@ -2276,11 +2276,13 @@ def _digital_game_order_summary_text(
     player_id: str,
     price: float,
     status: str,
+    delivery_lines: list[str] | None = None,
 ) -> str:
     status_text = str(status or "PENDING").strip().upper()
     order_ref = str(order_id or "-").strip()
     if order_ref and not order_ref.startswith("#"):
         order_ref = f"#{order_ref}"
+    delivery = [str(line).strip() for line in list(delivery_lines or []) if str(line).strip()]
     if str(lang or "").lower().startswith("ar"):
         lines = [
             "✅ تم إنشاء الطلب بنجاح!",
@@ -2294,6 +2296,12 @@ def _digital_game_order_summary_text(
             [
                 f"💰 السعر: {format_usd(float(price or 0.0))}",
                 f"📊 الحالة: {status_text}",
+            ]
+        )
+        if delivery:
+            lines.extend(["", "🎟️ الكود:", *[f"- {line}" for line in delivery]])
+        lines.extend(
+            [
                 "",
                 "⏳ طلبك قيد المعالجة." if status_text == "PENDING" else "✅ تم تنفيذ طلبك.",
                 "🙏 شكراً لك!",
@@ -2313,6 +2321,12 @@ def _digital_game_order_summary_text(
         [
             f"💰 Price: {format_usd(float(price or 0.0))}",
             f"📊 Status: {status_text}",
+        ]
+    )
+    if delivery:
+        lines.extend(["", "🎟️ Code:", *[f"- {line}" for line in delivery]])
+    lines.extend(
+        [
             "",
             "⏳ Your order is being processed." if status_text == "PENDING" else "✅ Your order has been completed.",
             "🙏 Thank you!",
@@ -5837,12 +5851,14 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
         return
 
     status_resp = await _poll_provider_order_status(provider=provider_code, external_order_id=external_order_id)
+    delivery_lines = _extract_voucher_lines(status_resp)
     if status_resp is not None:
         await update_order_details(
             order["_id"],
             {
                 "provider_status_response": status_resp,
                 "provider_status": _extract_provider_status(status_resp),
+                "delivery_lines": delivery_lines,
             },
         )
 
@@ -5897,6 +5913,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
             player_id=player_id,
             price=sale_price,
             status="SUCCESS",
+            delivery_lines=delivery_lines,
         )
     )
 
