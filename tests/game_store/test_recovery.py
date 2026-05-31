@@ -96,6 +96,7 @@ async def test_game_store_recovery_marks_success(monkeypatch):
     stats = await mod.run_g2bulk_pending_recovery_sweep(limit=20, pending_age_sec=60)
     assert stats["checked"] >= 1
     assert stats["marked_success"] == 1
+    assert stats["delivery_lines_recovered"] == 1
     assert ("ord1", "success") in updated_status
     assert any(call[1].get("provider_recovery_outcome") == "success" for call in details_calls)
     assert any(call[1].get("delivery_lines") == ["CODE-1"] for call in details_calls)

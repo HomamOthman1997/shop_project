@@ -1536,12 +1536,13 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                 )
                 if any(int(stats.get(k) or 0) for k in ("checked", "marked_success", "marked_refunded", "refund_failures")):
                     logging.info(
-                        "digital-products recovery checked=%s marked_success=%s marked_refunded=%s pending=%s refund_failures=%s",
+                        "digital-products recovery checked=%s marked_success=%s marked_refunded=%s pending=%s refund_failures=%s delivery_lines_recovered=%s",
                         stats.get("checked"),
                         stats.get("marked_success"),
                         stats.get("marked_refunded"),
                         stats.get("pending"),
                         stats.get("refund_failures"),
+                        stats.get("delivery_lines_recovered"),
                     )
             except Exception as exc:
                 logging.error("digital-products recovery sweep failed: %s", exc)
@@ -1993,5 +1994,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot manager stopped!")
-
 

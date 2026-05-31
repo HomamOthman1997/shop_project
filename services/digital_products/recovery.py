@@ -176,6 +176,7 @@ async def run_digital_products_pending_recovery_sweep(*, limit: int = 80, pendin
         "refund_failures": 0,
         "missing_order_id_refunded": 0,
         "unsupported_provider": 0,
+        "delivery_lines_recovered": 0,
     }
     if not rows:
         return stats
@@ -213,6 +214,8 @@ async def run_digital_products_pending_recovery_sweep(*, limit: int = 80, pendin
 
         if status_resp is not None and _provider_status_is_success(status_resp):
             delivery_lines = _extract_delivery_lines(status_resp)
+            if delivery_lines:
+                stats["delivery_lines_recovered"] += len(delivery_lines)
             await update_order_status(oid, "success")
             await update_order_details(
                 oid,
