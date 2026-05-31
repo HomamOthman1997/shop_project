@@ -98,6 +98,7 @@ async def test_game_store_recovery_marks_success(monkeypatch):
     assert stats["marked_success"] == 1
     assert ("ord1", "success") in updated_status
     assert any(call[1].get("provider_recovery_outcome") == "success" for call in details_calls)
+    assert any(call[1].get("delivery_lines") == ["CODE-1"] for call in details_calls)
 
 
 @pytest.mark.asyncio

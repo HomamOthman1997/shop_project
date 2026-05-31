@@ -50,6 +50,55 @@ def _provider_status_is_failure(payload: Any) -> bool:
     return _extract_provider_status(payload) in {"failed", "failure", "cancelled", "canceled", "rejected", "expired", "refund", "refunded"}
 
 
+def _extract_delivery_lines(payload: Any) -> list[str]:
+    lines: list[str] = []
+    candidates: list[Any] = []
+    if isinstance(payload, dict):
+        candidates.extend(
+            [
+                payload.get("delivery_items"),
+                payload.get("cards"),
+                payload.get("vouchers"),
+                payload.get("codes"),
+                payload.get("data"),
+                payload.get("delivery_response"),
+            ]
+        )
+    for item in candidates:
+        if isinstance(item, str) and item.strip():
+            lines.append(item.strip())
+        elif isinstance(item, dict):
+            if isinstance(item.get("data"), dict):
+                candidates.append(item.get("data"))
+            for nested_key in ("delivery_items", "cards", "vouchers", "codes"):
+                if nested_key in item:
+                    candidates.append(item.get(nested_key))
+            for key in ("code", "pin", "voucher", "serial", "account", "password"):
+                raw = str(item.get(key) or "").strip()
+                if raw:
+                    lines.append(f"{key.title()}: {raw}")
+        elif isinstance(item, list):
+            for row in item:
+                if isinstance(row, str) and row.strip():
+                    lines.append(row.strip())
+                elif isinstance(row, dict):
+                    parts: list[str] = []
+                    for key in ("code", "pin", "voucher", "serial", "account", "password"):
+                        raw = str(row.get(key) or "").strip()
+                        if raw:
+                            parts.append(f"{key.title()}: {raw}")
+                    if parts:
+                        lines.append(" | ".join(parts))
+    unique: list[str] = []
+    seen = set()
+    for line in lines:
+        if line in seen:
+            continue
+        seen.add(line)
+        unique.append(line)
+    return unique[:10]
+
+
 def _recoverable_provider_codes() -> list[str]:
     codes = ["g2bulk"]
     if za3em_provider_enabled():
@@ -163,12 +212,14 @@ async def run_digital_products_pending_recovery_sweep(*, limit: int = 80, pendin
         )
 
         if status_resp is not None and _provider_status_is_success(status_resp):
+            delivery_lines = _extract_delivery_lines(status_resp)
             await update_order_status(oid, "success")
             await update_order_details(
                 oid,
                 {
                     "provider_manual_review_required": False,
                     "provider_recovery_outcome": "success",
+                    "delivery_lines": delivery_lines,
                 },
             )
             stats["marked_success"] += 1
