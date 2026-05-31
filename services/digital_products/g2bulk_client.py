@@ -166,6 +166,17 @@ class G2BulkClient:
             oid = int(order_id)
         except Exception:
             return {"status": 0, "data": {"success": False, "error": "INVALID_ORDER_ID"}}
+        status, data = await self._request("GET", f"/v1/orders/{oid}")
+        if status == 200 and isinstance(data, dict) and "raw_text" not in data:
+            return {"status": status, "data": data}
         payload = {"order_id": oid}
         status, data = await self._request("POST", "/user/order/get_order_status", payload=payload)
+        return {"status": status, "data": data}
+
+    async def get_order_delivery(self, order_id: int | str) -> dict[str, Any]:
+        try:
+            oid = int(order_id)
+        except Exception:
+            return {"status": 0, "data": {"success": False, "error": "INVALID_ORDER_ID"}}
+        status, data = await self._request("GET", f"/v1/orders/{oid}/delivery")
         return {"status": status, "data": data}

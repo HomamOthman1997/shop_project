@@ -1383,10 +1383,24 @@ def _extract_provider_status(payload: Any) -> str:
                 raw = str(nested.get(key) or "").strip().lower()
                 if raw:
                     return raw
+            for wrapper in ("order", "result"):
+                child = nested.get(wrapper)
+                if isinstance(child, dict):
+                    for key in ("status", "order_status", "state"):
+                        raw = str(child.get(key) or "").strip().lower()
+                        if raw:
+                            return raw
         for key in ("status", "order_status", "state"):
             raw = str(payload.get(key) or "").strip().lower()
             if raw:
                 return raw
+        for wrapper in ("order", "result"):
+            child = payload.get(wrapper)
+            if isinstance(child, dict):
+                for key in ("status", "order_status", "state"):
+                    raw = str(child.get(key) or "").strip().lower()
+                    if raw:
+                        return raw
     return ""
 
 
@@ -1436,6 +1450,10 @@ async def _poll_g2bulk_order_status(
     for attempt in range(max(1, int(attempts))):
         last_resp = await client.get_order_status(external_order_id)
         if _provider_status_is_success(last_resp) or _provider_status_is_failure(last_resp):
+            if _provider_status_is_success(last_resp):
+                delivery_resp = await client.get_order_delivery(external_order_id)
+                if isinstance(last_resp, dict) and isinstance(delivery_resp, dict):
+                    last_resp = {**last_resp, "delivery_response": delivery_resp}
             return last_resp
         if attempt < attempts - 1:
             await asyncio.sleep(max(0.0, float(delay_sec)))
@@ -1874,11 +1892,13 @@ async def _execute_gift_purchase(
     if not voucher_lines:
         status_resp = await _poll_provider_order_status(provider=provider_code, external_order_id=external_order_id) if external_order_id else None
         if status_resp is not None:
+            voucher_lines = _extract_voucher_lines(status_resp)
             await update_order_details(
                 order["_id"],
                 {
                     "provider_status_response": status_resp,
                     "provider_status": _extract_provider_status(status_resp),
+                    "delivery_lines": voucher_lines,
                 },
             )
         if status_resp is not None and _provider_status_is_failure(status_resp):
@@ -2084,16 +2104,23 @@ def _extract_voucher_lines(payload: Any) -> list[str]:
                 payload.get("pin"),
                 payload.get("voucher"),
                 payload.get("voucher_code"),
+                payload.get("delivery_items"),
                 payload.get("cards"),
                 payload.get("vouchers"),
                 payload.get("codes"),
                 payload.get("data"),
+                payload.get("delivery_response"),
             ]
         )
     for item in candidates:
         if isinstance(item, str) and item.strip():
             lines.append(item.strip())
         elif isinstance(item, dict):
+            if isinstance(item.get("data"), dict):
+                candidates.append(item.get("data"))
+            for nested_key in ("delivery_items", "cards", "vouchers", "codes"):
+                if nested_key in item:
+                    candidates.append(item.get(nested_key))
             for key in ("code", "pin", "voucher", "serial", "account", "password"):
                 raw = str(item.get(key) or "").strip()
                 if raw:
@@ -2597,6 +2624,77 @@ async def recover_manual_digital_order(message: types.Message):
     item_name = item_name_override or str(order.get("manual_item_name") or order.get("service_ref_id") or "Digital product")
     player_id = str(order.get("player_id") or "").strip()
     server_id = str(order.get("server_id") or "").strip()
+    status_resp = await _poll_provider_order_status(provider=provider_code, external_order_id=external_order_id) if external_order_id else None
+    provider_status = _extract_provider_status(status_resp)
+    if status_resp is not None:
+        await update_order_details(
+            order["_id"],
+            {
+                "provider_status_response": status_resp,
+                "provider_status": provider_status,
+                "provider_recovery_checked_at": datetime.now(UTC),
+            },
+        )
+    if status_resp is not None and _provider_status_is_success(status_resp):
+        delivery_lines = _extract_voucher_lines(status_resp)
+        await update_order_status(order["_id"], "success")
+        await update_order_details(
+            order["_id"],
+            {
+                "provider_manual_review_required": False,
+                "manual_fulfillment_required": False,
+                "manual_fulfillment_status": "provider_completed",
+                "provider_recovery_outcome": "success",
+                "delivery_lines": delivery_lines,
+            },
+        )
+        user = await get_user(int(order.get("user_id") or 0))
+        lang = (user or {}).get("language", "en")
+        if delivery_lines:
+            user_body = [
+                t(lang, "purchase_complete_plain"),
+                f"{t(lang, 'store_order_label')}: {order.get('_id')}",
+                f"{t(lang, 'store_provider_ref_label')}: {external_order_id}",
+                "",
+                f"{t(lang, 'delivery_plain')}:",
+                *[f"- {line}" for line in delivery_lines],
+            ]
+            try:
+                await message.bot.send_message(chat_id=int(order.get("user_id") or 0), text="\n".join(user_body))
+            except Exception:
+                pass
+        else:
+            try:
+                await message.bot.send_message(
+                    chat_id=int(order.get("user_id") or 0),
+                    text=_digital_game_order_summary_text(
+                        lang,
+                        order_id=str(order.get("_id") or ""),
+                        game_name=display_game_name or game_id or "Digital product",
+                        package_name=item_name,
+                        player_id=player_id,
+                        price=float(_money_decimal(order.get("retail_amount") or order.get("sale_price") or 0)),
+                        status="SUCCESS",
+                    ),
+                )
+            except Exception:
+                pass
+        return await message.answer(
+            "Provider order is already completed.\n"
+            f"Order: {order_id}\n"
+            f"Provider: {provider_code or '-'}\n"
+            f"Provider order: {external_order_id or '-'}\n"
+            f"Provider status: {provider_status or '-'}\n"
+            f"Delivery items: {len(delivery_lines)}"
+        )
+    if status_resp is not None and _provider_status_is_failure(status_resp):
+        return await message.answer(
+            "Provider order is failed/cancelled. Use the refund action from order tools or refund manually after review.\n"
+            f"Order: {order_id}\n"
+            f"Provider: {provider_code or '-'}\n"
+            f"Provider order: {external_order_id or '-'}\n"
+            f"Provider status: {provider_status or '-'}"
+        )
     sent = await _notify_owner_pending_game_topup(
         bot=message.bot,
         order=order,

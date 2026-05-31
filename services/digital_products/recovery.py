@@ -21,10 +21,24 @@ def _extract_provider_status(payload: Any) -> str:
                 value = str(data.get(key) or "").strip().lower()
                 if value:
                     return value
+            for wrapper in ("order", "result"):
+                child = data.get(wrapper)
+                if isinstance(child, dict):
+                    for key in ("status", "order_status", "state"):
+                        value = str(child.get(key) or "").strip().lower()
+                        if value:
+                            return value
         for key in ("status", "order_status", "state"):
             value = str(payload.get(key) or "").strip().lower()
             if value:
                 return value
+        for wrapper in ("order", "result"):
+            child = payload.get(wrapper)
+            if isinstance(child, dict):
+                for key in ("status", "order_status", "state"):
+                    value = str(child.get(key) or "").strip().lower()
+                    if value:
+                        return value
     return ""
 
 
@@ -51,7 +65,11 @@ async def _poll_g2bulk_status(provider_order_id: str) -> dict[str, Any] | None:
         if isinstance(resp, dict):
             last_resp = resp
             if _provider_status_is_success(resp) or _provider_status_is_failure(resp):
-                return resp
+                if _provider_status_is_success(resp):
+                    delivery_resp = await client.get_order_delivery(provider_order_id)
+                    if isinstance(delivery_resp, dict):
+                        last_resp = {**resp, "delivery_response": delivery_resp}
+                return last_resp
         await asyncio.sleep(1.0)
     return last_resp
 

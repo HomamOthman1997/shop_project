@@ -70,6 +70,9 @@ async def test_game_store_recovery_marks_success(monkeypatch):
         async def get_order_status(self, _oid):
             return {"status": 200, "data": {"status": "success"}}
 
+        async def get_order_delivery(self, _oid):
+            return {"status": 200, "data": {"delivery_items": ["CODE-1"]}}
+
     monkeypatch.setattr(mod, "G2BulkClient", _Client)
 
     updated_status = []
@@ -120,6 +123,9 @@ async def test_game_store_recovery_refunds_on_provider_failure(monkeypatch):
         async def get_order_status(self, _oid):
             return {"status": 200, "data": {"status": "failed"}}
 
+        async def get_order_delivery(self, _oid):
+            return {"status": 200, "data": {"delivery_items": ["CODE-1"]}}
+
     monkeypatch.setattr(mod, "G2BulkClient", _Client)
 
     updated_status = []
@@ -164,6 +170,9 @@ async def test_game_store_recovery_keeps_pending_when_provider_is_still_processi
     class _Client:
         async def get_order_status(self, _oid):
             return {"status": 200, "data": {"status": "processing"}}
+
+        async def get_order_delivery(self, _oid):
+            return {"status": 200, "data": {"delivery_items": ["CODE-1"]}}
 
     monkeypatch.setattr(mod, "G2BulkClient", _Client)
 
@@ -210,6 +219,9 @@ async def test_game_store_recovery_refunds_missing_provider_order_id_after_timeo
     class _Client:
         async def get_order_status(self, _oid):
             return {"status": 200, "data": {"status": "processing"}}
+
+        async def get_order_delivery(self, _oid):
+            return {"status": 200, "data": {"delivery_items": ["CODE-1"]}}
 
     monkeypatch.setattr(mod, "G2BulkClient", _Client)
     monkeypatch.setattr(mod, "extract_order_amounts", lambda _order: (5.0, 4.0))

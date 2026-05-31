@@ -9,6 +9,7 @@ sys.path.insert(0, os.getcwd())
 
 from handlers.store_sections import (
     _apply_markup_decimal,
+    _extract_voucher_lines,
     _notify_owner_pending_game_topup,
     _poll_g2bulk_order_status,
     _provider_status_is_failure,
@@ -24,9 +25,23 @@ def test_apply_markup_decimal_preserves_live_cent_price():
 
 def test_provider_status_helpers_are_conservative():
     assert _provider_status_is_success({"data": {"status": "completed"}}) is True
+    assert _provider_status_is_success({"data": {"order": {"status": "COMPLETED"}}}) is True
     assert _provider_status_is_failure({"data": {"status": "failed"}}) is True
     assert _provider_status_is_success({"data": {"status": "processing"}}) is False
     assert _provider_status_is_failure({"data": {"status": "processing"}}) is False
+
+
+def test_extract_voucher_lines_reads_g2bulk_delivery_response():
+    assert _extract_voucher_lines(
+        {
+            "status": 200,
+            "data": {"order": {"status": "COMPLETED"}},
+            "delivery_response": {
+                "status": 200,
+                "data": {"delivery_items": ["ZJRBuUUf232b37Fdc2"]},
+            },
+        }
+    ) == ["ZJRBuUUf232b37Fdc2"]
 
 
 @pytest.mark.asyncio
@@ -42,8 +57,13 @@ async def test_poll_g2bulk_order_status_waits_for_final_success():
         async def get_order_status(self, _order_id):
             return self.responses.pop(0)
 
+        async def get_order_delivery(self, _order_id):
+            return {"status": 200, "data": {"delivery_items": ["CODE-1"]}}
+
     resp = await _poll_g2bulk_order_status(FakeClient(), "123", attempts=3, delay_sec=0)
-    assert resp == {"status": 200, "data": {"status": "completed"}}
+    assert resp["status"] == 200
+    assert resp["data"] == {"status": "completed"}
+    assert resp["delivery_response"] == {"status": 200, "data": {"delivery_items": ["CODE-1"]}}
 
 
 @pytest.mark.asyncio
@@ -57,6 +77,9 @@ async def test_poll_g2bulk_order_status_stops_on_failure():
             if self.calls == 1:
                 return {"status": 200, "data": {"status": "pending"}}
             return {"status": 200, "data": {"status": "failed"}}
+
+        async def get_order_delivery(self, _order_id):
+            return {"status": 200, "data": {"delivery_items": ["CODE-1"]}}
 
     client = FakeClient()
     resp = await _poll_g2bulk_order_status(client, "123", attempts=5, delay_sec=0)
@@ -130,9 +153,17 @@ async def test_recover_manual_digital_order_sends_owner_notification(monkeypatch
         calls["notify"] = kwargs
         return True
 
+    async def fake_poll(**_kwargs):
+        return {"status": 200, "data": {"order": {"status": "processing"}}}
+
+    async def fake_update_details(*_args, **_kwargs):
+        return None
+
     monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
     monkeypatch.setattr(store_sections, "_find_order_for_owner_action", fake_find_order)
     monkeypatch.setattr(store_sections, "get_catalog_snapshot", fake_snapshot)
+    monkeypatch.setattr(store_sections, "_poll_provider_order_status", fake_poll)
+    monkeypatch.setattr(store_sections, "update_order_details", fake_update_details)
     monkeypatch.setattr(store_sections, "_notify_owner_pending_game_topup", fake_notify)
 
     answers = []
@@ -153,3 +184,70 @@ async def test_recover_manual_digital_order_sends_owner_notification(monkeypatch
     assert calls["notify"]["external_order_id"] == "provider-1"
     assert calls["notify"]["player_id"] == "5275962503"
     assert "Recovery notification sent" in answers[-1]
+
+
+@pytest.mark.asyncio
+async def test_recover_manual_digital_order_marks_completed_provider_order(monkeypatch):
+    import handlers.store_sections as store_sections
+
+    calls = {}
+    order = {
+        "_id": "order-2",
+        "service_type": "core_digital_products",
+        "status": "paid",
+        "provider_code": "g2bulk",
+        "provider_order_id": "252882",
+        "game_id": "pubgm",
+        "player_id": "5275962503",
+        "server_id": "",
+        "retail_amount": 21.63,
+        "user_id": 123,
+    }
+
+    async def fake_find_order(_order_id):
+        return order
+
+    async def fake_snapshot(force=False):
+        return {"games": [{"id": "pubgm", "name": "Pubg"}]}
+
+    async def fake_poll(**_kwargs):
+        return {"status": 200, "data": {"order": {"status": "COMPLETED"}}}
+
+    async def fake_update_status(oid, status):
+        calls["status"] = (oid, status)
+
+    async def fake_update_details(oid, payload):
+        calls.setdefault("details", []).append((oid, dict(payload)))
+
+    async def fake_get_user(_user_id):
+        return {"language": "en"}
+
+    monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
+    monkeypatch.setattr(store_sections, "_find_order_for_owner_action", fake_find_order)
+    monkeypatch.setattr(store_sections, "get_catalog_snapshot", fake_snapshot)
+    monkeypatch.setattr(store_sections, "_poll_provider_order_status", fake_poll)
+    monkeypatch.setattr(store_sections, "update_order_status", fake_update_status)
+    monkeypatch.setattr(store_sections, "update_order_details", fake_update_details)
+    monkeypatch.setattr(store_sections, "get_user", fake_get_user)
+
+    answers = []
+    sent_messages = []
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            sent_messages.append(kwargs)
+
+    class FakeMessage:
+        text = "/recover_digital_order order-2 1800 UC Voucher"
+        from_user = SimpleNamespace(id=7417429062)
+        bot = FakeBot()
+
+        async def answer(self, text, **_kwargs):
+            answers.append(text)
+
+    await store_sections.recover_manual_digital_order(FakeMessage())
+
+    assert calls["status"] == ("order-2", "success")
+    assert any(call[1].get("provider_recovery_outcome") == "success" for call in calls["details"])
+    assert "Provider order is already completed" in answers[-1]
+    assert sent_messages
