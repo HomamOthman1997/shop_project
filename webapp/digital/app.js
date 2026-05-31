@@ -416,16 +416,45 @@ Object.assign(serviceLabelFallback, {
 });
 
 Object.assign(serviceVisuals, {
-  games: { icon: "GAME", tone: "tone-games", backgroundImage: "/mini/digital/static/section-games.jpg?v=20260507f" },
+  games: {
+    icon: "GAME",
+    tone: "tone-games",
+    backgroundImage: "/mini/digital/static/section-games.jpg?v=20260507f",
+    image: { rtl: "/mini/digital/static/games-rtl.png?v=20260601a", ltr: "/mini/digital/static/games-ltr.png?v=20260601a" },
+  },
   chat_apps: { icon: "CHAT", tone: "tone-chat" },
   social_services: { icon: "SOCIAL", tone: "tone-social" },
-  communications_data: { icon: "SIM", tone: "tone-comms", backgroundImage: "/mini/digital/static/section-communications.jpg?v=20260507f" },
+  communications_data: {
+    icon: "SIM",
+    tone: "tone-comms",
+    backgroundImage: "/mini/digital/static/section-communications.jpg?v=20260507f",
+    image: { rtl: "/mini/digital/static/communications-rtl.png?v=20260601a", ltr: "/mini/digital/static/communications-ltr.png?v=20260601a" },
+  },
   internet_providers: { icon: "NET", tone: "tone-net" },
   paid_apps: { icon: "APP", tone: "tone-tools" },
-  numbers_services: { icon: "123", tone: "tone-numbers", backgroundImage: "/mini/digital/static/section-numbers.jpg?v=20260507f" },
+  numbers_services: {
+    icon: "123",
+    tone: "tone-numbers",
+    backgroundImage: "/mini/digital/static/section-numbers.jpg?v=20260507f",
+    image: { rtl: "/mini/digital/static/numbers-rtl.png?v=20260601a", ltr: "/mini/digital/static/numbers-ltr.png?v=20260601a" },
+  },
   paid_subscriptions: { icon: "SUB", tone: "tone-subs" },
-  store_cards: { icon: "CARD", tone: "tone-store", backgroundImage: "/mini/digital/static/section-store-cards.jpg?v=20260507f" },
+  store_cards: {
+    icon: "CARD",
+    tone: "tone-store",
+    backgroundImage: "/mini/digital/static/section-store-cards.jpg?v=20260507f",
+    image: { rtl: "/mini/digital/static/store-cards-rtl.png?v=20260601a", ltr: "/mini/digital/static/store-cards-ltr.png?v=20260601a" },
+  },
 });
+
+function serviceVisual(key) {
+  const visual = { ...(serviceVisuals[String(key || "")] || {}) };
+  const image = visual.image;
+  if (image && typeof image === "object") {
+    visual.backgroundImage = state.lang === "ar" ? image.rtl || image.ltr : image.ltr || image.rtl;
+  }
+  return visual;
+}
 
 function iconSvg(kind) {
   const common = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
@@ -802,6 +831,10 @@ function card(title, meta, onClick, disabled = false, opts = {}) {
     metaPill.textContent = meta;
     el.append(metaPill);
   }
+  const arrow = document.createElement("span");
+  arrow.className = "dept-arrow";
+  arrow.textContent = ">";
+  el.append(arrow);
   return el;
 }
 
@@ -1241,7 +1274,7 @@ async function renderServices() {
   grid.className = "dept-grid";
   const rows = await resolveVisibleServiceRows(serviceRows());
   rows.forEach((row) => {
-    const visual = serviceVisuals[String(row.key || "")] || {};
+    const visual = serviceVisual(row.key);
     grid.append(card(label(row.label), "", () => enterService(row.key), !row.enabled, visual));
   });
   setStatus(rows.length ? "" : t("noResults"));
