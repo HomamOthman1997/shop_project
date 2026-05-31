@@ -75,6 +75,7 @@ async def test_pending_game_topup_notifies_manual_fulfillment(monkeypatch):
 
     async def fake_notify(**kwargs):
         calls["notify"] = kwargs
+        return True
 
     monkeypatch.setattr(store_sections, "update_order_details", fake_update_order_details)
     monkeypatch.setattr(store_sections, "_notify_owner_manual_topup", fake_notify)
@@ -127,6 +128,7 @@ async def test_recover_manual_digital_order_sends_owner_notification(monkeypatch
 
     async def fake_notify(**kwargs):
         calls["notify"] = kwargs
+        return True
 
     monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
     monkeypatch.setattr(store_sections, "_find_order_for_owner_action", fake_find_order)

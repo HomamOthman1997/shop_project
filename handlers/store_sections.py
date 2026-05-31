@@ -2346,10 +2346,39 @@ async def _notify_owner_manual_topup(
     external_order_id: str,
     player_data: dict[str, Any],
     delivery_lines: list[str],
-) -> None:
+) -> bool:
+    text, markup = _manual_topup_notification_payload(
+        order=order,
+        item_name=item_name,
+        provider_code=provider_code,
+        external_order_id=external_order_id,
+        player_data=player_data,
+        delivery_lines=delivery_lines,
+    )
     target_chat_id, target_thread_id = await _owner_notification_target()
     if target_chat_id is None:
-        return
+        return False
+    try:
+        await bot.send_message(
+            chat_id=int(target_chat_id),
+            message_thread_id=int(target_thread_id) if target_thread_id is not None else None,
+            text=text,
+            reply_markup=markup,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _manual_topup_notification_payload(
+    *,
+    order: dict[str, Any],
+    item_name: str,
+    provider_code: str,
+    external_order_id: str,
+    player_data: dict[str, Any],
+    delivery_lines: list[str],
+) -> tuple[str, InlineKeyboardMarkup]:
     order_id = str(order.get("_id") or "")
     user_id = int(order.get("user_id") or 0)
     reseller_id = int(order.get("reseller_id") or 0)
@@ -2373,22 +2402,15 @@ async def _notify_owner_manual_topup(
         lines.append("")
         lines.append("Private voucher/code:")
         lines.extend(vouchers[:10])
-    try:
-        await bot.send_message(
-            chat_id=int(target_chat_id),
-            message_thread_id=int(target_thread_id) if target_thread_id is not None else None,
-            text="\n".join(lines),
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="تم الشحن", callback_data=f"dpm:done:{order_id}"),
-                        InlineKeyboardButton(text="استرجاع", callback_data=f"dpm:refund:{order_id}"),
-                    ]
-                ]
-            ),
-        )
-    except Exception:
-        pass
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="تم الشحن", callback_data=f"dpm:done:{order_id}"),
+                InlineKeyboardButton(text="استرجاع", callback_data=f"dpm:refund:{order_id}"),
+            ]
+        ]
+    )
+    return "\n".join(lines), markup
 
 
 async def _notify_owner_pending_game_topup(
@@ -2402,7 +2424,7 @@ async def _notify_owner_pending_game_topup(
     player_id: str,
     server_id: str,
     reason: str,
-) -> None:
+) -> bool:
     player_data = {
         "game": game_name,
         "package": item_name,
@@ -2422,7 +2444,7 @@ async def _notify_owner_pending_game_topup(
             "number_mode": "digital_products",
         },
     )
-    await _notify_owner_manual_topup(
+    return await _notify_owner_manual_topup(
         bot=bot,
         order=order,
         item_name=item_name,
@@ -2575,7 +2597,7 @@ async def recover_manual_digital_order(message: types.Message):
     item_name = item_name_override or str(order.get("manual_item_name") or order.get("service_ref_id") or "Digital product")
     player_id = str(order.get("player_id") or "").strip()
     server_id = str(order.get("server_id") or "").strip()
-    await _notify_owner_pending_game_topup(
+    sent = await _notify_owner_pending_game_topup(
         bot=message.bot,
         order=order,
         item_name=item_name,
@@ -2586,6 +2608,24 @@ async def recover_manual_digital_order(message: types.Message):
         server_id=server_id,
         reason="Owner recovered missing manual fulfillment notification.",
     )
+    if not sent:
+        text, markup = _manual_topup_notification_payload(
+            order=order,
+            item_name=item_name,
+            provider_code=provider_code,
+            external_order_id=external_order_id,
+            player_data={
+                "game": display_game_name or game_id or "Digital product",
+                "package": item_name,
+                "player_id": player_id,
+                "server_id": server_id,
+                "reason": "Owner recovered missing manual fulfillment notification.",
+            },
+            delivery_lines=[],
+        )
+        await message.answer("Owner notification target failed. Recovery card is shown here instead.")
+        await message.answer(text, reply_markup=markup)
+        return
     await message.answer(
         "Recovery notification sent.\n"
         f"Order: {order_id}\n"
