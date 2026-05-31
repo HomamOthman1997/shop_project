@@ -2767,6 +2767,28 @@ async def recover_manual_digital_order(message: types.Message):
     )
 
 
+@router.message(lambda msg: bool(msg.text) and str(msg.text).strip().split(maxsplit=1)[0] == "/check_g2bulk_order")
+async def check_g2bulk_order(message: types.Message):
+    if not _owner_action_allowed(int(message.from_user.id)):
+        return await message.answer("Unauthorized")
+    parts = str(message.text or "").strip().split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        return await message.answer("Usage: /check_g2bulk_order <provider_order_id>")
+    provider_order_id = parts[1].strip()
+    status_resp = await _poll_provider_order_status(provider="g2bulk", external_order_id=provider_order_id)
+    provider_status = _extract_provider_status(status_resp)
+    delivery_lines = _extract_voucher_lines(status_resp)
+    lines = [
+        "G2Bulk order check",
+        f"Provider order: {provider_order_id}",
+        f"Provider status: {provider_status or '-'}",
+        f"Delivery items: {len(delivery_lines)}",
+    ]
+    if delivery_lines:
+        lines.extend(["", "Delivery:", *[f"- {line}" for line in delivery_lines]])
+    return await message.answer("\n".join(lines))
+
+
 def _load_usage() -> dict[str, int]:
     try:
         with open(_GAME_USAGE_FILE, "r", encoding="utf-8") as f:

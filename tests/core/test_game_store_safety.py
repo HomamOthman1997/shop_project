@@ -364,3 +364,35 @@ async def test_resend_digital_delivery_allows_already_success_order(monkeypatch)
 
     assert "Provider order is already completed" in answers[-1]
     assert "CODE-1" in sent_messages[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_check_g2bulk_order_reports_delivery_lines(monkeypatch):
+    import handlers.store_sections as store_sections
+
+    async def fake_poll(**kwargs):
+        assert kwargs["provider"] == "g2bulk"
+        assert kwargs["external_order_id"] == "252882"
+        return {
+            "status": 200,
+            "data": {"order": {"status": "COMPLETED"}},
+            "delivery_response": {"status": 200, "data": {"delivery_items": ["CODE-1"]}},
+        }
+
+    monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
+    monkeypatch.setattr(store_sections, "_poll_provider_order_status", fake_poll)
+
+    answers = []
+
+    class FakeMessage:
+        text = "/check_g2bulk_order 252882"
+        from_user = SimpleNamespace(id=7417429062)
+
+        async def answer(self, text, **_kwargs):
+            answers.append(text)
+
+    await store_sections.check_g2bulk_order(FakeMessage())
+
+    assert "Provider status: completed" in answers[-1]
+    assert "Delivery items: 1" in answers[-1]
+    assert "CODE-1" in answers[-1]
