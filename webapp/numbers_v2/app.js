@@ -199,9 +199,6 @@ function friendlyError(error) {
 
 async function api(endpoint, options = {}) {
   const requestHeaders = headers(options.headers || {});
-  const controller = new AbortController();
-  const timeoutMs = Number(options.timeoutMs || 12000);
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   let body;
   if (options.body instanceof FormData) {
     body = options.body;
@@ -214,7 +211,7 @@ async function api(endpoint, options = {}) {
       method: options.method || "GET",
       headers: requestHeaders,
       body,
-      signal: options.signal || controller.signal,
+      signal: options.signal,
     });
     const text = await response.text();
     let payload = {};
@@ -231,12 +228,7 @@ async function api(endpoint, options = {}) {
     }
     return payload;
   } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error("انتهت مهلة الاتصال. أعد فتح التطبيق أو حاول مرة أخرى.");
-    }
     throw error;
-  } finally {
-    window.clearTimeout(timeout);
   }
 }
 
@@ -301,6 +293,38 @@ function countryLabel(code) {
   if (String(code) === "none") return "اختر الدولة";
   const row = state.countries.find((item) => String(item.code) === String(code));
   return row ? `${row.name} · ${row.iso || row.code}` : "اختر الدولة";
+}
+
+function countryDisplayCodeFromValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const country = state.countries.find((item) => (
+    String(item.code) === raw ||
+    String(item.iso || "").toLowerCase() === raw.toLowerCase() ||
+    String(item.name || "").toLowerCase() === raw.toLowerCase()
+  ));
+  const code = String(country?.iso || raw).trim().toUpperCase();
+  if (!code || code === "NONE" || code === "ANY") return "";
+  return code === "GB" ? "UK" : code;
+}
+
+function selectedCountryDisplayCode() {
+  if (state.mode === "voice") return "US";
+  if (state.country === "1") return countryDisplayCodeFromValue(state.stateCode !== "none" ? state.stateCode : "US");
+  if (state.country === "none" || state.country === "any") return "";
+  return countryDisplayCodeFromValue(state.country);
+}
+
+function offerCountryDisplay(row) {
+  return countryDisplayCodeFromValue(
+    row.location_tag ||
+    row.country_label ||
+    row.country_iso ||
+    row.provider_country_iso ||
+    row.provider_country ||
+    row.country_code ||
+    row.country
+  ) || selectedCountryDisplayCode();
 }
 
 function stateLabel(code) {
@@ -441,7 +465,12 @@ function renderOffers() {
 
       const providerEl = document.createElement("div");
       providerEl.className = "offer-provider";
-      providerEl.innerHTML = `<strong>${provider.id}</strong><small>${row.option_label || provider.name}</small>`;
+      const providerId = document.createElement("strong");
+      providerId.textContent = provider.id;
+      const providerMeta = document.createElement("small");
+      const countryTag = offerCountryDisplay(row);
+      providerMeta.textContent = [provider.name, countryTag, row.option_label].filter(Boolean).join(" · ");
+      providerEl.append(providerId, providerMeta);
 
       if (row.fallback_service || row.recommended || index === 0 || row.available === false) {
         const tag = document.createElement("em");
@@ -541,7 +570,7 @@ async function fetchPricePayload(service) {
     state: state.country === "1" ? state.stateCode : "none",
     _: String(Date.now()),
   });
-  return api(`${action.endpoint}?${qs}`, { timeoutMs: 22000 });
+  return api(`${action.endpoint}?${qs}`);
 }
 
 function shouldTryNotListedFallback() {
@@ -600,6 +629,7 @@ async function checkPrices() {
 function openConfirm(row) {
   state.pendingPurchase = row;
   const provider = formatProvider(row, normalizedOffers().indexOf(row));
+  const countryTag = offerCountryDisplay(row);
   const serviceTitle = row.fallback_service ? (row.service_label || serviceLabel(TEMP_NOT_LISTED_SERVICE_KEY)) : serviceLabel(state.service);
   els.confirmBody.replaceChildren();
   const card = document.createElement("div");
@@ -609,6 +639,7 @@ function openConfirm(row) {
     <div class="meta-grid">
       ${row.fallback_service ? `<div><span>بديل عن</span><strong>${state.fallbackOffer?.requestedService || serviceLabel(state.service)}</strong></div>` : ""}
       <div><span>المزود</span><strong>${provider.id} · ${provider.name}</strong></div>
+      ${countryTag ? `<div><span>الدولة</span><strong>${countryTag}</strong></div>` : ""}
       <div><span>السعر</span><strong>${row.price_label || "$0.00"}</strong></div>
       <div><span>النجاح</span><strong>${row.success_rate || "غير محدد"}</strong></div>
       ${row.option_label ? `<div><span>المدة</span><strong>${row.option_label}</strong></div>` : ""}

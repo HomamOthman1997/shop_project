@@ -402,7 +402,9 @@ body:not(.app-booting) .boot-screen { display: none; }
   margin-top: 6px;
   color: var(--muted);
   font-size: 9px;
+  line-height: 1.25;
   font-weight: 800;
+  overflow-wrap: anywhere;
 }
 .offer-tag {
   display: inline-flex;

@@ -126,6 +126,12 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function servicePickerRows()" in app
     assert "function notListedServiceRow(query)" in app
     assert "function fetchPricePayload(service)" in app
+    assert "timeoutMs" not in app
+    assert "AbortController" not in app
+    assert "انتهت مهلة الاتصال" not in app
+    assert "function offerCountryDisplay(row)" in app
+    assert "row.location_tag ||" in app
+    assert "providerMeta.textContent = [provider.name, countryTag, row.option_label]" in app
     assert "function shouldTryNotListedFallback()" in app
     assert "function resetBuySelections" in app
     assert "state.fallbackOffer" in app
