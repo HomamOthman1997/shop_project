@@ -190,11 +190,32 @@ function hideBusy() {
 function friendlyError(error) {
   const payload = error?.payload || {};
   const code = payload.code || payload.error_code || "";
+  if (code === "server_unavailable") return "الخدمة غير متاحة حاليا. انتظر قليلا ثم أعد المحاولة.";
+  if (code === "invalid_server_response") return "تعذر قراءة رد السيرفر. أعد المحاولة بعد قليل.";
   if (code === "insufficient_balance") return "الرصيد غير كاف. اشحن رصيدك ثم أعد المحاولة.";
   if (code === "quote_expired") return "انتهت صلاحية السعر. افحص الأسعار مرة أخرى.";
   if (code === "invalid_quote") return "العرض لم يعد متاحاً. افحص الأسعار مرة أخرى.";
   if (code === "telegram_auth_required") return "افتح الميني أب من داخل Telegram لتنفيذ هذا الإجراء.";
   return payload.message || payload.error || error?.message || "تعذر تنفيذ العملية";
+}
+
+function looksLikeHtmlResponse(text) {
+  return /^\s*<!doctype html/i.test(String(text || "")) || /^\s*<html[\s>]/i.test(String(text || ""));
+}
+
+function responseErrorPayload(response, text, parsedPayload) {
+  if (looksLikeHtmlResponse(text) || response.status >= 500) {
+    return {
+      ok: false,
+      code: "server_unavailable",
+      message: "الخدمة غير متاحة حاليا. انتظر قليلا ثم أعد المحاولة.",
+    };
+  }
+  return parsedPayload || {
+    ok: false,
+    code: "invalid_server_response",
+    message: "تعذر قراءة رد السيرفر. أعد المحاولة بعد قليل.",
+  };
 }
 
 async function api(endpoint, options = {}) {
@@ -215,13 +236,22 @@ async function api(endpoint, options = {}) {
     });
     const text = await response.text();
     let payload = {};
+    let parsed = false;
     try {
       payload = text ? JSON.parse(text) : {};
+      parsed = true;
     } catch (_error) {
-      payload = { ok: false, message: text };
+      payload = responseErrorPayload(response, text, null);
+    }
+    if (!parsed && response.ok) {
+      const error = new Error(payload.message || "Invalid server response");
+      error.payload = payload;
+      error.status = response.status;
+      throw error;
     }
     if (!response.ok) {
-      const error = new Error(payload.message || payload.error || text || `HTTP ${response.status}`);
+      payload = responseErrorPayload(response, text, payload);
+      const error = new Error(payload.message || payload.error || `HTTP ${response.status}`);
       error.payload = payload;
       error.status = response.status;
       throw error;
