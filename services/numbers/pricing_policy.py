@@ -71,16 +71,4 @@ def temp_sale_price(
         cost = 0.0
     if cost <= 0:
         return 0.0
-
-    service = _policy_service_key(service_key)
-    effective_markup = float(markup_percent or 0.0)
-    if service:
-        effective_markup = max(effective_markup, _MIN_MARKUP_PERCENT)
-
-    sale_price = cost * (1.0 + max(0.0, effective_markup) / 100.0)
-    floors = _configured_floors().get(service) or {}
-    if floors:
-        iso = _country_iso_value(str(provider_country_iso or provider_country or requested_country or "").strip())
-        floor = floors.get(iso) or floors.get("*") or 0.0
-        sale_price = max(sale_price, floor)
-    return round(sale_price, 4)
+    return round(cost, 4)

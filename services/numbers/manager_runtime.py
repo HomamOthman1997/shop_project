@@ -57,6 +57,8 @@ def _service_resolution_timeout_sec(settings_obj: Any, provider_code: str | None
     code = str(provider_code or "").strip().lower()
     if code == "textverified":
         return 2.5
+    if code == "pvadeals":
+        return 8.0
     return 2.0
 
 

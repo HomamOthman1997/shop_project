@@ -71,6 +71,12 @@ def test_service_name_lookup():
     assert get_service_display_name("notlistedgeneric") == "Service Not Listed"
 
 
+def test_pvadeals_service_resolution_timeout_allows_live_catalog():
+    from services.numbers import manager_runtime
+
+    assert manager_runtime._service_resolution_timeout_sec(manager.settings, "pvadeals") >= 8.0
+
+
 @pytest.mark.asyncio
 async def test_rent_number_from_provider_filters_unsupported_option_metadata(monkeypatch):
     provider = StrictRentalProvider()
@@ -338,7 +344,7 @@ async def test_get_all_prices(monkeypatch):
     monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
     res = await manager.get_all_prices('telegram', None, None)
     assert 'smspool' in res
-    assert res['smspool']['price'] == 1.5375
+    assert res['smspool']['price'] == 1.23
 
 
 @pytest.mark.asyncio
@@ -421,7 +427,7 @@ async def test_get_all_prices_vaksms_uses_provider_resolved_api_service(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_whatsapp_pricing_uses_floor_and_min_markup(monkeypatch):
+async def test_whatsapp_pricing_keeps_provider_cost(monkeypatch):
     class _Provider:
         async def get_price(self, service, country=None, state=None):
             return {
@@ -445,11 +451,11 @@ async def test_whatsapp_pricing_uses_floor_and_min_markup(monkeypatch):
 
     result = await manager.get_all_prices("whatsapp", "none", None, ignore_balance=True)
     assert result["herosms"]["base_price"] == 0.27
-    assert result["herosms"]["price"] == 1.0
+    assert result["herosms"]["price"] == 0.27
 
 
 @pytest.mark.asyncio
-async def test_telegram_us_pricing_uses_country_floor(monkeypatch):
+async def test_telegram_us_pricing_keeps_provider_cost(monkeypatch):
     class _Provider:
         async def get_price(self, service, country=None, state=None):
             return {"success": True, "price": 0.5, "api_service_name": "tg"}
@@ -468,7 +474,7 @@ async def test_telegram_us_pricing_uses_country_floor(monkeypatch):
 
     result = await manager.get_all_prices("telegram", "1", None, ignore_balance=True)
     assert result["herosms"]["base_price"] == 0.5
-    assert result["herosms"]["price"] == 0.9
+    assert result["herosms"]["price"] == 0.5
 
 
 @pytest.mark.asyncio
@@ -577,7 +583,7 @@ async def test_get_all_rental_prices_ignore_balance_keeps_unknown_balance_visibl
 
 
 @pytest.mark.asyncio
-async def test_get_all_rental_prices_filters_balance_against_provider_cost(monkeypatch):
+async def test_get_all_rental_prices_keeps_provider_cost_when_markup_configured(monkeypatch):
     class _RentalDummy:
         async def get_rental_prices(self, service, country=None):
             return {
@@ -598,7 +604,7 @@ async def test_get_all_rental_prices_filters_balance_against_provider_cost(monke
     assert "textverified" in result
     option = result["textverified"]["options"][0]
     assert option["base_price"] == 1.0
-    assert option["price"] == 2.0
+    assert option["price"] == 1.0
     assert result["textverified"]["available_for_buy"] is True
 
 

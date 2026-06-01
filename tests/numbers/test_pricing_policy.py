@@ -2,7 +2,7 @@ from config import settings
 from services.numbers.pricing_policy import temp_sale_price
 
 
-def test_temp_sale_price_uses_configured_floor(monkeypatch):
+def test_temp_sale_price_ignores_configured_floor_while_profit_disabled(monkeypatch):
     monkeypatch.setattr(
         settings,
         "numbers_temp_price_floors_json",
@@ -16,10 +16,10 @@ def test_temp_sale_price_uses_configured_floor(monkeypatch):
         markup_percent=0.0,
         requested_country="1",
         provider_country_iso="US",
-    ) == 2.25
+    ) == 0.5
 
 
-def test_temp_sale_price_ignores_bad_floor_config(monkeypatch):
+def test_temp_sale_price_ignores_min_markup_while_profit_disabled(monkeypatch):
     monkeypatch.setattr(settings, "numbers_temp_price_floors_json", "not-json", raising=False)
 
     assert temp_sale_price(
@@ -28,4 +28,4 @@ def test_temp_sale_price_ignores_bad_floor_config(monkeypatch):
         markup_percent=0.0,
         requested_country="1",
         provider_country_iso="US",
-    ) == 0.9
+    ) == 0.5

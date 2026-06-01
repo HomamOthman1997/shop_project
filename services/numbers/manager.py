@@ -375,13 +375,10 @@ def provider_allows_rental(
 
 
 async def _effective_numbers_markup_percent() -> float:
-    # Single source of truth for numbers pricing markup.
-    # Numbers prices are controlled only by NUMBERS_SERVICE_MARKUP_PERCENT.
-    try:
-        value = float(getattr(settings, "numbers_service_markup_percent", 0.0) or 0.0)
-    except Exception:
-        value = 0.0
-    return max(0.0, float(value))
+    # Numbers are currently run at provider cost while provider integrations are
+    # being validated. Keep this as the single hard stop so stale production env
+    # markup values cannot affect quote screens or purchases.
+    return 0.0
 
 
 def _success_rate_enabled() -> bool:
@@ -1165,21 +1162,23 @@ async def get_all_rental_prices(
                     return (code, None)
 
                 markup_pct = await _effective_numbers_markup_percent()
-                if markup_pct > 0:
-                    enriched_options = []
-                    for option in (rent_data.get("options") or []):
-                        if not isinstance(option, dict):
-                            enriched_options.append(option)
-                            continue
-                        row = dict(option)
-                        try:
-                            base_price = float(row.get("price") or 0.0)
-                        except Exception:
-                            base_price = 0.0
-                        row["base_price"] = base_price
+                enriched_options = []
+                for option in (rent_data.get("options") or []):
+                    if not isinstance(option, dict):
+                        enriched_options.append(option)
+                        continue
+                    row = dict(option)
+                    try:
+                        base_price = float(row.get("base_price", row.get("price")) or 0.0)
+                    except Exception:
+                        base_price = 0.0
+                    row["base_price"] = base_price
+                    if markup_pct > 0:
                         row["price"] = round(base_price * (1.0 + markup_pct / 100.0), 4) if base_price > 0 else base_price
-                        enriched_options.append(row)
-                    rent_data["options"] = enriched_options
+                    else:
+                        row["price"] = base_price
+                    enriched_options.append(row)
+                rent_data["options"] = enriched_options
                 insufficient_balance = False
                 if provider_balance is not None and not ignore_balance:
                     affordable_options: list[dict[str, Any]] = []
