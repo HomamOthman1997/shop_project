@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import re
 import time
 from typing import Any, Optional
@@ -38,6 +39,12 @@ def _norm_country(value: str) -> str:
 def _status_ok_string(value: str) -> bool:
     v = (value or "").strip().upper()
     return v.startswith("ACCESS_") or v.startswith("STATUS_")
+
+
+def _duration_label(hours: int) -> str:
+    if hours > 0 and hours % 24 == 0:
+        return f"{hours // 24}d"
+    return f"{hours}h"
 
 
 class HeroSMSProvider(BaseProvider):
@@ -634,13 +641,87 @@ class HeroSMSProvider(BaseProvider):
                         {
                             "country": c_key,
                             "duration": dur,
+                            "duration_label": _duration_label(dur),
                             "price": price,
                             "count": max(0, count),
                         }
                     )
 
+        if wanted_country:
+            supplemental = await self._get_rental_duration_options(
+                service=service,
+                country=wanted_country,
+                operator=operator,
+                currency=currency,
+                existing_durations={
+                    duration for row in options if (duration := _as_int(row.get("duration"))) is not None
+                },
+            )
+            options.extend(supplemental)
+
         options.sort(key=lambda x: (x["duration"], x["price"]))
         return {"success": bool(options), "options": options, "raw": data}
+
+    @staticmethod
+    def _rental_available_durations(payload: Any) -> list[int]:
+        if not isinstance(payload, dict):
+            return []
+        info = payload.get("info")
+        if not isinstance(info, dict):
+            return []
+        durations: list[int] = []
+        for raw in info.get("available_durations") or []:
+            value = _as_int(raw)
+            if value is not None and value > 0:
+                durations.append(value)
+        return sorted(set(durations))
+
+    async def _get_rental_duration_options(
+        self,
+        *,
+        service: str,
+        country: str,
+        operator: str | None = None,
+        currency: int | None = 840,
+        existing_durations: set[int] | None = None,
+    ) -> list[dict[str, Any]]:
+        existing = set(existing_durations or set())
+        probe_params: dict[str, Any] = {"service": service, "country": country}
+        if operator:
+            probe_params["operator"] = operator
+        if currency is not None:
+            probe_params["currency"] = currency
+        _status, probe = await self._request("getRentServicesAndCountries", **probe_params)
+        durations = [duration for duration in self._rental_available_durations(probe) if duration not in existing]
+        if not durations:
+            return []
+
+        async def fetch_duration(duration: int) -> dict[str, Any] | None:
+            params = dict(probe_params)
+            params["duration"] = duration
+            _status, payload = await self._request("getRentServicesAndCountries", **params)
+            if self._is_error_payload(payload) or not isinstance(payload, dict):
+                return None
+            services = payload.get("services")
+            if not isinstance(services, dict):
+                return None
+            row = services.get(str(service))
+            if not isinstance(row, dict):
+                return None
+            price = _as_float(row.get("price"))
+            count = _as_int(row.get("quantity") or row.get("count")) or 0
+            if price is None or price <= 0 or count <= 0:
+                return None
+            return {
+                "country": str(country),
+                "duration": int(duration),
+                "duration_label": _duration_label(int(duration)),
+                "price": price,
+                "count": max(0, count),
+            }
+
+        fetched = await asyncio.gather(*(fetch_duration(duration) for duration in durations), return_exceptions=True)
+        return [row for row in fetched if isinstance(row, dict)]
 
     async def rent_number(
         self,

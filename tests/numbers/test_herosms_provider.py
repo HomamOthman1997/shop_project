@@ -105,6 +105,8 @@ async def test_rental_prices_parse(monkeypatch):
                 {"id": 1, "eng": "Ukraine"},
                 {"id": 187, "eng": "USA", "visible": 1},
             ]
+        if action == "getRentServicesAndCountries":
+            return 404, {"title": "BAD_ACTION", "details": "Method Not Found"}
         assert action == "serviceCountRent"
         assert str(params.get("country")) == "187"
         return 200, {
@@ -119,6 +121,35 @@ async def test_rental_prices_parse(monkeypatch):
     assert res["success"] is True
     assert len(res["options"]) == 2
     assert res["options"][0]["duration"] == 2
+
+
+@pytest.mark.asyncio
+async def test_rental_prices_include_duration_probe_options(monkeypatch):
+    provider = HeroSMSProvider()
+
+    async def fake_request(action, **params):
+        if action == "getCountries":
+            return 200, [
+                {"id": 187, "eng": "USA", "visible": 1},
+            ]
+        if action == "serviceCountRent":
+            assert str(params.get("country")) == "187"
+            return 200, {"187": {"24": {"price": 0.96, "count": 1}}}
+        if action == "getRentServicesAndCountries" and "duration" not in params:
+            return 400, {
+                "title": "BAD_DURATION",
+                "details": "Invalid rental period.",
+                "info": {"available_durations": [12, 24]},
+            }
+        if action == "getRentServicesAndCountries" and int(params.get("duration")) == 12:
+            return 200, {"services": {"go": {"price": 0.55, "quantity": 4}}}
+        raise AssertionError(f"unexpected request {action} {params}")
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    res = await provider.get_rental_prices("go", country="1")
+    assert res["success"] is True
+    assert [row["duration"] for row in res["options"]] == [12, 24]
+    assert [row["duration_label"] for row in res["options"]] == ["12h", "1d"]
 
 
 @pytest.mark.asyncio
