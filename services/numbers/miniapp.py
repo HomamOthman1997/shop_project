@@ -3565,7 +3565,7 @@ async def static_file(request: web.Request) -> web.Response:
 
         raise web.HTTPNotFound()
 
-    return web.FileResponse(path)
+    return web.FileResponse(path, headers=dict(_NO_STORE_HEADERS))
 
 async def static_file_v2(request: web.Request) -> web.Response:
 
@@ -3581,7 +3581,7 @@ async def static_file_v2(request: web.Request) -> web.Response:
 
         raise web.HTTPNotFound()
 
-    return web.FileResponse(path)
+    return web.FileResponse(path, headers=dict(_NO_STORE_HEADERS))
 
 async def bootstrap(request: web.Request) -> web.Response:
 
