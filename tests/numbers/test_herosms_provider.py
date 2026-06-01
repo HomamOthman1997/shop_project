@@ -96,6 +96,23 @@ async def test_get_balance_parses_access_balance(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_rent_number_can_use_provider_country_id(monkeypatch):
+    provider = HeroSMSProvider()
+    calls = []
+
+    async def fake_request(action, **params):
+        calls.append((action, params))
+        if action == "getRentNumber":
+            return 200, {"id": "rent-1", "phoneNumber": "+123", "cost": 0.5}
+        raise AssertionError(f"unexpected request {action}")
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    res = await provider.rent_number("go", country="none", duration=24, provider_country="6")
+    assert res["success"] is True
+    assert calls == [("getRentNumber", {"service": "go", "country": "6", "duration": 24, "currency": 840})]
+
+
+@pytest.mark.asyncio
 async def test_rental_prices_parse(monkeypatch):
     provider = HeroSMSProvider()
 
@@ -121,6 +138,8 @@ async def test_rental_prices_parse(monkeypatch):
     assert res["success"] is True
     assert len(res["options"]) == 2
     assert res["options"][0]["duration"] == 2
+    assert res["options"][0]["provider_country_iso"] == "US"
+    assert res["options"][0]["provider_country_name"] == "United States"
 
 
 @pytest.mark.asyncio

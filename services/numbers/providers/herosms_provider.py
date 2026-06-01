@@ -290,6 +290,54 @@ class HeroSMSProvider(BaseProvider):
             return None
         return None
 
+    async def _hero_country_info_by_id(self) -> dict[str, dict[str, str]]:
+        countries = await self.list_countries()
+        common = self._common_country_by_code()
+        by_id: dict[str, dict[str, str]] = {}
+        for row in countries:
+            cid = _as_int(row.get("id"))
+            if cid is None:
+                continue
+            eng = str(row.get("eng") or "").strip()
+            eng_key = _norm_country(eng)
+            iso = ""
+            name = eng
+            if eng_key == "palestine":
+                iso = "PS"
+                name = "Palestine"
+            elif eng_key in {"usa", "unitedstates", "unitedstatesofamerica"}:
+                iso = "US"
+                name = "United States"
+            elif eng_key in {"unitedkingdom", "greatbritain", "england"}:
+                iso = "GB"
+                name = "United Kingdom"
+            else:
+                for item in common.values():
+                    item_iso = str(item.get("iso") or "").strip().upper()
+                    item_name = str(item.get("name") or "").strip()
+                    if _norm_country(item_name) == eng_key and item_iso:
+                        iso = item_iso
+                        name = item_name or eng
+                        break
+                if not iso and len(eng) == 2 and eng.isalpha():
+                    iso = eng.upper()
+            by_id[str(cid)] = {
+                "provider_country": str(cid),
+                "provider_country_iso": iso,
+                "provider_country_name": name,
+            }
+        return by_id
+
+    async def _annotate_rental_option_countries(self, options: list[dict[str, Any]]) -> None:
+        if not options:
+            return
+        country_info = await self._hero_country_info_by_id()
+        for option in options:
+            info = country_info.get(str(option.get("country") or "").strip())
+            if not info:
+                continue
+            option.update({key: value for key, value in info.items() if value})
+
     async def _resolve_country(self, country: str | int | None) -> str | None:
         if country in (None, "", "none"):
             return None
@@ -659,6 +707,7 @@ class HeroSMSProvider(BaseProvider):
             )
             options.extend(supplemental)
 
+        await self._annotate_rental_option_countries(options)
         options.sort(key=lambda x: (x["duration"], x["price"]))
         return {"success": bool(options), "options": options, "raw": data}
 
@@ -731,8 +780,9 @@ class HeroSMSProvider(BaseProvider):
         operator: str | None = None,
         currency: int | None = 840,
         ref: str | None = None,
+        provider_country: str | None = None,
     ) -> dict[str, Any]:
-        mapped_country = await self._resolve_country(country)
+        mapped_country = str(provider_country or "").strip() or await self._resolve_country(country)
         if mapped_country is None:
             return {"success": False, "raw": {"title": "BAD_COUNTRY", "details": "country is required"}}
         params: dict[str, Any] = {

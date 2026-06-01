@@ -593,7 +593,7 @@ async def _resolve_rental_offer_from_quote(quote_token: str) -> dict[str, Any]:
         allowed_codes=RENTAL_QUOTE_PROVIDER_CODES,
     )
     match_key = tuple(str(part) for part in (quote.get("option_key") or []))
-    if not service or not country or not provider_code or len(match_key) != 6:
+    if not service or not country or not provider_code or len(match_key) not in {6, 7}:
         raise NumbersOrderError("invalid_quote", "This quote is incomplete.", status=400)
     if not provider_purchase_enabled(provider_code, mode="rental"):
         readiness = provider_readiness(provider_code)
@@ -610,7 +610,8 @@ async def _resolve_rental_offer_from_quote(quote_token: str) -> dict[str, Any]:
         raise NumbersOrderError("provider_unavailable", "This provider is no longer available.", status=409)
 
     for option in rental_option_candidates(provider_code, provider_info, state=state):
-        if rental_option_match_key(option) != match_key:
+        option_match_key = rental_option_match_key(option)
+        if option_match_key != match_key and not (len(match_key) == 6 and option_match_key[:6] == match_key):
             continue
         if not rental_option_is_buyable(
             service=service,
@@ -622,7 +623,7 @@ async def _resolve_rental_offer_from_quote(quote_token: str) -> dict[str, Any]:
             raise NumbersOrderError("provider_unavailable", "This provider is no longer available.", status=409)
         return {
             "service": service,
-            "country": country,
+            "country": str(option.get("country") or option.get("provider_country") or country).strip() or country,
             "provider_code": provider_code,
             "provider_info": provider_info,
             "option": option,
@@ -1292,7 +1293,13 @@ async def create_rental_order_from_quote(
             for key in (
                 "rental_id",
                 "duration_days",
+                "country",
                 "country_name",
+                "country_label",
+                "country_iso",
+                "provider_country",
+                "provider_country_iso",
+                "provider_country_name",
                 "tv_with_state",
                 "state_code",
                 "tv_duration_key",
@@ -1319,7 +1326,7 @@ async def create_rental_order_from_quote(
                 service_name=service,
                 duration=duration,
                 duration_label=rental_duration_label(selected),
-                country_name=str(selected.get("country_name") or ""),
+                country_name=str(selected.get("country_name") or selected.get("provider_country_name") or selected.get("country_label") or ""),
                 final_price=final_price,
                 cost_price=cost_price,
                 option_meta=option_meta,

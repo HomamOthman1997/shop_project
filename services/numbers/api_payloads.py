@@ -462,7 +462,7 @@ def rental_duration_label(option: dict[str, Any]) -> str:
     return f"{hours}h"
 
 
-def rental_option_match_key(option: dict[str, Any]) -> tuple[str, str, str, str, str, str]:
+def rental_option_match_key(option: dict[str, Any]) -> tuple[str, ...]:
     option = option or {}
     return (
         str(option.get("duration") or "").strip(),
@@ -471,6 +471,7 @@ def rental_option_match_key(option: dict[str, Any]) -> tuple[str, str, str, str,
         "1" if bool(option.get("tv_is_renewable")) else "0",
         str(option.get("state_code") or "none").strip().lower(),
         str(option.get("duration_label") or "").strip().lower(),
+        str(option.get("country") or option.get("provider_country") or option.get("country_code") or "").strip().lower(),
     )
 
 
@@ -705,6 +706,16 @@ def normalize_rental_quote_rows(
                 "quote_token": quote_token,
                 "state_code": option_state,
             }
+            option_country_name = str(
+                normalized_option.get("provider_country_name") or normalized_option.get("country_name") or normalized_option.get("country_label") or ""
+            ).strip()
+            option_country_iso = str(normalized_option.get("provider_country_iso") or normalized_option.get("country_iso") or "").strip().upper()
+            option_country = str(normalized_option.get("country") or normalized_option.get("provider_country") or "").strip()
+            if option_country_name or option_country_iso or option_country:
+                option_payload["location_tag"] = option_country_name or option_country_iso or option_country
+                option_payload["country_label"] = option_country_name
+                option_payload["country_iso"] = option_country_iso
+                option_payload["country"] = option_country
             if "tv_is_renewable" in normalized_option:
                 option_payload["renewable"] = bool(normalized_option.get("tv_is_renewable"))
             if "tv_with_state" in normalized_option:

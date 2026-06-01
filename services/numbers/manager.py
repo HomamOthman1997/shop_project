@@ -1405,6 +1405,7 @@ async def rent_number_from_provider(
             "rental_id",
             "duration_days",
             "country_name",
+            "provider_country",
             "tv_with_state",
             "state_code",
             "tv_duration_key",

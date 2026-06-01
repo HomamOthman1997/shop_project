@@ -433,7 +433,15 @@ def test_numbers_rental_options_include_signed_quotes(monkeypatch):
                 "available_for_buy": True,
                 "api_service_name": "go",
                 "options": [
-                    {"duration": 2, "duration_label": "2h", "price": 0.55, "base_price": 0.5},
+                    {
+                        "country": "187",
+                        "provider_country_iso": "US",
+                        "provider_country_name": "United States",
+                        "duration": 2,
+                        "duration_label": "2h",
+                        "price": 0.55,
+                        "base_price": 0.5,
+                    },
                 ],
             }
         },
@@ -444,12 +452,15 @@ def test_numbers_rental_options_include_signed_quotes(monkeypatch):
 
     option = rows[0]["options"][0]
     assert option["duration_label"] == "2h"
+    assert option["location_tag"] == "United States"
+    assert option["country"] == "187"
     assert option["purchase_action"]["enabled"] is True
     assert option["purchase_action"]["body"]["quote_token"] == option["quote_token"]
     quote = miniapp._api_verify_quote_token(option["quote_token"])
     assert quote["mode"] == "rental"
     assert quote["service"] == "google"
     assert quote["provider_id"] == "S1"
+    assert quote["option_key"][-1] == "187"
     assert "provider" not in quote
 
 

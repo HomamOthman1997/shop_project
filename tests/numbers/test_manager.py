@@ -36,6 +36,17 @@ class StrictRentalProvider:
         return {"success": True, "order_id": "strict-1", "number": "700000001"}
 
 
+class ProviderCountryRentalProvider:
+    def __init__(self):
+        self.calls = []
+
+    async def rent_number(self, service, country=None, duration=2, provider_country=None):
+        self.calls.append(
+            {"service": service, "country": country, "duration": duration, "provider_country": provider_country}
+        )
+        return {"success": True, "order_id": "country-1", "number": "700000002"}
+
+
 @pytest.fixture(autouse=True)
 def _patch_providers(monkeypatch):
     # make manager.PROVIDERS point to dummy objects for deterministic tests
@@ -80,6 +91,23 @@ async def test_rent_number_from_provider_filters_unsupported_option_metadata(mon
 
     assert result["success"] is True
     assert provider.calls == [{"service": "paypal", "country": "1", "duration": 24}]
+
+
+@pytest.mark.asyncio
+async def test_rent_number_from_provider_passes_provider_country_when_supported(monkeypatch):
+    provider = ProviderCountryRentalProvider()
+    monkeypatch.setitem(manager.PROVIDERS, "herosms", provider)
+
+    result = await manager.rent_number_from_provider(
+        "herosms",
+        "paypal",
+        "none",
+        24,
+        option_meta={"provider_country": "6"},
+    )
+
+    assert result["success"] is True
+    assert provider.calls == [{"service": "paypal", "country": "none", "duration": 24, "provider_country": "6"}]
 
 
 @pytest.mark.asyncio
