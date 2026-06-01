@@ -2,6 +2,21 @@ import asyncio
 import os
 import socket
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolate_usage_stats_files(tmp_path, monkeypatch):
+    usage_file = tmp_path / "usage_stats.json"
+    top_file = tmp_path / "top_services.json"
+
+    from utils import services_keyboard, usage_stats_manager
+
+    monkeypatch.setattr(usage_stats_manager, "USAGE_FILE", str(usage_file))
+    monkeypatch.setattr(usage_stats_manager, "TOP_FILE", str(top_file))
+    monkeypatch.setattr(services_keyboard, "USAGE_FILE", str(usage_file))
+    monkeypatch.setattr(services_keyboard, "TOP_FILE", str(top_file))
+
 
 if os.name == "nt" and hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

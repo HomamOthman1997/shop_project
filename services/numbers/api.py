@@ -776,7 +776,16 @@ def _json_error(
     headers = _response_headers(rate_limit)
     if rate_limit is not None and status == 429:
         headers["Retry-After"] = str(retry_after_seconds(rate_limit))
-    return web.json_response({"ok": False, "code": code, "message": message}, status=status, headers=headers)
+    return web.json_response(
+        {
+            "ok": False,
+            "code": code,
+            "error": message,
+            "message": message,
+        },
+        status=status,
+        headers=headers,
+    )
 
 
 async def _check_rate_limit(auth: ApiAuthContext, *, bucket: str, limit: int) -> ApiRateLimitDecision:

@@ -12,8 +12,6 @@ const state = {
   services: [],
   countries: [],
   states: [],
-  countrySuggestions: [],
-  suggestionsLoading: false,
   clientActions: {},
   offers: [],
   fallbackOffer: null,
@@ -45,7 +43,6 @@ const els = {
   countryLabel: $("countryLabel"),
   stateButton: $("stateButton"),
   stateLabel: $("stateLabel"),
-  countrySuggestions: $("countrySuggestions"),
   checkPrices: $("checkPricesButton"),
   liveLine: $("liveLine"),
   offersCount: $("offersCount"),
@@ -109,12 +106,6 @@ const aliasById = Object.fromEntries(providerAliases);
 const RENTAL_UNLIMITED_SERVICE_KEY = "rental_unlimited";
 const TEMP_NOT_LISTED_SERVICE_KEY = "not_listed_generic";
 const hiddenServiceNeedles = ["my custom app", "mycustomapp"];
-const suggestedRegionIsos = new Set([
-  "US", "GB", "IE", "FR", "DE", "NL", "BE", "LU", "CH", "AT", "IT", "ES", "PT",
-  "SE", "NO", "DK", "FI", "IS", "PL", "CZ", "SK", "HU", "RO", "BG", "GR",
-  "HR", "SI", "RS", "BA", "ME", "MK", "AL", "XK", "EE", "LV", "LT", "UA",
-  "MD", "BY", "MT", "CY",
-]);
 
 function applyRuntimeTheme() {
   const scheme = String(tg?.colorScheme || "").toLowerCase();
@@ -301,7 +292,6 @@ function resetBuySelections({ mode = state.mode } = {}) {
   state.service = "";
   state.country = mode === "voice" ? "1" : "none";
   state.stateCode = "none";
-  state.countrySuggestions = [];
   clearPriceResults();
 }
 
@@ -317,17 +307,6 @@ function stateLabel(code) {
   if (String(code) === "none") return "أي ولاية";
   const row = state.states.find((item) => String(item.code) === String(code));
   return row?.name || "أي ولاية";
-}
-
-function countryIso(code) {
-  const row = state.countries.find((item) => String(item.code) === String(code));
-  return String(row?.iso || "").toUpperCase();
-}
-
-function isFastSuggestionCountry(row) {
-  const code = String(row?.code || "");
-  const iso = String(row?.iso || countryIso(code)).toUpperCase();
-  return suggestedRegionIsos.has(iso);
 }
 
 function setBusy(button, busy) {
@@ -387,34 +366,7 @@ function renderBuy() {
   els.stateButton.disabled = !showState;
   els.stateButton.classList.toggle("hidden", !showState);
   els.countryButton.parentElement?.classList.toggle("state-hidden", !showState);
-  renderCountrySuggestions();
   renderOffers();
-}
-
-function renderCountrySuggestions() {
-  if (!els.countrySuggestions) return;
-  const rows = state.service && state.mode !== "voice" && state.country === "none"
-    ? (state.countrySuggestions || []).filter(isFastSuggestionCountry).slice(0, 6)
-    : [];
-  if (!rows.length) {
-    els.countrySuggestions.classList.add("hidden");
-    els.countrySuggestions.replaceChildren();
-    return;
-  }
-  els.countrySuggestions.classList.remove("hidden");
-  els.countrySuggestions.replaceChildren(...rows.map((row) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "suggestion-chip";
-    button.textContent = [countryLabel(row.code), row.price_label].filter(Boolean).join(" · ");
-    button.addEventListener("click", () => {
-      state.country = row.code || "none";
-      state.stateCode = state.country === "1" ? state.stateCode : "none";
-      clearPriceResults();
-      renderBuy();
-    });
-    return button;
-  }));
 }
 
 function normalizedOffers() {
@@ -529,7 +481,6 @@ function openPicker(kind) {
   els.drawerSearch.value = "";
   renderPickerOptions();
   els.pickerDrawer.classList.remove("hidden");
-  if (kind === "country") loadCountrySuggestions();
   els.drawerSearch.focus();
 }
 
@@ -546,7 +497,7 @@ function renderPickerOptions() {
     ...rows.slice(0, 80).map((row) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `picker-option${row.suggested || row.special ? " suggested" : ""}`;
+      button.className = `picker-option${row.special ? " suggested" : ""}`;
       button.append(document.createTextNode(row.title || ""));
       if (row.sub) {
         const sub = document.createElement("small");
@@ -554,11 +505,9 @@ function renderPickerOptions() {
         button.append(sub);
       }
       button.addEventListener("click", () => {
-        const selectedKind = state.picker?.kind;
         state.picker.onSelect(row.key);
         closePicker();
         renderBuy();
-        if (selectedKind === "service") loadCountrySuggestions();
       });
       return button;
     })
@@ -571,59 +520,10 @@ function closePicker() {
 }
 
 function countryPickerRows() {
-  const seen = new Set();
   const anyCountry = { key: "any", title: "أي دولة", sub: "بدون تحديد دولة" };
-  const suggestions = (state.countrySuggestions || []).map((row) => {
-    const key = String(row.code || "");
-    if (!isFastSuggestionCountry({ ...row, code: key })) return null;
-    seen.add(key);
-    return {
-      key,
-      title: countryLabel(key),
-      sub: ["مقترح", row.price_label].filter(Boolean).join(" · "),
-      suggested: true,
-    };
-  }).filter(Boolean);
   const countries = state.countries
-    .filter((row) => !seen.has(String(row.code || "")))
     .map((row) => ({ key: row.code, title: countryLabel(row.code), sub: row.price_label || "" }));
-  return [anyCountry, ...suggestions, ...countries];
-}
-
-async function loadCountrySuggestions() {
-  if (!state.service || state.mode === "voice") {
-    state.countrySuggestions = [];
-    state.suggestionsLoading = false;
-    if (state.picker?.kind === "country") {
-      state.picker.rows = countryPickerRows();
-      renderPickerOptions();
-    }
-    return;
-  }
-  state.suggestionsLoading = true;
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 4500);
-  try {
-    const action = actionFor("country_suggestions", "/mini/numbers/api/country-suggestions");
-    const qs = new URLSearchParams({
-      mode: state.mode,
-      service: state.service,
-      _: String(Date.now()),
-    });
-    const payload = await api(`${action.endpoint}?${qs}`, { signal: controller.signal });
-    mergeActions(payload);
-    state.countrySuggestions = (payload.countries || []).filter(isFastSuggestionCountry);
-  } catch (_error) {
-    state.countrySuggestions = [];
-  } finally {
-    window.clearTimeout(timeout);
-    state.suggestionsLoading = false;
-    if (state.picker?.kind === "country") {
-      state.picker.rows = countryPickerRows();
-      renderPickerOptions();
-    }
-    renderCountrySuggestions();
-  }
+  return [anyCountry, ...countries];
 }
 
 function clearPriceResults() {

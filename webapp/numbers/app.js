@@ -58,9 +58,6 @@ const state = {
   serviceMenuOpen: false,
   countryMenuOpen: false,
   stateMenuOpen: false,
-  countrySuggestionRanks: {},
-  countrySuggestionPrices: {},
-  countrySuggestionRequestId: 0,
   priceRequestId: 0,
   busyCount: 0,
   priceProgressTimer: null,
@@ -70,7 +67,6 @@ const state = {
   rechargeSubmitting: false,
 };
 
-const QUICK_COUNTRY_ISOS = ["US", "GB", "DE", "FR"];
 const QUICK_STATE_CODES = ["CA", "NY", "TX", "FL", "WA"];
 
 const els = {
@@ -837,6 +833,7 @@ async function api(path, options = {}) {
     }),
     body: options.body ? JSON.stringify(options.body) : undefined,
     cache: "no-store",
+    signal: options.signal,
   });
   let payload = null;
   try {
@@ -1250,7 +1247,6 @@ function setServiceSelection(key) {
   saveModeSelection();
   clearPriceResults();
   clearTransientStatus();
-  loadCountrySuggestions();
   updateStateVisibility();
   updateServiceLabel();
   renderProviders([]);
@@ -1323,10 +1319,7 @@ function searchTokens(item) {
 
 function quickCountryRank(item) {
   if (String(item?.code) === "none") return 1000;
-  const suggested = state.countrySuggestionRanks[String(item?.code || "")];
-  if (suggested) return 2000 + suggested;
-  const index = QUICK_COUNTRY_ISOS.indexOf(String(item?.iso || "").toUpperCase());
-  return index >= 0 ? 900 - index : 0;
+  return 0;
 }
 
 function quickStateRank(item) {
@@ -1447,7 +1440,7 @@ function renderCountryOptions() {
       const label = document.createElement("strong");
       label.textContent = optionText(item, "country");
       const key = document.createElement("span");
-      key.textContent = state.countrySuggestionPrices[item.code] || (item.code === "none" ? "" : item.code);
+      key.textContent = item.code === "none" ? "" : item.code;
       button.append(label, key);
       button.addEventListener("click", () => setCountrySelection(item.code));
       return button;
@@ -1512,7 +1505,6 @@ function renderModes() {
         state.priceCheckFailed = false;
         clearPriceResults();
         clearTransientStatus();
-        loadCountrySuggestions();
         setServiceMenuOpen(false);
         setSelectorMenuOpen("country", false);
         setSelectorMenuOpen("state", false);
@@ -1587,38 +1579,6 @@ function updateStateVisibility() {
     setSelectorMenuOpen("state", false);
   }
   updateSelectorLabels();
-}
-
-async function loadCountrySuggestions() {
-  state.countrySuggestionRequestId += 1;
-  const requestId = state.countrySuggestionRequestId;
-  state.countrySuggestionRanks = {};
-  state.countrySuggestionPrices = {};
-  if (!state.selectedService || state.mode === "voice") {
-    renderCountryOptions();
-    return;
-  }
-  try {
-    const params = new URLSearchParams({ mode: state.mode, service: state.selectedService });
-    const payload = await api(`${clientActionEndpoint("country_suggestions", "/mini/numbers/api/country-suggestions")}?${params.toString()}`);
-    if (requestId !== state.countrySuggestionRequestId) return;
-    const ranks = {};
-    const prices = {};
-    (payload.countries || []).forEach((item, index) => {
-      const code = String(item.code || "");
-      if (!code) return;
-      ranks[code] = Math.max(1, 999 - index);
-      if (item.price_label) prices[code] = item.price_label;
-    });
-    state.countrySuggestionRanks = ranks;
-    state.countrySuggestionPrices = prices;
-    renderCountryOptions();
-  } catch (_error) {
-    if (requestId !== state.countrySuggestionRequestId) return;
-    state.countrySuggestionRanks = {};
-    state.countrySuggestionPrices = {};
-    renderCountryOptions();
-  }
 }
 
 function renderQuickServices() {
@@ -3247,7 +3207,6 @@ async function boot() {
   renderBuyFlow();
   renderModes();
   renderSelectors();
-  loadCountrySuggestions();
   renderQuickServices();
   renderProviders([]);
   renderActiveOrders([]);

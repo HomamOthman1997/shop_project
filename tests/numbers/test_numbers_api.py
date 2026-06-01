@@ -198,6 +198,8 @@ async def test_numbers_api_country_suggestions_rejects_bad_mode(monkeypatch):
 
     assert response.status == 400
     assert payload["code"] == "unsupported_mode"
+    assert payload["error"] == "Unsupported mode."
+    assert payload["message"] == payload["error"]
 
 
 @pytest.mark.asyncio

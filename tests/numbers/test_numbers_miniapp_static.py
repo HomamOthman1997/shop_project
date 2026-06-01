@@ -14,7 +14,6 @@ def test_numbers_miniapp_has_recharge_surface_and_support_order_context():
     assert "function surfaceTabs()" in app
     assert "clientActionEndpoint(\"recharge\"" in app
     assert 'clientActionEndpoint("recharge", "/mini/numbers/api/recharge")' in app
-    assert 'clientActionEndpoint("country_suggestions", "/mini/numbers/api/country-suggestions")' in app
     assert 'clientActionEndpoint("purchase", "/mini/numbers/api/purchase")' in app
     assert 'clientActionEndpoint("orders", "/mini/numbers/api/orders")' in app
     assert "renderSupportOrders" in app
@@ -83,6 +82,15 @@ def test_numbers_miniapp_provider_aliases_stay_customer_safe():
     assert '{ code: "HT", name: "HOTEL" }' not in app
 
 
+def test_numbers_miniapp_country_suggestions_are_not_loaded_by_ui():
+    app = (ROOT / "webapp" / "numbers" / "app.js").read_text(encoding="utf-8")
+
+    assert "countrySuggestion" not in app
+    assert "loadCountrySuggestions" not in app
+    assert "country_suggestions" not in app
+    assert "/mini/numbers/api/country-suggestions" not in app
+
+
 def test_numbers_miniapp_v2_uses_server_driven_contracts():
     app = (ROOT / "webapp" / "numbers_v2" / "app.js").read_text(encoding="utf-8")
     index = (ROOT / "webapp" / "numbers_v2" / "index.html").read_text(encoding="utf-8")
@@ -97,11 +105,11 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function renderOrderFilters()" in app
     assert "function orderBucket(order)" in app
     assert "state.orderFilter" in app
-    assert 'id="countrySuggestions"' in index
+    assert 'id="countrySuggestions"' not in index
     assert 'id="menuDrawer"' in index
     assert 'id="menuList"' in index
     assert 'id="bottomNav"' not in index
-    assert "function loadCountrySuggestions()" in app
+    assert "loadCountrySuggestions" not in app
     assert "function openMenu()" in app
     assert "function closeMenu()" in app
     assert "function rechargeRateLabel(method)" in app
@@ -112,7 +120,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function renderAccountActivity(item)" in app
     assert "quick-actions" not in app
     assert "account-activity" in css
-    assert 'actionFor("country_suggestions"' in app
+    assert 'actionFor("country_suggestions"' not in app
     assert "RENTAL_UNLIMITED_SERVICE_KEY" in app
     assert "TEMP_NOT_LISTED_SERVICE_KEY" in app
     assert "function servicePickerRows()" in app
@@ -126,8 +134,8 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "state.mode === \"temp\" && query" in app
     assert "button.append(document.createTextNode" in app
     assert "requests.slice(0, 4)" not in app
-    assert "suggestedRegionIsos" in app
-    assert "function isFastSuggestionCountry" in app
+    assert "suggestedRegionIsos" not in app
+    assert "function isFastSuggestionCountry" not in app
     assert "state.country === \"none\"" in app
     assert "state-hidden" in css
     assert "/mini/numbers/api/orders/${" not in app

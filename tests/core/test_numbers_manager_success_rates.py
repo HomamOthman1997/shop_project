@@ -63,6 +63,7 @@ async def test_get_all_prices_can_skip_dynamic_success_rates(monkeypatch):
         calls.append((args, kwargs))
 
     monkeypatch.setattr(manager, "PROVIDERS", {"fake": _TempProvider()})
+    monkeypatch.setattr(manager, "provider_quote_enabled", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(manager, "provider_allows_temp", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(manager, "_provider_balance_with_timeout", _provider_balance)
     monkeypatch.setattr(manager, "_effective_numbers_markup_percent", _zero_markup)
@@ -84,6 +85,7 @@ async def test_get_all_prices_keeps_dynamic_success_rates_by_default(monkeypatch
         calls.append((args, kwargs))
 
     monkeypatch.setattr(manager, "PROVIDERS", {"fake": _TempProvider()})
+    monkeypatch.setattr(manager, "provider_quote_enabled", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(manager, "provider_allows_temp", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(manager, "_provider_balance_with_timeout", _provider_balance)
     monkeypatch.setattr(manager, "_effective_numbers_markup_percent", _zero_markup)
@@ -104,6 +106,7 @@ async def test_get_all_prices_does_not_block_on_slow_success_rates(monkeypatch):
         return {"fake": {"success_rate": 10.0, "attempts": 99, "sample_sufficient": True}}
 
     monkeypatch.setattr(manager, "PROVIDERS", {"fake": _TempProvider()})
+    monkeypatch.setattr(manager, "provider_quote_enabled", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(manager, "provider_allows_temp", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(manager, "_provider_balance_with_timeout", _provider_balance)
     monkeypatch.setattr(manager, "_effective_numbers_markup_percent", _zero_markup)
@@ -121,6 +124,7 @@ async def test_get_all_prices_does_not_block_on_slow_success_rates(monkeypatch):
 @pytest.mark.asyncio
 async def test_get_all_prices_soft_timeout_returns_fast_provider(monkeypatch):
     monkeypatch.setattr(manager, "PROVIDERS", {"fast": _TempProvider(), "slow": _SlowTempProvider()})
+    monkeypatch.setattr(manager, "provider_quote_enabled", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(manager, "provider_allows_temp", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(manager, "_provider_balance_with_timeout", _provider_balance)
     monkeypatch.setattr(manager, "_effective_numbers_markup_percent", _zero_markup)
@@ -142,6 +146,7 @@ async def test_get_all_rental_prices_can_skip_dynamic_success_rates(monkeypatch)
         calls.append((args, kwargs))
 
     monkeypatch.setattr(manager, "PROVIDERS", {"fake": _RentalProvider()})
+    monkeypatch.setattr(manager, "provider_quote_enabled", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(manager, "provider_supports_rental", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(manager, "provider_supports_unlimited_rental", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(manager, "provider_allows_rental", lambda *_args, **_kwargs: True)
