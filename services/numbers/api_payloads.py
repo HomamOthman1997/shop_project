@@ -23,7 +23,7 @@ from utils.provider_alias import provider_display_name, provider_public_id
 from utils.services_keyboard import DEFAULT_TOP_SERVICES, load_top_services
 
 _BOOTSTRAP_CACHE: dict[str, Any] = {"data": None}
-QUOTE_TTL_SEC = 300
+QUOTE_TTL_SEC = 1800
 TEMP_QUOTE_PROVIDER_CODES = (
     "smspool",
     "telabot",
@@ -45,6 +45,9 @@ RENTAL_QUOTE_PROVIDER_CODES = (
 VOICE_QUOTE_PROVIDER_CODES = ("textverified",)
 TRUSTED_SUCCESS_RATE_PERCENT = 90.0
 TRUSTED_SUCCESS_RATE_TIERS = {"excellent", "trusted"}
+PROVIDER_SUCCESS_RATE_OVERRIDES = {
+    "herosms": 70.0,
+}
 VOICE_GENERIC_SERVICE = "servicenotlistedvoice"
 HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
 MAX_QUOTE_PROVIDER_ROWS = 16
@@ -353,6 +356,9 @@ def success_rate_label(value: Any, attempts: Any = None) -> str:
 
 
 def provider_success_rate_label(provider_code: str, value: Any, attempts: Any = None) -> str:
+    code = str(provider_code or "").strip().lower()
+    if code in PROVIDER_SUCCESS_RATE_OVERRIDES:
+        return success_rate_label(PROVIDER_SUCCESS_RATE_OVERRIDES[code], getattr(settings, "numbers_success_rate_display_min_attempts", 5))
     quality = provider_quality(provider_code)
     if quality.tier in TRUSTED_SUCCESS_RATE_TIERS:
         return success_rate_label(TRUSTED_SUCCESS_RATE_PERCENT, getattr(settings, "numbers_success_rate_display_min_attempts", 5))

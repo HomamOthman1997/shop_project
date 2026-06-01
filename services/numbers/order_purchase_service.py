@@ -119,7 +119,7 @@ async def provision_charged_temp_order(
     interval_sec = _poll_interval_for_provider(str(provider_code))
     provider_timeout_sec = _extract_provider_wait_timeout_sec(buy_res)
     if provider_timeout_sec:
-        provider_timeout_sec = min(TEMP_WAIT_TIMEOUT_SEC, int(provider_timeout_sec))
+        provider_timeout_sec = max(TEMP_WAIT_TIMEOUT_SEC, int(provider_timeout_sec))
     now = _utc_now()
     reuse_warranty_sec = _resolve_reuse_warranty_sec(provider_code, buy_res)
     reuse_until = datetime.fromtimestamp(now.timestamp() + int(reuse_warranty_sec), tz=UTC)

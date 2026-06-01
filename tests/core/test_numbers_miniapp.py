@@ -140,6 +140,13 @@ def test_numbers_price_rows_show_fixed_rate_for_trusted_providers(monkeypatch):
                 "success_rate": 73,
                 "success_attempts": 10,
             },
+            "herosms": {
+                "price": 1.45,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "success_rate": 99,
+                "success_attempts": 10,
+            },
         },
         "temp",
         service="telegram",
@@ -150,6 +157,7 @@ def test_numbers_price_rows_show_fixed_rate_for_trusted_providers(monkeypatch):
     by_id = {row["provider_id"]: row for row in rows}
     assert by_id["S5"]["success_rate"] == "90%"
     assert by_id["S6"]["success_rate"] == "73%"
+    assert by_id["S1"]["success_rate"] == "70%"
 
 
 @pytest.mark.asyncio
@@ -196,7 +204,7 @@ async def test_numbers_prices_endpoint_skips_blocking_success_rates(monkeypatch)
         "ignore_balance": True,
         "with_success_rates": False,
         "provider_codes": miniapp._TEMP_PRICE_SCREEN_PROVIDER_CODES,
-        "soft_timeout_sec": miniapp._PRICE_SOFT_TIMEOUT_SEC,
+        "soft_timeout_sec": None,
     }
     assert payload["providers"][0]["success_rate"] == "90%"
 
@@ -235,7 +243,7 @@ async def test_numbers_prices_endpoint_limits_not_listed_providers(monkeypatch):
     assert calls == {
         "service": "notlistedgeneric",
         "provider_codes": miniapp._TEMP_NOT_LISTED_PRICE_PROVIDER_CODES,
-        "soft_timeout_sec": miniapp._PRICE_SOFT_TIMEOUT_SEC,
+        "soft_timeout_sec": None,
     }
     assert payload["providers"][0]["price_label"] == "$0.55"
 

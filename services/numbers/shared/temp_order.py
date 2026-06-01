@@ -7,7 +7,7 @@ from services.numbers.data.countries import COUNTRIES_LIST
 from utils.provider_alias import provider_public_id
 from utils.translations import t
 
-TEMP_WAIT_TIMEOUT_SEC = 300
+TEMP_WAIT_TIMEOUT_SEC = 900
 TEMP_PROVIDER_SAFETY_BUFFER_SEC = 60
 TEMP_CANCEL_AFTER_SEC = 180
 TEMP_REFRESH_COOLDOWN_SEC = 60

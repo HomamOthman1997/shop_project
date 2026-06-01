@@ -3902,62 +3902,24 @@ async def prices(request: web.Request) -> web.Response:
         else _TEMP_PRICE_SCREEN_PROVIDER_CODES
     )
 
-    try:
+    if mode == "rental":
 
-        if mode == "rental":
+        raw = await get_all_rental_prices(service, country, with_success_rates=True)
 
-            raw = await asyncio.wait_for(
+    elif mode == "voice":
 
-                get_all_rental_prices(service, country, with_success_rates=True),
+        raw = await _get_miniapp_voice_prices(service, country, state, ignore_balance=True)
 
-                timeout=_PRICE_TIMEOUT_SEC,
+    else:
 
-            )
-
-        elif mode == "voice":
-
-            raw = await asyncio.wait_for(
-
-                _get_miniapp_voice_prices(service, country, state, ignore_balance=True),
-
-                timeout=_PRICE_TIMEOUT_SEC,
-
-            )
-
-        else:
-
-            raw = await asyncio.wait_for(
-
-                get_all_prices(
-                    service,
-                    country,
-                    state,
-                    ignore_balance=True,
-                    with_success_rates=False,
-                    provider_codes=temp_provider_codes,
-                    soft_timeout_sec=_PRICE_SOFT_TIMEOUT_SEC,
-                ),
-
-                timeout=_PRICE_TIMEOUT_SEC,
-
-            )
-
-    except asyncio.TimeoutError:
-
-        return web.json_response(
-
-            {
-
-                "ok": False,
-
-                "message": "Provider checks took too long. Try a narrower country or service.",
-
-                "providers": [],
-
-            },
-
-            headers=dict(_NO_STORE_HEADERS),
-
+        raw = await get_all_prices(
+            service,
+            country,
+            state,
+            ignore_balance=True,
+            with_success_rates=False,
+            provider_codes=temp_provider_codes,
+            soft_timeout_sec=None,
         )
 
     rows = _normalize_provider_rows(raw, mode, service=service, country=country, state=state)
@@ -4089,18 +4051,6 @@ async def purchase_temp(request: web.Request) -> web.Response:
         quote_mode = str(quote_payload.get("mode") or "temp").strip().lower()
         if quote_mode not in {"temp", "rental", "voice"}:
             raise web.HTTPBadRequest(text="invalid_quote_mode")
-
-    except asyncio.TimeoutError:
-
-        return _json_error(
-
-            _text(lang, "Provider checks took too long. Try again.", "فحص المزودين أخذ وقت طويل. جرّب مرة ثانية."),
-
-            status=504,
-
-            code="provider_timeout",
-
-        )
 
     except web.HTTPException as exc:
 
