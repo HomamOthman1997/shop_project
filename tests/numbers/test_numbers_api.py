@@ -426,11 +426,12 @@ async def test_numbers_api_rental_quotes_return_signed_options(monkeypatch):
         calls["auth_scope"] = required_scope
         return api_auth_context(key_id="key-1", user_id=123, reseller_id=123, scopes=(required_scope,))
 
-    async def fake_get_all_rental_prices(service, country, with_success_rates=True):
+    async def fake_get_all_rental_prices(service, country, with_success_rates=True, ignore_balance=False):
         calls["args"] = {
             "service": service,
             "country": country,
             "with_success_rates": with_success_rates,
+            "ignore_balance": ignore_balance,
         }
         return {
             "textverified": {
@@ -458,7 +459,7 @@ async def test_numbers_api_rental_quotes_return_signed_options(monkeypatch):
     payload = json.loads(response.text)
 
     assert calls["auth_scope"] == "numbers:quotes"
-    assert calls["args"] == {"service": "telegram", "country": "1", "with_success_rates": False}
+    assert calls["args"] == {"service": "telegram", "country": "1", "with_success_rates": False, "ignore_balance": True}
     assert payload["ok"] is True
     assert payload["mode"] == "rental"
     assert payload["providers"][0]["provider"] == "Bravo"

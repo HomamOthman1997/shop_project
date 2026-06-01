@@ -349,7 +349,7 @@ async def quotes(request: web.Request) -> web.Response:
         state = "none"
 
     if mode == "rental":
-        raw = await get_all_rental_prices(service, country, with_success_rates=False)
+        raw = await get_all_rental_prices(service, country, with_success_rates=False, ignore_balance=True)
         providers = normalize_rental_quote_rows(raw, service=service, country=country, state=state)
     elif mode == "voice":
         raw = await _voice_quote_prices(service, country, state)

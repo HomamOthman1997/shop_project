@@ -525,6 +525,30 @@ async def test_get_all_rental_prices_keeps_provider_visible_when_no_affordable_o
 
 
 @pytest.mark.asyncio
+async def test_get_all_rental_prices_ignore_balance_keeps_unknown_balance_visible(monkeypatch):
+    class _RentalDummy:
+        async def get_rental_prices(self, service, country=None):
+            return {
+                "success": True,
+                "options": [{"country": "US", "duration": 24, "price": 1.8, "count": 1}],
+            }
+
+    async def _unknown_balance(_provider):
+        return None
+
+    monkeypatch.setitem(manager.PROVIDERS, "textverified", _RentalDummy())
+    monkeypatch.setattr(manager, "_provider_balance", _unknown_balance)
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+
+    hidden = await manager.get_all_rental_prices("gmail", "US")
+    visible = await manager.get_all_rental_prices("gmail", "US", ignore_balance=True)
+
+    assert "textverified" not in hidden
+    assert visible["textverified"]["available_for_buy"] is True
+    assert visible["textverified"]["options"][0]["price"] == 1.8
+
+
+@pytest.mark.asyncio
 async def test_get_all_rental_prices_filters_balance_against_provider_cost(monkeypatch):
     class _RentalDummy:
         async def get_rental_prices(self, service, country=None):

@@ -1045,7 +1045,13 @@ async def get_all_prices(
     return results
 
 
-async def get_all_rental_prices(service_key: str, country: str | None, *, with_success_rates: bool = True):
+async def get_all_rental_prices(
+    service_key: str,
+    country: str | None,
+    *,
+    with_success_rates: bool = True,
+    ignore_balance: bool = False,
+):
     """Fetch rental options from providers that support rental APIs."""
     results = {}
     is_unlimited = _is_unlimited_rental_service(service_key)
@@ -1155,7 +1161,7 @@ async def get_all_rental_prices(service_key: str, country: str | None, *, with_s
                         min_provider_price = raw_price
 
                 provider_balance = await balance_task
-                if provider_balance is None and not show_all_for_testing:
+                if provider_balance is None and not show_all_for_testing and not ignore_balance:
                     return (code, None)
 
                 markup_pct = await _effective_numbers_markup_percent()
@@ -1175,7 +1181,7 @@ async def get_all_rental_prices(service_key: str, country: str | None, *, with_s
                         enriched_options.append(row)
                     rent_data["options"] = enriched_options
                 insufficient_balance = False
-                if provider_balance is not None:
+                if provider_balance is not None and not ignore_balance:
                     affordable_options: list[dict[str, Any]] = []
                     for option in (rent_data.get("options") or []):
                         if not isinstance(option, dict):

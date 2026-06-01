@@ -3904,7 +3904,7 @@ async def prices(request: web.Request) -> web.Response:
 
     if mode == "rental":
 
-        raw = await get_all_rental_prices(service, country, with_success_rates=True)
+        raw = await get_all_rental_prices(service, country, with_success_rates=True, ignore_balance=True)
 
     elif mode == "voice":
 
