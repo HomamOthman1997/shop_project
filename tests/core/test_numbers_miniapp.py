@@ -110,7 +110,7 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
 
     assert rows[0]["provider_id"].startswith("S")
     assert rows[0]["price_label"] == "$1.25"
-    assert rows[0]["success_rate"] == "92%"
+    assert rows[0]["success_rate"] == "90%"
     assert rows[0]["success_attempts"] == 10
     assert rows[0]["location_tag"] == "CA"
     assert len(rows) == 1
@@ -119,6 +119,37 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
     assert rows[0]["purchase_action"]["enabled"] is True
     assert rows[0]["purchase_action"]["endpoint"] == "/mini/numbers/api/purchase"
     assert rows[0]["purchase_action"]["body"]["quote_token"] == rows[0]["quote_token"]
+
+
+def test_numbers_price_rows_show_fixed_rate_for_trusted_providers(monkeypatch):
+    monkeypatch.setattr(miniapp.settings, "numbers_success_rate_display_min_attempts", 5, raising=False)
+
+    rows = miniapp._normalize_provider_rows(
+        {
+            "pvadeals": {
+                "price": 1.25,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "success_rate": 12,
+                "success_attempts": 0,
+            },
+            "vaksms": {
+                "price": 1.35,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "success_rate": 73,
+                "success_attempts": 10,
+            },
+        },
+        "temp",
+        service="telegram",
+        country="none",
+        state="none",
+    )
+
+    by_id = {row["provider_id"]: row for row in rows}
+    assert by_id["S5"]["success_rate"] == "90%"
+    assert by_id["S6"]["success_rate"] == "73%"
 
 
 @pytest.mark.asyncio
@@ -167,7 +198,7 @@ async def test_numbers_prices_endpoint_skips_blocking_success_rates(monkeypatch)
         "provider_codes": miniapp._TEMP_PRICE_SCREEN_PROVIDER_CODES,
         "soft_timeout_sec": miniapp._PRICE_SOFT_TIMEOUT_SEC,
     }
-    assert payload["providers"][0]["success_rate"] == "91%"
+    assert payload["providers"][0]["success_rate"] == "90%"
 
 
 @pytest.mark.asyncio

@@ -10,7 +10,7 @@ from typing import Any
 from config import settings
 from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.data.states_us import STATES_LIST
-from services.numbers.provider_quality import provider_recommendation_bonus
+from services.numbers.provider_quality import provider_quality, provider_recommendation_bonus
 from services.numbers.provider_readiness import provider_purchase_enabled
 from services.numbers.service_map import (
     get_service_aliases,
@@ -43,6 +43,8 @@ RENTAL_QUOTE_PROVIDER_CODES = (
     "pvapins",
 )
 VOICE_QUOTE_PROVIDER_CODES = ("textverified",)
+TRUSTED_SUCCESS_RATE_PERCENT = 90.0
+TRUSTED_SUCCESS_RATE_TIERS = {"excellent", "trusted"}
 VOICE_GENERIC_SERVICE = "servicenotlistedvoice"
 HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
 MAX_QUOTE_PROVIDER_ROWS = 16
@@ -350,6 +352,13 @@ def success_rate_label(value: Any, attempts: Any = None) -> str:
     return f"{int(rate)}%" if rate.is_integer() else f"{rate:.1f}%"
 
 
+def provider_success_rate_label(provider_code: str, value: Any, attempts: Any = None) -> str:
+    quality = provider_quality(provider_code)
+    if quality.tier in TRUSTED_SUCCESS_RATE_TIERS:
+        return success_rate_label(TRUSTED_SUCCESS_RATE_PERCENT, getattr(settings, "numbers_success_rate_display_min_attempts", 5))
+    return success_rate_label(value, attempts)
+
+
 def _quote_secret() -> bytes:
     token = str(getattr(settings, "bot_numbers_token", "") or getattr(settings, "bot_main_token", "") or "").strip()
     seed = token or "numbers-api-local"
@@ -607,7 +616,7 @@ def normalize_temp_quote_rows(
                 "location_tag": provider_state_code or provider_country_iso,
                 "price": float(info.get("price") or 0.0),
                 "price_label": money_label(info.get("price")),
-                "success_rate": success_rate_label(success_value, attempts),
+                "success_rate": provider_success_rate_label(code, success_value, attempts),
                 "success_attempts": int(attempts),
                 "available": True,
                 "quote_token": quote_token,
@@ -709,7 +718,7 @@ def normalize_rental_quote_rows(
                 "location_tag": provider_state_code or provider_country_iso,
                 "price": float(options[0]["price"]),
                 "price_label": money_label(options[0]["price"]),
-                "success_rate": success_rate_label(success_value, attempts),
+                "success_rate": provider_success_rate_label(code, success_value, attempts),
                 "success_attempts": int(attempts),
                 "available": True,
                 "quote_token": "",
@@ -756,7 +765,7 @@ def normalize_voice_quote_rows(
                 "location_tag": provider_state_code or provider_country_iso,
                 "price": float(info.get("price") or 0.0),
                 "price_label": money_label(info.get("price")),
-                "success_rate": success_rate_label(success_value, attempts),
+                "success_rate": provider_success_rate_label(code, success_value, attempts),
                 "success_attempts": int(attempts),
                 "available": True,
                 "quote_token": quote_token,
