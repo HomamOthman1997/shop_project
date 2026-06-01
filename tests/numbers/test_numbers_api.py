@@ -474,6 +474,33 @@ async def test_numbers_api_rental_quotes_return_signed_options(monkeypatch):
     assert response.headers["X-RateLimit-Bucket"] == "numbers:quotes"
 
 
+def test_rental_quote_rows_hide_same_duration_price_outliers():
+    rows = api_payloads.normalize_rental_quote_rows(
+        {
+            "pvadeals": {
+                "api_service_name": "WhatsApp",
+                "available_for_buy": True,
+                "options": [
+                    {"country": "USA", "duration": 72, "duration_days": 3, "duration_label": "3d", "price": 3.3},
+                ],
+            },
+            "pvapins": {
+                "api_service_name": "whatsapp",
+                "available_for_buy": True,
+                "options": [
+                    {"country": "USA", "duration": 72, "duration_days": 3, "duration_label": "3d", "price": 37.95},
+                ],
+            },
+        },
+        service="whatsapp",
+        country="1",
+        state="none",
+    )
+
+    assert [(row["provider"], row["price"]) for row in rows] == [("Echo", 3.3)]
+    assert rows[0]["options"][0]["duration_label"] == "3d"
+
+
 @pytest.mark.asyncio
 async def test_numbers_api_voice_quotes_return_signed_token(monkeypatch):
     calls = {}

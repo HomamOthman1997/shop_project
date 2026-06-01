@@ -52,6 +52,7 @@ VOICE_GENERIC_SERVICE = "servicenotlistedvoice"
 HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
 MAX_QUOTE_PROVIDER_ROWS = 16
 TEXTVERIFIED_RENTAL_STATE_SURCHARGE = 2.0
+RENTAL_OUTLIER_PRICE_MULTIPLIER = 4.0
 
 
 def clear_numbers_api_payload_cache() -> None:
@@ -543,6 +544,50 @@ def rental_option_is_buyable(
     return duration > 0 and price > 0
 
 
+def _rental_duration_min_prices(data: dict[str, Any], *, service: str, country: str, state: str) -> dict[str, float]:
+    min_prices: dict[str, float] = {}
+    for raw_code, info in (data or {}).items():
+        code = str(raw_code or "").strip().lower()
+        if code not in RENTAL_QUOTE_PROVIDER_CODES or not isinstance(info, dict):
+            continue
+        for option in rental_option_candidates(code, info, state=state):
+            if not rental_option_is_buyable(
+                service=service,
+                country=country,
+                provider_code=code,
+                provider_info=info,
+                option=option,
+            ):
+                continue
+            duration_key = str(option.get("duration") or "").strip()
+            if not duration_key:
+                continue
+            try:
+                price = float(option.get("price") or 0.0)
+            except Exception:
+                continue
+            if price <= 0:
+                continue
+            current = min_prices.get(duration_key)
+            if current is None or price < current:
+                min_prices[duration_key] = price
+    return min_prices
+
+
+def rental_option_is_price_outlier(option: dict[str, Any], duration_min_prices: dict[str, float]) -> bool:
+    duration_key = str((option or {}).get("duration") or "").strip()
+    if not duration_key:
+        return False
+    min_price = duration_min_prices.get(duration_key)
+    if min_price is None or min_price <= 0:
+        return False
+    try:
+        price = float((option or {}).get("price") or 0.0)
+    except Exception:
+        return False
+    return price > min_price * RENTAL_OUTLIER_PRICE_MULTIPLIER
+
+
 def voice_provider_offer_is_buyable(provider_code: str, info: dict[str, Any]) -> bool:
     code = str(provider_code or "").strip().lower()
     if code not in VOICE_QUOTE_PROVIDER_CODES:
@@ -671,6 +716,7 @@ def normalize_rental_quote_rows(
     state: str,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    duration_min_prices = _rental_duration_min_prices(data, service=service, country=country, state=state)
     recommended_code = _recommended_rental_provider_code(data, service=service, country=country, state=state)
 
     for raw_code, info in sorted((data or {}).items(), key=lambda item: _provider_sort_key(str(item[0]))):
@@ -686,6 +732,8 @@ def normalize_rental_quote_rows(
                 provider_info=info,
                 option=normalized_option,
             ):
+                continue
+            if rental_option_is_price_outlier(normalized_option, duration_min_prices):
                 continue
             option_state = str(normalized_option.get("state_code") or "none").strip() or "none"
             quote_token = make_quote_token(
