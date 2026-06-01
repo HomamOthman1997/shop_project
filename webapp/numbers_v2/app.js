@@ -318,6 +318,14 @@ function resetBuySelections({ mode = state.mode } = {}) {
   clearPriceResults();
 }
 
+function rentalAllowsAnyCountry() {
+  return state.mode === "rental" && state.service === RENTAL_UNLIMITED_SERVICE_KEY;
+}
+
+function pickerAllowsAnyCountry() {
+  return state.mode !== "rental" || rentalAllowsAnyCountry();
+}
+
 function countryLabel(code) {
   if (String(code) === "1") return "الولايات المتحدة · US";
   if (String(code) === "any") return "أي دولة";
@@ -635,7 +643,14 @@ function openPicker(kind) {
       kind: "service",
       title: "اختر الخدمة",
       rows: servicePickerRows(),
-      onSelect: (key) => { state.service = key; clearPriceResults(); },
+      onSelect: (key) => {
+        state.service = key;
+        if (state.mode === "rental" && key !== RENTAL_UNLIMITED_SERVICE_KEY && state.country === "any") {
+          state.country = "none";
+          state.stateCode = "none";
+        }
+        clearPriceResults();
+      },
     },
     country: {
       kind: "country",
@@ -697,7 +712,7 @@ function countryPickerRows() {
   const anyCountry = { key: "any", title: "أي دولة", sub: "بدون تحديد دولة" };
   const countries = state.countries
     .map((row) => ({ key: row.code, title: countryLabel(row.code), sub: row.price_label || "" }));
-  return [anyCountry, ...countries];
+  return pickerAllowsAnyCountry() ? [anyCountry, ...countries] : countries;
 }
 
 function clearPriceResults() {
