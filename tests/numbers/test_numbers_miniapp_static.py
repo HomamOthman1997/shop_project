@@ -97,7 +97,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     css = (ROOT / "webapp" / "numbers_v2" / "styles.css").read_text(encoding="utf-8")
 
     assert "/mini/numbers-v2/static/app.js" in index
-    assert "20260601-v2-004" in index
+    assert "20260601-v2-005" in index
     assert "state.clientActions = bootstrap.client?.actions || {}" in app
     assert "state.bootstrap?.client?.tabs" in app
     assert "row.purchase_action || actionFor" in app
@@ -134,7 +134,10 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert 'code: "server_unavailable"' in app
     assert "function offerCountryDisplay(row)" in app
     assert "row.location_tag ||" in app
-    assert "providerMeta.textContent = [provider.name, countryTag, row.option_label]" in app
+    assert "function countryNameFromValue(value)" in app
+    assert "providerName.textContent = provider.name" in app
+    assert "providerMeta.textContent = [countryTag, row.option_label]" in app
+    assert "<strong>${provider.id}" not in app
     assert "function shouldTryNotListedFallback()" in app
     assert "function resetBuySelections" in app
     assert "state.fallbackOffer" in app

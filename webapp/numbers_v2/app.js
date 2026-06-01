@@ -325,7 +325,7 @@ function countryLabel(code) {
   return row ? `${row.name} · ${row.iso || row.code}` : "اختر الدولة";
 }
 
-function countryDisplayCodeFromValue(value) {
+function countryNameFromValue(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
   const country = state.countries.find((item) => (
@@ -333,20 +333,23 @@ function countryDisplayCodeFromValue(value) {
     String(item.iso || "").toLowerCase() === raw.toLowerCase() ||
     String(item.name || "").toLowerCase() === raw.toLowerCase()
   ));
-  const code = String(country?.iso || raw).trim().toUpperCase();
+  if (country?.name) return country.name;
+  const code = raw.toUpperCase();
+  if (code === "US") return "الولايات المتحدة";
+  if (code === "UK" || code === "GB") return "المملكة المتحدة";
   if (!code || code === "NONE" || code === "ANY") return "";
-  return code === "GB" ? "UK" : code;
+  return raw;
 }
 
-function selectedCountryDisplayCode() {
-  if (state.mode === "voice") return "US";
-  if (state.country === "1") return countryDisplayCodeFromValue(state.stateCode !== "none" ? state.stateCode : "US");
+function selectedCountryName() {
+  if (state.mode === "voice") return "الولايات المتحدة";
+  if (state.country === "1") return countryNameFromValue("US");
   if (state.country === "none" || state.country === "any") return "";
-  return countryDisplayCodeFromValue(state.country);
+  return countryNameFromValue(state.country);
 }
 
 function offerCountryDisplay(row) {
-  return countryDisplayCodeFromValue(
+  return countryNameFromValue(
     row.location_tag ||
     row.country_label ||
     row.country_iso ||
@@ -354,7 +357,7 @@ function offerCountryDisplay(row) {
     row.provider_country ||
     row.country_code ||
     row.country
-  ) || selectedCountryDisplayCode();
+  ) || selectedCountryName();
 }
 
 function stateLabel(code) {
@@ -495,12 +498,12 @@ function renderOffers() {
 
       const providerEl = document.createElement("div");
       providerEl.className = "offer-provider";
-      const providerId = document.createElement("strong");
-      providerId.textContent = provider.id;
+      const providerName = document.createElement("strong");
+      providerName.textContent = provider.name;
       const providerMeta = document.createElement("small");
       const countryTag = offerCountryDisplay(row);
-      providerMeta.textContent = [provider.name, countryTag, row.option_label].filter(Boolean).join(" · ");
-      providerEl.append(providerId, providerMeta);
+      providerMeta.textContent = [countryTag, row.option_label].filter(Boolean).join(" · ");
+      providerEl.append(providerName, providerMeta);
 
       if (row.fallback_service || row.recommended || index === 0 || row.available === false) {
         const tag = document.createElement("em");
@@ -668,7 +671,7 @@ function openConfirm(row) {
     <h3>${serviceTitle}</h3>
     <div class="meta-grid">
       ${row.fallback_service ? `<div><span>بديل عن</span><strong>${state.fallbackOffer?.requestedService || serviceLabel(state.service)}</strong></div>` : ""}
-      <div><span>المزود</span><strong>${provider.id} · ${provider.name}</strong></div>
+      <div><span>المزود</span><strong>${provider.name}</strong></div>
       ${countryTag ? `<div><span>الدولة</span><strong>${countryTag}</strong></div>` : ""}
       <div><span>السعر</span><strong>${row.price_label || "$0.00"}</strong></div>
       <div><span>النجاح</span><strong>${row.success_rate || "غير محدد"}</strong></div>
