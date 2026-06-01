@@ -347,6 +347,27 @@ body:not(.app-booting) .boot-screen { display: none; }
   display: grid;
   gap: 8px;
 }
+.rental-duration-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 2px;
+  direction: ltr;
+}
+.rental-duration-bar button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+}
+.rental-duration-bar button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
 .offer-card {
   display: grid;
   grid-template-columns: 68px 48px 66px minmax(70px, 1fr);

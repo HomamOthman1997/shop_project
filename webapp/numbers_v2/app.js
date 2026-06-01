@@ -14,6 +14,7 @@ const state = {
   states: [],
   clientActions: {},
   offers: [],
+  rentalDurationFilter: "",
   fallbackOffer: null,
   hasCheckedPrices: false,
   orders: [],
@@ -428,17 +429,27 @@ function renderBuy() {
 
 function normalizedOffers() {
   const rows = [];
+  const seen = new Set();
   (state.offers || []).forEach((row) => {
     if (Array.isArray(row.options) && row.options.length) {
       row.options.forEach((option) => {
-        rows.push({
+        const payload = {
           ...row,
           ...option,
           provider_id: row.provider_id,
           provider_name: row.provider_name,
           option_label: option.duration_label || option.label,
           purchase_action: option.purchase_action || row.purchase_action,
-        });
+        };
+        const key = [
+          payload.provider_id || payload.provider_name || payload.provider,
+          rentalDurationKey(payload),
+          payload.price_label || payload.price,
+          payload.country || payload.location_tag || "",
+        ].join("|");
+        if (state.mode === "rental" && seen.has(key)) return;
+        seen.add(key);
+        rows.push(payload);
       });
       return;
     }
@@ -447,8 +458,80 @@ function normalizedOffers() {
   return rows;
 }
 
+function rentalDurationHours(row) {
+  const label = String(row?.option_label || row?.duration_label || row?.label || "").trim().toLowerCase();
+  const match = label.match(/(\d+(?:\.\d+)?)\s*(d|day|days|h|hr|hour|hours)/i);
+  if (match) {
+    const value = Number(match[1]);
+    if (Number.isFinite(value) && value > 0) return match[2].startsWith("d") ? value * 24 : value;
+  }
+  const direct = Number(row?.duration || row?.hours || 0);
+  return Number.isFinite(direct) && direct > 0 ? direct : 0;
+}
+
+function rentalDurationLabelFromHours(hours) {
+  if (!hours) return "";
+  if (hours % 24 === 0) return `${hours / 24}d`;
+  return `${hours}h`;
+}
+
+function rentalDurationKey(row) {
+  const hours = rentalDurationHours(row);
+  return hours ? String(hours) : String(row?.option_label || row?.duration_label || row?.label || "").trim();
+}
+
+function rentalDurationLabel(row) {
+  return String(row?.option_label || row?.duration_label || row?.label || "").trim() || rentalDurationLabelFromHours(rentalDurationHours(row));
+}
+
+function rentalDurationChoices(rows) {
+  const choices = new Map();
+  rows.forEach((row) => {
+    const key = rentalDurationKey(row);
+    if (!key) return;
+    if (!choices.has(key)) choices.set(key, { key, label: rentalDurationLabel(row), hours: rentalDurationHours(row) || 999999 });
+  });
+  return [...choices.values()].sort((a, b) => a.hours - b.hours || a.label.localeCompare(b.label));
+}
+
+function ensureRentalDurationFilter(rows) {
+  if (state.mode !== "rental") return "";
+  const choices = rentalDurationChoices(rows);
+  if (!choices.length) {
+    state.rentalDurationFilter = "";
+    return "";
+  }
+  if (!choices.some((choice) => choice.key === state.rentalDurationFilter)) {
+    state.rentalDurationFilter = choices[0].key;
+  }
+  return state.rentalDurationFilter;
+}
+
+function rentalDurationSelector(rows) {
+  const choices = rentalDurationChoices(rows);
+  if (state.mode !== "rental" || choices.length <= 1) return null;
+  const bar = document.createElement("div");
+  bar.className = "rental-duration-bar";
+  choices.forEach((choice) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = choice.key === state.rentalDurationFilter ? "active" : "";
+    button.textContent = choice.label;
+    button.addEventListener("click", () => {
+      state.rentalDurationFilter = choice.key;
+      renderOffers();
+    });
+    bar.append(button);
+  });
+  return bar;
+}
+
 function renderOffers() {
-  const rows = normalizedOffers();
+  const allRows = normalizedOffers();
+  const rentalFilter = ensureRentalDurationFilter(allRows);
+  const rows = state.mode === "rental" && rentalFilter
+    ? allRows.filter((row) => rentalDurationKey(row) === rentalFilter)
+    : allRows;
   els.offersCount.textContent = state.loading ? "جاري الفحص" : `${rows.length} عروض`;
   if (state.loading) {
     els.offerList.replaceChildren(...Array.from({ length: 4 }, () => {
@@ -475,7 +558,9 @@ function renderOffers() {
     els.offerList.replaceChildren(empty);
     return;
   }
+  const durationSelector = rentalDurationSelector(allRows);
   els.offerList.replaceChildren(
+    ...(durationSelector ? [durationSelector] : []),
     ...rows.map((row, index) => {
       const provider = formatProvider(row, index);
       const card = document.createElement("article");
@@ -590,6 +675,7 @@ function countryPickerRows() {
 
 function clearPriceResults() {
   state.offers = [];
+  state.rentalDurationFilter = "";
   state.fallbackOffer = null;
   state.hasCheckedPrices = false;
 }
@@ -625,6 +711,7 @@ async function checkPrices() {
   state.loading = true;
   state.hasCheckedPrices = true;
   state.fallbackOffer = null;
+  state.rentalDurationFilter = "";
   els.liveLine.textContent = "جاري فحص المزودين";
   state.offers = [];
   renderOffers();
@@ -647,7 +734,7 @@ async function checkPrices() {
       }
     }
     els.liveLine.textContent = state.offers.length
-      ? (state.fallbackOffer ? "لم تتوفر أرقام للخدمة المحددة · هذه أسعار Service Not Listed كبديل" : "أسعار محدثة · quote TTL 5 دقائق")
+      ? (state.fallbackOffer ? "لم تتوفر أرقام للخدمة المحددة · هذه أسعار Service Not Listed كبديل" : "أسعار محدثة")
       : (payload.message || "لا توجد عروض متاحة");
   } catch (error) {
     els.liveLine.textContent = friendlyError(error);
