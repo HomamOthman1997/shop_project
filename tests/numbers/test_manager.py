@@ -688,6 +688,10 @@ async def test_get_all_rental_prices_smspool_open_only(monkeypatch):
     # manager should not resolve per-provider names in open-rental mode
     assert called == []
 
+    res = await manager.get_all_rental_prices("rentalunlimited", "1")
+    assert set(res.keys()) == {"smspool", "textverified", "pvadeals"}
+    assert called == []
+
 
 def test_provider_capability_matrix_rules():
     assert manager.provider_allows_temp("herosms", state_selected=False) is True

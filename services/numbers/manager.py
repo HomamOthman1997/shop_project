@@ -123,7 +123,7 @@ TEMP_NOT_LISTED_PROVIDER_SERVICE_NAMES: dict[str, str] = {
 
 
 def is_temp_not_listed_service(service_key: str | None) -> bool:
-    return _normalize_key(service_key) == _normalize_key(TEMP_NOT_LISTED_SERVICE_KEY)
+    return _normalize_key(service_key) == resolve_canonical_service_key(TEMP_NOT_LISTED_SERVICE_KEY)
 
 
 def temp_not_listed_provider_codes() -> tuple[str, ...]:
@@ -503,7 +503,7 @@ async def _apply_dynamic_success_rates(
 
 
 def _is_unlimited_rental_service(service_key: str) -> bool:
-    return _normalize_key(service_key) == _normalize_key(RENTAL_UNLIMITED_SERVICE_KEY)
+    return _normalize_key(service_key) == resolve_canonical_service_key(RENTAL_UNLIMITED_SERVICE_KEY)
 
 
 async def _provider_balance(provider_obj: Any) -> float | None:
