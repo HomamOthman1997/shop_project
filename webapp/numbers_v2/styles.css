@@ -347,11 +347,25 @@ body:not(.app-booting) .boot-screen { display: none; }
   display: grid;
   gap: 8px;
 }
+.rental-duration-selector {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.rental-duration-group {
+  display: grid;
+  gap: 6px;
+}
+.rental-duration-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-align: right;
+}
 .rental-duration-bar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  margin-bottom: 2px;
   direction: ltr;
 }
 .rental-duration-bar button {

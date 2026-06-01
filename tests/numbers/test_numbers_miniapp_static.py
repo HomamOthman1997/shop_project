@@ -97,7 +97,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     css = (ROOT / "webapp" / "numbers_v2" / "styles.css").read_text(encoding="utf-8")
 
     assert "/mini/numbers-v2/static/app.js" in index
-    assert "20260601-v2-006" in index
+    assert "20260602-v2-001" in index
     assert "state.clientActions = bootstrap.client?.actions || {}" in app
     assert "state.bootstrap?.client?.tabs" in app
     assert "row.purchase_action || actionFor" in app
@@ -135,6 +135,9 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function offerCountryDisplay(row)" in app
     assert "function rentalDurationChoices(rows)" in app
     assert "function rentalDurationSelector(rows)" in app
+    assert "function rentalDurationGroup(hours)" in app
+    assert "rental-duration-selector" in css
+    assert "rental-duration-label" in css
     assert "state.rentalDurationFilter" in app
     assert "quote TTL 5" not in app
     assert "row.location_tag ||" in app

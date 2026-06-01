@@ -489,9 +489,23 @@ function rentalDurationChoices(rows) {
   rows.forEach((row) => {
     const key = rentalDurationKey(row);
     if (!key) return;
-    if (!choices.has(key)) choices.set(key, { key, label: rentalDurationLabel(row), hours: rentalDurationHours(row) || 999999 });
+    if (!choices.has(key)) {
+      const hours = rentalDurationHours(row) || 999999;
+      choices.set(key, { key, label: rentalDurationLabel(row), hours, group: rentalDurationGroup(hours) });
+    }
   });
   return [...choices.values()].sort((a, b) => a.hours - b.hours || a.label.localeCompare(b.label));
+}
+
+function rentalDurationGroup(hours) {
+  if (!Number.isFinite(hours) || hours <= 0 || hours >= 999999) return "other";
+  return hours < 24 ? "hours" : "days";
+}
+
+function rentalDurationGroupLabel(group) {
+  if (group === "hours") return "ساعات";
+  if (group === "days") return "أيام";
+  return "مدد أخرى";
 }
 
 function ensureRentalDurationFilter(rows) {
@@ -510,20 +524,33 @@ function ensureRentalDurationFilter(rows) {
 function rentalDurationSelector(rows) {
   const choices = rentalDurationChoices(rows);
   if (state.mode !== "rental" || choices.length <= 1) return null;
-  const bar = document.createElement("div");
-  bar.className = "rental-duration-bar";
-  choices.forEach((choice) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = choice.key === state.rentalDurationFilter ? "active" : "";
-    button.textContent = choice.label;
-    button.addEventListener("click", () => {
-      state.rentalDurationFilter = choice.key;
-      renderOffers();
+  const wrapper = document.createElement("div");
+  wrapper.className = "rental-duration-selector";
+  ["hours", "days", "other"].forEach((group) => {
+    const groupChoices = choices.filter((choice) => choice.group === group);
+    if (!groupChoices.length) return;
+    const section = document.createElement("div");
+    section.className = "rental-duration-group";
+    const label = document.createElement("span");
+    label.className = "rental-duration-label";
+    label.textContent = rentalDurationGroupLabel(group);
+    const bar = document.createElement("div");
+    bar.className = "rental-duration-bar";
+    groupChoices.forEach((choice) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = choice.key === state.rentalDurationFilter ? "active" : "";
+      button.textContent = choice.label;
+      button.addEventListener("click", () => {
+        state.rentalDurationFilter = choice.key;
+        renderOffers();
+      });
+      bar.append(button);
     });
-    bar.append(button);
+    section.append(label, bar);
+    wrapper.append(section);
   });
-  return bar;
+  return wrapper;
 }
 
 function renderOffers() {
