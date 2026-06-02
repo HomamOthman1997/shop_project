@@ -693,6 +693,14 @@ def _order_activity_subject(order: dict[str, Any] | None) -> str:
 
     return label or number
 
+def _ledger_subject_text_is_identifier(value: str) -> bool:
+
+    text = str(value or "").strip()
+
+    compact = text.replace("-", "").replace("_", "")
+
+    return bool(len(compact) >= 16 and all(ch in "0123456789abcdefABCDEF" for ch in compact))
+
 def _ledger_activity_subject_from_entry(entry: dict[str, Any], lang: str) -> str:
 
     reason = str(entry.get("reason") or "").strip().lower()
@@ -701,6 +709,14 @@ def _ledger_activity_subject_from_entry(entry: dict[str, Any], lang: str) -> str
         return _text(lang, "Recharge request", "طلب شحن")
 
     metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+
+    bot_username = str(metadata.get("bot_username") or metadata.get("bot") or metadata.get("source_bot") or "").strip()
+
+    if bot_username:
+
+        clean = bot_username if bot_username.startswith("@") else f"@{bot_username}"
+
+        return clean[:80]
 
     candidates = [
 
@@ -724,7 +740,7 @@ def _ledger_activity_subject_from_entry(entry: dict[str, Any], lang: str) -> str
 
         text = str(value or "").strip()
 
-        if text:
+        if text and not _ledger_subject_text_is_identifier(text):
 
             return text[:80]
 
@@ -733,14 +749,6 @@ def _ledger_activity_subject_from_entry(entry: dict[str, Any], lang: str) -> str
     if service_key:
 
         return _service_label(service_key.replace(":rental", "").replace(":second_code", ""))
-
-    bot_username = str(metadata.get("bot_username") or metadata.get("bot") or metadata.get("source_bot") or "").strip()
-
-    if bot_username:
-
-        clean = bot_username if bot_username.startswith("@") else f"@{bot_username}"
-
-        return clean[:80]
 
     source = str(metadata.get("source") or metadata.get("service_type") or metadata.get("flow") or "").strip()
 

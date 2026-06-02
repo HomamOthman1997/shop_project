@@ -399,6 +399,34 @@ def test_numbers_account_activity_payload_uses_metadata_subject_without_order():
     assert rows[1]["label"] == "Numbers purchase · Telegram"
 
 
+def test_numbers_account_activity_prefers_bot_name_over_metadata_id():
+    created_at = datetime(2026, 6, 3, 12, 0, tzinfo=UTC)
+
+    rows = miniapp._ledger_activity_payload(
+        [
+            {
+                "_id": "tx-1",
+                "direction": "debit",
+                "amount": -2,
+                "reason": "external_wallet_debit",
+                "category": "wallet_activity",
+                "balance_after": 8,
+                "created_at": created_at,
+                "order_id": "",
+                "metadata": {
+                    "label": "69ce31D508Cfca20C60Ac59E",
+                    "bot_username": "PHANTOM_OTP_NUMBERS_BOT",
+                },
+            },
+        ],
+        "en",
+    )
+
+    assert rows[0]["label"].startswith("Wallet activity")
+    assert rows[0]["label"].endswith("@PHANTOM_OTP_NUMBERS_BOT")
+    assert "69ce31D508Cfca20C60Ac59E" not in rows[0]["label"]
+
+
 @pytest.mark.asyncio
 async def test_numbers_recharge_method_payload_renders_payment_details():
     payload = await miniapp._recharge_method_payload(
