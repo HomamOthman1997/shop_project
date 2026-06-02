@@ -61,7 +61,7 @@ body:not(.app-booting) .boot-screen { display: none; }
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 96px;
+  grid-template-columns: 28px minmax(0, 1fr) 118px;
   align-items: center;
   gap: 12px;
   min-height: 72px;
@@ -138,11 +138,31 @@ body:not(.app-booting) .boot-screen { display: none; }
   letter-spacing: 0.36em;
 }
 
+.header-actions {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+.recharge-shortcut {
+  width: 34px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: var(--soft-shadow);
+}
 .balance-card {
   position: relative;
-  width: 96px;
+  width: 78px;
   height: 38px;
-  padding: 5px 36px 4px 9px;
+  padding: 5px 7px 4px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -152,15 +172,27 @@ body:not(.app-booting) .boot-screen { display: none; }
   direction: rtl;
 }
 .balance-card strong { display: block; font-size: 13px; line-height: 1.1; font-weight: 900; }
-.balance-card span { display: block; margin-top: 2px; font-size: 10px; color: var(--muted); }
-.balance-card i {
-  position: absolute;
-  top: 10px;
-  right: 9px;
-  width: 20px;
-  height: 18px;
-  border-radius: 5px;
-  background: var(--accent);
+.balance-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.theme-toggle {
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1;
 }
 
 .view { display: none; padding-top: 16px; }

@@ -35,6 +35,9 @@ const els = {
   boot: $("bootScreen"),
   balance: $("balanceLabel"),
   balanceButton: $("balanceButton"),
+  balanceText: $("balanceText"),
+  rechargeButton: $("rechargeButton"),
+  themeToggle: $("themeToggle"),
   menuButton: $("menuButton"),
   menuDrawer: $("menuDrawer"),
   menuClose: $("menuClose"),
@@ -433,7 +436,7 @@ function setText(selector, value) {
 }
 
 function applyStaticText() {
-  setText(".balance-card span", t("balance"));
+  setText("#balanceText", t("balance"));
   setText(".panel-title h2", t("newNumber"));
   setText("#serviceLabel", state.service ? serviceLabel(state.service) : t("chooseService"));
   setText("#checkPricesButton", t("checkPrices"));
@@ -490,10 +493,23 @@ const TEMP_NOT_LISTED_SERVICE_KEY = "not_listed_generic";
 const hiddenServiceNeedles = ["my custom app", "mycustomapp"];
 
 function applyRuntimeTheme() {
+  const override = localStorage.getItem("numbers_v2_theme");
   const scheme = String(tg?.colorScheme || "").toLowerCase();
   const bg = String(tg?.themeParams?.bg_color || "").toLowerCase();
   const darkBg = /^#(?:0[0-9a-f]|1[0-9a-f]|2[0-9a-f])/.test(bg);
-  document.body.classList.toggle("telegram-dark", scheme === "dark" || darkBg || params.get("theme") === "dark");
+  const dark = override ? override === "dark" : (scheme === "dark" || darkBg || params.get("theme") === "dark");
+  document.body.classList.toggle("telegram-dark", dark);
+  if (els.themeToggle) {
+    els.themeToggle.textContent = dark ? "☀" : "☾";
+    els.themeToggle.setAttribute("aria-label", dark ? "Light theme" : "Dark theme");
+  }
+}
+
+function toggleTheme(event) {
+  event?.stopPropagation?.();
+  const dark = !document.body.classList.contains("telegram-dark");
+  localStorage.setItem("numbers_v2_theme", dark ? "dark" : "light");
+  applyRuntimeTheme();
 }
 
 function headers(extra = {}) {
@@ -1807,11 +1823,15 @@ function applyPendingSupportReport() {
   state.pendingSupportReport = null;
 }
 
-function supportMessageHasUserText(value) {
-  const text = String(value || "")
+function supportMessageText(value) {
+  return String(value || "")
     .replace(i18n.ar.issuePrompt.trim(), "")
     .replace(i18n.en.issuePrompt.trim(), "")
     .trim();
+}
+
+function supportMessageHasUserText(value) {
+  const text = supportMessageText(value);
   return text.length >= 6;
 }
 
@@ -1852,6 +1872,7 @@ async function submitSupport(event) {
     return;
   }
   const rawMessage = els.supportMessage.value.trim();
+  const userMessage = supportMessageText(rawMessage);
   if (!supportMessageHasUserText(rawMessage)) {
     els.supportStatus.textContent = t("clearerIssue");
     showToast(els.supportStatus.textContent, "danger");
@@ -1860,7 +1881,7 @@ async function submitSupport(event) {
   const orderId = els.supportOrder.value;
   const order = state.orders.find((item) => String(item.id || "") === String(orderId));
   const context = supportOrderContext(order);
-  const message = [context, rawMessage].filter(Boolean).join("\n\n");
+  const message = [context, userMessage].filter(Boolean).join("\n\n");
   const button = els.supportForm.querySelector("button[type='submit']");
   setBusy(button, true);
   showBusy(t("sendTicketBusy"));
@@ -1950,7 +1971,15 @@ els.menuDrawer?.addEventListener("click", (event) => {
   if (button?.dataset.view) setView(button.dataset.view);
 });
 els.refreshOrders.addEventListener("click", loadOrders);
-els.balanceButton.addEventListener("click", () => setView("recharge"));
+els.rechargeButton?.addEventListener("click", () => setView("recharge"));
+els.balanceButton.addEventListener("click", () => setView("account"));
+els.balanceButton.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    setView("account");
+  }
+});
+els.themeToggle?.addEventListener("click", toggleTheme);
 els.supportForm.addEventListener("submit", submitSupport);
 els.rechargeForm.addEventListener("submit", submitRecharge);
 els.rechargeMethod.addEventListener("change", updateRechargeMethodDetails);
