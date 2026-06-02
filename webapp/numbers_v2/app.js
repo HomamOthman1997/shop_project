@@ -1176,6 +1176,7 @@ function closePicker() {
 function countryPickerRows() {
   const anyCountry = { key: "any", title: t("anyCountry"), sub: t("noSpecificCountry") };
   const countries = state.countries
+    .filter((row) => !["", "none", "any"].includes(String(row.code || "").trim().toLowerCase()))
     .map((row) => ({ key: row.code, title: countryLabel(row.code), sub: row.price_label || "" }));
   return pickerAllowsAnyCountry() ? [anyCountry, ...countries] : countries;
 }

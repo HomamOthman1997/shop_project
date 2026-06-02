@@ -97,7 +97,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     css = (ROOT / "webapp" / "numbers_v2" / "styles.css").read_text(encoding="utf-8")
 
     assert "/mini/numbers-v2/static/app.js" in index
-    assert "20260602-v2-012" in index
+    assert "20260603-v2-013" in index
     assert 'html lang="en" dir="ltr"' in index
     assert "شراء رقم جديد" not in index
     assert "state.clientActions = bootstrap.client?.actions || {}" in app
@@ -173,6 +173,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert 'id="themeToggle"' in index
     assert "function toggleTheme(event)" in app
     assert "function pickerAllowsAnyCountry()" in app
+    assert ".filter((row) => ![\"\", \"none\", \"any\"].includes(String(row.code || \"\").trim().toLowerCase()))" in app
     assert "key !== RENTAL_UNLIMITED_SERVICE_KEY && state.country === \"any\"" in app
     assert "return pickerAllowsAnyCountry() ? [anyCountry, ...countries] : countries" in app
     assert "state.fallbackOffer" in app
