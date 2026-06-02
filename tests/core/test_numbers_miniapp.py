@@ -961,6 +961,37 @@ def test_numbers_miniapp_identifies_second_code_charge_orders():
     assert not miniapp._is_second_code_charge_order({"number_mode": "temp", "service_id": "gmail"})
 
 
+def test_numbers_miniapp_hides_internal_order_event_labels():
+    assert miniapp._event_public_label("wallet_charged", "en") == ""
+    assert miniapp._event_public_label("provider_buy_started", "en") == ""
+    assert miniapp._event_public_label("unknown_internal_event", "en") == ""
+    assert miniapp._event_public_label("order_created", "en") == "Order received"
+    assert miniapp._event_public_label("purchase_success", "en") == "Number secured"
+
+
+@pytest.mark.asyncio
+async def test_numbers_miniapp_recent_events_are_customer_friendly(monkeypatch):
+    rows = [
+        {"event": "order_created", "created_at": "2026-06-02 01:40 UTC"},
+        {"event": "wallet_charged", "created_at": "2026-06-02 01:40 UTC"},
+        {"event": "provider_buy_started", "created_at": "2026-06-02 01:40 UTC"},
+        {"event": "provider_buy_success", "created_at": "2026-06-02 01:40 UTC"},
+        {"event": "purchase_success", "created_at": "2026-06-02 01:40 UTC"},
+    ]
+    calls = {}
+
+    async def fake_list_number_order_events_for_order(order_id, *, limit):
+        calls["limit"] = limit
+        return rows
+
+    monkeypatch.setattr(miniapp.number_events_repo, "list_number_order_events_for_order", fake_list_number_order_events_for_order)
+
+    payload = await miniapp._recent_order_events_payload("order-1", "en")
+
+    assert calls["limit"] == 20
+    assert [item["label"] for item in payload] == ["Order received", "Number secured"]
+
+
 def test_numbers_refund_pending_temp_order_can_refresh():
     payload = miniapp._order_payload(
         {

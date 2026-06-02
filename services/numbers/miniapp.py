@@ -1672,6 +1672,16 @@ def _event_public_label(event: str, lang: str) -> str:
 
     labels = {
 
+        "order_created": ("Order received", "تم استلام الطلب"),
+
+        "wallet_charged": ("", ""),
+
+        "provider_buy_started": ("", ""),
+
+        "provider_buy_success": ("", ""),
+
+        "purchase_success": ("Number secured", "تم تأمين الرقم"),
+
         "cancel_requested": ("Checking provider refund", "جاري فحص الاسترجاع من المزود"),
 
         "provider_already_closed": ("Provider already closed the order", "المزود أغلق الطلب مسبقاً"),
@@ -1710,17 +1720,24 @@ def _event_public_label(event: str, lang: str) -> str:
 
     }
 
-    en, ar = labels.get(key, (key.replace("_", " ").strip().title(), key.replace("_", " ")))
+    if key not in labels:
+        return ""
+
+    en, ar = labels[key]
 
     return _text(lang, en, ar)
 
-def _event_payload(event: dict[str, Any], lang: str) -> dict[str, str]:
+def _event_payload(event: dict[str, Any], lang: str) -> dict[str, str] | None:
+
+    label = _event_public_label(str(event.get("event") or ""), lang)
+    if not label:
+        return None
 
     return {
 
         "event": str(event.get("event") or ""),
 
-        "label": _event_public_label(str(event.get("event") or ""), lang),
+        "label": label,
 
         "time": _compact_datetime(event.get("created_at")),
 
@@ -1730,7 +1747,7 @@ async def _recent_order_events_payload(order_id: Any, lang: str, *, limit: int =
 
     try:
 
-        rows = await number_events_repo.list_number_order_events_for_order(order_id, limit=limit)
+        rows = await number_events_repo.list_number_order_events_for_order(order_id, limit=max(20, int(limit or 5) * 4))
 
     except Exception:
 
@@ -1738,7 +1755,8 @@ async def _recent_order_events_payload(order_id: Any, lang: str, *, limit: int =
 
         return []
 
-    return [_event_payload(row, lang) for row in rows[-limit:]]
+    payloads = [_event_payload(row, lang) for row in rows]
+    return [item for item in payloads if item][-max(1, int(limit or 5)):]
 
 async def _order_payload_with_events(order: dict[str, Any], lang: str) -> dict[str, Any]:
 
