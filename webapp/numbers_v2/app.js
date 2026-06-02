@@ -80,6 +80,10 @@ const els = {
   confirmBody: $("confirmBody"),
   confirmPurchase: $("confirmPurchaseButton"),
   toast: $("toast"),
+  resultModal: $("resultModal"),
+  resultTitle: $("resultTitle"),
+  resultMessage: $("resultMessage"),
+  resultClose: $("resultClose"),
   busyOverlay: $("busyOverlay"),
   busyTitle: $("busyTitle"),
 };
@@ -114,6 +118,8 @@ const i18n = {
     search: "بحث",
     confirmPurchase: "تأكيد الشراء",
     confirm: "تأكيد",
+    done: "تم",
+    testActiveResult: "نتيجة الفحص",
     unavailable: "غير متاح",
     anyState: "أي ولاية",
     anyCountry: "أي دولة",
@@ -283,6 +289,8 @@ const i18n = {
     search: "Search",
     confirmPurchase: "Confirm purchase",
     confirm: "Confirm",
+    done: "OK",
+    testActiveResult: "Check result",
     unavailable: "Unavailable",
     anyState: "Any state",
     anyCountry: "Any country",
@@ -473,10 +481,12 @@ function applyStaticText() {
   setText("#drawerTitle", t("choose"));
   setText("#confirmDrawer h3", t("confirmPurchase"));
   setText("#confirmPurchaseButton", t("confirm"));
+  setText("#resultClose", t("done"));
   if (els.menuButton) els.menuButton.setAttribute("aria-label", t("menu"));
   if (els.menuClose) els.menuClose.setAttribute("aria-label", t("close"));
   if (els.drawerClose) els.drawerClose.setAttribute("aria-label", t("close"));
   if (els.confirmClose) els.confirmClose.setAttribute("aria-label", t("close"));
+  if (els.resultClose) els.resultClose.setAttribute("aria-label", t("close"));
   if (els.drawerSearch) els.drawerSearch.placeholder = t("search");
   if (els.supportMessage) els.supportMessage.placeholder = t("supportPlaceholder");
   if (!state.hasCheckedPrices && els.offersCount) els.offersCount.textContent = `0 ${t("offers")}`;
@@ -601,6 +611,21 @@ function showToast(message, tone = "info") {
   els.toast.textContent = message;
   els.toast.className = `toast toast-${tone}`;
   toastTimer = window.setTimeout(() => els.toast.classList.add("hidden"), 3200);
+}
+
+function showResultModal(message, title = t("testActiveResult")) {
+  if (!message || !els.resultModal) {
+    showToast(message, "success");
+    return;
+  }
+  if (els.resultTitle) els.resultTitle.textContent = title;
+  if (els.resultMessage) els.resultMessage.textContent = message;
+  els.resultModal.classList.remove("hidden");
+  els.resultClose?.focus();
+}
+
+function closeResultModal() {
+  els.resultModal?.classList.add("hidden");
 }
 
 function showBusy(title = labelForKey("working")) {
@@ -1487,7 +1512,7 @@ async function runOrderAction(order, key, button) {
     if (key === "test_active") {
       renderOrders();
       renderSupportOrders();
-      showToast(testActiveMessage(payload.order || order), "success");
+      showResultModal(testActiveMessage(payload.order || order));
       return;
     }
     showToast(payload.message || t("orderUpdated"), "success");
@@ -2038,6 +2063,10 @@ els.confirmClose.addEventListener("click", closeConfirm);
 els.confirmPurchase.addEventListener("click", confirmPurchase);
 els.confirmDrawer.addEventListener("click", (event) => {
   if (event.target === els.confirmDrawer) closeConfirm();
+});
+els.resultClose?.addEventListener("click", closeResultModal);
+els.resultModal?.addEventListener("click", (event) => {
+  if (event.target === els.resultModal) closeResultModal();
 });
 els.menuButton?.addEventListener("click", openMenu);
 els.menuClose?.addEventListener("click", closeMenu);

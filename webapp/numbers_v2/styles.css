@@ -1064,6 +1064,42 @@ body:not(.app-booting) .boot-screen { display: none; }
 }
 .toast-success { border-color: color-mix(in srgb, var(--success) 38%, var(--line)); }
 .toast-danger { border-color: color-mix(in srgb, var(--danger) 42%, var(--line)); color: var(--danger); }
+.result-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 96;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 18, 30, 0.36);
+}
+.result-card {
+  width: min(320px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+.result-card h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 950;
+}
+.result-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.6;
+}
+.result-card .primary-button {
+  min-height: 40px;
+}
 .busy-overlay {
   position: fixed;
   inset: 0;
