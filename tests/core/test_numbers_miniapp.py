@@ -829,6 +829,27 @@ def test_numbers_voice_order_payload_exposes_recording_download():
     assert "base_price_label" not in payload
 
 
+def test_numbers_temp_order_uses_number_prefix_country_fallback():
+    payload = miniapp._order_payload(
+        {
+            "_id": "temp-order-id",
+            "number_mode": "temp",
+            "status": "success",
+            "temp_wait_state": "waiting",
+            "provider": "herosms",
+            "provider_number": "+306997327165",
+            "temp_service_key": "whatsapp",
+            "temp_country": "129",
+            "selling_price": 0.25,
+            "base_price": 0.25,
+        }
+    )
+
+    detail = {item["key"]: item for item in payload["details"]}
+    assert detail["country"]["label"] == "Country"
+    assert detail["country"]["value"] == "Greece"
+
+
 def test_numbers_voice_recording_uri_accepts_provider_variants():
     assert (
         miniapp._voice_recording_uri_from_calls(

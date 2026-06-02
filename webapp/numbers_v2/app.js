@@ -216,7 +216,7 @@ const i18n = {
     codeIndex: "كود",
     waitingForCodeBox: "بانتظار الكود",
     refundSafetyTitle: "رصيدك محفوظ",
-    refundSafetyText: "إذا لم يصل الكود ضمن فترة الانتظار سيتم إرجاع المبلغ تلقائياً إلى محفظتك.",
+    refundSafetyText: "إذا لم يصل الكود خلال المهلة، يرجع المبلغ تلقائياً.",
     requestTimeout: "العملية تأخرت. جرّب مرة ثانية بعد لحظات.",
     numberActiveNoNewCode: "الرقم ما زال نشط. لا يوجد كود جديد بعد.",
     numberActiveCodeReceived: "الرقم نشط والكود متاح.",
@@ -413,7 +413,7 @@ const i18n = {
     codeIndex: "Code",
     waitingForCodeBox: "Waiting for code",
     refundSafetyTitle: "Your balance is protected",
-    refundSafetyText: "If the code does not arrive during the waiting window, the amount is refunded to your wallet automatically.",
+    refundSafetyText: "If no code arrives in time, the amount is refunded automatically.",
     requestTimeout: "The operation took too long. Try again in a moment.",
     numberActiveNoNewCode: "The number is still active. No new code yet.",
     numberActiveCodeReceived: "The number is active and the code is available.",
@@ -1381,6 +1381,18 @@ function customerStateText(order) {
   return map[key] || customerState.message || (customerState.message_key ? labelForKey(customerState.message_key) : "");
 }
 
+function formatPhoneNumber(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "-";
+  const digits = raw.replace(/[^\d]/g, "");
+  if (!digits) return raw;
+  const withoutPrefix = digits.startsWith("00") ? digits.slice(2) : digits;
+  let codeLength = 2;
+  if (withoutPrefix.startsWith("1") && withoutPrefix.length >= 11) codeLength = 1;
+  if (withoutPrefix.length <= codeLength + 3) return raw.startsWith("+") ? raw : `+${withoutPrefix}`;
+  return `+${withoutPrefix.slice(0, codeLength)} ${withoutPrefix.slice(codeLength)}`;
+}
+
 function orderWaitingForCode(order) {
   const status = String(order?.customer_state?.key || order?.public_status || order?.status || "").toLowerCase();
   return orderMode(order) === "temp" && !order?.code && !orderCodes(order).length && ["waiting", "awaiting_provider_webhook", "refund_pending"].includes(status);
@@ -1469,22 +1481,23 @@ function renderOrders() {
       card.className = `order-card order-${orderTone(order)}`;
       const note = customerStateText(order);
       const details = Array.isArray(order.details) ? order.details.slice(0, 4) : [];
+      const numberValue = formatPhoneNumber(order.number || order.provider_number || "");
       card.innerHTML = `
         <h3>${order.service_label || order.service || t("orderNumber")}</h3>
         <div class="meta-grid">
           <div><span>${t("status")}</span><strong>${statusLabel(order)}</strong></div>
-          <div><span>${t("number")}</span><strong>${order.number || order.provider_number || "-"}</strong></div>
+          <div class="number-detail"><span>${t("number")}</span><strong>${numberValue}</strong></div>
           <div><span>${t("price")}</span><strong>${order.price_label || "-"}</strong></div>
           ${details.map((item) => `<div><span>${item.label || item.key || ""}</span><strong>${item.value || "-"}</strong></div>`).join("")}
         </div>
       `;
-      if (note) {
+      const waitingForCode = orderWaitingForCode(order);
+      if (note && !waitingForCode) {
         const stateNote = document.createElement("p");
         stateNote.className = "status-text";
         stateNote.textContent = note;
         card.append(stateNote);
       }
-      const waitingForCode = orderWaitingForCode(order);
       if (order.code && !(Array.isArray(order.codes) && order.codes.length)) {
         const code = document.createElement("div");
         code.className = "code-box";

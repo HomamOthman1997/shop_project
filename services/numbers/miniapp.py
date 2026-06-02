@@ -1409,6 +1409,20 @@ def _compact_datetime(value: Any) -> str:
 
 def _country_name(code: Any, *, fallback: Any = "") -> str:
 
+    direct = str(fallback or "").strip()
+
+    if direct:
+
+        upper_direct = direct.upper()
+
+        for item in COUNTRIES_LIST:
+
+            if str(item.get("iso") or "").strip().upper() == upper_direct:
+
+                return str(item.get("name") or direct)
+
+        return direct
+
     raw = str(code or "").strip()
 
     if not raw or raw == "none":
@@ -1439,6 +1453,16 @@ def _state_name(code: Any) -> str:
 
     return raw
 
+def _country_name_from_number(number: Any) -> str:
+
+    digits = "".join(ch for ch in str(number or "") if ch.isdigit())
+
+    if digits.startswith("30"):
+
+        return "Greece"
+
+    return ""
+
 def _detail_row(key: str, value: Any) -> dict[str, str] | None:
 
     text = str(value or "").strip()
@@ -1447,7 +1471,20 @@ def _detail_row(key: str, value: Any) -> dict[str, str] | None:
 
         return None
 
-    return {"key": key, "value": text}
+    labels = {
+        "provider": "Provider",
+        "created": "Created",
+        "country": "Country",
+        "state": "State",
+        "duration": "Duration",
+        "ends": "Ends",
+        "calls": "Calls",
+        "retry": "Retry",
+        "reuseUntil": "Reuse until",
+        "secondCodes": "Second codes",
+    }
+
+    return {"key": key, "label": labels.get(key, key), "value": text}
 
 def _order_provider_code(order: dict[str, Any] | None) -> str:
 
@@ -1647,7 +1684,14 @@ def _order_detail_rows(order: dict[str, Any], *, mode: str, public_status: str) 
 
     else:
 
-        country = _country_name(order.get("temp_country") or order.get("provisioning_country"))
+        country = _country_name(
+            order.get("temp_country") or order.get("provisioning_country"),
+            fallback=order.get("temp_country_name") or order.get("temp_country_iso"),
+        )
+
+        if not (order.get("temp_country_name") or order.get("temp_country_iso")):
+
+            country = _country_name_from_number(order.get("provider_number")) or country
 
         state = _state_name(order.get("temp_state") or order.get("provisioning_state_code"))
 

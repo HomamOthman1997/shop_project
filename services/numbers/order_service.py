@@ -89,6 +89,8 @@ def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
         "mode": mode,
         "service": str(order.get("temp_service_key") or order.get("service_id") or "").replace(":rental", ""),
         "country": str(order.get("temp_country") or order.get("rental_country") or "none"),
+        "country_iso": str(order.get("temp_country_iso") or order.get("rental_country_iso") or "").strip().upper(),
+        "country_name": str(order.get("temp_country_name") or order.get("rental_country_name") or "").strip(),
         "state": str(order.get("temp_state") or order.get("rental_state_code") or "none"),
         "provider_id": provider_id,
         "provider": provider_display_name(provider_code),
@@ -819,6 +821,8 @@ async def create_temp_order_from_quote(
     try:
         provider_country = str(info.get("provider_country") or country or "").strip()
         async def _provision() -> dict[str, Any]:
+            provider_country_iso = str(info.get("provider_country_iso") or "").strip().upper()
+            provider_country_name = str(info.get("provider_country_name") or "").strip()
             return await provision_charged_temp_order(
                 order=order,
                 order_id=order_id,
@@ -837,6 +841,8 @@ async def create_temp_order_from_quote(
                 purchase_options={
                     "reuse_mode": True,
                     **({"provider_country": provider_country} if provider_country else {}),
+                    **({"provider_country_iso": provider_country_iso} if provider_country_iso else {}),
+                    **({"provider_country_name": provider_country_name} if provider_country_name else {}),
                     "_audit_requested_service": service,
                     **({"retry_reason": str(source_reason)} if source_reason else {}),
                 },

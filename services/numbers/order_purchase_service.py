@@ -122,6 +122,8 @@ async def provision_charged_temp_order(
     now = _utc_now()
     reuse_warranty_sec = _resolve_reuse_warranty_sec(provider_code, buy_res)
     reuse_until = datetime.fromtimestamp(now.timestamp() + int(reuse_warranty_sec), tz=UTC)
+    provider_country_iso = str((purchase_options or {}).get("provider_country_iso") or "").strip().upper()
+    provider_country_name = str((purchase_options or {}).get("provider_country_name") or "").strip()
 
     patch = {
         "provider_order_id": provider_order_id,
@@ -133,6 +135,8 @@ async def provision_charged_temp_order(
         "voice_enabled": number_mode == "voice",
         "temp_api_service": str(api_service),
         "temp_country": None if country in (None, "none") else country,
+        "temp_country_iso": provider_country_iso or None,
+        "temp_country_name": provider_country_name or None,
         "temp_state": None if state in (None, "none") else state,
         "temp_service_key": str(service_name),
         "temp_reuse_warranty_until": reuse_until,
