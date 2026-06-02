@@ -954,14 +954,17 @@ def test_numbers_temp_order_payload_exposes_second_code_action():
     details = {item["key"]: item["value"] for item in payload["details"]}
     assert details["provider"] == "Bravo"
     assert details["country"] == "United States"
-    assert details["reuseUntil"].endswith("UTC")
+    assert "reuseUntil" not in details
+    assert payload["active_seconds_left"] > 0
+    assert payload["active_estimate_unreliable"] is False
     assert payload["actions"]["copy_number"]["enabled"] is True
     assert payload["actions"]["copy_number"]["method"] == "CLIENT"
     assert payload["actions"]["copy_code"]["enabled"] is True
     assert payload["actions"]["refresh"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/refresh"
     assert payload["actions"]["refresh"]["busy_label_key"] == "checkingOrder"
     assert payload["actions"]["test_active"]["enabled"] is True
-    assert payload["actions"]["test_active"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/test-active"
+    assert payload["actions"]["test_active"]["method"] == "CLIENT"
+    assert payload["actions"]["test_active"]["endpoint"] == ""
     assert payload["actions"]["test_active"]["label_key"] == "testActive"
     assert payload["actions"]["second_code"]["enabled"] is True
     assert payload["actions"]["second_code"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/second-code"
@@ -992,6 +995,56 @@ def test_numbers_temp_order_payload_uses_provisioning_provider_fallback():
     assert payload["provider_id"] == "S2"
     details = {item["key"]: item["value"] for item in payload["details"]}
     assert details["provider"] == "Bravo"
+
+
+def test_numbers_temp_waiting_order_hides_test_active_action():
+    payload = miniapp._order_payload(
+        {
+            "_id": "temp-order-id",
+            "number_mode": "temp",
+            "status": "success",
+            "provisioning_state": "provisioned",
+            "provider": "textverified",
+            "provider_order_id": "abc",
+            "provider_number": "+15551234567",
+            "temp_service_key": "attapoll",
+            "temp_country": "1",
+            "selling_price": 0.44,
+            "base_price": 0.4,
+            "created_at": datetime.now(UTC) - timedelta(minutes=2),
+            "temp_wait_state": "waiting",
+            "temp_codes": [],
+            "temp_codes_count": 0,
+        }
+    )
+
+    assert payload["public_status"] == "waiting"
+    assert payload["actions"]["test_active"]["enabled"] is False
+
+
+def test_numbers_temp_smspool_forex_active_estimate_is_long_unreliable():
+    payload = miniapp._order_payload(
+        {
+            "_id": "temp-order-id",
+            "number_mode": "temp",
+            "status": "success",
+            "provider": "smspool",
+            "provider_order_id": "abc",
+            "provider_number": "+15551234567",
+            "temp_service_key": "forex",
+            "temp_country": "1",
+            "selling_price": 0.44,
+            "base_price": 0.4,
+            "created_at": datetime.now(UTC) - timedelta(minutes=1),
+            "temp_wait_state": "code_received",
+            "temp_last_code": "123456",
+            "temp_codes": ["123456"],
+            "temp_codes_count": 1,
+        }
+    )
+
+    assert payload["active_seconds_left"] > 3 * 24 * 3600
+    assert payload["active_estimate_unreliable"] is True
 
 
 def test_numbers_temp_second_code_pending_hides_old_code():

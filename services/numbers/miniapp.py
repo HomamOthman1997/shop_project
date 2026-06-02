@@ -1719,8 +1719,6 @@ def _order_detail_rows(order: dict[str, Any], *, mode: str, public_status: str) 
 
                 _detail_row("state", state),
 
-                _detail_row("reuseUntil", _compact_datetime(order.get("temp_reuse_warranty_until"))),
-
                 _detail_row("secondCodes", second_codes if second_codes > 0 else ""),
 
                 _detail_row("retry", order.get("temp_refund_retry_attempts") if public_status == "refund_pending" else ""),
@@ -1734,6 +1732,42 @@ def _order_detail_rows(order: dict[str, Any], *, mode: str, public_status: str) 
             rows.append(item)
 
     return rows[:7]
+
+def _temp_active_estimate(order: dict[str, Any]) -> dict[str, Any]:
+
+    provider = _order_provider_code(order)
+
+    service = str(order.get("temp_service_key") or order.get("service_id") or "").strip().lower()
+
+    long_pool_service = provider == "smspool" and any(marker in service for marker in ("forex", "fx", "forx"))
+
+    window_sec = 4 * 24 * 3600 if long_pool_service else 20 * 60
+
+    starts_at = (
+
+        _coerce_utc_datetime(order.get("created_at"))
+
+        or _coerce_utc_datetime(order.get("temp_wait_started_at"))
+
+        or _utc_now()
+
+    )
+
+    until = starts_at + timedelta(seconds=window_sec)
+
+    seconds_left = _seconds_left_until(until)
+
+    return {
+
+        "active_estimate_until": until.isoformat(),
+
+        "active_seconds_left": int(seconds_left),
+
+        "active_estimate_label": _format_wait_time_short(seconds_left),
+
+        "active_estimate_unreliable": bool(long_pool_service),
+
+    }
 
 def _event_public_label(event: str, lang: str) -> str:
 
@@ -2756,7 +2790,17 @@ def _miniapp_order_actions(payload: dict[str, Any]) -> dict[str, dict[str, Any]]
 
     refresh_label = "checkCall" if mode == "voice" else "refresh"
     test_active_endpoint = f"{base}/wake" if mode == "rental" else f"{base}/test-active"
-    test_active_enabled = bool(payload.get("can_wake")) if mode == "rental" else bool(payload.get("can_refresh", False))
+    has_temp_code = bool(payload.get("code") or payload.get("codes"))
+    if mode == "rental":
+        test_active_enabled = bool(payload.get("can_wake"))
+        test_active_method = "POST"
+    elif mode == "temp":
+        test_active_enabled = bool(has_temp_code)
+        test_active_method = "CLIENT"
+        test_active_endpoint = ""
+    else:
+        test_active_enabled = bool(payload.get("can_refresh", False))
+        test_active_method = "POST"
 
     actions: dict[str, dict[str, Any]] = {
 
@@ -2766,7 +2810,7 @@ def _miniapp_order_actions(payload: dict[str, Any]) -> dict[str, dict[str, Any]]
 
         "refresh": _miniapp_order_action(enabled=bool(payload.get("can_refresh", False)), label_key=refresh_label, endpoint=f"{base}/refresh" if base else "", busy_label_key="checkingOrder"),
 
-        "test_active": _miniapp_order_action(enabled=test_active_enabled, label_key="testActive", endpoint=test_active_endpoint if base else "", busy_label_key="checkingOrder", idempotency_key=f"miniapp-test-active-{order_id}" if order_id else ""),
+        "test_active": _miniapp_order_action(enabled=test_active_enabled, label_key="testActive", endpoint=test_active_endpoint if base else "", method=test_active_method, busy_label_key="checkingOrder", idempotency_key=f"miniapp-test-active-{order_id}" if order_id and test_active_method != "CLIENT" else ""),
 
         "second_code": _miniapp_order_action(enabled=bool(payload.get("can_second_code") or payload.get("can_resend")), label_key="secondCode", endpoint=f"{base}/second-code" if base else "", confirm_label_key="confirmSecondCode", success_label_key="secondCodeRequested"),
 
@@ -2874,6 +2918,9 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
     if public_status != "code_received":
 
         payload["code"] = ""
+    else:
+
+        payload.update(_temp_active_estimate(order))
 
     second_sale, _second_cost = _second_code_price(order)
 

@@ -220,6 +220,9 @@ const i18n = {
     requestTimeout: "العملية تأخرت. جرّب مرة ثانية بعد لحظات.",
     numberActiveNoNewCode: "الرقم ما زال نشط. لا يوجد كود جديد بعد.",
     numberActiveCodeReceived: "الرقم نشط والكود متاح.",
+    numberActiveApprox: "الرقم جاهز للاستخدام. غالباً يبقى متاحاً حوالي {time}.",
+    numberActiveApproxUnsafe: "الرقم جاهز للاستخدام. هذا المزود قد يبقيه متاحاً حتى {time} تقريباً، لكن الإعادة غير مضمونة.",
+    numberActiveExpiredApprox: "انتهت مدة النشاط المعتادة تقريباً. إذا بقي الرقم مقبولاً عند المزود يمكنك تجربته.",
     callStillActive: "الطلب نشط. لا يوجد تسجيل جديد بعد.",
     rentalStillActive: "الإيجار نشط. تم طلب التنشيط.",
     refresh: "تحديث",
@@ -417,6 +420,9 @@ const i18n = {
     requestTimeout: "The operation took too long. Try again in a moment.",
     numberActiveNoNewCode: "The number is still active. No new code yet.",
     numberActiveCodeReceived: "The number is active and the code is available.",
+    numberActiveApprox: "The number is ready to use. It is usually available for about {time}.",
+    numberActiveApproxUnsafe: "The number is ready to use. This provider may keep it available for about {time}, but reuse is not guaranteed.",
+    numberActiveExpiredApprox: "The usual active window has likely ended. You can still try it if the provider accepts it.",
     callStillActive: "The order is active. No new recording yet.",
     rentalStillActive: "The rental is active. Wake was requested.",
     refresh: "Refresh",
@@ -1581,6 +1587,10 @@ async function runOrderAction(order, key, button) {
       openIssueReport(order);
       return;
     }
+    if (key === "test_active") {
+      showResultModal(testActiveMessage(order));
+      return;
+    }
     const value = key === "copy_code" ? order.code : (order.number || order.provider_number || "");
     if (value) await navigator.clipboard?.writeText(value);
     showToast(t("copied"), "success");
@@ -1629,13 +1639,30 @@ function updateOrderInState(order) {
   state.orders = [order, ...rows];
 }
 
+function formatDurationApprox(seconds) {
+  const sec = Math.max(0, Number(seconds || 0));
+  const minutes = Math.ceil(sec / 60);
+  if (minutes <= 0) return "";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours < 24) return rest ? `${hours}h ${rest}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const dayHours = hours % 24;
+  return dayHours ? `${days}d ${dayHours}h` : `${days}d`;
+}
+
 function testActiveMessage(order) {
   const mode = orderMode(order);
   const status = String(order?.public_status || order?.status || "").toLowerCase();
   if (mode === "rental") return t("rentalStillActive");
   if (mode === "voice") return status.includes("call") || order?.recording_available ? t("numberActiveCodeReceived") : t("callStillActive");
-  if (status === "code_received" || order?.code || (Array.isArray(order?.codes) && order.codes.length > 1)) {
-    return t("numberActiveCodeReceived");
+  if (status === "code_received" || order?.code || (Array.isArray(order?.codes) && order.codes.length > 0)) {
+    const secondsLeft = Number(order?.active_seconds_left || 0);
+    if (secondsLeft <= 0) return t("numberActiveExpiredApprox");
+    const label = formatDurationApprox(secondsLeft) || order?.active_estimate_label || "";
+    const key = order?.active_estimate_unreliable ? "numberActiveApproxUnsafe" : "numberActiveApprox";
+    return t(key).replace("{time}", label);
   }
   return t("numberActiveNoNewCode");
 }
