@@ -221,6 +221,7 @@ const i18n = {
     waitingForCodeBox: "بانتظار الكود",
     refundSafetyTitle: "رصيدك محفوظ",
     refundSafetyText: "إذا لم يصل الكود خلال المهلة، يرجع المبلغ تلقائياً.",
+    refundCompletedTitle: "تم إرجاع الرصيد",
     requestTimeout: "العملية تأخرت. جرّب مرة ثانية بعد لحظات.",
     numberActiveNoNewCode: "الرقم ما زال نشط. لا يوجد كود جديد بعد.",
     numberActiveCodeReceived: "الرقم نشط والكود متاح.",
@@ -423,6 +424,7 @@ const i18n = {
     waitingForCodeBox: "Waiting for code",
     refundSafetyTitle: "Your balance is protected",
     refundSafetyText: "If no code arrives in time, the amount is refunded automatically.",
+    refundCompletedTitle: "Balance refunded",
     requestTimeout: "The operation took too long. Try again in a moment.",
     numberActiveNoNewCode: "The number is still active. No new code yet.",
     numberActiveCodeReceived: "The number is active and the code is available.",
@@ -1407,15 +1409,31 @@ function formatPhoneNumber(value) {
   return `+${withoutPrefix.slice(0, codeLength)} ${withoutPrefix.slice(codeLength)}`;
 }
 
+function localPhoneNumber(value) {
+  const formatted = formatPhoneNumber(value);
+  if (formatted.includes(" ")) {
+    return formatted.split(/\s+/).slice(1).join("").replace(/[^\d]/g, "");
+  }
+  const digits = String(value || "").replace(/[^\d]/g, "");
+  if (digits.startsWith("00")) return digits.slice(2);
+  if (digits.startsWith("1") && digits.length === 11) return digits.slice(1);
+  return digits;
+}
+
 function orderWaitingForCode(order) {
   const status = String(order?.customer_state?.key || order?.public_status || order?.status || "").toLowerCase();
   return orderMode(order) === "temp" && !order?.code && !orderCodes(order).length && ["waiting", "awaiting_provider_webhook", "refund_pending"].includes(status);
 }
 
-function renderRefundSafetyNote() {
+function orderRefunded(order) {
+  const status = String(order?.customer_state?.key || order?.public_status || order?.status || "").toLowerCase();
+  return ["refunded", "cancelled_refunded", "refund_success"].includes(status);
+}
+
+function renderRefundSafetyNote(title = t("refundSafetyTitle"), text = t("refundSafetyText")) {
   const note = document.createElement("div");
   note.className = "refund-safety-note";
-  note.innerHTML = `<strong>${t("refundSafetyTitle")}</strong><span>${t("refundSafetyText")}</span>`;
+  note.innerHTML = `<strong>${title}</strong><span>${text}</span>`;
   return note;
 }
 
@@ -1500,18 +1518,35 @@ function renderOrders() {
         <h3>${order.service_label || order.service || t("orderNumber")}</h3>
         <div class="meta-grid">
           <div><span>${t("status")}</span><strong>${statusLabel(order)}</strong></div>
-          <div class="number-detail"><span>${t("number")}</span><strong>${numberValue}</strong></div>
+          <div class="number-detail copyable-number" role="button" tabindex="0"><span>${t("number")}</span><strong>${numberValue}</strong></div>
           <div><span>${t("price")}</span><strong>${order.price_label || "-"}</strong></div>
           ${details.map((item) => `<div><span>${item.label || item.key || ""}</span><strong>${item.value || "-"}</strong></div>`).join("")}
         </div>
       `;
       const waitingForCode = orderWaitingForCode(order);
       if (note && !waitingForCode) {
-        const stateNote = document.createElement("p");
-        stateNote.className = "status-text";
-        stateNote.textContent = note;
-        card.append(stateNote);
+        if (orderRefunded(order)) {
+          card.append(renderRefundSafetyNote(t("refundCompletedTitle"), note));
+        } else {
+          const stateNote = document.createElement("p");
+          stateNote.className = "status-text";
+          stateNote.textContent = note;
+          card.append(stateNote);
+        }
       }
+      const numberCopyTarget = card.querySelector(".copyable-number");
+      const copyLocalNumber = async () => {
+        const value = localPhoneNumber(order.number || order.provider_number || "");
+        if (value) await navigator.clipboard?.writeText(value);
+        showToast(t("copied"), "success");
+      };
+      numberCopyTarget?.addEventListener("click", copyLocalNumber);
+      numberCopyTarget?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          copyLocalNumber();
+        }
+      });
       if (order.code && !(Array.isArray(order.codes) && order.codes.length)) {
         const code = document.createElement("div");
         code.className = "code-box";
@@ -1561,7 +1596,7 @@ function renderOrders() {
       const actions = order.actions || {};
       const actionRow = document.createElement("div");
       actionRow.className = "action-row";
-      ["copy_number", "copy_code", "test_active", "second_code", "replace", "alternate_provider", "preview_recording", "download_recording", "rental_sms", "rental_finish", "rental_renew", "rental_wake", "rental_notes", "report_issue"].forEach((key) => {
+      ["copy_code", "test_active", "second_code", "replace", "alternate_provider", "preview_recording", "download_recording", "rental_sms", "rental_finish", "rental_renew", "rental_wake", "rental_notes", "report_issue"].forEach((key) => {
         const action = actions[key];
         if (!action || action.enabled === false) return;
         const button = document.createElement("button");
@@ -1599,7 +1634,7 @@ async function runOrderAction(order, key, button) {
       showResultModal(testActiveMessage(order));
       return;
     }
-    const value = key === "copy_code" ? order.code : (order.number || order.provider_number || "");
+    const value = key === "copy_code" ? order.code : localPhoneNumber(order.number || order.provider_number || "");
     if (value) await navigator.clipboard?.writeText(value);
     showToast(t("copied"), "success");
     return;

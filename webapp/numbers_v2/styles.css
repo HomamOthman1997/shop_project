@@ -572,6 +572,13 @@ body:not(.app-booting) .boot-screen { display: none; }
   font-weight: 950;
   letter-spacing: 0;
 }
+.copyable-number {
+  cursor: pointer;
+}
+.copyable-number:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
 .account-hero {
   padding: 16px;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
