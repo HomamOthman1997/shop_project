@@ -1964,6 +1964,9 @@ def test_numbers_rental_order_payload_exposes_renew_and_wake_actions():
     assert payload["actions"]["rental_renew"]["idempotency_key"] == "miniapp-rental-renew-rental-order-id"
     assert payload["actions"]["rental_wake"]["enabled"] is True
     assert payload["actions"]["rental_notes"]["enabled"] is True
+    assert payload["actions"]["report_issue"]["enabled"] is True
+    assert payload["actions"]["report_issue"]["method"] == "CLIENT"
+    assert payload["actions"]["report_issue"]["label"] == "مشكلة في الرقم"
     assert payload["actions"]["rental_finish"]["endpoint"] == "/mini/numbers/api/orders/rental-order-id/finish"
     assert payload["actions"]["rental_finish"]["confirm_label_key"] == "finish"
     details = {item["key"]: item["value"] for item in payload["details"]}

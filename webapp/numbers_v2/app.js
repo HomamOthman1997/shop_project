@@ -26,6 +26,7 @@ const state = {
   loading: false,
   viewLoading: {},
   orderFilter: "active",
+  pendingSupportReport: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -976,7 +977,7 @@ function renderOrders() {
       const actions = order.actions || {};
       const actionRow = document.createElement("div");
       actionRow.className = "action-row";
-      ["copy_number", "copy_code", "refresh", "second_code", "replace", "alternate_provider", "preview_recording", "download_recording", "rental_sms", "rental_finish", "rental_renew", "rental_wake", "rental_notes"].forEach((key) => {
+      ["copy_number", "copy_code", "refresh", "second_code", "replace", "alternate_provider", "preview_recording", "download_recording", "rental_sms", "rental_finish", "rental_renew", "rental_wake", "rental_notes", "report_issue"].forEach((key) => {
         const action = actions[key];
         if (!action || action.enabled === false) return;
         const button = document.createElement("button");
@@ -995,6 +996,10 @@ async function runOrderAction(order, key, button) {
   const action = order.actions?.[key];
   if (action?.confirm_label_key && !window.confirm(labelForKey(action.confirm_label_key))) return;
   if (action?.method === "CLIENT") {
+    if (key === "report_issue") {
+      openIssueReport(order);
+      return;
+    }
     const value = key === "copy_code" ? order.code : (order.number || order.provider_number || "");
     if (value) await navigator.clipboard?.writeText(value);
     showToast("تم النسخ", "success");
@@ -1318,6 +1323,59 @@ function closeMenu() {
   els.menuButton?.setAttribute("aria-expanded", "false");
 }
 
+function orderDetailValue(order, key) {
+  const detail = (Array.isArray(order?.details) ? order.details : [])
+    .find((item) => String(item.key || "").toLowerCase() === key);
+  return String(detail?.value || "").trim();
+}
+
+function supportOrderContext(order) {
+  if (!order) return "";
+  const parts = [
+    order.id ? `Order: ${order.id}` : "",
+    order.mode ? `Mode: ${order.mode}` : "",
+    order.service_label ? `Service: ${order.service_label}` : "",
+    order.number || order.provider_number ? `Number: ${order.number || order.provider_number}` : "",
+    statusLabel(order) ? `Status: ${statusLabel(order)}` : "",
+    order.price_label ? `Price: ${order.price_label}` : "",
+    orderDetailValue(order, "provider") ? `Provider: ${orderDetailValue(order, "provider")}` : "",
+    orderDetailValue(order, "country") ? `Country: ${orderDetailValue(order, "country")}` : "",
+    orderDetailValue(order, "duration") ? `Duration: ${orderDetailValue(order, "duration")}` : "",
+  ];
+  return parts.filter(Boolean).join("\n");
+}
+
+function openIssueReport(order) {
+  state.pendingSupportReport = {
+    orderId: String(order?.id || ""),
+    category: "numbers",
+    message: "اكتب المشكلة التي ظهرت هنا:\n\n",
+  };
+  setView("support");
+}
+
+function applyPendingSupportReport() {
+  const report = state.pendingSupportReport;
+  if (!report) return;
+  if (report.category && [...els.supportCategory.options].some((option) => option.value === report.category)) {
+    els.supportCategory.value = report.category;
+  }
+  if (report.orderId && [...els.supportOrder.options].some((option) => option.value === report.orderId)) {
+    els.supportOrder.value = report.orderId;
+  }
+  if (!els.supportMessage.value.trim()) {
+    els.supportMessage.value = report.message || "";
+  }
+  els.supportStatus.textContent = "اكتب توضيح المشكلة ثم أرسل البلاغ";
+  els.supportMessage.focus();
+  state.pendingSupportReport = null;
+}
+
+function supportMessageHasUserText(value) {
+  const text = String(value || "").replace("اكتب المشكلة التي ظهرت هنا:", "").trim();
+  return text.length >= 6;
+}
+
 function renderSupportOrders() {
   const rows = state.orders || [];
   const options = [new Option("بدون طلب محدد", "")];
@@ -1343,6 +1401,7 @@ async function loadSupport() {
   }
   renderSupportCategories();
   renderSupportOrders();
+  applyPendingSupportReport();
 }
 
 async function submitSupport(event) {
@@ -1354,14 +1413,14 @@ async function submitSupport(event) {
     return;
   }
   const rawMessage = els.supportMessage.value.trim();
-  if (rawMessage.length < 6) {
+  if (!supportMessageHasUserText(rawMessage)) {
     els.supportStatus.textContent = "اكتب وصفاً أوضح للمشكلة";
     showToast(els.supportStatus.textContent, "danger");
     return;
   }
   const orderId = els.supportOrder.value;
   const order = state.orders.find((item) => String(item.id || "") === String(orderId));
-  const context = order ? [`Order: ${order.id}`, order.service_label ? `Service: ${order.service_label}` : "", order.number ? `Number: ${order.number}` : ""].filter(Boolean).join("\n") : "";
+  const context = supportOrderContext(order);
   const message = [context, rawMessage].filter(Boolean).join("\n\n");
   const button = els.supportForm.querySelector("button[type='submit']");
   setBusy(button, true);

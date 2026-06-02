@@ -2691,6 +2691,11 @@ def _miniapp_order_actions(payload: dict[str, Any]) -> dict[str, dict[str, Any]]
 
         "rental_finish": _miniapp_order_action(enabled=bool(mode == "rental" and payload.get("can_finish")), label_key="finish", endpoint=f"{base}/finish" if base else "", confirm_label_key="finish"),
 
+        "report_issue": {
+            **_miniapp_order_action(enabled=bool(order_id), label_key="reportIssue", endpoint="", method="CLIENT"),
+            "label": "مشكلة في الرقم",
+        },
+
     }
 
     if not base:
