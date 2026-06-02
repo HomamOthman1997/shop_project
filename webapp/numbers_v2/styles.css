@@ -649,6 +649,29 @@ body:not(.app-booting) .boot-screen { display: none; }
   text-align: center;
   letter-spacing: 0;
 }
+.code-box-waiting {
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--muted);
+  font-size: 16px;
+}
+.refund-safety-note {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 32%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+}
+.refund-safety-note strong {
+  color: var(--success);
+  font-size: 12px;
+}
+.refund-safety-note span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
 .code-list {
   display: grid;
   gap: 7px;

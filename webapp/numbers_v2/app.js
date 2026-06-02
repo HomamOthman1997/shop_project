@@ -214,6 +214,9 @@ const i18n = {
     copyCode: "نسخ الكود",
     firstCode: "الكود الأول",
     codeIndex: "كود",
+    waitingForCodeBox: "بانتظار الكود",
+    refundSafetyTitle: "رصيدك محفوظ",
+    refundSafetyText: "إذا لم يصل الكود ضمن فترة الانتظار سيتم إرجاع المبلغ تلقائياً إلى محفظتك.",
     requestTimeout: "العملية تأخرت. جرّب مرة ثانية بعد لحظات.",
     numberActiveNoNewCode: "الرقم ما زال نشط. لا يوجد كود جديد بعد.",
     numberActiveCodeReceived: "الرقم نشط والكود متاح.",
@@ -251,7 +254,7 @@ const i18n = {
     waitingForRecording: "بانتظار التسجيل",
     finished: "منتهي",
     activeStatus: "نشط",
-    webhookWait: "بانتظار وصول الكود من المزود عبر webhook. الاسترجاع تلقائي إذا انتهت المهلة.",
+    webhookWait: "رصيدك محفوظ. إذا لم يصل الكود ضمن فترة الانتظار سيتم إرجاع المبلغ تلقائياً إلى محفظتك.",
     codeReceivedHelp: "وصل الكود. انسخه وأكمل عملية التحقق.",
     refundPendingHelp: "الاسترجاع قيد المعالجة من السيرفر.",
     supportReviewHelp: "الحالة تحتاج مراجعة الدعم.",
@@ -391,6 +394,9 @@ const i18n = {
     copyCode: "Copy code",
     firstCode: "First code",
     codeIndex: "Code",
+    waitingForCodeBox: "Waiting for code",
+    refundSafetyTitle: "Your balance is protected",
+    refundSafetyText: "If the code does not arrive during the waiting window, the amount is refunded to your wallet automatically.",
     requestTimeout: "The operation took too long. Try again in a moment.",
     numberActiveNoNewCode: "The number is still active. No new code yet.",
     numberActiveCodeReceived: "The number is active and the code is available.",
@@ -428,7 +434,7 @@ const i18n = {
     waitingForRecording: "Waiting for recording",
     finished: "Finished",
     activeStatus: "Active",
-    webhookWait: "Waiting for the code from the provider webhook. Refund is automatic if the window expires.",
+    webhookWait: "Your balance is protected. If the code does not arrive during the waiting window, the amount is refunded to your wallet automatically.",
     codeReceivedHelp: "The code arrived. Copy it and complete verification.",
     refundPendingHelp: "Refund is being processed by the server.",
     supportReviewHelp: "This status needs support review.",
@@ -1338,6 +1344,18 @@ function customerStateText(order) {
   return map[key] || customerState.message || customerState.message_key || "";
 }
 
+function orderWaitingForCode(order) {
+  const status = String(order?.customer_state?.key || order?.public_status || order?.status || "").toLowerCase();
+  return orderMode(order) === "temp" && !order?.code && !orderCodes(order).length && ["waiting", "awaiting_provider_webhook", "refund_pending"].includes(status);
+}
+
+function renderRefundSafetyNote() {
+  const note = document.createElement("div");
+  note.className = "refund-safety-note";
+  note.innerHTML = `<strong>${t("refundSafetyTitle")}</strong><span>${t("refundSafetyText")}</span>`;
+  return note;
+}
+
 function orderTone(order) {
   const tone = order.customer_state?.tone || order.public_status || "";
   if (String(tone).includes("refund")) return "refund";
@@ -1429,11 +1447,17 @@ function renderOrders() {
         stateNote.textContent = note;
         card.append(stateNote);
       }
+      const waitingForCode = orderWaitingForCode(order);
       if (order.code && !(Array.isArray(order.codes) && order.codes.length)) {
         const code = document.createElement("div");
         code.className = "code-box";
         code.textContent = order.code;
         card.append(code);
+      } else if (waitingForCode) {
+        const waiting = document.createElement("div");
+        waiting.className = "code-box code-box-waiting";
+        waiting.textContent = t("waitingForCodeBox");
+        card.append(waiting);
       }
       const codeValues = orderCodes(order);
       if (codeValues.length) {
@@ -1453,6 +1477,9 @@ function renderOrders() {
           codes.append(row);
         });
         card.append(codes);
+      }
+      if (waitingForCode) {
+        card.append(renderRefundSafetyNote());
       }
       const events = Array.isArray(order.events) ? order.events.slice(0, 5) : [];
       if (events.length) {

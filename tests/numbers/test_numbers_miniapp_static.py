@@ -97,7 +97,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     css = (ROOT / "webapp" / "numbers_v2" / "styles.css").read_text(encoding="utf-8")
 
     assert "/mini/numbers-v2/static/app.js" in index
-    assert "20260603-v2-013" in index
+    assert "20260603-v2-014" in index
     assert 'html lang="en" dir="ltr"' in index
     assert "شراء رقم جديد" not in index
     assert "state.clientActions = bootstrap.client?.actions || {}" in app
@@ -134,6 +134,10 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "AbortController" in app
     assert "function updateOrderInState(order)" in app
     assert "function testActiveMessage(order)" in app
+    assert "function orderWaitingForCode(order)" in app
+    assert "function renderRefundSafetyNote()" in app
+    assert "code-box-waiting" in css
+    assert "refund-safety-note" in css
     assert 'id="resultModal"' in index
     assert "function showResultModal(message" in app
     assert "showResultModal(testActiveMessage" in app
