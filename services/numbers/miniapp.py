@@ -4207,7 +4207,9 @@ async def active_orders(request: web.Request) -> web.Response:
             can_refresh_temp = (
                 mode == "temp"
                 and status in {"success", "pending", "paid"}
-                and wait_state in {"waiting", "code_received", "refund_pending"}
+                and wait_state == "waiting"
+                and _temp_my_numbers_active(order)
+                and int(_temp_elapsed_sec(order)) <= 30 * 60
             )
 
             if mode != "temp" or not can_refresh_temp:

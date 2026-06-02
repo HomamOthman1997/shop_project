@@ -2244,7 +2244,7 @@ async function boot() {
   renderSupportCategories();
   renderSupportOrders();
   if (headers()["X-Telegram-Init-Data"]) {
-    await Promise.allSettled([loadAccount(), loadOrders()]);
+    loadAccount().catch(() => {});
   }
 }
 
