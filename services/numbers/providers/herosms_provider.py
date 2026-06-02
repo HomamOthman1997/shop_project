@@ -487,8 +487,8 @@ class HeroSMSProvider(BaseProvider):
             result["provider_country"] = provider_country
         return result
 
-    async def buy_number(self, service, country=None, state=None):
-        mapped_country = await self._resolve_country(country)
+    async def buy_number(self, service, country=None, state=None, provider_country: str | None = None):
+        mapped_country = str(provider_country or "").strip() or await self._resolve_country(country)
         if mapped_country is None:
             return {"success": False, "raw": {"title": "BAD_COUNTRY", "details": "country is required"}}
         mapped_country = str(mapped_country).strip()

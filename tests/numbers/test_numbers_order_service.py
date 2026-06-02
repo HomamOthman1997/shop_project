@@ -344,7 +344,7 @@ async def test_resolve_temp_offer_uses_provider_country_from_quote(monkeypatch):
             "country": "none",
             "state": "none",
             "provider": "herosms",
-            "provider_country": "102",
+            "provider_country": "129",
             "provider_country_iso": "GR",
         }
     )
@@ -356,7 +356,7 @@ async def test_resolve_temp_offer_uses_provider_country_from_quote(monkeypatch):
                 "price": 0.25,
                 "base_price": 0.25,
                 "api_service_name": "wa",
-                "provider_country": "102",
+                "provider_country": "129",
                 "provider_country_iso": "GR",
                 "available_for_buy": True,
             }
@@ -368,7 +368,7 @@ async def test_resolve_temp_offer_uses_provider_country_from_quote(monkeypatch):
 
     assert calls["prices"][0:3] == ("whatsapp", "102", "none")
     assert offer["country"] == "none"
-    assert offer["info"]["provider_country"] == "102"
+    assert offer["info"]["provider_country"] == "129"
 
 
 @pytest.mark.asyncio

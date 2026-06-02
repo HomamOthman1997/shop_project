@@ -83,6 +83,24 @@ async def test_buy_number_parses_access_number(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_buy_number_prefers_explicit_provider_country(monkeypatch):
+    provider = HeroSMSProvider()
+    calls = []
+
+    async def fake_request(action, **params):
+        calls.append((action, params))
+        if action == "getNumberV2":
+            assert str(params.get("country")) == "129"
+            return 200, "ACCESS_NUMBER:123456:306999999999"
+        raise AssertionError(f"unexpected request {action}")
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    res = await provider.buy_number("wa", country="129", provider_country="129")
+    assert res["success"] is True
+    assert calls == [("getNumberV2", {"service": "wa", "country": "129"})]
+
+
+@pytest.mark.asyncio
 async def test_get_balance_parses_access_balance(monkeypatch):
     provider = HeroSMSProvider()
 

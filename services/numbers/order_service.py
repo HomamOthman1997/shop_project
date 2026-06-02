@@ -34,6 +34,7 @@ from services.numbers.order_lifecycle_service import (
 from services.numbers.order_rental_protection_service import schedule_rental_refund_guard
 from services.numbers.provider_delivery import provider_sms_delivery_strategy
 from services.numbers.provider_readiness import provider_purchase_enabled, provider_readiness
+from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.shared.events import _log_number_event_from_order, _log_temp_event
 from services.numbers.shared.temp_order import (
     TEMP_WAIT_TIMEOUT_SEC,
@@ -542,6 +543,7 @@ async def _resolve_temp_offer_from_quote(quote_token: str) -> dict[str, Any]:
     state = str(quote.get("state") or "none").strip() or "none"
     provider_code = str(quote.get("provider") or "").strip().lower()
     quote_provider_country = str(quote.get("provider_country") or "").strip()
+    quote_provider_country_iso = str(quote.get("provider_country_iso") or "").strip().upper()
     if not provider_code:
         provider_code = provider_code_from_public_id(
             quote.get("provider_id"),
@@ -557,7 +559,12 @@ async def _resolve_temp_offer_from_quote(quote_token: str) -> dict[str, Any]:
             status=409,
         )
 
-    pricing_country = quote_provider_country or country
+    pricing_country = _quote_pricing_country(
+        provider_code=provider_code,
+        country=country,
+        provider_country=quote_provider_country,
+        provider_country_iso=quote_provider_country_iso,
+    )
     prices = await get_all_prices(
         service,
         pricing_country,
@@ -829,6 +836,7 @@ async def create_temp_order_from_quote(
                 telegram_wait=telegram_wait,
                 purchase_options={
                     "reuse_mode": True,
+                    **({"provider_country": provider_country} if provider_country else {}),
                     "_audit_requested_service": service,
                     **({"retry_reason": str(source_reason)} if source_reason else {}),
                 },
@@ -873,6 +881,30 @@ async def create_temp_order_from_quote(
         raise NumbersOrderError("provider_failed", exc.public_message, status=409) from exc
     except NumbersOrderError:
         raise
+
+
+def _quote_pricing_country(
+    *,
+    provider_code: str,
+    country: str,
+    provider_country: str,
+    provider_country_iso: str,
+) -> str:
+    if str(provider_code or "").strip().lower() == "herosms" and provider_country_iso:
+        internal_code = _country_code_from_iso(provider_country_iso)
+        if internal_code:
+            return internal_code
+    return provider_country or country
+
+
+def _country_code_from_iso(iso: str) -> str:
+    target = str(iso or "").strip().upper()
+    if not target:
+        return ""
+    for row in COUNTRIES_LIST:
+        if str(row.get("iso") or "").strip().upper() == target:
+            return str(row.get("code") or "").strip()
+    return ""
 
 async def create_voice_order_from_quote(
     *,
