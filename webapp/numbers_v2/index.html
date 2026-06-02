@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#f7fafc" />
     <title>PHANTOM Numbers V2</title>
-    <link rel="stylesheet" href="/mini/numbers-v2/static/styles.css?v=20260602-v2-003" />
+    <link rel="stylesheet" href="/mini/numbers-v2/static/styles.css?v=20260602-v2-004" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body class="app-booting">
@@ -16,7 +16,7 @@
 
     <main class="mini-app" id="app">
       <header class="app-header">
-        <button class="icon-button menu-button" id="menuButton" type="button" aria-label="القائمة" aria-expanded="false" aria-controls="menuDrawer">
+        <button class="icon-button menu-button" id="menuButton" type="button" aria-label="Menu" aria-expanded="false" aria-controls="menuDrawer">
           <span></span><span></span><span></span>
         </button>
         <div class="brand">
@@ -28,7 +28,7 @@
         </div>
         <button class="balance-card" id="balanceButton" type="button">
           <strong id="balanceLabel">$0.00</strong>
-          <span>الرصيد</span>
+          <span>Balance</span>
           <i aria-hidden="true"></i>
         </button>
       </header>
@@ -36,28 +36,28 @@
       <section class="view active" id="view-buy" data-view="buy">
         <section class="buy-panel">
           <div class="panel-title">
-            <h2>شراء رقم جديد</h2>
+            <h2>Buy a new number</h2>
           </div>
           <div class="segments" id="modeSegments"></div>
 
           <button class="field field-service" id="serviceButton" type="button">
-            <span id="serviceLabel">اختر الخدمة</span>
+            <span id="serviceLabel">Choose service</span>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-5.4-5.4M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z"/></svg>
           </button>
 
           <div class="field-row">
-            <button class="field" id="countryButton" type="button"><span id="countryLabel">الولايات المتحدة · US</span></button>
-            <button class="field" id="stateButton" type="button"><span id="stateLabel">أي ولاية</span></button>
+            <button class="field" id="countryButton" type="button"><span id="countryLabel">United States · US</span></button>
+            <button class="field" id="stateButton" type="button"><span id="stateLabel">Any state</span></button>
           </div>
         </section>
 
-        <button class="primary-button" id="checkPricesButton" type="button">فحص الأسعار</button>
-        <p class="live-line" id="liveLine">أسعار محدثة · مناسبة لـ 390px</p>
+        <button class="primary-button" id="checkPricesButton" type="button">Check prices</button>
+        <p class="live-line" id="liveLine">Updated prices</p>
 
         <section class="offers-section">
           <div class="section-head">
-            <h2>أفضل<br />العروض</h2>
-            <span id="offersCount">0 عروض</span>
+            <h2>Best<br />offers</h2>
+            <span id="offersCount">0 offers</span>
           </div>
           <div class="offer-list" id="offerList"></div>
         </section>
@@ -65,56 +65,56 @@
 
       <section class="view" id="view-orders" data-view="orders">
         <div class="section-head page-head">
-          <h2>طلباتي</h2>
-          <button class="ghost-button" id="refreshOrdersButton" type="button">تحديث</button>
+          <h2>My orders</h2>
+          <button class="ghost-button" id="refreshOrdersButton" type="button">Refresh</button>
         </div>
-        <div class="filter-tabs" id="orderFilters" aria-label="فلترة الطلبات"></div>
+        <div class="filter-tabs" id="orderFilters" aria-label="Order filters"></div>
         <div class="stack" id="ordersList"></div>
       </section>
 
       <section class="view" id="view-recharge" data-view="recharge">
-        <div class="section-head page-head"><h2>شحن الرصيد</h2></div>
+        <div class="section-head page-head"><h2>Recharge</h2></div>
         <div class="stack" id="rechargeContent"></div>
         <form class="support-form recharge-form hidden" id="rechargeForm">
           <label>
-            <span>طريقة الدفع</span>
+            <span>Payment method</span>
             <select id="rechargeMethod"></select>
           </label>
           <div class="method-details" id="rechargeMethodDetails"></div>
           <label>
-            <span>المبلغ المدفوع</span>
+            <span>Paid amount</span>
             <input id="rechargeAmount" name="paid_amount" type="number" inputmode="decimal" min="0" step="0.0001" placeholder="USD" />
           </label>
           <label>
-            <span>إثبات الدفع</span>
+            <span>Payment proof</span>
             <input id="rechargeProof" name="proof" type="file" accept="image/*,.pdf" />
           </label>
-          <button class="primary-button" type="submit">إرسال طلب الشحن</button>
+          <button class="primary-button" type="submit">Submit recharge request</button>
           <p class="status-text" id="rechargeStatus"></p>
         </form>
       </section>
 
       <section class="view" id="view-account" data-view="account">
-        <div class="section-head page-head"><h2>حسابي</h2></div>
+        <div class="section-head page-head"><h2>Account</h2></div>
         <div class="stack" id="accountContent"></div>
       </section>
 
       <section class="view" id="view-support" data-view="support">
-        <div class="section-head page-head"><h2>الدعم</h2></div>
+        <div class="section-head page-head"><h2>Support</h2></div>
         <form class="support-form" id="supportForm">
           <label>
-            <span>القسم</span>
+            <span>Section</span>
             <select id="supportCategory"></select>
           </label>
           <label>
-            <span>الطلب المرتبط</span>
+            <span>Linked order</span>
             <select id="supportOrder"></select>
           </label>
           <label>
-            <span>الرسالة</span>
-            <textarea id="supportMessage" rows="4" placeholder="اكتب المشكلة أو رقم الطلب"></textarea>
+            <span>Message</span>
+            <textarea id="supportMessage" rows="4" placeholder="Write the issue or order number"></textarea>
           </label>
-          <button class="primary-button" type="submit">إرسال</button>
+          <button class="primary-button" type="submit">Send</button>
           <p class="status-text" id="supportStatus"></p>
         </form>
       </section>
@@ -124,8 +124,8 @@
     <div class="drawer menu-drawer hidden" id="menuDrawer" aria-live="polite">
       <div class="drawer-card menu-card">
         <header>
-          <h3>القائمة</h3>
-          <button class="icon-button close-button" id="menuClose" type="button" aria-label="إغلاق">×</button>
+          <h3>Menu</h3>
+          <button class="icon-button close-button" id="menuClose" type="button" aria-label="Close">×</button>
         </header>
         <div class="menu-list" id="menuList"></div>
       </div>
@@ -134,10 +134,10 @@
     <div class="drawer hidden" id="pickerDrawer" aria-live="polite">
       <div class="drawer-card">
         <header>
-          <h3 id="drawerTitle">اختيار</h3>
-          <button class="icon-button close-button" id="drawerClose" type="button" aria-label="إغلاق">×</button>
+          <h3 id="drawerTitle">Choose</h3>
+          <button class="icon-button close-button" id="drawerClose" type="button" aria-label="Close">×</button>
         </header>
-        <input class="search-input" id="drawerSearch" type="search" placeholder="بحث" autocomplete="off" />
+        <input class="search-input" id="drawerSearch" type="search" placeholder="Search" autocomplete="off" />
         <div class="picker-list" id="drawerList"></div>
       </div>
     </div>
@@ -145,11 +145,11 @@
     <div class="drawer hidden" id="confirmDrawer">
       <div class="drawer-card confirm-card">
         <header>
-          <h3>تأكيد الشراء</h3>
-          <button class="icon-button close-button" id="confirmClose" type="button" aria-label="إغلاق">×</button>
+          <h3>Confirm purchase</h3>
+          <button class="icon-button close-button" id="confirmClose" type="button" aria-label="Close">×</button>
         </header>
         <div id="confirmBody"></div>
-        <button class="primary-button" id="confirmPurchaseButton" type="button">تأكيد</button>
+        <button class="primary-button" id="confirmPurchaseButton" type="button">Confirm</button>
       </div>
     </div>
 
@@ -157,10 +157,10 @@
     <div class="busy-overlay hidden" id="busyOverlay" role="status" aria-live="polite">
       <div class="busy-card">
         <span aria-hidden="true"></span>
-        <strong id="busyTitle">جاري التنفيذ</strong>
+        <strong id="busyTitle">Working</strong>
       </div>
     </div>
 
-    <script src="/mini/numbers-v2/static/app.js?v=20260602-v2-003"></script>
+    <script src="/mini/numbers-v2/static/app.js?v=20260602-v2-004"></script>
   </body>
 </html>

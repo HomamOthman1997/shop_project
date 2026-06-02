@@ -41,6 +41,25 @@ def test_numbers_bootstrap_payload_has_core_filters():
 
 
 @pytest.mark.asyncio
+async def test_numbers_bootstrap_endpoint_adds_user_language(monkeypatch):
+    miniapp._BOOTSTRAP_CACHE["data"] = None
+
+    async def fake_get_user(_user_id):
+        return {"language": "en"}
+
+    monkeypatch.setattr(miniapp, "_optional_auth", lambda _request: {"user_id": 123, "user": {"language_code": "ar"}})
+    monkeypatch.setattr(miniapp, "get_user", fake_get_user)
+
+    request = make_mocked_request("GET", "/mini/numbers/api/bootstrap")
+    response = await miniapp.bootstrap(request)
+    payload = json.loads(response.text)
+
+    assert payload["language"] == "en"
+    assert payload["direction"] == "ltr"
+    assert payload["defaults"] == {"mode": "temp", "service": "", "country": "none", "state": "none"}
+
+
+@pytest.mark.asyncio
 async def test_numbers_country_suggestions_rank_available_prices(monkeypatch):
     miniapp._CHEAP_COUNTRY_CACHE.clear()
     calls = []

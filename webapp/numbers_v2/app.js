@@ -80,16 +80,375 @@ const els = {
   busyTitle: $("busyTitle"),
 };
 
-const labels = {
-  temp: "مؤقت",
-  rental: "إيجار",
-  voice: "اتصال",
-  buy: "شراء",
-  orders: "طلباتي",
-  recharge: "شحن",
-  account: "حسابي",
-  support: "الدعم",
+const i18n = {
+  ar: {
+    temp: "مؤقت",
+    rental: "إيجار",
+    voice: "اتصال",
+    buy: "شراء",
+    orders: "طلباتي",
+    recharge: "شحن",
+    account: "حسابي",
+    support: "الدعم",
+    tabBuy: "شراء",
+    tabOrders: "طلباتي",
+    tabRecharge: "شحن",
+    tabAccount: "حسابي",
+    tabSupport: "الدعم",
+    balance: "الرصيد",
+    newNumber: "شراء رقم جديد",
+    chooseService: "اختر الخدمة",
+    checkPrices: "فحص الأسعار",
+    liveIntro: "أسعار محدثة",
+    bestOffersTop: "أفضل",
+    bestOffersBottom: "العروض",
+    offers: "عروض",
+    checking: "جاري الفحص",
+    menu: "القائمة",
+    close: "إغلاق",
+    choose: "اختيار",
+    search: "بحث",
+    confirmPurchase: "تأكيد الشراء",
+    confirm: "تأكيد",
+    unavailable: "غير متاح",
+    anyState: "أي ولاية",
+    anyCountry: "أي دولة",
+    noCountry: "اختر الدولة",
+    noSpecificCountry: "بدون تحديد دولة",
+    unitedStates: "الولايات المتحدة",
+    unitedKingdom: "المملكة المتحدة",
+    selectCountryFirst: "اختر الدولة أولا",
+    selectServiceFirst: "اختر خدمة أولا",
+    selectCountryThenCheck: "اختر الدولة ثم افحص الأسعار",
+    selectServiceAndCountry: "اختر خدمة ثم دولة لعرض الأسعار",
+    noOffers: "لا توجد عروض متاحة لهذه الخيارات",
+    providersChecking: "جاري فحص المزودين",
+    updatedPrices: "أسعار محدثة",
+    noOffersAvailable: "لا توجد عروض متاحة",
+    fallbackPrices: "لم تتوفر أرقام للخدمة المحددة · هذه أسعار Service Not Listed كبديل",
+    chooseServiceAction: "اختيار الخدمة",
+    serviceNotListed: "Service Not Listed",
+    serviceNotListedSub: "خدمة احتياطية لها سعر عند مزودين محددين",
+    serviceNotListedQuerySub: "اخترها إذا لم تجد أرقاما للخدمة المطلوبة",
+    rentalUnlimited: "Unlimited service",
+    rentalUnlimitedSub: "Rental only - supported providers",
+    success: "نجاح",
+    suggested: "مقترح",
+    hours: "ساعات",
+    days: "أيام",
+    otherDurations: "مدد أخرى",
+    provider: "المزود",
+    country: "الدولة",
+    price: "السعر",
+    duration: "المدة",
+    status: "الحالة",
+    number: "الرقم",
+    unknownSuccess: "غير محدد",
+    copied: "تم النسخ",
+    orderCreated: "تم إنشاء الطلب",
+    orderUpdated: "تم تحديث الطلب",
+    loadOrdersFailed: "تعذر تحميل الطلبات",
+    loadAccountFailed: "تعذر تحميل الحساب",
+    loadRechargeFailed: "تعذر تحميل الشحن",
+    loadSupportFailed: "تعذر تحميل الدعم",
+    openTelegramAccount: "افتح التطبيق من Telegram لعرض الحساب",
+    openTelegramRecharge: "افتح التطبيق من Telegram لشحن الرصيد",
+    availableBalance: "الرصيد المتاح",
+    walletActivity: "سجل الرصيد والعمليات",
+    noWalletActivity: "لا توجد عمليات مسجلة بعد",
+    activeOrders: "الطلبات النشطة",
+    rechargeRequests: "طلبات الشحن",
+    language: "اللغة",
+    paymentMethod: "طريقة الدفع",
+    paymentAddress: "عنوان الدفع",
+    creditPrice: "سعر الكريدت",
+    currency: "العملة",
+    validRechargeAmount: "أدخل مبلغ شحن صحيح",
+    submitRecharge: "إرسال طلب الشحن",
+    rechargeSent: "تم إرسال طلب الشحن",
+    paymentProof: "إثبات الدفع",
+    paidAmount: "المبلغ المدفوع",
+    noRechargeMethods: "لا توجد طرق شحن مفعلة حالياً",
+    section: "القسم",
+    linkedOrder: "الطلب المرتبط",
+    message: "الرسالة",
+    supportPlaceholder: "اكتب المشكلة أو رقم الطلب",
+    sendSupport: "إرسال",
+    noSpecificOrder: "بدون طلب محدد",
+    reportIssue: "مشكلة في الرقم",
+    issuePrompt: "اكتب المشكلة التي ظهرت هنا:\n\n",
+    issueStatus: "اكتب توضيح المشكلة ثم أرسل البلاغ",
+    openTelegramSupport: "افتح التطبيق من Telegram لإرسال تذكرة دعم",
+    clearerIssue: "اكتب وصفاً أوضح للمشكلة",
+    ticketSent: "تم إرسال التذكرة",
+    sendTicketBusy: "إرسال التذكرة",
+    working: "جاري التنفيذ",
+    checkingOrder: "جاري التحديث",
+    checkCall: "فحص المكالمة",
+    copyNumber: "نسخ الرقم",
+    copyCode: "نسخ الكود",
+    refresh: "تحديث",
+    secondCode: "كود ثاني",
+    tryAnother: "رقم بديل",
+    alternateProvider: "مزود بديل",
+    playRecording: "استماع",
+    downloadRecording: "تحميل",
+    rentalSms: "الرسائل",
+    renew: "تجديد",
+    wake: "تنشيط",
+    notesTags: "ملاحظات",
+    finish: "إنهاء",
+    active: "نشطة",
+    all: "الكل",
+    refund: "استرجاع",
+    closed: "منتهية",
+    noActiveOrders: "لا توجد طلبات نشطة حاليا",
+    noRefundOrders: "لا توجد طلبات استرجاع حاليا",
+    noClosedOrders: "لا توجد طلبات منتهية حاليا",
+    noOrders: "لا توجد طلبات حاليا",
+    orderNumber: "طلب رقم",
+    update: "تحديث",
+    waiting: "بانتظار الكود",
+    codeReceived: "تم استلام الكود",
+    refunded: "تم الاسترجاع",
+    refundPending: "استرجاع قيد المعالجة",
+    waitingForCall: "بانتظار المكالمة",
+    waitingForRecording: "بانتظار التسجيل",
+    finished: "منتهي",
+    activeStatus: "نشط",
+    webhookWait: "بانتظار وصول الكود من المزود عبر webhook. الاسترجاع تلقائي إذا انتهت المهلة.",
+    codeReceivedHelp: "وصل الكود. انسخه وأكمل عملية التحقق.",
+    refundPendingHelp: "الاسترجاع قيد المعالجة من السيرفر.",
+    supportReviewHelp: "الحالة تحتاج مراجعة الدعم.",
+    refundedHelp: "تم إرجاع المبلغ للمحفظة.",
+    recordingWaitHelp: "تم رصد المكالمة وننتظر التسجيل.",
+    callReceivedHelp: "تم استلام المكالمة.",
+    appSlow: "التطبيق تأخر بالتحميل. أعد المحاولة بعد لحظات.",
+    appLoadFailed: "تعذر تحميل التطبيق",
+    serverUnavailable: "الخدمة غير متاحة حالياً. انتظر قليلا ثم أعد المحاولة.",
+    invalidServerResponse: "تعذر قراءة رد السيرفر. أعد المحاولة بعد قليل.",
+    insufficientBalance: "الرصيد غير كاف. اشحن رصيدك ثم أعد المحاولة.",
+    quoteExpired: "انتهت صلاحية السعر. افحص الأسعار مرة أخرى.",
+    invalidQuote: "العرض لم يعد متاحاً. افحص الأسعار مرة أخرى.",
+    telegramAuthRequired: "افتح الميني أب من داخل Telegram لتنفيذ هذا الإجراء.",
+    operationFailed: "تعذر تنفيذ العملية",
+  },
+  en: {
+    temp: "Temporary",
+    rental: "Rental",
+    voice: "Call",
+    buy: "Buy",
+    orders: "My orders",
+    recharge: "Recharge",
+    account: "Account",
+    support: "Support",
+    tabBuy: "Buy",
+    tabOrders: "Orders",
+    tabRecharge: "Recharge",
+    tabAccount: "Account",
+    tabSupport: "Support",
+    balance: "Balance",
+    newNumber: "Buy a new number",
+    chooseService: "Choose service",
+    checkPrices: "Check prices",
+    liveIntro: "Updated prices",
+    bestOffersTop: "Best",
+    bestOffersBottom: "offers",
+    offers: "offers",
+    checking: "Checking",
+    menu: "Menu",
+    close: "Close",
+    choose: "Choose",
+    search: "Search",
+    confirmPurchase: "Confirm purchase",
+    confirm: "Confirm",
+    unavailable: "Unavailable",
+    anyState: "Any state",
+    anyCountry: "Any country",
+    noCountry: "Choose country",
+    noSpecificCountry: "No country selected",
+    unitedStates: "United States",
+    unitedKingdom: "United Kingdom",
+    selectCountryFirst: "Choose a country first",
+    selectServiceFirst: "Choose a service first",
+    selectCountryThenCheck: "Choose a country, then check prices",
+    selectServiceAndCountry: "Choose a service and country to show prices",
+    noOffers: "No offers are available for these options",
+    providersChecking: "Checking providers",
+    updatedPrices: "Updated prices",
+    noOffersAvailable: "No offers available",
+    fallbackPrices: "No numbers were available for the selected service · showing Service Not Listed prices instead",
+    chooseServiceAction: "Choose service",
+    serviceNotListed: "Service Not Listed",
+    serviceNotListedSub: "Fallback service priced by selected providers",
+    serviceNotListedQuerySub: "Use this if you cannot find numbers for the requested service",
+    rentalUnlimited: "Unlimited service",
+    rentalUnlimitedSub: "Rental only - supported providers",
+    success: "success",
+    suggested: "Suggested",
+    hours: "Hours",
+    days: "Days",
+    otherDurations: "Other durations",
+    provider: "Provider",
+    country: "Country",
+    price: "Price",
+    duration: "Duration",
+    status: "Status",
+    number: "Number",
+    unknownSuccess: "Not specified",
+    copied: "Copied",
+    orderCreated: "Order created",
+    orderUpdated: "Order updated",
+    loadOrdersFailed: "Could not load orders",
+    loadAccountFailed: "Could not load account",
+    loadRechargeFailed: "Could not load recharge",
+    loadSupportFailed: "Could not load support",
+    openTelegramAccount: "Open the app from Telegram to view the account",
+    openTelegramRecharge: "Open the app from Telegram to recharge",
+    availableBalance: "Available balance",
+    walletActivity: "Wallet and activity log",
+    noWalletActivity: "No activity recorded yet",
+    activeOrders: "Active orders",
+    rechargeRequests: "Recharge requests",
+    language: "Language",
+    paymentMethod: "Payment method",
+    paymentAddress: "Payment address",
+    creditPrice: "Credit price",
+    currency: "Currency",
+    validRechargeAmount: "Enter a valid recharge amount",
+    submitRecharge: "Submit recharge request",
+    rechargeSent: "Recharge request submitted",
+    paymentProof: "Payment proof",
+    paidAmount: "Paid amount",
+    noRechargeMethods: "No recharge methods are enabled right now",
+    section: "Section",
+    linkedOrder: "Linked order",
+    message: "Message",
+    supportPlaceholder: "Write the issue or order number",
+    sendSupport: "Send",
+    noSpecificOrder: "No specific order",
+    reportIssue: "Report issue",
+    issuePrompt: "Write the issue that appeared here:\n\n",
+    issueStatus: "Write a short explanation, then send the report",
+    openTelegramSupport: "Open the app from Telegram to send a support ticket",
+    clearerIssue: "Write a clearer issue description",
+    ticketSent: "Ticket sent",
+    sendTicketBusy: "Sending ticket",
+    working: "Working",
+    checkingOrder: "Refreshing",
+    checkCall: "Check call",
+    copyNumber: "Copy number",
+    copyCode: "Copy code",
+    refresh: "Refresh",
+    secondCode: "Second code",
+    tryAnother: "Replacement",
+    alternateProvider: "Alternate provider",
+    playRecording: "Play",
+    downloadRecording: "Download",
+    rentalSms: "Messages",
+    renew: "Renew",
+    wake: "Wake",
+    notesTags: "Notes",
+    finish: "Finish",
+    active: "Active",
+    all: "All",
+    refund: "Refunds",
+    closed: "Closed",
+    noActiveOrders: "No active orders right now",
+    noRefundOrders: "No refund orders right now",
+    noClosedOrders: "No closed orders right now",
+    noOrders: "No orders right now",
+    orderNumber: "Number order",
+    update: "Update",
+    waiting: "Waiting for code",
+    codeReceived: "Code received",
+    refunded: "Refunded",
+    refundPending: "Refund processing",
+    waitingForCall: "Waiting for call",
+    waitingForRecording: "Waiting for recording",
+    finished: "Finished",
+    activeStatus: "Active",
+    webhookWait: "Waiting for the code from the provider webhook. Refund is automatic if the window expires.",
+    codeReceivedHelp: "The code arrived. Copy it and complete verification.",
+    refundPendingHelp: "Refund is being processed by the server.",
+    supportReviewHelp: "This status needs support review.",
+    refundedHelp: "The amount was returned to your wallet.",
+    recordingWaitHelp: "The call was detected. Waiting for the recording.",
+    callReceivedHelp: "The call was received.",
+    appSlow: "The app is taking longer than expected. Try again in a few moments.",
+    appLoadFailed: "Could not load the app",
+    serverUnavailable: "The service is currently unavailable. Wait a moment and try again.",
+    invalidServerResponse: "Could not read the server response. Try again shortly.",
+    insufficientBalance: "Insufficient balance. Recharge and try again.",
+    quoteExpired: "The price expired. Check prices again.",
+    invalidQuote: "This offer is no longer available. Check prices again.",
+    telegramAuthRequired: "Open the mini app from Telegram to perform this action.",
+    operationFailed: "Could not complete the operation",
+  },
 };
+
+function t(key) {
+  return (i18n[state.lang] && i18n[state.lang][key]) || i18n.en[key] || i18n.ar[key] || key;
+}
+
+function setLanguage(lang) {
+  state.lang = String(lang || "").toLowerCase().startsWith("ar") ? "ar" : "en";
+  document.documentElement.lang = state.lang;
+  document.documentElement.dir = state.lang === "ar" ? "rtl" : "ltr";
+  document.body.classList.toggle("lang-en", state.lang === "en");
+  document.body.classList.toggle("lang-ar", state.lang === "ar");
+  applyStaticText();
+}
+
+function initialLanguage() {
+  const fromQuery = params.get("lang") || params.get("language");
+  const fromTelegram = tg?.initDataUnsafe?.user?.language_code;
+  return fromQuery || fromTelegram || "ar";
+}
+
+function setText(selector, value) {
+  const node = document.querySelector(selector);
+  if (node) node.textContent = value;
+}
+
+function applyStaticText() {
+  setText(".balance-card span", t("balance"));
+  setText(".panel-title h2", t("newNumber"));
+  setText("#serviceLabel", state.service ? serviceLabel(state.service) : t("chooseService"));
+  setText("#checkPricesButton", t("checkPrices"));
+  setText("#liveLine", t("liveIntro"));
+  setText(".offers-section .section-head h2", `${t("bestOffersTop")}\n${t("bestOffersBottom")}`);
+  setText("#view-orders .page-head h2", t("orders"));
+  setText("#refreshOrdersButton", t("refresh"));
+  setText("#view-recharge .page-head h2", t("recharge"));
+  setText("#view-account .page-head h2", t("account"));
+  setText("#view-support .page-head h2", t("support"));
+  setText("#supportForm label:nth-of-type(1) span", t("section"));
+  setText("#supportForm label:nth-of-type(2) span", t("linkedOrder"));
+  setText("#supportForm label:nth-of-type(3) span", t("message"));
+  setText("#supportForm button[type='submit']", t("sendSupport"));
+  setText("#rechargeForm label:nth-of-type(1) span", t("paymentMethod"));
+  setText("#rechargeForm label:nth-of-type(2) span", t("paidAmount"));
+  setText("#rechargeForm label:nth-of-type(3) span", t("paymentProof"));
+  setText("#rechargeForm button[type='submit']", t("submitRecharge"));
+  setText("#menuDrawer h3", t("menu"));
+  setText("#drawerTitle", t("choose"));
+  setText("#confirmDrawer h3", t("confirmPurchase"));
+  setText("#confirmPurchaseButton", t("confirm"));
+  if (els.menuButton) els.menuButton.setAttribute("aria-label", t("menu"));
+  if (els.menuClose) els.menuClose.setAttribute("aria-label", t("close"));
+  if (els.drawerClose) els.drawerClose.setAttribute("aria-label", t("close"));
+  if (els.confirmClose) els.confirmClose.setAttribute("aria-label", t("close"));
+  if (els.drawerSearch) els.drawerSearch.placeholder = t("search");
+  if (els.supportMessage) els.supportMessage.placeholder = t("supportPlaceholder");
+  if (!state.hasCheckedPrices && els.offersCount) els.offersCount.textContent = `0 ${t("offers")}`;
+  if (els.countryLabel && state.country === "none") els.countryLabel.textContent = state.mode === "voice" ? `${t("unitedStates")} · US` : countryLabel(state.country);
+  if (els.stateLabel && state.stateCode === "none") els.stateLabel.textContent = state.country === "1" ? t("anyState") : t("unavailable");
+}
+
+const labels = new Proxy({}, {
+  get: (_target, key) => t(String(key)),
+});
 
 const providerAliases = [
   ["S1", "Alpha"],
@@ -140,32 +499,45 @@ function mergeActions(payload) {
 
 function labelForKey(key) {
   return {
-    buy: "شراء",
-    tabBuy: "شراء",
-    orders: "طلباتي",
-    tabOrders: "طلباتي",
-    recharge: "شحن",
-    tabRecharge: "شحن",
-    account: "حسابي",
-    tabAccount: "حسابي",
-    support: "الدعم",
-    tabSupport: "الدعم",
-    copy_number: "نسخ الرقم",
-    copy_code: "نسخ الكود",
-    refresh: "تحديث",
-    second_code: "كود ثاني",
-    replace: "رقم بديل",
-    alternate_provider: "مزود بديل",
-    preview_recording: "استماع",
-    download_recording: "تحميل",
-    rental_sms: "الرسائل",
-    rental_renew: "تجديد",
-    rental_wake: "تنشيط",
-    rental_notes: "ملاحظات",
-    rental_finish: "إنهاء",
-    working: "جاري التنفيذ",
-    checkingOrder: "جاري التحديث",
-    checkCall: "فحص المكالمة",
+    buy: t("buy"),
+    tabBuy: t("tabBuy"),
+    orders: t("orders"),
+    tabOrders: t("tabOrders"),
+    recharge: t("recharge"),
+    tabRecharge: t("tabRecharge"),
+    account: t("account"),
+    tabAccount: t("tabAccount"),
+    support: t("support"),
+    tabSupport: t("tabSupport"),
+    copy_number: t("copyNumber"),
+    copyNumber: t("copyNumber"),
+    copy_code: t("copyCode"),
+    copyCode: t("copyCode"),
+    refresh: t("refresh"),
+    second_code: t("secondCode"),
+    secondCode: t("secondCode"),
+    replace: t("tryAnother"),
+    tryAnother: t("tryAnother"),
+    alternate_provider: t("alternateProvider"),
+    alternateProvider: t("alternateProvider"),
+    preview_recording: t("playRecording"),
+    playRecording: t("playRecording"),
+    download_recording: t("downloadRecording"),
+    downloadRecording: t("downloadRecording"),
+    rental_sms: t("rentalSms"),
+    rentalSms: t("rentalSms"),
+    rental_renew: t("renew"),
+    rental_wake: t("wake"),
+    rental_notes: t("notesTags"),
+    rental_finish: t("finish"),
+    renew: t("renew"),
+    wake: t("wake"),
+    notesTags: t("notesTags"),
+    finish: t("finish"),
+    reportIssue: t("reportIssue"),
+    working: t("working"),
+    checkingOrder: t("checkingOrder"),
+    checkCall: t("checkCall"),
   }[key] || labels[key] || key;
 }
 
@@ -192,13 +564,13 @@ function hideBusy() {
 function friendlyError(error) {
   const payload = error?.payload || {};
   const code = payload.code || payload.error_code || "";
-  if (code === "server_unavailable") return "الخدمة غير متاحة حاليا. انتظر قليلا ثم أعد المحاولة.";
-  if (code === "invalid_server_response") return "تعذر قراءة رد السيرفر. أعد المحاولة بعد قليل.";
-  if (code === "insufficient_balance") return "الرصيد غير كاف. اشحن رصيدك ثم أعد المحاولة.";
-  if (code === "quote_expired") return "انتهت صلاحية السعر. افحص الأسعار مرة أخرى.";
-  if (code === "invalid_quote") return "العرض لم يعد متاحاً. افحص الأسعار مرة أخرى.";
-  if (code === "telegram_auth_required") return "افتح الميني أب من داخل Telegram لتنفيذ هذا الإجراء.";
-  return payload.message || payload.error || error?.message || "تعذر تنفيذ العملية";
+  if (code === "server_unavailable") return t("serverUnavailable");
+  if (code === "invalid_server_response") return t("invalidServerResponse");
+  if (code === "insufficient_balance") return t("insufficientBalance");
+  if (code === "quote_expired") return t("quoteExpired");
+  if (code === "invalid_quote") return t("invalidQuote");
+  if (code === "telegram_auth_required") return t("telegramAuthRequired");
+  return payload.message || payload.error || error?.message || t("operationFailed");
 }
 
 function looksLikeHtmlResponse(text) {
@@ -210,13 +582,13 @@ function responseErrorPayload(response, text, parsedPayload) {
     return {
       ok: false,
       code: "server_unavailable",
-      message: "الخدمة غير متاحة حاليا. انتظر قليلا ثم أعد المحاولة.",
+      message: t("serverUnavailable"),
     };
   }
   return parsedPayload || {
     ok: false,
     code: "invalid_server_response",
-    message: "تعذر قراءة رد السيرفر. أعد المحاولة بعد قليل.",
+    message: t("invalidServerResponse"),
   };
 }
 
@@ -273,9 +645,9 @@ function formatProvider(row, index) {
 }
 
 function serviceLabel(key) {
-  if (key === RENTAL_UNLIMITED_SERVICE_KEY) return "Unlimited service";
-  if (key === TEMP_NOT_LISTED_SERVICE_KEY) return "Service Not Listed";
-  return state.services.find((item) => item.key === key)?.label || state.services.find((item) => item.code === key)?.name || key || "اختر الخدمة";
+  if (key === RENTAL_UNLIMITED_SERVICE_KEY) return t("rentalUnlimited");
+  if (key === TEMP_NOT_LISTED_SERVICE_KEY) return t("serviceNotListed");
+  return state.services.find((item) => item.key === key)?.label || state.services.find((item) => item.code === key)?.name || key || t("chooseService");
 }
 
 function isHiddenService(row) {
@@ -295,8 +667,8 @@ function servicePickerRows() {
   return [
     {
       key: RENTAL_UNLIMITED_SERVICE_KEY,
-      title: "Unlimited service",
-      sub: "Rental only - supported providers",
+      title: t("rentalUnlimited"),
+      sub: t("rentalUnlimitedSub"),
       special: true,
     },
     ...rows.filter((row) => row.key !== RENTAL_UNLIMITED_SERVICE_KEY),
@@ -306,8 +678,8 @@ function servicePickerRows() {
 function notListedServiceRow(query) {
   return {
     key: TEMP_NOT_LISTED_SERVICE_KEY,
-    title: "Service Not Listed",
-    sub: query ? `"${query}" - اخترها إذا لم تجد أرقاما للخدمة المطلوبة` : "خدمة احتياطية لها سعر عند مزودين محددين",
+    title: t("serviceNotListed"),
+    sub: query ? `"${query}" - ${t("serviceNotListedQuerySub")}` : t("serviceNotListedSub"),
     special: true,
   };
 }
@@ -328,11 +700,11 @@ function pickerAllowsAnyCountry() {
 }
 
 function countryLabel(code) {
-  if (String(code) === "1") return "الولايات المتحدة · US";
-  if (String(code) === "any") return "أي دولة";
-  if (String(code) === "none") return "اختر الدولة";
+  if (String(code) === "1") return `${t("unitedStates")} · US`;
+  if (String(code) === "any") return t("anyCountry");
+  if (String(code) === "none") return t("noCountry");
   const row = state.countries.find((item) => String(item.code) === String(code));
-  return row ? `${row.name} · ${row.iso || row.code}` : "اختر الدولة";
+  return row ? `${row.name} · ${row.iso || row.code}` : t("noCountry");
 }
 
 function countryNameFromValue(value) {
@@ -345,14 +717,14 @@ function countryNameFromValue(value) {
   ));
   if (country?.name) return country.name;
   const code = raw.toUpperCase();
-  if (code === "US") return "الولايات المتحدة";
-  if (code === "UK" || code === "GB") return "المملكة المتحدة";
+  if (code === "US") return t("unitedStates");
+  if (code === "UK" || code === "GB") return t("unitedKingdom");
   if (!code || code === "NONE" || code === "ANY") return "";
   return raw;
 }
 
 function selectedCountryName() {
-  if (state.mode === "voice") return "الولايات المتحدة";
+  if (state.mode === "voice") return t("unitedStates");
   if (state.country === "1") return countryNameFromValue("US");
   if (state.country === "none" || state.country === "any") return "";
   return countryNameFromValue(state.country);
@@ -371,9 +743,9 @@ function offerCountryDisplay(row) {
 }
 
 function stateLabel(code) {
-  if (String(code) === "none") return "أي ولاية";
+  if (String(code) === "none") return t("anyState");
   const row = state.states.find((item) => String(item.code) === String(code));
-  return row?.name || "أي ولاية";
+  return row?.name || t("anyState");
 }
 
 function setBusy(button, busy) {
@@ -427,8 +799,8 @@ function renderModes() {
 function renderBuy() {
   renderModes();
   els.serviceLabel.textContent = serviceLabel(state.service);
-  els.countryLabel.textContent = state.mode === "voice" ? "الولايات المتحدة · US" : countryLabel(state.country);
-  els.stateLabel.textContent = state.country === "1" ? stateLabel(state.stateCode) : "غير متاح";
+  els.countryLabel.textContent = state.mode === "voice" ? `${t("unitedStates")} · US` : countryLabel(state.country);
+  els.stateLabel.textContent = state.country === "1" ? stateLabel(state.stateCode) : t("unavailable");
   const showState = state.country === "1";
   els.stateButton.disabled = !showState;
   els.stateButton.classList.toggle("hidden", !showState);
@@ -512,9 +884,9 @@ function rentalDurationGroup(hours) {
 }
 
 function rentalDurationGroupLabel(group) {
-  if (group === "hours") return "ساعات";
-  if (group === "days") return "أيام";
-  return "مدد أخرى";
+  if (group === "hours") return t("hours");
+  if (group === "days") return t("days");
+  return t("otherDurations");
 }
 
 function ensureRentalDurationFilter(rows) {
@@ -568,7 +940,7 @@ function renderOffers() {
   const rows = state.mode === "rental" && rentalFilter
     ? allRows.filter((row) => rentalDurationKey(row) === rentalFilter)
     : allRows;
-  els.offersCount.textContent = state.loading ? "جاري الفحص" : `${rows.length} عروض`;
+  els.offersCount.textContent = state.loading ? t("checking") : `${rows.length} ${t("offers")}`;
   if (state.loading) {
     els.offerList.replaceChildren(...Array.from({ length: 4 }, () => {
       const card = document.createElement("article");
@@ -580,14 +952,14 @@ function renderOffers() {
   }
   if (!rows.length) {
     const emptyMessage = !state.hasCheckedPrices
-      ? (state.service ? "اختر الدولة ثم افحص الأسعار" : "اختر خدمة ثم دولة لعرض الأسعار")
-      : "لا توجد عروض متاحة لهذه الخيارات";
+      ? (state.service ? t("selectCountryThenCheck") : t("selectServiceAndCountry"))
+      : t("noOffers");
     const empty = emptyState(emptyMessage);
     if (!state.service) {
       const button = document.createElement("button");
       button.className = "inline-action";
       button.type = "button";
-      button.textContent = "اختيار الخدمة";
+      button.textContent = t("chooseServiceAction");
       button.addEventListener("click", () => openPicker("service"));
       empty.append(button);
     }
@@ -605,13 +977,13 @@ function renderOffers() {
       const buy = document.createElement("button");
       buy.className = "offer-buy";
       buy.type = "button";
-      buy.textContent = "شراء";
+      buy.textContent = t("buy");
       buy.disabled = row.available === false || row.purchase_action?.enabled === false;
       buy.addEventListener("click", () => openConfirm(row));
 
       const rate = document.createElement("div");
       rate.className = "offer-rate";
-      rate.textContent = `${row.success_rate || row.successRate || "98%"}\nنجاح`;
+      rate.textContent = `${row.success_rate || row.successRate || "98%"}\n${t("success")}`;
 
       const price = document.createElement("div");
       price.className = "offer-price";
@@ -629,7 +1001,7 @@ function renderOffers() {
       if (row.fallback_service || row.recommended || index === 0 || row.available === false) {
         const tag = document.createElement("em");
         tag.className = `offer-tag${row.available === false ? " unavailable" : ""}`;
-        tag.textContent = row.available === false ? "غير متاح" : (row.fallback_service ? "Service Not Listed" : "مقترح");
+        tag.textContent = row.available === false ? t("unavailable") : (row.fallback_service ? t("serviceNotListed") : t("suggested"));
         providerEl.append(tag);
       }
       card.append(buy, rate, price, providerEl);
@@ -642,7 +1014,7 @@ function openPicker(kind) {
   const configs = {
     service: {
       kind: "service",
-      title: "اختر الخدمة",
+      title: t("chooseService"),
       rows: servicePickerRows(),
       onSelect: (key) => {
         state.service = key;
@@ -655,13 +1027,13 @@ function openPicker(kind) {
     },
     country: {
       kind: "country",
-      title: "اختر الدولة",
+      title: t("noCountry"),
       rows: countryPickerRows(),
       onSelect: (key) => { state.country = key; if (key !== "1") state.stateCode = "none"; clearPriceResults(); },
     },
     state: {
       kind: "state",
-      title: "اختر الولاية",
+      title: t("anyState"),
       rows: state.states.map((row) => ({ key: row.code, title: row.name, sub: row.code })),
       onSelect: (key) => { state.stateCode = key; clearPriceResults(); },
     },
@@ -710,7 +1082,7 @@ function closePicker() {
 }
 
 function countryPickerRows() {
-  const anyCountry = { key: "any", title: "أي دولة", sub: "بدون تحديد دولة" };
+  const anyCountry = { key: "any", title: t("anyCountry"), sub: t("noSpecificCountry") };
   const countries = state.countries
     .map((row) => ({ key: row.code, title: countryLabel(row.code), sub: row.price_label || "" }));
   return pickerAllowsAnyCountry() ? [anyCountry, ...countries] : countries;
@@ -741,12 +1113,12 @@ function shouldTryNotListedFallback() {
 
 async function checkPrices() {
   if (!state.service) {
-    els.liveLine.textContent = "اختر خدمة أولا";
+    els.liveLine.textContent = t("selectServiceFirst");
     openPicker("service");
     return;
   }
   if (state.mode !== "voice" && state.country === "none") {
-    els.liveLine.textContent = "اختر الدولة أولا";
+    els.liveLine.textContent = t("selectCountryFirst");
     openPicker("country");
     return;
   }
@@ -755,7 +1127,7 @@ async function checkPrices() {
   state.hasCheckedPrices = true;
   state.fallbackOffer = null;
   state.rentalDurationFilter = "";
-  els.liveLine.textContent = "جاري فحص المزودين";
+  els.liveLine.textContent = t("providersChecking");
   state.offers = [];
   renderOffers();
   try {
@@ -777,8 +1149,8 @@ async function checkPrices() {
       }
     }
     els.liveLine.textContent = state.offers.length
-      ? (state.fallbackOffer ? "لم تتوفر أرقام للخدمة المحددة · هذه أسعار Service Not Listed كبديل" : "أسعار محدثة")
-      : (payload.message || "لا توجد عروض متاحة");
+      ? (state.fallbackOffer ? t("fallbackPrices") : t("updatedPrices"))
+      : (payload.message || t("noOffersAvailable"));
   } catch (error) {
     els.liveLine.textContent = friendlyError(error);
     showToast(friendlyError(error), "danger");
@@ -800,12 +1172,12 @@ function openConfirm(row) {
   card.innerHTML = `
     <h3>${serviceTitle}</h3>
     <div class="meta-grid">
-      ${row.fallback_service ? `<div><span>بديل عن</span><strong>${state.fallbackOffer?.requestedService || serviceLabel(state.service)}</strong></div>` : ""}
-      <div><span>المزود</span><strong>${provider.name}</strong></div>
-      ${countryTag ? `<div><span>الدولة</span><strong>${countryTag}</strong></div>` : ""}
-      <div><span>السعر</span><strong>${row.price_label || "$0.00"}</strong></div>
-      <div><span>النجاح</span><strong>${row.success_rate || "غير محدد"}</strong></div>
-      ${row.option_label ? `<div><span>المدة</span><strong>${row.option_label}</strong></div>` : ""}
+      ${row.fallback_service ? `<div><span>${t("serviceNotListed")}</span><strong>${state.fallbackOffer?.requestedService || serviceLabel(state.service)}</strong></div>` : ""}
+      <div><span>${t("provider")}</span><strong>${provider.name}</strong></div>
+      ${countryTag ? `<div><span>${t("country")}</span><strong>${countryTag}</strong></div>` : ""}
+      <div><span>${t("price")}</span><strong>${row.price_label || "$0.00"}</strong></div>
+      <div><span>${t("success")}</span><strong>${row.success_rate || t("unknownSuccess")}</strong></div>
+      ${row.option_label ? `<div><span>${t("duration")}</span><strong>${row.option_label}</strong></div>` : ""}
     </div>
   `;
   els.confirmBody.append(card);
@@ -832,7 +1204,7 @@ async function confirmPurchase() {
     closeConfirm();
     if (payload.balance_label) els.balance.textContent = payload.balance_label;
     mergeActions(payload);
-    showToast(payload.message || "تم إنشاء الطلب", "success");
+    showToast(payload.message || t("orderCreated"), "success");
     await loadOrders();
     setView("orders");
   } catch (error) {
@@ -848,27 +1220,27 @@ function statusLabel(order) {
   if (customerState.status_label) return customerState.status_label;
   const status = order.public_status || order.status || "";
   return {
-    waiting: "بانتظار الكود",
-    code_received: "تم استلام الكود",
-    refunded: "تم الاسترجاع",
-    refund_pending: "استرجاع قيد المعالجة",
-    waiting_for_call: "بانتظار المكالمة",
-    waiting_for_recording: "بانتظار التسجيل",
-    finished: "منتهي",
-  }[status] || status || "نشط";
+    waiting: t("waiting"),
+    code_received: t("codeReceived"),
+    refunded: t("refunded"),
+    refund_pending: t("refundPending"),
+    waiting_for_call: t("waitingForCall"),
+    waiting_for_recording: t("waitingForRecording"),
+    finished: t("finished"),
+  }[status] || status || t("activeStatus");
 }
 
 function customerStateText(order) {
   const customerState = order.customer_state || {};
   const key = customerState.key || order.public_status || "";
   const map = {
-    awaiting_provider_webhook: "بانتظار وصول الكود من المزود عبر webhook. الاسترجاع تلقائي إذا انتهت المهلة.",
-    code_received: "وصل الكود. انسخه وأكمل عملية التحقق.",
-    refund_pending: "الاسترجاع قيد المعالجة من السيرفر.",
-    support_review_pending: "الحالة تحتاج مراجعة الدعم.",
-    refunded: "تم إرجاع المبلغ للمحفظة.",
-    waiting_for_recording: "تم رصد المكالمة وننتظر التسجيل.",
-    call_received: "تم استلام المكالمة.",
+    awaiting_provider_webhook: t("webhookWait"),
+    code_received: t("codeReceivedHelp"),
+    refund_pending: t("refundPendingHelp"),
+    support_review_pending: t("supportReviewHelp"),
+    refunded: t("refundedHelp"),
+    waiting_for_recording: t("recordingWaitHelp"),
+    call_received: t("callReceivedHelp"),
   };
   return map[key] || customerState.message || customerState.message_key || "";
 }
@@ -897,10 +1269,10 @@ function renderOrderFilters() {
     closed: rows.filter((order) => orderBucket(order) === "closed").length,
   };
   const filters = [
-    ["active", "نشطة"],
-    ["all", "الكل"],
-    ["refund", "استرجاع"],
-    ["closed", "منتهية"],
+    ["active", t("active")],
+    ["all", t("all")],
+    ["refund", t("refund")],
+    ["closed", t("closed")],
   ];
   els.orderFilters.replaceChildren(...filters.map(([key, label]) => {
     const button = document.createElement("button");
@@ -926,10 +1298,10 @@ function renderOrders() {
   const rows = state.orderFilter === "all" ? allRows : allRows.filter((order) => orderBucket(order) === state.orderFilter);
   if (!rows.length) {
     const messages = {
-      active: "لا توجد طلبات نشطة حاليا",
-      refund: "لا توجد طلبات استرجاع حاليا",
-      closed: "لا توجد طلبات منتهية حاليا",
-      all: "لا توجد طلبات حاليا",
+      active: t("noActiveOrders"),
+      refund: t("noRefundOrders"),
+      closed: t("noClosedOrders"),
+      all: t("noOrders"),
     };
     els.ordersList.replaceChildren(emptyState(messages[state.orderFilter] || messages.all));
     return;
@@ -941,11 +1313,11 @@ function renderOrders() {
       const note = customerStateText(order);
       const details = Array.isArray(order.details) ? order.details.slice(0, 4) : [];
       card.innerHTML = `
-        <h3>${order.service_label || order.service || "طلب رقم"}</h3>
+        <h3>${order.service_label || order.service || t("orderNumber")}</h3>
         <div class="meta-grid">
-          <div><span>الحالة</span><strong>${statusLabel(order)}</strong></div>
-          <div><span>الرقم</span><strong>${order.number || order.provider_number || "-"}</strong></div>
-          <div><span>السعر</span><strong>${order.price_label || "-"}</strong></div>
+          <div><span>${t("status")}</span><strong>${statusLabel(order)}</strong></div>
+          <div><span>${t("number")}</span><strong>${order.number || order.provider_number || "-"}</strong></div>
+          <div><span>${t("price")}</span><strong>${order.price_label || "-"}</strong></div>
           ${details.map((item) => `<div><span>${item.label || item.key || ""}</span><strong>${item.value || "-"}</strong></div>`).join("")}
         </div>
       `;
@@ -968,7 +1340,7 @@ function renderOrders() {
         timeline.innerHTML = events.map((event) => `
           <div class="timeline-row">
             <span></span>
-            <strong>${event.label || event.event || "تحديث"}</strong>
+            <strong>${event.label || event.event || t("update")}</strong>
             <small>${event.time || ""}</small>
           </div>
         `).join("");
@@ -1002,7 +1374,7 @@ async function runOrderAction(order, key, button) {
     }
     const value = key === "copy_code" ? order.code : (order.number || order.provider_number || "");
     if (value) await navigator.clipboard?.writeText(value);
-    showToast("تم النسخ", "success");
+    showToast(t("copied"), "success");
     return;
   }
   if (!action?.endpoint) return;
@@ -1016,7 +1388,7 @@ async function runOrderAction(order, key, button) {
     });
     if (payload.balance_label) els.balance.textContent = payload.balance_label;
     mergeActions(payload);
-    showToast(payload.message || "تم تحديث الطلب", "success");
+    showToast(payload.message || t("orderUpdated"), "success");
     await loadOrders();
   } catch (error) {
     showToast(friendlyError(error), "danger");
@@ -1037,7 +1409,7 @@ async function loadOrders() {
     if (payload.balance_label) els.balance.textContent = payload.balance_label;
   } catch (_error) {
     state.orders = [];
-    showToast("تعذر تحميل الطلبات", "danger");
+    showToast(t("loadOrdersFailed"), "danger");
   } finally {
     setViewLoading("orders", false);
   }
@@ -1052,7 +1424,7 @@ function renderAccount() {
   }
   const payload = state.account;
   if (!payload?.user) {
-    els.accountContent.replaceChildren(emptyState("افتح التطبيق من Telegram لعرض الحساب"));
+    els.accountContent.replaceChildren(emptyState(t("openTelegramAccount")));
     return;
   }
   const hero = document.createElement("section");
@@ -1061,23 +1433,23 @@ function renderAccount() {
   const rechargeRequests = (state.recharge?.requests || []).length;
   const activity = payload.recent_activity || [];
   hero.innerHTML = `
-    <span>الرصيد المتاح</span>
+    <span>${t("availableBalance")}</span>
     <strong>${payload.balance_label || "-"}</strong>
     <p>${payload.user.username ? `@${payload.user.username}` : "Telegram Mini App"}</p>
   `;
   const activityList = document.createElement("section");
   activityList.className = "account-activity";
-  activityList.innerHTML = `<h3>سجل الرصيد والعمليات</h3>`;
+  activityList.innerHTML = `<h3>${t("walletActivity")}</h3>`;
   const activityRows = activity.length
     ? activity.map(renderAccountActivity)
-    : [emptyState("لا توجد عمليات مسجلة بعد")];
+    : [emptyState(t("noWalletActivity"))];
   activityList.append(...activityRows);
   els.accountContent.replaceChildren(
     hero,
-    infoCard("الطلبات النشطة", String(activeOrders)),
-    infoCard("طلبات الشحن", String(rechargeRequests)),
+    infoCard(t("activeOrders"), String(activeOrders)),
+    infoCard(t("rechargeRequests"), String(rechargeRequests)),
     infoCard("User ID", String(payload.user.id || "-")),
-    infoCard("اللغة", payload.user.language_label || payload.user.language || "-"),
+    infoCard(t("language"), payload.user.language_label || payload.user.language || "-"),
     activityList
   );
 }
@@ -1087,7 +1459,7 @@ function renderAccountActivity(item) {
   row.className = `activity-row ${Number(item.amount || 0) >= 0 ? "positive" : "negative"}`;
   row.innerHTML = `
     <div>
-      <strong>${item.label || item.subject || "عملية"}</strong>
+      <strong>${item.label || item.subject || t("update")}</strong>
       <span>${item.created_at || ""}</span>
     </div>
     <b>${item.amount_label || ""}</b>
@@ -1109,12 +1481,13 @@ async function loadAccount() {
     const action = actionFor("account", "/mini/numbers/api/account");
     state.account = await api(action.endpoint);
     mergeActions(state.account);
+    if (state.account.user?.language) setLanguage(state.account.user.language);
     if (state.account.balance_label) els.balance.textContent = state.account.balance_label;
     state.recharge = state.account.recharge || state.recharge;
     state.support.categories = state.account.support_categories || state.support.categories;
   } catch (_error) {
     state.account = null;
-    showToast("تعذر تحميل الحساب", "danger");
+    showToast(t("loadAccountFailed"), "danger");
   } finally {
     setViewLoading("account", false);
   }
@@ -1137,15 +1510,15 @@ function renderRechargeMethodCard(method) {
   card.innerHTML = `
     <div class="method-main">
       <div>
-        <h3>${method.title || method.code || "طريقة دفع"}</h3>
+        <h3>${method.title || method.code || t("paymentMethod")}</h3>
         <p>${method.currency || "USD"}</p>
       </div>
       <strong>${method.rate_label || rechargeRateLabel(method)}</strong>
     </div>
     <div class="method-price-grid">
-      <div><span>سعر الكريدت</span><strong>${method.rate_label || rechargeRateLabel(method)}</strong></div>
-      <div><span>العملة</span><strong>${method.currency || "USD"}</strong></div>
-      <div><span>عنوان الدفع</span><strong>${method.target || "-"}</strong></div>
+      <div><span>${t("creditPrice")}</span><strong>${method.rate_label || rechargeRateLabel(method)}</strong></div>
+      <div><span>${t("currency")}</span><strong>${method.currency || "USD"}</strong></div>
+      <div><span>${t("paymentAddress")}</span><strong>${method.target || "-"}</strong></div>
     </div>
   `;
   card.addEventListener("click", () => {
@@ -1164,7 +1537,7 @@ function renderRecharge() {
   }
   const payload = state.recharge;
   if (!payload) {
-    els.rechargeContent.replaceChildren(emptyState("افتح التطبيق من Telegram لشحن الرصيد"));
+    els.rechargeContent.replaceChildren(emptyState(t("openTelegramRecharge")));
     return;
   }
   const methods = payload.methods || [];
@@ -1175,7 +1548,7 @@ function renderRecharge() {
   const cards = [
     ...(methods.length ? [methodsGrid] : []),
   ];
-  els.rechargeContent.replaceChildren(...(cards.length ? cards : [emptyState("لا توجد طرق شحن مفعلة حالياً")]));
+  els.rechargeContent.replaceChildren(...(cards.length ? cards : [emptyState(t("noRechargeMethods"))]));
 }
 
 async function loadRecharge() {
@@ -1189,7 +1562,7 @@ async function loadRecharge() {
     if (payload.balance_label) els.balance.textContent = payload.balance_label;
   } catch (_error) {
     state.recharge = null;
-    showToast("تعذر تحميل الشحن", "danger");
+    showToast(t("loadRechargeFailed"), "danger");
   } finally {
     setViewLoading("recharge", false);
   }
@@ -1228,8 +1601,8 @@ function updateRechargeMethodDetails() {
   }
   els.rechargeAmount.placeholder = method.currency || "USD";
   els.rechargeMethodDetails.innerHTML = `
-    <p>عنوان الدفع: <strong>${method.target || "-"}</strong></p>
-    <p>السعر: <strong>${method.rate_label || "-"}</strong></p>
+    <p>${t("paymentAddress")}: <strong>${method.target || "-"}</strong></p>
+    <p>${t("price")}: <strong>${method.rate_label || "-"}</strong></p>
     ${method.instructions ? `<p>${method.instructions}</p>` : ""}
   `;
 }
@@ -1241,7 +1614,7 @@ async function submitRecharge(event) {
   els.rechargeStatus.textContent = "";
   const amount = Number(els.rechargeAmount.value || 0);
   if (!Number.isFinite(amount) || amount <= 0) {
-    els.rechargeStatus.textContent = "أدخل مبلغ شحن صحيح";
+    els.rechargeStatus.textContent = t("validRechargeAmount");
     showToast(els.rechargeStatus.textContent, "danger");
     return;
   }
@@ -1253,7 +1626,7 @@ async function submitRecharge(event) {
   if (file) formData.append("proof", file);
   const button = els.rechargeForm.querySelector("button[type='submit']");
   setBusy(button, true);
-  showBusy("إرسال طلب الشحن");
+  showBusy(t("submitRecharge"));
   try {
     const payload = await api(action.endpoint, { method: action.method || "POST", body: formData });
     mergeActions(payload);
@@ -1261,7 +1634,7 @@ async function submitRecharge(event) {
     if (payload.balance_label) els.balance.textContent = payload.balance_label;
     els.rechargeAmount.value = "";
     els.rechargeProof.value = "";
-    els.rechargeStatus.textContent = payload.message || "تم إرسال طلب الشحن";
+    els.rechargeStatus.textContent = payload.message || t("rechargeSent");
     showToast(els.rechargeStatus.textContent, "success");
     renderRecharge();
   } catch (error) {
@@ -1275,7 +1648,7 @@ async function submitRecharge(event) {
 
 function renderSupportCategories() {
   if (state.viewLoading.support) {
-    els.supportCategory.replaceChildren(new Option("جاري التحميل", ""));
+    els.supportCategory.replaceChildren(new Option(t("loading"), ""));
     return;
   }
   const categories = state.support.categories || [];
@@ -1349,7 +1722,7 @@ function openIssueReport(order) {
   state.pendingSupportReport = {
     orderId: String(order?.id || ""),
     category: "numbers",
-    message: "اكتب المشكلة التي ظهرت هنا:\n\n",
+    message: t("issuePrompt"),
   };
   setView("support");
 }
@@ -1366,19 +1739,22 @@ function applyPendingSupportReport() {
   if (!els.supportMessage.value.trim()) {
     els.supportMessage.value = report.message || "";
   }
-  els.supportStatus.textContent = "اكتب توضيح المشكلة ثم أرسل البلاغ";
+  els.supportStatus.textContent = t("issueStatus");
   els.supportMessage.focus();
   state.pendingSupportReport = null;
 }
 
 function supportMessageHasUserText(value) {
-  const text = String(value || "").replace("اكتب المشكلة التي ظهرت هنا:", "").trim();
+  const text = String(value || "")
+    .replace(i18n.ar.issuePrompt.trim(), "")
+    .replace(i18n.en.issuePrompt.trim(), "")
+    .trim();
   return text.length >= 6;
 }
 
 function renderSupportOrders() {
   const rows = state.orders || [];
-  const options = [new Option("بدون طلب محدد", "")];
+  const options = [new Option(t("noSpecificOrder"), "")];
   rows.slice(0, 12).forEach((order) => {
     options.push(new Option([order.service_label, order.number, statusLabel(order)].filter(Boolean).join(" · "), order.id || ""));
   });
@@ -1395,7 +1771,7 @@ async function loadSupport() {
     state.support.categories = payload.categories || [];
   } catch (_error) {
     state.support.categories = [];
-    showToast("تعذر تحميل الدعم", "danger");
+    showToast(t("loadSupportFailed"), "danger");
   } finally {
     setViewLoading("support", false);
   }
@@ -1408,13 +1784,13 @@ async function submitSupport(event) {
   event.preventDefault();
   els.supportStatus.textContent = "";
   if (!headers()["X-Telegram-Init-Data"]) {
-    els.supportStatus.textContent = "افتح التطبيق من Telegram لإرسال تذكرة دعم";
+    els.supportStatus.textContent = t("openTelegramSupport");
     showToast(els.supportStatus.textContent, "danger");
     return;
   }
   const rawMessage = els.supportMessage.value.trim();
   if (!supportMessageHasUserText(rawMessage)) {
-    els.supportStatus.textContent = "اكتب وصفاً أوضح للمشكلة";
+    els.supportStatus.textContent = t("clearerIssue");
     showToast(els.supportStatus.textContent, "danger");
     return;
   }
@@ -1424,13 +1800,13 @@ async function submitSupport(event) {
   const message = [context, rawMessage].filter(Boolean).join("\n\n");
   const button = els.supportForm.querySelector("button[type='submit']");
   setBusy(button, true);
-  showBusy("إرسال التذكرة");
+  showBusy(t("sendTicketBusy"));
   try {
     const action = actionFor("submit_support_ticket", "/mini/numbers/api/support/ticket", "POST");
     const payload = await api(action.endpoint, { method: action.method || "POST", body: { category: els.supportCategory.value || "numbers", message } });
     mergeActions(payload);
     els.supportMessage.value = "";
-    els.supportStatus.textContent = payload.message || "تم إرسال التذكرة";
+    els.supportStatus.textContent = payload.message || t("ticketSent");
     showToast(els.supportStatus.textContent, "success");
   } catch (error) {
     els.supportStatus.textContent = friendlyError(error);
@@ -1459,12 +1835,14 @@ function setView(view) {
 
 async function boot() {
   applyRuntimeTheme();
+  setLanguage(initialLanguage());
   tg?.ready?.();
   tg?.expand?.();
   tg?.onEvent?.("themeChanged", applyRuntimeTheme);
   document.body.classList.toggle("telegram-runtime", Boolean(tg) || params.get("telegram_runtime") === "1");
   const bootstrap = await api("/mini/numbers/api/bootstrap");
   state.bootstrap = bootstrap;
+  if (bootstrap.language) setLanguage(bootstrap.language);
   state.services = bootstrap.services || [];
   state.countries = bootstrap.countries || [];
   state.states = bootstrap.states_us || [];
@@ -1516,11 +1894,11 @@ els.rechargeMethod.addEventListener("change", updateRechargeMethodDetails);
 
 const bootWatchdog = window.setTimeout(() => {
   document.body.classList.remove("app-booting");
-  els.offerList?.replaceChildren(emptyState("التطبيق تأخر بالتحميل. أعد المحاولة بعد لحظات."));
+  els.offerList?.replaceChildren(emptyState(t("appSlow")));
 }, 14000);
 
 boot().catch((error) => {
-  els.offerList.replaceChildren(emptyState(error.message || "تعذر تحميل التطبيق"));
+  els.offerList.replaceChildren(emptyState(error.message || t("appLoadFailed")));
 }).finally(() => {
   window.clearTimeout(bootWatchdog);
   document.body.classList.remove("app-booting");

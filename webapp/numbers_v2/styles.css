@@ -1055,6 +1055,29 @@ body.telegram-dark {
 body.telegram-dark .offer-card.recommended { background: #053b3b; }
 body.telegram-dark .section-head span { background: #152b3d; }
 
+body.lang-en .mini-app,
+body.lang-en .drawer-card,
+body.lang-en .offer-card,
+body.lang-en .recharge-method-card,
+body.lang-en .picker-option,
+body.lang-en .rental-duration-label,
+body.lang-en .live-line {
+  text-align: left;
+}
+
+body.lang-en .live-line {
+  margin: 12px 0 16px 10px;
+}
+
+body.lang-en .live-line::before {
+  margin-left: 0;
+  margin-right: 7px;
+}
+
+body.lang-en .method-main > strong {
+  text-align: left;
+}
+
 @media (min-width: 431px) {
   body { background: #dfe8ef; }
   .mini-app { box-shadow: 0 0 0 1px rgba(12, 27, 44, 0.06); }

@@ -3590,9 +3590,19 @@ async def static_file_v2(request: web.Request) -> web.Response:
 
 async def bootstrap(request: web.Request) -> web.Response:
 
-    _optional_auth(request)
+    auth = _optional_auth(request)
+    payload = dict(_bootstrap_payload())
+    user_doc = None
+    if auth and int(auth.get("user_id") or 0) > 0:
+        try:
+            user_doc = await get_user(int(auth["user_id"]))
+        except Exception:
+            logger.exception("numbers miniapp bootstrap user lookup failed user=%s", auth.get("user_id"))
+    lang = _lang_from_user(user_doc, auth)
+    payload["language"] = lang
+    payload["direction"] = "rtl" if lang == "ar" else "ltr"
 
-    return web.json_response(_bootstrap_payload(), headers=dict(_NO_STORE_HEADERS))
+    return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
 
 async def country_suggestions(request: web.Request) -> web.Response:
 
