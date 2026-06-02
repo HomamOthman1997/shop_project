@@ -97,7 +97,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     css = (ROOT / "webapp" / "numbers_v2" / "styles.css").read_text(encoding="utf-8")
 
     assert "/mini/numbers-v2/static/app.js" in index
-    assert "20260603-v2-017" in index
+    assert "20260603-v2-018" in index
     assert 'html lang="en" dir="ltr"' in index
     assert "شراء رقم جديد" not in index
     assert "state.clientActions = bootstrap.client?.actions || {}" in app
@@ -121,6 +121,8 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function renderRechargeMethodCard(method)" in app
     assert "recharge-method-card" in css
     assert "recharge-method-grid" in css
+    assert "proof-picker" in css
+    assert "function updateProofFileLabel()" in app
     assert "أي دولة" in app
     assert "function renderAccountActivity(item)" in app
     assert "quick-actions" not in app

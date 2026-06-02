@@ -785,19 +785,18 @@ body:not(.app-booting) .boot-screen { display: none; }
   line-height: 1.55;
 }
 .recharge-method-grid {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 .recharge-method-card {
-  display: inline-flex;
+  width: 100%;
+  display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 118px;
-  max-width: 100%;
-  min-height: 42px;
-  padding: 10px 14px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -814,20 +813,40 @@ body:not(.app-booting) .boot-screen { display: none; }
   background: color-mix(in srgb, var(--accent) 14%, var(--surface));
   color: var(--accent);
 }
-.proof-input {
-  padding: 10px;
-  border-style: dashed;
-  color: var(--muted);
-}
-.proof-input::file-selector-button {
-  min-height: 34px;
-  margin-inline-end: 10px;
-  padding: 0 12px;
-  border: 0;
+.proof-picker {
+  position: relative;
+  min-height: 48px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 9px 12px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 46%, var(--line));
   border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  font-weight: 900;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden;
+}
+.proof-picker strong {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proof-picker small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+.proof-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
   cursor: pointer;
 }
 .account-activity {
@@ -893,7 +912,8 @@ body:not(.app-booting) .boot-screen { display: none; }
     gap: 6px;
   }
   .recharge-method-card {
-    min-width: calc(50% - 3px);
+    min-height: 46px;
+    padding-inline: 6px;
   }
 }
 .order-card {

@@ -65,6 +65,8 @@ const els = {
   rechargeMethodDetails: $("rechargeMethodDetails"),
   rechargeAmount: $("rechargeAmount"),
   rechargeProof: $("rechargeProof"),
+  proofFileLabel: $("proofFileLabel"),
+  proofFileHint: $("proofFileHint"),
   rechargeStatus: $("rechargeStatus"),
   accountContent: $("accountContent"),
   supportForm: $("supportForm"),
@@ -191,6 +193,8 @@ const i18n = {
     submitRecharge: "إرسال طلب الشحن",
     rechargeSent: "تم إرسال طلب الشحن",
     paymentProof: "إثبات الدفع",
+    chooseFile: "اختر ملفاً",
+    proofFileHint: "صورة أو PDF",
     paidAmount: "المبلغ المدفوع",
     noRechargeMethods: "لا توجد طرق شحن مفعلة حالياً",
     section: "القسم",
@@ -391,6 +395,8 @@ const i18n = {
     submitRecharge: "Submit recharge request",
     rechargeSent: "Recharge request submitted",
     paymentProof: "Payment proof",
+    chooseFile: "Choose file",
+    proofFileHint: "Image or PDF",
     paidAmount: "Paid amount",
     noRechargeMethods: "No recharge methods are enabled right now",
     section: "Section",
@@ -536,6 +542,8 @@ function applyStaticText() {
   setText("#rechargeForm label:nth-of-type(1) span", t("paymentMethod"));
   setText("#rechargeForm label:nth-of-type(2) span", t("paidAmount"));
   setText("#rechargeForm label:nth-of-type(3) span", t("paymentProof"));
+  if (els.proofFileLabel && !els.rechargeProof?.files?.[0]) els.proofFileLabel.textContent = t("chooseFile");
+  setText("#proofFileHint", t("proofFileHint"));
   setText("#rechargeForm button[type='submit']", t("submitRecharge"));
   setText("#menuDrawer h3", t("menu"));
   setText("#drawerTitle", t("choose"));
@@ -1954,6 +1962,13 @@ function renderRechargeForm(methods = []) {
     })
   );
   updateRechargeMethodDetails();
+  updateProofFileLabel();
+}
+
+function updateProofFileLabel() {
+  if (!els.proofFileLabel) return;
+  const file = els.rechargeProof?.files?.[0];
+  els.proofFileLabel.textContent = file?.name || t("chooseFile");
 }
 
 function selectedRechargeMethod() {
@@ -2002,6 +2017,7 @@ async function submitRecharge(event) {
     if (payload.balance_label) els.balance.textContent = payload.balance_label;
     els.rechargeAmount.value = "";
     els.rechargeProof.value = "";
+    updateProofFileLabel();
     els.rechargeStatus.textContent = payload.message || t("rechargeSent");
     showToast(els.rechargeStatus.textContent, "success");
     renderRecharge();
@@ -2276,6 +2292,7 @@ els.themeToggle?.addEventListener("click", toggleTheme);
 els.supportForm.addEventListener("submit", submitSupport);
 els.rechargeForm.addEventListener("submit", submitRecharge);
 els.rechargeMethod.addEventListener("change", updateRechargeMethodDetails);
+els.rechargeProof?.addEventListener("change", updateProofFileLabel);
 
 const bootWatchdog = window.setTimeout(() => {
   document.body.classList.remove("app-booting");
