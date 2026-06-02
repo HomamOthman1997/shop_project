@@ -131,6 +131,66 @@ async def test_refresh_number_order_does_not_poll_webhook_provider(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_refresh_number_order_polls_when_waiting_for_second_code(monkeypatch):
+    calls = {"details": []}
+    now = datetime(2026, 5, 25, 12, 2, tzinfo=UTC)
+    first_sms_at = datetime(2026, 5, 25, 12, 1, tzinfo=UTC)
+    second_requested_at = datetime(2026, 5, 25, 12, 1, 30, tzinfo=UTC)
+    order = {
+        "_id": "order-1",
+        "status": "success",
+        "number_mode": "temp",
+        "provider": "smspool",
+        "provider_order_id": "provider-1",
+        "user_id": 123,
+        "reseller_id": 456,
+        "created_at": datetime(2026, 5, 25, 12, 0, tzinfo=UTC),
+        "temp_wait_started_at": second_requested_at,
+        "temp_wait_timeout_sec": 999999,
+        "temp_wait_state": "waiting",
+        "temp_last_code": "111111",
+        "temp_last_sms_at": first_sms_at,
+        "temp_first_sms_at": first_sms_at,
+        "temp_second_code_last_at": second_requested_at,
+        "temp_codes": ["111111"],
+        "temp_codes_count": 1,
+    }
+
+    async def fake_get_order(order_id):
+        if calls["details"]:
+            return {**order, **calls["details"][-1][1]}
+        return order
+
+    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id):
+        calls["fetch"] = (provider_code, provider_order_id)
+        return {"success": True, "messages": ["111111", "222222"], "raw": {}}
+
+    async def fake_update_order_details(order_id, patch):
+        calls["details"].append((order_id, patch))
+
+    async def fake_log_temp_event(order_arg, event, payload):
+        calls["event"] = event
+
+    async def fake_enqueue_event_for_user(**kwargs):
+        calls["webhook"] = kwargs
+
+    monkeypatch.setattr(order_refresh_service, "get_order", fake_get_order)
+    monkeypatch.setattr(order_refresh_service, "fetch_provider_sms", fake_fetch_provider_sms)
+    monkeypatch.setattr(order_refresh_service, "update_order_details", fake_update_order_details)
+    monkeypatch.setattr(order_refresh_service, "_log_temp_event", fake_log_temp_event)
+    monkeypatch.setattr(order_refresh_service, "enqueue_event_for_user", fake_enqueue_event_for_user)
+    monkeypatch.setattr(order_refresh_service, "_utc_now", lambda: now)
+
+    result = await order_refresh_service.refresh_number_order(order)
+
+    assert calls["fetch"] == ("smspool", "provider-1")
+    assert calls["details"][0][1]["temp_last_code"] == "222222"
+    assert calls["details"][0][1]["temp_codes"] == ["111111", "222222"]
+    assert calls["event"] == "code_received"
+    assert result["order"]["codes"] == ["111111", "222222"]
+
+
+@pytest.mark.asyncio
 async def test_refresh_number_order_polls_explicit_polling_provider_when_global_polling_is_off(monkeypatch):
     calls = {}
     order = {

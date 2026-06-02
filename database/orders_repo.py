@@ -387,6 +387,11 @@ async def list_user_number_orders_for_miniapp(user_id: int, limit: int = 120):
             {
                 "user_id": int(user_id),
                 "number_mode": {"$in": ["temp", "voice", "rental"]},
+                "$nor": [
+                    {"service_id": {"$regex": r":second_code$"}},
+                    {"service_ref_id": {"$regex": r":second_code$"}},
+                    {"temp_second_code_source_order_id": {"$exists": True, "$nin": [None, ""]}},
+                ],
                 "$or": [
                     {"provider_order_id": {"$exists": True, "$nin": [None, ""]}},
                     {"provider": {"$exists": True, "$nin": [None, ""]}},

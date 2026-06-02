@@ -4037,6 +4037,8 @@ async def active_orders(request: web.Request) -> web.Response:
     rows: list[dict[str, Any]] = []
 
     for order in number_orders or []:
+        if _is_second_code_charge_order(order):
+            continue
 
         try:
 
@@ -4083,6 +4085,17 @@ async def active_orders(request: web.Request) -> web.Response:
         pass
 
     return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
+
+
+def _is_second_code_charge_order(order: dict[str, Any] | None) -> bool:
+    order = order or {}
+    mode = str(order.get("number_mode") or "").strip().lower()
+    service_id = str(order.get("service_id") or order.get("service_ref_id") or "").strip().lower()
+    return bool(
+        mode == "second_code_charge"
+        or service_id.endswith(":second_code")
+        or str(order.get("temp_second_code_source_order_id") or "").strip()
+    )
 
 async def purchase_temp(request: web.Request) -> web.Response:
 

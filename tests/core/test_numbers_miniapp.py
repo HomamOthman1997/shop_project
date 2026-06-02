@@ -948,9 +948,17 @@ def test_numbers_temp_second_code_pending_hides_old_code():
 
     assert payload["public_status"] == "waiting"
     assert payload["code"] == ""
+    assert payload["codes"] == ["123456"]
     assert payload["can_second_code"] is False
     assert payload["actions"]["copy_code"]["enabled"] is False
     assert payload["actions"]["second_code"]["enabled"] is False
+
+
+def test_numbers_miniapp_identifies_second_code_charge_orders():
+    assert miniapp._is_second_code_charge_order({"number_mode": "second_code_charge"})
+    assert miniapp._is_second_code_charge_order({"number_mode": "temp", "service_id": "gmail:second_code"})
+    assert miniapp._is_second_code_charge_order({"number_mode": "temp", "temp_second_code_source_order_id": "order-1"})
+    assert not miniapp._is_second_code_charge_order({"number_mode": "temp", "service_id": "gmail"})
 
 
 def test_numbers_refund_pending_temp_order_can_refresh():

@@ -198,6 +198,8 @@ const i18n = {
     checkCall: "فحص المكالمة",
     copyNumber: "نسخ الرقم",
     copyCode: "نسخ الكود",
+    firstCode: "الكود الأول",
+    codeIndex: "كود",
     refresh: "تحديث",
     secondCode: "كود ثاني",
     tryAnother: "رقم بديل",
@@ -360,6 +362,8 @@ const i18n = {
     checkCall: "Check call",
     copyNumber: "Copy number",
     copyCode: "Copy code",
+    firstCode: "First code",
+    codeIndex: "Code",
     refresh: "Refresh",
     secondCode: "Second code",
     tryAnother: "Replacement",
@@ -1374,11 +1378,30 @@ function renderOrders() {
         stateNote.textContent = note;
         card.append(stateNote);
       }
-      if (order.code) {
+      if (order.code && !(Array.isArray(order.codes) && order.codes.length)) {
         const code = document.createElement("div");
         code.className = "code-box";
         code.textContent = order.code;
         card.append(code);
+      }
+      const codeValues = orderCodes(order);
+      if (codeValues.length) {
+        const codes = document.createElement("div");
+        codes.className = "code-list";
+        codeValues.forEach((value, index) => {
+          const row = document.createElement("button");
+          row.type = "button";
+          row.className = "code-row";
+          const label = index === 0 ? t("firstCode") : `${t("codeIndex")} ${index + 1}`;
+          row.innerHTML = `<span>${label}</span><strong></strong>`;
+          row.querySelector("strong").textContent = value;
+          row.addEventListener("click", async () => {
+            await navigator.clipboard?.writeText(value);
+            showToast(t("copied"), "success");
+          });
+          codes.append(row);
+        });
+        card.append(codes);
       }
       const events = Array.isArray(order.events) ? order.events.slice(0, 5) : [];
       if (events.length) {
@@ -1409,6 +1432,17 @@ function renderOrders() {
       return card;
     })
   );
+}
+
+function orderCodes(order) {
+  const values = [];
+  (Array.isArray(order?.codes) ? order.codes : []).forEach((code) => {
+    const value = String(code || "").trim();
+    if (value && !values.includes(value)) values.push(value);
+  });
+  const latest = String(order?.code || "").trim();
+  if (latest && !values.includes(latest)) values.push(latest);
+  return values;
 }
 
 async function runOrderAction(order, key, button) {

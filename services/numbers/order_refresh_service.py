@@ -10,6 +10,7 @@ from services.numbers.provider_delivery import order_uses_provider_sms_webhook, 
 from services.numbers.shared.events import _log_temp_event
 from services.numbers.shared.provider_io import fetch_provider_sms
 from services.numbers.shared.temp_order import (
+    _coerce_utc_datetime,
     _extract_new_sms_code,
     _order_temp_timeout_sec,
     _safe_code_text,
@@ -41,7 +42,7 @@ async def refresh_number_order(order: dict[str, Any]) -> dict[str, Any]:
     if mode != "temp":
         raise NumbersOrderError("unsupported_order_mode", "This order mode does not support refresh yet.", status=409)
 
-    if _has_received_code(current):
+    if _has_received_code(current) and not _second_code_waiting(current):
         return {"ok": True, "order": public_order_payload(current)}
 
     timeout_reached = _temp_elapsed_sec(current) >= _order_temp_timeout_sec(current)
@@ -133,3 +134,13 @@ def _has_received_code(order: dict[str, Any]) -> bool:
         if str(code or "").strip():
             return True
     return False
+
+
+def _second_code_waiting(order: dict[str, Any]) -> bool:
+    if str(order.get("temp_wait_state") or "").strip().lower() != "waiting":
+        return False
+    second_requested_at = _coerce_utc_datetime(order.get("temp_second_code_last_at"))
+    if not second_requested_at:
+        return False
+    last_sms_at = _coerce_utc_datetime(order.get("temp_last_sms_at"))
+    return not last_sms_at or second_requested_at > last_sms_at

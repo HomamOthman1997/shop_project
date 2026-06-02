@@ -93,14 +93,11 @@ async def request_second_code_for_order(
         base_price=extra_cost,
     )
     details = {
-        "number_mode": "temp",
+        "number_mode": "second_code_charge",
         "provisioning_state": "awaiting_charge",
-        "provisioning_provider": provider,
-        "provisioning_service": str(order.get("temp_api_service") or order.get("service_id") or ""),
-        "provisioning_country": order.get("temp_country"),
-        "provisioning_state_code": order.get("temp_state"),
         "provisioning_created_at": now,
         "temp_second_code_source_order_id": str(order_id),
+        "source_order_id": str(order_id),
     }
     if source:
         details["source"] = source
@@ -112,13 +109,13 @@ async def request_second_code_for_order(
     if charge_order_fn is not None:
         try:
             await charge_order_fn(
-                order={**second_order, "number_mode": "temp"},
+                order={**second_order, "number_mode": "second_code_charge", "source_order_id": str(order_id)},
                 order_id=second_order["_id"],
                 user_id=int(user_id),
                 reseller_id=int(reseller_id),
                 final_price=extra_sale,
                 cost_price=extra_cost,
-                number_mode="temp",
+                number_mode="second_code_charge",
                 source=source,
             )
         except Exception as exc:

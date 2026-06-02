@@ -364,6 +364,7 @@ async def test_simulated_temp_second_code_flow(monkeypatch):
     assert calls["provider_resend"] == ("textverified", "tv_001")
     assert calls["create_order"]["service_id"] == "gmail:second_code"
     assert calls["wallet_charge"]["sale_price"] == 0.5
+    assert any(str(raw_id) == "507f1f77bcf86cd799439014" and patch.get("number_mode") == "second_code_charge" for raw_id, patch in calls["details"])
     assert any(str(raw_id) == order_id and patch.get("provider_order_id") == "tv_002" for raw_id, patch in calls["details"])
     assert calls["queued_waiter"]["is_second_code"] is True
     event_names = [event for event, _payload in calls["temp_events"]]

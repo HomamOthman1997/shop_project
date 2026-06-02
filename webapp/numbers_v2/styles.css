@@ -603,6 +603,35 @@ body:not(.app-booting) .boot-screen { display: none; }
   text-align: center;
   letter-spacing: 0;
 }
+.code-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+.code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text);
+  text-align: start;
+}
+.code-row span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+.code-row strong {
+  color: var(--accent);
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
 .action-row {
   display: flex;
   gap: 8px;
