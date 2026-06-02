@@ -67,17 +67,56 @@ async def test_auto_refund_delegates_to_provider_aware_cancel(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_auto_refund_marks_support_review_on_provider_failure(monkeypatch):
+async def test_auto_refund_marks_refund_pending_on_retryable_provider_failure(monkeypatch):
+    calls = {}
+
     async def fake_cancel_number_order(order, **kwargs):
         raise NumbersOrderError("provider_cancel_failed", "Could not cancel this order right now.", status=503)
 
+    async def fake_update_order_details(order_id, patch):
+        calls["pending_patch"] = (order_id, patch)
+
+    async def fake_log_temp_event(order, event, payload):
+        calls["event"] = (event, payload)
+
     monkeypatch.setattr(order_auto_refund_service, "cancel_number_order", fake_cancel_number_order)
+    monkeypatch.setattr(order_auto_refund_service, "update_order_details", fake_update_order_details)
+    monkeypatch.setattr(order_auto_refund_service, "_log_temp_event", fake_log_temp_event)
+
+    result = await order_auto_refund_service.auto_refund_temp_order_if_due(due_order())
+
+    assert result["refunded"] is False
+    assert result["reason"] == "provider_cancel_failed"
+    assert result["support_review_required"] is False
+    assert result["order"]["public_status"] == "refund_pending"
+    assert calls["pending_patch"][0] == "order-1"
+    assert calls["pending_patch"][1]["temp_wait_state"] == "refund_pending"
+    assert calls["pending_patch"][1]["temp_replace_enabled"] is True
+    assert calls["event"][0] == "refund_pending"
+
+
+@pytest.mark.asyncio
+async def test_auto_refund_marks_support_review_on_nonretryable_provider_failure(monkeypatch):
+    calls = {}
+
+    async def fake_cancel_number_order(order, **kwargs):
+        raise NumbersOrderError("provider_cancel_failed", "Could not cancel this order right now.", status=409)
+
+    async def fake_update_order_details(order_id, patch):
+        calls["support_patch"] = (order_id, patch)
+
+    monkeypatch.setattr(order_auto_refund_service, "cancel_number_order", fake_cancel_number_order)
+    monkeypatch.setattr(order_auto_refund_service, "update_order_details", fake_update_order_details)
 
     result = await order_auto_refund_service.auto_refund_temp_order_if_due(due_order())
 
     assert result["refunded"] is False
     assert result["reason"] == "provider_cancel_failed"
     assert result["support_review_required"] is True
+    assert result["order"]["public_status"] == "refund_pending"
+    assert result["order"]["customer_state"]["key"] == "support_review_pending"
+    assert calls["support_patch"][0] == "order-1"
+    assert calls["support_patch"][1]["temp_refund_support_review_status"] == "open"
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ from database.orders_repo import list_api_temp_orders_for_auto_refund, update_or
 from services.numbers.order_cancel_service import cancel_number_order
 from services.numbers.order_service import public_order_payload
 from services.numbers.provider_readiness import provider_readiness
+from services.numbers.shared.events import _log_temp_event
 from services.numbers.shared.temp_order import _order_temp_timeout_sec, _temp_elapsed_sec, _temp_order_has_received_code, _utc_now
 from services.numbers.shared.temp_refund import temp_refund_result_retryable
 
@@ -69,12 +70,18 @@ async def auto_refund_temp_order_if_due(
         )
     except Exception as exc:
         reason = getattr(exc, "code", "auto_refund_failed")
+        retryable = _auto_refund_exception_retryable(exc, str(reason))
+        marked_order = order
+        if retryable:
+            marked_order = await _mark_refund_pending(order, str(reason))
+        else:
+            marked_order = await _mark_support_review(order, str(reason))
         return {
             "ok": True,
             "refunded": False,
-            "support_review_required": not temp_refund_result_retryable({"success": False, "reason": reason}),
+            "support_review_required": not retryable,
             "reason": str(reason),
-            "order": public_order_payload(order),
+            "order": public_order_payload(marked_order),
         }
     return {"ok": True, "refunded": True, "reason": "timeout_no_code", "order": result.get("order") or public_order_payload(order)}
 
@@ -104,16 +111,53 @@ async def run_numbers_api_auto_refund_sweep(
     return stats
 
 
-async def _mark_support_review(order: dict[str, Any], reason: str) -> None:
+async def _mark_support_review(order: dict[str, Any], reason: str) -> dict[str, Any]:
     order_id = order.get("_id") if isinstance(order, dict) else None
     if not order_id:
-        return
-    await update_order_details(
-        order_id,
+        return order
+    now = _utc_now()
+    patch = {
+        "temp_wait_timeout_at": (order or {}).get("temp_wait_timeout_at") or now,
+        "temp_wait_state": "refund_pending",
+        "temp_replace_enabled": True,
+        "temp_refund_support_review_required": True,
+        "temp_refund_support_review_status": "open",
+        "temp_refund_support_review_reason": str(reason or "auto_refund_failed"),
+        "temp_refund_support_review_at": now,
+    }
+    await update_order_details(order_id, patch)
+    return {**order, **patch}
+
+
+def _auto_refund_exception_retryable(exc: Exception, reason: str) -> bool:
+    status = int(getattr(exc, "status", 0) or 0)
+    if status >= 500:
+        return True
+    return temp_refund_result_retryable({"success": False, "reason": reason, "retryable": status >= 500})
+
+
+async def _mark_refund_pending(order: dict[str, Any], reason: str) -> dict[str, Any]:
+    order_id = order.get("_id") if isinstance(order, dict) else None
+    if not order_id:
+        return order
+    now = _utc_now()
+    attempts = int((order or {}).get("temp_refund_retry_attempts") or 0) + 1
+    patch = {
+        "temp_wait_timeout_at": (order or {}).get("temp_wait_timeout_at") or now,
+        "temp_wait_state": "refund_pending",
+        "temp_replace_enabled": True,
+        "temp_refund_retry_attempts": attempts,
+        "temp_refund_retry_last_at": now,
+        "temp_refund_retry_reason": str(reason or "provider_cancel_failed"),
+    }
+    await update_order_details(order_id, patch)
+    await _log_temp_event(
+        order,
+        "refund_pending",
         {
-            "temp_refund_support_review_required": True,
-            "temp_refund_support_review_status": "open",
-            "temp_refund_support_review_reason": str(reason or "auto_refund_failed"),
-            "temp_refund_support_review_at": _utc_now(),
+            "source": "numbers_api_auto_refund",
+            "attempts": attempts,
+            "reason": str(reason or ""),
         },
     )
+    return {**order, **patch}
