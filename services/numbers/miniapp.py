@@ -41,9 +41,7 @@ from database.orders_repo import (
 
     list_user_open_temp_and_voice_orders,
 
-    list_user_rental_orders,
-
-    list_user_recent_temp_and_voice_orders,
+    list_user_number_orders_for_miniapp,
 
     update_order_details,
 
@@ -334,6 +332,11 @@ def _miniapp_surface_actions() -> dict[str, dict[str, Any]]:
             "/mini/numbers/api/account/language",
             method="POST",
             label_key="language",
+        ),
+        "account_activity_export": _miniapp_surface_action(
+            "account_activity_export",
+            "/mini/numbers/api/account/activity.csv",
+            label_key="downloadActivity",
         ),
         "orders": _miniapp_surface_action(
             "orders",
@@ -677,6 +680,11 @@ def _order_activity_subject(order: dict[str, Any] | None) -> str:
 
 def _ledger_activity_subject_from_entry(entry: dict[str, Any], lang: str) -> str:
 
+    reason = str(entry.get("reason") or "").strip().lower()
+    category = str(entry.get("category") or "").strip().lower()
+    if category == "recharge_credit" or reason == "recharge_request_accepted":
+        return _text(lang, "Recharge request", "طلب شحن")
+
     metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
 
     candidates = [
@@ -726,8 +734,6 @@ def _ledger_activity_subject_from_entry(entry: dict[str, Any], lang: str) -> str
         return source.replace("_", " ").title()[:80]
 
     order_id = str(entry.get("order_id") or "").strip()
-
-    reason = str(entry.get("reason") or "").strip().lower()
 
     if order_id and reason == "recharge_request_accepted":
 
@@ -994,7 +1000,7 @@ async def _account_payload(user_doc: dict[str, Any], auth: dict[str, Any]) -> di
 
     try:
 
-        entries = await list_user_wallet_entries(user_id, user_id, limit=8)
+        entries = await list_user_wallet_entries(user_id, user_id, limit=4)
 
         activity = _ledger_activity_payload(entries, lang, await _ledger_activity_orders(entries))
 
@@ -1044,7 +1050,7 @@ async def _account_payload(user_doc: dict[str, Any], auth: dict[str, Any]) -> di
         "actions": {
             key: value
             for key, value in _miniapp_surface_actions().items()
-            if key in {"change_language", "recharge", "support", "orders"}
+            if key in {"change_language", "account_activity_export", "recharge", "support", "orders"}
         },
 
     }
@@ -3679,6 +3685,52 @@ async def account_language(request: web.Request) -> web.Response:
 
     return web.json_response(await _account_payload(updated, auth), headers=dict(_NO_STORE_HEADERS))
 
+async def account_activity_csv(request: web.Request) -> web.Response:
+
+    auth = _require_auth(request)
+
+    user_doc = await _load_or_create_user(auth)
+
+    lang = _lang_from_user(user_doc, auth)
+
+    try:
+
+        entries = await list_user_wallet_entries(int(auth["user_id"]), int(auth["user_id"]), limit=500)
+
+        rows = _ledger_activity_payload(entries, lang, await _ledger_activity_orders(entries))
+
+    except Exception:
+
+        logger.exception("numbers miniapp account activity export failed user=%s", auth.get("user_id"))
+
+        rows = []
+
+    lines = ["date,label,amount,balance,direction,order_id"]
+
+    for row in rows:
+
+        values = [
+            row.get("created_at") or "",
+            row.get("label") or "",
+            row.get("amount_label") or "",
+            row.get("balance_label") or "",
+            row.get("direction") or "",
+            row.get("order_id") or "",
+        ]
+
+        escaped = [f'"{str(value).replace(chr(34), chr(34) + chr(34))}"' for value in values]
+
+        lines.append(",".join(escaped))
+
+    return web.Response(
+        text="\n".join(lines) + "\n",
+        content_type="text/csv",
+        headers={
+            **_NO_STORE_HEADERS,
+            "Content-Disposition": 'attachment; filename="phantom-numbers-wallet-activity.csv"',
+        },
+    )
+
 async def recharge_info(request: web.Request) -> web.Response:
 
     auth = _require_auth(request)
@@ -3980,25 +4032,27 @@ async def active_orders(request: web.Request) -> web.Response:
 
     _ = lang
 
-    temp_orders = await list_user_recent_temp_and_voice_orders(
-
-        int(auth["user_id"]),
-
-        limit=12,
-
-        days=_TEMP_MY_NUMBERS_RETENTION_DAYS,
-
-    )
-
-    rental_orders = await list_user_rental_orders(int(auth["user_id"]), limit=10)
+    number_orders = await list_user_number_orders_for_miniapp(int(auth["user_id"]), limit=120)
 
     rows: list[dict[str, Any]] = []
 
-    for order in temp_orders or []:
+    for order in number_orders or []:
 
         try:
 
-            if str(order.get("number_mode") or "").strip().lower() == "voice":
+            mode = str(order.get("number_mode") or "").strip().lower()
+
+            status = str(order.get("status") or "").strip().lower()
+
+            wait_state = str(order.get("temp_wait_state") or "").strip().lower()
+
+            can_refresh_temp = (
+                mode == "temp"
+                and status in {"success", "pending", "paid"}
+                and wait_state in {"waiting", "code_received", "refund_pending"}
+            )
+
+            if mode != "temp" or not can_refresh_temp:
 
                 refreshed = order
 
@@ -4014,19 +4068,7 @@ async def active_orders(request: web.Request) -> web.Response:
 
         rows.append(await _order_payload_with_events(refreshed, lang))
 
-    for order in rental_orders or []:
-
-        if order.get("rental_finished_at"):
-
-            continue
-
-        if str(order.get("status") or "").lower() in {"cancelled", "failed", "refunded", "expired"}:
-
-            continue
-
-        rows.append(await _order_payload_with_events(order, lang))
-
-    payload: dict[str, Any] = {"ok": True, "orders": rows}
+    payload: dict[str, Any] = {"ok": True, "orders": rows, "orders_limit": 120, "orders_count": len(rows)}
 
     try:
 
@@ -4840,6 +4882,8 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_get("/mini/numbers/api/account", account)
 
     app.router.add_post("/mini/numbers/api/account/language", account_language)
+
+    app.router.add_get("/mini/numbers/api/account/activity.csv", account_activity_csv)
 
     app.router.add_get("/mini/numbers/api/recharge", recharge_info)
 

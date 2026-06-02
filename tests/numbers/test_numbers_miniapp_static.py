@@ -97,7 +97,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     css = (ROOT / "webapp" / "numbers_v2" / "styles.css").read_text(encoding="utf-8")
 
     assert "/mini/numbers-v2/static/app.js" in index
-    assert "20260602-v2-005" in index
+    assert "20260602-v2-006" in index
     assert 'html lang="en" dir="ltr"' in index
     assert "شراء رقم جديد" not in index
     assert "state.clientActions = bootstrap.client?.actions || {}" in app
@@ -158,6 +158,8 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function setLanguage(lang)" in app
     assert "document.documentElement.dir" in app
     assert "const i18n = {" in app
+    assert "function downloadActivityCsv(button)" in app
+    assert "account_activity_export" in app
     assert "function pickerAllowsAnyCountry()" in app
     assert "key !== RENTAL_UNLIMITED_SERVICE_KEY && state.country === \"any\"" in app
     assert "return pickerAllowsAnyCountry() ? [anyCountry, ...countries] : countries" in app

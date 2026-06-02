@@ -346,7 +346,7 @@ def test_numbers_account_activity_payload_uses_metadata_subject_without_order():
                 "balance_after": 10,
                 "created_at": created_at,
                 "order_id": "",
-                "metadata": {"bot_username": "PHANTOM_OTP_NUMBERS_BOT"},
+                "metadata": {"bot_username": "PHANTOM_OTP_NUMBERS_BOT", "service_label": "G2"},
             },
             {
                 "_id": "tx-2",
@@ -363,8 +363,10 @@ def test_numbers_account_activity_payload_uses_metadata_subject_without_order():
         "en",
     )
 
-    assert rows[0]["label"] == "Balance recharge · @PHANTOM_OTP_NUMBERS_BOT"
-    assert rows[0]["subject"] == "@PHANTOM_OTP_NUMBERS_BOT"
+    assert rows[0]["label"] == "Balance recharge · Recharge request"
+    assert rows[0]["subject"] == "Recharge request"
+    assert "G2" not in rows[0]["label"]
+    assert "PHANTOM_OTP_NUMBERS_BOT" not in rows[0]["label"]
     assert rows[1]["label"] == "Numbers purchase · Telegram"
 
 
@@ -2061,6 +2063,7 @@ def test_register_numbers_routes_adds_public_endpoints():
     assert ("GET", "/mini/numbers/api/country-suggestions") in routes
     assert ("GET", "/mini/numbers/api/account") in routes
     assert ("POST", "/mini/numbers/api/account/language") in routes
+    assert ("GET", "/mini/numbers/api/account/activity.csv") in routes
     assert ("GET", "/mini/numbers/api/recharge") in routes
     assert ("POST", "/mini/numbers/api/recharge/submit") in routes
     assert ("GET", "/mini/numbers/api/support") in routes

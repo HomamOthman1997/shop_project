@@ -363,7 +363,7 @@ async def get_user_wallet_balance(user_id: int, reseller_id: int) -> float:
 
 
 async def list_user_wallet_entries(user_id: int, reseller_id: int, limit: int = 8) -> list[dict[str, Any]]:
-    safe_limit = max(1, min(int(limit or 8), 25))
+    safe_limit = max(1, min(int(limit or 8), 500))
     cursor = (
         db.ledger_entries.find(
             {

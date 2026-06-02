@@ -380,6 +380,27 @@ async def list_user_recent_temp_and_voice_orders(user_id: int, limit: int = 20, 
     return await cursor.to_list(length=int(limit))
 
 
+async def list_user_number_orders_for_miniapp(user_id: int, limit: int = 120):
+    safe_limit = max(1, min(int(limit or 120), 250))
+    cursor = (
+        db.orders.find(
+            {
+                "user_id": int(user_id),
+                "number_mode": {"$in": ["temp", "voice", "rental"]},
+                "$or": [
+                    {"provider_order_id": {"$exists": True, "$nin": [None, ""]}},
+                    {"provider": {"$exists": True, "$nin": [None, ""]}},
+                    {"provisioning_provider": {"$exists": True, "$nin": [None, ""]}},
+                    {"provider_number": {"$exists": True, "$nin": [None, "", "?"]}},
+                ],
+            }
+        )
+        .sort("created_at", -1)
+        .limit(safe_limit)
+    )
+    return await cursor.to_list(length=safe_limit)
+
+
 async def list_paid_number_orders_missing_provider(limit: int = 200):
     cursor = (
         db.orders.find(

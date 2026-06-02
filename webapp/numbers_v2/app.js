@@ -156,6 +156,8 @@ const i18n = {
     openTelegramRecharge: "افتح التطبيق من Telegram لشحن الرصيد",
     availableBalance: "الرصيد المتاح",
     walletActivity: "سجل الرصيد والعمليات",
+    walletActivityLimited: "آخر 4 عمليات",
+    downloadActivity: "تنزيل كل السجل",
     noWalletActivity: "لا توجد عمليات مسجلة بعد",
     activeOrders: "الطلبات النشطة",
     myNumbers: "أرقامي",
@@ -316,6 +318,8 @@ const i18n = {
     openTelegramRecharge: "Open the app from Telegram to recharge",
     availableBalance: "Available balance",
     walletActivity: "Wallet and activity log",
+    walletActivityLimited: "Latest 4 entries",
+    downloadActivity: "Download full log",
     noWalletActivity: "No activity recorded yet",
     activeOrders: "Active orders",
     myNumbers: "My numbers",
@@ -1456,7 +1460,7 @@ function renderAccount() {
   }
   const hero = document.createElement("section");
   hero.className = "account-hero";
-  const activeOrders = (state.orders || []).length;
+  const numbersCount = (state.orders || []).length;
   const rechargeRequests = (state.recharge?.requests || []).length;
   const activity = payload.recent_activity || [];
   hero.innerHTML = `
@@ -1466,19 +1470,51 @@ function renderAccount() {
   `;
   const activityList = document.createElement("section");
   activityList.className = "account-activity";
-  activityList.innerHTML = `<h3>${t("walletActivity")}</h3>`;
+  activityList.innerHTML = `<h3>${t("walletActivity")}</h3><p class="status-text">${t("walletActivityLimited")}</p>`;
   const activityRows = activity.length
     ? activity.map(renderAccountActivity)
     : [emptyState(t("noWalletActivity"))];
   activityList.append(...activityRows);
+  const activityAction = state.account?.actions?.account_activity_export || state.clientActions?.account_activity_export;
+  if (activityAction?.endpoint) {
+    const downloadButton = document.createElement("button");
+    downloadButton.type = "button";
+    downloadButton.className = "ghost-button inline-action";
+    downloadButton.textContent = t("downloadActivity");
+    downloadButton.addEventListener("click", () => downloadActivityCsv(downloadButton));
+    activityList.append(downloadButton);
+  }
   els.accountContent.replaceChildren(
     hero,
-    infoCard(t("activeOrders"), String(activeOrders)),
+    infoCard(t("myNumbers"), String(numbersCount)),
     infoCard(t("rechargeRequests"), String(rechargeRequests)),
     infoCard("User ID", String(payload.user.id || "-")),
     infoCard(t("language"), payload.user.language_label || payload.user.language || "-"),
     activityList
   );
+}
+
+async function downloadActivityCsv(button) {
+  const action = state.account?.actions?.account_activity_export || state.clientActions?.account_activity_export || {};
+  if (!action.endpoint) return;
+  setBusy(button, true);
+  try {
+    const response = await fetch(action.endpoint, { method: action.method || "GET", headers: headers() });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "phantom-numbers-wallet-activity.csv";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    showToast(friendlyError(error), "danger");
+  } finally {
+    setBusy(button, false);
+  }
 }
 
 function renderAccountActivity(item) {
