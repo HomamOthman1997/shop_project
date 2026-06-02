@@ -247,13 +247,30 @@ const i18n = {
     orderNumber: "طلب رقم",
     update: "تحديث",
     waiting: "بانتظار الكود",
+    waitingCall: "بانتظار المكالمة",
+    code: "الكود جاهز",
     codeReceived: "تم استلام الكود",
     refunded: "تم الاسترجاع",
     refundPending: "استرجاع قيد المعالجة",
+    failed: "فشل الطلب",
+    expired: "انتهى الطلب",
     waitingForCall: "بانتظار المكالمة",
     waitingForRecording: "بانتظار التسجيل",
+    recordingPending: "بانتظار التسجيل",
+    recording: "التسجيل",
     finished: "منتهي",
     activeStatus: "نشط",
+    waitForSms: "بانتظار وصول الكود.",
+    waitForCall: "بانتظار وصول المكالمة.",
+    waitForRentalSms: "بانتظار رسائل الإيجار.",
+    waitForWebhook: "رصيدك محفوظ. إذا لم يصل الكود ضمن فترة الانتظار سيتم إرجاع المبلغ تلقائياً إلى محفظتك.",
+    waitForCallWebhook: "بانتظار وصول المكالمة من المزود.",
+    codeReady: "وصل الكود. انسخه وأكمل عملية التحقق.",
+    recordingReady: "التسجيل جاهز.",
+    autoRefundChecking: "جاري معالجة الاسترجاع تلقائياً.",
+    supportReviewQueued: "الحالة تحتاج مراجعة الدعم.",
+    refundedToWallet: "تم إرجاع المبلغ للمحفظة.",
+    orderClosedNoCode: "أُغلق الطلب بدون كود. يمكنك طلب رقم بديل.",
     webhookWait: "رصيدك محفوظ. إذا لم يصل الكود ضمن فترة الانتظار سيتم إرجاع المبلغ تلقائياً إلى محفظتك.",
     codeReceivedHelp: "وصل الكود. انسخه وأكمل عملية التحقق.",
     refundPendingHelp: "الاسترجاع قيد المعالجة من السيرفر.",
@@ -427,13 +444,30 @@ const i18n = {
     orderNumber: "Number order",
     update: "Update",
     waiting: "Waiting for code",
+    waitingCall: "Waiting for call",
+    code: "Code ready",
     codeReceived: "Code received",
     refunded: "Refunded",
     refundPending: "Refund processing",
+    failed: "Order failed",
+    expired: "Order expired",
     waitingForCall: "Waiting for call",
     waitingForRecording: "Waiting for recording",
+    recordingPending: "Waiting for recording",
+    recording: "Recording",
     finished: "Finished",
     activeStatus: "Active",
+    waitForSms: "Waiting for the code.",
+    waitForCall: "Waiting for the call.",
+    waitForRentalSms: "Waiting for rental messages.",
+    waitForWebhook: "Your balance is protected. If the code does not arrive during the waiting window, the amount is refunded to your wallet automatically.",
+    waitForCallWebhook: "Waiting for the call from the provider.",
+    codeReady: "The code arrived. Copy it and complete verification.",
+    recordingReady: "The recording is ready.",
+    autoRefundChecking: "Automatic refund is being processed.",
+    supportReviewQueued: "This status needs support review.",
+    refundedToWallet: "The amount was returned to your wallet.",
+    orderClosedNoCode: "The order closed without a code. You can request a replacement.",
     webhookWait: "Your balance is protected. If the code does not arrive during the waiting window, the amount is refunded to your wallet automatically.",
     codeReceivedHelp: "The code arrived. Copy it and complete verification.",
     refundPendingHelp: "Refund is being processed by the server.",
@@ -1317,6 +1351,7 @@ async function confirmPurchase() {
 function statusLabel(order) {
   const customerState = order.customer_state || {};
   if (customerState.status_label) return customerState.status_label;
+  if (customerState.status_label_key) return labelForKey(customerState.status_label_key);
   const status = order.public_status || order.status || "";
   return {
     waiting: t("waiting"),
@@ -1325,6 +1360,8 @@ function statusLabel(order) {
     refund_pending: t("refundPending"),
     waiting_for_call: t("waitingForCall"),
     waiting_for_recording: t("waitingForRecording"),
+    failed: t("failed"),
+    expired: t("expired"),
     finished: t("finished"),
   }[status] || status || t("activeStatus");
 }
@@ -1341,7 +1378,7 @@ function customerStateText(order) {
     waiting_for_recording: t("recordingWaitHelp"),
     call_received: t("callReceivedHelp"),
   };
-  return map[key] || customerState.message || customerState.message_key || "";
+  return map[key] || customerState.message || (customerState.message_key ? labelForKey(customerState.message_key) : "");
 }
 
 function orderWaitingForCode(order) {
