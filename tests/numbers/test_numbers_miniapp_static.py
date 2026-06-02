@@ -97,7 +97,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     css = (ROOT / "webapp" / "numbers_v2" / "styles.css").read_text(encoding="utf-8")
 
     assert "/mini/numbers-v2/static/app.js" in index
-    assert "20260602-v2-008" in index
+    assert "20260602-v2-009" in index
     assert 'html lang="en" dir="ltr"' in index
     assert "شراء رقم جديد" not in index
     assert "state.clientActions = bootstrap.client?.actions || {}" in app
@@ -131,8 +131,9 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function servicePickerRows()" in app
     assert "function notListedServiceRow(query)" in app
     assert "function fetchPricePayload(service)" in app
-    assert "timeoutMs" not in app
-    assert "AbortController" not in app
+    assert "AbortController" in app
+    assert "function updateOrderInState(order)" in app
+    assert "function testActiveMessage(order)" in app
     assert "انتهت مهلة الاتصال" not in app
     assert "function looksLikeHtmlResponse(text)" in app
     assert 'code: "server_unavailable"' in app

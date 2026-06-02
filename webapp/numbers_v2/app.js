@@ -200,6 +200,11 @@ const i18n = {
     copyCode: "نسخ الكود",
     firstCode: "الكود الأول",
     codeIndex: "كود",
+    requestTimeout: "العملية تأخرت. جرّب مرة ثانية بعد لحظات.",
+    numberActiveNoNewCode: "الرقم ما زال نشط. لا يوجد كود جديد بعد.",
+    numberActiveCodeReceived: "الرقم نشط والكود متاح.",
+    callStillActive: "الطلب نشط. لا يوجد تسجيل جديد بعد.",
+    rentalStillActive: "الإيجار نشط. تم طلب التنشيط.",
     refresh: "تحديث",
     secondCode: "كود ثاني",
     tryAnother: "رقم بديل",
@@ -364,6 +369,11 @@ const i18n = {
     copyCode: "Copy code",
     firstCode: "First code",
     codeIndex: "Code",
+    requestTimeout: "The operation took too long. Try again in a moment.",
+    numberActiveNoNewCode: "The number is still active. No new code yet.",
+    numberActiveCodeReceived: "The number is active and the code is available.",
+    callStillActive: "The order is active. No new recording yet.",
+    rentalStillActive: "The rental is active. Wake was requested.",
     refresh: "Refresh",
     secondCode: "Second code",
     tryAnother: "Replacement",
@@ -604,6 +614,7 @@ function hideBusy() {
 }
 
 function friendlyError(error) {
+  if (error?.name === "AbortError") return t("requestTimeout");
   const payload = error?.payload || {};
   const code = payload.code || payload.error_code || "";
   if (code === "server_unavailable") return t("serverUnavailable");
@@ -1461,22 +1472,55 @@ async function runOrderAction(order, key, button) {
   if (!action?.endpoint) return;
   setBusy(button, true);
   showBusy(labelForKey(action.busy_label_key || "working"));
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), key === "test_active" ? 20000 : 30000);
   try {
     const payload = await api(action.endpoint, {
       method: action.method || "POST",
       body: action.body || {},
       headers: action.idempotency_key ? { "Idempotency-Key": action.idempotency_key } : {},
+      signal: controller.signal,
     });
     if (payload.balance_label) els.balance.textContent = payload.balance_label;
     mergeActions(payload);
+    if (payload.order) updateOrderInState(payload.order);
+    if (key === "test_active") {
+      renderOrders();
+      renderSupportOrders();
+      showToast(testActiveMessage(payload.order || order), "success");
+      return;
+    }
     showToast(payload.message || t("orderUpdated"), "success");
     await loadOrders();
   } catch (error) {
     showToast(friendlyError(error), "danger");
   } finally {
+    window.clearTimeout(timeout);
     hideBusy();
     setBusy(button, false);
   }
+}
+
+function updateOrderInState(order) {
+  if (!order?.id) return;
+  const rows = Array.isArray(state.orders) ? state.orders : [];
+  const index = rows.findIndex((item) => String(item.id || "") === String(order.id));
+  if (index >= 0) {
+    state.orders = rows.map((item, idx) => idx === index ? { ...item, ...order } : item);
+    return;
+  }
+  state.orders = [order, ...rows];
+}
+
+function testActiveMessage(order) {
+  const mode = orderMode(order);
+  const status = String(order?.public_status || order?.status || "").toLowerCase();
+  if (mode === "rental") return t("rentalStillActive");
+  if (mode === "voice") return status.includes("call") || order?.recording_available ? t("numberActiveCodeReceived") : t("callStillActive");
+  if (status === "code_received" || order?.code || (Array.isArray(order?.codes) && order.codes.length > 1)) {
+    return t("numberActiveCodeReceived");
+  }
+  return t("numberActiveNoNewCode");
 }
 
 async function loadOrders() {
