@@ -16,6 +16,9 @@ TEMP_REUSE_WARRANTY_FALLBACK_SEC = 900
 TEMP_REUSE_WARRANTY_SEC_BY_PROVIDER: dict[str, int] = {}
 TEMP_WAIT_TIMEOUT_SEC_BY_PROVIDER: dict[str, int] = {
     "pvadeals": 20 * 60,
+    "smspool": 20 * 60,
+    "telabot": 20 * 60,
+    "textverified": 20 * 60,
 }
 TEMP_POLL_INTERVALS = {
     "nonvoip": 6,
