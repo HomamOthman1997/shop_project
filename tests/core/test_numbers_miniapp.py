@@ -883,7 +883,7 @@ def test_numbers_temp_order_payload_exposes_second_code_action():
     assert payload["actions"]["refresh"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/refresh"
     assert payload["actions"]["refresh"]["busy_label_key"] == "checkingOrder"
     assert payload["actions"]["test_active"]["enabled"] is True
-    assert payload["actions"]["test_active"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/refresh"
+    assert payload["actions"]["test_active"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/test-active"
     assert payload["actions"]["test_active"]["label_key"] == "testActive"
     assert payload["actions"]["second_code"]["enabled"] is True
     assert payload["actions"]["second_code"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/second-code"
@@ -1759,6 +1759,82 @@ async def test_numbers_miniapp_refresh_voice_uses_shared_refresh_service(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_numbers_miniapp_test_active_does_not_auto_refund(monkeypatch):
+    now = datetime.now(UTC)
+    raw_id = "64b64c0f0f0f0f0f0f0f0f10"
+    stored = {
+        "_id": raw_id,
+        "number_mode": "temp",
+        "status": "success",
+        "user_id": 123,
+        "reseller_id": 123,
+        "provider": "smspool",
+        "provider_order_id": "pool-1",
+        "provider_number": "+15703604255",
+        "temp_service_key": "gmail",
+        "temp_country": "1",
+        "selling_price": 0.83,
+        "base_price": 0.75,
+        "created_at": now - timedelta(minutes=20),
+        "temp_wait_started_at": now - timedelta(minutes=20),
+        "temp_wait_timeout_sec": 300,
+        "temp_wait_state": "waiting",
+        "temp_codes": [],
+        "temp_codes_count": 0,
+    }
+    calls: dict = {}
+
+    async def _fake_get_order(_order_id):
+        return dict(stored)
+
+    async def _fake_load_or_create_user(_auth):
+        return {"language": "en"}
+
+    async def _fake_api_refresh(order, *, allow_auto_refund=True):
+        calls["refresh"] = {"order": dict(order), "allow_auto_refund": allow_auto_refund}
+        stored["temp_last_refresh_mode"] = "manual_test_active"
+        return {"ok": True, "message": "No SMS yet.", "order": {"id": raw_id}}
+
+    async def _fake_order_payload_with_events(order, lang):
+        return {
+            "id": str(order.get("_id")),
+            "mode": order.get("number_mode"),
+            "public_status": "waiting",
+            "wait_state": order.get("temp_wait_state"),
+            "actions": {},
+        }
+
+    async def _fake_balance(user_id, reseller_id):
+        return 4.25
+
+    monkeypatch.setattr(
+        miniapp,
+        "_require_auth",
+        lambda _request: {"user_id": 123, "user": {"language_code": "en"}},
+    )
+    monkeypatch.setattr(miniapp, "_load_or_create_user", _fake_load_or_create_user)
+    monkeypatch.setattr(miniapp, "get_order", _fake_get_order)
+    monkeypatch.setattr(miniapp, "_api_refresh_number_order", _fake_api_refresh)
+    monkeypatch.setattr(miniapp, "_order_payload_with_events", _fake_order_payload_with_events)
+    monkeypatch.setattr(miniapp, "get_user_wallet_balance", _fake_balance)
+
+    request = make_mocked_request(
+        "POST",
+        f"/mini/numbers/api/orders/{raw_id}/test-active",
+        match_info={"order_id": raw_id},
+    )
+
+    response = await miniapp.test_active_order(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["refresh"]["order"]["_id"] == raw_id
+    assert calls["refresh"]["allow_auto_refund"] is False
+    assert payload["order"]["public_status"] == "waiting"
+    assert payload["balance_label"] == "$4.25"
+
+
+@pytest.mark.asyncio
 async def test_cancel_temp_order_marks_financial_refund_failure_retryable(monkeypatch):
     now = datetime.now(UTC)
     order = {
@@ -2111,6 +2187,7 @@ def test_register_numbers_routes_adds_public_endpoints():
     assert ("GET", "/mini/numbers/api/orders") in routes
     assert ("POST", "/mini/numbers/api/purchase") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/refresh") in routes
+    assert ("POST", "/mini/numbers/api/orders/{order_id}/test-active") in routes
     assert ("GET", "/mini/numbers/api/orders/{order_id}/recording") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/second-code") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/replace") in routes

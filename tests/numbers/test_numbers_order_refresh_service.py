@@ -191,6 +191,54 @@ async def test_refresh_number_order_polls_when_waiting_for_second_code(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_refresh_number_order_can_skip_auto_refund_on_timeout(monkeypatch):
+    calls = {}
+    order = {
+        "_id": "order-1",
+        "status": "success",
+        "number_mode": "temp",
+        "provider": "smspool",
+        "provider_order_id": "pool-1",
+        "user_id": 123,
+        "reseller_id": 456,
+        "created_at": datetime(2026, 5, 25, 12, 0, tzinfo=UTC),
+        "temp_wait_started_at": datetime(2026, 5, 25, 12, 0, tzinfo=UTC),
+        "temp_wait_timeout_sec": 60,
+        "temp_wait_state": "waiting",
+        "temp_codes": [],
+        "temp_codes_count": 0,
+    }
+
+    async def fake_get_order(order_id):
+        if calls.get("patch"):
+            return {**order, **calls["patch"]}
+        return order
+
+    async def fake_auto_refund_temp_order_if_due(order_arg):
+        calls["refund"] = order_arg
+        return {"ok": True, "refunded": True, "order": {"id": "refunded"}}
+
+    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id):
+        calls["fetch"] = (provider_code, provider_order_id)
+        return {"success": True, "messages": [], "raw": {}}
+
+    async def fake_update_order_details(order_id, patch):
+        calls["patch"] = patch
+
+    monkeypatch.setattr(order_refresh_service, "get_order", fake_get_order)
+    monkeypatch.setattr(order_refresh_service, "auto_refund_temp_order_if_due", fake_auto_refund_temp_order_if_due)
+    monkeypatch.setattr(order_refresh_service, "fetch_provider_sms", fake_fetch_provider_sms)
+    monkeypatch.setattr(order_refresh_service, "update_order_details", fake_update_order_details)
+    monkeypatch.setattr(order_refresh_service, "_utc_now", lambda: datetime(2026, 5, 25, 12, 5, tzinfo=UTC))
+
+    result = await order_refresh_service.refresh_number_order(order, allow_auto_refund=False)
+
+    assert "refund" not in calls
+    assert calls["fetch"] == ("smspool", "pool-1")
+    assert result["order"]["public_status"] == "waiting"
+
+
+@pytest.mark.asyncio
 async def test_refresh_number_order_polls_explicit_polling_provider_when_global_polling_is_off(monkeypatch):
     calls = {}
     order = {

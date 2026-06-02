@@ -25,7 +25,7 @@ from services.platform.webhooks import enqueue_event_for_user
 _CLOSED_STATUSES = {"cancelled", "failed", "refunded", "expired"}
 
 
-async def refresh_number_order(order: dict[str, Any]) -> dict[str, Any]:
+async def refresh_number_order(order: dict[str, Any], *, allow_auto_refund: bool = True) -> dict[str, Any]:
     if not isinstance(order, dict) or not order.get("_id"):
         raise NumbersOrderError("order_not_found", "Order was not found.", status=404)
 
@@ -46,7 +46,7 @@ async def refresh_number_order(order: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "order": public_order_payload(current)}
 
     timeout_reached = _temp_elapsed_sec(current) >= _order_temp_timeout_sec(current)
-    if timeout_reached or str(current.get("temp_wait_state") or "").strip().lower() == "refund_pending":
+    if allow_auto_refund and (timeout_reached or str(current.get("temp_wait_state") or "").strip().lower() == "refund_pending"):
         refund_result = await auto_refund_temp_order_if_due(current)
         refreshed_order = (refund_result.get("order") if isinstance(refund_result.get("order"), dict) else None)
         if refund_result.get("refunded"):

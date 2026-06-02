@@ -2686,7 +2686,7 @@ def _miniapp_order_actions(payload: dict[str, Any]) -> dict[str, dict[str, Any]]
     mode = str((payload or {}).get("mode") or "temp").strip().lower() or "temp"
 
     refresh_label = "checkCall" if mode == "voice" else "refresh"
-    test_active_endpoint = f"{base}/wake" if mode == "rental" else f"{base}/refresh"
+    test_active_endpoint = f"{base}/wake" if mode == "rental" else f"{base}/test-active"
     test_active_enabled = bool(payload.get("can_wake")) if mode == "rental" else bool(payload.get("can_refresh", False))
 
     actions: dict[str, dict[str, Any]] = {
@@ -4309,6 +4309,68 @@ async def refresh_order(request: web.Request) -> web.Response:
 
     return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
 
+async def test_active_order(request: web.Request) -> web.Response:
+
+    auth = _require_auth(request)
+
+    user_doc = await _load_or_create_user(auth)
+
+    lang = _lang_from_user(user_doc, auth)
+
+    raw_id = str(request.match_info.get("order_id") or "").strip()
+
+    try:
+
+        order_id = ObjectId(raw_id)
+
+    except Exception:
+
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+
+    order = await get_order(order_id)
+
+    if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
+
+        return _json_error(_text(lang, "Order not found.", "الطلب غير موجود."), status=404, code="order_not_found")
+
+    api_result: dict[str, Any] = {}
+
+    try:
+
+        api_result = await _api_refresh_number_order(order, allow_auto_refund=False)
+        refreshed = await get_order(order_id) or order
+
+    except ApiNumbersOrderError as exc:
+
+        refreshed = await get_order(order_id) or order
+        return _json_error(exc.message, status=exc.status, code=exc.code, order=await _order_payload_with_events(refreshed, lang))
+
+    except Exception:
+
+        logger.exception("numbers miniapp test-active failed: order=%s", raw_id)
+
+        refreshed = order
+
+    payload: dict[str, Any] = {
+        "ok": True,
+        "order": await _order_payload_with_events(refreshed, lang),
+        "message": str((api_result or {}).get("message") or ""),
+    }
+
+    try:
+
+        balance = await get_user_wallet_balance(int(auth["user_id"]), int(auth["user_id"]))
+
+        payload["balance"] = float(balance)
+
+        payload["balance_label"] = _money(balance)
+
+    except Exception:
+
+        pass
+
+    return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
+
 async def download_recording(request: web.Request) -> web.Response:
 
     auth = _require_auth(request)
@@ -4931,6 +4993,8 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_post("/mini/numbers/api/purchase", purchase_temp)
 
     app.router.add_post("/mini/numbers/api/orders/{order_id}/refresh", refresh_order)
+
+    app.router.add_post("/mini/numbers/api/orders/{order_id}/test-active", test_active_order)
 
     app.router.add_get("/mini/numbers/api/orders/{order_id}/recording", download_recording)
 
