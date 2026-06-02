@@ -659,6 +659,9 @@ def normalize_temp_quote_rows(
                 "country": country,
                 "state": state,
                 "provider": code,
+                "provider_country": str(info.get("provider_country") or "").strip(),
+                "provider_country_iso": provider_country_iso,
+                "provider_state_code": provider_state_code,
             }
         )
         rows.append(

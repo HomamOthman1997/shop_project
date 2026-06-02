@@ -541,6 +541,7 @@ async def _resolve_temp_offer_from_quote(quote_token: str) -> dict[str, Any]:
     country = str(quote.get("country") or "none").strip() or "none"
     state = str(quote.get("state") or "none").strip() or "none"
     provider_code = str(quote.get("provider") or "").strip().lower()
+    quote_provider_country = str(quote.get("provider_country") or "").strip()
     if not provider_code:
         provider_code = provider_code_from_public_id(
             quote.get("provider_id"),
@@ -556,9 +557,10 @@ async def _resolve_temp_offer_from_quote(quote_token: str) -> dict[str, Any]:
             status=409,
         )
 
+    pricing_country = quote_provider_country or country
     prices = await get_all_prices(
         service,
-        country,
+        pricing_country,
         state,
         ignore_balance=True,
         with_success_rates=False,

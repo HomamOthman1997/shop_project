@@ -335,6 +335,43 @@ async def test_create_temp_order_from_quote_success(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_resolve_temp_offer_uses_provider_country_from_quote(monkeypatch):
+    calls = {}
+    quote = make_quote_token(
+        {
+            "mode": "temp",
+            "service": "whatsapp",
+            "country": "none",
+            "state": "none",
+            "provider": "herosms",
+            "provider_country": "102",
+            "provider_country_iso": "GR",
+        }
+    )
+
+    async def fake_get_all_prices(service, country, state, **kwargs):
+        calls["prices"] = (service, country, state, kwargs)
+        return {
+            "herosms": {
+                "price": 0.25,
+                "base_price": 0.25,
+                "api_service_name": "wa",
+                "provider_country": "102",
+                "provider_country_iso": "GR",
+                "available_for_buy": True,
+            }
+        }
+
+    monkeypatch.setattr(order_service, "get_all_prices", fake_get_all_prices)
+
+    offer = await order_service._resolve_temp_offer_from_quote(quote)
+
+    assert calls["prices"][0:3] == ("whatsapp", "102", "none")
+    assert offer["country"] == "none"
+    assert offer["info"]["provider_country"] == "102"
+
+
+@pytest.mark.asyncio
 async def test_create_temp_order_marks_smsready_as_webhook_delivery(monkeypatch):
     calls = {"details": [], "statuses": [], "events": [], "temp_events": []}
     quote = make_quote_token({"mode": "temp", "service": "telegram", "country": "1", "state": "none", "provider": "smsready"})

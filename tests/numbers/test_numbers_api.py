@@ -376,6 +376,8 @@ async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
                 "price": 0.44,
                 "api_service_name": "telegram",
                 "available_for_buy": True,
+                "provider_country": "102",
+                "provider_country_iso": "GR",
                 "recommended_success_rate": 91,
                 "success_attempts": 5,
             },
@@ -414,6 +416,8 @@ async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
     assert payload["providers"][0]["quote_token"]
     quote = api_payloads.verify_quote_token(payload["providers"][0]["quote_token"])
     assert quote["provider_id"] == payload["providers"][0]["provider_id"]
+    assert quote["provider_country"] == "102"
+    assert quote["provider_country_iso"] == "GR"
     assert "provider" not in quote
     assert response.headers["X-RateLimit-Bucket"] == "numbers:quotes"
 
