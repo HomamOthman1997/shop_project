@@ -2,13 +2,21 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
-from database.orders_repo import list_api_temp_orders_for_auto_refund, update_order_details
+from database.orders_repo import list_api_temp_orders_for_auto_refund, update_order_details, update_order_status
+from services.numbers.manager import PROVIDERS
 from services.numbers.order_cancel_service import cancel_number_order
 from services.numbers.order_service import public_order_payload
 from services.numbers.provider_readiness import provider_readiness
-from services.numbers.shared.events import _log_temp_event
+from services.numbers.shared.events import _log_number_event_from_order, _log_temp_event
 from services.numbers.shared.temp_order import _order_temp_timeout_sec, _temp_elapsed_sec, _temp_order_has_received_code, _utc_now
-from services.numbers.shared.temp_refund import temp_refund_result_retryable
+from services.numbers.shared.temp_refund import (
+    finalize_temp_local_refund,
+    order_provider_code,
+    order_provider_order_id,
+    provider_terminal_refund_reason,
+    temp_refund_result_retryable,
+)
+from utils.financial_manager import FinancialManager
 
 
 _CLOSED_STATUSES = {"cancelled", "failed", "refunded", "expired"}
@@ -58,6 +66,10 @@ async def auto_refund_temp_order_if_due(
             "order": public_order_payload(order),
         }
 
+    already_refunded = await _finalize_if_provider_already_closed(order, user_id)
+    if already_refunded:
+        return already_refunded
+
     try:
         result = await cancel_number_order(
             order,
@@ -84,6 +96,47 @@ async def auto_refund_temp_order_if_due(
             "order": public_order_payload(marked_order),
         }
     return {"ok": True, "refunded": True, "reason": "timeout_no_code", "order": result.get("order") or public_order_payload(order)}
+
+
+async def _finalize_if_provider_already_closed(order: dict[str, Any], user_id: int) -> dict[str, Any] | None:
+    provider = order_provider_code(order)
+    provider_order_id = order_provider_order_id(order)
+    if not provider or not provider_order_id:
+        return None
+    prov = PROVIDERS.get(provider)
+    if not prov or not hasattr(prov, "get_sms"):
+        return None
+    try:
+        provider_status = await prov.get_sms(provider_order_id)
+    except Exception:
+        return None
+    raw = (provider_status or {}).get("raw") if isinstance(provider_status, dict) else provider_status
+    terminal_reason = provider_terminal_refund_reason(raw, allow_missing=True, allow_empty=False)
+    if not terminal_reason:
+        return None
+    result = await finalize_temp_local_refund(
+        order_id=order["_id"],
+        order=order,
+        actor_user_id=int(user_id),
+        reason="numbers_api_timeout_provider_already_closed",
+        financial_manager=FinancialManager,
+        update_order_status_fn=update_order_status,
+        update_order_details_fn=update_order_details,
+        log_temp_event_fn=_log_temp_event,
+        log_number_event_from_order_fn=_log_number_event_from_order,
+        provider_raw=raw,
+        provider_terminal_reason=terminal_reason,
+        source="numbers_api_auto_refund_provider_status",
+        status_after="cancelled",
+    )
+    if not result.get("success"):
+        return None
+    return {
+        "ok": True,
+        "refunded": True,
+        "reason": "provider_already_closed",
+        "order": public_order_payload({**order, "status": "cancelled", "temp_wait_state": "refunded"}),
+    }
 
 
 async def run_numbers_api_auto_refund_sweep(

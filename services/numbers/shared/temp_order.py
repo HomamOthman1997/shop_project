@@ -14,6 +14,9 @@ TEMP_REFRESH_COOLDOWN_SEC = 60
 TEMP_REFUND_RETRY_WINDOW_SEC = 900
 TEMP_REUSE_WARRANTY_FALLBACK_SEC = 900
 TEMP_REUSE_WARRANTY_SEC_BY_PROVIDER: dict[str, int] = {}
+TEMP_WAIT_TIMEOUT_SEC_BY_PROVIDER: dict[str, int] = {
+    "pvadeals": 20 * 60,
+}
 TEMP_POLL_INTERVALS = {
     "nonvoip": 6,
     "smspool": 8,
@@ -438,6 +441,16 @@ def _extract_provider_wait_timeout_sec(buy_res: dict | None) -> int | None:
     if duration <= 0:
         return None
     return max(60, duration - TEMP_PROVIDER_SAFETY_BUFFER_SEC)
+
+
+def _provider_temp_wait_timeout_sec(provider_code: str | None, provider_timeout_sec: int | None = None) -> int:
+    provider = str(provider_code or "").strip().lower()
+    configured = int(TEMP_WAIT_TIMEOUT_SEC_BY_PROVIDER.get(provider, TEMP_WAIT_TIMEOUT_SEC))
+    try:
+        provider_timeout = int(provider_timeout_sec or 0)
+    except (TypeError, ValueError):
+        provider_timeout = 0
+    return max(TEMP_WAIT_TIMEOUT_SEC, configured, provider_timeout)
 
 
 def _order_temp_timeout_sec(order: dict | None) -> int:

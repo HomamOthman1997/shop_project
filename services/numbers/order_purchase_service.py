@@ -9,10 +9,10 @@ from services.numbers.order_rental_protection_service import rental_protection_p
 from services.numbers.provider_delivery import provider_sms_delivery_strategy
 from services.numbers.shared.events import _log_number_event_from_order, _log_rental_event, _log_temp_event
 from services.numbers.shared.temp_order import (
-    TEMP_WAIT_TIMEOUT_SEC,
     _coerce_utc_datetime,
     _extract_provider_wait_timeout_sec,
     _poll_interval_for_provider,
+    _provider_temp_wait_timeout_sec,
     _resolve_reuse_warranty_sec,
     _utc_now,
 )
@@ -118,8 +118,7 @@ async def provision_charged_temp_order(
     provider_pool = str(buy_res.get("pool") or "").strip() or None
     interval_sec = _poll_interval_for_provider(str(provider_code))
     provider_timeout_sec = _extract_provider_wait_timeout_sec(buy_res)
-    if provider_timeout_sec:
-        provider_timeout_sec = max(TEMP_WAIT_TIMEOUT_SEC, int(provider_timeout_sec))
+    wait_timeout_sec = _provider_temp_wait_timeout_sec(provider_code, provider_timeout_sec)
     now = _utc_now()
     reuse_warranty_sec = _resolve_reuse_warranty_sec(provider_code, buy_res)
     reuse_until = datetime.fromtimestamp(now.timestamp() + int(reuse_warranty_sec), tz=UTC)
@@ -139,7 +138,7 @@ async def provision_charged_temp_order(
         "temp_reuse_warranty_until": reuse_until,
         "temp_reuse_warranty_sec": reuse_warranty_sec,
         "temp_wait_interval_sec": interval_sec,
-        "temp_wait_timeout_sec": provider_timeout_sec if provider_timeout_sec else TEMP_WAIT_TIMEOUT_SEC,
+        "temp_wait_timeout_sec": wait_timeout_sec,
         "temp_last_refresh_at": None,
         "temp_replace_enabled": False,
         "temp_codes": [],
@@ -199,7 +198,7 @@ async def provision_charged_temp_order(
         "number": number,
         "provider_pool": provider_pool,
         "interval_sec": interval_sec,
-        "provider_timeout_sec": provider_timeout_sec if provider_timeout_sec else TEMP_WAIT_TIMEOUT_SEC,
+        "provider_timeout_sec": wait_timeout_sec,
         "reuse_warranty_sec": reuse_warranty_sec,
         "raw": buy_res,
     }

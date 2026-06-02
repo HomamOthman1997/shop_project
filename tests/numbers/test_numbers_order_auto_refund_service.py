@@ -67,6 +67,39 @@ async def test_auto_refund_delegates_to_provider_aware_cancel(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_auto_refund_finalizes_local_refund_when_provider_already_closed(monkeypatch):
+    calls = {}
+
+    class Provider:
+        async def get_sms(self, provider_order_id):
+            calls["get_sms"] = provider_order_id
+            return {"success": True, "messages": [], "raw": {"status": "refunded", "note": "Refund For Timeout"}}
+
+    async def fake_cancel_number_order(order, **kwargs):
+        calls["cancel"] = True
+        return {"ok": True, "order": {"id": order["_id"], "status": "cancelled"}}
+
+    async def fake_finalize_temp_local_refund(**kwargs):
+        calls["finalize"] = kwargs
+        return {"success": True, "reason": "ok"}
+
+    monkeypatch.setitem(order_auto_refund_service.PROVIDERS, "pvadeals", Provider())
+    monkeypatch.setattr(order_auto_refund_service, "cancel_number_order", fake_cancel_number_order)
+    monkeypatch.setattr(order_auto_refund_service, "finalize_temp_local_refund", fake_finalize_temp_local_refund)
+
+    result = await order_auto_refund_service.auto_refund_temp_order_if_due(
+        due_order(provider="pvadeals", provider_order_id="pva-1")
+    )
+
+    assert calls["get_sms"] == "pva-1"
+    assert "cancel" not in calls
+    assert calls["finalize"]["provider_terminal_reason"] == "provider_already_refunded"
+    assert calls["finalize"]["source"] == "numbers_api_auto_refund_provider_status"
+    assert result["refunded"] is True
+    assert result["reason"] == "provider_already_closed"
+
+
+@pytest.mark.asyncio
 async def test_auto_refund_marks_refund_pending_on_retryable_provider_failure(monkeypatch):
     calls = {}
 
