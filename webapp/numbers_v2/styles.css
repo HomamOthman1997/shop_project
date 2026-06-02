@@ -698,69 +698,50 @@ body:not(.app-booting) .boot-screen { display: none; }
   line-height: 1.55;
 }
 .recharge-method-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 8px;
 }
 .recharge-method-card {
-  width: 100%;
-  display: grid;
-  align-content: start;
-  min-height: 128px;
-  gap: 9px;
-  padding: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 118px;
+  max-width: 100%;
+  min-height: 42px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
   color: var(--text);
-  text-align: right;
+  box-shadow: var(--soft-shadow);
+  text-align: center;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 .recharge-method-card.selected {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
-}
-.method-main {
-  display: grid;
-  gap: 5px;
-}
-.method-main h3 {
-  min-height: 34px;
-  margin-bottom: 0;
-  line-height: 1.25;
-}
-.method-main p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-}
-.method-main > strong {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
   color: var(--accent);
-  font-size: 11px;
-  line-height: 1.35;
-  text-align: right;
 }
-.method-price-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
-}
-.method-price-grid div {
-  min-width: 0;
-  padding: 0;
-  border-radius: 8px;
-  background: transparent;
-}
-.method-price-grid span {
-  display: block;
+.proof-input {
+  padding: 10px;
+  border-style: dashed;
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 850;
 }
-.method-price-grid strong {
-  display: block;
-  margin-top: 3px;
-  overflow-wrap: anywhere;
-  color: var(--text);
-  font-size: 11px;
-  line-height: 1.3;
+.proof-input::file-selector-button {
+  min-height: 34px;
+  margin-inline-end: 10px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 900;
+  cursor: pointer;
 }
 .account-activity {
   display: grid;
@@ -802,7 +783,10 @@ body:not(.app-booting) .boot-screen { display: none; }
 }
 @media (max-width: 340px) {
   .recharge-method-grid {
-    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .recharge-method-card {
+    min-width: calc(50% - 3px);
   }
 }
 .order-card {
@@ -1169,10 +1153,6 @@ body.lang-en .live-line {
 body.lang-en .live-line::before {
   margin-left: 0;
   margin-right: 7px;
-}
-
-body.lang-en .method-main > strong {
-  text-align: left;
 }
 
 @media (min-width: 431px) {

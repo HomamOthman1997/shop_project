@@ -1688,21 +1688,9 @@ function rechargeRateLabel(method) {
 function renderRechargeMethodCard(method) {
   const card = document.createElement("button");
   card.type = "button";
-  card.className = `method-card recharge-method-card${String(els.rechargeMethod.value || "") === String(method.code || "") ? " selected" : ""}`;
-  card.innerHTML = `
-    <div class="method-main">
-      <div>
-        <h3>${method.title || method.code || t("paymentMethod")}</h3>
-        <p>${method.currency || "USD"}</p>
-      </div>
-      <strong>${method.rate_label || rechargeRateLabel(method)}</strong>
-    </div>
-    <div class="method-price-grid">
-      <div><span>${t("creditPrice")}</span><strong>${method.rate_label || rechargeRateLabel(method)}</strong></div>
-      <div><span>${t("currency")}</span><strong>${method.currency || "USD"}</strong></div>
-      <div><span>${t("paymentAddress")}</span><strong>${method.target || "-"}</strong></div>
-    </div>
-  `;
+  card.className = `recharge-method-card${String(els.rechargeMethod.value || "") === String(method.code || "") ? " selected" : ""}`;
+  card.textContent = method.title || method.code || t("paymentMethod");
+  card.setAttribute("aria-pressed", String(els.rechargeMethod.value || "") === String(method.code || ""));
   card.addEventListener("click", () => {
     els.rechargeMethod.value = method.code || "";
     updateRechargeMethodDetails();
