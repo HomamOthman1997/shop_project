@@ -2178,6 +2178,7 @@ def test_register_numbers_routes_adds_public_endpoints():
     assert ("GET", "/mini/numbers/api/country-suggestions") in routes
     assert ("GET", "/mini/numbers/api/account") in routes
     assert ("POST", "/mini/numbers/api/account/language") in routes
+    assert ("GET", "/mini/numbers/api/account/activity") in routes
     assert ("GET", "/mini/numbers/api/account/activity.csv") in routes
     assert ("GET", "/mini/numbers/api/recharge") in routes
     assert ("POST", "/mini/numbers/api/recharge/submit") in routes

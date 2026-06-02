@@ -561,6 +561,12 @@ body:not(.app-booting) .boot-screen { display: none; }
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--surface)), var(--surface));
   box-shadow: var(--soft-shadow);
 }
+.account-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
 .account-hero span,
 .account-hero p {
   display: block;
@@ -576,6 +582,46 @@ body:not(.app-booting) .boot-screen { display: none; }
   font-size: 30px;
   line-height: 1;
   font-weight: 950;
+}
+.account-user-id {
+  min-width: 96px;
+  text-align: end;
+}
+.account-user-id b {
+  display: block;
+  margin-top: 7px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.account-language-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--soft-shadow);
+}
+.account-language-panel span,
+.account-language-panel strong {
+  display: block;
+}
+.account-language-panel span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+.account-language-panel strong {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 13px;
+}
+.account-language-button {
+  white-space: nowrap;
 }
 .quick-actions {
   display: grid;
@@ -747,9 +793,29 @@ body:not(.app-booting) .boot-screen { display: none; }
   display: grid;
   gap: 8px;
 }
+.account-activity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
 .account-activity > h3 {
   margin: 4px 0 2px;
   font-size: 15px;
+}
+.account-activity-head h3 {
+  margin: 4px 0 2px;
+  font-size: 15px;
+}
+.activity-toggle {
+  width: 34px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 17px;
+  font-weight: 950;
 }
 .activity-row {
   display: flex;

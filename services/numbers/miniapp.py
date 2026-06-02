@@ -338,6 +338,11 @@ def _miniapp_surface_actions() -> dict[str, dict[str, Any]]:
             "/mini/numbers/api/account/activity.csv",
             label_key="downloadActivity",
         ),
+        "account_activity": _miniapp_surface_action(
+            "account_activity",
+            "/mini/numbers/api/account/activity",
+            label_key="walletActivity",
+        ),
         "orders": _miniapp_surface_action(
             "orders",
             "/mini/numbers/api/orders",
@@ -1050,7 +1055,7 @@ async def _account_payload(user_doc: dict[str, Any], auth: dict[str, Any]) -> di
         "actions": {
             key: value
             for key, value in _miniapp_surface_actions().items()
-            if key in {"change_language", "account_activity_export", "recharge", "support", "orders"}
+            if key in {"change_language", "account_activity", "account_activity_export", "recharge", "support", "orders"}
         },
 
     }
@@ -3703,6 +3708,28 @@ async def account_language(request: web.Request) -> web.Response:
 
     return web.json_response(await _account_payload(updated, auth), headers=dict(_NO_STORE_HEADERS))
 
+async def account_activity(request: web.Request) -> web.Response:
+
+    auth = _require_auth(request)
+
+    user_doc = await _load_or_create_user(auth)
+
+    lang = _lang_from_user(user_doc, auth)
+
+    try:
+
+        entries = await list_user_wallet_entries(int(auth["user_id"]), int(auth["user_id"]), limit=500)
+
+        rows = _ledger_activity_payload(entries, lang, await _ledger_activity_orders(entries))
+
+    except Exception:
+
+        logger.exception("numbers miniapp account activity failed user=%s", auth.get("user_id"))
+
+        rows = []
+
+    return web.json_response({"ok": True, "activity": rows}, headers=dict(_NO_STORE_HEADERS))
+
 async def account_activity_csv(request: web.Request) -> web.Response:
 
     auth = _require_auth(request)
@@ -4975,6 +5002,8 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_get("/mini/numbers/api/account", account)
 
     app.router.add_post("/mini/numbers/api/account/language", account_language)
+
+    app.router.add_get("/mini/numbers/api/account/activity", account_activity)
 
     app.router.add_get("/mini/numbers/api/account/activity.csv", account_activity_csv)
 

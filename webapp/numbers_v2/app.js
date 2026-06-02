@@ -28,6 +28,8 @@ const state = {
   orderFilter: "active",
   numberModeFilter: "temp",
   pendingSupportReport: null,
+  accountActivityExpanded: false,
+  accountActivityAll: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -166,6 +168,12 @@ const i18n = {
     availableBalance: "الرصيد المتاح",
     walletActivity: "سجل الرصيد والعمليات",
     walletActivityLimited: "آخر 4 عمليات",
+    walletActivityAll: "كل العمليات",
+    showAllActivity: "عرض كل السجل",
+    hideActivity: "طي السجل",
+    changeLanguage: "تبديل اللغة",
+    languageChanged: "تم تغيير اللغة",
+    userId: "معرف المستخدم",
     downloadActivity: "تنزيل كل السجل",
     noWalletActivity: "لا توجد عمليات مسجلة بعد",
     activeOrders: "الطلبات النشطة",
@@ -337,6 +345,12 @@ const i18n = {
     availableBalance: "Available balance",
     walletActivity: "Wallet and activity log",
     walletActivityLimited: "Latest 4 entries",
+    walletActivityAll: "All entries",
+    showAllActivity: "Show full log",
+    hideActivity: "Collapse log",
+    changeLanguage: "Switch language",
+    languageChanged: "Language changed",
+    userId: "User ID",
     downloadActivity: "Download full log",
     noWalletActivity: "No activity recorded yet",
     activeOrders: "Active orders",
@@ -1577,40 +1591,119 @@ function renderAccount() {
     els.accountContent.replaceChildren(emptyState(t("openTelegramAccount")));
     return;
   }
+  const activity = payload.recent_activity || [];
+  const fullActivity = state.accountActivityAll || [];
+  const visibleActivity = state.accountActivityExpanded && fullActivity.length ? fullActivity : activity;
+  const activityLabel = state.accountActivityExpanded ? t("walletActivityAll") : t("walletActivityLimited");
   const hero = document.createElement("section");
   hero.className = "account-hero";
-  const numbersCount = (state.orders || []).length;
-  const rechargeRequests = (state.recharge?.requests || []).length;
-  const activity = payload.recent_activity || [];
   hero.innerHTML = `
-    <span>${t("availableBalance")}</span>
-    <strong>${payload.balance_label || "-"}</strong>
+    <div class="account-hero-top">
+      <div>
+        <span>${t("availableBalance")}</span>
+        <strong>${payload.balance_label || "-"}</strong>
+      </div>
+      <div class="account-user-id">
+        <span>${t("userId")}</span>
+        <b>${payload.user.id || "-"}</b>
+      </div>
+    </div>
     <p>${payload.user.username ? `@${payload.user.username}` : "Telegram Mini App"}</p>
   `;
+  const languagePanel = document.createElement("section");
+  languagePanel.className = "account-language-panel";
+  const nextLanguage = state.lang === "ar" ? "en" : "ar";
+  languagePanel.innerHTML = `
+    <div>
+      <span>${t("language")}</span>
+      <strong>${payload.user.language_label || payload.user.language || "-"}</strong>
+    </div>
+  `;
+  const languageButton = document.createElement("button");
+  languageButton.type = "button";
+  languageButton.className = "inline-action account-language-button";
+  languageButton.textContent = `${t("changeLanguage")} · ${nextLanguage.toUpperCase()}`;
+  languageButton.addEventListener("click", () => changeAccountLanguage(nextLanguage, languageButton));
+  languagePanel.append(languageButton);
   const activityList = document.createElement("section");
   activityList.className = "account-activity";
-  activityList.innerHTML = `<h3>${t("walletActivity")}</h3><p class="status-text">${t("walletActivityLimited")}</p>`;
-  const activityRows = activity.length
-    ? activity.map(renderAccountActivity)
+  activityList.innerHTML = `
+    <div class="account-activity-head">
+      <div>
+        <h3>${t("walletActivity")}</h3>
+        <p class="status-text">${activityLabel}</p>
+      </div>
+    </div>
+  `;
+  const toggleButton = document.createElement("button");
+  toggleButton.type = "button";
+  toggleButton.className = "activity-toggle";
+  toggleButton.setAttribute("aria-expanded", String(state.accountActivityExpanded));
+  toggleButton.textContent = state.accountActivityExpanded ? "⌃" : "⌄";
+  toggleButton.addEventListener("click", () => toggleAccountActivity(toggleButton));
+  activityList.querySelector(".account-activity-head")?.append(toggleButton);
+  const activityRows = visibleActivity.length
+    ? visibleActivity.map(renderAccountActivity)
     : [emptyState(t("noWalletActivity"))];
   activityList.append(...activityRows);
-  const activityAction = state.account?.actions?.account_activity_export || state.clientActions?.account_activity_export;
-  if (activityAction?.endpoint) {
-    const downloadButton = document.createElement("button");
-    downloadButton.type = "button";
-    downloadButton.className = "ghost-button inline-action";
-    downloadButton.textContent = t("downloadActivity");
-    downloadButton.addEventListener("click", () => downloadActivityCsv(downloadButton));
-    activityList.append(downloadButton);
-  }
   els.accountContent.replaceChildren(
     hero,
-    infoCard(t("myNumbers"), String(numbersCount)),
-    infoCard(t("rechargeRequests"), String(rechargeRequests)),
-    infoCard("User ID", String(payload.user.id || "-")),
-    infoCard(t("language"), payload.user.language_label || payload.user.language || "-"),
+    languagePanel,
     activityList
   );
+}
+
+async function changeAccountLanguage(language, button) {
+  const previous = state.lang;
+  const action = actionFor("change_language", "/mini/numbers/api/account/language", "POST");
+  setBusy(button, true);
+  try {
+    const payload = await api(action.endpoint, { method: action.method || "POST", body: { language } });
+    mergeActions(payload);
+    state.account = payload;
+    state.recharge = payload.recharge || state.recharge;
+    state.accountActivityExpanded = false;
+    state.accountActivityAll = null;
+    setLanguage(payload.user?.language || language);
+    showToast(t("languageChanged"), "success");
+    renderNav();
+    renderModes();
+    renderBuy();
+    renderOrders();
+    renderRecharge();
+    renderSupportCategories();
+    renderAccount();
+  } catch (error) {
+    setLanguage(previous);
+    showToast(friendlyError(error), "danger");
+    renderAccount();
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+async function toggleAccountActivity(button) {
+  if (state.accountActivityExpanded) {
+    state.accountActivityExpanded = false;
+    renderAccount();
+    return;
+  }
+  state.accountActivityExpanded = true;
+  if (!state.accountActivityAll) {
+    const action = actionFor("account_activity", "/mini/numbers/api/account/activity");
+    setBusy(button, true);
+    try {
+      const payload = await api(action.endpoint, { method: action.method || "GET" });
+      mergeActions(payload);
+      state.accountActivityAll = payload.activity || [];
+    } catch (error) {
+      state.accountActivityExpanded = false;
+      showToast(friendlyError(error), "danger");
+    } finally {
+      setBusy(button, false);
+    }
+  }
+  renderAccount();
 }
 
 async function downloadActivityCsv(button) {
