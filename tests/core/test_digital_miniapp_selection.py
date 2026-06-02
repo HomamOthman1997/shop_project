@@ -27,6 +27,42 @@ class _DummyRequest:
         return dict(self._body)
 
 
+class _DummyQueryRequest:
+    def __init__(self, query):
+        self.query = dict(query)
+
+
+@pytest.mark.asyncio
+async def test_esim_offers_recommends_without_route_signature_mismatch(monkeypatch):
+    from services.digital_products import miniapp
+
+    async def _fake_offers(country, *, days, usage_key):
+        assert (country, days, usage_key) == ("Turkey", 7, "low")
+        return [
+            {
+                "offer_type": "single_country",
+                "coverage_full": True,
+                "price_usd": 4.0,
+                "_cost_price_usd": 4.0,
+                "summary": "Turkey 1GB",
+            },
+            {
+                "offer_type": "single_region",
+                "coverage_full": True,
+                "price_usd": 4.5,
+                "_cost_price_usd": 4.5,
+                "summary": "Regional 1GB",
+            },
+        ]
+
+    monkeypatch.setattr(miniapp, "build_single_country_offers_live", _fake_offers)
+
+    response = await miniapp.esim_offers(_DummyQueryRequest({"country": "Turkey", "days": "7", "usage": "low"}))
+
+    assert response.status == 200
+    assert '"recommended_index": 1' in response.text
+
+
 @pytest.mark.asyncio
 async def test_create_selection_uses_server_gift_quote(monkeypatch):
     from services.digital_products import miniapp

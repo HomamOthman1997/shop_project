@@ -880,6 +880,9 @@ def test_numbers_temp_order_payload_exposes_second_code_action():
     assert payload["actions"]["copy_code"]["enabled"] is True
     assert payload["actions"]["refresh"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/refresh"
     assert payload["actions"]["refresh"]["busy_label_key"] == "checkingOrder"
+    assert payload["actions"]["test_active"]["enabled"] is True
+    assert payload["actions"]["test_active"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/refresh"
+    assert payload["actions"]["test_active"]["label_key"] == "testActive"
     assert payload["actions"]["second_code"]["enabled"] is True
     assert payload["actions"]["second_code"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/second-code"
     assert payload["actions"]["second_code"]["confirm_label_key"] == "confirmSecondCode"
@@ -1982,10 +1985,12 @@ def test_numbers_rental_order_payload_exposes_renew_and_wake_actions():
     assert payload["actions"]["rental_renew"]["confirm_label_key"] == "renew"
     assert payload["actions"]["rental_renew"]["idempotency_key"] == "miniapp-rental-renew-rental-order-id"
     assert payload["actions"]["rental_wake"]["enabled"] is True
+    assert payload["actions"]["test_active"]["enabled"] is True
+    assert payload["actions"]["test_active"]["endpoint"] == "/mini/numbers/api/orders/rental-order-id/wake"
     assert payload["actions"]["rental_notes"]["enabled"] is True
     assert payload["actions"]["report_issue"]["enabled"] is True
     assert payload["actions"]["report_issue"]["method"] == "CLIENT"
-    assert payload["actions"]["report_issue"]["label"] == "مشكلة في الرقم"
+    assert payload["actions"]["report_issue"]["label_key"] == "reportIssue"
     assert payload["actions"]["rental_finish"]["endpoint"] == "/mini/numbers/api/orders/rental-order-id/finish"
     assert payload["actions"]["rental_finish"]["confirm_label_key"] == "finish"
     details = {item["key"]: item["value"] for item in payload["details"]}

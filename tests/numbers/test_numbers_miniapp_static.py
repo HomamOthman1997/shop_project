@@ -97,7 +97,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     css = (ROOT / "webapp" / "numbers_v2" / "styles.css").read_text(encoding="utf-8")
 
     assert "/mini/numbers-v2/static/app.js" in index
-    assert "20260602-v2-004" in index
+    assert "20260602-v2-005" in index
     assert 'html lang="en" dir="ltr"' in index
     assert "شراء رقم جديد" not in index
     assert "state.clientActions = bootstrap.client?.actions || {}" in app
@@ -106,8 +106,10 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "const action = order.actions?.[key]" in app
     assert 'id="orderFilters"' in index
     assert "function renderOrderFilters()" in app
-    assert "function orderBucket(order)" in app
-    assert "state.orderFilter" in app
+    assert "function orderMode(order)" in app
+    assert "state.numberModeFilter" in app
+    assert "numberModeFilters()" in app
+    assert "\"test_active\"" in app
     assert 'id="countrySuggestions"' not in index
     assert 'id="menuDrawer"' in index
     assert 'id="menuList"' in index

@@ -26,6 +26,7 @@ const state = {
   loading: false,
   viewLoading: {},
   orderFilter: "active",
+  numberModeFilter: "temp",
   pendingSupportReport: null,
 };
 
@@ -86,12 +87,12 @@ const i18n = {
     rental: "إيجار",
     voice: "اتصال",
     buy: "شراء",
-    orders: "طلباتي",
+    orders: "أرقامي",
     recharge: "شحن",
     account: "حسابي",
     support: "الدعم",
     tabBuy: "شراء",
-    tabOrders: "طلباتي",
+    tabOrders: "أرقامي",
     tabRecharge: "شحن",
     tabAccount: "حسابي",
     tabSupport: "الدعم",
@@ -147,7 +148,7 @@ const i18n = {
     copied: "تم النسخ",
     orderCreated: "تم إنشاء الطلب",
     orderUpdated: "تم تحديث الطلب",
-    loadOrdersFailed: "تعذر تحميل الطلبات",
+    loadOrdersFailed: "تعذر تحميل الأرقام",
     loadAccountFailed: "تعذر تحميل الحساب",
     loadRechargeFailed: "تعذر تحميل الشحن",
     loadSupportFailed: "تعذر تحميل الدعم",
@@ -157,6 +158,10 @@ const i18n = {
     walletActivity: "سجل الرصيد والعمليات",
     noWalletActivity: "لا توجد عمليات مسجلة بعد",
     activeOrders: "الطلبات النشطة",
+    myNumbers: "أرقامي",
+    tempNumbers: "مؤقت",
+    rentalNumbers: "إيجار",
+    voiceNumbers: "اتصال",
     rechargeRequests: "طلبات الشحن",
     language: "اللغة",
     paymentMethod: "طريقة الدفع",
@@ -176,6 +181,7 @@ const i18n = {
     sendSupport: "إرسال",
     noSpecificOrder: "بدون طلب محدد",
     reportIssue: "مشكلة في الرقم",
+    testActive: "Test active",
     issuePrompt: "اكتب المشكلة التي ظهرت هنا:\n\n",
     issueStatus: "اكتب توضيح المشكلة ثم أرسل البلاغ",
     openTelegramSupport: "افتح التطبيق من Telegram لإرسال تذكرة دعم",
@@ -206,6 +212,9 @@ const i18n = {
     noRefundOrders: "لا توجد طلبات استرجاع حاليا",
     noClosedOrders: "لا توجد طلبات منتهية حاليا",
     noOrders: "لا توجد طلبات حاليا",
+    noTempNumbers: "لا توجد أرقام مؤقتة قابلة للإدارة حالياً",
+    noRentalNumbers: "لا توجد أرقام إيجار قابلة للإدارة حالياً",
+    noVoiceNumbers: "لا توجد أرقام اتصال قابلة للإدارة حالياً",
     orderNumber: "طلب رقم",
     update: "تحديث",
     waiting: "بانتظار الكود",
@@ -238,12 +247,12 @@ const i18n = {
     rental: "Rental",
     voice: "Call",
     buy: "Buy",
-    orders: "My orders",
+    orders: "My numbers",
     recharge: "Recharge",
     account: "Account",
     support: "Support",
     tabBuy: "Buy",
-    tabOrders: "Orders",
+    tabOrders: "My numbers",
     tabRecharge: "Recharge",
     tabAccount: "Account",
     tabSupport: "Support",
@@ -299,7 +308,7 @@ const i18n = {
     copied: "Copied",
     orderCreated: "Order created",
     orderUpdated: "Order updated",
-    loadOrdersFailed: "Could not load orders",
+    loadOrdersFailed: "Could not load numbers",
     loadAccountFailed: "Could not load account",
     loadRechargeFailed: "Could not load recharge",
     loadSupportFailed: "Could not load support",
@@ -309,6 +318,10 @@ const i18n = {
     walletActivity: "Wallet and activity log",
     noWalletActivity: "No activity recorded yet",
     activeOrders: "Active orders",
+    myNumbers: "My numbers",
+    tempNumbers: "Temporary",
+    rentalNumbers: "Rental",
+    voiceNumbers: "Call",
     rechargeRequests: "Recharge requests",
     language: "Language",
     paymentMethod: "Payment method",
@@ -328,6 +341,7 @@ const i18n = {
     sendSupport: "Send",
     noSpecificOrder: "No specific order",
     reportIssue: "Report issue",
+    testActive: "Test active",
     issuePrompt: "Write the issue that appeared here:\n\n",
     issueStatus: "Write a short explanation, then send the report",
     openTelegramSupport: "Open the app from Telegram to send a support ticket",
@@ -358,6 +372,9 @@ const i18n = {
     noRefundOrders: "No refund orders right now",
     noClosedOrders: "No closed orders right now",
     noOrders: "No orders right now",
+    noTempNumbers: "No manageable temporary numbers right now",
+    noRentalNumbers: "No manageable rental numbers right now",
+    noVoiceNumbers: "No manageable call numbers right now",
     orderNumber: "Number order",
     update: "Update",
     waiting: "Waiting for code",
@@ -535,6 +552,7 @@ function labelForKey(key) {
     notesTags: t("notesTags"),
     finish: t("finish"),
     reportIssue: t("reportIssue"),
+    testActive: t("testActive"),
     working: t("working"),
     checkingOrder: t("checkingOrder"),
     checkCall: t("checkCall"),
@@ -1260,27 +1278,37 @@ function orderBucket(order) {
   return "active";
 }
 
+function orderMode(order) {
+  const mode = String(order?.mode || order?.number_mode || "").toLowerCase();
+  return ["temp", "rental", "voice"].includes(mode) ? mode : "temp";
+}
+
+function numberModeFilters() {
+  return [
+    ["temp", t("tempNumbers")],
+    ["rental", t("rentalNumbers")],
+    ["voice", t("voiceNumbers")],
+  ];
+}
+
 function renderOrderFilters() {
   const rows = state.orders || [];
   const counts = {
-    all: rows.length,
-    active: rows.filter((order) => orderBucket(order) === "active").length,
-    refund: rows.filter((order) => orderBucket(order) === "refund").length,
-    closed: rows.filter((order) => orderBucket(order) === "closed").length,
+    temp: rows.filter((order) => orderMode(order) === "temp").length,
+    rental: rows.filter((order) => orderMode(order) === "rental").length,
+    voice: rows.filter((order) => orderMode(order) === "voice").length,
   };
-  const filters = [
-    ["active", t("active")],
-    ["all", t("all")],
-    ["refund", t("refund")],
-    ["closed", t("closed")],
-  ];
+  if (!numberModeFilters().some(([key]) => key === state.numberModeFilter)) {
+    state.numberModeFilter = "temp";
+  }
+  const filters = numberModeFilters();
   els.orderFilters.replaceChildren(...filters.map(([key, label]) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = state.orderFilter === key ? "active" : "";
+    button.className = state.numberModeFilter === key ? "active" : "";
     button.textContent = `${label} ${counts[key]}`;
     button.addEventListener("click", () => {
-      state.orderFilter = key;
+      state.numberModeFilter = key;
       renderOrders();
     });
     return button;
@@ -1295,15 +1323,14 @@ function renderOrders() {
   }
   renderOrderFilters();
   const allRows = state.orders || [];
-  const rows = state.orderFilter === "all" ? allRows : allRows.filter((order) => orderBucket(order) === state.orderFilter);
+  const rows = allRows.filter((order) => orderMode(order) === state.numberModeFilter);
   if (!rows.length) {
     const messages = {
-      active: t("noActiveOrders"),
-      refund: t("noRefundOrders"),
-      closed: t("noClosedOrders"),
-      all: t("noOrders"),
+      temp: t("noTempNumbers"),
+      rental: t("noRentalNumbers"),
+      voice: t("noVoiceNumbers"),
     };
-    els.ordersList.replaceChildren(emptyState(messages[state.orderFilter] || messages.all));
+    els.ordersList.replaceChildren(emptyState(messages[state.numberModeFilter] || t("noOrders")));
     return;
   }
   els.ordersList.replaceChildren(
@@ -1349,7 +1376,7 @@ function renderOrders() {
       const actions = order.actions || {};
       const actionRow = document.createElement("div");
       actionRow.className = "action-row";
-      ["copy_number", "copy_code", "refresh", "second_code", "replace", "alternate_provider", "preview_recording", "download_recording", "rental_sms", "rental_finish", "rental_renew", "rental_wake", "rental_notes", "report_issue"].forEach((key) => {
+      ["copy_number", "copy_code", "test_active", "second_code", "replace", "alternate_provider", "preview_recording", "download_recording", "rental_sms", "rental_finish", "rental_renew", "rental_wake", "rental_notes", "report_issue"].forEach((key) => {
         const action = actions[key];
         if (!action || action.enabled === false) return;
         const button = document.createElement("button");

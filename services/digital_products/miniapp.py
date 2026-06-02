@@ -1851,7 +1851,7 @@ async def esim_offers(request: web.Request) -> web.Response:
                 "offer": row,
             }
         )
-    recommended = choose_recommended_offer([dict(item.get("offer") or {}) for item in normalized], usage_key=usage_key, days=days)
+    recommended = choose_recommended_offer([dict(item.get("offer") or {}) for item in normalized])
     recommended_idx = -1
     if recommended:
         for idx, item in enumerate(normalized):

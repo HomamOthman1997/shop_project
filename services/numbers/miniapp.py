@@ -2662,6 +2662,8 @@ def _miniapp_order_actions(payload: dict[str, Any]) -> dict[str, dict[str, Any]]
     mode = str((payload or {}).get("mode") or "temp").strip().lower() or "temp"
 
     refresh_label = "checkCall" if mode == "voice" else "refresh"
+    test_active_endpoint = f"{base}/wake" if mode == "rental" else f"{base}/refresh"
+    test_active_enabled = bool(payload.get("can_wake")) if mode == "rental" else bool(payload.get("can_refresh", False))
 
     actions: dict[str, dict[str, Any]] = {
 
@@ -2670,6 +2672,8 @@ def _miniapp_order_actions(payload: dict[str, Any]) -> dict[str, dict[str, Any]]
         "copy_code": _miniapp_order_action(enabled=bool(payload.get("code")), label_key="copyCode", endpoint="", method="CLIENT"),
 
         "refresh": _miniapp_order_action(enabled=bool(payload.get("can_refresh", False)), label_key=refresh_label, endpoint=f"{base}/refresh" if base else "", busy_label_key="checkingOrder"),
+
+        "test_active": _miniapp_order_action(enabled=test_active_enabled, label_key="testActive", endpoint=test_active_endpoint if base else "", busy_label_key="checkingOrder", idempotency_key=f"miniapp-test-active-{order_id}" if order_id else ""),
 
         "second_code": _miniapp_order_action(enabled=bool(payload.get("can_second_code") or payload.get("can_resend")), label_key="secondCode", endpoint=f"{base}/second-code" if base else "", confirm_label_key="confirmSecondCode", success_label_key="secondCodeRequested"),
 
@@ -2693,7 +2697,6 @@ def _miniapp_order_actions(payload: dict[str, Any]) -> dict[str, dict[str, Any]]
 
         "report_issue": {
             **_miniapp_order_action(enabled=bool(order_id), label_key="reportIssue", endpoint="", method="CLIENT"),
-            "label": "مشكلة في الرقم",
         },
 
     }
