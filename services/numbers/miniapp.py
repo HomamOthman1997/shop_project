@@ -629,13 +629,23 @@ def _auth_profile(auth: dict[str, Any], user_doc: dict[str, Any] | None = None) 
 
     return {"username": username, "full_name": full_name}
 
-def _ledger_reason_label(reason: Any, category: Any, lang: str) -> str:
+def _ledger_reason_label(reason: Any, category: Any, lang: str, order: dict[str, Any] | None = None) -> str:
 
     reason_text = str(reason or "").strip().lower()
 
     category_text = str(category or "").strip().lower()
 
+    retry_reason = str((order or {}).get("temp_retry_reason") or "").strip().lower()
+
     if category_text == "core_purchase" or reason_text.startswith("purchase_core_"):
+
+        if retry_reason == "replace_request":
+
+            return _text(lang, "Replacement purchase", "شراء رقم بديل")
+
+        if retry_reason == "alternate_provider_request":
+
+            return _text(lang, "Alternate provider purchase", "شراء من مزود بديل")
 
         return _text(lang, "Numbers purchase", "شراء أرقام")
 
@@ -830,9 +840,11 @@ def _ledger_activity_payload(
 
         order_id = str(entry.get("order_id") or "")
 
-        label = _ledger_reason_label(entry.get("reason"), entry.get("category"), lang)
+        order = (orders or {}).get(order_id)
 
-        subject = _order_activity_subject((orders or {}).get(order_id)) or _ledger_activity_subject_from_entry(entry, lang)
+        label = _ledger_reason_label(entry.get("reason"), entry.get("category"), lang, order)
+
+        subject = _order_activity_subject(order) or _ledger_activity_subject_from_entry(entry, lang)
 
         if subject:
 

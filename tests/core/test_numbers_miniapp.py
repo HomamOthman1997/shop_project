@@ -331,6 +331,35 @@ def test_numbers_account_activity_payload_includes_order_subject():
     assert rows[0]["subject"] == "Telegram call · +15551234567"
     assert rows[0]["label"] == "Numbers purchase · Telegram call · +15551234567"
 
+def test_numbers_account_activity_payload_labels_replacement_purchase():
+    created_at = datetime(2026, 6, 2, 2, 9, tzinfo=UTC)
+
+    rows = miniapp._ledger_activity_payload(
+        [
+            {
+                "_id": "tx-1",
+                "direction": "debit",
+                "amount": -0.06,
+                "reason": "purchase_core_user_debit",
+                "category": "core_purchase",
+                "balance_after": 7.0,
+                "created_at": created_at,
+                "order_id": "replacement-order",
+            },
+        ],
+        "en",
+        {
+            "replacement-order": {
+                "number_mode": "temp",
+                "temp_service_key": "rebtel",
+                "temp_retry_reason": "replace_request",
+            }
+        },
+    )
+
+    assert rows[0]["label"].startswith("Replacement purchase")
+    assert rows[0]["label"].endswith("Rebtel")
+
 
 def test_numbers_account_activity_payload_uses_metadata_subject_without_order():
     created_at = datetime(2026, 5, 20, 12, 0, tzinfo=UTC)
