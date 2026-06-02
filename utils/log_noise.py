@@ -24,6 +24,17 @@ class TransientNetworkNoiseFilter(logging.Filter):
                     return True, "aiogram:failed_fetch_updates:conflict_backoff"
                 return True, "aiogram:failed_fetch_updates:conflict_generic"
             if "failed to fetch updates" in text and (
+                "telegramretryafter" in text
+                or "flood control exceeded on method 'getupdates'" in text
+                or "too many requests: retry after" in text
+            ):
+                return True, "aiogram:failed_fetch_updates:retry_after"
+            if "failed to fetch updates" in text and (
+                "telegramservererror" in text
+                or "bad gateway" in text
+            ):
+                return True, "aiogram:failed_fetch_updates:telegram_server"
+            if "failed to fetch updates" in text and (
                 "telegramnetworkerror" in text
                 or "cannot connect to host api.telegram.org" in text
                 or "clientconnectorerror" in text

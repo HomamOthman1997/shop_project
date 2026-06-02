@@ -58,7 +58,12 @@ class TelegramErrorHandler(logging.Handler):
             and (
                 "telegramnetworkerror" in text
                 or "telegramconflicterror" in text
+                or "telegramretryafter" in text
+                or "telegramservererror" in text
                 or "terminated by other getupdates request" in text
+                or "flood control exceeded on method 'getupdates'" in text
+                or "too many requests: retry after" in text
+                or "bad gateway" in text
                 or "server disconnected" in text
                 or "cannot connect to host api.telegram.org" in text
                 or "clientconnectordnserror" in text

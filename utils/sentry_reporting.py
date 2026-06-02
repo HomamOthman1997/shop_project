@@ -31,19 +31,32 @@ def _scrub_value(value: Any) -> Any:
     return value
 
 
-def _contains_telegram_polling_conflict(value: Any) -> bool:
+def _contains_transient_telegram_polling_error(value: Any) -> bool:
     if isinstance(value, str):
         text = value.lower()
-        return "telegramconflicterror" in text or "terminated by other getupdates request" in text
+        return (
+            "telegramconflicterror" in text
+            or "terminated by other getupdates request" in text
+            or (
+                "failed to fetch updates" in text
+                and (
+                    "telegramretryafter" in text
+                    or "telegramservererror" in text
+                    or "flood control exceeded on method 'getupdates'" in text
+                    or "too many requests: retry after" in text
+                    or "bad gateway" in text
+                )
+            )
+        )
     if isinstance(value, dict):
-        return any(_contains_telegram_polling_conflict(item) for item in value.values())
+        return any(_contains_transient_telegram_polling_error(item) for item in value.values())
     if isinstance(value, (list, tuple)):
-        return any(_contains_telegram_polling_conflict(item) for item in value)
+        return any(_contains_transient_telegram_polling_error(item) for item in value)
     return False
 
 
 def _before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
-    if _contains_telegram_polling_conflict(event) or _contains_telegram_polling_conflict(hint):
+    if _contains_transient_telegram_polling_error(event) or _contains_transient_telegram_polling_error(hint):
         return None
 
     event = _scrub_value(event)

@@ -28,10 +28,62 @@ def test_telegram_error_handler_suppresses_polling_conflict():
     assert TelegramErrorHandler._is_transient_polling_noise(record, record.getMessage()) is True
 
 
+def test_telegram_error_handler_suppresses_getupdates_retry_after():
+    record = logging.LogRecord(
+        name="aiogram.dispatcher",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg=(
+            "Failed to fetch updates - TelegramRetryAfter: Telegram server says - Flood control "
+            "exceeded on method 'GetUpdates'. Retry in 5 seconds."
+        ),
+        args=(),
+        exc_info=None,
+    )
+
+    assert TelegramErrorHandler._is_transient_polling_noise(record, record.getMessage()) is True
+
+
+def test_telegram_error_handler_suppresses_getupdates_bad_gateway():
+    record = logging.LogRecord(
+        name="aiogram.dispatcher",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="Failed to fetch updates - TelegramServerError: Telegram server says - Bad Gateway",
+        args=(),
+        exc_info=None,
+    )
+
+    assert TelegramErrorHandler._is_transient_polling_noise(record, record.getMessage()) is True
+
+
 def test_sentry_before_send_drops_polling_conflict():
     event = {
         "logger": "aiogram.dispatcher",
         "message": CONFLICT_MESSAGE,
+    }
+
+    assert _before_send(event, {}) is None
+
+
+def test_sentry_before_send_drops_getupdates_retry_after():
+    event = {
+        "logger": "aiogram.dispatcher",
+        "message": (
+            "Failed to fetch updates - TelegramRetryAfter: Telegram server says - Flood control "
+            "exceeded on method 'GetUpdates'. Retry in 5 seconds."
+        ),
+    }
+
+    assert _before_send(event, {}) is None
+
+
+def test_sentry_before_send_drops_getupdates_bad_gateway():
+    event = {
+        "logger": "aiogram.dispatcher",
+        "message": "Failed to fetch updates - TelegramServerError: Telegram server says - Bad Gateway",
     }
 
     assert _before_send(event, {}) is None
