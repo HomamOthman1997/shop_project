@@ -5,7 +5,8 @@ import pytest
 
 sys.path.insert(0, os.getcwd())
 
-from services.digital_products.bittopup_scraper import parse_bittopup_product_page, parse_bittopup_sitemap
+from services.digital_products.bittopup_index import bittopup_indexed_urls
+from services.digital_products.bittopup_scraper import parse_bittopup_product_page, parse_bittopup_sitemap, scrape_bittopup_offers
 
 
 def test_parse_bittopup_sitemap_reads_public_product_urls_only():
@@ -24,6 +25,15 @@ def test_parse_bittopup_sitemap_reads_public_product_urls_only():
         "https://bittopup.com/goods/Free-Fire-Diamonds-EU-+-TR",
         "https://bittopup.com/apple-gift-card-us/",
     ]
+
+
+def test_bittopup_index_contains_operator_selected_pages_only():
+    urls = bittopup_indexed_urls()
+
+    assert len(urls) == 85
+    assert "https://bittopup.com/goods/pubg-uc" in urls
+    assert "https://bittopup.com/goods/soulchill" in urls
+    assert "https://bittopup.com/goods/PlayStation-Network-Card-US" not in urls
 
 
 def test_parse_bittopup_product_page_extracts_manual_provider_offers():
@@ -102,6 +112,55 @@ def test_parse_bittopup_product_page_keeps_global_card_region():
 
     assert offers
     assert offers[0].compare_key == "steam:global:10:usd"
+
+
+def test_parse_bittopup_product_page_uses_internal_index_metadata():
+    html = """
+    <html>
+      <head><title>Nimo TV Diamonds</title></head>
+      <body>
+        <h1>Nimo TV Diamonds</h1>
+        <h3>100 Diamonds</h3>
+        <span>USD 1.00</span>
+      </body>
+    </html>
+    """
+
+    offers = parse_bittopup_product_page(html, url="https://bittopup.com/goods/Nimo-TV-Diamonds")
+
+    assert offers
+    assert offers[0].compare_key == "nimo_tv:global:100:diamond"
+
+
+@pytest.mark.asyncio
+async def test_scrape_bittopup_offers_uses_internal_index(monkeypatch):
+    from services.digital_products import bittopup_scraper
+
+    async def fake_fetch(url, *, timeout_sec=25.0):
+        if url.endswith("goods-sitemap.xml"):
+            return """<?xml version="1.0" encoding="UTF-8"?>
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+              <url><loc>https://bittopup.com/goods/pubg-uc</loc></url>
+              <url><loc>https://bittopup.com/goods/soulchill</loc></url>
+              <url><loc>https://bittopup.com/goods/PlayStation-Network-Card-US</loc></url>
+            </urlset>
+            """
+        if url.endswith("/pubg-uc"):
+            return "<html><h1>PUBG UC Top Up</h1><h3>60 UC</h3><span>USD 0.90</span></html>"
+        if url.endswith("/soulchill"):
+            return "<html><h1>Soul Chill</h1><h3>1000 crystals</h3><span>USD 1.90</span></html>"
+        raise AssertionError(f"unexpected fetch {url}")
+
+    monkeypatch.setattr(bittopup_scraper, "_fetch_text", fake_fetch)
+
+    offers, stats, errors = await scrape_bittopup_offers()
+
+    assert errors == []
+    assert stats["pages_checked"] == 2
+    assert [offer.source_url for offer in offers] == [
+        "https://bittopup.com/goods/soulchill",
+        "https://bittopup.com/goods/pubg-uc",
+    ]
 
 
 def test_bittopup_scan_result_text_is_operator_readable():

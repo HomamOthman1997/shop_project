@@ -11,6 +11,7 @@ from xml.etree import ElementTree
 
 from config import settings
 from database.digital_provider_sources_repo import record_price_watch_run, upsert_provider_source
+from services.digital_products.bittopup_index import bittopup_index_metadata_for_url, bittopup_indexed_urls
 from services.digital_products.fulfillment_rules import (
     MANUAL_TOPUP_MODE,
     game_family_key,
@@ -128,7 +129,18 @@ def _amount_unit_from_text(text: str, product_name: str) -> tuple[str, str]:
     return "", ""
 
 
-def _compare_key(product_name: str, denomination_name: str) -> tuple[str, float]:
+def _region_slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", norm_text(value)).strip("_") or "global"
+
+
+def _compare_key(product_name: str, denomination_name: str, *, source_url: str = "") -> tuple[str, float]:
+    indexed = bittopup_index_metadata_for_url(source_url)
+    if indexed:
+        amount, unit = _amount_unit_from_text(denomination_name, product_name)
+        family_key = str(indexed.get("family_key") or "").strip()
+        if family_key and amount and unit:
+            return f"{family_key}:{_region_slug(str(indexed.get('region') or 'Global'))}:{amount}:{unit}", 0.9
+
     manual = manual_feature_info(product_name, denomination_name)
     if manual:
         key = offer_compare_key(
@@ -141,7 +153,7 @@ def _compare_key(product_name: str, denomination_name: str) -> tuple[str, float]
     amount, unit = _amount_unit_from_text(denomination_name, product_name)
     if family and amount and unit:
         region = offer_region_label(f"{product_name} {denomination_name}", default="Global")
-        return f"{family}:{re.sub(r'[^a-z0-9]+', '_', norm_text(region)).strip('_') or 'global'}:{amount}:{unit}", 0.86
+        return f"{family}:{_region_slug(region)}:{amount}:{unit}", 0.86
     section = detect_service_key_strict(f"{product_name} {denomination_name}")
     if section == "store_cards":
         amount, unit = _amount_unit_from_text(denomination_name, product_name)
@@ -149,7 +161,7 @@ def _compare_key(product_name: str, denomination_name: str) -> tuple[str, float]
             family_key, _label = guess_family("store_cards", product_name, [denomination_name])
             if family_key and family_key != "other":
                 region = offer_region_label(f"{product_name} {denomination_name}", default="Global")
-                return f"{family_key}:{re.sub(r'[^a-z0-9]+', '_', norm_text(region)).strip('_') or 'global'}:{amount}:usd", 0.82
+                return f"{family_key}:{_region_slug(region)}:{amount}:usd", 0.82
     return "", 0.0
 
 
@@ -180,7 +192,7 @@ def parse_bittopup_product_page(html_text: str, *, url: str) -> list[BitTopupOff
         old_match = re.search(r"\bUSD\s*[0-9][0-9,]*(?:\.\d+)?\s+USD\s*([0-9][0-9,]*(?:\.\d+)?)", text, flags=re.IGNORECASE)
         if old_match:
             old_price = _money(old_match.group(1))
-        compare_key, confidence = _compare_key(product_name, denom)
+        compare_key, confidence = _compare_key(product_name, denom, source_url=url)
         discount = _parse_discount(text)
         ref = f"{_slug_from_url(url)}#{re.sub(r'[^a-z0-9]+', '-', norm_text(denom)).strip('-')}"
         dedup_key = compare_key or ref
@@ -248,7 +260,14 @@ async def scrape_bittopup_offers(*, max_pages: int | None = None) -> tuple[list[
     timeout = max(5.0, float(getattr(settings, "digital_bittopup_request_timeout_sec", 25.0) or 25.0))
     errors: list[str] = []
     sitemap = await _fetch_text(BITTOPUP_GOODS_SITEMAP_URL, timeout_sec=timeout)
-    urls = parse_bittopup_sitemap(sitemap, limit=limit)
+    indexed_urls = bittopup_indexed_urls()
+    if indexed_urls:
+        sitemap_urls = set(parse_bittopup_sitemap(sitemap, limit=0))
+        urls = [url for url in indexed_urls if not sitemap_urls or url in sitemap_urls]
+        if max_pages is not None:
+            urls = urls[:limit]
+    else:
+        urls = parse_bittopup_sitemap(sitemap, limit=limit)
     offers: list[BitTopupOffer] = []
     for url in urls:
         try:
