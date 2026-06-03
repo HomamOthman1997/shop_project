@@ -30,6 +30,7 @@ const state = {
   pendingSupportReport: null,
   accountActivityExpanded: false,
   accountActivityAll: null,
+  expandedOrderDetails: {},
 };
 
 const $ = (id) => document.getElementById(id);
@@ -173,6 +174,8 @@ const i18n = {
     walletActivityAll: "كل العمليات",
     showAllActivity: "عرض كل السجل",
     hideActivity: "طي السجل",
+    moreDetails: "تفاصيل أكثر",
+    hideDetails: "إخفاء التفاصيل",
     changeLanguage: "تبديل اللغة",
     languageChanged: "تم تغيير اللغة",
     userId: "معرف المستخدم",
@@ -216,6 +219,7 @@ const i18n = {
     checkCall: "فحص المكالمة",
     copyNumber: "نسخ الرقم",
     copyCode: "نسخ الكود",
+    tapToCopy: "اضغط للنسخ",
     firstCode: "الكود الأول",
     codeIndex: "كود",
     waitingForCodeBox: "بانتظار الكود",
@@ -377,6 +381,8 @@ const i18n = {
     walletActivityAll: "All entries",
     showAllActivity: "Show full log",
     hideActivity: "Collapse log",
+    moreDetails: "More details",
+    hideDetails: "Hide details",
     changeLanguage: "Switch language",
     languageChanged: "Language changed",
     userId: "User ID",
@@ -420,6 +426,7 @@ const i18n = {
     checkCall: "Check call",
     copyNumber: "Copy number",
     copyCode: "Copy code",
+    tapToCopy: "Tap to copy",
     firstCode: "First code",
     codeIndex: "Code",
     waitingForCodeBox: "Waiting for code",
@@ -1524,7 +1531,7 @@ function renderOrders() {
       card.innerHTML = `
         <h3>${order.service_label || order.service || t("orderNumber")}</h3>
         <div class="meta-grid">
-          <div class="number-detail copyable-number" role="button" tabindex="0"><span>${t("number")}</span><strong>${numberValue}</strong></div>
+          <div class="number-detail copyable-number" role="button" tabindex="0"><span>${t("number")}</span><strong>${numberValue}</strong><small>${t("tapToCopy")}</small></div>
           <div><span>${t("price")}</span><strong>${order.price_label || "-"}</strong></div>
           ${details.map((item) => `<div><span>${item.label || item.key || ""}</span><strong>${item.value || "-"}</strong></div>`).join("")}
         </div>
@@ -1587,16 +1594,33 @@ function renderOrders() {
       }
       const events = Array.isArray(order.events) ? order.events.slice(0, 5) : [];
       if (events.length) {
-        const timeline = document.createElement("div");
-        timeline.className = "timeline";
-        timeline.innerHTML = events.map((event) => `
-          <div class="timeline-row">
-            <span></span>
-            <strong>${event.label || event.event || t("update")}</strong>
-            <small>${event.time || ""}</small>
-          </div>
-        `).join("");
-        card.append(timeline);
+        const orderKey = String(order.id || order.provider_order_id || order.number || "");
+        const expanded = Boolean(state.expandedOrderDetails[orderKey]);
+        const detailsBlock = document.createElement("div");
+        detailsBlock.className = `timeline-collapse${expanded ? " expanded" : ""}`;
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "timeline-toggle";
+        toggle.setAttribute("aria-expanded", String(expanded));
+        toggle.innerHTML = `<span>${expanded ? t("hideDetails") : t("moreDetails")}</span><b aria-hidden="true">${expanded ? "⌃" : "⌄"}</b>`;
+        toggle.addEventListener("click", () => {
+          state.expandedOrderDetails[orderKey] = !state.expandedOrderDetails[orderKey];
+          renderOrders();
+        });
+        detailsBlock.append(toggle);
+        if (expanded) {
+          const timeline = document.createElement("div");
+          timeline.className = "timeline";
+          timeline.innerHTML = events.map((event) => `
+            <div class="timeline-row">
+              <span></span>
+              <strong>${event.label || event.event || t("update")}</strong>
+              <small>${event.time || ""}</small>
+            </div>
+          `).join("");
+          detailsBlock.append(timeline);
+        }
+        card.append(detailsBlock);
       }
       const actions = order.actions || {};
       const actionRow = document.createElement("div");

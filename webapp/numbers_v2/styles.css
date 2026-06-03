@@ -556,6 +556,7 @@ body:not(.app-booting) .boot-screen { display: none; }
 }
 .meta-grid .number-detail {
   align-items: center;
+  flex-wrap: wrap;
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
   border-radius: 8px;
@@ -571,6 +572,13 @@ body:not(.app-booting) .boot-screen { display: none; }
   font-size: 17px;
   font-weight: 950;
   letter-spacing: 0;
+}
+.meta-grid .number-detail small {
+  width: 100%;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: end;
 }
 .copyable-number {
   cursor: pointer;
@@ -972,6 +980,32 @@ body:not(.app-booting) .boot-screen { display: none; }
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--line);
+}
+.timeline-collapse {
+  margin-top: 10px;
+}
+.timeline-collapse .timeline {
+  margin-top: 8px;
+}
+.timeline-toggle {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 900;
+}
+.timeline-toggle b {
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
 }
 .timeline-row {
   display: grid;
