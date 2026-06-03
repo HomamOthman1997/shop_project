@@ -222,6 +222,7 @@ const i18n = {
     refundSafetyTitle: "رصيدك محفوظ",
     refundSafetyText: "إذا لم يصل الكود خلال المهلة، يرجع المبلغ تلقائياً.",
     refundCompletedTitle: "تم إرجاع الرصيد",
+    refundProcessingTitle: "الاسترجاع قيد المتابعة",
     requestTimeout: "العملية تأخرت. جرّب مرة ثانية بعد لحظات.",
     numberActiveNoNewCode: "الرقم ما زال نشط. لا يوجد كود جديد بعد.",
     numberActiveCodeReceived: "الرقم نشط والكود متاح.",
@@ -425,6 +426,7 @@ const i18n = {
     refundSafetyTitle: "Your balance is protected",
     refundSafetyText: "If no code arrives in time, the amount is refunded automatically.",
     refundCompletedTitle: "Balance refunded",
+    refundProcessingTitle: "Refund is being followed up",
     requestTimeout: "The operation took too long. Try again in a moment.",
     numberActiveNoNewCode: "The number is still active. No new code yet.",
     numberActiveCodeReceived: "The number is active and the code is available.",
@@ -1430,6 +1432,11 @@ function orderRefunded(order) {
   return ["refunded", "cancelled_refunded", "refund_success"].includes(status);
 }
 
+function orderRefundInProgress(order) {
+  const status = String(order?.customer_state?.key || order?.public_status || order?.status || "").toLowerCase();
+  return ["refund_pending", "support_review_pending"].includes(status);
+}
+
 function renderRefundSafetyNote(title = t("refundSafetyTitle"), text = t("refundSafetyText")) {
   const note = document.createElement("div");
   note.className = "refund-safety-note";
@@ -1527,6 +1534,8 @@ function renderOrders() {
       if (note && !waitingForCode) {
         if (orderRefunded(order)) {
           card.append(renderRefundSafetyNote(t("refundCompletedTitle"), note));
+        } else if (orderRefundInProgress(order)) {
+          card.append(renderRefundSafetyNote(t("refundProcessingTitle"), note));
         } else {
           const stateNote = document.createElement("p");
           stateNote.className = "status-text";
