@@ -1104,12 +1104,13 @@ body.app-booting .app-shell {
 .payment-target-copy {
   width: 100%;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    "label value"
-    "hint value";
-  gap: 2px 12px;
-  align-items: center;
+    "label"
+    "value"
+    "hint";
+  gap: 4px;
+  align-items: start;
   padding: 12px;
   border: 1px solid rgba(20, 184, 166, 0.32);
   border-radius: var(--radius-sm);
@@ -1127,11 +1128,19 @@ body.app-booting .app-shell {
 
 .payment-target-copy .payment-target-value {
   grid-area: value;
+  display: block;
+  width: 100%;
+  min-width: 0;
   color: var(--text);
-  font-size: 15px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
   font-weight: 900;
+  line-height: 1.35;
+  letter-spacing: 0;
+  white-space: normal;
+  word-break: break-all;
   overflow-wrap: anywhere;
-  text-align: end;
+  text-align: start;
 }
 
 .payment-target-copy small {

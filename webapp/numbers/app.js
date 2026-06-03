@@ -2696,6 +2696,7 @@ function paymentTargetBlock(method) {
   targetButton.type = "button";
   targetButton.className = "payment-target-copy";
   targetButton.disabled = !method?.target;
+  targetButton.title = method?.target || "";
   const targetMeta = document.createElement("span");
   targetMeta.textContent = t("paymentAddressLabel");
   const target = document.createElement("strong");

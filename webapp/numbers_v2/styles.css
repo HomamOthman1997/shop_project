@@ -912,12 +912,13 @@ body:not(.app-booting) .boot-screen { display: none; }
 .payment-target-copy {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    "label value"
-    "hint value";
-  gap: 2px 12px;
-  align-items: center;
+    "label"
+    "value"
+    "hint";
+  gap: 4px;
+  align-items: start;
   padding: 12px;
   border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line));
   border-radius: 8px;
@@ -933,11 +934,19 @@ body:not(.app-booting) .boot-screen { display: none; }
 }
 .payment-target-copy > strong {
   grid-area: value;
+  display: block;
+  width: 100%;
+  min-width: 0;
   color: var(--text);
-  font-size: 15px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
   font-weight: 950;
+  line-height: 1.35;
+  letter-spacing: 0;
+  white-space: normal;
+  word-break: break-all;
   overflow-wrap: anywhere;
-  text-align: end;
+  text-align: start;
 }
 .payment-target-copy small {
   grid-area: hint;

@@ -2139,6 +2139,7 @@ function updateRechargeMethodDetails() {
   targetButton.type = "button";
   targetButton.className = "payment-target-copy";
   targetButton.disabled = !method.target;
+  targetButton.title = method.target || "";
   const targetLabel = document.createElement("span");
   targetLabel.textContent = t("paymentAddress");
   const targetValue = document.createElement("strong");
