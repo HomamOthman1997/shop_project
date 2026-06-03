@@ -44,6 +44,12 @@ from database.digital_products_config_repo import (
     get_digital_products_markup_percent,
     set_digital_products_markup_percent,
 )
+from database.digital_provider_sources_repo import (
+    approve_provider_source,
+    disable_provider_source,
+    list_price_watch_runs,
+    list_provider_sources,
+)
 from database.custom_services_repo import (
     get_next_pending_preorder,
     get_pending_preorder_position,
@@ -486,6 +492,73 @@ def _owner_dashboard_kb() -> types.InlineKeyboardMarkup:
     )
 
 
+def _money_text(value: object) -> str:
+    try:
+        return f"${float(value or 0):.4f}".rstrip("0").rstrip(".")
+    except Exception:
+        return "$0"
+
+
+def _provider_source_label(row: dict, idx: int) -> str:
+    name = str(row.get("source_product_name") or "-").strip()
+    denom = str(row.get("source_denomination_name") or "-").strip()
+    status = str(row.get("price_status") or "-").strip()
+    reason = str(row.get("review_reason") or "").strip()
+    active = _money_text(row.get("active_price"))
+    observed = _money_text(row.get("observed_price"))
+    key = str(row.get("compare_key") or "-").strip()
+    line = f"{idx}. {name} / {denom}\n"
+    line += f"   status={status} active={active} observed={observed}\n"
+    line += f"   key={key}"
+    if reason:
+        line += f"\n   reason={reason}"
+    return line
+
+
+def _digital_provider_sources_kb(rows: list[dict], status: str) -> types.InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for code, title in (
+        ("under_review", "Review"),
+        ("active", "Active"),
+        ("unmapped", "Unmapped"),
+        ("disabled", "Disabled"),
+    ):
+        kb.button(text=f"{'• ' if code == status else ''}{title}", callback_data=f"owner_dps:list:{code}")
+    kb.adjust(2, 2)
+    for row in rows[:8]:
+        token = str(row.get("source_token") or "").strip()
+        if not token:
+            continue
+        status_code = str(row.get("price_status") or "").strip().lower()
+        label = str(row.get("source_denomination_name") or row.get("source_product_name") or token).strip()[:22]
+        if status_code != "active" and str(row.get("compare_key") or "").strip():
+            kb.button(text=f"Approve {label}", callback_data=f"owner_dps:approve:{token}")
+        if status_code != "disabled":
+            kb.button(text=f"Disable {label}", callback_data=f"owner_dps:disable:{token}")
+    kb.button(text="Back", callback_data="owner_panel:cat:main_bot")
+    kb.adjust(2)
+    return kb.as_markup()
+
+
+async def _digital_provider_sources_text(*, status: str = "under_review") -> tuple[str, list[dict]]:
+    rows = await list_provider_sources(provider="bittopup", status=status, limit=12)
+    runs = await list_price_watch_runs(provider="bittopup", limit=1)
+    latest = runs[0] if runs else {}
+    stats = latest.get("stats") if isinstance(latest.get("stats"), dict) else {}
+    started = latest.get("started_at") or "-"
+    header = (
+        "BitTopup Sources\n\n"
+        f"Status filter: {status}\n"
+        f"Latest scan: {started}\n"
+        f"Seen: {stats.get('offers_seen', 0)} | Active: {stats.get('active', 0)} | "
+        f"Review: {stats.get('under_review', 0)} | Unmapped: {stats.get('unmapped', 0)}\n\n"
+    )
+    if not rows:
+        return header + "No sources found for this status.", rows
+    body = "\n\n".join(_provider_source_label(row, idx) for idx, row in enumerate(rows[:12], start=1))
+    return header + body, rows
+
+
 def _owner_panel_category_kb(category: str) -> types.InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if category == "financial":
@@ -500,7 +573,8 @@ def _owner_panel_category_kb(category: str) -> types.InlineKeyboardMarkup:
         kb.button(text="Owner Exchange Rate", callback_data="owner_panel:act:owner_exchange_rate")
         kb.button(text="Numbers Margin %", callback_data="owner_panel:act:numbers_margin")
         kb.button(text="Digital Products Margin %", callback_data="owner_panel:act:digital_products_margin")
-        kb.adjust(1, 1, 1, 1, 1)
+        kb.button(text="BitTopup Sources", callback_data="owner_panel:act:digital_provider_sources")
+        kb.adjust(1, 1, 1, 1, 1, 1)
     elif category == "system":
         kb.button(text="Bind Owner Target Here", callback_data="owner_panel:act:bind_owner_target_here")
         kb.button(text="Bind Reseller Topup Target Here", callback_data="owner_panel:act:bind_reseller_topup_target_here")
@@ -685,6 +759,14 @@ async def owner_panel_open_command(message: types.Message):
     )
 
 
+@router.message(lambda msg: (msg.text or "").strip().lower() in {"/bittopup_sources", "/digital_sources"})
+async def digital_provider_sources_command(message: types.Message):
+    if not await owner_only(message):
+        return
+    text, rows = await _digital_provider_sources_text(status="under_review")
+    await message.answer(text, reply_markup=_digital_provider_sources_kb(rows, "under_review"))
+
+
 @router.callback_query(lambda c: c.data == "owner_panel:open")
 async def owner_panel_open_callback(callback: types.CallbackQuery, state: FSMContext):
     if not _is_owner_callback(callback):
@@ -698,6 +780,49 @@ async def owner_panel_open_callback(callback: types.CallbackQuery, state: FSMCon
             reply_markup=_owner_panel_main_kb(),
         )
     await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("owner_dps:list:"))
+async def owner_digital_provider_sources_list(callback: types.CallbackQuery):
+    if not _is_owner_callback(callback):
+        return await callback.answer("No permission", show_alert=True)
+    status = str((callback.data or "").split(":", 2)[2] or "under_review").strip().lower()
+    if status not in {"under_review", "active", "unmapped", "disabled"}:
+        status = "under_review"
+    text, rows = await _digital_provider_sources_text(status=status)
+    if callback.message:
+        await _safe_edit_text(callback.message, text, reply_markup=_digital_provider_sources_kb(rows, status))
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("owner_dps:approve:"))
+async def owner_digital_provider_source_approve(callback: types.CallbackQuery):
+    if not _is_owner_callback(callback):
+        return await callback.answer("No permission", show_alert=True)
+    token = str((callback.data or "").split(":", 2)[2] or "").strip()
+    row = await approve_provider_source(token, actor_id=callback.from_user.id)
+    if not row:
+        return await callback.answer("Source not found", show_alert=True)
+    if str(row.get("price_status") or "") != "active":
+        return await callback.answer("Cannot approve: missing price or compare key.", show_alert=True)
+    text, rows = await _digital_provider_sources_text(status="under_review")
+    if callback.message:
+        await _safe_edit_text(callback.message, text, reply_markup=_digital_provider_sources_kb(rows, "under_review"))
+    await callback.answer("Approved")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("owner_dps:disable:"))
+async def owner_digital_provider_source_disable(callback: types.CallbackQuery):
+    if not _is_owner_callback(callback):
+        return await callback.answer("No permission", show_alert=True)
+    token = str((callback.data or "").split(":", 2)[2] or "").strip()
+    row = await disable_provider_source(token, actor_id=callback.from_user.id)
+    if not row:
+        return await callback.answer("Source not found", show_alert=True)
+    text, rows = await _digital_provider_sources_text(status="under_review")
+    if callback.message:
+        await _safe_edit_text(callback.message, text, reply_markup=_digital_provider_sources_kb(rows, "under_review"))
+    await callback.answer("Disabled")
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("owner_panel:cat:"))
@@ -965,6 +1090,16 @@ async def owner_panel_action(callback: types.CallbackQuery, state: FSMContext):
                 "Send digital products margin percent now (global).\n"
                 f"Current: {current:.2f}%\n"
                 "Example: 2"
+            )
+        return await callback.answer()
+
+    if action == "digital_provider_sources":
+        text, rows = await _digital_provider_sources_text(status="under_review")
+        if callback.message:
+            await _safe_edit_text(
+                callback.message,
+                text,
+                reply_markup=_digital_provider_sources_kb(rows, "under_review"),
             )
         return await callback.answer()
 

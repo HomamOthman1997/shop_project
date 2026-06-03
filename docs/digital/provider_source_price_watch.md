@@ -15,6 +15,8 @@ The customer should see one product/package. Internally, the same package can ha
 
 BitTopup prices can be checked every 12 hours and auto-applied only within strict guardrails. Larger or suspicious changes go to admin review.
 
+Owner admin can inspect BitTopup rows with `/bittopup_sources` or Owner Panel > Main Bot Finance > BitTopup Sources, then approve the observed price or disable the source.
+
 ## Current Code Foundation
 
 The Mini App already exposes the concepts we need:

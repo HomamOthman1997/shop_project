@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from typing import Any
 
@@ -12,6 +13,7 @@ def _now() -> datetime:
 
 async def bootstrap_digital_provider_sources_indexes() -> None:
     await db.digital_provider_sources.create_index([("provider", 1), ("source_ref", 1)], unique=True, background=True)
+    await db.digital_provider_sources.create_index([("source_token", 1)], unique=True, sparse=True, background=True)
     await db.digital_provider_sources.create_index([("compare_key", 1), ("provider", 1), ("price_status", 1)], background=True)
     await db.digital_provider_sources.create_index([("provider", 1), ("price_status", 1), ("last_seen_at", -1)], background=True)
     await db.digital_price_watch_runs.create_index([("provider", 1), ("started_at", -1)], background=True)
@@ -19,6 +21,10 @@ async def bootstrap_digital_provider_sources_indexes() -> None:
 
 def _source_key(provider: str, source_ref: str) -> str:
     return f"{str(provider or '').strip().lower()}:{str(source_ref or '').strip()}"
+
+
+def _source_token(source_id: str) -> str:
+    return hashlib.sha1(str(source_id or "").encode("utf-8")).hexdigest()[:12]
 
 
 async def list_active_provider_sources(*, provider: str | None = None) -> list[dict[str, Any]]:
@@ -31,6 +37,88 @@ async def list_active_provider_sources(*, provider: str | None = None) -> list[d
         query["provider"] = str(provider).strip().lower()
     cursor = db.digital_provider_sources.find(query).sort([("provider", 1), ("active_price", 1)])
     return await cursor.to_list(length=None)
+
+
+async def list_provider_sources(
+    *,
+    provider: str | None = None,
+    status: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {}
+    if provider:
+        query["provider"] = str(provider).strip().lower()
+    if status:
+        query["price_status"] = str(status).strip().lower()
+    cursor = db.digital_provider_sources.find(query).sort([("updated_at", -1), ("last_seen_at", -1)])
+    rows = await cursor.to_list(length=max(1, min(100, int(limit or 20))))
+    for row in rows:
+        if not row.get("source_token") and row.get("_id"):
+            token = _source_token(str(row["_id"]))
+            row["source_token"] = token
+            await db.digital_provider_sources.update_one({"_id": row["_id"]}, {"$set": {"source_token": token}})
+    return rows
+
+
+async def get_provider_source(source_id: str) -> dict[str, Any] | None:
+    raw = str(source_id or "").strip()
+    if not raw:
+        return None
+    return await db.digital_provider_sources.find_one({"$or": [{"_id": raw}, {"source_token": raw}]})
+
+
+async def approve_provider_source(source_id: str, *, actor_id: int | None = None) -> dict[str, Any] | None:
+    now = _now()
+    current = await get_provider_source(source_id)
+    if not current:
+        return None
+    observed = round(float(current.get("observed_price") or current.get("active_price") or 0.0), 6)
+    compare_key = str(current.get("compare_key") or "").strip()
+    if observed <= 0 or not compare_key:
+        return current
+    await db.digital_provider_sources.update_one(
+        {"_id": current["_id"]},
+        {
+            "$set": {
+                "active_price": observed,
+                "price_status": "active",
+                "review_reason": "",
+                "available": True,
+                "approved_by": int(actor_id or 0) if actor_id else None,
+                "approved_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+    return await get_provider_source(str(current["_id"]))
+
+
+async def disable_provider_source(source_id: str, *, actor_id: int | None = None) -> dict[str, Any] | None:
+    now = _now()
+    current = await get_provider_source(source_id)
+    if not current:
+        return None
+    await db.digital_provider_sources.update_one(
+        {"_id": current["_id"]},
+        {
+            "$set": {
+                "price_status": "disabled",
+                "available": False,
+                "disabled_by": int(actor_id or 0) if actor_id else None,
+                "disabled_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+    return await get_provider_source(str(current["_id"]))
+
+
+async def list_price_watch_runs(*, provider: str | None = None, limit: int = 5) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {}
+    if provider:
+        query["provider"] = str(provider).strip().lower()
+    cursor = db.digital_price_watch_runs.find(query).sort([("started_at", -1)])
+    return await cursor.to_list(length=max(1, min(20, int(limit or 5))))
 
 
 async def upsert_provider_source(
@@ -97,6 +185,7 @@ async def upsert_provider_source(
 
     payload = {
         "_id": key,
+        "source_token": _source_token(key),
         "provider": provider_code,
         "source_ref": ref,
         "compare_key": cmp_key,
