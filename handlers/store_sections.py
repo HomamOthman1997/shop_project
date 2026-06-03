@@ -1516,6 +1516,32 @@ def _provider_offers_for_row(
     )
 
 
+def _best_provider_offer_for_row(
+    row: dict[str, Any],
+    *,
+    fallback_provider: str,
+    fallback_ref_id: str,
+    fallback_price: float,
+) -> dict[str, Any]:
+    offers = _provider_offers_for_row(
+        row,
+        fallback_provider=fallback_provider,
+        fallback_ref_id=fallback_ref_id,
+        fallback_price=fallback_price,
+    )
+    available = [dict(item) for item in offers if isinstance(item, dict) and bool(item.get("available"))]
+    if available:
+        return available[0]
+    return dict(offers[0]) if offers else {}
+
+
+def _first_available_provider_offer(offers: list[dict[str, Any]]) -> dict[str, Any]:
+    for item in list(offers or []):
+        if isinstance(item, dict) and bool(item.get("available")):
+            return dict(item)
+    return dict(offers[0]) if offers else {}
+
+
 def _gift_category_name_from_snapshot(snapshot: dict[str, Any], cat_id: str) -> str:
     for row in list(snapshot.get("gift_categories") or []):
         if str(row.get("id") or "").strip() == str(cat_id or "").strip():
@@ -1587,6 +1613,13 @@ def _gift_offer_qty_bounds(offer: dict[str, Any]) -> tuple[int, int]:
     qty_min = max(1, _to_int(offer.get("za3em_qty_min") or 1))
     qty_max = max(qty_min, _to_int(offer.get("za3em_qty_max") or qty_min))
     return qty_min, qty_max
+
+
+def _is_external_manual_source_offer(offer: dict[str, Any]) -> bool:
+    if str((offer or {}).get("fulfillment_mode") or "").strip() != MANUAL_TOPUP_MODE:
+        return False
+    provider = str((offer or {}).get("provider") or "").strip().lower()
+    return provider == "bittopup" or bool(str((offer or {}).get("source_url") or "").strip())
 
 
 def _gift_unit_cost_decimal(*, offer: dict[str, Any] | None, fallback_price: Any) -> Decimal:
@@ -1696,6 +1729,18 @@ async def _execute_manual_gift_topup_purchase(
             continue
         if offer_price > (float(cost_price) + 0.000001):
             continue
+        if _is_external_manual_source_offer(offer):
+            provider_resp = {
+                "status": 200,
+                "data": {
+                    "status": "manual_pending",
+                    "provider": str(offer.get("provider") or ""),
+                    "source_url": str(offer.get("source_url") or ""),
+                    "ref_id": str(offer.get("ref_id") or ""),
+                },
+            }
+            chosen_offer = dict(offer)
+            break
         attempt = await _create_provider_gift_order(
             provider=str(offer.get("provider") or "g2bulk"),
             ref_id=str(offer.get("ref_id") or product_id),
@@ -1745,6 +1790,9 @@ async def _execute_manual_gift_topup_purchase(
             "provider_response": provider_resp,
             "delivery_lines_private": voucher_lines,
             "provider_offers_attempted": available_offers,
+            "selected_provider_offer": chosen_offer,
+            "provider_ref_id": str(chosen_offer.get("ref_id") or ""),
+            "provider_source_url": str(chosen_offer.get("source_url") or ""),
             "provider_request_quantity": max(1, int(quantity or 1)),
             "provider_request_extra_params": player_data,
             "fulfillment_mode": MANUAL_TOPUP_MODE,
@@ -1762,6 +1810,7 @@ async def _execute_manual_gift_topup_purchase(
         external_order_id=external_order_id,
         player_data=player_data,
         delivery_lines=voucher_lines,
+        provider_offer=chosen_offer,
     )
     player_id_value = next(
         (
@@ -2406,6 +2455,7 @@ async def _notify_owner_manual_topup(
     external_order_id: str,
     player_data: dict[str, Any],
     delivery_lines: list[str],
+    provider_offer: dict[str, Any] | None = None,
 ) -> bool:
     text, markup = _manual_topup_notification_payload(
         order=order,
@@ -2414,6 +2464,7 @@ async def _notify_owner_manual_topup(
         external_order_id=external_order_id,
         player_data=player_data,
         delivery_lines=delivery_lines,
+        provider_offer=provider_offer,
     )
     target_chat_id, target_thread_id = await _owner_notification_target()
     for chat_id, thread_id, route in _owner_notification_routes(target_chat_id, target_thread_id):
@@ -2438,12 +2489,19 @@ def _manual_topup_notification_payload(
     external_order_id: str,
     player_data: dict[str, Any],
     delivery_lines: list[str],
+    provider_offer: dict[str, Any] | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
     order_id = str(order.get("_id") or "")
     user_id = int(order.get("user_id") or 0)
     reseller_id = int(order.get("reseller_id") or 0)
     params = [f"- {str(key).replace('_', ' ').title()}: {value}" for key, value in dict(player_data or {}).items() if str(value).strip()]
     vouchers = [f"- {line}" for line in list(delivery_lines or []) if str(line).strip()]
+    offer = dict(provider_offer or {})
+    source_url = str(offer.get("source_url") or order.get("provider_source_url") or "").strip()
+    provider_ref_id = str(offer.get("ref_id") or order.get("provider_ref_id") or "").strip()
+    source_product = str(offer.get("source_product_name") or offer.get("product_name") or "").strip()
+    source_denom = str(offer.get("source_denomination_name") or offer.get("name") or "").strip()
+    provider_price = offer.get("price")
     lines = [
         "Manual digital top-up pending",
         f"Order: {order_id}",
@@ -2454,6 +2512,14 @@ def _manual_topup_notification_payload(
     ]
     if external_order_id:
         lines.append(f"Provider order: {external_order_id}")
+    if provider_ref_id:
+        lines.append(f"Provider ref: {provider_ref_id}")
+    if source_product or source_denom:
+        lines.append(f"Source item: {' / '.join(part for part in (source_product, source_denom) if part)}")
+    if provider_price is not None:
+        lines.append(f"Provider cost: {format_usd(float(_money_decimal(provider_price)))}")
+    if source_url:
+        lines.append(f"Source URL: {source_url}")
     if params:
         lines.append("")
         lines.append("Customer data:")
@@ -2484,6 +2550,7 @@ async def _notify_owner_pending_game_topup(
     player_id: str,
     server_id: str,
     reason: str,
+    provider_offer: dict[str, Any] | None = None,
 ) -> bool:
     player_data = {
         "game": game_name,
@@ -2501,6 +2568,9 @@ async def _notify_owner_pending_game_topup(
             "manual_fulfillment_required": True,
             "manual_fulfillment_status": "pending",
             "manual_item_name": item_name,
+            "selected_provider_offer": dict(provider_offer or {}),
+            "provider_ref_id": str((provider_offer or {}).get("ref_id") or ""),
+            "provider_source_url": str((provider_offer or {}).get("source_url") or ""),
             "number_mode": "digital_products",
         },
     )
@@ -2512,6 +2582,7 @@ async def _notify_owner_pending_game_topup(
         external_order_id=external_order_id,
         player_data=player_data,
         delivery_lines=[],
+        provider_offer=provider_offer,
     )
 
 
@@ -3056,11 +3127,17 @@ def _product_grid(
         item_id = str(item.get("id") or "").strip()
         if not item_id:
             continue
+        best_offer = _best_provider_offer_for_row(
+            item,
+            fallback_provider="g2bulk",
+            fallback_ref_id=item_id,
+            fallback_price=float(_money_decimal(item.get("price"))),
+        )
         price = float(
             _resolve_game_sale_price_decimal(
                 game_id=game_id,
                 game_name=game_name,
-                provider_price=item.get("price"),
+                provider_price=best_offer.get("price") or item.get("price"),
                 markup_percent=markup_percent,
             )
         )
@@ -4551,11 +4628,18 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
                 break
         if not selected:
             return await message.answer(t(lang, "store_topup_package_not_found"))
+        best_offer = _best_provider_offer_for_row(
+            selected,
+            fallback_provider="g2bulk",
+            fallback_ref_id=item_id,
+            fallback_price=float(_money_decimal(selected.get("price"))),
+        )
+        provider_price = best_offer.get("price") or selected.get("price")
         price = float(
             _resolve_game_sale_price_decimal(
                 game_id=game_id,
                 game_name=game_name,
-                provider_price=selected.get("price"),
+                provider_price=provider_price,
                 markup_percent=markup_percent,
             )
         )
@@ -4994,13 +5078,14 @@ async def open_g2bulk_gift_item(callback: types.CallbackQuery, state: FSMContext
         await callback.answer()
         return
     markup_percent = await _resolve_digital_products_markup_percent()
-    price = float(_apply_markup_decimal(found.get("price"), markup_percent))
     offers = _provider_offers_for_row(
         found,
         fallback_provider="g2bulk",
         fallback_ref_id=product_id,
         fallback_price=float(_money_decimal(found.get("price"))),
     )
+    primary_offer = _first_available_provider_offer(offers)
+    price = float(_apply_markup_decimal(primary_offer.get("price") or found.get("price"), markup_percent))
     stock = max(int(found.get("stock") or 0), 1 if any(bool(row.get("available")) for row in offers) else 0)
     text = (
         f"{name}\n\n"
@@ -5639,7 +5724,14 @@ async def start_g2bulk_game_checkout(callback: types.CallbackQuery, state: FSMCo
         return await callback.answer(t(lang, "store_topup_package_not_found"), show_alert=True)
 
     markup_percent = await _resolve_digital_products_markup_percent()
-    provider_price = _money_decimal(selected.get("price"))
+    selected_offers = _provider_offers_for_row(
+        selected,
+        fallback_provider="g2bulk",
+        fallback_ref_id=item_id,
+        fallback_price=float(_money_decimal(selected.get("price"))),
+    )
+    primary_offer = _first_available_provider_offer(selected_offers)
+    provider_price = _money_decimal(primary_offer.get("price") or selected.get("price"))
     sale_price = _resolve_game_sale_price_decimal(
         game_id=game_id,
         game_name=game_name,
@@ -5656,12 +5748,7 @@ async def start_g2bulk_game_checkout(callback: types.CallbackQuery, state: FSMCo
             "provider_price": float(provider_price),
             "sale_price": float(sale_price),
             "requires_server": bool(selected.get("requires_server")),
-            "provider_offers": _provider_offers_for_row(
-                selected,
-                fallback_provider="g2bulk",
-                fallback_ref_id=item_id,
-                fallback_price=float(provider_price),
-            ),
+            "provider_offers": selected_offers,
         }
     )
     state_data = await state.get_data()
@@ -5810,6 +5897,18 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
             continue
         if offer_price > (cost_price + 0.000001):
             continue
+        if _is_external_manual_source_offer(offer):
+            provider_resp = {
+                "status": 200,
+                "data": {
+                    "status": "manual_pending",
+                    "provider": str(offer.get("provider") or ""),
+                    "source_url": str(offer.get("source_url") or ""),
+                    "ref_id": str(offer.get("ref_id") or ""),
+                },
+            }
+            chosen_offer = dict(offer)
+            break
         attempt = await _create_provider_game_order(
             provider=str(offer.get("provider") or "g2bulk"),
             ref_id=str(offer.get("ref_id") or item_id),
@@ -5862,6 +5961,9 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
         "player_id": player_id,
         "server_id": server_id,
         "provider_offers_attempted": available_offers,
+        "selected_provider_offer": chosen_offer,
+        "provider_ref_id": str(chosen_offer.get("ref_id") or ""),
+        "provider_source_url": str(chosen_offer.get("source_url") or ""),
         "number_mode": "digital_products",
     }
     await update_order_details(
@@ -5880,6 +5982,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
             player_id=player_id,
             server_id=server_id,
             reason="MISSING_PROVIDER_ORDER_ID",
+            provider_offer=chosen_offer,
         )
         await message.answer(
             _digital_game_order_summary_text(
@@ -5932,6 +6035,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
             player_id=player_id,
             server_id=server_id,
             reason="Provider confirmation stayed pending after automatic polling.",
+            provider_offer=chosen_offer,
         )
         await message.answer(
             _digital_game_order_summary_text(

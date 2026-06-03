@@ -1512,6 +1512,7 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
         display_sale_price = _round_sale_price(unit_sale_price * display_quantity)
         if display_sale_price <= 0:
             continue
+        best_mode = str((best_offer or {}).get("fulfillment_mode") or "").strip()
         out.append(
             {
                 "kind": "gift",
@@ -1524,7 +1525,7 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
                 "stock_label": "In stock" if int(item.get("stock") or 0) > 0 else "Out of stock",
                 "best_provider_code": str((best_offer or {}).get("provider") or item.get("best_provider") or "g2bulk"),
                 "providers_count": len(offers),
-                "fulfillment_mode": MANUAL_TOPUP_MODE if manual_info else VOUCHER_DELIVERY_MODE,
+                "fulfillment_mode": best_mode or (MANUAL_TOPUP_MODE if manual_info else VOUCHER_DELIVERY_MODE),
                 "compare_key": compare_key,
                 "group_key": "topup" if manual_info else ("topup" if _looks_topup_product_name(name) else "addons"),
                 "za3em_requires_input": bool(za_offer.get("za3em_requires_input")) if za_offer else False,
@@ -1604,6 +1605,7 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
             offer_name=name,
             default_unit=game_default_unit(str(source_game_id), resolved_game_name),
         )
+        best_mode = str((best_offer or {}).get("fulfillment_mode") or "").strip()
         items.append(
             {
                 "kind": "game",
@@ -1620,7 +1622,7 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
                 "requires_server": bool(item.get("requires_server")),
                 "best_provider_code": str((best_offer or {}).get("provider") or item.get("best_provider") or "g2bulk"),
                 "providers_count": len(offers),
-                "fulfillment_mode": AUTO_TOPUP_MODE,
+                "fulfillment_mode": best_mode or AUTO_TOPUP_MODE,
                 "compare_key": compare_key,
             }
         )
