@@ -12,7 +12,7 @@ from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboar
 
 from config import OWNER_ID, settings
 from database.bots_repo import get_bot_token, get_reseller_id_for_bot
-from database.financial_ledger import get_reseller_wallet_balance, get_user_wallet_balance
+from database.financial_ledger import credit_user_wallet, get_reseller_wallet_balance, get_user_wallet_balance
 from database.mongo import db
 from database.recharge_repo import create_recharge_request
 from database.owner_payment_settings_repo import get_owner_exchange_rate, get_owner_payment_methods
@@ -26,9 +26,12 @@ from database.reseller_settings_repo import (
 )
 from database.support_topics_repo import get_support_target
 from database.support_tickets_repo import (
+    begin_support_ticket_bug_reward,
     create_support_ticket,
     get_support_ticket,
     has_open_support_ticket,
+    mark_support_ticket_bug_reward_failed,
+    mark_support_ticket_bug_reward_paid,
     mark_support_ticket_replied,
     mark_support_ticket_solved,
     set_ticket_delivery,
@@ -374,13 +377,16 @@ def _support_owner_reply_kb(*, lang: str, category: str, user_id: int) -> Inline
     )
 
 
-def _support_ticket_action_kb(*, lang: str, ticket_id: str) -> InlineKeyboardMarkup:
+def _support_ticket_action_kb(*, lang: str, ticket_id: str, bug_reward_paid: bool = False) -> InlineKeyboardMarkup:
+    reward_text = "Rewarded $1" if bug_reward_paid else ("مكافأة $1" if str(lang or "").lower().startswith("ar") else "Reward bug $1")
+    reward_callback = "support:bug_reward_paid" if bug_reward_paid else f"support:bug_reward:{ticket_id}"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text=t(lang, "support_reply_button"), callback_data=f"support:reply_ticket:{ticket_id}"),
                 InlineKeyboardButton(text=t(lang, "support_solved_button"), callback_data=f"support:solve_ticket:{ticket_id}"),
-            ]
+            ],
+            [InlineKeyboardButton(text=reward_text, callback_data=reward_callback)],
         ]
     )
 
@@ -1673,6 +1679,99 @@ async def support_cancel_callback(callback: types.CallbackQuery, state: FSMConte
 @router.callback_query(lambda c: c.data == "support:ticket_solved")
 async def support_ticket_solved_badge(callback: types.CallbackQuery):
     await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "support:bug_reward_paid")
+async def support_ticket_bug_reward_paid_badge(callback: types.CallbackQuery):
+    await callback.answer("Bug reward already paid.", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("support:bug_reward:"))
+async def support_ticket_bug_reward(callback: types.CallbackQuery):
+    ticket_id = str(callback.data or "").split(":", 2)[2].strip()
+    ticket = await get_support_ticket(ticket_id)
+    if not ticket:
+        await callback.answer(t("en", "support_ticket_not_found"), show_alert=True)
+        return
+    if not await _support_actor_allowed(callback, ticket):
+        await callback.answer(t("en", "no_permission"), show_alert=True)
+        return
+    if str(((ticket.get("bug_reward") or {}).get("status")) or "").lower() == "paid":
+        await callback.answer("Bug reward already paid.", show_alert=True)
+        return
+
+    amount = 1.0
+    claimed = await begin_support_ticket_bug_reward(ticket_id, actor_id=int(callback.from_user.id), amount=amount)
+    if not claimed:
+        await callback.answer("Reward is already being processed or paid.", show_alert=True)
+        return
+
+    user_id = int(ticket.get("user_id") or 0)
+    source_bot_id = int(ticket.get("source_bot_id") or 0)
+    user_doc = await get_user(user_id) if user_id > 0 else None
+    wallet_scope_id = (
+        await _resolve_user_reseller(user_doc, bot_id=source_bot_id, user_id=user_id)
+        if user_id > 0 and source_bot_id > 0
+        else None
+    )
+    if not wallet_scope_id:
+        await mark_support_ticket_bug_reward_failed(ticket_id, actor_id=int(callback.from_user.id), error="wallet_scope_missing")
+        await callback.answer("Could not resolve user wallet for this ticket.", show_alert=True)
+        return
+
+    try:
+        ledger = await credit_user_wallet(
+            user_id,
+            int(wallet_scope_id),
+            amount,
+            "support_bug_reward",
+            actor_id=int(callback.from_user.id),
+            order_id=str(ticket["_id"]),
+        )
+    except Exception as exc:
+        logger.exception("support bug reward credit failed ticket_id=%s", ticket_id)
+        await mark_support_ticket_bug_reward_failed(ticket_id, actor_id=int(callback.from_user.id), error=str(exc))
+        await callback.answer("Could not credit the reward. Try again after checking logs.", show_alert=True)
+        return
+
+    await mark_support_ticket_bug_reward_paid(
+        ticket_id,
+        actor_id=int(callback.from_user.id),
+        amount=amount,
+        wallet_scope_id=int(wallet_scope_id),
+        ledger_id=(ledger or {}).get("_id"),
+    )
+
+    notice_bot = callback.bot
+    close_notice_bot = False
+    try:
+        notice_bot, close_notice_bot = await _support_reply_bot_for_ticket(ticket, callback.bot)
+        user_lang = str((user_doc or {}).get("language") or "").lower()
+        await notice_bot.send_message(
+            chat_id=user_id,
+            text=(
+                "تم إضافة مكافأة $1 لرصيدك بعد تأكيد تقرير المشكلة. شكراً لمساعدتك."
+                if user_lang.startswith("ar")
+                else "A $1 reward was added to your balance after your bug report was confirmed. Thank you for helping."
+            ),
+        )
+    except Exception:
+        pass
+    finally:
+        if close_notice_bot:
+            try:
+                await notice_bot.session.close()
+            except Exception:
+                pass
+
+    if callback.message:
+        try:
+            await callback.message.edit_reply_markup(
+                reply_markup=_support_ticket_action_kb(lang="en", ticket_id=ticket_id, bug_reward_paid=True)
+            )
+        except Exception:
+            pass
+    await callback.answer("Bug reward credited: $1.", show_alert=True)
 
 
 @router.message(SupportFlow.waiting_message)

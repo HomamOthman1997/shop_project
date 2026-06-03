@@ -115,6 +115,77 @@ async def mark_support_ticket_solved(ticket_id: str | ObjectId, *, actor_id: int
     )
 
 
+async def begin_support_ticket_bug_reward(
+    ticket_id: str | ObjectId,
+    *,
+    actor_id: int,
+    amount: float = 1.0,
+) -> dict[str, Any] | None:
+    now = _now()
+    return await db.support_tickets.find_one_and_update(
+        {
+            "_id": _as_object_id(ticket_id),
+            "$or": [
+                {"bug_reward.status": {"$exists": False}},
+                {"bug_reward.status": {"$in": ["failed"]}},
+            ],
+        },
+        {
+            "$set": {
+                "bug_reward.status": "processing",
+                "bug_reward.amount": float(amount),
+                "bug_reward.started_by": int(actor_id),
+                "bug_reward.started_at": now,
+                "updated_at": now,
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def mark_support_ticket_bug_reward_paid(
+    ticket_id: str | ObjectId,
+    *,
+    actor_id: int,
+    amount: float,
+    wallet_scope_id: int,
+    ledger_id: Any = None,
+) -> None:
+    now = _now()
+    payload: dict[str, Any] = {
+        "bug_reward.status": "paid",
+        "bug_reward.amount": float(amount),
+        "bug_reward.wallet_scope_id": int(wallet_scope_id),
+        "bug_reward.paid_by": int(actor_id),
+        "bug_reward.paid_at": now,
+        "updated_at": now,
+    }
+    if ledger_id is not None:
+        payload["bug_reward.ledger_id"] = str(ledger_id)
+    await db.support_tickets.update_one({"_id": _as_object_id(ticket_id)}, {"$set": payload})
+
+
+async def mark_support_ticket_bug_reward_failed(
+    ticket_id: str | ObjectId,
+    *,
+    actor_id: int,
+    error: str,
+) -> None:
+    now = _now()
+    await db.support_tickets.update_one(
+        {"_id": _as_object_id(ticket_id)},
+        {
+            "$set": {
+                "bug_reward.status": "failed",
+                "bug_reward.failed_by": int(actor_id),
+                "bug_reward.failed_at": now,
+                "bug_reward.error": str(error or "")[:300],
+                "updated_at": now,
+            }
+        },
+    )
+
+
 async def has_open_support_ticket(
     *,
     scope: str,

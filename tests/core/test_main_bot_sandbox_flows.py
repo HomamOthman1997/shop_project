@@ -391,6 +391,94 @@ async def test_support_ticket_solve_notifies_user_through_source_bot(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_support_bug_reward_credits_user_wallet(monkeypatch):
+    actor_id = int(main_menu.OWNER_ID)
+    callback = _FakeCallback(user_id=actor_id, data="support:bug_reward:ticket-1", bot_id=900)
+    notice_bot = _FakeBot(bot_id=222)
+    calls = {}
+
+    async def _get_support_ticket(_ticket_id):
+        return {
+            "_id": "ticket-1",
+            "scope": "platform",
+            "source_bot_id": 222,
+            "user_id": 77,
+            "category": "numbers",
+        }
+
+    async def _begin_reward(ticket_id, *, actor_id, amount):
+        calls["begin"] = {"ticket_id": ticket_id, "actor_id": actor_id, "amount": amount}
+        return {"_id": "ticket-1"}
+
+    async def _get_user(_user_id):
+        return {"language": "en"}
+
+    async def _resolve_user_reseller(_user_doc, *, bot_id, user_id):
+        calls["resolve"] = {"bot_id": bot_id, "user_id": user_id}
+        return 77
+
+    async def _credit_user_wallet(user_id, reseller_id, amount, reason, *, actor_id, order_id=None):
+        calls["credit"] = {
+            "user_id": user_id,
+            "reseller_id": reseller_id,
+            "amount": amount,
+            "reason": reason,
+            "actor_id": actor_id,
+            "order_id": order_id,
+        }
+        return {"_id": "ledger-1"}
+
+    async def _mark_paid(ticket_id, *, actor_id, amount, wallet_scope_id, ledger_id=None):
+        calls["paid"] = {
+            "ticket_id": ticket_id,
+            "actor_id": actor_id,
+            "amount": amount,
+            "wallet_scope_id": wallet_scope_id,
+            "ledger_id": ledger_id,
+        }
+
+    async def _mark_failed(*_args, **_kwargs):
+        raise AssertionError("reward should not fail")
+
+    async def _support_reply_bot_for_ticket(_ticket, _current_bot):
+        return notice_bot, False
+
+    monkeypatch.setattr(main_menu, "get_support_ticket", _get_support_ticket)
+    monkeypatch.setattr(main_menu, "begin_support_ticket_bug_reward", _begin_reward)
+    monkeypatch.setattr(main_menu, "get_user", _get_user)
+    monkeypatch.setattr(main_menu, "_resolve_user_reseller", _resolve_user_reseller)
+    monkeypatch.setattr(main_menu, "credit_user_wallet", _credit_user_wallet)
+    monkeypatch.setattr(main_menu, "mark_support_ticket_bug_reward_paid", _mark_paid)
+    monkeypatch.setattr(main_menu, "mark_support_ticket_bug_reward_failed", _mark_failed)
+    monkeypatch.setattr(main_menu, "_support_reply_bot_for_ticket", _support_reply_bot_for_ticket)
+
+    await main_menu.support_ticket_bug_reward(callback)
+
+    assert calls["begin"] == {"ticket_id": "ticket-1", "actor_id": actor_id, "amount": 1.0}
+    assert calls["resolve"] == {"bot_id": 222, "user_id": 77}
+    assert calls["credit"] == {
+        "user_id": 77,
+        "reseller_id": 77,
+        "amount": 1.0,
+        "reason": "support_bug_reward",
+        "actor_id": actor_id,
+        "order_id": "ticket-1",
+    }
+    assert calls["paid"] == {
+        "ticket_id": "ticket-1",
+        "actor_id": actor_id,
+        "amount": 1.0,
+        "wallet_scope_id": 77,
+        "ledger_id": "ledger-1",
+    }
+    assert notice_bot.sent_messages == [
+        (77, "A $1 reward was added to your balance after your bug report was confirmed. Thank you for helping.")
+    ]
+    assert callback.message.reply_markup_edits
+    assert callback.answers == ["Bug reward credited: $1."]
+
+
+@pytest.mark.asyncio
 async def test_admin_support_router_delegates_ticket_actions(monkeypatch):
     callback = _FakeCallback(data="support:reply_ticket:ticket-1")
     state = _FakeState()
@@ -405,6 +493,21 @@ async def test_admin_support_router_delegates_ticket_actions(monkeypatch):
     await support_admin.support_owner_reply_open(callback, state)
 
     assert called == {"callback": callback, "state": state}
+
+
+@pytest.mark.asyncio
+async def test_admin_support_router_delegates_bug_reward(monkeypatch):
+    callback = _FakeCallback(data="support:bug_reward:ticket-1")
+    called = {}
+
+    async def _support_ticket_bug_reward(_callback):
+        called["callback"] = _callback
+
+    monkeypatch.setattr(main_menu, "support_ticket_bug_reward", _support_ticket_bug_reward)
+
+    await support_admin.support_ticket_bug_reward(callback)
+
+    assert called == {"callback": callback}
 
 
 @pytest.mark.asyncio

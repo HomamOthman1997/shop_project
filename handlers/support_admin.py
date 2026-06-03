@@ -12,6 +12,16 @@ async def support_ticket_solved_badge(callback: types.CallbackQuery):
     await main_menu.support_ticket_solved_badge(callback)
 
 
+@router.callback_query(lambda c: c.data == "support:bug_reward_paid")
+async def support_ticket_bug_reward_paid_badge(callback: types.CallbackQuery):
+    await main_menu.support_ticket_bug_reward_paid_badge(callback)
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("support:bug_reward:"))
+async def support_ticket_bug_reward(callback: types.CallbackQuery):
+    await main_menu.support_ticket_bug_reward(callback)
+
+
 @router.callback_query(lambda c: c.data and c.data.startswith("support:reply_ticket:"))
 async def support_owner_reply_open(callback: types.CallbackQuery, state: FSMContext):
     await main_menu.support_owner_reply_open(callback, state)
