@@ -74,6 +74,18 @@ def _parse_discount(text: str) -> float | None:
     return val if val > 0 else None
 
 
+def _clean_denomination_name(text: str) -> str:
+    raw = _strip_tags(text)
+    match = re.search(
+        r"\b(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)?\s*(?:uc|nc|diamonds?|gems?|coins?|tokens?|robux|vp|rp|usd))\b",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return " ".join(match.group(1).split())
+    return raw
+
+
 def _extract_product_name(html_text: str, url: str) -> str:
     for pattern in (
         r"<h1[^>]*>\s*([^<]+?)\s*</h1>",
@@ -158,6 +170,7 @@ def parse_bittopup_product_page(html_text: str, *, url: str) -> list[BitTopupOff
         denom = text[: price_match.start()].strip(" -|")
         denom = re.sub(r"^Image\s+", "", denom, flags=re.IGNORECASE).strip()
         denom = re.sub(r"\s+-\s+\d+(?:\.\d+)?%\s*$", "", denom).strip()
+        denom = _clean_denomination_name(denom)
         if not denom or len(denom) > 120:
             continue
         old_price = None
@@ -167,9 +180,10 @@ def parse_bittopup_product_page(html_text: str, *, url: str) -> list[BitTopupOff
         compare_key, confidence = _compare_key(product_name, denom)
         discount = _parse_discount(text)
         ref = f"{_slug_from_url(url)}#{re.sub(r'[^a-z0-9]+', '-', norm_text(denom)).strip('-')}"
-        if ref in seen:
+        dedup_key = compare_key or ref
+        if dedup_key in seen:
             continue
-        seen.add(ref)
+        seen.add(dedup_key)
         offers.append(
             BitTopupOffer(
                 source_url=url,
@@ -200,9 +214,13 @@ def parse_bittopup_sitemap(xml_text: str, *, limit: int = 0) -> list[str]:
         if not url.startswith(BITTOPUP_BASE_URL):
             continue
         path = urlparse(url).path.strip("/")
-        if not path or path in {"", "direct-topup", "game", "card"}:
+        if path.startswith("goods/"):
+            slug = path.split("/", 1)[1].strip()
+            if not slug:
+                continue
+        elif not path or path in {"", "direct-topup", "game", "card"}:
             continue
-        if any(part in path for part in ("/", "article", "reviews", "sitemap")):
+        elif any(part in path for part in ("/", "article", "reviews", "sitemap")):
             continue
         urls.append(url)
         if limit and len(urls) >= int(limit):

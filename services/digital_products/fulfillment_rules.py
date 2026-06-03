@@ -17,6 +17,7 @@ _FAMILY_LABELS: dict[str, str] = {
     "jawaker": "Jawaker",
     "roblox": "Roblox",
     "valorant": "Valorant",
+    "free_fire": "Free Fire",
 }
 
 _UNIT_ALIASES: dict[str, str] = {
@@ -83,6 +84,8 @@ def manual_feature_info(category_name: str | None, product_name: str | None = No
         family_key = "roblox"
     elif "valorant" in text:
         family_key = "valorant"
+    elif "free fire" in text or "freefire" in text:
+        family_key = "free_fire"
 
     if not family_key:
         return {}
@@ -178,6 +181,8 @@ def game_default_unit(game_id: str | None, game_name: str | None = None) -> str:
         return "nc"
     if "valorant" in text:
         return "vp"
+    if "free fire" in text or "freefire" in text:
+        return "diamond"
     return ""
 
 
@@ -195,4 +200,6 @@ def game_family_key(game_id: str | None, game_name: str | None = None) -> str:
         return "roblox"
     if "valorant" in text:
         return "valorant"
+    if "free fire" in text or "freefire" in text:
+        return "free_fire"
     return ""

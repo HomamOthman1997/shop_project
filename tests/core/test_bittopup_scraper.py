@@ -13,6 +13,7 @@ def test_parse_bittopup_sitemap_reads_public_product_urls_only():
     <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
       <url><loc>https://bittopup.com/</loc></url>
       <url><loc>https://bittopup.com/pubg-mobile-uc/</loc></url>
+      <url><loc>https://bittopup.com/goods/Free-Fire-Diamonds-EU-+-TR</loc></url>
       <url><loc>https://bittopup.com/article/foo/</loc></url>
       <url><loc>https://bittopup.com/apple-gift-card-us/</loc></url>
     </urlset>
@@ -20,6 +21,7 @@ def test_parse_bittopup_sitemap_reads_public_product_urls_only():
 
     assert parse_bittopup_sitemap(xml) == [
         "https://bittopup.com/pubg-mobile-uc/",
+        "https://bittopup.com/goods/Free-Fire-Diamonds-EU-+-TR",
         "https://bittopup.com/apple-gift-card-us/",
     ]
 
@@ -46,6 +48,24 @@ def test_parse_bittopup_product_page_extracts_manual_provider_offers():
     assert offers[0].compare_key == "pubg:global:60:uc"
     assert offers[0].parse_confidence >= 0.8
     assert offers[1].compare_key == "pubg:global:300:uc"
+
+
+def test_parse_bittopup_product_page_maps_free_fire_diamonds():
+    html = """
+    <html>
+      <head><title>Free Fire Diamonds EU TR Recharge</title></head>
+      <body>
+        <h1>Free Fire Diamonds EU + TR</h1>
+        <h3>1080+270 Diamonds EU + TR</h3>
+        <span>USD 10.345</span>
+      </body>
+    </html>
+    """
+
+    offers = parse_bittopup_product_page(html, url="https://bittopup.com/goods/Free-Fire-Diamonds-EU-+-TR")
+
+    assert offers
+    assert offers[0].compare_key == "free_fire:global:1080:diamond"
 
 
 def test_bittopup_scan_result_text_is_operator_readable():
