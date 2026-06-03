@@ -76,6 +76,10 @@ def offer_region_label(text: str | None, *, default: str = "Global") -> str:
     for candidate in candidates:
         if re.search(r"\b(global|worldwide|intl|international)\b", candidate):
             return "Global"
+        if re.search(r"\b(latam|latin america|latin american)\b", candidate):
+            return "LATAM"
+        if re.search(r"\b(sea|southeast asia|south east asia)\b", candidate):
+            return "SEA"
         if re.search(r"\b(us|usa|united states|america|american)\b", candidate):
             return "USA"
         if re.search(r"\b(ksa|saudi|saudi arabia)\b", candidate) or candidate == "sa":

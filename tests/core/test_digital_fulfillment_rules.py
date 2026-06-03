@@ -9,6 +9,7 @@ from services.digital_products.fulfillment_rules import (
     manual_feature_compare_key,
     manual_feature_info,
     offer_compare_key,
+    offer_region_label,
 )
 
 
@@ -32,3 +33,8 @@ def test_auto_game_compare_key_matches_manual_when_same_amount_unit_region():
     assert offer_compare_key(family_key=family, region="Global", offer_name="8100", default_unit=default_unit) == "pubg:global:8100:uc"
     assert offer_compare_key(family_key="yalla_ludo", region="Global", offer_name="5150 Diamonds") == "yalla_ludo:global:5150:diamond"
 
+
+def test_region_label_does_not_treat_latam_as_global():
+    assert offer_region_label("Free Fire Diamonds LATAM") == "LATAM"
+    assert offer_region_label("Some Game SEA") == "SEA"
+    assert offer_region_label("Steam Wallet Code Global") == "Global"
