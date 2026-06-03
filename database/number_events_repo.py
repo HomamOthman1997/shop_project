@@ -7,6 +7,89 @@ from typing import Any
 from .mongo import db
 
 
+_BOT_EVENT_SOURCES = {
+    "auto_cancel_refund_guard_success",
+    "auto_cancel_refund_global_guard_success",
+    "auto_protection_triggered",
+    "auto_refund_retry_success",
+    "guard_sms_detected",
+    "manual_refresh_no_sms",
+    "manual_voice_check_no_call",
+    "wait_timeout",
+    "wait_timeout_auto_refunded",
+}
+_CUSTOMER_EVENT_SOURCES = {
+    "alternate_provider_suggested",
+    "replacement_requested",
+    "second_code_attempted",
+    "second_code_requested",
+}
+_PROVIDER_EVENT_SOURCES = {
+    "call_received",
+    "code_received",
+    "code_received_recovery",
+    "provider_buy_failed",
+    "provider_buy_started",
+    "provider_buy_success",
+    "provider_cancel_failed",
+    "provider_rent_failed",
+    "provider_rent_started",
+    "provider_rent_success",
+    "refresh_code_received",
+    "rental_sms_received",
+    "second_code_provider_rejected",
+    "second_code_provider_success",
+    "voice_call_received",
+}
+_FINANCIAL_EVENT_SOURCES = {
+    "cancelled_refunded",
+    "refund_failed",
+    "refund_success",
+    "wallet_charged",
+}
+
+_POSITIVE_PROVIDER_SIGNALS = {
+    "call_received",
+    "code_received",
+    "code_received_recovery",
+    "guard_sms_detected",
+    "provider_buy_success",
+    "provider_rent_success",
+    "refresh_code_received",
+    "rental_sms_received",
+    "second_code_provider_success",
+    "voice_call_received",
+}
+_NEGATIVE_PROVIDER_SIGNALS = {
+    "provider_buy_failed",
+    "provider_cancel_failed",
+    "provider_rent_failed",
+    "rental_finish_failed",
+    "rental_renew_failed",
+    "rental_wake_failed",
+    "refund_failed",
+    "second_code_charge_failed",
+    "second_code_not_allowed",
+    "second_code_provider_rejected",
+    "wait_timeout",
+    "wait_timeout_auto_refunded",
+}
+_PROTECTION_PROVIDER_SIGNALS = {
+    "auto_cancel_refund_guard_success",
+    "auto_cancel_refund_global_guard_success",
+    "auto_protection_triggered",
+    "auto_refund_retry_success",
+    "cancelled_refunded",
+    "refund_success",
+}
+_ATTEMPT_PROVIDER_SIGNALS = {
+    "purchase_success",
+    "provider_buy_started",
+    "provider_rent_started",
+    "wallet_charged",
+}
+
+
 async def bootstrap_number_events_indexes() -> None:
     await db.number_order_events.create_index([("created_at", -1)], background=True)
     await db.number_order_events.create_index([("order_id", 1), ("created_at", -1)], background=True)
@@ -15,6 +98,8 @@ async def bootstrap_number_events_indexes() -> None:
     await db.number_order_events.create_index([("event", 1), ("created_at", -1)], background=True)
     await db.number_order_events.create_index([("user_id", 1), ("created_at", -1)], background=True)
     await db.number_order_events.create_index([("reseller_id", 1), ("created_at", -1)], background=True)
+    await db.number_order_events.create_index([("provider_signal", 1), ("created_at", -1)], background=True)
+    await db.number_order_events.create_index([("signal_source", 1), ("created_at", -1)], background=True)
 
 
 def _utc_now() -> datetime:
@@ -23,6 +108,49 @@ def _utc_now() -> datetime:
 
 def _as_order_id(value: Any) -> Any:
     return value
+
+
+def classify_number_event_source(event: str, payload: dict[str, Any] | None = None) -> str:
+    event_name = str(event or "").strip().lower()
+    payload = payload or {}
+    explicit = str(payload.get("source") or "").strip().lower()
+    if explicit in {"bot", "customer", "provider", "support", "system", "financial"}:
+        return explicit
+    if explicit in {"miniapp", "numbers_miniapp", "numbers_api", "telegram", "api"}:
+        return "customer"
+    if explicit.startswith("auto_"):
+        return "bot"
+    if event_name in _BOT_EVENT_SOURCES:
+        return "bot"
+    if event_name in _CUSTOMER_EVENT_SOURCES:
+        return "customer"
+    if event_name in _PROVIDER_EVENT_SOURCES:
+        return "provider"
+    if event_name in _FINANCIAL_EVENT_SOURCES:
+        return "financial"
+    return "system"
+
+
+def classify_number_provider_signal(event: str) -> str:
+    event_name = str(event or "").strip().lower()
+    if event_name in _POSITIVE_PROVIDER_SIGNALS:
+        return "success"
+    if event_name in _NEGATIVE_PROVIDER_SIGNALS:
+        return "failure"
+    if event_name in _PROTECTION_PROVIDER_SIGNALS:
+        return "protection"
+    if event_name in _ATTEMPT_PROVIDER_SIGNALS:
+        return "attempt"
+    return "neutral"
+
+
+def _provider_signal_weight(signal: str) -> int:
+    signal = str(signal or "").strip().lower()
+    if signal == "success":
+        return 1
+    if signal == "failure":
+        return -1
+    return 0
 
 
 async def log_number_order_event(
@@ -44,6 +172,9 @@ async def log_number_order_event(
     state: str | None = None,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    event_name = str(event or "").strip().lower()
+    provider_signal = classify_number_provider_signal(event_name)
+    signal_source = classify_number_event_source(event_name, payload)
     doc = {
         "order_id": _as_order_id(order_id),
         "user_id": int(user_id),
@@ -51,7 +182,10 @@ async def log_number_order_event(
         "provider": str(provider or "").strip().lower(),
         "service_id": str(service_id or "").strip(),
         "number_mode": str(number_mode or "").strip().lower(),
-        "event": str(event or "").strip().lower(),
+        "event": event_name,
+        "signal_source": signal_source,
+        "provider_signal": provider_signal,
+        "provider_signal_weight": _provider_signal_weight(provider_signal),
         "status_before": str(status_before or "").strip().lower() or None,
         "status_after": str(status_after or "").strip().lower() or None,
         "sale_price": float(sale_price or 0),
@@ -99,9 +233,16 @@ def build_numbers_report_from_events(events: list[dict[str, Any]], *, since: dat
     total_seconds_to_first_sms: defaultdict[tuple[str, str, str], list[int]] = defaultdict(list)
     total_seconds_to_second_code: defaultdict[tuple[str, str, str], list[int]] = defaultdict(list)
     suspicious_users: Counter[int] = Counter()
+    provider_monitor: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
 
     for event in events:
         event_name = str(event.get("event") or "").strip().lower()
+        payload_obj = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        signal_source = str(event.get("signal_source") or "").strip().lower() or classify_number_event_source(
+            event_name,
+            payload_obj,
+        )
+        provider_signal = str(event.get("provider_signal") or "").strip().lower() or classify_number_provider_signal(event_name)
         event_counts[event_name] += 1
         order_id = event.get("order_id")
         if order_id is not None:
@@ -111,7 +252,43 @@ def build_numbers_report_from_events(events: list[dict[str, Any]], *, since: dat
         provider = str(event.get("provider") or "").strip().lower() or "-"
         service_id = str(event.get("service_id") or "").strip() or "-"
         mode = str(event.get("number_mode") or "").strip().lower() or "-"
+        country = str(event.get("country") or payload_obj.get("country") or "").strip() or "-"
+        state = str(event.get("state") or payload_obj.get("state") or "").strip() or "-"
         key = (mode, provider, service_id)
+        monitor_key = (mode, provider, service_id, country, state)
+        monitor_row = provider_monitor.setdefault(
+            monitor_key,
+            {
+                "number_mode": mode,
+                "provider": provider,
+                "service_id": service_id,
+                "country": country,
+                "state": state,
+                "orders": set(),
+                "events": 0,
+                "attempt_signals": 0,
+                "success_signals": 0,
+                "failure_signals": 0,
+                "protection_signals": 0,
+                "neutral_signals": 0,
+                "bot_signals": 0,
+                "customer_signals": 0,
+                "provider_signals": 0,
+                "financial_signals": 0,
+                "system_signals": 0,
+            },
+        )
+        monitor_row["events"] += 1
+        if order_id is not None:
+            monitor_row["orders"].add(order_id)
+        signal_key = f"{provider_signal}_signals"
+        if signal_key in monitor_row:
+            monitor_row[signal_key] += 1
+        source_key = f"{signal_source}_signals"
+        if source_key in monitor_row:
+            monitor_row[source_key] += 1
+        else:
+            monitor_row["system_signals"] += 1
         bucket = provider_service_stats.setdefault(
             key,
             {
@@ -213,6 +390,26 @@ def build_numbers_report_from_events(events: list[dict[str, Any]], *, since: dat
             row["avg_seconds_to_second_code"] = round(sum(second_code_times) / len(second_code_times), 2)
         provider_rows.append(row)
 
+    monitor_rows = []
+    for row in provider_monitor.values():
+        attempts = int(row.get("attempt_signals") or 0)
+        successes = int(row.get("success_signals") or 0)
+        failures = int(row.get("failure_signals") or 0)
+        scored = successes + failures
+        score = round((successes / scored) * 100.0, 2) if scored > 0 else None
+        confidence = "none"
+        if attempts >= 20 or scored >= 20:
+            confidence = "high"
+        elif attempts >= 5 or scored >= 5:
+            confidence = "medium"
+        elif attempts > 0 or scored > 0:
+            confidence = "low"
+        out = {k: v for k, v in row.items() if k != "orders"}
+        out["orders"] = len(row.get("orders") or set())
+        out["monitor_score"] = score
+        out["confidence"] = confidence
+        monitor_rows.append(out)
+
     def _top_counter_rows(counter: Counter[tuple[str, str, str]], *, label: str) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for (mode, provider, service_id), count in counter.most_common(10):
@@ -248,6 +445,16 @@ def build_numbers_report_from_events(events: list[dict[str, Any]], *, since: dat
             key=lambda item: (
                 -int(item.get("purchase_attempts") or 0),
                 -int(item.get("codes_received") or 0),
+                str(item.get("provider") or ""),
+                str(item.get("service_id") or ""),
+            ),
+        ),
+        "provider_monitor_summary": sorted(
+            monitor_rows,
+            key=lambda item: (
+                str(item.get("confidence") or "") != "high",
+                -(int(item.get("failure_signals") or 0) + int(item.get("protection_signals") or 0)),
+                -(int(item.get("success_signals") or 0)),
                 str(item.get("provider") or ""),
                 str(item.get("service_id") or ""),
             ),

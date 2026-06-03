@@ -92,7 +92,7 @@ async def get_provider_success_rates(
                 "got_code": {
                     "$max": {
                         "$cond": [
-                            {"$in": ["$event", ["code_received", "refresh_code_received"]]},
+                            {"$in": ["$event", list(_POSITIVE_EVENTS)]},
                             1,
                             0,
                         ]
@@ -101,7 +101,7 @@ async def get_provider_success_rates(
                 "failed_no_code": {
                     "$max": {
                         "$cond": [
-                            {"$in": ["$event", ["wait_timeout", "wait_timeout_auto_refunded", "cancelled_refunded"]]},
+                            {"$in": ["$event", list(_NEGATIVE_EVENTS)]},
                             1,
                             0,
                         ]
@@ -180,8 +180,18 @@ async def get_provider_success_rates(
     return out
 
 
-_POSITIVE_EVENTS = ("code_received", "refresh_code_received")
-_NEGATIVE_EVENTS = ("wait_timeout_auto_refunded", "cancelled_refunded")
+_POSITIVE_EVENTS = (
+    "code_received",
+    "code_received_recovery",
+    "guard_sms_detected",
+    "refresh_code_received",
+    "voice_call_received",
+)
+_NEGATIVE_EVENTS = (
+    "cancelled_refunded",
+    "wait_timeout",
+    "wait_timeout_auto_refunded",
+)
 
 
 async def get_user_trust_snapshot(

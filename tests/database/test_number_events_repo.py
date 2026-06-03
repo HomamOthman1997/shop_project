@@ -4,7 +4,11 @@ from datetime import UTC, datetime, timedelta
 
 sys.path.insert(0, os.getcwd())
 
-from database.number_events_repo import build_numbers_report_from_events
+from database.number_events_repo import (
+    build_numbers_report_from_events,
+    classify_number_event_source,
+    classify_number_provider_signal,
+)
 
 
 def test_build_numbers_report_from_events_summarizes_core_metrics():
@@ -135,3 +139,80 @@ def test_build_numbers_report_from_events_summarizes_core_metrics():
     assert any(row["provider"] == "smspool" and row["count"] == 1 for row in report["top_provider_failures"])
     assert any(row["provider"] == "vak" and row["count"] == 1 for row in report["top_second_code_failures"])
     assert any(row["provider"] == "herosms" and row["count"] == 1 for row in report["top_protection_saved"])
+
+
+def test_provider_monitor_summary_scores_provider_service_country_signals():
+    now = datetime.now(UTC)
+    since = now - timedelta(days=1)
+    events = [
+        {
+            "order_id": "o1",
+            "user_id": 1,
+            "provider": "alpha",
+            "service_id": "whatsapp",
+            "number_mode": "temp",
+            "event": "purchase_success",
+            "country": "30",
+            "state": "none",
+            "created_at": since,
+            "payload": {"source": "numbers_api"},
+        },
+        {
+            "order_id": "o1",
+            "user_id": 1,
+            "provider": "alpha",
+            "service_id": "whatsapp",
+            "number_mode": "temp",
+            "event": "code_received",
+            "country": "30",
+            "state": "none",
+            "created_at": since + timedelta(minutes=1),
+            "payload": {"seconds_since_purchase": 55},
+        },
+        {
+            "order_id": "o2",
+            "user_id": 2,
+            "provider": "alpha",
+            "service_id": "whatsapp",
+            "number_mode": "temp",
+            "event": "wait_timeout_auto_refunded",
+            "country": "30",
+            "state": "none",
+            "created_at": since + timedelta(minutes=2),
+            "payload": {"source": "auto_refund"},
+        },
+        {
+            "order_id": "o2",
+            "user_id": 2,
+            "provider": "alpha",
+            "service_id": "whatsapp",
+            "number_mode": "temp",
+            "event": "cancelled_refunded",
+            "country": "30",
+            "state": "none",
+            "created_at": since + timedelta(minutes=3),
+            "payload": {},
+        },
+    ]
+
+    report = build_numbers_report_from_events(events, since=since, until=now)
+    row = next(item for item in report["provider_monitor_summary"] if item["provider"] == "alpha")
+
+    assert row["orders"] == 2
+    assert row["attempt_signals"] == 1
+    assert row["success_signals"] == 1
+    assert row["failure_signals"] == 1
+    assert row["protection_signals"] == 1
+    assert row["bot_signals"] == 1
+    assert row["provider_signals"] == 1
+    assert row["monitor_score"] == 50.0
+    assert row["confidence"] == "low"
+
+
+def test_number_event_signal_classifiers_cover_customer_bot_provider():
+    assert classify_number_event_source("code_received", {}) == "provider"
+    assert classify_number_event_source("wait_timeout_auto_refunded", {}) == "bot"
+    assert classify_number_event_source("replacement_requested", {}) == "customer"
+    assert classify_number_provider_signal("code_received") == "success"
+    assert classify_number_provider_signal("wait_timeout_auto_refunded") == "failure"
+    assert classify_number_provider_signal("cancelled_refunded") == "protection"
