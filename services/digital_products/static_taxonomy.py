@@ -429,6 +429,13 @@ def norm_text(value: str | None) -> str:
     return " ".join(str(value or "").strip().lower().split())
 
 
+def _contains_taxonomy_token(text: str, token: str) -> bool:
+    alias = norm_text(token)
+    if not alias:
+        return False
+    return bool(re.search(rf"(^|[^a-z0-9\u0600-\u06ff]){re.escape(alias)}([^a-z0-9\u0600-\u06ff]|$)", text))
+
+
 def clean_family_text(value: str | None) -> str:
     raw = norm_text(value)
     raw = re.sub(r"[\[\]{}]", " ", raw)
@@ -463,13 +470,13 @@ def detect_service_key_strict(text: str | None) -> str | None:
                 return service_key
             if any(re.search(rf"(^|[^a-z0-9\u0600-\u06ff]){re.escape(alias)}([^a-z0-9\u0600-\u06ff]|$)", n) for alias in aliases):
                 return service_key
-    if any(token in n for token in _CHAT_ALIAS_TERMS):
+    if any(_contains_taxonomy_token(n, token) for token in _CHAT_ALIAS_TERMS):
         return "chat_apps"
     for key, tokens in CUSTOM_SERVICE_RULES:
-        if any(token in n for token in tokens):
+        if any(_contains_taxonomy_token(n, token) for token in tokens):
             return key
     for key, tokens in SERVICE_RULES:
-        if any(token in n for token in tokens):
+        if any(_contains_taxonomy_token(n, token) for token in tokens):
             return key
     return None
 
