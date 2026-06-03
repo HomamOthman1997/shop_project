@@ -163,9 +163,8 @@ body:not(.app-booting) .boot-screen { display: none; }
   position: relative;
   width: 92px;
   height: 38px;
-  display: grid;
-  align-content: center;
-  gap: 1px;
+  display: flex;
+  align-items: center;
   padding: 4px 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -180,6 +179,7 @@ body:not(.app-booting) .boot-screen { display: none; }
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
   gap: 5px;
+  width: 100%;
   direction: ltr;
 }
 .balance-card strong {
@@ -192,15 +192,6 @@ body:not(.app-booting) .boot-screen { display: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.balance-meta {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  margin-top: 0;
-  color: var(--muted);
-  font-size: 10px;
-}
 .theme-toggle {
   width: 34px;
   height: 38px;
@@ -212,7 +203,7 @@ body:not(.app-booting) .boot-screen { display: none; }
   background: var(--surface);
   color: var(--accent);
   box-shadow: var(--soft-shadow);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 900;
   line-height: 1;
 }

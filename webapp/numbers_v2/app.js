@@ -623,7 +623,7 @@ function applyRuntimeTheme() {
   const dark = override ? override === "dark" : (scheme === "dark" || darkBg || params.get("theme") === "dark");
   document.body.classList.toggle("telegram-dark", dark);
   if (els.themeToggle) {
-    els.themeToggle.textContent = dark ? "\u2600" : "\u263e";
+    els.themeToggle.textContent = dark ? "\u2600\ufe0f" : "\ud83c\udf19";
     els.themeToggle.setAttribute("aria-label", dark ? "Light theme" : "Dark theme");
   }
 }
