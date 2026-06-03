@@ -61,6 +61,11 @@ def _patch_providers(monkeypatch):
     monkeypatch.setitem(manager.PROVIDERS, 'vaksms', DummyProvider())
     monkeypatch.setattr(manager, "provider_quote_enabled", lambda code, mode="temp": True)
 
+    async def _not_blocked(**kwargs):
+        return None
+
+    monkeypatch.setattr(manager, "number_provider_purchase_blocked", _not_blocked)
+
 
 def test_service_name_lookup():
     # use the static service map (not dynamic modules) for this simple check
@@ -452,6 +457,42 @@ async def test_whatsapp_pricing_keeps_provider_cost(monkeypatch):
     result = await manager.get_all_prices("whatsapp", "none", None, ignore_balance=True)
     assert result["herosms"]["base_price"] == 0.27
     assert result["herosms"]["price"] == 0.27
+
+
+@pytest.mark.asyncio
+async def test_get_all_prices_hides_recent_purchase_failure(monkeypatch):
+    class _Provider:
+        async def get_price(self, service, country=None, state=None):
+            return {
+                "success": True,
+                "price": 0.25,
+                "api_service_name": "tg",
+                "provider_country_iso": "IS",
+            }
+
+        async def get_balance(self):
+            return 10.0
+
+    monkeypatch.setattr(manager, "PROVIDERS", {"herosms": _Provider()})
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+
+    async def _resolve(*args, **kwargs):
+        return {"resolved_provider_service": "tg", "provider_reason": "test"}
+
+    async def _blocked(**kwargs):
+        assert kwargs["mode"] == "temp"
+        assert kwargs["provider_code"] == "herosms"
+        assert kwargs["service_key"] == "telegram"
+        assert kwargs["country"] == "none"
+        assert kwargs["provider_country_iso"] == "IS"
+        return {"_id": "temp:herosms:telegram:none:IS"}
+
+    monkeypatch.setattr(manager, "get_provider_service_resolution_dynamic", _resolve)
+    monkeypatch.setattr(manager, "number_provider_purchase_blocked", _blocked)
+    manager._PROVIDER_BALANCE_CACHE.clear()
+
+    result = await manager.get_all_prices("telegram", "none", None, ignore_balance=True)
+    assert "herosms" not in result
 
 
 @pytest.mark.asyncio

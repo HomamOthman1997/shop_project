@@ -439,15 +439,26 @@ class HeroSMSProvider(BaseProvider):
         if self._is_error_payload(data):
             return {"success": False, "raw": data}
 
-        prices = self._extract_price(data)
-        if not prices:
-            return {"success": False, "raw": data}
-
         provider_country_iso: str | None = None
         provider_country: str | None = None
+        prices: list[float] = []
         if mapped_country is not None:
             provider_country = str(mapped_country)
             provider_country_iso = await self._hero_country_id_to_iso(mapped_country)
+            service_row: Any = None
+            if isinstance(data, dict):
+                country_block = (
+                    data.get(str(mapped_country)) or data.get(int(mapped_country))
+                    if str(mapped_country).isdigit()
+                    else data.get(str(mapped_country))
+                )
+                if isinstance(country_block, dict):
+                    service_row = country_block.get(str(service))
+                elif data.get(str(service)) is not None:
+                    service_row = data.get(str(service))
+            else:
+                service_row = data
+            prices = self._extract_price(service_row)
         if mapped_country is None and isinstance(data, dict):
             best_country_id: str | None = None
             best_price: float | None = None
@@ -474,6 +485,8 @@ class HeroSMSProvider(BaseProvider):
                 prices = []
             if not prices:
                 return {"success": False, "raw": data}
+        if not prices:
+            return {"success": False, "raw": data}
 
         result = {
             "success": True,

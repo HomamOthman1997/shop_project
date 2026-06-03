@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from services.numbers import order_service
+from services.numbers import order_purchase_service
 from services.numbers import api_payloads
 from services.numbers.api_payloads import make_quote_token, rental_option_match_key
 
@@ -100,6 +101,61 @@ def test_public_order_payload_exposes_safe_replacement_state():
     assert payload["alternate_provider_id"] == "S1"
     assert payload["alternate_provider_price_label"] == "$0.66"
     assert "textverified" not in payload["alternate_provider"]
+
+
+@pytest.mark.asyncio
+async def test_temp_provision_failure_marks_provider_purchase_block(monkeypatch):
+    calls: dict[str, object] = {}
+
+    async def _update_details(order_id, patch):
+        calls.setdefault("details", []).append((order_id, patch))
+
+    async def _update_status(order_id, status):
+        calls["status"] = (order_id, status)
+
+    async def _log(*args, **kwargs):
+        return None
+
+    async def _buy(**kwargs):
+        return {"success": False, "raw": "not available"}
+
+    async def _mark_failure(**kwargs):
+        calls["block"] = kwargs
+        return {"_id": "block"}
+
+    async def _refund(cls, user_id, order_id, sale_price, cost_price, reseller_id=None):
+        calls["refund"] = (user_id, order_id, sale_price, cost_price, reseller_id)
+        return True, "ok"
+
+    monkeypatch.setattr(order_purchase_service, "update_order_details", _update_details)
+    monkeypatch.setattr(order_purchase_service, "update_order_status", _update_status)
+    monkeypatch.setattr(order_purchase_service, "_log_number_event_from_order", _log)
+    monkeypatch.setattr(order_purchase_service, "buy_number_from_provider", _buy)
+    monkeypatch.setattr(order_purchase_service, "mark_number_provider_purchase_failure", _mark_failure)
+    monkeypatch.setattr(order_purchase_service.FinancialManager, "refund_core_purchase", classmethod(_refund))
+
+    with pytest.raises(order_purchase_service.ProviderProvisioningError):
+        await order_purchase_service.provision_charged_temp_order(
+            order={"_id": "order-1"},
+            order_id="order-1",
+            user_id=123,
+            reseller_id=456,
+            provider_code="herosms",
+            api_service="tg",
+            country="IS",
+            state=None,
+            service_name="Telegram",
+            final_price=0.25,
+            cost_price=0.2,
+            purchase_options={"_audit_requested_service": "telegram", "provider_country_iso": "IS"},
+        )
+
+    assert calls["block"]["mode"] == "temp"
+    assert calls["block"]["provider_code"] == "herosms"
+    assert calls["block"]["service_key"] == "telegram"
+    assert calls["block"]["country"] == "IS"
+    assert calls["block"]["provider_country_iso"] == "IS"
+    assert calls["refund"] == (123, "order-1", 0.25, 0.2, 456)
 
 
 def test_public_order_payload_uses_customer_safe_refund_reason():

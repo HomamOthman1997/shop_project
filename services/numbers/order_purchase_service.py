@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from database.numbers_provider_circuit_repo import mark_number_provider_purchase_failure
 from database.orders_repo import update_order_details, update_order_status
 from services.numbers.manager import buy_number_from_provider, rent_number_from_provider
 from services.numbers.order_rental_protection_service import rental_protection_policy
@@ -79,6 +80,16 @@ async def provision_charged_temp_order(
         purchase_options=options,
     )
     if not buy_res or not buy_res.get("success"):
+        provider_country_iso = str((purchase_options or {}).get("provider_country_iso") or "").strip().upper()
+        await mark_number_provider_purchase_failure(
+            mode=number_mode,
+            provider_code=provider_code,
+            service_key=str((purchase_options or {}).get("_audit_requested_service") or service_name or ""),
+            country=str(country or "none"),
+            provider_country_iso=provider_country_iso,
+            api_service_name=api_service,
+            reason=str((buy_res or {}).get("raw") or (buy_res or {}).get("error") or "provider_buy_failed"),
+        )
         refund_ok, _refund_msg = await FinancialManager.refund_core_purchase(
             int(user_id),
             order_id,

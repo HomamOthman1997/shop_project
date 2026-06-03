@@ -6,6 +6,7 @@ from typing import Any
 
 from config import settings
 from database import temp_number_stats_repo
+from database.numbers_provider_circuit_repo import number_provider_purchase_blocked
 from services.numbers.data import smspool_services, telabot_services, textverified_services
 from services.numbers.manager_helpers import (
     _country_iso_value,
@@ -938,6 +939,20 @@ async def get_all_prices(
                         price_data["provider_state_code"] = provider_state_code
                     if provider_country_iso:
                         price_data["provider_country_iso"] = provider_country_iso
+                block = await number_provider_purchase_blocked(
+                    mode="temp",
+                    provider_code=code,
+                    service_key=str(service_key or ""),
+                    country=str(country or "none"),
+                    provider_country_iso=str(price_data.get("provider_country_iso") or ""),
+                )
+                if block:
+                    if not show_all_for_testing:
+                        return (code, None)
+                    price_data["available_for_buy"] = False
+                    price_data["testing_visible"] = True
+                    price_data["provider_reason"] = "recent_purchase_failure"
+                    price_data["provider_reason_message"] = "Provider recently failed to reserve this service/location."
                 price_data["price"] = temp_sale_price(
                     service_key=service_key,
                     base_price=base_price,

@@ -213,6 +213,32 @@ async def test_get_price_maps_common_country_code(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_price_uses_requested_country_service_price_only(monkeypatch):
+    provider = HeroSMSProvider()
+
+    async def fake_request(action, **params):
+        if action == "getCountries":
+            return 200, [
+                {"id": 108, "eng": "Iceland", "visible": 1},
+                {"id": 129, "eng": "Greece", "visible": 1},
+            ]
+        if action == "getPrices":
+            assert str(params.get("country")) == "108"
+            return 200, {
+                "108": {"tg": {"cost": 0.34, "count": 5}},
+                "129": {"tg": {"cost": 0.25, "count": 5}},
+            }
+        return 200, {}
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    res = await provider.get_price("tg", country="Iceland")
+    assert res["success"] is True
+    assert res["price"] == 0.34
+    assert res["provider_country"] == "108"
+    assert res["provider_country_iso"] == "IS"
+
+
+@pytest.mark.asyncio
 async def test_buy_number_rejects_unresolved_non_numeric_country(monkeypatch):
     provider = HeroSMSProvider()
 
