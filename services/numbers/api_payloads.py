@@ -614,7 +614,7 @@ def voice_provider_offer_is_buyable(provider_code: str, info: dict[str, Any]) ->
         return False
 
 
-def _recommended_temp_provider_code(data: dict[str, Any]) -> str:
+def _recommended_temp_provider_code(data: dict[str, Any], *, service: str | None = None) -> str:
     buyable: list[tuple[str, float, float]] = []
     min_attempts = max(1, int(getattr(settings, "numbers_success_rate_display_min_attempts", 5) or 5))
     for provider_code, info in (data or {}).items():
@@ -633,7 +633,7 @@ def _recommended_temp_provider_code(data: dict[str, Any]) -> str:
             success_rate = float(success_value if attempts >= min_attempts else 100.0)
         except Exception:
             success_rate = 100.0
-        adjusted_rate = max(0.0, min(100.0, success_rate + provider_recommendation_bonus(code)))
+        adjusted_rate = max(0.0, min(100.0, success_rate + provider_recommendation_bonus(code, service)))
         buyable.append((code, price, adjusted_rate))
     if not buyable:
         return ""
@@ -649,7 +649,7 @@ def normalize_temp_quote_rows(
     state: str,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    recommended_code = _recommended_temp_provider_code(data)
+    recommended_code = _recommended_temp_provider_code(data, service=service)
 
     for raw_code, info in sorted((data or {}).items(), key=lambda item: _provider_sort_key(str(item[0]))):
         code = str(raw_code or "").strip().lower()

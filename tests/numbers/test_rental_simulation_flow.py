@@ -247,7 +247,7 @@ async def test_hidden_temp_provider_is_rejected_server_side(monkeypatch):
     state = _DummyState(
         {
             "available_prices": {
-                "nonvoip": {
+                "nonvoip_s6": {
                     "price": 0.3,
                     "base_price": 0.2,
                     "api_service_name": "gmail",
@@ -256,7 +256,7 @@ async def test_hidden_temp_provider_is_rejected_server_side(monkeypatch):
             }
         }
     )
-    callback = _DummyCallback("buy_provider:nonvoip")
+    callback = _DummyCallback("buy_provider:nonvoip_s6")
 
     await hb.provider_selected(callback, state)
 

@@ -939,13 +939,17 @@ async def get_all_prices(
                         price_data["provider_state_code"] = provider_state_code
                     if provider_country_iso:
                         price_data["provider_country_iso"] = provider_country_iso
-                block = await number_provider_purchase_blocked(
-                    mode="temp",
-                    provider_code=code,
-                    service_key=str(service_key or ""),
-                    country=str(country or "none"),
-                    provider_country_iso=str(price_data.get("provider_country_iso") or ""),
-                )
+                try:
+                    block = await number_provider_purchase_blocked(
+                        mode="temp",
+                        provider_code=code,
+                        service_key=str(service_key or ""),
+                        country=str(country or "none"),
+                        provider_country_iso=str(price_data.get("provider_country_iso") or ""),
+                    )
+                except Exception as exc:
+                    block = None
+                    logger.warning("Provider purchase circuit check failed for %s/%s: %s", code, service_key, exc)
                 if block:
                     if not show_all_for_testing:
                         return (code, None)

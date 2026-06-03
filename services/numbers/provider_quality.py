@@ -91,6 +91,18 @@ _DEFAULT = ProviderQuality(
 )
 
 
+_SERVICE_BONUS_OVERRIDES: dict[str, dict[str, float]] = {
+    # Telegram is currently more sensitive than the providers' general quality.
+    # Keep these sources visible when they have stock, but stop promoting them
+    # over providers that have cleaner Telegram-specific behavior.
+    "telegram": {
+        "herosms": -8.0,
+        "textverified": -8.0,
+        "smspool": -8.0,
+    },
+}
+
+
 def provider_quality(provider_code: str) -> ProviderQuality:
     code = str(provider_code or "").strip().lower()
     if not code:
@@ -98,8 +110,13 @@ def provider_quality(provider_code: str) -> ProviderQuality:
     return _QUALITY.get(code, ProviderQuality(**{**_DEFAULT.to_dict(), "provider": code}))
 
 
-def provider_recommendation_bonus(provider_code: str) -> float:
-    return provider_quality(provider_code).recommendation_bonus
+def provider_recommendation_bonus(provider_code: str, service_key: str | None = None) -> float:
+    code = str(provider_code or "").strip().lower()
+    service = str(service_key or "").strip().lower()
+    service_overrides = _SERVICE_BONUS_OVERRIDES.get(service) or {}
+    if code in service_overrides:
+        return float(service_overrides[code])
+    return provider_quality(code).recommendation_bonus
 
 
 def provider_quality_rows() -> list[dict[str, Any]]:
