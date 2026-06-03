@@ -647,17 +647,31 @@ async def test_get_all_prices_hides_us_only_temp_provider_for_non_us_country(mon
 
     monkeypatch.setitem(manager.PROVIDERS, "textverified", _UsOnlyDummy())
     monkeypatch.setitem(manager.PROVIDERS, "pvadeals", _UsOnlyDummy())
+    monkeypatch.setitem(manager.PROVIDERS, "telabot", _UsOnlyDummy())
     monkeypatch.setattr(manager.settings, "profit_policy_enabled", False)
 
-    result = await manager.get_all_prices("telegram", "NL", None, provider_codes={"textverified", "pvadeals"})
+    result = await manager.get_all_prices("telegram", "NL", None, provider_codes={"textverified", "pvadeals", "telabot"})
 
     assert "textverified" not in result
     assert "pvadeals" not in result
+    assert "telabot" not in result
 
 
-def test_provider_allows_rental_hides_us_only_provider_for_non_us_country():
-    assert manager.provider_allows_rental("pvadeals", service_key="paypal", country_iso="NL") is False
-    assert manager.provider_allows_rental("pvadeals", service_key="paypal", country_iso="US") is True
+def test_provider_country_capability_matrix():
+    for provider in ("textverified", "telabot", "pvadeals"):
+        assert manager.provider_allows_temp(provider, country_iso="US") is True
+        assert manager.provider_allows_temp(provider, country_iso="NL") is False
+
+    for provider in ("herosms", "smspool", "smsready", "pvapins", "vaksms"):
+        assert manager.provider_allows_temp(provider, country_iso="US") is True
+        assert manager.provider_allows_temp(provider, country_iso="NL") is True
+
+    for provider in ("textverified", "pvadeals"):
+        assert manager.provider_allows_rental(provider, service_key="paypal", country_iso="NL") is False
+        assert manager.provider_allows_rental(provider, service_key="paypal", country_iso="US") is True
+
+    for provider in ("herosms", "smsready", "pvapins"):
+        assert manager.provider_allows_rental(provider, service_key="paypal", country_iso="NL") is True
 
 
 @pytest.mark.asyncio
