@@ -32,6 +32,7 @@ from database.support_tickets_repo import (
     has_open_support_ticket,
     mark_support_ticket_bug_reward_failed,
     mark_support_ticket_bug_reward_paid,
+    mark_support_ticket_bug_triage,
     mark_support_ticket_replied,
     mark_support_ticket_solved,
     set_ticket_delivery,
@@ -377,14 +378,36 @@ def _support_owner_reply_kb(*, lang: str, category: str, user_id: int) -> Inline
     )
 
 
-def _support_ticket_action_kb(*, lang: str, ticket_id: str, bug_reward_paid: bool = False) -> InlineKeyboardMarkup:
+def _support_ticket_action_kb(
+    *,
+    lang: str,
+    ticket_id: str,
+    bug_reward_paid: bool = False,
+    bug_triage_status: str = "",
+) -> InlineKeyboardMarkup:
     reward_text = "Rewarded $1" if bug_reward_paid else ("مكافأة $1" if str(lang or "").lower().startswith("ar") else "Reward bug $1")
     reward_callback = "support:bug_reward_paid" if bug_reward_paid else f"support:bug_reward:{ticket_id}"
+    triage_status = str(bug_triage_status or "").lower()
+    confirmed_text = "Bug confirmed" if triage_status != "confirmed" else "Confirmed bug"
+    not_bug_text = "Not a bug"
+    if str(lang or "").lower().startswith("ar"):
+        confirmed_text = "تأكيد البغ" if triage_status != "confirmed" else "بغ مؤكد"
+        not_bug_text = "ليس بغ"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text=t(lang, "support_reply_button"), callback_data=f"support:reply_ticket:{ticket_id}"),
                 InlineKeyboardButton(text=t(lang, "support_solved_button"), callback_data=f"support:solve_ticket:{ticket_id}"),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=confirmed_text,
+                    callback_data="support:bug_triage_done" if triage_status == "confirmed" else f"support:bug_triage:confirmed:{ticket_id}",
+                ),
+                InlineKeyboardButton(
+                    text=not_bug_text,
+                    callback_data="support:bug_triage_done" if triage_status == "not_bug" else f"support:bug_triage:not_bug:{ticket_id}",
+                ),
             ],
             [InlineKeyboardButton(text=reward_text, callback_data=reward_callback)],
         ]
@@ -1684,6 +1707,46 @@ async def support_ticket_solved_badge(callback: types.CallbackQuery):
 @router.callback_query(lambda c: c.data == "support:bug_reward_paid")
 async def support_ticket_bug_reward_paid_badge(callback: types.CallbackQuery):
     await callback.answer("Bug reward already paid.", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data == "support:bug_triage_done")
+async def support_ticket_bug_triage_badge(callback: types.CallbackQuery):
+    await callback.answer("Bug triage already set.", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("support:bug_triage:"))
+async def support_ticket_bug_triage(callback: types.CallbackQuery):
+    parts = str(callback.data or "").split(":", 3)
+    if len(parts) != 4:
+        await callback.answer("Could not process this action.", show_alert=True)
+        return
+    status = parts[2].strip().lower()
+    ticket_id = parts[3].strip()
+    if status not in {"confirmed", "not_bug"}:
+        await callback.answer("Could not process this action.", show_alert=True)
+        return
+    ticket = await get_support_ticket(ticket_id)
+    if not ticket:
+        await callback.answer(t("en", "support_ticket_not_found"), show_alert=True)
+        return
+    if not await _support_actor_allowed(callback, ticket):
+        await callback.answer(t("en", "no_permission"), show_alert=True)
+        return
+
+    await mark_support_ticket_bug_triage(ticket_id, actor_id=int(callback.from_user.id), status=status)
+    if callback.message:
+        try:
+            await callback.message.edit_reply_markup(
+                reply_markup=_support_ticket_action_kb(
+                    lang="en",
+                    ticket_id=ticket_id,
+                    bug_reward_paid=str(((ticket.get("bug_reward") or {}).get("status")) or "").lower() == "paid",
+                    bug_triage_status=status,
+                )
+            )
+        except Exception:
+            pass
+    await callback.answer("Bug confirmed." if status == "confirmed" else "Marked as not a bug.", show_alert=True)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("support:bug_reward:"))

@@ -168,6 +168,27 @@ def test_public_order_payload_includes_customer_state_without_provider_names():
     assert "textverified" not in str(state).lower()
 
 
+def test_public_order_payload_exposes_automatic_refund_policy():
+    payload = order_service.public_order_payload(
+        {
+            "_id": "temp-waiting",
+            "number_mode": "temp",
+            "status": "success",
+            "temp_wait_state": "waiting",
+            "provider": "smspool",
+            "provider_number": "+15551234567",
+            "selling_price": 0.44,
+        }
+    )
+
+    policy = payload["refund"]["policy"]
+    assert policy["kind"] == "automatic"
+    assert policy["auto_refund_enabled"] is True
+    assert policy["message_key"] == "refundPolicyAutomatic"
+    assert payload["customer_state"]["refund_policy"] == policy
+    assert "smspool" not in str(policy).lower()
+
+
 def test_public_order_payload_customer_state_marks_support_review_refund():
     payload = order_service.public_order_payload(
         {
@@ -193,6 +214,9 @@ def test_public_order_payload_customer_state_marks_support_review_refund():
     assert state["message_key"] == "supportReviewQueued"
     assert state["support_review_open"] is True
     assert state["manual_refund_available"] is False
+    assert state["refund_policy"]["kind"] == "manual_review"
+    assert state["refund_policy"]["auto_refund_enabled"] is False
+    assert state["refund_policy"]["message_key"] == "refundPolicyManualReview"
     assert "nonvoip" not in str(state).lower()
 
 

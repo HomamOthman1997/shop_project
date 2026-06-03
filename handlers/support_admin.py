@@ -17,6 +17,16 @@ async def support_ticket_bug_reward_paid_badge(callback: types.CallbackQuery):
     await main_menu.support_ticket_bug_reward_paid_badge(callback)
 
 
+@router.callback_query(lambda c: c.data == "support:bug_triage_done")
+async def support_ticket_bug_triage_badge(callback: types.CallbackQuery):
+    await main_menu.support_ticket_bug_triage_badge(callback)
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("support:bug_triage:"))
+async def support_ticket_bug_triage(callback: types.CallbackQuery):
+    await main_menu.support_ticket_bug_triage(callback)
+
+
 @router.callback_query(lambda c: c.data and c.data.startswith("support:bug_reward:"))
 async def support_ticket_bug_reward(callback: types.CallbackQuery):
     await main_menu.support_ticket_bug_reward(callback)

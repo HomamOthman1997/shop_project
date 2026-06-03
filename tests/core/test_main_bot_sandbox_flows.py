@@ -479,6 +479,35 @@ async def test_support_bug_reward_credits_user_wallet(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_support_ticket_bug_triage_marks_ticket(monkeypatch):
+    actor_id = int(main_menu.OWNER_ID)
+    callback = _FakeCallback(user_id=actor_id, data="support:bug_triage:confirmed:ticket-1", bot_id=900)
+    marked = {}
+
+    async def _get_support_ticket(_ticket_id):
+        return {
+            "_id": "ticket-1",
+            "scope": "platform",
+            "source_bot_id": 222,
+            "user_id": 77,
+        }
+
+    async def _mark_support_ticket_bug_triage(ticket_id, *, actor_id, status):
+        marked["ticket_id"] = ticket_id
+        marked["actor_id"] = actor_id
+        marked["status"] = status
+
+    monkeypatch.setattr(main_menu, "get_support_ticket", _get_support_ticket)
+    monkeypatch.setattr(main_menu, "mark_support_ticket_bug_triage", _mark_support_ticket_bug_triage)
+
+    await main_menu.support_ticket_bug_triage(callback)
+
+    assert marked == {"ticket_id": "ticket-1", "actor_id": actor_id, "status": "confirmed"}
+    assert callback.message.reply_markup_edits
+    assert callback.answers == ["Bug confirmed."]
+
+
+@pytest.mark.asyncio
 async def test_admin_support_router_delegates_ticket_actions(monkeypatch):
     callback = _FakeCallback(data="support:reply_ticket:ticket-1")
     state = _FakeState()
@@ -506,6 +535,21 @@ async def test_admin_support_router_delegates_bug_reward(monkeypatch):
     monkeypatch.setattr(main_menu, "support_ticket_bug_reward", _support_ticket_bug_reward)
 
     await support_admin.support_ticket_bug_reward(callback)
+
+    assert called == {"callback": callback}
+
+
+@pytest.mark.asyncio
+async def test_admin_support_router_delegates_bug_triage(monkeypatch):
+    callback = _FakeCallback(data="support:bug_triage:not_bug:ticket-1")
+    called = {}
+
+    async def _support_ticket_bug_triage(_callback):
+        called["callback"] = _callback
+
+    monkeypatch.setattr(main_menu, "support_ticket_bug_triage", _support_ticket_bug_triage)
+
+    await support_admin.support_ticket_bug_triage(callback)
 
     assert called == {"callback": callback}
 

@@ -138,6 +138,7 @@ def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
             can_alternate_provider=alternate_provider_available,
         ),
     }
+    payload["customer_state"]["refund_policy"] = payload["refund"]["policy"]
     payload["api_actions"] = _api_order_actions(payload)
     return payload
 
@@ -365,6 +366,31 @@ def _order_resend_available(order: dict[str, Any], *, public_status: str) -> boo
     return True if not reuse_until else _seconds_left_until(reuse_until) > 0
 
 
+def _provider_refund_policy(order: dict[str, Any]) -> dict[str, Any]:
+    provider_code = str(order.get("provider") or order.get("provisioning_provider") or "").strip().lower()
+    if not provider_code:
+        return {
+            "kind": "unknown",
+            "auto_refund_enabled": False,
+            "message_key": "refundPolicyUnknown",
+        }
+    readiness = provider_readiness(provider_code)
+    if readiness.auto_refund_enabled:
+        kind = "automatic"
+        message_key = "refundPolicyAutomatic"
+    elif readiness.purchase_enabled:
+        kind = "manual_review"
+        message_key = "refundPolicyManualReview"
+    else:
+        kind = "unavailable"
+        message_key = "refundPolicyUnavailable"
+    return {
+        "kind": kind,
+        "auto_refund_enabled": bool(readiness.auto_refund_enabled),
+        "message_key": message_key,
+    }
+
+
 def _refund_payload(order: dict[str, Any], *, public_status: str) -> dict[str, Any]:
     refunded = public_status == "refunded"
     pending = public_status == "refund_pending"
@@ -380,6 +406,7 @@ def _refund_payload(order: dict[str, Any], *, public_status: str) -> dict[str, A
         "pending": bool(pending),
         "reason": public_refund_reason(public_status=public_status, refunded=refunded, pending=pending),
         "refunded_at": refunded_at.isoformat() if isinstance(refunded_at, datetime) else None,
+        "policy": _provider_refund_policy(order),
     }
 
 

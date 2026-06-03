@@ -115,6 +115,23 @@ async def mark_support_ticket_solved(ticket_id: str | ObjectId, *, actor_id: int
     )
 
 
+async def mark_support_ticket_bug_triage(ticket_id: str | ObjectId, *, actor_id: int, status: str) -> None:
+    normalized = str(status or "").strip().lower()
+    if normalized not in {"confirmed", "not_bug"}:
+        raise ValueError("invalid bug triage status")
+    await db.support_tickets.update_one(
+        {"_id": _as_object_id(ticket_id)},
+        {
+            "$set": {
+                "bug_triage.status": normalized,
+                "bug_triage.marked_by": int(actor_id),
+                "bug_triage.marked_at": _now(),
+                "updated_at": _now(),
+            }
+        },
+    )
+
+
 async def begin_support_ticket_bug_reward(
     ticket_id: str | ObjectId,
     *,

@@ -994,6 +994,10 @@ function renderModes() {
 }
 
 function renderBuy() {
+  if (state.mode === "rental" && state.service !== RENTAL_UNLIMITED_SERVICE_KEY && state.country === "any") {
+    state.country = "none";
+    state.stateCode = "none";
+  }
   renderModes();
   els.serviceLabel.textContent = serviceLabel(state.service);
   els.countryLabel.textContent = state.mode === "voice" ? `${t("unitedStates")} · US` : countryLabel(state.country);
@@ -1446,6 +1450,27 @@ function customerStateText(order) {
   return map[key] || customerState.message || (customerState.message_key ? labelForKey(customerState.message_key) : "");
 }
 
+function refundPolicyText(order) {
+  const policy = order?.customer_state?.refund_policy || order?.refund?.policy || {};
+  const key = String(policy.message_key || "").trim();
+  const ar = String(state.lang || "").toLowerCase().startsWith("ar");
+  const map = {
+    refundPolicyAutomatic: ar
+      ? "إذا لم يصل الكود ضمن فترة الانتظار، يرجع المبلغ تلقائياً إلى رصيدك."
+      : "If no code arrives during the waiting window, the amount is refunded automatically.",
+    refundPolicyManualReview: ar
+      ? "إذا لم يصل الكود، نراجع حالة المزود ونعيد المبلغ بعد التأكد."
+      : "If no code arrives, support reviews the provider status and refunds after confirmation.",
+    refundPolicyUnavailable: ar
+      ? "هذا المزود يحتاج متابعة دعم إذا لم يصل الكود."
+      : "This provider needs support follow-up if no code arrives.",
+    refundPolicyUnknown: ar
+      ? "رصيدك محمي، وسنراجع الطلب إذا لم يصل الكود."
+      : "Your balance is protected, and the order is reviewed if no code arrives.",
+  };
+  return map[key] || "";
+}
+
 function formatPhoneNumber(value) {
   const raw = String(value || "").trim();
   if (!raw) return "-";
@@ -1630,7 +1655,7 @@ function renderOrders() {
         card.append(codes);
       }
       if (waitingForCode) {
-        card.append(renderStatusNote());
+        card.append(renderStatusNote(t("refundSafetyTitle"), refundPolicyText(order) || t("refundSafetyText")));
       }
       const events = Array.isArray(order.events) ? order.events.slice(0, 5) : [];
       if (events.length) {
@@ -2379,6 +2404,7 @@ function setView(view) {
   document.querySelectorAll(".view").forEach((el) => el.classList.toggle("active", el.dataset.view === view));
   document.querySelectorAll(".nav-item, .menu-item").forEach((el) => el.classList.toggle("active", el.dataset.view === view));
   closeMenu();
+  if (view === wasView) return;
   if (view === "buy" && wasView !== "buy") {
     resetBuySelections({ mode: state.mode });
     renderBuy();
@@ -2411,7 +2437,7 @@ async function boot() {
   renderSupportCategories();
   renderSupportOrders();
   if (headers()["X-Telegram-Init-Data"]) {
-    loadAccount().catch(() => {});
+    requestAnimationFrame(() => loadAccount().catch(() => {}));
   }
 }
 
