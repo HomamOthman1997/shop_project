@@ -1,6 +1,8 @@
 ﻿from datetime import UTC, datetime
 
 from datetime import timedelta
+import asyncio
+import logging
 from urllib.parse import parse_qs, urlparse
 from bson import ObjectId
 
@@ -50,6 +52,7 @@ from database.digital_provider_sources_repo import (
     list_price_watch_runs,
     list_provider_sources,
 )
+from services.digital_products.bittopup_scraper import run_bittopup_price_watch
 from database.custom_services_repo import (
     get_next_pending_preorder,
     get_pending_preorder_position,
@@ -66,6 +69,7 @@ from utils.translations import t
 from utils.user_money import format_usd
 
 router = Router()
+logger = logging.getLogger(__name__)
 _CLEAN_KEYBOARD_COMMANDS = {"/clean_keyboard", "/clean_kb", "/rkoff"}
 
 _OWNER_QUICK_ACTIONS: dict[str, dict[str, str]] = {
@@ -535,6 +539,7 @@ def _digital_provider_sources_kb(rows: list[dict], status: str) -> types.InlineK
             kb.button(text=f"Approve {label}", callback_data=f"owner_dps:approve:{token}")
         if status_code != "disabled":
             kb.button(text=f"Disable {label}", callback_data=f"owner_dps:disable:{token}")
+    kb.button(text="Run Scan Now", callback_data="owner_dps:scan")
     kb.button(text="Back", callback_data="owner_panel:cat:main_bot")
     kb.adjust(2)
     return kb.as_markup()
@@ -557,6 +562,43 @@ async def _digital_provider_sources_text(*, status: str = "under_review") -> tup
         return header + "No sources found for this status.", rows
     body = "\n\n".join(_provider_source_label(row, idx) for idx, row in enumerate(rows[:12], start=1))
     return header + body, rows
+
+
+def _bittopup_scan_result_text(stats: dict) -> str:
+    status = str(stats.get("status") or "-")
+    return (
+        "BitTopup scan finished\n\n"
+        f"Status: {status}\n"
+        f"Pages checked: {int(stats.get('pages_checked') or 0)}\n"
+        f"Offers seen: {int(stats.get('offers_seen') or 0)}\n"
+        f"Active: {int(stats.get('active') or 0)}\n"
+        f"Under review: {int(stats.get('under_review') or 0)}\n"
+        f"Unmapped: {int(stats.get('unmapped') or 0)}\n"
+        f"Disabled: {int(stats.get('disabled') or 0)}\n"
+        f"Errors: {int(stats.get('errors') or 0)}"
+    )
+
+
+async def _run_bittopup_scan_and_notify(
+    *,
+    bot: Bot,
+    chat_id: int,
+    thread_id: int | None,
+) -> None:
+    try:
+        stats = await run_bittopup_price_watch()
+        text = _bittopup_scan_result_text(stats)
+    except Exception as exc:
+        logger.exception("manual bittopup price watch failed")
+        text = f"BitTopup scan failed\n\n{exc}"
+    try:
+        await bot.send_message(
+            chat_id=int(chat_id),
+            message_thread_id=int(thread_id) if thread_id is not None else None,
+            text=text,
+        )
+    except Exception:
+        logger.exception("failed to send manual bittopup scan result")
 
 
 def _owner_panel_category_kb(category: str) -> types.InlineKeyboardMarkup:
@@ -793,6 +835,22 @@ async def owner_digital_provider_sources_list(callback: types.CallbackQuery):
     if callback.message:
         await _safe_edit_text(callback.message, text, reply_markup=_digital_provider_sources_kb(rows, status))
     await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "owner_dps:scan")
+async def owner_digital_provider_sources_scan(callback: types.CallbackQuery):
+    if not _is_owner_callback(callback):
+        return await callback.answer("No permission", show_alert=True)
+    if not callback.message:
+        return await callback.answer("No message context", show_alert=True)
+    asyncio.create_task(
+        _run_bittopup_scan_and_notify(
+            bot=callback.bot,
+            chat_id=int(callback.message.chat.id),
+            thread_id=getattr(callback.message, "message_thread_id", None),
+        )
+    )
+    await callback.answer("BitTopup scan started.", show_alert=True)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("owner_dps:approve:"))

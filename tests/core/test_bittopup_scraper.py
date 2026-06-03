@@ -44,3 +44,25 @@ def test_parse_bittopup_product_page_extracts_manual_provider_offers():
     assert offers[0].compare_key == "pubg:global:60:uc"
     assert offers[0].parse_confidence >= 0.8
     assert offers[1].compare_key == "pubg:global:300:uc"
+
+
+def test_bittopup_scan_result_text_is_operator_readable():
+    from handlers.admin_services import _bittopup_scan_result_text
+
+    text = _bittopup_scan_result_text(
+        {
+            "status": "success",
+            "pages_checked": 12,
+            "offers_seen": 44,
+            "active": 30,
+            "under_review": 3,
+            "unmapped": 10,
+            "disabled": 1,
+            "errors": 0,
+        }
+    )
+
+    assert "BitTopup scan finished" in text
+    assert "Pages checked: 12" in text
+    assert "Under review: 3" in text
+    assert "Errors: 0" in text
