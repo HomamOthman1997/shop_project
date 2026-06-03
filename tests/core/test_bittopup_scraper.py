@@ -1,6 +1,8 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.getcwd())
 
 from services.digital_products.bittopup_scraper import parse_bittopup_product_page, parse_bittopup_sitemap
@@ -66,3 +68,37 @@ def test_bittopup_scan_result_text_is_operator_readable():
     assert "Pages checked: 12" in text
     assert "Under review: 3" in text
     assert "Errors: 0" in text
+
+
+def test_bittopup_scan_result_text_explains_skipped_scan():
+    from handlers.admin_services import _bittopup_scan_result_text
+
+    text = _bittopup_scan_result_text({"status": "skipped", "reason": "already_running"})
+
+    assert "scan skipped" in text
+    assert "already running" in text
+
+
+@pytest.mark.asyncio
+async def test_bittopup_price_watch_skips_when_already_running(monkeypatch):
+    import asyncio
+    from services.digital_products import bittopup_scraper
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fake_unlocked(*, max_pages=None):
+        started.set()
+        await release.wait()
+        return {"provider": "bittopup", "status": "success", "errors": 0}
+
+    monkeypatch.setattr(bittopup_scraper, "_run_bittopup_price_watch_unlocked", fake_unlocked)
+    first = asyncio.create_task(bittopup_scraper.run_bittopup_price_watch())
+    await started.wait()
+
+    second = await bittopup_scraper.run_bittopup_price_watch()
+    release.set()
+    await first
+
+    assert second["status"] == "skipped"
+    assert second["reason"] == "already_running"

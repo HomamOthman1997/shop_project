@@ -566,6 +566,8 @@ async def _digital_provider_sources_text(*, status: str = "under_review") -> tup
 
 def _bittopup_scan_result_text(stats: dict) -> str:
     status = str(stats.get("status") or "-")
+    if status == "skipped" and str(stats.get("reason") or "") == "already_running":
+        return "BitTopup scan skipped\n\nAnother BitTopup scan is already running. Wait for the current scan to finish."
     return (
         "BitTopup scan finished\n\n"
         f"Status: {status}\n"

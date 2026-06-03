@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import html
 import re
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ BITTOPUP_PROVIDER = "bittopup"
 BITTOPUP_BASE_URL = "https://bittopup.com"
 BITTOPUP_GOODS_SITEMAP_URL = f"{BITTOPUP_BASE_URL}/goods-sitemap.xml"
 PARSER_VERSION = "bittopup-html-v1"
+_PRICE_WATCH_LOCK = asyncio.Lock()
 
 
 @dataclass(frozen=True)
@@ -238,7 +240,7 @@ async def scrape_bittopup_offers(*, max_pages: int | None = None) -> tuple[list[
     return offers, stats, errors
 
 
-async def run_bittopup_price_watch(*, max_pages: int | None = None) -> dict[str, Any]:
+async def _run_bittopup_price_watch_unlocked(*, max_pages: int | None = None) -> dict[str, Any]:
     started = datetime.now(UTC)
     stats = {
         "pages_checked": 0,
@@ -290,3 +292,22 @@ async def run_bittopup_price_watch(*, max_pages: int | None = None) -> dict[str,
         errors=errors,
     )
     return {"provider": BITTOPUP_PROVIDER, "status": status, **stats, "errors": len(errors)}
+
+
+async def run_bittopup_price_watch(*, max_pages: int | None = None) -> dict[str, Any]:
+    if _PRICE_WATCH_LOCK.locked():
+        return {
+            "provider": BITTOPUP_PROVIDER,
+            "status": "skipped",
+            "reason": "already_running",
+            "pages_checked": 0,
+            "offers_seen": 0,
+            "active": 0,
+            "under_review": 0,
+            "unmapped": 0,
+            "disabled": 0,
+            "invalid": 0,
+            "errors": 0,
+        }
+    async with _PRICE_WATCH_LOCK:
+        return await _run_bittopup_price_watch_unlocked(max_pages=max_pages)
