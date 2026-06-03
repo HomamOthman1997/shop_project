@@ -501,7 +501,7 @@ def guess_family(service_key: str, category_name: str, sample_names: list[str] |
             if any(candidate == clean_family_text(token) for token in tokens):
                 return family_key, label
     for family_key, label, tokens in rules:
-        if any(token in text for token in tokens):
+        if any(_contains_taxonomy_token(text, token) for token in tokens):
             return family_key, label
 
     base = clean_family_text(category_name) or clean_family_text(" ".join(sample_names[:2]))
