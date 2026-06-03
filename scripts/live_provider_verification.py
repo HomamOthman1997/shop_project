@@ -50,7 +50,19 @@ def _sample_catalog(catalog: Any, limit: int = 10) -> Any:
     return catalog
 
 
-def _pick_candidate(rows: Any, *, max_price: float | None = None, min_price: float | None = None) -> dict[str, Any] | None:
+def _country_iso(value: Any) -> str:
+    raw = str(value or "").strip().upper()
+    aliases = {"1": "US", "US": "US", "USA": "US", "2": "GB", "UK": "GB", "GB": "GB"}
+    return aliases.get(raw, raw if len(raw) == 2 else "")
+
+
+def _pick_candidate(
+    rows: Any,
+    *,
+    country: str | None = None,
+    max_price: float | None = None,
+    min_price: float | None = None,
+) -> dict[str, Any] | None:
     if isinstance(rows, dict):
         rows = list(rows.values())
     if not isinstance(rows, list):
@@ -71,6 +83,10 @@ def _pick_candidate(rows: Any, *, max_price: float | None = None, min_price: flo
             or ""
         ).strip()
         if not service:
+            continue
+        wanted_country = _country_iso(country)
+        row_country = _country_iso(row.get("provider_country_iso") or row.get("country_iso") or row.get("short_name"))
+        if wanted_country and row_country and row_country != wanted_country:
             continue
         price = (
             _as_float(row.get("price"))
@@ -122,7 +138,7 @@ async def verify_provider(args: argparse.Namespace) -> int:
 
     service = args.service
     if not service:
-        candidate = _pick_candidate(catalog, max_price=args.max_price)
+        candidate = _pick_candidate(catalog, country=args.country, max_price=args.max_price)
         if candidate:
             service = str(candidate["service"])
             _emit("selected_candidate", provider=args.provider, candidate=candidate)

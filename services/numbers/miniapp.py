@@ -252,6 +252,7 @@ _TEMP_PRICE_SCREEN_PROVIDER_CODES = (
     "herosms",
     "pvadeals",
     "vaksms",
+    "nonvoip",
     "smsready",
     "pvapins",
 )
@@ -260,7 +261,7 @@ _TEMP_NOT_LISTED_PRICE_PROVIDER_CODES = temp_not_listed_provider_codes()
 
 _MAX_PRICE_ROWS = 16
 
-_HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
+_HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip_s6"}
 
 
 _SUPPORT_CATEGORIES = _SHARED_SUPPORT_CATEGORIES

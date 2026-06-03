@@ -662,7 +662,7 @@ def test_provider_country_capability_matrix():
         assert manager.provider_allows_temp(provider, country_iso="US") is True
         assert manager.provider_allows_temp(provider, country_iso="NL") is False
 
-    for provider in ("herosms", "smspool", "smsready", "pvapins", "vaksms"):
+    for provider in ("herosms", "smspool", "nonvoip", "smsready", "pvapins", "vaksms"):
         assert manager.provider_allows_temp(provider, country_iso="US") is True
         assert manager.provider_allows_temp(provider, country_iso="NL") is True
 

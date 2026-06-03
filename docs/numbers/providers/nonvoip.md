@@ -27,14 +27,16 @@ Auth:
 | Operation | Command/path | Params |
 | --- | --- | --- |
 | List services | `get_service_list` | account auth |
-| Price by country/service | `get-prices` | `country_id` |
-| Availability check | `limits` | `country_id` |
-| Buy by numeric service/country | `get-number` | `application_id`, `country_id` |
 | Buy by service id | `order_number` | `service_id` |
-| SMS polling fallback | `get-sms`, fallback `get_messages` | `request_id` or `order_id` |
-| Cancel | `set-status` with `reject`, fallback `close` | `id`, `status` |
-| Refund fallback | `refund_number` | `id` |
+| Reuse expired number | `reuse_number` | `order_id` |
+| SMS polling fallback | `get_messages` | `order_id` |
+| Refund expired number | `refund_number` | `id` |
 | Transfer credit | `transfer_credit` | `email_to`, `amount`; reseller-only |
+
+The current adapter prices from `get_service_list` because the supplied API reference does not include
+a separate live price endpoint. Country support is inferred from the provider service name: service names
+without an explicit country suffix are treated as the default US lane, while suffixes such as `UK`,
+`Germany`, `Canada`, or `Spain` are mapped to their ISO country before quote or purchase.
 
 ## Webhooks
 
@@ -61,7 +63,7 @@ Normalizer:
 
 - Account profile webhook URL setup confirmation.
 - One real webhook event for `nonvoip` and, if used, `nonvoip_s6`.
-- Exact current cancellation/refund response examples for both `set-status` and `refund_number`.
+- Exact current cancellation/refund response examples for `refund_number` after provider expiry.
 - Account balance endpoint is not present in the supplied non-VoIP reseller docs. The adapter treats balance as unsupported unless non-VoIP support provides a documented command.
 
 ## Live Notes
@@ -70,3 +72,4 @@ Normalizer:
 - 2026-05-26: `get_messages` for that order returned the expected empty/no-SMS shape: `text=null`, `code=null`, and `received_at=null`.
 - 2026-05-26: immediate `refund_number` for that live order returned `{"code":400,"msg":"Not sufficient"}`. This is classified as `provider_balance_low`, but operationally it means immediate auto-refund is not proven for non-VoIP yet.
 - Keep non-VoIP immediate no-code refund in quarantine until provider support clarifies whether refund only works after expiry or requires a different state transition.
+- 2026-06-03: undocumented `get-prices`, `limits`, and `get-number` probes returned HTTP 405. The adapter now keeps them out of the normal price and purchase path.

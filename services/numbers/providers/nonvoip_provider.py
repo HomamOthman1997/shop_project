@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from config import settings
 from services.numbers.core.session_manager import SessionManager
+from services.numbers.data.countries import COUNTRIES_LIST
 
 from .base_provider import BaseProvider
 
@@ -26,6 +27,82 @@ def _norm(value: str) -> str:
 def _strip_tail_variant(value: str) -> str:
     # "yahoo5" -> "yahoo", "yahoo4uk" keeps as-is (not pure numeric suffix).
     return re.sub(r"\d+$", "", _norm(value))
+
+
+def _country_aliases() -> dict[str, str]:
+    aliases: dict[str, str] = {
+        "au": "AU",
+        "australia": "AU",
+        "ca": "CA",
+        "canada": "CA",
+        "mx": "MX",
+        "mexico": "MX",
+        "nz": "NZ",
+        "newzealand": "NZ",
+        "us": "US",
+        "usa": "US",
+        "unitedstates": "US",
+        "unitedstatesofamerica": "US",
+        "america": "US",
+        "uk": "GB",
+        "gb": "GB",
+        "greatbritain": "GB",
+        "unitedkingdom": "GB",
+    }
+    for row in COUNTRIES_LIST:
+        iso = str(row.get("iso") or "").strip().upper()
+        if not iso:
+            continue
+        values = [row.get("code"), row.get("name"), *(row.get("aliases") or [])]
+        for value in values:
+            text = str(value or "").strip()
+            if text:
+                aliases[_norm(text)] = iso
+    return aliases
+
+
+def _country_iso_from_hint(country: Any) -> str | None:
+    raw = str(country or "").strip()
+    if not raw or raw.lower() == "none":
+        return None
+    if len(raw) == 2 and raw.isalpha():
+        return raw.upper()
+    return _country_aliases().get(_norm(raw))
+
+
+_COUNTRY_NAME_PATTERNS: list[tuple[re.Pattern[str], str]] = []
+for _text, _iso in (
+    ("Australia", "AU"),
+    ("Canada", "CA"),
+    ("Mexico", "MX"),
+    ("New Zealand", "NZ"),
+):
+    _COUNTRY_NAME_PATTERNS.append((re.compile(rf"(?<![A-Za-z]){re.escape(_text)}(?![A-Za-z])", re.I), _iso))
+for _row in COUNTRIES_LIST:
+    _iso = str(_row.get("iso") or "").strip().upper()
+    if not _iso:
+        continue
+    for _value in [_row.get("name"), *(_row.get("aliases") or [])]:
+        _text = str(_value or "").strip()
+        if len(_text) < 2 or not re.search(r"[A-Za-z]", _text):
+            continue
+        _COUNTRY_NAME_PATTERNS.append((re.compile(rf"(?<![A-Za-z]){re.escape(_text)}(?![A-Za-z])", re.I), _iso))
+
+
+def _country_iso_from_service_name(name: Any) -> str:
+    text = str(name or "").strip()
+    if not text:
+        return "US"
+    upper = text.upper()
+    if re.search(r"(?<![A-Z])UK(?![A-Z])", upper):
+        return "GB"
+    if re.search(r"(?<![A-Z])US(A)?(?![A-Z])", upper):
+        return "US"
+    for pattern, iso in _COUNTRY_NAME_PATTERNS:
+        if pattern.search(text):
+            return iso
+    # Non-VoIP service names without an explicit country suffix are the default US lane.
+    return "US"
 
 
 class NonVoipProvider(BaseProvider):
@@ -140,6 +217,28 @@ class NonVoipProvider(BaseProvider):
         raw = str(country or "").strip()
         return raw or None
 
+    @staticmethod
+    def _item_country_iso(item: dict[str, Any] | None) -> str:
+        if not isinstance(item, dict):
+            return "US"
+        explicit = str(item.get("provider_country_iso") or "").strip().upper()
+        if explicit:
+            return explicit
+        raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+        return _country_iso_from_service_name(
+            item.get("name")
+            or (raw or {}).get("service_name")
+            or (raw or {}).get("name")
+            or ""
+        )
+
+    @classmethod
+    def _item_matches_country(cls, item: dict[str, Any] | None, country: Any) -> bool:
+        requested_iso = _country_iso_from_hint(country)
+        if not requested_iso:
+            return True
+        return cls._item_country_iso(item) == requested_iso
+
     async def list_services(self, force_refresh: bool = False) -> list[dict[str, Any]]:
         now = time.time()
         if (
@@ -172,6 +271,7 @@ class NonVoipProvider(BaseProvider):
                     "id": sid,
                     "name": str(row.get("service_name") or row.get("name") or sid).strip(),
                     "price": _as_float(row.get("price") or 0) or 0.0,
+                    "provider_country_iso": _country_iso_from_service_name(row.get("service_name") or row.get("name") or ""),
                     "raw": row,
                 }
             )
@@ -229,6 +329,8 @@ class NonVoipProvider(BaseProvider):
         if raw.isdigit():
             direct = next((x for x in services if str(x.get("id")) == raw), None)
             if direct:
+                if not self._item_matches_country(direct, country):
+                    return []
                 price = _as_float(direct.get("price")) or 0.0
                 if price > 0:
                     return [
@@ -236,6 +338,7 @@ class NonVoipProvider(BaseProvider):
                             "success": True,
                             "price": float(price),
                             "api_service_name": str(direct.get("id")),
+                            "provider_country_iso": self._item_country_iso(direct),
                             "raw": direct.get("raw", direct),
                         }
                     ]
@@ -256,6 +359,8 @@ class NonVoipProvider(BaseProvider):
                 matched = True
             if not matched:
                 continue
+            if not self._item_matches_country(item, country):
+                continue
 
             price = _as_float(item.get("price")) or 0.0
             if price <= 0:
@@ -270,31 +375,13 @@ class NonVoipProvider(BaseProvider):
                     "success": True,
                     "price": float(price),
                     "api_service_name": str(item.get("id") or ""),
+                    "provider_country_iso": self._item_country_iso(item),
                     "raw": item.get("raw", item),
                 }
             )
         return out
 
     async def get_price(self, service, country=None, state=None):
-        raw = str(service or "").strip()
-        if raw.isdigit() and country not in (None, "", "none"):
-            country_id = await self._resolve_country(country)
-            status, data = await self._request_compat("get-prices", country_id=country_id)
-            if status == 200 and isinstance(data, dict):
-                country_rows = data.get(str(country_id)) or data.get(country_id) or {}
-                if isinstance(country_rows, dict):
-                    row = country_rows.get(raw) or {}
-                    if isinstance(row, dict):
-                        price = _as_float(row.get("cost") or row.get("price") or 0)
-                        count = int(float(row.get("count") or 0)) if row.get("count") not in (None, "") else 0
-                        if price is not None and price > 0:
-                            return {
-                                "success": True,
-                                "price": float(price),
-                                "count": count,
-                                "api_service_name": raw,
-                                "raw": data,
-                            }
         variants = await self.get_price_variants(service, country=country, state=state, limit=1)
         if not variants:
             return {"success": False, "raw": "service_not_found"}
@@ -310,40 +397,19 @@ class NonVoipProvider(BaseProvider):
         markup: Optional[int] = None,
     ):
         raw_service = str(service or "").strip()
-        if raw_service.isdigit() and country not in (None, "", "none"):
-            country_id = await self._resolve_country(country)
-            _status, limits = await self._request_compat("limits", country_id=country_id)
-            if isinstance(limits, list):
-                match = None
-                for row in limits:
-                    if not isinstance(row, dict):
-                        continue
-                    if str(row.get("application_id") or "") == raw_service and str(row.get("country_id") or "") == str(country_id):
-                        match = row
-                        break
-                if match is not None:
-                    available = int(float(match.get("numbers") or 0)) if match.get("numbers") not in (None, "") else 0
-                    if available <= 0:
-                        return {
-                            "success": False,
-                            "raw": {"error_code": "NO_NUMBERS", "message": "no_numbers_available"},
-                        }
-                    _status, data = await self._request_compat(
-                        "get-number",
-                        application_id=raw_service,
-                        country_id=country_id,
-                    )
-                    if isinstance(data, dict):
-                        order_id = str(data.get("request_id") or data.get("order_id") or "").strip()
-                        number = str(data.get("number") or "").strip()
-                        if order_id and number:
-                            return {
-                                "success": True,
-                                "order_id": order_id,
-                                "number": number,
-                                "raw": data,
-                            }
-                        return {"success": False, "raw": data}
+        if raw_service.isdigit():
+            services = await self.list_services()
+            direct = next((x for x in services if str(x.get("id")) == raw_service), None)
+            if direct and not self._item_matches_country(direct, country):
+                return {
+                    "success": False,
+                    "raw": {
+                        "error_code": "COUNTRY_MISMATCH",
+                        "message": "service_not_available_for_country",
+                        "provider_country_iso": self._item_country_iso(direct),
+                        "requested_country_iso": _country_iso_from_hint(country) or "",
+                    },
+                }
 
         sid = await self.resolve_service_code(service)
         if not sid:
@@ -370,9 +436,9 @@ class NonVoipProvider(BaseProvider):
 
     async def get_sms(self, activation_id) -> dict[str, Any]:
         try:
-            _status, data = await self._request_compat("get-sms", request_id=str(activation_id))
-        except Exception:
             _status, data = await self._request_compat("get_messages", order_id=str(activation_id))
+        except Exception:
+            _status, data = await self._request_compat("get-sms", request_id=str(activation_id))
         if isinstance(data, dict):
             old_code = str(data.get("error_code") or "").strip().lower()
             if old_code == "wait_sms":
@@ -385,8 +451,6 @@ class NonVoipProvider(BaseProvider):
                     "messages": [sms_code],
                     "raw": data,
                 }
-        if self._is_error(data):
-            return {"success": False, "messages": [], "raw": data}
 
         if not isinstance(data, dict):
             return {"success": False, "messages": [], "raw": data}
@@ -394,38 +458,46 @@ class NonVoipProvider(BaseProvider):
         text = str(data.get("text") or data.get("message") or "").strip()
         code = str(data.get("code") or "").strip()
         messages: list[str] = []
-        if text:
-            messages.append(text)
-        elif code:
+        if code:
             messages.append(code)
+        elif text:
+            messages.append(text)
+        if messages:
+            return {
+                "success": True,
+                "code": code,
+                "messages": messages,
+                "raw": data,
+            }
+        if self._is_error(data):
+            return {"success": False, "messages": [], "raw": data}
 
         return {
-            "success": bool(messages),
+            "success": False,
             "code": code,
             "messages": messages,
             "raw": data,
         }
 
     async def cancel(self, activation_id) -> dict[str, Any]:
-        compat_ok = False
-        compat_data: Any = None
-        for status_name in ("reject", "close"):
-            try:
-                _status, compat_data = await self._request_compat("set-status", id=str(activation_id), status=status_name)
-            except Exception:
-                compat_data = None
-                break
-            if self._request_ok(compat_data):
-                compat_ok = True
-                break
-        if compat_ok:
-            return {"success": True, "raw": compat_data}
-
         _status, data = await self._request_compat("refund_number", id=str(activation_id))
         if not isinstance(data, dict):
             return {"success": False, "raw": data}
         ok = str(data.get("code") or "").strip() == "200" or bool(data.get("success"))
         return {"success": ok, "raw": data}
+
+    async def resend(self, activation_id: str) -> dict[str, Any]:
+        _status, data = await self._request_compat("reuse_number", order_id=str(activation_id))
+        if self._is_error(data) or not isinstance(data, dict):
+            return {"success": False, "raw": data}
+        order_id = str(data.get("order_id") or data.get("id") or activation_id).strip()
+        number = str(data.get("number") or "").strip()
+        return {
+            "success": bool(order_id),
+            "order_id": order_id,
+            "number": number,
+            "raw": data,
+        }
 
     async def get_balance(self) -> Optional[float]:
         # The supplied non-VoIP reseller API reference lists service, order,

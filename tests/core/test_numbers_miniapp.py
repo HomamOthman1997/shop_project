@@ -469,7 +469,7 @@ def test_numbers_recharge_request_payload_formats_user_visible_status():
     assert row["delivery_ok"] is True
 
 
-def test_numbers_temp_rows_include_signed_quote_and_hide_internal_lanes(monkeypatch):
+def test_numbers_temp_rows_include_signed_quote_and_show_primary_nonvoip_lane(monkeypatch):
     monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
     monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
 
@@ -494,10 +494,10 @@ def test_numbers_temp_rows_include_signed_quote_and_hide_internal_lanes(monkeypa
         state="none",
     )
 
-    assert [row["provider_id"] for row in rows] == ["S2"]
+    assert [row["provider_id"] for row in rows] == ["S7", "S2"]
     quote = miniapp._api_verify_quote_token(rows[0]["quote_token"])
     assert quote["service"] == "attapoll"
-    assert quote["provider_id"] == "S2"
+    assert quote["provider_id"] == "S7"
     assert "provider" not in quote
 
 
@@ -708,8 +708,8 @@ def test_numbers_provider_debug_rows_explain_hidden_providers(monkeypatch):
     )
 
     by_code = {row["provider_code"]: row for row in rows}
-    assert by_code["nonvoip"]["visible"] is False
-    assert by_code["nonvoip"]["reason"] == "hidden_provider"
+    assert by_code["nonvoip"]["visible"] is True
+    assert by_code["nonvoip"]["reason"] == "visible"
     assert by_code["down"]["visible"] is False
     assert by_code["down"]["reason"] == "provider_balance_low"
 

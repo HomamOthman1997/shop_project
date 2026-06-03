@@ -37,11 +37,11 @@ def test_new_provider_display_names_are_obfuscated():
     assert provider_display_name("pvapins") == "Juliet"
 
 
-def test_provider_choice_kb_hides_nonvoip_lanes():
+def test_provider_choice_kb_shows_primary_nonvoip_lane_only():
     kb = provider_choice_kb(
         {
             "herosms": {"price": 0.6, "api_service_name": "go", "available_for_buy": True},
-            "nonvoip": {"price": 0.3, "api_service_name": "123", "available_for_buy": True},
+            "nonvoip": {"price": 0.3, "api_service_name": "123", "available_for_buy": True, "provider_country_iso": "GB"},
             "nonvoip_s6": {"price": 0.4, "api_service_name": "124", "available_for_buy": True},
             "pvadeals": {
                 "price": 1.0,
@@ -62,6 +62,8 @@ def test_provider_choice_kb_hides_nonvoip_lanes():
     )
     labels = [button.text for row in kb.inline_keyboard for button in row]
     joined = " | ".join(labels)
+    assert any(label.startswith("Golf [GB] |") for label in labels)
+    assert "Hotel" not in joined
     assert any(label.startswith("Echo [US] |") for label in labels)
     assert f"Buy | {format_usd(1.0)}" in labels
     assert any(label.startswith("Foxtrot [CO] |") for label in labels)

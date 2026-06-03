@@ -33,7 +33,7 @@ _SUCCESS_RATE_DISPLAY_MIN_ATTEMPTS = max(
     1,
     int(getattr(settings, "numbers_success_rate_display_min_attempts", 5) or 5),
 )
-_HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
+_HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip_s6"}
 
 
 def _format_success_rate(value: float | int | str | None, attempts: int | None = None) -> str:

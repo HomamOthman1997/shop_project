@@ -31,6 +31,7 @@ TEMP_QUOTE_PROVIDER_CODES = (
     "herosms",
     "pvadeals",
     "vaksms",
+    "nonvoip",
     "smsready",
     "pvapins",
 )
@@ -49,7 +50,7 @@ PROVIDER_SUCCESS_RATE_OVERRIDES = {
     "herosms": 70.0,
 }
 VOICE_GENERIC_SERVICE = "servicenotlistedvoice"
-HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
+HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip_s6"}
 MAX_QUOTE_PROVIDER_ROWS = 16
 TEXTVERIFIED_RENTAL_STATE_SURCHARGE = 2.0
 RENTAL_OUTLIER_PRICE_MULTIPLIER = 4.0

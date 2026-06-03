@@ -355,7 +355,7 @@ async def test_numbers_api_support_returns_read_only_contract(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
+async def test_numbers_api_temp_quotes_show_primary_nonvoip_provider(monkeypatch):
     calls = {}
 
     async def fake_require_api_auth(request, required_scope):
@@ -409,15 +409,16 @@ async def test_numbers_api_temp_quotes_hide_internal_providers(monkeypatch):
     assert payload["ok"] is True
     assert payload["mode"] == "temp"
     assert payload["service"]["key"] == "telegram"
-    assert len(payload["providers"]) == 1
-    assert payload["providers"][0]["provider_id"].startswith("S")
-    assert payload["providers"][0]["provider"] != "textverified"
-    assert payload["providers"][0]["price_label"] == "$0.44"
+    assert len(payload["providers"]) == 2
+    assert payload["providers"][0]["provider_id"] == "S7"
+    assert payload["providers"][0]["provider"] == "Golf"
+    assert payload["providers"][0]["price_label"] == "$0.01"
+    assert payload["providers"][1]["provider_id"] == "S2"
+    assert payload["providers"][1]["price_label"] == "$0.44"
     assert payload["providers"][0]["quote_token"]
     quote = api_payloads.verify_quote_token(payload["providers"][0]["quote_token"])
     assert quote["provider_id"] == payload["providers"][0]["provider_id"]
-    assert quote["provider_country"] == "102"
-    assert quote["provider_country_iso"] == "GR"
+    assert "provider" not in quote
     assert "provider" not in quote
     assert response.headers["X-RateLimit-Bucket"] == "numbers:quotes"
 

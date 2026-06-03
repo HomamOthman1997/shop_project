@@ -177,7 +177,7 @@ router.callback_query.middleware(_CallbackContextMiddleware())
 TEMP_REFUND_RETRY_INTERVAL_SEC = 45
 RENTAL_OWNER_ALERT_WINDOW_SEC = 180
 TEMP_MY_NUMBERS_RETENTION_DAYS = 5
-_HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip", "nonvoip_s6"}
+_HIDDEN_TEMP_PROVIDER_CODES = {"nonvoip_s6"}
 
 
 def _main_reseller_bot_link() -> str | None:

@@ -39,44 +39,49 @@ async def test_get_price_parses_nested_payload(monkeypatch):
     provider = NonVoipProvider()
     monkeypatch.setattr(settings, "nonvoip_price_currency", "USD")
 
-    async def fake_resolve_country(country):
-        assert country == "1"
-        return "187"
+    async def fake_services(force_refresh=False):
+        return [
+            {"id": "1", "name": "Apple 4", "price": 0.6, "provider_country_iso": "US", "raw": {"service_id": 1}},
+            {"id": "2", "name": "Apple 4 UK", "price": 1.1, "provider_country_iso": "GB", "raw": {"service_id": 2}},
+        ]
 
-    async def fake_request(endpoint, **params):
-        assert endpoint == "get-prices"
-        assert str(params.get("country_id")) == "187"
-        return 200, {
-            "187": {
-                "1": {"cost": "0.6", "count": 12},
-                "2": {"cost": "1.1", "count": 5},
-            }
-        }
-
-    monkeypatch.setattr(provider, "_resolve_country", fake_resolve_country)
-    monkeypatch.setattr(provider, "_request", fake_request)
+    monkeypatch.setattr(provider, "list_services", fake_services)
     res = await provider.get_price("1", country="1")
     assert res["success"] is True
     assert res["price"] == 0.6
-    assert res["count"] == 12
+    assert res["provider_country_iso"] == "US"
+
+
+@pytest.mark.asyncio
+async def test_get_price_filters_numeric_service_by_country(monkeypatch):
+    provider = NonVoipProvider()
+
+    async def fake_services(force_refresh=False):
+        return [
+            {"id": "1425", "name": "Five Surveys 4 UK", "price": 0.15, "provider_country_iso": "GB"},
+            {"id": "1465", "name": "Five Surveys 4 Germany", "price": 0.15, "provider_country_iso": "DE"},
+        ]
+
+    monkeypatch.setattr(provider, "list_services", fake_services)
+    assert (await provider.get_price("1425", country="US"))["success"] is False
+    gb = await provider.get_price("1425", country="GB")
+    assert gb["success"] is True
+    assert gb["provider_country_iso"] == "GB"
 
 
 @pytest.mark.asyncio
 async def test_buy_number_success(monkeypatch):
     provider = NonVoipProvider()
 
-    async def fake_resolve_country(country):
-        return "187"
+    async def fake_services(force_refresh=False):
+        return [{"id": "1", "name": "Apple 4", "price": 0.6, "provider_country_iso": "US"}]
 
     async def fake_request(endpoint, **params):
-        if endpoint == "limits":
-            return 200, [{"application_id": "1", "country_id": "187", "numbers": "15"}]
-        assert endpoint == "get-number"
-        assert str(params.get("country_id")) == "187"
-        assert int(params.get("application_id")) == 1
-        return 200, {"request_id": 99, "number": "79002415539"}
+        assert endpoint == "order_number"
+        assert str(params.get("service_id")) == "1"
+        return 200, {"order_id": 99, "number": "79002415539"}
 
-    monkeypatch.setattr(provider, "_resolve_country", fake_resolve_country)
+    monkeypatch.setattr(provider, "list_services", fake_services)
     monkeypatch.setattr(provider, "_request", fake_request)
     res = await provider.buy_number("1", country="1")
     assert res["success"] is True
@@ -85,23 +90,21 @@ async def test_buy_number_success(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_buy_number_blocked_by_limits(monkeypatch):
+async def test_buy_number_blocks_country_mismatch(monkeypatch):
     provider = NonVoipProvider()
 
-    async def fake_resolve_country(country):
-        return "187"
+    async def fake_services(force_refresh=False):
+        return [{"id": "1425", "name": "Five Surveys 4 UK", "price": 0.15, "provider_country_iso": "GB"}]
 
     async def fake_request(endpoint, **params):
-        if endpoint == "limits":
-            return 200, [{"application_id": "1", "country_id": "187", "numbers": "0"}]
-        raise AssertionError("get-number should not be called when limits says 0")
+        raise AssertionError("order_number should not be called for mismatched country")
 
-    monkeypatch.setattr(provider, "_resolve_country", fake_resolve_country)
+    monkeypatch.setattr(provider, "list_services", fake_services)
     monkeypatch.setattr(provider, "_request", fake_request)
-    res = await provider.buy_number("1", country="1")
+    res = await provider.buy_number("1425", country="US")
     assert res["success"] is False
     assert isinstance(res.get("raw"), dict)
-    assert res["raw"].get("error_code") == "NO_NUMBERS"
+    assert res["raw"].get("error_code") == "COUNTRY_MISMATCH"
 
 
 @pytest.mark.asyncio
@@ -111,16 +114,16 @@ async def test_get_sms_wait_and_code(monkeypatch):
     calls = {"n": 0}
 
     async def fake_request(endpoint, **params):
-        assert endpoint == "get-sms"
+        assert endpoint == "get_messages"
         calls["n"] += 1
         if calls["n"] == 1:
-            return 200, {"request_id": 1, "error_code": "wait_sms", "error_msg": "Still waiting..."}
-        return 200, {"request_id": 1, "sms_code": "1243"}
+            return 200, {"order_id": 1, "text": "", "code": "", "received_at": None}
+        return 200, {"order_id": 1, "text": "Your code is 1243", "code": "1243"}
 
     monkeypatch.setattr(provider, "_request", fake_request)
 
     first = await provider.get_sms("1")
-    assert first["success"] is True
+    assert first["success"] is False
     assert first["messages"] == []
 
     second = await provider.get_sms("1")
@@ -129,22 +132,33 @@ async def test_get_sms_wait_and_code(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_cancel_fallback_to_close(monkeypatch):
+async def test_cancel_uses_documented_refund_number(monkeypatch):
     provider = NonVoipProvider()
 
-    calls: list[str] = []
-
     async def fake_request(endpoint, **params):
-        assert endpoint == "set-status"
-        calls.append(str(params.get("status")))
-        if params.get("status") == "reject":
-            return 200, {"success": False, "error_code": "cannot_reject"}
-        return 200, {"request_id": 10, "success": True}
+        assert endpoint == "refund_number"
+        assert str(params.get("id")) == "10"
+        return 200, {"code": "200", "message": "success"}
 
     monkeypatch.setattr(provider, "_request", fake_request)
     res = await provider.cancel("10")
     assert res["success"] is True
-    assert calls == ["reject", "close"]
+
+
+@pytest.mark.asyncio
+async def test_resend_uses_documented_reuse_number(monkeypatch):
+    provider = NonVoipProvider()
+
+    async def fake_request(endpoint, **params):
+        assert endpoint == "reuse_number"
+        assert str(params.get("order_id")) == "10"
+        return 200, {"order_id": 11, "number": "15551234567"}
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    res = await provider.resend("10")
+    assert res["success"] is True
+    assert res["order_id"] == "11"
+    assert res["number"] == "15551234567"
 
 
 @pytest.mark.asyncio
