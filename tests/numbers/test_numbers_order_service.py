@@ -158,6 +158,68 @@ async def test_temp_provision_failure_marks_provider_purchase_block(monkeypatch)
     assert calls["refund"] == (123, "order-1", 0.25, 0.2, 456)
 
 
+@pytest.mark.asyncio
+async def test_temp_provision_rejects_wrong_country_number(monkeypatch):
+    calls: dict[str, object] = {}
+
+    async def _update_details(order_id, patch):
+        calls.setdefault("details", []).append((order_id, patch))
+
+    async def _update_status(order_id, status):
+        calls["status"] = (order_id, status)
+
+    async def _log(*args, **kwargs):
+        return None
+
+    async def _buy(**kwargs):
+        return {"success": True, "order_id": "tv-1", "number": "+5415033627", "raw": {}}
+
+    async def _cancel(provider_code, activation_id):
+        calls["cancel"] = (provider_code, activation_id)
+        return {"success": True}
+
+    async def _mark_failure(**kwargs):
+        calls["block"] = kwargs
+        return {"_id": "block"}
+
+    async def _refund(cls, user_id, order_id, sale_price, cost_price, reseller_id=None):
+        calls["refund"] = (user_id, order_id, sale_price, cost_price, reseller_id)
+        return True, "ok"
+
+    monkeypatch.setattr(order_purchase_service, "update_order_details", _update_details)
+    monkeypatch.setattr(order_purchase_service, "update_order_status", _update_status)
+    monkeypatch.setattr(order_purchase_service, "_log_number_event_from_order", _log)
+    monkeypatch.setattr(order_purchase_service, "buy_number_from_provider", _buy)
+    monkeypatch.setattr(order_purchase_service, "cancel_number_from_provider", _cancel)
+    monkeypatch.setattr(order_purchase_service, "mark_number_provider_purchase_failure", _mark_failure)
+    monkeypatch.setattr(order_purchase_service.FinancialManager, "refund_core_purchase", classmethod(_refund))
+
+    with pytest.raises(order_purchase_service.ProviderProvisioningError) as exc:
+        await order_purchase_service.provision_charged_temp_order(
+            order={"_id": "order-1"},
+            order_id="order-1",
+            user_id=123,
+            reseller_id=456,
+            provider_code="textverified",
+            api_service="telegram",
+            country="1",
+            state=None,
+            service_name="Telegram",
+            final_price=1.0,
+            cost_price=1.0,
+            purchase_options={"_audit_requested_service": "telegram", "provider_country_iso": "US"},
+        )
+
+    assert exc.value.raw["reason"] == "provider_country_mismatch"
+    assert calls["cancel"] == ("textverified", "tv-1")
+    assert calls["refund"] == (123, "order-1", 1.0, 1.0, 456)
+    assert calls["block"]["provider_code"] == "textverified"
+    assert calls["block"]["provider_country_iso"] == "US"
+    assert calls["status"] == ("order-1", "refunded")
+    assert calls["details"][-1][1]["provider_country_mismatch"] is True
+    assert calls["details"][-1][1]["provider_country_mismatch_expected_codes"] == ["1"]
+
+
 def test_public_order_payload_uses_customer_safe_refund_reason():
     refunded = order_service.public_order_payload(
         {

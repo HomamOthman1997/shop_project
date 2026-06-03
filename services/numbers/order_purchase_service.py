@@ -5,7 +5,7 @@ from typing import Any
 
 from database.numbers_provider_circuit_repo import mark_number_provider_purchase_failure
 from database.orders_repo import update_order_details, update_order_status
-from services.numbers.manager import buy_number_from_provider, rent_number_from_provider
+from services.numbers.manager import buy_number_from_provider, cancel_number_from_provider, rent_number_from_provider
 from services.numbers.order_rental_protection_service import rental_protection_policy
 from services.numbers.provider_delivery import provider_sms_delivery_strategy
 from services.numbers.shared.events import _log_number_event_from_order, _log_rental_event, _log_temp_event
@@ -25,6 +25,77 @@ class ProviderProvisioningError(Exception):
         super().__init__(message)
         self.refund_ok = refund_ok
         self.raw = raw
+
+
+_PHONE_COUNTRY_CODES_BY_ISO: dict[str, tuple[str, ...]] = {
+    "US": ("1",),
+    "CA": ("1",),
+    "GB": ("44",),
+    "TR": ("90",),
+    "DE": ("49",),
+    "FR": ("33",),
+    "NL": ("31",),
+    "SE": ("46",),
+    "FI": ("358",),
+    "NO": ("47",),
+    "DK": ("45",),
+    "ES": ("34",),
+    "IT": ("39",),
+    "PL": ("48",),
+    "GR": ("30",),
+    "PT": ("351",),
+    "RO": ("40",),
+    "BE": ("32",),
+    "AT": ("43",),
+    "IE": ("353",),
+    "CZ": ("420",),
+    "HU": ("36",),
+    "BG": ("359",),
+    "HR": ("385",),
+    "SI": ("386",),
+    "SK": ("421",),
+    "EE": ("372",),
+    "LV": ("371",),
+    "LT": ("370",),
+    "CY": ("357",),
+    "MT": ("356",),
+    "LU": ("352",),
+    "SA": ("966",),
+    "AE": ("971",),
+    "QA": ("974",),
+    "KW": ("965",),
+    "BH": ("973",),
+    "OM": ("968",),
+    "JO": ("962",),
+    "LB": ("961",),
+    "IQ": ("964",),
+    "EG": ("20",),
+    "MA": ("212",),
+    "DZ": ("213",),
+    "TN": ("216",),
+    "LY": ("218",),
+    "PS": ("970", "972"),
+    "IL": ("972",),
+}
+
+
+def _expected_phone_country_codes(country: str | None, provider_country_iso: str | None) -> tuple[str, ...]:
+    iso = str(provider_country_iso or "").strip().upper()
+    if iso in _PHONE_COUNTRY_CODES_BY_ISO:
+        return _PHONE_COUNTRY_CODES_BY_ISO[iso]
+    # The app's internal country code "1" is United States.
+    if str(country or "").strip() == "1":
+        return ("1",)
+    return ()
+
+
+def _provider_number_country_mismatch(number: Any, expected_codes: tuple[str, ...]) -> bool:
+    if not expected_codes:
+        return False
+    digits = "".join(ch for ch in str(number or "").strip() if ch.isdigit())
+    if not digits:
+        return False
+    return not any(digits.startswith(code) and len(digits) > len(code) for code in expected_codes)
 
 
 async def provision_charged_temp_order(
@@ -126,6 +197,63 @@ async def provision_charged_temp_order(
 
     provider_order_id = buy_res.get("order_id")
     number = buy_res.get("number")
+    provider_country_iso = str((purchase_options or {}).get("provider_country_iso") or "").strip().upper()
+    expected_phone_codes = _expected_phone_country_codes(country, provider_country_iso)
+    if _provider_number_country_mismatch(number, expected_phone_codes):
+        cancel_raw: Any = None
+        if provider_order_id:
+            try:
+                cancel_raw = await cancel_number_from_provider(provider_code, str(provider_order_id))
+            except Exception as exc:
+                cancel_raw = {"success": False, "raw": str(exc)}
+        await mark_number_provider_purchase_failure(
+            mode=number_mode,
+            provider_code=provider_code,
+            service_key=str((purchase_options or {}).get("_audit_requested_service") or service_name or ""),
+            country=str(country or "none"),
+            provider_country_iso=provider_country_iso,
+            api_service_name=api_service,
+            reason=f"country_mismatch:{number}",
+        )
+        refund_ok, _refund_msg = await FinancialManager.refund_core_purchase(
+            int(user_id),
+            order_id,
+            final_price,
+            cost_price,
+            reseller_id=int(reseller_id),
+        )
+        await update_order_status(order_id, "refunded" if refund_ok else "failed")
+        await update_order_details(
+            order_id,
+            {
+                "provisioning_state": "provider_failed_refunded" if refund_ok else "provider_failed_refund_error",
+                "provisioning_failure_at": _utc_now(),
+                "provider_country_mismatch": True,
+                "provider_country_mismatch_number": str(number or ""),
+                "provider_country_mismatch_expected_codes": list(expected_phone_codes),
+            },
+        )
+        raw = {
+            "reason": "provider_country_mismatch",
+            "number": str(number or ""),
+            "expected_phone_codes": list(expected_phone_codes),
+            "provider_cancel": cancel_raw,
+        }
+        await _log_number_event_from_order(
+            {**order, "provider": provider_code, "status": "paid"},
+            "provider_buy_failed",
+            payload={"raw": raw, "source": source},
+            status_after="refunded" if refund_ok else "failed",
+            number_mode=number_mode,
+        )
+        await _log_number_event_from_order(
+            {**order, "provider": provider_code, "status": "paid"},
+            "refund_success" if refund_ok else "refund_failed",
+            payload={"source": "provider_country_mismatch"},
+            status_after="refunded" if refund_ok else "failed",
+            number_mode=number_mode,
+        )
+        raise ProviderProvisioningError("provider_country_mismatch", refund_ok=bool(refund_ok), raw=raw)
     provider_pool = str(buy_res.get("pool") or "").strip() or None
     interval_sec = _poll_interval_for_provider(str(provider_code))
     provider_timeout_sec = _extract_provider_wait_timeout_sec(buy_res)
@@ -133,7 +261,6 @@ async def provision_charged_temp_order(
     now = _utc_now()
     reuse_warranty_sec = _resolve_reuse_warranty_sec(provider_code, buy_res)
     reuse_until = datetime.fromtimestamp(now.timestamp() + int(reuse_warranty_sec), tz=UTC)
-    provider_country_iso = str((purchase_options or {}).get("provider_country_iso") or "").strip().upper()
     provider_country_name = str((purchase_options or {}).get("provider_country_name") or "").strip()
 
     patch = {

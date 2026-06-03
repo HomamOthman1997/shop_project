@@ -1406,6 +1406,13 @@ async def buy_number_from_provider(
     return result
 
 
+async def cancel_number_from_provider(provider_code: str, activation_id: str) -> dict[str, Any]:
+    provider = PROVIDERS.get(provider_code)
+    if not provider or not hasattr(provider, "cancel"):
+        return {"success": False, "raw": "cancel_not_supported"}
+    return await provider.cancel(activation_id)
+
+
 async def get_calls_from_provider(provider_code: str, provider_order_id: str, to_number: str | None = None) -> dict[str, Any]:
     provider = PROVIDERS.get(provider_code)
     if not provider or not hasattr(provider, "get_calls"):
