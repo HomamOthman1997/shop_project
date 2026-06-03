@@ -15,9 +15,10 @@ from services.digital_products.fulfillment_rules import (
     MANUAL_TOPUP_MODE,
     game_family_key,
     manual_feature_info,
+    offer_region_label,
     offer_compare_key,
 )
-from services.digital_products.static_taxonomy import detect_service_key_strict, norm_text
+from services.digital_products.static_taxonomy import detect_service_key_strict, guess_family, norm_text
 from services.numbers.core.session_manager import SessionManager
 
 BITTOPUP_PROVIDER = "bittopup"
@@ -139,14 +140,16 @@ def _compare_key(product_name: str, denomination_name: str) -> tuple[str, float]
     family = game_family_key("", product_name)
     amount, unit = _amount_unit_from_text(denomination_name, product_name)
     if family and amount and unit:
-        return f"{family}:global:{amount}:{unit}", 0.86
+        region = offer_region_label(f"{product_name} {denomination_name}", default="Global")
+        return f"{family}:{re.sub(r'[^a-z0-9]+', '_', norm_text(region)).strip('_') or 'global'}:{amount}:{unit}", 0.86
     section = detect_service_key_strict(f"{product_name} {denomination_name}")
     if section == "store_cards":
         amount, unit = _amount_unit_from_text(denomination_name, product_name)
         if amount and unit == "usd":
-            brand = re.sub(r"[^a-z0-9]+", "_", norm_text(product_name)).strip("_")
-            region = "usa" if re.search(r"\b(us|usa|united states)\b", norm_text(product_name)) else "global"
-            return f"{brand}:{region}:{amount}:usd", 0.78
+            family_key, _label = guess_family("store_cards", product_name, [denomination_name])
+            if family_key and family_key != "other":
+                region = offer_region_label(f"{product_name} {denomination_name}", default="Global")
+                return f"{family_key}:{re.sub(r'[^a-z0-9]+', '_', norm_text(region)).strip('_') or 'global'}:{amount}:usd", 0.82
     return "", 0.0
 
 

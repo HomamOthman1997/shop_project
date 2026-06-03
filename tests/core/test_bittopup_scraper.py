@@ -65,7 +65,43 @@ def test_parse_bittopup_product_page_maps_free_fire_diamonds():
     offers = parse_bittopup_product_page(html, url="https://bittopup.com/goods/Free-Fire-Diamonds-EU-+-TR")
 
     assert offers
-    assert offers[0].compare_key == "free_fire:global:1080:diamond"
+    assert offers[0].compare_key == "free_fire:eu:1080:diamond"
+
+
+def test_parse_bittopup_product_page_uses_catalog_card_compare_keys():
+    html = """
+    <html>
+      <head><title>PlayStation Network Card (US) Recharge</title></head>
+      <body>
+        <h1>PlayStation Network Card (US)</h1>
+        <h3>10 USD</h3>
+        <span>USD 10.40</span>
+      </body>
+    </html>
+    """
+
+    offers = parse_bittopup_product_page(html, url="https://bittopup.com/goods/PlayStation-Network-Card-US")
+
+    assert offers
+    assert offers[0].compare_key == "playstation:usa:10:usd"
+
+
+def test_parse_bittopup_product_page_keeps_global_card_region():
+    html = """
+    <html>
+      <head><title>Steam Wallet Code Global Recharge</title></head>
+      <body>
+        <h1>Steam Wallet Code Global</h1>
+        <h3>10 USD</h3>
+        <span>USD 9.80</span>
+      </body>
+    </html>
+    """
+
+    offers = parse_bittopup_product_page(html, url="https://bittopup.com/goods/Steam-Wallet-Code-Global")
+
+    assert offers
+    assert offers[0].compare_key == "steam:global:10:usd"
 
 
 def test_bittopup_scan_result_text_is_operator_readable():

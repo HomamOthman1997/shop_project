@@ -39,3 +39,20 @@ def test_product_compare_key_matches_bittopup_pubg_source():
         )
         == "pubg:global:60:uc"
     )
+
+
+def test_product_compare_key_keeps_store_card_region():
+    assert (
+        catalog_service._product_compare_key(
+            category_name="PlayStation Network Card (US)",
+            product_name="10 USD",
+        )
+        == "playstation:usa:10:usd"
+    )
+    assert (
+        catalog_service._product_compare_key(
+            category_name="Steam Wallet Code Global",
+            product_name="10 USD",
+        )
+        == "steam:global:10:usd"
+    )

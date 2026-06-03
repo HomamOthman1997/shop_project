@@ -10,7 +10,7 @@ from database.digital_provider_sources_repo import list_active_provider_sources
 from database.mongo import db
 from utils.translations import t
 
-from .fulfillment_rules import MANUAL_TOPUP_MODE, game_default_unit, game_family_key, manual_feature_compare_key, offer_compare_key
+from .fulfillment_rules import MANUAL_TOPUP_MODE, game_default_unit, game_family_key, manual_feature_compare_key, offer_compare_key, offer_region_label
 from .g2bulk_client import G2BulkClient
 from .static_taxonomy import (
     clean_family_text,
@@ -382,13 +382,18 @@ def _product_compare_key(*, category_name: str, product_name: str) -> str:
     if manual:
         return manual
     service_key = _canonical_offer_service_key(name=product_name, category_name=category_name)
-    family_key, _ = guess_family(str(service_key or ""), category_name, [product_name] if product_name else [])
+    if str(service_key or "").startswith("store:"):
+        family_key = str(service_key).split(":", 1)[1]
+    elif str(service_key or "").startswith("game:"):
+        family_key = str(service_key).split(":", 1)[1]
+    else:
+        family_key, _ = guess_family(str(service_key or ""), category_name, [product_name] if product_name else [])
     amount = _first_number(product_name) or _first_number(category_name)
     if not family_key or not amount:
         return ""
     return offer_compare_key(
         family_key=family_key,
-        region="Global",
+        region=offer_region_label(f"{category_name} {product_name}", default="Global"),
         offer_name=product_name,
     )
 
@@ -401,7 +406,7 @@ def _game_topup_compare_key(*, game_id: str, game_name: str, product_name: str) 
         return ""
     return offer_compare_key(
         family_key=family,
-        region="Global",
+        region=offer_region_label(f"{game_name} {product_name}", default="Global"),
         offer_name=product_name,
         default_unit=game_default_unit(game_id, game_name),
     )

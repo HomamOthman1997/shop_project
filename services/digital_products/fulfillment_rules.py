@@ -66,6 +66,53 @@ def _money_amount(value: str) -> str:
     return format(dec, "f").rstrip("0").rstrip(".")
 
 
+def offer_region_label(text: str | None, *, default: str = "Global") -> str:
+    normalized = norm_text(text)
+    if not normalized:
+        return default
+    paren_regions = re.findall(r"\(([^)]+)\)", str(text or ""))
+    candidates = [norm_text(item) for item in paren_regions if norm_text(item)]
+    candidates.append(normalized)
+    for candidate in candidates:
+        if re.search(r"\b(global|worldwide|intl|international)\b", candidate):
+            return "Global"
+        if re.search(r"\b(us|usa|united states|america|american)\b", candidate):
+            return "USA"
+        if re.search(r"\b(ksa|saudi|saudi arabia)\b", candidate) or candidate == "sa":
+            return "KSA"
+        if re.search(r"\b(kw|kuwait)\b", candidate):
+            return "KW"
+        if re.search(r"\b(ae|uae|united arab emirates)\b", candidate):
+            return "UAE"
+        if re.search(r"\b(uk|united kingdom|gb)\b", candidate):
+            return "UK"
+        if re.search(r"\b(eu|europe)\b", candidate):
+            return "EU"
+        if re.search(r"\b(tr|turkey|turkiye)\b", candidate):
+            return "TR"
+        if re.search(r"\b(ca|canada)\b", candidate):
+            return "CA"
+        if re.search(r"\b(jp|japan)\b", candidate):
+            return "JP"
+        if re.search(r"\b(hk|hong kong)\b", candidate):
+            return "HK"
+        if re.search(r"\b(sg|singapore)\b", candidate):
+            return "SG"
+        if re.search(r"\b(my|malaysia)\b", candidate):
+            return "MY"
+        if re.search(r"\b(id|indonesia)\b", candidate):
+            return "ID"
+        if re.search(r"\b(th|thailand)\b", candidate):
+            return "TH"
+        if re.search(r"\b(vn|vietnam)\b", candidate):
+            return "VN"
+        if re.search(r"\b(br|brazil)\b", candidate):
+            return "BR"
+        if re.search(r"\b(mx|mexico)\b", candidate):
+            return "MX"
+    return default
+
+
 def manual_feature_info(category_name: str | None, product_name: str | None = None) -> dict[str, str]:
     text = norm_text(f"{category_name or ''} {product_name or ''}")
     if not text:
@@ -90,13 +137,7 @@ def manual_feature_info(category_name: str | None, product_name: str | None = No
     if not family_key:
         return {}
 
-    region = "Global"
-    if re.search(r"\b(usa|us)\b", text):
-        region = "USA"
-    elif "saudi" in text or "ksa" in text:
-        region = "KSA"
-    elif "global" in text or family_key in {"pubg", "new_state", "yalla_ludo", "jawaker"}:
-        region = "Global"
+    region = offer_region_label(text, default="Global")
 
     return {
         "family_key": family_key,
