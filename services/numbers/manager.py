@@ -148,6 +148,8 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {
         "supports_unlimited_rental": True,
         "supports_state_temp": True,
         "supports_state_rental": True,
+        "temp_allowed_country_iso": {"US"},
+        "rental_allowed_country_iso": {"US"},
     },
     "smspool": {
         "supports_temp": True,
@@ -162,6 +164,7 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {
         "supports_unlimited_rental": False,
         "supports_state_temp": True,
         "supports_state_rental": False,
+        "temp_allowed_country_iso": {"US"},
     },
     "nonvoip": {
         "supports_temp": True,
@@ -176,6 +179,8 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {
         "supports_unlimited_rental": True,
         "supports_state_temp": False,
         "supports_state_rental": False,
+        "temp_allowed_country_iso": {"US"},
+        "rental_allowed_country_iso": {"US"},
     },
     "smsready": {
         "supports_temp": True,
@@ -348,9 +353,18 @@ def provider_supports_unlimited_rental(provider_code: str | None) -> bool:
     return bool(get_provider_capabilities(provider_code).get("supports_unlimited_rental"))
 
 
-def provider_allows_temp(provider_code: str | None, *, state_selected: bool = False) -> bool:
+def provider_allows_temp(
+    provider_code: str | None,
+    *,
+    country_iso: str | None = None,
+    state_selected: bool = False,
+) -> bool:
     caps = get_provider_capabilities(provider_code)
     if not caps.get("supports_temp"):
+        return False
+    allowed_iso = {str(item or "").strip().upper() for item in (caps.get("temp_allowed_country_iso") or []) if str(item or "").strip()}
+    requested_iso = _country_iso_value(country_iso)
+    if allowed_iso and requested_iso and requested_iso not in allowed_iso:
         return False
     if state_selected and not caps.get("supports_state_temp", False):
         return False
@@ -369,6 +383,10 @@ def provider_allows_rental(
         if _country_iso_value(country_iso) not in UNLIMITED_RENTAL_ALLOWED_ISO:
             return False
         return bool(caps.get("supports_unlimited_rental"))
+    allowed_iso = {str(item or "").strip().upper() for item in (caps.get("rental_allowed_country_iso") or []) if str(item or "").strip()}
+    requested_iso = _country_iso_value(country_iso)
+    if allowed_iso and requested_iso and requested_iso not in allowed_iso:
+        return False
     if state_selected and not caps.get("supports_state_rental", False):
         return False
     return bool(caps.get("supports_rental"))
@@ -698,11 +716,12 @@ async def get_all_prices(
     markup_pct = await _effective_numbers_markup_percent()
     show_all_for_testing = bool(getattr(settings, "numbers_show_all_providers_for_testing", False))
     state_selected = bool(state and str(state).strip().lower() != "none")
+    requested_country_iso = _country_iso_value(str(country or "").strip()) if country and str(country).strip().lower() != "none" else ""
     async def fetch_single_provider(code, provider_obj):
         try:
             if not provider_quote_enabled(code, mode="temp"):
                 return (code, readiness_block_payload(code, mode="temp") if show_all_for_testing else None)
-            if not provider_allows_temp(code, state_selected=state_selected):
+            if not provider_allows_temp(code, country_iso=requested_country_iso, state_selected=state_selected):
                 return (code, None)
             resolution = _service_resolution_snapshot(service_key, code)
             balance_task = (

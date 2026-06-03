@@ -640,6 +640,27 @@ async def test_get_all_prices_uses_provider_country_iso_field(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_all_prices_hides_us_only_temp_provider_for_non_us_country(monkeypatch):
+    class _UsOnlyDummy:
+        async def get_price(self, service, country=None, state=None):
+            raise AssertionError("US-only provider must not be priced for non-US country")
+
+    monkeypatch.setitem(manager.PROVIDERS, "textverified", _UsOnlyDummy())
+    monkeypatch.setitem(manager.PROVIDERS, "pvadeals", _UsOnlyDummy())
+    monkeypatch.setattr(manager.settings, "profit_policy_enabled", False)
+
+    result = await manager.get_all_prices("telegram", "NL", None, provider_codes={"textverified", "pvadeals"})
+
+    assert "textverified" not in result
+    assert "pvadeals" not in result
+
+
+def test_provider_allows_rental_hides_us_only_provider_for_non_us_country():
+    assert manager.provider_allows_rental("pvadeals", service_key="paypal", country_iso="NL") is False
+    assert manager.provider_allows_rental("pvadeals", service_key="paypal", country_iso="US") is True
+
+
+@pytest.mark.asyncio
 async def test_get_all_prices_fetches_live_each_time(monkeypatch):
     calls = {"n": 0}
 
