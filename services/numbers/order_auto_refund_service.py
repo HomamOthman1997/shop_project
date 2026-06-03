@@ -56,7 +56,7 @@ async def auto_refund_temp_order_if_due(
 
     provider_code = str(order.get("provider") or order.get("provisioning_provider") or "").strip().lower()
     readiness = provider_readiness(provider_code)
-    if not readiness.auto_refund_enabled:
+    if not readiness.auto_refund_enabled and not readiness.purchase_enabled:
         await _mark_support_review(order, f"auto_refund_disabled_{readiness.status}")
         return {
             "ok": True,
@@ -71,11 +71,12 @@ async def auto_refund_temp_order_if_due(
         return already_refunded
 
     try:
+        manual_refund_attempt = not readiness.auto_refund_enabled
         result = await cancel_number_order(
             order,
             actor_user_id=user_id,
-            reason="numbers_api_timeout_auto_refund",
-            source="numbers_api_auto_refund",
+            reason="numbers_api_timeout_manual_provider_refund" if manual_refund_attempt else "numbers_api_timeout_auto_refund",
+            source="numbers_api_manual_provider_refund" if manual_refund_attempt else "numbers_api_auto_refund",
             allow_provider_terminal_refund=True,
             allow_empty_provider_refund=True,
             sleep_fn=sleep_fn,
