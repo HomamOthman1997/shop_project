@@ -745,7 +745,26 @@ Object.assign(copy.ar, {
 Object.assign(copy.en, {
   orderMode: "Mode",
   activeOrdersMetric: "Active",
+  paymentMethodHint: "Tap one method to use it for this recharge.",
+  paymentDetailsTitle: "Transfer details",
+  paymentAddressLabel: "Payment address",
+  paymentCopyHint: "Tap to copy",
+  paymentInstructionTitle: "Before sending",
+  paymentCurrency: "Currency",
+  proofChooseFile: "Choose file",
+  proofFileReady: "File selected",
   successLegend: "★ means provider success rate",
+});
+
+Object.assign(copy.ar, {
+  paymentMethodHint: "\u0627\u0636\u063a\u0637 \u0639\u0644\u0649 \u0637\u0631\u064a\u0642\u0629 \u0648\u0627\u062d\u062f\u0629 \u0644\u0627\u0633\u062a\u062e\u062f\u0627\u0645\u0647\u0627 \u0628\u0647\u0630\u0627 \u0627\u0644\u0634\u062d\u0646.",
+  paymentDetailsTitle: "\u062a\u0641\u0627\u0635\u064a\u0644 \u0627\u0644\u062a\u062d\u0648\u064a\u0644",
+  paymentAddressLabel: "\u0648\u0633\u064a\u0644\u0629 \u0627\u0644\u062f\u0641\u0639",
+  paymentCopyHint: "\u0627\u0636\u063a\u0637 \u0644\u0644\u0646\u0633\u062e",
+  paymentInstructionTitle: "\u0642\u0628\u0644 \u0627\u0644\u0625\u0631\u0633\u0627\u0644",
+  paymentCurrency: "\u0627\u0644\u0639\u0645\u0644\u0629",
+  proofChooseFile: "\u0627\u062e\u062a\u0631 \u0645\u0644\u0641\u0627\u064b",
+  proofFileReady: "\u062a\u0645 \u0627\u062e\u062a\u064a\u0627\u0631 \u0627\u0644\u0645\u0644\u0641",
 });
 
 function t(key) {
@@ -2621,29 +2640,104 @@ function accountNoticeCard(message) {
   return card;
 }
 
+function renderCurrentRechargeSurface() {
+  if (state.view === "recharge") {
+    renderRecharge(state.recharge);
+    return;
+  }
+  renderAccount(state.account);
+}
+
+function rechargeMethodPicker(methods = []) {
+  const panel = document.createElement("section");
+  panel.className = "recharge-method-panel";
+
+  const title = document.createElement("div");
+  title.className = "recharge-panel-title";
+  const heading = document.createElement("strong");
+  heading.textContent = t("rechargeMethod");
+  const hint = document.createElement("span");
+  hint.textContent = t("paymentMethodHint");
+  title.append(heading, hint);
+
+  const grid = document.createElement("div");
+  grid.className = "recharge-method-grid";
+
+  methods.forEach((row) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "recharge-method-card";
+    button.classList.toggle("selected", row.code === state.rechargeMethodCode);
+    button.textContent = row.title || row.code || "-";
+    button.addEventListener("click", () => {
+      state.rechargeMethodCode = row.code || "";
+      renderCurrentRechargeSurface();
+    });
+    grid.append(button);
+  });
+
+  panel.append(title, grid);
+  return panel;
+}
+
 function paymentTargetBlock(method) {
-  const block = document.createElement("div");
-  block.className = "payment-target";
+  const block = document.createElement("section");
+  block.className = "payment-details-card";
 
-  const label = document.createElement("span");
-  label.className = "info-label";
-  label.textContent = t("paymentTarget");
+  const head = document.createElement("div");
+  head.className = "payment-details-head";
+  const title = document.createElement("strong");
+  title.textContent = t("paymentDetailsTitle");
+  const methodName = document.createElement("span");
+  methodName.textContent = method?.title || "";
+  head.append(title, methodName);
 
+  const targetButton = document.createElement("button");
+  targetButton.type = "button";
+  targetButton.className = "payment-target-copy";
+  targetButton.disabled = !method?.target;
+  const targetMeta = document.createElement("span");
+  targetMeta.textContent = t("paymentAddressLabel");
   const target = document.createElement("strong");
   target.className = "payment-target-value";
   target.textContent = method?.target || "-";
-
-  const copyButton = document.createElement("button");
-  copyButton.type = "button";
-  copyButton.className = "small-action secondary-small";
-  copyButton.textContent = t("copyNumber");
-  copyButton.disabled = !method?.target;
-  copyButton.addEventListener("click", async () => {
-    await copyText(method?.target || "", copyButton);
+  const targetHint = document.createElement("small");
+  targetHint.textContent = t("paymentCopyHint");
+  targetButton.append(targetMeta, target, targetHint);
+  targetButton.addEventListener("click", async () => {
+    await copyText(method?.target || "");
+    targetButton.classList.add("copied");
+    window.setTimeout(() => targetButton.classList.remove("copied"), 700);
     els.statusLine.textContent = t("copiedPaymentTarget");
   });
 
-  block.append(label, target, copyButton);
+  const details = document.createElement("div");
+  details.className = "payment-details-grid";
+
+  const rateItem = document.createElement("div");
+  const rateKey = document.createElement("span");
+  rateKey.textContent = t("paymentRate");
+  const rateValue = document.createElement("strong");
+  rateValue.textContent = method?.rate_label || "-";
+  rateItem.append(rateKey, rateValue);
+
+  const currencyItem = document.createElement("div");
+  const currencyKey = document.createElement("span");
+  currencyKey.textContent = t("paymentCurrency");
+  const currencyValue = document.createElement("strong");
+  currencyValue.textContent = method?.currency || "-";
+  currencyItem.append(currencyKey, currencyValue);
+  details.append(rateItem, currencyItem);
+
+  const instructions = document.createElement("div");
+  instructions.className = "payment-instructions";
+  const instructionTitle = document.createElement("strong");
+  instructionTitle.textContent = t("paymentInstructionTitle");
+  const instructionText = document.createElement("p");
+  instructionText.textContent = method?.instructions || "";
+  instructions.append(instructionTitle, instructionText);
+
+  block.append(head, targetButton, details, instructions);
   return block;
 }
 
@@ -2777,24 +2871,10 @@ function rechargeActionCard(payload) {
   const form = document.createElement("form");
   form.className = "recharge-form";
 
-  const methodField = document.createElement("label");
-  methodField.className = "field recharge-field";
-  const methodText = document.createElement("span");
-  methodText.textContent = t("rechargeMethod");
-  const methodSelect = document.createElement("select");
-  methodSelect.name = "method_code";
-  methods.forEach((row) => {
-    const option = document.createElement("option");
-    option.value = row.code || "";
-    option.textContent = row.title || row.code || "-";
-    option.selected = option.value === state.rechargeMethodCode;
-    methodSelect.append(option);
-  });
-  methodSelect.addEventListener("change", () => {
-    state.rechargeMethodCode = methodSelect.value;
-    renderAccount(state.account);
-  });
-  methodField.append(methodText, methodSelect);
+  const methodInput = document.createElement("input");
+  methodInput.type = "hidden";
+  methodInput.name = "method_code";
+  methodInput.value = state.rechargeMethodCode || "";
 
   const amountField = document.createElement("label");
   amountField.className = "field recharge-field";
@@ -2813,26 +2893,27 @@ function rechargeActionCard(payload) {
   proofField.className = "field recharge-field";
   const proofText = document.createElement("span");
   proofText.textContent = t("proofFile");
+  const proofPicker = document.createElement("div");
+  proofPicker.className = "proof-picker";
   const proofInput = document.createElement("input");
   proofInput.name = "proof";
   proofInput.type = "file";
   proofInput.accept = "image/*,.pdf";
+  proofInput.className = "proof-input";
+  const proofLabel = document.createElement("strong");
+  proofLabel.textContent = t("proofChooseFile");
   const proofHint = document.createElement("small");
   proofHint.className = "field-hint";
   proofHint.textContent = t("proofHint");
-  proofField.append(proofText, proofInput, proofHint);
-
-  const rate = document.createElement("div");
-  rate.className = "recharge-rate";
-  const rateKey = document.createElement("span");
-  rateKey.textContent = t("paymentRate");
-  const rateValue = document.createElement("strong");
-  rateValue.textContent = method?.rate_label || "-";
-  rate.append(rateKey, rateValue);
-
-  const instructions = document.createElement("p");
-  instructions.className = "recharge-instructions";
-  instructions.textContent = method?.instructions || "";
+  proofPicker.append(proofInput, proofLabel, proofHint);
+  proofInput.addEventListener("change", () => {
+    const file = proofInput.files?.[0];
+    proofLabel.textContent = file?.name || t("proofChooseFile");
+    proofPicker.classList.toggle("has-file", Boolean(file));
+    if (file) proofHint.textContent = t("proofFileReady");
+    else proofHint.textContent = t("proofHint");
+  });
+  proofField.append(proofText, proofPicker);
 
   const submit = document.createElement("button");
   submit.type = "submit";
@@ -2840,10 +2921,9 @@ function rechargeActionCard(payload) {
   submit.textContent = t("submitRecharge");
 
   form.append(
-    methodField,
+    rechargeMethodPicker(methods),
+    methodInput,
     paymentTargetBlock(method),
-    rate,
-    instructions,
     amountField,
     proofField,
     submit,

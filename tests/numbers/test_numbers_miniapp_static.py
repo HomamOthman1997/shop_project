@@ -66,7 +66,7 @@ def test_numbers_miniapp_figma_skin_runtime_guards_are_present():
     assert 'tg?.onEvent?.("themeChanged", applyTelegramTheme)' in app
     assert 'body.telegram-webapp-runtime.telegram-dark' in css
     assert "2026-05-27 Figma production conversion" in css
-    assert "20260527-figma-production" in index
+    assert "20260603-recharge-ui" in index
 
 
 def test_numbers_miniapp_provider_aliases_stay_customer_safe():
@@ -97,7 +97,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     css = (ROOT / "webapp" / "numbers_v2" / "styles.css").read_text(encoding="utf-8")
 
     assert "/mini/numbers-v2/static/app.js" in index
-    assert "20260603-v2-025" in index
+    assert "20260603-v2-026" in index
     assert 'html lang="en" dir="ltr"' in index
     assert "شراء رقم جديد" not in index
     assert "state.clientActions = bootstrap.client?.actions || {}" in app

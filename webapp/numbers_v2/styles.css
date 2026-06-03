@@ -795,11 +795,11 @@ body:not(.app-booting) .boot-screen { display: none; }
 .status-text { min-height: 18px; margin: 0; color: var(--muted); font-size: 12px; }
 .method-details {
   display: grid;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-soft);
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--muted);
   font-size: 12px;
 }
@@ -810,6 +810,35 @@ body:not(.app-booting) .boot-screen { display: none; }
 .method-details p {
   margin: 0;
   line-height: 1.55;
+}
+.recharge-method-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 72%),
+    var(--surface-soft);
+}
+.recharge-method-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.recharge-method-head strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.25;
+}
+.recharge-method-head span {
+  max-width: 58%;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.35;
+  text-align: end;
 }
 .recharge-method-grid {
   display: grid;
@@ -840,6 +869,99 @@ body:not(.app-booting) .boot-screen { display: none; }
   background: color-mix(in srgb, var(--accent) 14%, var(--surface));
   color: var(--accent);
 }
+.payment-details-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-soft));
+}
+.payment-details-head,
+.payment-details-grid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.payment-details-head strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.25;
+}
+.payment-details-head span {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-align: end;
+}
+.payment-target-copy {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label value"
+    "hint value";
+  gap: 2px 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  color: var(--text);
+  text-align: start;
+}
+.payment-target-copy > span {
+  grid-area: label;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+.payment-target-copy > strong {
+  grid-area: value;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 950;
+  overflow-wrap: anywhere;
+  text-align: end;
+}
+.payment-target-copy small {
+  grid-area: hint;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 900;
+}
+.payment-target-copy.copied {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+}
+.payment-details-grid > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.payment-details-grid span,
+.payment-instructions strong {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+.payment-details-grid strong {
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.payment-instructions {
+  display: grid;
+  gap: 4px;
+}
+.payment-instructions p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
 .proof-picker {
   position: relative;
   min-height: 48px;
@@ -867,6 +989,10 @@ body:not(.app-booting) .boot-screen { display: none; }
   color: var(--muted);
   font-size: 10px;
   font-weight: 800;
+}
+.proof-picker.has-file {
+  border-style: solid;
+  background: color-mix(in srgb, #22c55e 10%, var(--surface));
 }
 .proof-input {
   position: absolute;
@@ -941,6 +1067,24 @@ body:not(.app-booting) .boot-screen { display: none; }
   .recharge-method-card {
     min-height: 46px;
     padding-inline: 6px;
+  }
+  .recharge-method-head,
+  .payment-details-head,
+  .payment-details-grid {
+    gap: 8px;
+  }
+  .recharge-method-head span {
+    max-width: 52%;
+  }
+  .payment-target-copy {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "label"
+      "value"
+      "hint";
+  }
+  .payment-target-copy > strong {
+    text-align: start;
   }
 }
 .order-card {

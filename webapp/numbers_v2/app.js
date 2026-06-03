@@ -510,6 +510,26 @@ const i18n = {
   },
 };
 
+Object.assign(i18n.en, {
+  paymentMethodHint: "Choose one method for this recharge request.",
+  paymentDetailsTitle: "Transfer details",
+  paymentCopyHint: "Tap to copy",
+  beforeSending: "Before sending",
+  rechargeInstructionFallback: "Send the exact paid amount to this payment address, then upload a clear proof image or PDF. If the amount or receipt is unclear, support may ask for more details before adding the balance.",
+  paymentTargetCopied: "Payment address copied",
+  fileSelected: "File selected",
+});
+
+Object.assign(i18n.ar, {
+  paymentMethodHint: "\u0627\u062e\u062a\u0631 \u0637\u0631\u064a\u0642\u0629 \u0648\u0627\u062d\u062f\u0629 \u0644\u0647\u0630\u0627 \u0637\u0644\u0628 \u0627\u0644\u0634\u062d\u0646.",
+  paymentDetailsTitle: "\u062a\u0641\u0627\u0635\u064a\u0644 \u0627\u0644\u062a\u062d\u0648\u064a\u0644",
+  paymentCopyHint: "\u0627\u0636\u063a\u0637 \u0644\u0644\u0646\u0633\u062e",
+  beforeSending: "\u0642\u0628\u0644 \u0627\u0644\u0625\u0631\u0633\u0627\u0644",
+  rechargeInstructionFallback: "\u062d\u0648\u0644 \u0627\u0644\u0645\u0628\u0644\u063a \u0643\u0645\u0627 \u0647\u0648 \u0625\u0644\u0649 \u0648\u0633\u064a\u0644\u0629 \u0627\u0644\u062f\u0641\u0639\u060c \u062b\u0645 \u0627\u0631\u0641\u0639 \u0625\u062b\u0628\u0627\u062a\u0627\u064b \u0648\u0627\u0636\u062d\u0627\u064b \u0643\u0635\u0648\u0631\u0629 \u0623\u0648 PDF. \u0625\u0630\u0627 \u0643\u0627\u0646 \u0627\u0644\u0645\u0628\u0644\u063a \u0623\u0648 \u0627\u0644\u0625\u062b\u0628\u0627\u062a \u063a\u064a\u0631 \u0648\u0627\u0636\u062d\u060c \u0642\u062f \u064a\u0637\u0644\u0628 \u0627\u0644\u062f\u0639\u0645 \u062a\u0641\u0627\u0635\u064a\u0644 \u0625\u0636\u0627\u0641\u064a\u0629 \u0642\u0628\u0644 \u0625\u0636\u0627\u0641\u0629 \u0627\u0644\u0631\u0635\u064a\u062f.",
+  paymentTargetCopied: "\u062a\u0645 \u0646\u0633\u062e \u0648\u0633\u064a\u0644\u0629 \u0627\u0644\u062f\u0641\u0639",
+  fileSelected: "\u062a\u0645 \u0627\u062e\u062a\u064a\u0627\u0631 \u0627\u0644\u0645\u0644\u0641",
+});
+
 function t(key) {
   return (i18n[state.lang] && i18n[state.lang][key]) || i18n.en[key] || i18n.ar[key] || key;
 }
@@ -705,6 +725,26 @@ function showResultModal(message, title = t("testActiveResult")) {
 
 function closeResultModal() {
   els.resultModal?.classList.add("hidden");
+}
+
+async function copyPlainText(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  return copied;
 }
 
 function showBusy(title = labelForKey("working")) {
@@ -1982,11 +2022,21 @@ function renderRecharge() {
   }
   const methods = payload.methods || [];
   renderRechargeForm(methods);
-  const methodsGrid = document.createElement("section");
+  const methodsPanel = document.createElement("section");
+  methodsPanel.className = "recharge-method-panel";
+  const methodsHead = document.createElement("div");
+  methodsHead.className = "recharge-method-head";
+  const methodsTitle = document.createElement("strong");
+  methodsTitle.textContent = t("paymentMethod");
+  const methodsHint = document.createElement("span");
+  methodsHint.textContent = t("paymentMethodHint");
+  methodsHead.append(methodsTitle, methodsHint);
+  const methodsGrid = document.createElement("div");
   methodsGrid.className = "recharge-method-grid";
   methodsGrid.append(...methods.map(renderRechargeMethodCard));
+  methodsPanel.append(methodsHead, methodsGrid);
   const cards = [
-    ...(methods.length ? [methodsGrid] : []),
+    ...(methods.length ? [methodsPanel] : []),
   ];
   els.rechargeContent.replaceChildren(...(cards.length ? cards : [emptyState(t("noRechargeMethods"))]));
 }
@@ -2033,6 +2083,8 @@ function updateProofFileLabel() {
   if (!els.proofFileLabel) return;
   const file = els.rechargeProof?.files?.[0];
   els.proofFileLabel.textContent = file?.name || t("chooseFile");
+  if (els.proofFileHint) els.proofFileHint.textContent = file ? t("fileSelected") : t("proofFileHint");
+  els.rechargeProof?.closest(".proof-picker")?.classList.toggle("has-file", Boolean(file));
 }
 
 function selectedRechargeMethod() {
@@ -2047,11 +2099,62 @@ function updateRechargeMethodDetails() {
     return;
   }
   els.rechargeAmount.placeholder = method.currency || "USD";
-  els.rechargeMethodDetails.innerHTML = `
-    <p>${t("paymentAddress")}: <strong>${method.target || "-"}</strong></p>
-    <p>${t("price")}: <strong>${method.rate_label || "-"}</strong></p>
-    ${method.instructions ? `<p>${method.instructions}</p>` : ""}
-  `;
+  const card = document.createElement("section");
+  card.className = "payment-details-card";
+
+  const head = document.createElement("div");
+  head.className = "payment-details-head";
+  const title = document.createElement("strong");
+  title.textContent = t("paymentDetailsTitle");
+  const methodName = document.createElement("span");
+  methodName.textContent = method.title || method.code || "-";
+  head.append(title, methodName);
+
+  const targetButton = document.createElement("button");
+  targetButton.type = "button";
+  targetButton.className = "payment-target-copy";
+  targetButton.disabled = !method.target;
+  const targetLabel = document.createElement("span");
+  targetLabel.textContent = t("paymentAddress");
+  const targetValue = document.createElement("strong");
+  targetValue.textContent = method.target || "-";
+  const targetHint = document.createElement("small");
+  targetHint.textContent = t("paymentCopyHint");
+  targetButton.append(targetLabel, targetValue, targetHint);
+  targetButton.addEventListener("click", async () => {
+    const value = String(method.target || "").trim();
+    if (!value) return;
+    await copyPlainText(value);
+    targetButton.classList.add("copied");
+    window.setTimeout(() => targetButton.classList.remove("copied"), 750);
+    showToast(t("paymentTargetCopied"), "success");
+  });
+
+  const details = document.createElement("div");
+  details.className = "payment-details-grid";
+  [
+    [t("creditPrice"), method.rate_label || rechargeRateLabel(method)],
+    [t("currency"), method.currency || "-"],
+  ].forEach(([label, value]) => {
+    const item = document.createElement("div");
+    const key = document.createElement("span");
+    key.textContent = label;
+    const text = document.createElement("strong");
+    text.textContent = value || "-";
+    item.append(key, text);
+    details.append(item);
+  });
+
+  const instructions = document.createElement("div");
+  instructions.className = "payment-instructions";
+  const instructionTitle = document.createElement("strong");
+  instructionTitle.textContent = t("beforeSending");
+  const instructionText = document.createElement("p");
+  instructionText.textContent = method.instructions || t("rechargeInstructionFallback");
+  instructions.append(instructionTitle, instructionText);
+
+  card.append(head, targetButton, details, instructions);
+  els.rechargeMethodDetails.replaceChildren(card);
 }
 
 async function submitRecharge(event) {
