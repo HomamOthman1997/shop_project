@@ -1531,7 +1531,7 @@ function renderOrders() {
       card.innerHTML = `
         <h3>${order.service_label || order.service || t("orderNumber")}</h3>
         <div class="meta-grid">
-          <div class="number-detail copyable-number" role="button" tabindex="0"><span>${t("number")}</span><strong>${numberValue}</strong><small>${t("tapToCopy")}</small></div>
+          <div class="number-detail copyable-number" role="button" tabindex="0"><span>${t("number")}</span><strong>${numberValue}</strong><small>⧉ ${t("tapToCopy")}</small></div>
           <div><span>${t("price")}</span><strong>${order.price_label || "-"}</strong></div>
           ${details.map((item) => `<div><span>${item.label || item.key || ""}</span><strong>${item.value || "-"}</strong></div>`).join("")}
         </div>
