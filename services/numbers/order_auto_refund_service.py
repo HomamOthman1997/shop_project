@@ -83,6 +83,10 @@ async def auto_refund_temp_order_if_due(
         )
     except Exception as exc:
         reason = getattr(exc, "code", "auto_refund_failed")
+        if str(reason) != "financial_refund_failed":
+            local_refund = await _refund_customer_after_provider_failure(order, user_id, str(reason))
+            if local_refund:
+                return local_refund
         retryable = _auto_refund_exception_retryable(exc, str(reason))
         marked_order = order
         if retryable:
@@ -97,6 +101,41 @@ async def auto_refund_temp_order_if_due(
             "order": public_order_payload(marked_order),
         }
     return {"ok": True, "refunded": True, "reason": "timeout_no_code", "order": result.get("order") or public_order_payload(order)}
+
+
+async def _refund_customer_after_provider_failure(
+    order: dict[str, Any],
+    user_id: int,
+    provider_failure_reason: str,
+) -> dict[str, Any] | None:
+    result = await finalize_temp_local_refund(
+        order_id=order["_id"],
+        order=order,
+        actor_user_id=int(user_id),
+        reason="numbers_api_timeout_customer_refund",
+        financial_manager=FinancialManager,
+        update_order_status_fn=update_order_status,
+        update_order_details_fn=update_order_details,
+        log_temp_event_fn=_log_temp_event,
+        log_number_event_from_order_fn=_log_number_event_from_order,
+        provider_raw={"provider_refund_error": str(provider_failure_reason or "provider_cancel_failed")},
+        provider_terminal_reason="customer_refunded_provider_followup",
+        source="numbers_api_customer_refund_after_timeout",
+        status_after="cancelled",
+        extra_patch={
+            "temp_provider_refund_followup_required": True,
+            "temp_provider_refund_followup_reason": str(provider_failure_reason or "provider_cancel_failed"),
+            "temp_provider_refund_followup_at": _utc_now(),
+        },
+    )
+    if not result.get("success"):
+        return None
+    return {
+        "ok": True,
+        "refunded": True,
+        "reason": "timeout_no_code_customer_refunded",
+        "order": public_order_payload({**order, "status": "cancelled", "temp_wait_state": "refunded"}),
+    }
 
 
 async def _finalize_if_provider_already_closed(order: dict[str, Any], user_id: int) -> dict[str, Any] | None:
