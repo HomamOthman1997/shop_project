@@ -623,7 +623,7 @@ function applyRuntimeTheme() {
   const dark = override ? override === "dark" : (scheme === "dark" || darkBg || params.get("theme") === "dark");
   document.body.classList.toggle("telegram-dark", dark);
   if (els.themeToggle) {
-    els.themeToggle.textContent = dark ? "☀" : "☾";
+    els.themeToggle.textContent = dark ? "\u2600" : "\u263e";
     els.themeToggle.setAttribute("aria-label", dark ? "Light theme" : "Dark theme");
   }
 }
@@ -2447,7 +2447,10 @@ els.menuDrawer?.addEventListener("click", (event) => {
   if (button?.dataset.view) setView(button.dataset.view);
 });
 els.refreshOrders.addEventListener("click", loadOrders);
-els.rechargeButton?.addEventListener("click", () => setView("recharge"));
+els.rechargeButton?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setView("recharge");
+});
 els.balanceButton.addEventListener("click", () => setView("account"));
 els.balanceButton.addEventListener("keydown", (event) => {
   if (event.key === "Enter" || event.key === " ") {

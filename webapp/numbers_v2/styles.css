@@ -61,7 +61,7 @@ body:not(.app-booting) .boot-screen { display: none; }
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 118px;
+  grid-template-columns: 28px minmax(0, 1fr) 132px;
   align-items: center;
   gap: 12px;
   min-height: 72px;
@@ -119,9 +119,10 @@ body:not(.app-booting) .boot-screen { display: none; }
   border-radius: 50%;
   background: var(--accent);
   color: #fff;
-  font-size: 17px;
+  font-size: 21px;
   font-weight: 900;
-  line-height: 0;
+  line-height: 1;
+  text-shadow: 0 1px 0 rgba(15, 23, 42, 0.2);
 }
 .brand h1 {
   margin: 0;
@@ -145,24 +146,27 @@ body:not(.app-booting) .boot-screen { display: none; }
   gap: 6px;
 }
 .recharge-shortcut {
-  width: 34px;
-  height: 38px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--accent);
   color: #fff;
-  font-size: 22px;
+  font-size: 19px;
   font-weight: 900;
   line-height: 1;
-  box-shadow: var(--soft-shadow);
+  box-shadow: none;
 }
 .balance-card {
   position: relative;
-  width: 78px;
+  width: 92px;
   height: 38px;
-  padding: 5px 7px 4px;
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  padding: 4px 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -171,27 +175,45 @@ body:not(.app-booting) .boot-screen { display: none; }
   text-align: center;
   direction: rtl;
 }
-.balance-card strong { display: block; font-size: 13px; line-height: 1.1; font-weight: 900; }
+.balance-topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 5px;
+  direction: ltr;
+}
+.balance-card strong {
+  min-width: 0;
+  display: block;
+  font-size: 13px;
+  line-height: 1.1;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .balance-meta {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  margin-top: 2px;
+  gap: 0;
+  margin-top: 0;
   color: var(--muted);
   font-size: 10px;
 }
 .theme-toggle {
-  width: 14px;
-  height: 14px;
+  width: 34px;
+  height: 38px;
   display: grid;
   place-items: center;
   padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
   color: var(--accent);
-  font-size: 11px;
+  box-shadow: var(--soft-shadow);
+  font-size: 18px;
+  font-weight: 900;
   line-height: 1;
 }
 
