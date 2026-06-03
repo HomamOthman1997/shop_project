@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
+from aiogram import Bot
+
 from database.orders_repo import list_api_temp_orders_for_auto_refund, update_order_details, update_order_status
+from database.support_topics_repo import get_support_target
 from services.numbers.manager import PROVIDERS
 from services.numbers.order_cancel_service import cancel_number_order
 from services.numbers.order_service import public_order_payload
+from services.numbers.customer_flows import support_bridge_token
 from services.numbers.provider_readiness import provider_readiness
 from services.numbers.shared.events import _log_number_event_from_order, _log_temp_event
 from services.numbers.shared.temp_order import _order_temp_timeout_sec, _temp_elapsed_sec, _temp_order_has_received_code, _utc_now
@@ -130,12 +134,56 @@ async def _refund_customer_after_provider_failure(
     )
     if not result.get("success"):
         return None
+    await _notify_support_provider_refund_followup(order, provider_failure_reason)
     return {
         "ok": True,
         "refunded": True,
         "reason": "timeout_no_code_customer_refunded",
         "order": public_order_payload({**order, "status": "cancelled", "temp_wait_state": "refunded"}),
     }
+
+
+async def _notify_support_provider_refund_followup(order: dict[str, Any], provider_failure_reason: str) -> None:
+    token = support_bridge_token()
+    if not token:
+        return
+    try:
+        target = await get_support_target("numbers")
+    except Exception:
+        target = None
+    if not target or not target.get("chat_id"):
+        return
+
+    provider = str(order.get("provider") or order.get("provisioning_provider") or "-").strip() or "-"
+    provider_order_id = str(order.get("provider_order_id") or order.get("provisioning_provider_order_id") or "-").strip() or "-"
+    number = str(order.get("provider_number") or "-").strip() or "-"
+    order_id = str(order.get("_id") or "-")
+    user_id = str(order.get("user_id") or "-")
+    text = (
+        "Provider refund follow-up needed\n\n"
+        "Customer balance was already refunded locally.\n"
+        "Check the provider refund manually.\n\n"
+        f"Order: {order_id}\n"
+        f"User ID: {user_id}\n"
+        f"Provider: {provider}\n"
+        f"Provider order: {provider_order_id}\n"
+        f"Number: {number}\n"
+        f"Reason: {str(provider_failure_reason or 'provider_cancel_failed')[:300]}"
+    )
+
+    bot = Bot(token=token)
+    try:
+        kwargs: dict[str, Any] = {"chat_id": int(target["chat_id"])}
+        if target.get("message_thread_id") is not None:
+            kwargs["message_thread_id"] = int(target["message_thread_id"])
+        await bot.send_message(text=text, **kwargs)
+    except Exception:
+        return
+    finally:
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
 
 
 async def _finalize_if_provider_already_closed(order: dict[str, Any], user_id: int) -> dict[str, Any] | None:

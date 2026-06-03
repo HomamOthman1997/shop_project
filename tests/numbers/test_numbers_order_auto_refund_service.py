@@ -110,8 +110,12 @@ async def test_auto_refund_refunds_customer_on_retryable_provider_failure(monkey
         calls["finalize"] = kwargs
         return {"success": True, "reason": "ok"}
 
+    async def fake_notify_support(order, reason):
+        calls["notify"] = {"order": order, "reason": reason}
+
     monkeypatch.setattr(order_auto_refund_service, "cancel_number_order", fake_cancel_number_order)
     monkeypatch.setattr(order_auto_refund_service, "finalize_temp_local_refund", fake_finalize_temp_local_refund)
+    monkeypatch.setattr(order_auto_refund_service, "_notify_support_provider_refund_followup", fake_notify_support)
 
     result = await order_auto_refund_service.auto_refund_temp_order_if_due(due_order())
 
@@ -122,6 +126,8 @@ async def test_auto_refund_refunds_customer_on_retryable_provider_failure(monkey
     assert calls["finalize"]["reason"] == "numbers_api_timeout_customer_refund"
     assert calls["finalize"]["source"] == "numbers_api_customer_refund_after_timeout"
     assert calls["finalize"]["extra_patch"]["temp_provider_refund_followup_required"] is True
+    assert calls["notify"]["order"]["_id"] == "order-1"
+    assert calls["notify"]["reason"] == "provider_cancel_failed"
 
 
 @pytest.mark.asyncio
@@ -135,8 +141,12 @@ async def test_auto_refund_refunds_customer_on_nonretryable_provider_failure(mon
         calls["finalize"] = kwargs
         return {"success": True, "reason": "ok"}
 
+    async def fake_notify_support(order, reason):
+        calls["notify"] = {"order": order, "reason": reason}
+
     monkeypatch.setattr(order_auto_refund_service, "cancel_number_order", fake_cancel_number_order)
     monkeypatch.setattr(order_auto_refund_service, "finalize_temp_local_refund", fake_finalize_temp_local_refund)
+    monkeypatch.setattr(order_auto_refund_service, "_notify_support_provider_refund_followup", fake_notify_support)
 
     result = await order_auto_refund_service.auto_refund_temp_order_if_due(due_order())
 
@@ -145,6 +155,7 @@ async def test_auto_refund_refunds_customer_on_nonretryable_provider_failure(mon
     assert "provider_refund_followup_required" not in result
     assert result["order"]["public_status"] == "refunded"
     assert calls["finalize"]["provider_terminal_reason"] == "customer_refunded_provider_followup"
+    assert calls["notify"]["reason"] == "provider_cancel_failed"
 
 
 @pytest.mark.asyncio
