@@ -679,7 +679,7 @@ body:not(.app-booting) .boot-screen { display: none; }
   color: var(--muted);
   font-size: 15px;
 }
-.refund-safety-note {
+.status-note {
   display: grid;
   gap: 3px;
   margin-top: 8px;
@@ -688,11 +688,11 @@ body:not(.app-booting) .boot-screen { display: none; }
   border-radius: 8px;
   background: color-mix(in srgb, var(--success) 8%, var(--surface));
 }
-.refund-safety-note strong {
+.status-note strong {
   color: var(--success);
   font-size: 11px;
 }
-.refund-safety-note span {
+.status-note span {
   color: var(--muted);
   font-size: 10px;
   line-height: 1.3;

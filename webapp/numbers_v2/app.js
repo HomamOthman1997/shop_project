@@ -1437,9 +1437,9 @@ function orderRefundInProgress(order) {
   return ["refund_pending", "support_review_pending"].includes(status);
 }
 
-function renderRefundSafetyNote(title = t("refundSafetyTitle"), text = t("refundSafetyText")) {
+function renderStatusNote(title = t("refundSafetyTitle"), text = t("refundSafetyText")) {
   const note = document.createElement("div");
-  note.className = "refund-safety-note";
+  note.className = "status-note";
   note.innerHTML = `<strong>${title}</strong><span>${text}</span>`;
   return note;
 }
@@ -1524,7 +1524,6 @@ function renderOrders() {
       card.innerHTML = `
         <h3>${order.service_label || order.service || t("orderNumber")}</h3>
         <div class="meta-grid">
-          <div><span>${t("status")}</span><strong>${statusLabel(order)}</strong></div>
           <div class="number-detail copyable-number" role="button" tabindex="0"><span>${t("number")}</span><strong>${numberValue}</strong></div>
           <div><span>${t("price")}</span><strong>${order.price_label || "-"}</strong></div>
           ${details.map((item) => `<div><span>${item.label || item.key || ""}</span><strong>${item.value || "-"}</strong></div>`).join("")}
@@ -1533,14 +1532,11 @@ function renderOrders() {
       const waitingForCode = orderWaitingForCode(order);
       if (note && !waitingForCode) {
         if (orderRefunded(order)) {
-          card.append(renderRefundSafetyNote(t("refundCompletedTitle"), note));
+          card.append(renderStatusNote(t("refundCompletedTitle"), note));
         } else if (orderRefundInProgress(order)) {
-          card.append(renderRefundSafetyNote(t("refundProcessingTitle"), note));
+          card.append(renderStatusNote(t("refundProcessingTitle"), note));
         } else {
-          const stateNote = document.createElement("p");
-          stateNote.className = "status-text";
-          stateNote.textContent = note;
-          card.append(stateNote);
+          card.append(renderStatusNote(statusLabel(order), note));
         }
       }
       const numberCopyTarget = card.querySelector(".copyable-number");
@@ -1587,7 +1583,7 @@ function renderOrders() {
         card.append(codes);
       }
       if (waitingForCode) {
-        card.append(renderRefundSafetyNote());
+        card.append(renderStatusNote());
       }
       const events = Array.isArray(order.events) ? order.events.slice(0, 5) : [];
       if (events.length) {

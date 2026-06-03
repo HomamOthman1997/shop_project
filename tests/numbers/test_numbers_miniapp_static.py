@@ -97,7 +97,7 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     css = (ROOT / "webapp" / "numbers_v2" / "styles.css").read_text(encoding="utf-8")
 
     assert "/mini/numbers-v2/static/app.js" in index
-    assert "20260603-v2-021" in index
+    assert "20260603-v2-022" in index
     assert 'html lang="en" dir="ltr"' in index
     assert "شراء رقم جديد" not in index
     assert "state.clientActions = bootstrap.client?.actions || {}" in app
@@ -143,11 +143,11 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "function orderRefundInProgress(order)" in app
     assert "copyable-number" in app
     assert "copyable-number" in css
-    assert "function renderRefundSafetyNote(" in app
+    assert "function renderStatusNote(" in app
     assert "customerState.message_key ? labelForKey(customerState.message_key)" in app
     assert "customerState.status_label_key" in app
     assert "code-box-waiting" in css
-    assert "refund-safety-note" in css
+    assert "status-note" in css
     assert 'id="resultModal"' in index
     assert "function showResultModal(message" in app
     assert "showResultModal(testActiveMessage" in app
