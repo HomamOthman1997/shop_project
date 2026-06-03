@@ -37,4 +37,6 @@ def test_auto_game_compare_key_matches_manual_when_same_amount_unit_region():
 def test_region_label_does_not_treat_latam_as_global():
     assert offer_region_label("Free Fire Diamonds LATAM") == "LATAM"
     assert offer_region_label("Some Game SEA") == "SEA"
+    assert offer_region_label("Mobile Legends Bang Bang (RUSSIA) PIN") == "RU"
+    assert offer_region_label("Garena Undawn RC (Philippines)") == "PH"
     assert offer_region_label("Steam Wallet Code Global") == "Global"

@@ -94,22 +94,34 @@ def offer_region_label(text: str | None, *, default: str = "Global") -> str:
             return "EU"
         if re.search(r"\b(tr|turkey|turkiye)\b", candidate):
             return "TR"
+        if re.search(r"\b(ru|russia|russian)\b", candidate):
+            return "RU"
         if re.search(r"\b(ca|canada)\b", candidate):
             return "CA"
         if re.search(r"\b(jp|japan)\b", candidate):
             return "JP"
+        if re.search(r"\b(kr|korea|korean|south korea)\b", candidate):
+            return "KR"
+        if re.search(r"\b(tw|taiwan)\b", candidate):
+            return "TW"
         if re.search(r"\b(hk|hong kong)\b", candidate):
             return "HK"
         if re.search(r"\b(sg|singapore)\b", candidate):
             return "SG"
         if re.search(r"\b(my|malaysia)\b", candidate):
             return "MY"
+        if re.search(r"\b(ph|philippines|philippine)\b", candidate):
+            return "PH"
+        if re.search(r"\b(kh|cambodia)\b", candidate):
+            return "KH"
         if re.search(r"\b(id|indonesia)\b", candidate):
             return "ID"
         if re.search(r"\b(th|thailand)\b", candidate):
             return "TH"
         if re.search(r"\b(vn|vietnam)\b", candidate):
             return "VN"
+        if re.search(r"\b(bd|bangladesh)\b", candidate):
+            return "BD"
         if re.search(r"\b(br|brazil)\b", candidate):
             return "BR"
         if re.search(r"\b(mx|mexico)\b", candidate):
