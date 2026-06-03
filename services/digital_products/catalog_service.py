@@ -6,9 +6,11 @@ import time
 from typing import Any
 
 from config import settings
+from database.digital_provider_sources_repo import list_active_provider_sources
 from database.mongo import db
 from utils.translations import t
 
+from .fulfillment_rules import MANUAL_TOPUP_MODE, game_default_unit, game_family_key, manual_feature_compare_key, offer_compare_key
 from .g2bulk_client import G2BulkClient
 from .static_taxonomy import (
     clean_family_text,
@@ -40,13 +42,18 @@ def za3em_provider_enabled() -> bool:
 
 def digital_provider_enabled(provider: str) -> bool:
     p = str(provider or "").strip().lower()
+    if p == "bittopup":
+        return bool(getattr(settings, "digital_bittopup_enabled", True))
     if p == "za3em":
         return za3em_provider_enabled()
     return True
 
 
 def _catalog_provider_state() -> dict[str, bool]:
-    return {"za3em_enabled": za3em_provider_enabled()}
+    return {
+        "bittopup_enabled": digital_provider_enabled("bittopup"),
+        "za3em_enabled": za3em_provider_enabled(),
+    }
 
 
 def _norm(text: str | None) -> str:
@@ -336,6 +343,68 @@ def _build_za3em_index(rows: list[dict[str, Any]]) -> dict[tuple[str, int, str],
     for k in list(index.keys()):
         index[k].sort(key=lambda item: float(item.get("price") or 0.0))
     return index
+
+
+def _source_offer_from_doc(doc: dict[str, Any]) -> dict[str, Any]:
+    return _build_offer(
+        str(doc.get("provider") or ""),
+        str(doc.get("source_ref") or doc.get("_id") or ""),
+        _to_float(doc.get("active_price") or doc.get("observed_price")),
+        bool(doc.get("available", True)),
+        source="provider_source",
+        fulfillment_mode=str(doc.get("fulfillment_mode") or MANUAL_TOPUP_MODE),
+        compare_key=str(doc.get("compare_key") or ""),
+        source_url=str(doc.get("source_url") or ""),
+        source_product_name=str(doc.get("source_product_name") or ""),
+        source_denomination_name=str(doc.get("source_denomination_name") or ""),
+        price_status=str(doc.get("price_status") or ""),
+    )
+
+
+def _build_provider_source_index(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    index: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        provider = str(row.get("provider") or "").strip().lower()
+        compare_key = str(row.get("compare_key") or "").strip()
+        if not compare_key or not digital_provider_enabled(provider):
+            continue
+        offer = _source_offer_from_doc(row)
+        if float(offer.get("price") or 0.0) <= 0:
+            continue
+        index.setdefault(compare_key, []).append(offer)
+    for key in list(index.keys()):
+        index[key] = _normalize_offers(index[key])
+    return index
+
+
+def _product_compare_key(*, category_name: str, product_name: str) -> str:
+    manual = manual_feature_compare_key(category_name, product_name)
+    if manual:
+        return manual
+    service_key = _canonical_offer_service_key(name=product_name, category_name=category_name)
+    family_key, _ = guess_family(str(service_key or ""), category_name, [product_name] if product_name else [])
+    amount = _first_number(product_name) or _first_number(category_name)
+    if not family_key or not amount:
+        return ""
+    return offer_compare_key(
+        family_key=family_key,
+        region="Global",
+        offer_name=product_name,
+    )
+
+
+def _game_topup_compare_key(*, game_id: str, game_name: str, product_name: str) -> str:
+    family = game_family_key(game_id, game_name)
+    if not family:
+        family, _label = guess_family("games", game_name or product_name, [product_name] if product_name else [])
+    if not family or family == "other":
+        return ""
+    return offer_compare_key(
+        family_key=family,
+        region="Global",
+        offer_name=product_name,
+        default_unit=game_default_unit(game_id, game_name),
+    )
 
 
 def _find_matching_za3em_offers(
@@ -634,19 +703,22 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
 
         client = G2BulkClient()
         if client.configured():
-            raw_categories, raw_products, raw_games, za3em_rows = await asyncio.gather(
+            raw_categories, raw_products, raw_games, za3em_rows, provider_source_rows = await asyncio.gather(
                 _with_timeout(client.get_categories(), timeout_sec=provider_timeout, default=[]),
                 _with_timeout(client.get_products(), timeout_sec=provider_timeout, default=[]),
                 _with_timeout(client.get_games(), timeout_sec=provider_timeout, default=[]),
                 _with_timeout(_get_za3em_products(force=force), timeout_sec=provider_timeout, default=[]),
+                _with_timeout(list_active_provider_sources(provider="bittopup"), timeout_sec=provider_timeout, default=[]),
             )
         else:
-            raw_categories, raw_products, raw_games, za3em_rows = [], [], [], await _with_timeout(
-                _get_za3em_products(force=force), timeout_sec=provider_timeout, default=[]
+            za3em_rows, provider_source_rows = await asyncio.gather(
+                _with_timeout(_get_za3em_products(force=force), timeout_sec=provider_timeout, default=[]),
+                _with_timeout(list_active_provider_sources(provider="bittopup"), timeout_sec=provider_timeout, default=[]),
             )
+            raw_categories, raw_products, raw_games = [], [], []
 
     # Never fail closed for catalog: if providers are slow/down and we have stale cache, serve it.
-    if not (raw_categories or raw_products or raw_games or za3em_rows):
+    if not (raw_categories or raw_products or raw_games or za3em_rows or provider_source_rows):
         stale = _CACHE.get("data")
         if isinstance(stale, dict) and stale and _CACHE.get("provider_state") == provider_state:
             return dict(stale)
@@ -656,6 +728,7 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
     if not za3em_provider_enabled():
         za3em_rows = []
     za_index = _build_za3em_index(za3em_rows)
+    source_index = _build_provider_source_index(provider_source_rows)
     za3em_categories, section_default_category = _build_za3em_categories(za3em_rows)
     cat_name_by_id = {str(_best_id(row, "id", "category_id", "ID")): str(row.get("name") or row.get("title") or "") for row in raw_categories}
 
@@ -708,6 +781,9 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         )
         offers = [g2_offer]
         offers.extend(_find_matching_za3em_offers(za_index, service_key=service_key, amount=amount, variant=variant))
+        compare_key = _product_compare_key(category_name=category_hint, product_name=clean_name)
+        if compare_key:
+            offers.extend(source_index.get(compare_key, []))
         for offer in offers:
             if str(offer.get("provider") or "").strip().lower() == "za3em":
                 ref_id = str(offer.get("ref_id") or "").strip()
@@ -725,6 +801,7 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
                 "price": best_price,
                 "stock": _to_int(row.get("stock") or row.get("quantity") or row.get("available")),
                 "provider_offers": offers,
+                "compare_key": compare_key,
                 "best_provider": str((best_offer or g2_offer).get("provider") or "g2bulk"),
                 "best_provider_ref_id": str((best_offer or g2_offer).get("ref_id") or product_id),
                 "raw": row,
@@ -865,6 +942,11 @@ async def get_catalog_snapshot(force: bool = False) -> dict[str, Any]:
         "products_by_category": products_by_category,
         "topups_by_game": {},
         "providers": {
+            "bittopup": {
+                "enabled": digital_provider_enabled("bittopup"),
+                "configured": bool(provider_source_rows),
+                "active_sources": len(provider_source_rows),
+            },
             "g2bulk": {"enabled": True, "configured": bool(client.configured())},
             "za3em": {"enabled": za3em_provider_enabled(), "configured": bool(Za3emClient().configured())},
         },
@@ -894,7 +976,12 @@ async def get_game_topups(game_id: str, *, force: bool = False) -> list[dict[str
                 _CACHE["data"] = snapshot
             return deduped
         return cached_rows
-    za_index = _build_za3em_index(await _get_za3em_products(force=force))
+    za_rows, provider_source_rows = await asyncio.gather(
+        _get_za3em_products(force=force),
+        list_active_provider_sources(provider="bittopup"),
+    )
+    za_index = _build_za3em_index(za_rows)
+    source_index = _build_provider_source_index(provider_source_rows)
 
     client = G2BulkClient()
     rows = await client.get_game_catalogue(game_id)
@@ -915,6 +1002,9 @@ async def get_game_topups(game_id: str, *, force: bool = False) -> list[dict[str
         )
         offers = [g2_offer]
         offers.extend(_find_matching_za3em_offers(za_index, service_key=service_key, amount=amount, variant=variant))
+        compare_key = _game_topup_compare_key(game_id=str(game_id), game_name=game_name, product_name=name)
+        if compare_key:
+            offers.extend(source_index.get(compare_key, []))
         best_offer = _choose_best_offer(offers)
         normalized.append(
             {
@@ -924,6 +1014,7 @@ async def get_game_topups(game_id: str, *, force: bool = False) -> list[dict[str
                 "price": float((best_offer or g2_offer).get("price") or 0.0),
                 "requires_server": bool(row.get("requires_server") or row.get("need_server")),
                 "provider_offers": offers,
+                "compare_key": compare_key,
                 "best_provider": str((best_offer or g2_offer).get("provider") or "g2bulk"),
                 "best_provider_ref_id": str((best_offer or g2_offer).get("ref_id") or product_id),
                 "raw": row,

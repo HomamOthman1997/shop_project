@@ -515,6 +515,8 @@ def service_sort_key(value: str | None) -> int:
 
 def provider_label(provider_code: str, *, lang: str) -> str:
     code = norm_text(provider_code)
+    if code == "bittopup":
+        return "بيت توب أب" if lang == "ar" else "BitTopup"
     if code == "za3em":
         return "الزعيم" if lang == "ar" else "Za3em"
     if code == "g2bulk":

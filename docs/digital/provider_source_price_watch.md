@@ -4,6 +4,8 @@
 
 Add BitTopup as a provider source for digital products without duplicating products already available from G2Bulk or other providers.
 
+TOPUPlive is intentionally out of scope. BitTopup is the official scraped manual provider for this phase.
+
 The customer should see one product/package. Internally, the same package can have multiple provider sources with different fulfillment modes:
 
 - `g2bulk` with `auto_topup` when the API can fulfill directly.

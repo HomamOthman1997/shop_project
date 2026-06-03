@@ -113,6 +113,15 @@ def _extract_amount_unit(name: str | None, *, default_unit: str = "") -> tuple[s
 
     candidates: list[tuple[str, str]] = []
     unit_pattern = r"uc|nc|diamonds?|gems?|coins?|tokens?|robux|vp|rp|usd"
+    bonus_candidates: list[tuple[str, str]] = []
+    for match in re.finditer(rf"(\d+(?:\.\d+)?)(?:\s*\+\s*|\s+)\d+(?:\.\d+)?\s*({unit_pattern})(?:\b|$)", text):
+        amount = _money_amount(match.group(1))
+        unit = _UNIT_ALIASES.get(match.group(2).lower(), "")
+        if amount and unit:
+            bonus_candidates.append((amount, unit))
+    if bonus_candidates:
+        bonus_candidates.sort(key=lambda row: _UNIT_PRIORITY.index(row[1]) if row[1] in _UNIT_PRIORITY else 999)
+        return bonus_candidates[0]
     for match in re.finditer(rf"(\d+(?:\.\d+)?)\s*({unit_pattern})(?:\b|$)", text):
         amount = _money_amount(match.group(1))
         unit = _UNIT_ALIASES.get(match.group(2).lower(), "")

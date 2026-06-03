@@ -18,6 +18,7 @@ from aiogram.types import MenuButtonWebApp, WebAppInfo
 from config import settings, validate_runtime_security, enforce_openrouter_only_mode
 from database.bots_repo import bootstrap_bot_indexes, get_verified_bots
 from database.custom_services_repo import bootstrap_custom_services_indexes
+from database.digital_provider_sources_repo import bootstrap_digital_provider_sources_indexes
 from database.user_repo import bootstrap_user_indexes, bootstrap_user_links_indexes
 from database.mongo import db
 from database.cardex_repo import bootstrap_cardex_indexes, release_due_cards
@@ -75,6 +76,7 @@ from services.numbers.core.session_manager import SessionManager
 from services.proxies.handlers.proxy_flow import router as proxy_flow_router
 from services.proxies.handlers.proxy_inline import router as proxy_inline_router
 from services.digital_products.recovery import run_digital_products_pending_recovery_sweep
+from services.digital_products.bittopup_scraper import run_bittopup_price_watch
 from services.digital_products.miniapp import start_miniapp_server
 from services.proxies.catalog_cache import set_offers_cache
 from services.proxies.manager import get_proxy_catalog
@@ -167,6 +169,7 @@ async def _run_startup_bootstraps() -> None:
         ("financial indexes", bootstrap_financial_indexes),
         ("card-ex indexes", bootstrap_cardex_indexes),
         ("custom services indexes", bootstrap_custom_services_indexes),
+        ("digital provider source indexes", bootstrap_digital_provider_sources_indexes),
         ("recharge indexes", bootstrap_recharge_indexes),
         ("user indexes", bootstrap_user_indexes),
         ("user links indexes", bootstrap_user_links_indexes),
@@ -224,6 +227,7 @@ def _load_sched_state() -> dict[str, str]:
     for key in (
         "last_financial_anomaly_at",
         "last_digital_products_recovery_at",
+        "last_digital_bittopup_price_watch_at",
         "last_proxy_ops_summary_at",
         "last_proxy_validation_at",
         "last_proxy_catalog_refresh_at",
@@ -1180,6 +1184,7 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
     sched_state = _load_sched_state()
     last_financial_anomaly_at = _parse_utc_iso(sched_state.get("last_financial_anomaly_at"))
     last_digital_products_recovery_at = _parse_utc_iso(sched_state.get("last_digital_products_recovery_at"))
+    last_digital_bittopup_price_watch_at = _parse_utc_iso(sched_state.get("last_digital_bittopup_price_watch_at"))
     last_proxy_ops_summary_at = _parse_utc_iso(sched_state.get("last_proxy_ops_summary_at"))
     last_proxy_validation_at = _parse_utc_iso(sched_state.get("last_proxy_validation_at"))
     last_proxy_catalog_refresh_at = _parse_utc_iso(sched_state.get("last_proxy_catalog_refresh_at"))
@@ -1242,6 +1247,15 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                     ),
                 )
             ),
+        )
+    )
+    next_digital_bittopup_price_watch_at = (
+        now
+        if last_digital_bittopup_price_watch_at is None
+        else max(
+            now,
+            last_digital_bittopup_price_watch_at
+            + timedelta(seconds=max(3600, int(getattr(settings, "digital_bittopup_price_watch_interval_sec", 43200) or 43200))),
         )
     )
     next_proxy_ops_summary_at = (
@@ -1562,6 +1576,31 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                     ),
                 )
                 next_digital_products_recovery_at = ran_at + timedelta(seconds=interval_sec)
+
+        if _utc_now() >= next_digital_bittopup_price_watch_at:
+            try:
+                if bool(getattr(settings, "digital_bittopup_enabled", True)) and bool(
+                    getattr(settings, "digital_bittopup_price_watch_enabled", True)
+                ):
+                    stats = await run_bittopup_price_watch()
+                    logging.info(
+                        "bittopup price watch status=%s pages=%s offers=%s active=%s review=%s unmapped=%s errors=%s",
+                        stats.get("status"),
+                        stats.get("pages_checked"),
+                        stats.get("offers_seen"),
+                        stats.get("active"),
+                        stats.get("under_review"),
+                        stats.get("unmapped"),
+                        stats.get("errors"),
+                    )
+            except Exception as exc:
+                logging.error("bittopup price watch failed: %s", exc)
+            finally:
+                ran_at = _utc_now()
+                sched_state["last_digital_bittopup_price_watch_at"] = ran_at.isoformat()
+                _save_sched_state(sched_state)
+                interval_sec = max(3600, int(getattr(settings, "digital_bittopup_price_watch_interval_sec", 43200) or 43200))
+                next_digital_bittopup_price_watch_at = ran_at + timedelta(seconds=interval_sec)
 
         if _utc_now() >= next_proxy_ops_summary_at:
             try:
@@ -1994,4 +2033,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot manager stopped!")
-
