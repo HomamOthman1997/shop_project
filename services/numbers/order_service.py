@@ -65,6 +65,7 @@ def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
     sale_price, _cost_price = extract_order_amounts(order)
     seconds_left = max(0, int(_order_timeout_sec(order)) - int(_temp_elapsed_sec(order)))
     can_resend = _order_resend_available(order, public_status=public_status)
+    can_cancel = _order_cancel_available(order, public_status=public_status)
     provider_code = str(order.get("provider") or order.get("provisioning_provider") or "").strip().lower()
     provider_id = str(order.get("provider_public_id") or provider_public_id(provider_code))
     sms_delivery = str(order.get("provider_sms_delivery") or provider_sms_delivery_strategy(provider_code))
@@ -106,6 +107,7 @@ def public_order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
         "seconds_left": seconds_left,
         "can_refresh": public_status in {"waiting", "code_received", "refund_pending", "waiting_for_recording"},
         "can_resend": can_resend,
+        "can_cancel": can_cancel,
         "can_replace": bool(replace_available),
         "can_alternate_provider": bool(alternate_provider_available),
         "alternate_provider_id": provider_public_id(alternate_provider_code) if alternate_provider_available else "",
@@ -197,6 +199,13 @@ def _api_order_actions(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
             endpoint=f"{base}/alternate" if base else "",
             scope="numbers:orders:replace",
             reason=missing_order_reason or "alternate_unavailable",
+            requires_idempotency_key=True,
+        ),
+        "cancel": _api_order_action(
+            enabled=bool(order_id and payload.get("can_cancel")),
+            endpoint=f"{base}/cancel" if base else "",
+            scope="numbers:orders:cancel",
+            reason=missing_order_reason or "cancel_unavailable",
             requires_idempotency_key=True,
         ),
         "download_recording": _api_order_action(
@@ -364,6 +373,25 @@ def _order_resend_available(order: dict[str, Any], *, public_status: str) -> boo
         return False
     reuse_until = _coerce_utc_datetime(order.get("temp_reuse_warranty_until"))
     return True if not reuse_until else _seconds_left_until(reuse_until) > 0
+
+
+def _order_cancel_available(order: dict[str, Any], *, public_status: str) -> bool:
+    mode = str(order.get("number_mode") or "temp").strip().lower()
+    if mode != "temp":
+        return False
+    if public_status != "waiting":
+        return False
+    status = str(order.get("status") or "").strip().lower()
+    if status in {"cancelled", "failed", "refunded", "expired"}:
+        return False
+    wait_state = str(order.get("temp_wait_state") or "").strip().lower()
+    if wait_state in {"refunded", "auto_refunded", "refund_pending"}:
+        return False
+    if _order_has_received_code(order):
+        return False
+    if not str(order.get("provider_order_id") or "").strip():
+        return False
+    return bool(str(order.get("provider") or order.get("provisioning_provider") or "").strip())
 
 
 def _provider_refund_policy(order: dict[str, Any]) -> dict[str, Any]:

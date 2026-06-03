@@ -2819,6 +2819,8 @@ def _miniapp_order_actions(payload: dict[str, Any]) -> dict[str, dict[str, Any]]
 
         "alternate_provider": _miniapp_order_action(enabled=bool(payload.get("can_alternate_provider")), label_key="alternateProvider", endpoint=f"{base}/alternate" if base else "", confirm_label_key="confirmAlternateProvider", success_label_key="replacementRequested", idempotency_key=f"miniapp-alternate-{order_id}" if order_id else ""),
 
+        "cancel": _miniapp_order_action(enabled=bool(payload.get("can_cancel")), label_key="cancelOrder", endpoint=f"{base}/cancel" if base else "", confirm_label_key="confirmCancelOrder", busy_label_key="cancellingOrder", success_label_key="orderCancelled", idempotency_key=f"miniapp-cancel-{order_id}" if order_id else ""),
+
         "preview_recording": _miniapp_order_action(enabled=bool(mode == "voice" and payload.get("recording_url")), label_key="playRecording", endpoint=str(payload.get("recording_url") or ""), method="GET"),
 
         "download_recording": _miniapp_order_action(enabled=bool(mode == "voice" and payload.get("recording_url")), label_key="downloadRecording", endpoint=str(payload.get("recording_url") or ""), method="GET"),
@@ -2872,7 +2874,7 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
 
     payload["details"] = _order_detail_rows(order, mode=mode, public_status=public_status)
 
-    payload["can_cancel"] = False
+    payload["can_cancel"] = bool(payload.get("can_cancel"))
 
     payload["cancel_wait_sec"] = 0
 
@@ -2937,7 +2939,7 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
 
     payload["can_refresh"] = public_status in {"waiting", "code_received", "refund_pending"}
 
-    payload["can_cancel"] = False
+    payload["can_cancel"] = bool(public_status == "waiting" and not payload.get("code") and payload.get("number") and payload.get("can_cancel"))
 
     payload["cancel_wait_sec"] = 0
 
@@ -4512,6 +4514,114 @@ async def test_active_order(request: web.Request) -> web.Response:
 
     return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
 
+
+async def cancel_order(request: web.Request) -> web.Response:
+
+    auth = _require_auth(request)
+
+    user_doc = await _load_or_create_user(auth)
+
+    lang = _lang_from_user(user_doc, auth)
+
+    raw_id = str(request.match_info.get("order_id") or "").strip()
+
+    try:
+
+        order_id = ObjectId(raw_id)
+
+    except Exception:
+
+        return _json_error(_text(lang, "Order not found.", "Ø§Ù„Ø·Ù„Ø¨ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯."), status=404, code="order_not_found")
+
+    order = await get_order(order_id)
+
+    if not order or int(order.get("user_id") or 0) != int(auth["user_id"]):
+
+        return _json_error(_text(lang, "Order not found.", "Ø§Ù„Ø·Ù„Ø¨ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯."), status=404, code="order_not_found")
+
+    status = str(order.get("status") or "").strip().lower()
+
+    wait_state = str(order.get("temp_wait_state") or "").strip().lower()
+
+    if status in {"cancelled", "refunded"} or wait_state in {"refunded", "auto_refunded"} or order.get("temp_refunded_at"):
+
+        return web.json_response(
+
+            {
+
+                "ok": True,
+
+                "order": await _order_payload_with_events(order, lang),
+
+                "message": _text(lang, "Order is already refunded.", "Ø§Ù„Ø·Ù„Ø¨ Ù…Ø³ØªØ±Ø¬Ø¹ Ù…Ø³Ø¨Ù‚Ø§."),
+
+            },
+
+            headers=dict(_NO_STORE_HEADERS),
+
+        )
+
+    result = await _cancel_and_refund_temp_order(
+
+        order_id=order_id,
+
+        order=order,
+
+        actor_user_id=int(auth["user_id"]),
+
+        reason="miniapp_user_cancel",
+
+        require_no_sms=True,
+
+        allow_provider_terminal_refund=True,
+
+        allow_empty_provider_refund=True,
+
+    )
+
+    refreshed = await get_order(order_id) or order
+
+    if not result.get("success"):
+
+        status = 503 if _temp_refund_result_retryable(result) else 409
+
+        return _json_error(
+
+            _text(lang, "Could not cancel this order right now. Please try again.", "ØªØ¹Ø°Ø± Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨ Ø­Ø§Ù„ÙŠØ§. Ø­Ø§ÙˆÙ„ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰."),
+
+            status=status,
+
+            code=str(result.get("reason") or "cancel_failed"),
+
+            order=await _order_payload_with_events(refreshed, lang),
+
+        )
+
+    payload: dict[str, Any] = {
+
+        "ok": True,
+
+        "order": await _order_payload_with_events(refreshed, lang),
+
+        "message": _text(lang, "Order cancelled and your balance was refunded.", "ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨ ÙˆØ¥Ø±Ø¬Ø§Ø¹ Ø§Ù„Ø±ØµÙŠØ¯."),
+
+    }
+
+    try:
+
+        balance = await get_user_wallet_balance(int(auth["user_id"]), int(auth["user_id"]))
+
+        payload["balance"] = float(balance)
+
+        payload["balance_label"] = _money(balance)
+
+    except Exception:
+
+        pass
+
+    return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
+
+
 async def download_recording(request: web.Request) -> web.Response:
 
     auth = _require_auth(request)
@@ -5138,6 +5248,8 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_post("/mini/numbers/api/orders/{order_id}/refresh", refresh_order)
 
     app.router.add_post("/mini/numbers/api/orders/{order_id}/test-active", test_active_order)
+
+    app.router.add_post("/mini/numbers/api/orders/{order_id}/cancel", cancel_order)
 
     app.router.add_get("/mini/numbers/api/orders/{order_id}/recording", download_recording)
 

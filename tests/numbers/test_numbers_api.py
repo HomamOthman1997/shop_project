@@ -691,6 +691,9 @@ async def test_numbers_api_get_order_detail_is_owner_scoped(monkeypatch):
     assert payload["order"]["api_actions"]["refresh"]["scope"] == "numbers:orders:refresh"
     assert payload["order"]["api_actions"]["resend"]["endpoint"] == "/api/v1/numbers/orders/order-1/resend"
     assert payload["order"]["api_actions"]["resend"]["requires_idempotency_key"] is True
+    assert payload["order"]["api_actions"]["cancel"]["endpoint"] == "/api/v1/numbers/orders/order-1/cancel"
+    assert payload["order"]["api_actions"]["cancel"]["scope"] == "numbers:orders:cancel"
+    assert payload["order"]["api_actions"]["cancel"]["requires_idempotency_key"] is True
     assert "/mini/" not in json.dumps(payload["order"]["api_actions"])
 
 

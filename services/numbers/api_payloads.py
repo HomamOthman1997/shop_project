@@ -222,6 +222,13 @@ def api_discovery_payload() -> dict[str, Any]:
                 scope="numbers:orders:replace",
                 requires_idempotency_key=True,
             ),
+            "cancel_order": _api_action(
+                "cancel_order",
+                "/api/v1/numbers/orders/{order_id}/cancel",
+                method="POST",
+                scope="numbers:orders:cancel",
+                requires_idempotency_key=True,
+            ),
             "download_recording": _api_action(
                 "download_recording",
                 "/api/v1/numbers/orders/{order_id}/recording",

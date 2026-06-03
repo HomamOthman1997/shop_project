@@ -34,6 +34,7 @@ from services.numbers.customer_flows import (
 )
 from services.numbers.manager import get_all_prices, get_all_rental_prices, get_all_voice_prices
 from services.numbers.order_recording_service import download_voice_order_recording
+from services.numbers.order_cancel_service import cancel_number_order
 from services.numbers.order_refresh_service import refresh_number_order
 from services.numbers.order_rental_service import (
     finish_rental_order,
@@ -525,6 +526,27 @@ async def alternate_provider_order(request: web.Request) -> web.Response:
     return await _replacement_order(request, alternate_provider=True)
 
 
+async def cancel_order(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:orders:cancel")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:cancel", limit=20)
+    order_id = str(request.match_info.get("order_id") or "").strip()
+    order = await get_user_number_order(order_id, auth.user_id, auth.reseller_id)
+    if not isinstance(order, dict):
+        return _json_error("Order was not found.", status=404, code="order_not_found", rate_limit=rate_limit)
+    try:
+        result = await cancel_number_order(
+            order,
+            actor_user_id=auth.user_id,
+            reason="numbers_api_user_cancel",
+            source="numbers_api_cancel",
+            allow_provider_terminal_refund=True,
+            allow_empty_provider_refund=True,
+        )
+    except NumbersOrderError as exc:
+        return _json_error(exc.message, status=exc.status, code=exc.code, rate_limit=rate_limit)
+    return web.json_response(result, headers=_response_headers(rate_limit))
+
+
 async def _replacement_order(request: web.Request, *, alternate_provider: bool) -> web.Response:
     auth = await require_api_auth(request, "numbers:orders:replace")
     rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:replace", limit=20)
@@ -845,6 +867,7 @@ def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/numbers/orders/{order_id}/resend", resend_order)
     app.router.add_post("/api/v1/numbers/orders/{order_id}/replace", replace_order)
     app.router.add_post("/api/v1/numbers/orders/{order_id}/alternate", alternate_provider_order)
+    app.router.add_post("/api/v1/numbers/orders/{order_id}/cancel", cancel_order)
     app.router.add_get("/api/v1/numbers/orders/{order_id}/recording", download_order_recording)
     app.router.add_post("/api/v1/numbers/orders/{order_id}/rental/sms", rental_sms_order)
     app.router.add_post("/api/v1/numbers/orders/{order_id}/rental/finish", finish_rental)

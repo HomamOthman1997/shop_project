@@ -28,6 +28,12 @@ async def cancel_number_order(
     if mode != "temp":
         raise NumbersOrderError("unsupported_order_mode", "This order mode does not support cancel yet.", status=409)
 
+    status = str(order.get("status") or "").strip().lower()
+    wait_state = str(order.get("temp_wait_state") or "").strip().lower()
+    if status in {"cancelled", "refunded"} or wait_state in {"refunded", "auto_refunded"} or order.get("temp_refunded_at"):
+        payload = {"ok": True, "order": public_order_payload(order)}
+        return payload
+
     result = await cancel_and_refund_temp_order(
         order_id=order["_id"],
         order=order,

@@ -1020,6 +1020,10 @@ def test_numbers_temp_waiting_order_hides_test_active_action():
 
     assert payload["public_status"] == "waiting"
     assert payload["actions"]["test_active"]["enabled"] is False
+    assert payload["can_cancel"] is True
+    assert payload["actions"]["cancel"]["enabled"] is True
+    assert payload["actions"]["cancel"]["endpoint"] == "/mini/numbers/api/orders/temp-order-id/cancel"
+    assert payload["actions"]["cancel"]["confirm_label_key"] == "confirmCancelOrder"
 
 
 def test_numbers_temp_smspool_forex_active_estimate_is_long_unreliable():
@@ -2329,7 +2333,7 @@ def test_register_numbers_routes_adds_public_endpoints():
     assert ("POST", "/mini/numbers/api/orders/{order_id}/renew") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/wake") in routes
     assert ("POST", "/mini/numbers/api/orders/{order_id}/notes") in routes
-    assert ("POST", "/mini/numbers/api/orders/{order_id}/cancel") not in routes
+    assert ("POST", "/mini/numbers/api/orders/{order_id}/cancel") in routes
 
 
 def test_numbers_miniapp_frontend_has_no_order_auto_polling():

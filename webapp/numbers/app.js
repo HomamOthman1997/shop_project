@@ -185,6 +185,10 @@ const copy = {
     confirmTryAnother: "تأكيد طلب رقم بديل؟",
     confirmAlternateProvider: "تأكيد طلب رقم من مزود بديل؟",
     replacementRequested: "تم طلب رقم بديل",
+    cancelOrder: "Cancel order",
+    confirmCancelOrder: "Cancel this order and refund your balance?",
+    cancellingOrder: "Cancelling order",
+    orderCancelled: "Order cancelled and refunded",
     secondCode: "كود ثاني",
     confirmSecondCode: "تأكيد طلب كود ثاني؟",
     secondCodeRequested: "تم طلب كود ثاني",
@@ -306,6 +310,10 @@ const copy = {
     confirmTryAnother: "Confirm replacement number request?",
     confirmAlternateProvider: "Confirm alternate provider request?",
     replacementRequested: "Replacement number requested",
+    cancelOrder: "Cancel order",
+    confirmCancelOrder: "Cancel this order and refund your balance?",
+    cancellingOrder: "Cancelling order",
+    orderCancelled: "Order cancelled and refunded",
     secondCode: "Second code",
     confirmSecondCode: "Confirm second code request?",
     secondCodeRequested: "Second code requested",
@@ -472,6 +480,10 @@ Object.assign(copy.ar, {
   confirmTryAnother: "تأكيد طلب رقم بديل؟",
   confirmAlternateProvider: "تأكيد طلب رقم من مزود بديل؟",
   replacementRequested: "تم طلب رقم بديل",
+    cancelOrder: "Cancel order",
+    confirmCancelOrder: "Cancel this order and refund your balance?",
+    cancellingOrder: "Cancelling order",
+    orderCancelled: "Order cancelled and refunded",
   secondCode: "كود ثاني",
   confirmSecondCode: "تأكيد طلب كود ثاني؟",
   secondCodeRequested: "تم طلب كود ثاني",
@@ -638,6 +650,10 @@ Object.assign(copy.ar, {
   confirmTryAnother: "تأكيد طلب رقم بديل؟",
   confirmAlternateProvider: "تأكيد طلب رقم من مزود بديل؟",
   replacementRequested: "تم طلب رقم بديل",
+    cancelOrder: "Cancel order",
+    confirmCancelOrder: "Cancel this order and refund your balance?",
+    cancellingOrder: "Cancelling order",
+    orderCancelled: "Order cancelled and refunded",
   secondCode: "كود ثاني",
   confirmSecondCode: "تأكيد طلب كود ثاني؟",
   secondCodeRequested: "تم طلب كود ثاني",
@@ -2032,6 +2048,13 @@ function renderOrderCard(order) {
       onClick: (button) => alternateOrder(order, button),
     });
   }
+  if (order.mode === "temp" && orderActionEnabled(order, "cancel", order.can_cancel)) {
+    addOrderAction(actions, {
+      label: orderActionLabel(order, "cancel", "cancelOrder"),
+      className: "small-action danger-action",
+      onClick: (button) => cancelOrder(order, button),
+    });
+  }
   if (order.mode === "voice" && orderActionEnabled(order, "preview_recording", Boolean(order.recording_url))) {
     addOrderAction(actions, { label: orderActionLabel(order, "preview_recording", "playRecording"), className: "small-action secondary-small", onClick: (button) => previewRecording(order, button, main) });
   }
@@ -2253,6 +2276,29 @@ async function alternateOrder(order, button) {
       els.sessionPill.textContent = payload.balance_label;
     }
     els.statusLine.textContent = payload.message || orderActionMetaText(order, "alternate_provider", "success_label_key", "replacementRequested");
+  } catch (error) {
+    els.statusLine.textContent = error.message || t("error");
+    await refreshOrders({ quiet: true });
+  } finally {
+    hideBusy();
+    button.disabled = false;
+  }
+}
+
+async function cancelOrder(order, button) {
+  if (!order?.id) return;
+  const confirmed = await askConfirm(orderActionMetaText(order, "cancel", "confirm_label_key", "confirmCancelOrder"));
+  if (!confirmed) return;
+  button.disabled = true;
+  showBusy(orderActionMetaText(order, "cancel", "busy_label_key", "cancellingOrder"), t("pleaseWait"));
+  try {
+    const payload = await apiOrderAction(order, "cancel");
+    const next = state.activeOrders.filter((item) => item.id !== order.id);
+    renderActiveOrders([payload.order, ...next].filter(Boolean));
+    if (payload.balance_label) {
+      els.sessionPill.textContent = payload.balance_label;
+    }
+    els.statusLine.textContent = payload.message || orderActionMetaText(order, "cancel", "success_label_key", "orderCancelled");
   } catch (error) {
     els.statusLine.textContent = error.message || t("error");
     await refreshOrders({ quiet: true });
