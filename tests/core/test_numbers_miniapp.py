@@ -7,6 +7,8 @@ from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 
 from services.numbers import miniapp
+from services.numbers.data.countries import COUNTRIES_LIST
+from services.numbers.data.phone_calling_codes import calling_codes_for_iso
 
 
 def test_numbers_miniapp_does_not_import_telegram_handler_helpers_directly():
@@ -1754,7 +1756,7 @@ def test_order_payload_uses_country_code_for_three_digit_number_prefix():
         "provider_order_id": "provider-tm",
         "provider_number": "99363978993",
         "temp_service_key": "whatsapp",
-        "temp_country": "993",
+        "temp_country": "129",
         "temp_country_name": "Turkmenistan",
         "temp_wait_state": "waiting",
         "selling_price": 0.50,
@@ -1765,6 +1767,19 @@ def test_order_payload_uses_country_code_for_three_digit_number_prefix():
     }
 
     payload = miniapp._order_payload(order)
+
+    assert payload["number_display"] == "+993 63978993"
+    assert payload["number_local"] == "63978993"
+
+
+def test_country_calling_code_table_covers_configured_countries():
+    missing = [row["iso"] for row in COUNTRIES_LIST if not calling_codes_for_iso(row.get("iso"))]
+
+    assert missing == []
+
+
+def test_order_payload_can_split_number_by_known_prefix_without_country_context():
+    payload = miniapp._number_display_payload({"provider_number": "99363978993"}, {})
 
     assert payload["number_display"] == "+993 63978993"
     assert payload["number_local"] == "63978993"

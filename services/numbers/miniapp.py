@@ -52,6 +52,7 @@ from database.orders_repo import (
 from database.user_repo import create_user, get_user, update_user_language
 
 from services.numbers.data.countries import COUNTRIES_LIST
+from services.numbers.data.phone_calling_codes import KNOWN_CALLING_CODES, calling_codes_for_iso
 
 from services.numbers.data.states_us import STATES_LIST
 
@@ -143,8 +144,6 @@ from services.numbers.shared.temp_order import (
     _seconds_between,
 
     _seconds_left_until,
-
-    _split_number_for_copy,
 
     _temp_elapsed_sec,
 
@@ -2736,6 +2735,81 @@ def _temp_my_numbers_active(order: dict[str, Any]) -> bool:
 
     return True if not expires_at else _seconds_left_until(expires_at) > 0
 
+def _country_iso_from_order(order: dict[str, Any], payload: dict[str, Any]) -> str:
+
+    explicit = str(
+        (order or {}).get("temp_country_iso")
+        or (order or {}).get("rental_country_iso")
+        or payload.get("country_iso")
+        or ""
+    ).strip().upper()
+
+    if explicit:
+
+        return explicit
+
+    raw_country = str(
+        (order or {}).get("temp_country")
+        or (order or {}).get("rental_country")
+        or payload.get("country")
+        or ""
+    ).strip()
+
+    raw_name = str(
+        (order or {}).get("temp_country_name")
+        or (order or {}).get("rental_country_name")
+        or payload.get("country_name")
+        or ""
+    ).strip().lower()
+
+    for row in COUNTRIES_LIST:
+
+        if raw_country and str(row.get("code") or "").strip() == raw_country:
+
+            return str(row.get("iso") or "").strip().upper()
+
+        names = [str(row.get("name") or "").strip().lower()]
+        names.extend(str(item or "").strip().lower() for item in (row.get("aliases") or []))
+        if raw_name and raw_name in {item for item in names if item}:
+
+            return str(row.get("iso") or "").strip().upper()
+
+    return ""
+
+
+def _number_display_payload(order: dict[str, Any], payload: dict[str, Any]) -> dict[str, str]:
+
+    raw_number = str((order or {}).get("provider_number") or payload.get("number") or "").strip()
+
+    digits = "".join(ch for ch in raw_number if ch.isdigit())
+
+    if not digits:
+
+        return {}
+
+    if digits.startswith("00"):
+
+        digits = digits[2:]
+
+    calling_codes = calling_codes_for_iso(_country_iso_from_order(order, payload))
+    calling_code = next(
+        (code for code in sorted(calling_codes, key=lambda item: (-len(item), item)) if digits.startswith(code) and len(digits) > len(code)),
+        "",
+    )
+
+    if not calling_code:
+
+        calling_code = next((code for code in KNOWN_CALLING_CODES if digits.startswith(code) and len(digits) > len(code)), "")
+
+    if calling_code:
+
+        local = digits[len(calling_code):]
+
+        return {"number_display": f"+{calling_code} {local}", "number_local": local}
+
+    return {"number_display": raw_number if raw_number.startswith("+") else f"+{digits}", "number_local": digits}
+
+
 def _should_refresh_temp_my_numbers_order(order: dict[str, Any]) -> bool:
 
     if str((order or {}).get("number_mode") or "").strip().lower() != "temp":
@@ -2898,13 +2972,7 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
 
     payload["service_label"] = _service_label(service_key)
 
-    number_cc, number_local = _split_number_for_copy(
-        str((order or {}).get("provider_number") or payload.get("number") or ""),
-        str((order or {}).get("temp_country") or (order or {}).get("rental_country") or payload.get("country") or ""),
-    )
-    if number_local:
-        payload["number_local"] = str(number_local)
-        payload["number_display"] = f"+{number_cc} {number_local}" if number_cc else str(number_local)
+    payload.update(_number_display_payload(order, payload))
 
     payload["price"] = float(sale_price)
 
