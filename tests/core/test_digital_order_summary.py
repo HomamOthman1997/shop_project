@@ -73,13 +73,14 @@ def test_manual_topup_notification_includes_provider_source_details():
     )
 
     assert "Provider: bittopup" in text
-    assert "Provider ref: pubg-mobile-uc#60-uc" in text
+    assert "Provider ref:" not in text
     assert "Source item: PUBG Mobile UC / 60 UC" in text
     assert "Source URL: https://bittopup.com/pubg-mobile-uc/" in text
     assert "Execution options:" in text
-    assert "- g2bulk | 21.25" in text and "ref=2968" in text
-    assert "- bittopup | 20.75" in text and "ref=pubg-mobile-uc#1800" in text and "https://bittopup.com/pubg/" in text
-    assert "- future | 20.50" in text and "ref=pubg-1800" in text
+    assert "- g2bulk Auto API | 21.25" in text
+    assert "- BitTopup manual | 20.75" in text and "https://bittopup.com/pubg/" in text
+    assert "- G2Bulk Future | 20.50" in text
+    assert "ref=2968" not in text
     assert markup.inline_keyboard[0][0].callback_data == "dpm:auto:order-1"
     assert markup.inline_keyboard[0][1].callback_data == "dpm:future:order-1"
     assert markup.inline_keyboard[1][0].callback_data == "dpm:claim:order-1"

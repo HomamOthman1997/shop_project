@@ -2542,7 +2542,6 @@ def _manual_topup_notification_payload(
         if isinstance(row, dict)
     ]
     source_url = str(offer.get("source_url") or order.get("provider_source_url") or "").strip()
-    provider_ref_id = str(offer.get("ref_id") or order.get("provider_ref_id") or "").strip()
     source_product = str(offer.get("source_product_name") or offer.get("product_name") or "").strip()
     source_denom = str(offer.get("source_denomination_name") or offer.get("name") or "").strip()
     provider_price = offer.get("price")
@@ -2556,8 +2555,6 @@ def _manual_topup_notification_payload(
     ]
     if external_order_id:
         lines.append(f"Provider order: {external_order_id}")
-    if provider_ref_id:
-        lines.append(f"Provider ref: {provider_ref_id}")
     if source_product or source_denom:
         lines.append(f"Source item: {' / '.join(part for part in (source_product, source_denom) if part)}")
     if provider_price is not None:
@@ -2603,6 +2600,7 @@ def _manual_execution_option_lines(offers: list[dict[str, Any]]) -> list[str]:
         ref_id = str(offer.get("ref_id") or offer.get("provider_ref_id") or "").strip()
         source_url = str(offer.get("source_url") or "").strip()
         mode = str(offer.get("fulfillment_mode") or "").strip()
+        source = str(offer.get("source") or "").strip().lower()
         price_raw = offer.get("price")
         try:
             price_label = format_usd(float(_money_decimal(price_raw or 0)))
@@ -2614,11 +2612,16 @@ def _manual_execution_option_lines(offers: list[dict[str, Any]]) -> list[str]:
         if key in seen:
             continue
         seen.add(key)
-        detail_parts = [provider, price_label]
-        if mode:
-            detail_parts.append(mode)
-        if ref_id:
-            detail_parts.append(f"ref={ref_id}")
+        provider_label = provider
+        if provider.lower() == "bittopup" or source_url:
+            provider_label = "BitTopup manual" if provider.lower() == "bittopup" else f"{provider} manual"
+        elif source == "future" or provider.lower() == "future":
+            provider_label = "G2Bulk Future"
+        elif mode == MANUAL_TOPUP_MODE:
+            provider_label = f"{provider} manual"
+        else:
+            provider_label = f"{provider} Auto API"
+        detail_parts = [provider_label, price_label]
         if source_name or denom:
             detail_parts.append(" / ".join(part for part in (source_name, denom) if part))
         if source_url:
@@ -2678,6 +2681,116 @@ async def _mark_manual_digital_topup_route(callback: types.CallbackQuery, *, rou
     await callback.answer(label)
 
 
+def _manual_topup_order_id_from_callback(callback: types.CallbackQuery) -> str:
+    return str(callback.data or "").split(":", 2)[-1].strip()
+
+
+def _manual_game_auto_offer(order: dict[str, Any]) -> dict[str, Any]:
+    candidates: list[dict[str, Any]] = []
+    for row in list(order.get("provider_offers_attempted") or []):
+        if not isinstance(row, dict):
+            continue
+        provider = str(row.get("provider") or "").strip().lower()
+        if not provider or not digital_provider_enabled(provider):
+            continue
+        if not bool(row.get("available", True)):
+            continue
+        if str(row.get("fulfillment_mode") or "").strip() == MANUAL_TOPUP_MODE:
+            continue
+        if str(row.get("source_url") or "").strip():
+            continue
+        if str(row.get("ref_id") or row.get("provider_ref_id") or "").strip():
+            candidates.append(dict(row))
+    candidates.sort(
+        key=lambda item: (
+            float(_money_decimal(item.get("price") or 0))
+            if float(_money_decimal(item.get("price") or 0)) > 0
+            else 9999999
+        )
+    )
+    return dict(candidates[0]) if candidates else {}
+
+
+async def _submit_manual_game_auto_api(callback: types.CallbackQuery) -> None:
+    if not _owner_action_allowed(int(callback.from_user.id)):
+        return await callback.answer("Unauthorized", show_alert=True)
+    order_id = _manual_topup_order_id_from_callback(callback)
+    order = await _find_order_for_owner_action(order_id)
+    if not order or str(order.get("fulfillment_mode") or "") != MANUAL_TOPUP_MODE:
+        return await callback.answer("Order not found", show_alert=True)
+    if str(order.get("status") or "") in {"success", "done", "refunded"}:
+        return await callback.answer("Order is already closed", show_alert=True)
+
+    offer = _manual_game_auto_offer(order)
+    if not offer:
+        return await callback.answer("No Auto API option for this order", show_alert=True)
+
+    provider = str(offer.get("provider") or order.get("provider_code") or "g2bulk").strip().lower()
+    ref_id = str(offer.get("ref_id") or offer.get("provider_ref_id") or order.get("provider_ref_id") or "").strip()
+    game_id = str(order.get("game_id") or "").strip()
+    player_id = str(order.get("player_id") or "").strip()
+    server_id = str(order.get("server_id") or "").strip()
+    item_name = str(order.get("manual_item_name") or order.get("service_ref_id") or "Digital top-up")
+    if not (provider and ref_id and game_id and player_id):
+        return await callback.answer("Order is missing API execution data", show_alert=True)
+
+    now = datetime.now(UTC)
+    await update_order_details(
+        order["_id"],
+        {
+            "manual_execution_route": "auto_api",
+            "manual_fulfillment_status": "auto_api_submitting",
+            "manual_route_updated_by": int(callback.from_user.id),
+            "manual_route_updated_at": now,
+            "selected_provider_offer": offer,
+            "provider_code": provider,
+            "provider_ref_id": ref_id,
+        },
+    )
+    attempt = await _create_provider_game_order(
+        provider=provider,
+        ref_id=ref_id,
+        game_id=game_id,
+        player_id=player_id,
+        server_id=server_id or None,
+        catalogue_name=item_name,
+    )
+    provider_data = attempt.get("data") if isinstance(attempt, dict) else attempt
+    external_order_id = _extract_external_order_id(provider_data)
+    update_payload = {
+        "provider_response": attempt,
+        "provider_order_id": external_order_id,
+        "manual_execution_route": "auto_api",
+        "manual_fulfillment_status": "auto_api_submitted" if _provider_ok(attempt) else "auto_api_failed",
+        "manual_route_updated_by": int(callback.from_user.id),
+        "manual_route_updated_at": datetime.now(UTC),
+        "selected_provider_offer": offer,
+        "provider_code": provider,
+        "provider_ref_id": ref_id,
+    }
+    if not _provider_ok(attempt):
+        update_payload["provider_error"] = _extract_provider_error(provider_data)
+        await update_order_details(order["_id"], update_payload)
+        if callback.message:
+            try:
+                await callback.message.edit_text(f"{callback.message.text or ''}\n\nRoute: Auto API failed")
+            except Exception:
+                pass
+        return await callback.answer("Auto API failed. Order is still pending.", show_alert=True)
+
+    await update_order_details(order["_id"], update_payload)
+    await _notify_manual_processing_user(callback.bot, {**order, **update_payload})
+    if callback.message:
+        try:
+            suffix = f"\n\nRoute: Auto API submitted"
+            if external_order_id:
+                suffix += f"\nProvider order: {external_order_id}"
+            await callback.message.edit_text(f"{callback.message.text or ''}{suffix}")
+        except Exception:
+            pass
+    await callback.answer("Auto API submitted")
+
+
 @router.callback_query(lambda c: c.data and c.data.startswith("dpm:claim:"))
 async def claim_manual_digital_topup(callback: types.CallbackQuery):
     await _mark_manual_digital_topup_route(callback, route="manual_claimed", status="processing", label="Claimed")
@@ -2685,7 +2798,7 @@ async def claim_manual_digital_topup(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("dpm:auto:"))
 async def choose_manual_digital_auto_api(callback: types.CallbackQuery):
-    await _mark_manual_digital_topup_route(callback, route="auto_api", status="auto_api_selected", label="Auto API selected")
+    await _submit_manual_game_auto_api(callback)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("dpm:future:"))

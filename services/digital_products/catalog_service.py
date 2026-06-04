@@ -412,6 +412,59 @@ def _game_topup_compare_key(*, game_id: str, game_name: str, product_name: str) 
     )
 
 
+def _matching_manual_game_source_offers(snapshot: dict[str, Any], *, compare_key: str) -> list[dict[str, Any]]:
+    key = str(compare_key or "").strip()
+    if not key:
+        return []
+    rows: list[dict[str, Any]] = []
+    for products in dict((snapshot or {}).get("products_by_category") or {}).values():
+        for product in list(products or []):
+            if not isinstance(product, dict):
+                continue
+            if str(product.get("compare_key") or "").strip() != key:
+                continue
+            denom_name = str(product.get("clean_name") or product.get("name") or "").strip()
+            for offer in list(product.get("provider_offers") or []):
+                if not isinstance(offer, dict):
+                    continue
+                provider = str(offer.get("provider") or "").strip().lower()
+                if not provider or not digital_provider_enabled(provider):
+                    continue
+                prepared = dict(offer)
+                prepared["fulfillment_mode"] = str(prepared.get("fulfillment_mode") or MANUAL_TOPUP_MODE)
+                prepared["manual_requires_input"] = True
+                prepared["manual_params"] = list(prepared.get("manual_params") or ["player_id"])
+                prepared["source_denomination_name"] = str(prepared.get("source_denomination_name") or denom_name)
+                if str(prepared.get("source") or "") == "gift" and provider == "g2bulk":
+                    prepared["source"] = "future"
+                    prepared["source_product_name"] = str(prepared.get("source_product_name") or "G2Bulk Future")
+                rows.append(prepared)
+    return _normalize_offers(rows)
+
+
+def _enrich_cached_game_topups_with_manual_sources(rows: list[dict[str, Any]], snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for row in list(rows or []):
+        if not isinstance(row, dict):
+            continue
+        current = dict(row)
+        compare_key = str(current.get("compare_key") or "").strip()
+        if compare_key:
+            offers = _normalize_offers(
+                list(current.get("provider_offers") or [])
+                + _matching_manual_game_source_offers(snapshot, compare_key=compare_key)
+            )
+            if offers:
+                best_offer = _choose_best_offer(offers)
+                current["provider_offers"] = offers
+                if best_offer:
+                    current["price"] = float(best_offer.get("price") or current.get("price") or 0.0)
+                    current["best_provider"] = str(best_offer.get("provider") or current.get("best_provider") or "")
+                    current["best_provider_ref_id"] = str(best_offer.get("ref_id") or current.get("best_provider_ref_id") or "")
+        enriched.append(current)
+    return enriched
+
+
 def _find_matching_za3em_offers(
     za_index: dict[tuple[str, int, str], list[dict[str, Any]]],
     *,
@@ -972,7 +1025,7 @@ async def get_game_topups(game_id: str, *, force: bool = False) -> list[dict[str
             break
     service_key = _canonical_game_service_key(game_name or str(game_id), str(game_id))
     if not force and str(game_id) in topup_map:
-        cached_rows = list(topup_map.get(str(game_id)) or [])
+        cached_rows = _enrich_cached_game_topups_with_manual_sources(list(topup_map.get(str(game_id)) or []), snapshot)
         if service_key == "game:pubg":
             deduped = _dedupe_pubg_topups(cached_rows)
             if len(deduped) != len(cached_rows):
@@ -1010,6 +1063,7 @@ async def get_game_topups(game_id: str, *, force: bool = False) -> list[dict[str
         compare_key = _game_topup_compare_key(game_id=str(game_id), game_name=game_name, product_name=name)
         if compare_key:
             offers.extend(source_index.get(compare_key, []))
+            offers.extend(_matching_manual_game_source_offers(snapshot, compare_key=compare_key))
         best_offer = _choose_best_offer(offers)
         normalized.append(
             {

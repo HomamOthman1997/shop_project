@@ -230,6 +230,79 @@ async def test_claim_manual_topup_notifies_customer_processing(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_auto_api_manual_topup_submits_provider_order(monkeypatch):
+    import handlers.store_sections as store_sections
+
+    calls: dict[str, object] = {}
+    order = {
+        "_id": "order-1",
+        "user_id": 123,
+        "reseller_id": 123,
+        "status": "paid",
+        "fulfillment_mode": store_sections.MANUAL_TOPUP_MODE,
+        "manual_item_name": "1800 UC",
+        "game_id": "pubgm",
+        "player_id": "51293484551",
+        "server_id": "",
+        "provider_offers_attempted": [
+            {"provider": "bittopup", "ref_id": "pubg#1800", "price": 20.75, "available": True, "fulfillment_mode": store_sections.MANUAL_TOPUP_MODE, "source_url": "https://bittopup.com/goods/pubg-uc"},
+            {"provider": "g2bulk", "ref_id": "2968", "price": 21.25, "available": True},
+            {"provider": "g2bulk", "ref_id": "253", "price": 21.75, "available": True},
+        ],
+    }
+
+    async def fake_find(_order_id):
+        return order
+
+    async def fake_update(order_id, payload):
+        calls.setdefault("updates", []).append((order_id, payload))
+
+    async def fake_create(**kwargs):
+        calls["create"] = kwargs
+        return {"status": 200, "data": {"order_id": "api-1", "status": "processing"}}
+
+    async def fake_get_user(_user_id):
+        return {"language": "en"}
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            calls["send"] = kwargs
+
+    class FakeMessage:
+        text = "Manual digital top-up pending"
+
+        async def edit_text(self, text):
+            calls["edit"] = text
+
+    class FakeCallback:
+        from_user = SimpleNamespace(id=7417429062)
+        data = "dpm:auto:order-1"
+        bot = FakeBot()
+        message = FakeMessage()
+
+        async def answer(self, text=None, show_alert=None):
+            calls["answer"] = (text, show_alert)
+
+    monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
+    monkeypatch.setattr(store_sections, "_find_order_for_owner_action", fake_find)
+    monkeypatch.setattr(store_sections, "update_order_details", fake_update)
+    monkeypatch.setattr(store_sections, "_create_provider_game_order", fake_create)
+    monkeypatch.setattr(store_sections, "get_user", fake_get_user)
+    monkeypatch.setattr(store_sections, "digital_provider_enabled", lambda _provider: True)
+
+    await store_sections.choose_manual_digital_auto_api(FakeCallback())
+
+    assert calls["create"]["provider"] == "g2bulk"
+    assert calls["create"]["ref_id"] == "2968"
+    assert calls["create"]["player_id"] == "51293484551"
+    assert calls["updates"][-1][1]["provider_order_id"] == "api-1"
+    assert calls["updates"][-1][1]["manual_fulfillment_status"] == "auto_api_submitted"
+    assert calls["send"]["chat_id"] == 123
+    assert "Auto API submitted" in calls["edit"]
+    assert calls["answer"] == ("Auto API submitted", None)
+
+
+@pytest.mark.asyncio
 async def test_recover_manual_digital_order_sends_owner_notification(monkeypatch):
     import handlers.store_sections as store_sections
 

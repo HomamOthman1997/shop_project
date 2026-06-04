@@ -41,6 +41,61 @@ def test_product_compare_key_matches_bittopup_pubg_source():
     )
 
 
+def test_game_topup_can_reuse_matching_manual_future_offer():
+    offers = catalog_service._matching_manual_game_source_offers(
+        {
+            "products_by_category": {
+                "future": [
+                    {
+                        "compare_key": "pubg:global:1800:uc",
+                        "clean_name": "1800 UC Voucher",
+                        "provider_offers": [
+                            {"provider": "g2bulk", "ref_id": "future-1800", "price": 20.5, "available": True, "source": "gift"}
+                        ],
+                    }
+                ]
+            }
+        },
+        compare_key="pubg:global:1800:uc",
+    )
+
+    assert offers[0]["provider"] == "g2bulk"
+    assert offers[0]["source"] == "future"
+    assert offers[0]["fulfillment_mode"] == "manual_topup"
+    assert offers[0]["source_product_name"] == "G2Bulk Future"
+
+
+def test_cached_game_topup_is_enriched_with_matching_manual_offer():
+    rows = catalog_service._enrich_cached_game_topups_with_manual_sources(
+        [
+            {
+                "id": "2968",
+                "name": "1800 UC",
+                "price": 21.25,
+                "compare_key": "pubg:global:1800:uc",
+                "provider_offers": [{"provider": "g2bulk", "ref_id": "2968", "price": 21.25, "available": True}],
+            }
+        ],
+        {
+            "products_by_category": {
+                "future": [
+                    {
+                        "compare_key": "pubg:global:1800:uc",
+                        "clean_name": "1800 UC Voucher",
+                        "provider_offers": [
+                            {"provider": "g2bulk", "ref_id": "future-1800", "price": 20.5, "available": True, "source": "gift"}
+                        ],
+                    }
+                ]
+            }
+        },
+    )
+
+    refs = {offer["ref_id"] for offer in rows[0]["provider_offers"]}
+    assert {"2968", "future-1800"} <= refs
+    assert rows[0]["best_provider_ref_id"] == "future-1800"
+
+
 def test_product_compare_key_keeps_store_card_region():
     assert (
         catalog_service._product_compare_key(

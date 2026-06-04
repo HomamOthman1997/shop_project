@@ -5,8 +5,9 @@ from urllib.parse import urlparse
 BITTOPUP_BASE_URL = "https://bittopup.com"
 
 # Curated from the operator-reviewed BitTopup sheet. BitTopup is kept
-# for chat apps only; games are served by G2Bulk.
+# narrow: chat apps plus PUBG as a manual reference/execution source.
 BITTOPUP_INDEX_ROWS: tuple[tuple[str, str, str, str, str, str], ...] = (
+    ('pubg-uc', 'games', 'pubg', 'PUBG Mobile', 'Global', 'PUBG Mobile UC'),
     ('Likee-Gift-Card', 'chat_apps', 'likee', 'Likee', 'Global', 'Likee Gift Card'),
     ('imo-diamond-recharge', 'chat_apps', 'imo', 'IMO', 'Global', 'IMO Diamond Recharge'),
     ('Discord-Nitro-Subscription', 'chat_apps', 'discord', 'Discord', 'Global', 'Discord Nitro Subscription'),

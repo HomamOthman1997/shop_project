@@ -30,9 +30,9 @@ def test_parse_bittopup_sitemap_reads_public_product_urls_only():
 def test_bittopup_index_contains_operator_selected_pages_only():
     urls = bittopup_indexed_urls()
 
-    assert len(urls) == 27
+    assert len(urls) == 28
     assert "https://bittopup.com/goods/soulchill" in urls
-    assert "https://bittopup.com/goods/pubg-uc" not in urls
+    assert "https://bittopup.com/goods/pubg-uc" in urls
     assert "https://bittopup.com/goods/PlayStation-Network-Card-US" not in urls
 
 
@@ -147,6 +147,8 @@ async def test_scrape_bittopup_offers_uses_internal_index(monkeypatch):
             """
         if url.endswith("/soulchill"):
             return "<html><h1>Soul Chill</h1><h3>1000 crystals</h3><span>USD 1.90</span></html>"
+        if url.endswith("/pubg-uc"):
+            return "<html><h1>PUBG Mobile UC</h1><h3>60 UC</h3><span>USD 0.99</span></html>"
         raise AssertionError(f"unexpected fetch {url}")
 
     monkeypatch.setattr(bittopup_scraper, "_fetch_text", fake_fetch)
@@ -154,8 +156,9 @@ async def test_scrape_bittopup_offers_uses_internal_index(monkeypatch):
     offers, stats, errors = await scrape_bittopup_offers()
 
     assert errors == []
-    assert stats["pages_checked"] == 1
+    assert stats["pages_checked"] == 2
     assert [offer.source_url for offer in offers] == [
+        "https://bittopup.com/goods/pubg-uc",
         "https://bittopup.com/goods/soulchill",
     ]
 
