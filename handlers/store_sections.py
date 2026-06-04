@@ -5856,7 +5856,12 @@ async def start_g2bulk_game_checkout(callback: types.CallbackQuery, state: FSMCo
         pending["player_id"] = player_id_prefill
         await state.clear()
         await callback.answer(t(lang, "processing_order"), show_alert=False)
-        await _execute_g2bulk_game_purchase(callback.message, pending, server_id=server_id_prefill)
+        await _execute_g2bulk_game_purchase(
+            callback.message,
+            pending,
+            server_id=server_id_prefill,
+            customer_user_id=int(callback.from_user.id),
+        )
         return
 
     await state.set_state(GameStoreFlow.waiting_topup_player)
@@ -5940,10 +5945,17 @@ async def g2bulk_collect_server_id(message: types.Message, state: FSMContext):
     await _execute_g2bulk_game_purchase(message, pending, server_id=server_id)
 
 
-async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[str, Any], *, server_id: str) -> None:
-    user = await get_user(message.from_user.id)
+async def _execute_g2bulk_game_purchase(
+    message: types.Message,
+    pending: dict[str, Any],
+    *,
+    server_id: str,
+    customer_user_id: int | None = None,
+) -> None:
+    user_id = int(customer_user_id or message.from_user.id)
+    user = await get_user(user_id)
     lang = (user or {}).get("language", "en")
-    reseller_id = await _resolve_user_reseller(message.from_user.id, (await message.bot.get_me()).id)
+    reseller_id = await _resolve_user_reseller(user_id, (await message.bot.get_me()).id)
     if not reseller_id:
         return await message.answer(t(lang, "store_reseller_not_linked"))
 
@@ -5966,7 +5978,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
     service_ref_id = f"{str(primary_offer.get('provider') or 'g2bulk')}:{'topup'}:{str(primary_offer.get('ref_id') or item_id)}"
 
     order, err = await _core_charge(
-        user_id=int(message.from_user.id),
+        user_id=int(user_id),
         reseller_id=int(reseller_id),
         service_ref_id=service_ref_id,
         sale_price=sale_price,

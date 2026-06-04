@@ -30,6 +30,21 @@ class _DummyState:
         }
 
 
+class _DummyMessage:
+    def __init__(self):
+        self.from_user = SimpleNamespace(id=999999)
+        self.bot = SimpleNamespace(get_me=lambda: None)
+        self.answers: list[dict] = []
+
+        async def _get_me():
+            return SimpleNamespace(id=67890)
+
+        self.bot.get_me = _get_me
+
+    async def answer(self, text=None, reply_markup=None, **kwargs):
+        self.answers.append({"text": text, "reply_markup": reply_markup, **kwargs})
+
+
 @pytest.mark.asyncio
 async def test_esim_purchase_uses_platform_user_wallet_scope(monkeypatch):
     import handlers.store_sections as store_sections
@@ -110,3 +125,59 @@ async def test_core_charge_falls_back_to_platform_wallet_when_old_scope_is_empty
     assert calls["process"]["reseller_id"] == 123
     assert calls["details"][1]["wallet_scope_fallback_from"] == 999
     assert calls["details"][1]["wallet_scope_fallback_to"] == 123
+
+
+@pytest.mark.asyncio
+async def test_game_prefill_purchase_uses_callback_user_not_bot_message_user(monkeypatch):
+    import handlers.store_sections as store_sections
+
+    calls: dict[str, object] = {}
+
+    async def _get_user(user_id):
+        calls["get_user"] = user_id
+        return {"language": "en"}
+
+    async def _resolve_user_reseller(user_id, bot_id):
+        calls["resolve"] = (user_id, bot_id)
+        return user_id
+
+    async def _core_charge(**kwargs):
+        calls["charge"] = kwargs
+        return {"_id": "order-1", "user_id": kwargs["user_id"], "reseller_id": kwargs["reseller_id"]}, None
+
+    async def _details(order_id, payload):
+        calls["details"] = (order_id, payload)
+
+    async def _notify(**kwargs):
+        calls["notify"] = kwargs
+        return True
+
+    monkeypatch.setattr(store_sections, "get_user", _get_user)
+    monkeypatch.setattr(store_sections, "_resolve_user_reseller", _resolve_user_reseller)
+    monkeypatch.setattr(store_sections, "_core_charge", _core_charge)
+    monkeypatch.setattr(store_sections, "digital_provider_enabled", lambda _provider: True)
+    monkeypatch.setattr(store_sections, "get_catalog_snapshot", lambda force=False: __import__("asyncio").sleep(0, result={}))
+    monkeypatch.setattr(store_sections, "_find_game_name", lambda _game_id, _snapshot: "PUBG Mobile")
+    monkeypatch.setattr(store_sections, "update_order_details", _details)
+    monkeypatch.setattr(store_sections, "_notify_owner_manual_topup", _notify)
+
+    message = _DummyMessage()
+    await store_sections._execute_g2bulk_game_purchase(
+        message,
+        {
+            "game_id": "pubg",
+            "item_id": "1800",
+            "name": "1800 UC",
+            "player_id": "51293484551",
+            "provider_offers": [{"provider": "g2bulk", "ref_id": "1800", "price": 21.25, "available": True}],
+            "sale_price": 21.25,
+        },
+        server_id="",
+        customer_user_id=7731488539,
+    )
+
+    assert calls["get_user"] == 7731488539
+    assert calls["resolve"] == (7731488539, 67890)
+    assert calls["charge"]["user_id"] == 7731488539
+    assert calls["charge"]["reseller_id"] == 7731488539
+    assert message.answers[-1]["text"].startswith("✅ Order Created Successfully!")
