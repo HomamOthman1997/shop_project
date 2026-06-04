@@ -67,7 +67,10 @@ def test_manual_topup_notification_includes_provider_source_details():
     assert "Provider ref: pubg-mobile-uc#60-uc" in text
     assert "Source item: PUBG Mobile UC / 60 UC" in text
     assert "Source URL: https://bittopup.com/pubg-mobile-uc/" in text
-    assert markup.inline_keyboard[0][0].callback_data == "dpm:done:order-1"
+    assert markup.inline_keyboard[0][0].callback_data == "dpm:auto:order-1"
+    assert markup.inline_keyboard[0][1].callback_data == "dpm:future:order-1"
+    assert markup.inline_keyboard[1][0].callback_data == "dpm:claim:order-1"
+    assert markup.inline_keyboard[2][0].callback_data == "dpm:done:order-1"
 
 
 def test_bittopup_offer_is_external_manual_source():

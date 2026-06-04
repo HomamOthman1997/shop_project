@@ -2213,9 +2213,31 @@ async def _core_charge(
 ) -> tuple[dict[str, Any] | None, str | None]:
     sale_price = float(_money_decimal(sale_price))
     cost_price = float(_money_decimal(cost_price))
+    original_reseller_id = int(reseller_id)
+    effective_reseller_id = int(reseller_id)
+    try:
+        current_balance = float(await get_user_wallet_balance(int(user_id), effective_reseller_id) or 0.0)
+    except Exception:
+        current_balance = 0.0
+    if current_balance + 0.000001 < sale_price and effective_reseller_id != int(user_id):
+        try:
+            platform_balance = float(await get_user_wallet_balance(int(user_id), int(user_id)) or 0.0)
+        except Exception:
+            platform_balance = 0.0
+        if platform_balance + 0.000001 >= sale_price:
+            logger.warning(
+                "digital_core_charge_wallet_scope_fallback user_id=%s old_scope=%s platform_scope=%s old_balance=%.4f platform_balance=%.4f sale_price=%.4f",
+                user_id,
+                original_reseller_id,
+                user_id,
+                current_balance,
+                platform_balance,
+                sale_price,
+            )
+            effective_reseller_id = int(user_id)
     order = await create_order_v3(
         user_id=int(user_id),
-        reseller_id=int(reseller_id),
+        reseller_id=int(effective_reseller_id),
         service_type="core_digital_products",
         service_ref_id=str(service_ref_id),
         retail_amount=float(sale_price),
@@ -2229,11 +2251,28 @@ async def _core_charge(
         order_id=order_id,
         sale_price=float(sale_price),
         cost_price=float(cost_price),
-        reseller_id=int(reseller_id),
+        reseller_id=int(effective_reseller_id),
     )
     if not ok:
         await update_order_status(order_id, "failed")
+        logger.warning(
+            "digital_core_charge_failed user_id=%s reseller_id=%s sale_price=%.4f balance=%.4f reason=%s",
+            user_id,
+            effective_reseller_id,
+            sale_price,
+            current_balance,
+            reason,
+        )
         return None, _finance_error_text(reason)
+    if effective_reseller_id != original_reseller_id:
+        await update_order_details(
+            order_id,
+            {
+                "wallet_scope_fallback_from": original_reseller_id,
+                "wallet_scope_fallback_to": effective_reseller_id,
+                "wallet_scope_fallback_reason": "platform_wallet_balance_available",
+            },
+        )
     await update_order_status(order_id, "paid")
     return order, None
 
@@ -2531,12 +2570,61 @@ def _manual_topup_notification_payload(
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [
+                InlineKeyboardButton(text="Auto API", callback_data=f"dpm:auto:{order_id}"),
+                InlineKeyboardButton(text="Future", callback_data=f"dpm:future:{order_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="استلم", callback_data=f"dpm:claim:{order_id}"),
+            ],
+            [
                 InlineKeyboardButton(text="تم الشحن", callback_data=f"dpm:done:{order_id}"),
                 InlineKeyboardButton(text="استرجاع", callback_data=f"dpm:refund:{order_id}"),
             ]
         ]
     )
     return "\n".join(lines), markup
+
+
+async def _mark_manual_digital_topup_route(callback: types.CallbackQuery, *, route: str, status: str, label: str) -> None:
+    if not _owner_action_allowed(int(callback.from_user.id)):
+        return await callback.answer("Unauthorized", show_alert=True)
+    order_id = str(callback.data or "").split(":", 2)[-1].strip()
+    order = await _find_order_for_owner_action(order_id)
+    if not order or str(order.get("fulfillment_mode") or "") != MANUAL_TOPUP_MODE:
+        return await callback.answer("Order not found", show_alert=True)
+    if str(order.get("status") or "") in {"success", "done", "refunded"}:
+        return await callback.answer("Order is already closed", show_alert=True)
+    now = datetime.now(UTC)
+    await update_order_details(
+        order["_id"],
+        {
+            "manual_execution_route": route,
+            "manual_fulfillment_status": status,
+            "manual_route_updated_by": int(callback.from_user.id),
+            "manual_route_updated_at": now,
+        },
+    )
+    if callback.message:
+        try:
+            await callback.message.edit_text(f"{callback.message.text or ''}\n\nRoute: {label}")
+        except Exception:
+            pass
+    await callback.answer(label)
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("dpm:claim:"))
+async def claim_manual_digital_topup(callback: types.CallbackQuery):
+    await _mark_manual_digital_topup_route(callback, route="manual_claimed", status="processing", label="Claimed")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("dpm:auto:"))
+async def choose_manual_digital_auto_api(callback: types.CallbackQuery):
+    await _mark_manual_digital_topup_route(callback, route="auto_api", status="auto_api_selected", label="Auto API selected")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("dpm:future:"))
+async def choose_manual_digital_future(callback: types.CallbackQuery):
+    await _mark_manual_digital_topup_route(callback, route="future", status="future_selected", label="Future selected")
 
 
 async def _notify_owner_pending_game_topup(
@@ -5888,75 +5976,15 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
         return await message.answer(err or t(lang, "purchase_failed_plain"))
 
     await message.answer(t(lang, "processing_order"), reply_markup=ReplyKeyboardRemove())
-    provider_resp: dict[str, Any] | None = None
-    chosen_offer: dict[str, Any] | None = None
-    failures: list[str] = []
-    for offer in available_offers:
-        offer_price = float(_money_decimal(offer.get("price") or 0.0))
-        if offer_price <= 0:
-            continue
-        if offer_price > (cost_price + 0.000001):
-            continue
-        if _is_external_manual_source_offer(offer):
-            provider_resp = {
-                "status": 200,
-                "data": {
-                    "status": "manual_pending",
-                    "provider": str(offer.get("provider") or ""),
-                    "source_url": str(offer.get("source_url") or ""),
-                    "ref_id": str(offer.get("ref_id") or ""),
-                },
-            }
-            chosen_offer = dict(offer)
-            break
-        attempt = await _create_provider_game_order(
-            provider=str(offer.get("provider") or "g2bulk"),
-            ref_id=str(offer.get("ref_id") or item_id),
-            game_id=game_id,
-            player_id=player_id,
-            server_id=server_id or None,
-            catalogue_name=str(pending.get("catalogue_name") or name or "").strip(),
-        )
-        if _provider_ok(attempt):
-            provider_resp = attempt
-            chosen_offer = dict(offer)
-            break
-        failures.append(_extract_provider_error(attempt.get("data") or attempt))
-    if not provider_resp or not chosen_offer:
-        await _core_refund(
-            user_id=int(message.from_user.id),
-            reseller_id=int(reseller_id),
-            order=order,
-            sale_price=sale_price,
-            cost_price=cost_price,
-        )
-        error_text = failures[0] if failures else t(lang, "provider_request_failed")
-        await update_order_details(order["_id"], {"provider_response": provider_resp or {}, "provider_error": error_text, "provider_offers_attempted": available_offers})
-        await _notify_owner_stock_issue(
-            bot=message.bot,
-            user_id=int(message.from_user.id),
-            reseller_id=int(reseller_id),
-            item_name=name,
-            provider_error=error_text,
-        )
-        await message.answer(
-            t(lang, "store_out_of_stock_admin_notified")
-        )
-        await message.answer(
-            t(lang, "main_menu"),
-            reply_markup=await menu_for_current_bot(lang, (await message.bot.get_me()).id),
-        )
-        return
-
+    chosen_offer = dict(primary_offer)
     provider_code = str(chosen_offer.get("provider") or "g2bulk")
-    provider_data = provider_resp.get("data")
-    external_order_id = _extract_external_order_id(provider_data)
+    external_order_id = ""
     snapshot = await get_catalog_snapshot(force=False)
     display_game_name = _find_game_name(game_id, snapshot)
     details_payload = {
         "provider_code": provider_code,
         "provider_order_id": external_order_id,
-        "provider_response": provider_resp,
+        "provider_response": {"status": "manual_pending"},
         "game_id": game_id,
         "player_id": player_id,
         "server_id": server_id,
@@ -5965,93 +5993,30 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
         "provider_ref_id": str(chosen_offer.get("ref_id") or ""),
         "provider_source_url": str(chosen_offer.get("source_url") or ""),
         "number_mode": "digital_products",
+        "fulfillment_mode": MANUAL_TOPUP_MODE,
+        "manual_fulfillment_required": True,
+        "manual_fulfillment_status": "pending",
+        "manual_item_name": name,
     }
     await update_order_details(
         order["_id"],
         details_payload,
     )
-
-    if not external_order_id:
-        await _notify_owner_pending_game_topup(
-            bot=message.bot,
-            item_name=name,
-            order=order,
-            provider_code=provider_code,
-            external_order_id="",
-            game_name=display_game_name,
-            player_id=player_id,
-            server_id=server_id,
-            reason="MISSING_PROVIDER_ORDER_ID",
-            provider_offer=chosen_offer,
-        )
-        await message.answer(
-            _digital_game_order_summary_text(
-                lang,
-                order_id=str(order.get("_id") or ""),
-                game_name=display_game_name,
-                package_name=name,
-                player_id=player_id,
-                price=sale_price,
-                status="PENDING",
-            )
-        )
-        return
-
-    status_resp = await _poll_provider_order_status(provider=provider_code, external_order_id=external_order_id)
-    delivery_lines = _extract_voucher_lines(status_resp)
-    if status_resp is not None:
-        await update_order_details(
-            order["_id"],
-            {
-                "provider_status_response": status_resp,
-                "provider_status": _extract_provider_status(status_resp),
-                "delivery_lines": delivery_lines,
-            },
-        )
-
-    if status_resp is not None and _provider_status_is_failure(status_resp):
-        await _core_refund(
-            user_id=int(message.from_user.id),
-            reseller_id=int(reseller_id),
-            order=order,
-            sale_price=sale_price,
-            cost_price=cost_price,
-        )
-        error_text = _extract_provider_error(status_resp.get("data") if isinstance(status_resp, dict) else status_resp)
-        await update_order_details(order["_id"], {"provider_error": error_text})
-        await message.answer(
-            t(lang, "store_topup_provider_failed_refunded")
-        )
-        return
-
-    if not (status_resp is not None and _provider_status_is_success(status_resp)):
-        await _notify_owner_pending_game_topup(
-            bot=message.bot,
-            item_name=name,
-            order=order,
-            provider_code=provider_code,
-            external_order_id=external_order_id,
-            game_name=display_game_name,
-            player_id=player_id,
-            server_id=server_id,
-            reason="Provider confirmation stayed pending after automatic polling.",
-            provider_offer=chosen_offer,
-        )
-        await message.answer(
-            _digital_game_order_summary_text(
-                lang,
-                order_id=str(order.get("_id") or ""),
-                game_name=display_game_name,
-                package_name=name,
-                player_id=player_id,
-                price=sale_price,
-                status="PENDING",
-            )
-        )
-        return
-
-    await update_order_status(order["_id"], "success")
-
+    await _notify_owner_manual_topup(
+        bot=message.bot,
+        order={**order, **details_payload},
+        item_name=name,
+        provider_code=provider_code,
+        external_order_id=external_order_id,
+        player_data={
+            "game": display_game_name,
+            "package": name,
+            "player_id": player_id,
+            "server_id": server_id,
+        },
+        delivery_lines=[],
+        provider_offer=chosen_offer,
+    )
     await message.answer(
         _digital_game_order_summary_text(
             lang,
@@ -6060,8 +6025,7 @@ async def _execute_g2bulk_game_purchase(message: types.Message, pending: dict[st
             package_name=name,
             player_id=player_id,
             price=sale_price,
-            status="SUCCESS",
-            delivery_lines=delivery_lines,
+            status="PENDING",
         )
     )
 
