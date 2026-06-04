@@ -165,9 +165,6 @@ SERVICE_RULES: list[tuple[str, tuple[str, ...]]] = [
             "canva",
             "youtube",
             "spotify",
-            "telegram premium",
-            "telegram star",
-            "telegram stars",
             "subscriptions",
             "subscription",
             "اشتراك",
@@ -180,6 +177,8 @@ SERVICE_RULES: list[tuple[str, tuple[str, ...]]] = [
         (
             "discord",
             "imo",
+            "telegram",
+            "telegram stars",
             "hago",
             "chamet",
             "yoyo",
@@ -463,6 +462,8 @@ def detect_service_key_strict(text: str | None) -> str | None:
         return None
     if any(token in n for token in ("ارقام", "رقم", "numbers", "number", "otp", "sms", "virtual number")):
         return "numbers_services"
+    if _contains_taxonomy_token(n, "telegram"):
+        return "chat_apps"
     for service_key, rows in CUSTOM_FAMILY_TABLE.items():
         for row in rows:
             aliases = [str(alias or "").strip().lower() for alias in tuple(row.get("aliases") or ()) if str(alias or "").strip()]

@@ -119,3 +119,13 @@ def test_product_compare_key_keeps_store_card_region():
         )
         == "steam:global:10:usd"
     )
+
+
+def test_product_compare_key_classifies_telegram_chat_products():
+    assert (
+        catalog_service._product_compare_key(
+            category_name="Telegram Gifts",
+            product_name="100 Stars",
+        )
+        == "telegram:global:100:star"
+    )

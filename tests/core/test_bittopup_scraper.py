@@ -132,6 +132,25 @@ def test_parse_bittopup_product_page_uses_internal_index_metadata():
     assert offers[0].compare_key == "nimo_tv:global:100:diamond"
 
 
+def test_parse_bittopup_product_page_maps_chat_app_units():
+    html = """
+    <html>
+      <head><title>Soul Chill</title></head>
+      <body>
+        <h1>Soul Chill</h1>
+        <h3>1000 crystals</h3>
+        <span>USD 1.90</span>
+      </body>
+    </html>
+    """
+
+    offers = parse_bittopup_product_page(html, url="https://bittopup.com/goods/soulchill")
+
+    assert offers
+    assert offers[0].compare_key == "soul_chill:global:1000:crystal"
+    assert offers[0].parse_confidence >= 0.8
+
+
 @pytest.mark.asyncio
 async def test_scrape_bittopup_offers_uses_internal_index(monkeypatch):
     from services.digital_products import bittopup_scraper
@@ -161,6 +180,7 @@ async def test_scrape_bittopup_offers_uses_internal_index(monkeypatch):
         "https://bittopup.com/goods/pubg-uc",
         "https://bittopup.com/goods/soulchill",
     ]
+    assert offers[1].compare_key == "soul_chill:global:1000:crystal"
 
 
 def test_bittopup_scan_result_text_is_operator_readable():

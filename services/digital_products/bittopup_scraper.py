@@ -79,7 +79,7 @@ def _parse_discount(text: str) -> float | None:
 def _clean_denomination_name(text: str) -> str:
     raw = _strip_tags(text)
     match = re.search(
-        r"\b(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)?\s*(?:uc|nc|diamonds?|gems?|coins?|tokens?|robux|vp|rp|usd))\b",
+        r"\b(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)?\s*(?:uc|nc|diamonds?|gems?|coins?|tokens?|crystals?|stars?|beans?|coupons?|robux|vp|rp|usd))\b",
         raw,
         flags=re.IGNORECASE,
     )
@@ -112,6 +112,10 @@ def _amount_unit_from_text(text: str, product_name: str) -> tuple[str, str]:
         ("coin", r"(\d+(?:\.\d+)?)(?:\s*\+\s*\d+(?:\.\d+)?)?\s*coins?\b"),
         ("gem", r"(\d+(?:\.\d+)?)(?:\s*\+\s*\d+(?:\.\d+)?)?\s*gems?\b"),
         ("token", r"(\d+(?:\.\d+)?)(?:\s*\+\s*\d+(?:\.\d+)?)?\s*tokens?\b"),
+        ("crystal", r"(\d+(?:\.\d+)?)(?:\s*\+\s*\d+(?:\.\d+)?)?\s*crystals?\b"),
+        ("star", r"(\d+(?:\.\d+)?)(?:\s*\+\s*\d+(?:\.\d+)?)?\s*stars?\b"),
+        ("bean", r"(\d+(?:\.\d+)?)(?:\s*\+\s*\d+(?:\.\d+)?)?\s*beans?\b"),
+        ("coupon", r"(\d+(?:\.\d+)?)(?:\s*\+\s*\d+(?:\.\d+)?)?\s*coupons?\b"),
         ("usd", r"\b(\d+(?:\.\d+)?)\s*usd\b"),
     )
     for unit, pattern in unit_patterns:
@@ -316,6 +320,7 @@ async def _run_bittopup_price_watch_unlocked(*, max_pages: int | None = None) ->
                     "discount_percent": offer.discount_percent,
                 },
                 max_auto_change_percent=guardrail,
+                auto_approve_unreviewed=True,
             )
             key = str(res.get("status") or "invalid")
             stats[key] = int(stats.get(key) or 0) + 1

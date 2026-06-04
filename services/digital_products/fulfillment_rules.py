@@ -31,6 +31,14 @@ _UNIT_ALIASES: dict[str, str] = {
     "coins": "coin",
     "token": "token",
     "tokens": "token",
+    "crystal": "crystal",
+    "crystals": "crystal",
+    "star": "star",
+    "stars": "star",
+    "bean": "bean",
+    "beans": "bean",
+    "coupon": "coupon",
+    "coupons": "coupon",
     "robux": "robux",
     "vp": "vp",
     "rp": "rp",
@@ -46,6 +54,10 @@ _UNIT_PRIORITY: tuple[str, ...] = (
     "gem",
     "coin",
     "token",
+    "crystal",
+    "star",
+    "bean",
+    "coupon",
     "vp",
     "rp",
     "usd",
@@ -172,7 +184,7 @@ def _extract_amount_unit(name: str | None, *, default_unit: str = "") -> tuple[s
         return "", ""
 
     candidates: list[tuple[str, str]] = []
-    unit_pattern = r"uc|nc|diamonds?|gems?|coins?|tokens?|robux|vp|rp|usd"
+    unit_pattern = r"uc|nc|diamonds?|gems?|coins?|tokens?|crystals?|stars?|beans?|coupons?|robux|vp|rp|usd"
     bonus_candidates: list[tuple[str, str]] = []
     for match in re.finditer(rf"(\d+(?:\.\d+)?)(?:\s*\+\s*|\s+)\d+(?:\.\d+)?\s*({unit_pattern})(?:\b|$)", text):
         amount = _money_amount(match.group(1))

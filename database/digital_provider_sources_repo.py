@@ -137,6 +137,7 @@ async def upsert_provider_source(
     parser_version: str,
     source_payload: dict[str, Any] | None = None,
     max_auto_change_percent: float = 10.0,
+    auto_approve_unreviewed: bool = False,
 ) -> dict[str, Any]:
     provider_code = str(provider or "").strip().lower()
     ref = str(source_ref or "").strip()
@@ -166,20 +167,25 @@ async def upsert_provider_source(
         previous_key = str(current.get("compare_key") or "").strip()
         previous_price = float(current.get("active_price") or current.get("observed_price") or 0.0)
         previous_status = str(current.get("price_status") or "").strip().lower()
-        if previous_key and previous_key != cmp_key:
+        previously_approved = bool(current.get("approved_at"))
+        if previous_status == "disabled":
+            status = "disabled"
+            reason = "disabled"
+            approved_price = float(current.get("active_price") or observed)
+        elif previous_key and previous_key != cmp_key:
             status = "under_review"
             reason = "compare_key_changed"
             approved_price = float(current.get("active_price") or previous_price or observed)
+        elif auto_approve_unreviewed and previous_status in {"under_review", "unmapped"} and not previously_approved:
+            status = "active"
+            reason = ""
+            approved_price = observed
         elif previous_price > 0:
             delta = abs(observed - previous_price) / previous_price * 100.0
             if delta > max(0.0, float(max_auto_change_percent or 10.0)):
                 status = "under_review"
                 reason = "price_change_gt_guardrail"
                 approved_price = float(current.get("active_price") or previous_price)
-        elif previous_status == "disabled":
-            status = "disabled"
-            reason = "disabled"
-            approved_price = float(current.get("active_price") or observed)
     elif active_price is not None and float(active_price or 0.0) > 0:
         approved_price = round(float(active_price or 0.0), 6)
 

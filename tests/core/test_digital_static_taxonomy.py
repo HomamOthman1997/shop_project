@@ -9,6 +9,8 @@ from services.digital_products.static_taxonomy import detect_service_key_strict,
 def test_chat_alias_line_does_not_match_online():
     assert detect_service_key_strict("FINAL FANTASY XIV Online") != "chat_apps"
     assert detect_service_key_strict("LINE Gift Card") == "chat_apps"
+    assert detect_service_key_strict("Telegram Stars") == "chat_apps"
+    assert detect_service_key_strict("Telegram Gift") == "chat_apps"
 
 
 def test_clash_coc_alias_does_not_match_cocco():
