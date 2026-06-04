@@ -4197,6 +4197,14 @@ async def support_ticket(request: web.Request) -> web.Response:
 
             status = 503
 
+        if str(result.get("code")) == "open_ticket_exists":
+
+            result["message"] = _text(
+                lang,
+                "You already have 5 open support tickets. Older tickets are closed automatically after 3 days.",
+                "وصلت لحد 5 تذاكر دعم مفتوحة. التذاكر القديمة تغلق تلقائيا بعد 3 أيام.",
+            )
+
         return _json_error(str(result.get("message") or ""), status=status, code=str(result.get("code") or "support_failed"))
 
     return web.json_response(result, headers=dict(_NO_STORE_HEADERS))

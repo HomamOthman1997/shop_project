@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from bson import ObjectId
@@ -10,6 +10,8 @@ from database.mongo import db
 
 
 SUPPORT_TICKET_OPEN_STATUSES = {"open", "awaiting_user", "awaiting_admin", "replied"}
+SUPPORT_TICKET_MAX_OPEN_PER_USER = 5
+SUPPORT_TICKET_AUTO_SOLVE_AFTER = timedelta(days=3)
 
 
 def _now() -> datetime:
@@ -210,12 +212,55 @@ async def has_open_support_ticket(
     user_id: int,
     category: str,
 ) -> bool:
+    return await has_reached_open_support_ticket_limit(
+        scope=scope,
+        owner_id=owner_id,
+        user_id=user_id,
+    )
+
+
+async def has_reached_open_support_ticket_limit(
+    *,
+    scope: str,
+    owner_id: int | None,
+    user_id: int,
+    limit: int = SUPPORT_TICKET_MAX_OPEN_PER_USER,
+) -> bool:
+    await solve_stale_open_support_tickets(scope=scope, owner_id=owner_id, user_id=user_id)
     query: dict[str, Any] = {
         "scope": str(scope),
         "owner_id": int(owner_id) if owner_id is not None else None,
         "user_id": int(user_id),
-        "category": str(category).strip().lower(),
         "status": {"$in": sorted(SUPPORT_TICKET_OPEN_STATUSES)},
     }
-    row = await db.support_tickets.find_one(query, {"_id": 1})
-    return row is not None
+    count = await db.support_tickets.count_documents(query)
+    return int(count or 0) >= max(1, int(limit or SUPPORT_TICKET_MAX_OPEN_PER_USER))
+
+
+async def solve_stale_open_support_tickets(
+    *,
+    scope: str,
+    owner_id: int | None,
+    user_id: int,
+) -> int:
+    now = _now()
+    cutoff = now - SUPPORT_TICKET_AUTO_SOLVE_AFTER
+    result = await db.support_tickets.update_many(
+        {
+            "scope": str(scope),
+            "owner_id": int(owner_id) if owner_id is not None else None,
+            "user_id": int(user_id),
+            "status": {"$in": sorted(SUPPORT_TICKET_OPEN_STATUSES)},
+            "opened_at": {"$lte": cutoff},
+        },
+        {
+            "$set": {
+                "status": "solved",
+                "solved_by": 0,
+                "solved_at": now,
+                "solved_reason": "auto_stale_3d",
+                "updated_at": now,
+            }
+        },
+    )
+    return int(getattr(result, "modified_count", 0) or 0)
