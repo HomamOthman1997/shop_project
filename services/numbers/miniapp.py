@@ -2734,6 +2734,34 @@ def _temp_my_numbers_active(order: dict[str, Any]) -> bool:
 
     return True if not expires_at else _seconds_left_until(expires_at) > 0
 
+def _should_refresh_temp_my_numbers_order(order: dict[str, Any]) -> bool:
+
+    if str((order or {}).get("number_mode") or "").strip().lower() != "temp":
+
+        return False
+
+    if str((order or {}).get("status") or "").strip().lower() not in {"success", "pending", "paid"}:
+
+        return False
+
+    wait_state = str((order or {}).get("temp_wait_state") or "").strip().lower()
+
+    if wait_state not in {"waiting", "refund_pending"}:
+
+        return False
+
+    if not _temp_my_numbers_active(order):
+
+        return False
+
+    elapsed_sec = int(_temp_elapsed_sec(order))
+
+    if wait_state == "refund_pending":
+
+        return True
+
+    return elapsed_sec <= 30 * 60 or elapsed_sec >= int(_order_temp_timeout_sec(order))
+
 def _temp_resend_available(order: dict[str, Any]) -> bool:
 
     return _temp_my_numbers_active(order)
@@ -4209,17 +4237,7 @@ async def active_orders(request: web.Request) -> web.Response:
 
             mode = str(order.get("number_mode") or "").strip().lower()
 
-            status = str(order.get("status") or "").strip().lower()
-
-            wait_state = str(order.get("temp_wait_state") or "").strip().lower()
-
-            can_refresh_temp = (
-                mode == "temp"
-                and status in {"success", "pending", "paid"}
-                and wait_state == "waiting"
-                and _temp_my_numbers_active(order)
-                and int(_temp_elapsed_sec(order)) <= 30 * 60
-            )
+            can_refresh_temp = _should_refresh_temp_my_numbers_order(order)
 
             if mode != "temp" or not can_refresh_temp:
 

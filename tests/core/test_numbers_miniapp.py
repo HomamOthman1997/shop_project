@@ -1708,6 +1708,42 @@ def test_provider_terminal_status_classifier_keeps_waiting_states_open():
     assert miniapp._provider_terminal_refund_reason("STATUS_CANCEL") == "provider_already_refunded"
 
 
+def test_my_numbers_refreshes_expired_waiting_temp_order():
+    now = datetime.now(UTC)
+    order = {
+        "_id": "order-expired",
+        "number_mode": "temp",
+        "status": "success",
+        "provisioning_state": "provisioned",
+        "provider_order_id": "provider-expired",
+        "provider_number": "+306997781499",
+        "temp_wait_state": "waiting",
+        "created_at": now - timedelta(minutes=45),
+        "temp_wait_started_at": now - timedelta(minutes=45),
+        "temp_wait_timeout_sec": 20 * 60,
+    }
+
+    assert miniapp._should_refresh_temp_my_numbers_order(order) is True
+
+
+def test_my_numbers_does_not_refresh_long_waiting_temp_order_before_timeout():
+    now = datetime.now(UTC)
+    order = {
+        "_id": "order-long-wait",
+        "number_mode": "temp",
+        "status": "success",
+        "provisioning_state": "provisioned",
+        "provider_order_id": "provider-long",
+        "provider_number": "+306997781499",
+        "temp_wait_state": "waiting",
+        "created_at": now - timedelta(minutes=45),
+        "temp_wait_started_at": now - timedelta(minutes=45),
+        "temp_wait_timeout_sec": 2 * 60 * 60,
+    }
+
+    assert miniapp._should_refresh_temp_my_numbers_order(order) is False
+
+
 @pytest.mark.asyncio
 async def test_refresh_temp_order_refunds_old_missing_provider_order(monkeypatch):
     now = datetime.now(UTC)
