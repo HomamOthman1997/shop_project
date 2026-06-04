@@ -1,6 +1,8 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.getcwd())
 
 from services.digital_products import catalog_service
@@ -65,8 +67,14 @@ def test_game_topup_can_reuse_matching_manual_future_offer():
     assert offers[0]["source_product_name"] == "G2Bulk Future"
 
 
-def test_cached_game_topup_is_enriched_with_matching_manual_offer():
-    rows = catalog_service._enrich_cached_game_topups_with_manual_sources(
+@pytest.mark.asyncio
+async def test_cached_game_topup_is_enriched_with_matching_manual_offer(monkeypatch):
+    async def fake_active_sources(*, provider=None):
+        return []
+
+    monkeypatch.setattr(catalog_service, "list_active_provider_sources", fake_active_sources)
+
+    rows = await catalog_service._enrich_cached_game_topups_with_manual_sources(
         [
             {
                 "id": "2968",

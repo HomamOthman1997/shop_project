@@ -2711,6 +2711,32 @@ def _manual_game_auto_offer(order: dict[str, Any]) -> dict[str, Any]:
     return dict(candidates[0]) if candidates else {}
 
 
+def _manual_game_future_offer(order: dict[str, Any]) -> dict[str, Any]:
+    candidates: list[dict[str, Any]] = []
+    for row in list(order.get("provider_offers_attempted") or []):
+        if not isinstance(row, dict):
+            continue
+        provider = str(row.get("provider") or "").strip().lower()
+        source = str(row.get("source") or "").strip().lower()
+        source_name = str(row.get("source_product_name") or "").strip().lower()
+        if provider != "g2bulk" or not digital_provider_enabled(provider):
+            continue
+        if not bool(row.get("available", True)):
+            continue
+        if source != "future" and "future" not in source_name:
+            continue
+        if str(row.get("ref_id") or row.get("provider_ref_id") or "").strip():
+            candidates.append(dict(row))
+    candidates.sort(
+        key=lambda item: (
+            float(_money_decimal(item.get("price") or 0))
+            if float(_money_decimal(item.get("price") or 0)) > 0
+            else 9999999
+        )
+    )
+    return dict(candidates[0]) if candidates else {}
+
+
 async def _submit_manual_game_auto_api(callback: types.CallbackQuery) -> None:
     if not _owner_action_allowed(int(callback.from_user.id)):
         return await callback.answer("Unauthorized", show_alert=True)
@@ -2791,6 +2817,84 @@ async def _submit_manual_game_auto_api(callback: types.CallbackQuery) -> None:
     await callback.answer("Auto API submitted")
 
 
+async def _submit_manual_game_future(callback: types.CallbackQuery) -> None:
+    if not _owner_action_allowed(int(callback.from_user.id)):
+        return await callback.answer("Unauthorized", show_alert=True)
+    order_id = _manual_topup_order_id_from_callback(callback)
+    order = await _find_order_for_owner_action(order_id)
+    if not order or str(order.get("fulfillment_mode") or "") != MANUAL_TOPUP_MODE:
+        return await callback.answer("Order not found", show_alert=True)
+    if str(order.get("status") or "") in {"success", "done", "refunded"}:
+        return await callback.answer("Order is already closed", show_alert=True)
+
+    offer = _manual_game_future_offer(order)
+    if not offer:
+        return await callback.answer("No Future option for this order", show_alert=True)
+
+    ref_id = str(offer.get("ref_id") or offer.get("provider_ref_id") or "").strip()
+    item_name = str(order.get("manual_item_name") or order.get("service_ref_id") or "Digital top-up")
+    if not ref_id:
+        return await callback.answer("Future option is missing provider ref", show_alert=True)
+
+    now = datetime.now(UTC)
+    await update_order_details(
+        order["_id"],
+        {
+            "manual_execution_route": "future",
+            "manual_fulfillment_status": "future_submitting",
+            "manual_route_updated_by": int(callback.from_user.id),
+            "manual_route_updated_at": now,
+            "selected_provider_offer": offer,
+            "provider_code": "g2bulk",
+            "provider_ref_id": ref_id,
+        },
+    )
+    attempt = await _create_provider_gift_order(
+        provider="g2bulk",
+        ref_id=ref_id,
+        quantity=1,
+        extra_params=None,
+    )
+    provider_data = attempt.get("data") if isinstance(attempt, dict) else attempt
+    external_order_id = _extract_external_order_id(provider_data)
+    voucher_lines = _extract_voucher_lines(provider_data)
+    update_payload = {
+        "provider_response": attempt,
+        "provider_order_id": external_order_id,
+        "delivery_lines_private": voucher_lines,
+        "manual_execution_route": "future",
+        "manual_fulfillment_status": "future_submitted" if _provider_ok(attempt) else "future_failed",
+        "manual_route_updated_by": int(callback.from_user.id),
+        "manual_route_updated_at": datetime.now(UTC),
+        "selected_provider_offer": offer,
+        "provider_code": "g2bulk",
+        "provider_ref_id": ref_id,
+    }
+    if not _provider_ok(attempt):
+        update_payload["provider_error"] = _extract_provider_error(provider_data)
+        await update_order_details(order["_id"], update_payload)
+        if callback.message:
+            try:
+                await callback.message.edit_text(f"{callback.message.text or ''}\n\nRoute: Future failed")
+            except Exception:
+                pass
+        return await callback.answer("Future failed. Order is still pending.", show_alert=True)
+
+    await update_order_details(order["_id"], update_payload)
+    await _notify_manual_processing_user(callback.bot, {**order, **update_payload})
+    if callback.message:
+        try:
+            suffix = "\n\nRoute: Future submitted"
+            if external_order_id:
+                suffix += f"\nProvider order: {external_order_id}"
+            if voucher_lines:
+                suffix += "\nPrivate voucher/code:\n" + "\n".join(f"- {line}" for line in voucher_lines[:10])
+            await callback.message.edit_text(f"{callback.message.text or ''}{suffix}")
+        except Exception:
+            pass
+    await callback.answer("Future submitted")
+
+
 @router.callback_query(lambda c: c.data and c.data.startswith("dpm:claim:"))
 async def claim_manual_digital_topup(callback: types.CallbackQuery):
     await _mark_manual_digital_topup_route(callback, route="manual_claimed", status="processing", label="Claimed")
@@ -2803,7 +2907,7 @@ async def choose_manual_digital_auto_api(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data and c.data.startswith("dpm:future:"))
 async def choose_manual_digital_future(callback: types.CallbackQuery):
-    await _mark_manual_digital_topup_route(callback, route="future", status="future_selected", label="Future selected")
+    await _submit_manual_game_future(callback)
 
 
 async def _notify_owner_pending_game_topup(

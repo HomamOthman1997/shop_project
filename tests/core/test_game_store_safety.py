@@ -303,6 +303,83 @@ async def test_auto_api_manual_topup_submits_provider_order(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_future_manual_topup_submits_gift_order(monkeypatch):
+    import handlers.store_sections as store_sections
+
+    calls: dict[str, object] = {}
+    order = {
+        "_id": "order-1",
+        "user_id": 123,
+        "reseller_id": 123,
+        "status": "paid",
+        "fulfillment_mode": store_sections.MANUAL_TOPUP_MODE,
+        "manual_item_name": "1800 UC",
+        "provider_offers_attempted": [
+            {"provider": "g2bulk", "ref_id": "2968", "price": 21.25, "available": True},
+            {
+                "provider": "g2bulk",
+                "ref_id": "future-1800",
+                "price": 21.63,
+                "available": True,
+                "fulfillment_mode": store_sections.MANUAL_TOPUP_MODE,
+                "source": "future",
+                "source_product_name": "G2Bulk Future",
+            },
+        ],
+    }
+
+    async def fake_find(_order_id):
+        return order
+
+    async def fake_update(order_id, payload):
+        calls.setdefault("updates", []).append((order_id, payload))
+
+    async def fake_create(**kwargs):
+        calls["create"] = kwargs
+        return {"status": 200, "data": {"order_id": "future-api-1", "delivery_items": ["FUTURE-CODE"]}}
+
+    async def fake_get_user(_user_id):
+        return {"language": "en"}
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            calls["send"] = kwargs
+
+    class FakeMessage:
+        text = "Manual digital top-up pending"
+
+        async def edit_text(self, text):
+            calls["edit"] = text
+
+    class FakeCallback:
+        from_user = SimpleNamespace(id=7417429062)
+        data = "dpm:future:order-1"
+        bot = FakeBot()
+        message = FakeMessage()
+
+        async def answer(self, text=None, show_alert=None):
+            calls["answer"] = (text, show_alert)
+
+    monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
+    monkeypatch.setattr(store_sections, "_find_order_for_owner_action", fake_find)
+    monkeypatch.setattr(store_sections, "update_order_details", fake_update)
+    monkeypatch.setattr(store_sections, "_create_provider_gift_order", fake_create)
+    monkeypatch.setattr(store_sections, "get_user", fake_get_user)
+    monkeypatch.setattr(store_sections, "digital_provider_enabled", lambda _provider: True)
+
+    await store_sections.choose_manual_digital_future(FakeCallback())
+
+    assert calls["create"]["provider"] == "g2bulk"
+    assert calls["create"]["ref_id"] == "future-1800"
+    assert calls["updates"][-1][1]["provider_order_id"] == "future-api-1"
+    assert calls["updates"][-1][1]["delivery_lines_private"] == ["FUTURE-CODE"]
+    assert calls["updates"][-1][1]["manual_fulfillment_status"] == "future_submitted"
+    assert calls["send"]["chat_id"] == 123
+    assert "FUTURE-CODE" in calls["edit"]
+    assert calls["answer"] == ("Future submitted", None)
+
+
+@pytest.mark.asyncio
 async def test_recover_manual_digital_order_sends_owner_notification(monkeypatch):
     import handlers.store_sections as store_sections
 

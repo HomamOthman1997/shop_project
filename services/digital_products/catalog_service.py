@@ -442,7 +442,15 @@ def _matching_manual_game_source_offers(snapshot: dict[str, Any], *, compare_key
     return _normalize_offers(rows)
 
 
-def _enrich_cached_game_topups_with_manual_sources(rows: list[dict[str, Any]], snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+def _provider_source_offers_for_compare_key(provider_source_rows: list[dict[str, Any]], *, compare_key: str) -> list[dict[str, Any]]:
+    return _build_provider_source_index(provider_source_rows).get(str(compare_key or "").strip(), [])
+
+
+async def _enrich_cached_game_topups_with_manual_sources(rows: list[dict[str, Any]], snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    try:
+        provider_source_rows = await _with_timeout(list_active_provider_sources(provider="bittopup"), timeout_sec=3.0, default=[])
+    except Exception:
+        provider_source_rows = []
     enriched: list[dict[str, Any]] = []
     for row in list(rows or []):
         if not isinstance(row, dict):
@@ -452,6 +460,7 @@ def _enrich_cached_game_topups_with_manual_sources(rows: list[dict[str, Any]], s
         if compare_key:
             offers = _normalize_offers(
                 list(current.get("provider_offers") or [])
+                + _provider_source_offers_for_compare_key(provider_source_rows, compare_key=compare_key)
                 + _matching_manual_game_source_offers(snapshot, compare_key=compare_key)
             )
             if offers:
@@ -1025,7 +1034,7 @@ async def get_game_topups(game_id: str, *, force: bool = False) -> list[dict[str
             break
     service_key = _canonical_game_service_key(game_name or str(game_id), str(game_id))
     if not force and str(game_id) in topup_map:
-        cached_rows = _enrich_cached_game_topups_with_manual_sources(list(topup_map.get(str(game_id)) or []), snapshot)
+        cached_rows = await _enrich_cached_game_topups_with_manual_sources(list(topup_map.get(str(game_id)) or []), snapshot)
         if service_key == "game:pubg":
             deduped = _dedupe_pubg_topups(cached_rows)
             if len(deduped) != len(cached_rows):
