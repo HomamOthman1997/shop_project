@@ -2410,7 +2410,7 @@ def _digital_game_order_summary_text(
         lines.extend(
             [
                 "",
-                "⏳ طلبك قيد المعالجة." if status_text == "PENDING" else "✅ تم تنفيذ طلبك.",
+                "⏳ طلبك قيد المعالجة." if status_text in {"PENDING", "PROCESSING"} else "✅ تم تنفيذ طلبك.",
                 "🙏 شكراً لك!",
             ]
         )
@@ -2435,7 +2435,7 @@ def _digital_game_order_summary_text(
     lines.extend(
         [
             "",
-            "⏳ Your order is being processed." if status_text == "PENDING" else "✅ Your order has been completed.",
+            "⏳ Your order is being processed." if status_text in {"PENDING", "PROCESSING"} else "✅ Your order has been completed.",
             "🙏 Thank you!",
         ]
     )
@@ -2584,7 +2584,7 @@ def _manual_topup_notification_payload(
                 InlineKeyboardButton(text="استلم", callback_data=f"dpm:claim:{order_id}"),
             ],
             [
-                InlineKeyboardButton(text="تم الشحن", callback_data=f"dpm:done:{order_id}"),
+                InlineKeyboardButton(text="إكمال وإبلاغ المستخدم", callback_data=f"dpm:done:{order_id}"),
                 InlineKeyboardButton(text="استرجاع", callback_data=f"dpm:refund:{order_id}"),
             ]
         ]
@@ -2642,14 +2642,39 @@ async def _notify_manual_processing_user(bot: types.Bot, order: dict[str, Any]) 
         return
     user = await get_user(user_id)
     lang = (user or {}).get("language", "en")
-    item_name = str(order.get("manual_item_name") or order.get("service_ref_id") or "-")
+    text = await _manual_user_status_text(order, lang=lang, status="PROCESSING")
+    if not text:
+        item_name = str(order.get("manual_item_name") or order.get("service_ref_id") or "-")
+        text = _manual_processing_text(lang, item_name=item_name, order_id=str(order.get("_id") or ""))
     try:
         await bot.send_message(
             chat_id=user_id,
-            text=_manual_processing_text(lang, item_name=item_name, order_id=str(order.get("_id") or "")),
+            text=text,
         )
     except Exception:
         pass
+
+
+async def _manual_user_status_text(order: dict[str, Any], *, lang: str, status: str) -> str:
+    game_id = str(order.get("game_id") or "").strip()
+    player_id = str(order.get("player_id") or "").strip()
+    if not game_id and not player_id:
+        return ""
+    try:
+        snapshot = await get_catalog_snapshot(force=False)
+        game_name = _find_game_name(game_id, snapshot) if game_id else ""
+    except Exception:
+        game_name = ""
+    sale_price, _cost_price = extract_order_amounts(order)
+    return _digital_game_order_summary_text(
+        lang,
+        order_id=str(order.get("_id") or ""),
+        game_name=game_name or str(order.get("manual_game_name") or order.get("game_name") or game_id or "Digital product"),
+        package_name=str(order.get("manual_item_name") or order.get("service_ref_id") or "-"),
+        player_id=player_id,
+        price=float(sale_price or 0),
+        status=status,
+    )
 
 
 async def _mark_manual_digital_topup_route(callback: types.CallbackQuery, *, route: str, status: str, label: str) -> None:
@@ -2675,7 +2700,10 @@ async def _mark_manual_digital_topup_route(callback: types.CallbackQuery, *, rou
         await _notify_manual_processing_user(callback.bot, order)
     if callback.message:
         try:
-            await callback.message.edit_text(f"{callback.message.text or ''}\n\nRoute: {label}")
+            await callback.message.edit_text(
+                f"{callback.message.text or ''}\n\nRoute: {label}",
+                reply_markup=callback.message.reply_markup,
+            )
         except Exception:
             pass
     await callback.answer(label)
@@ -2787,7 +2815,7 @@ async def _submit_manual_game_auto_api(callback: types.CallbackQuery) -> None:
         "provider_response": attempt,
         "provider_order_id": external_order_id,
         "manual_execution_route": "auto_api",
-        "manual_fulfillment_status": "auto_api_submitted" if _provider_ok(attempt) else "auto_api_failed",
+        "manual_fulfillment_status": "processing" if _provider_ok(attempt) else "auto_api_failed",
         "manual_route_updated_by": int(callback.from_user.id),
         "manual_route_updated_at": datetime.now(UTC),
         "selected_provider_offer": offer,
@@ -2799,7 +2827,10 @@ async def _submit_manual_game_auto_api(callback: types.CallbackQuery) -> None:
         await update_order_details(order["_id"], update_payload)
         if callback.message:
             try:
-                await callback.message.edit_text(f"{callback.message.text or ''}\n\nRoute: Auto API failed")
+                await callback.message.edit_text(
+                    f"{callback.message.text or ''}\n\nRoute: Auto API failed",
+                    reply_markup=callback.message.reply_markup,
+                )
             except Exception:
                 pass
         return await callback.answer("Auto API failed. Order is still pending.", show_alert=True)
@@ -2811,7 +2842,7 @@ async def _submit_manual_game_auto_api(callback: types.CallbackQuery) -> None:
             suffix = f"\n\nRoute: Auto API submitted"
             if external_order_id:
                 suffix += f"\nProvider order: {external_order_id}"
-            await callback.message.edit_text(f"{callback.message.text or ''}{suffix}")
+            await callback.message.edit_text(f"{callback.message.text or ''}{suffix}", reply_markup=callback.message.reply_markup)
         except Exception:
             pass
     await callback.answer("Auto API submitted")
@@ -2863,7 +2894,7 @@ async def _submit_manual_game_future(callback: types.CallbackQuery) -> None:
         "provider_order_id": external_order_id,
         "delivery_lines_private": voucher_lines,
         "manual_execution_route": "future",
-        "manual_fulfillment_status": "future_submitted" if _provider_ok(attempt) else "future_failed",
+        "manual_fulfillment_status": "processing" if _provider_ok(attempt) else "future_failed",
         "manual_route_updated_by": int(callback.from_user.id),
         "manual_route_updated_at": datetime.now(UTC),
         "selected_provider_offer": offer,
@@ -2875,7 +2906,10 @@ async def _submit_manual_game_future(callback: types.CallbackQuery) -> None:
         await update_order_details(order["_id"], update_payload)
         if callback.message:
             try:
-                await callback.message.edit_text(f"{callback.message.text or ''}\n\nRoute: Future failed")
+                await callback.message.edit_text(
+                    f"{callback.message.text or ''}\n\nRoute: Future failed",
+                    reply_markup=callback.message.reply_markup,
+                )
             except Exception:
                 pass
         return await callback.answer("Future failed. Order is still pending.", show_alert=True)
@@ -2889,7 +2923,7 @@ async def _submit_manual_game_future(callback: types.CallbackQuery) -> None:
                 suffix += f"\nProvider order: {external_order_id}"
             if voucher_lines:
                 suffix += "\nPrivate voucher/code:\n" + "\n".join(f"- {line}" for line in voucher_lines[:10])
-            await callback.message.edit_text(f"{callback.message.text or ''}{suffix}")
+            await callback.message.edit_text(f"{callback.message.text or ''}{suffix}", reply_markup=callback.message.reply_markup)
         except Exception:
             pass
     await callback.answer("Future submitted")
@@ -3009,10 +3043,13 @@ async def complete_manual_digital_topup(callback: types.CallbackQuery):
     user = await get_user(int(order.get("user_id") or 0))
     lang = (user or {}).get("language", "en")
     item_name = str(order.get("manual_item_name") or order.get("service_ref_id") or "-")
+    user_text = await _manual_user_status_text(order, lang=lang, status="COMPLETED")
+    if not user_text:
+        user_text = _manual_done_text(lang, item_name=item_name, order_id=str(order.get("_id")))
     try:
         await callback.bot.send_message(
             chat_id=int(order.get("user_id")),
-            text=_manual_done_text(lang, item_name=item_name, order_id=str(order.get("_id"))),
+            text=user_text,
         )
     except Exception:
         pass

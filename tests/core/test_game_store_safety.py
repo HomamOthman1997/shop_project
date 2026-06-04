@@ -203,9 +203,11 @@ async def test_claim_manual_topup_notifies_customer_processing(monkeypatch):
 
     class FakeMessage:
         text = "Manual digital top-up pending"
+        reply_markup = "markup"
 
-        async def edit_text(self, text):
+        async def edit_text(self, text, **kwargs):
             calls["edit"] = text
+            calls["edit_kwargs"] = kwargs
 
     class FakeCallback:
         from_user = SimpleNamespace(id=7417429062)
@@ -270,9 +272,11 @@ async def test_auto_api_manual_topup_submits_provider_order(monkeypatch):
 
     class FakeMessage:
         text = "Manual digital top-up pending"
+        reply_markup = "markup"
 
-        async def edit_text(self, text):
+        async def edit_text(self, text, **kwargs):
             calls["edit"] = text
+            calls["edit_kwargs"] = kwargs
 
     class FakeCallback:
         from_user = SimpleNamespace(id=7417429062)
@@ -288,6 +292,8 @@ async def test_auto_api_manual_topup_submits_provider_order(monkeypatch):
     monkeypatch.setattr(store_sections, "update_order_details", fake_update)
     monkeypatch.setattr(store_sections, "_create_provider_game_order", fake_create)
     monkeypatch.setattr(store_sections, "get_user", fake_get_user)
+    monkeypatch.setattr(store_sections, "get_catalog_snapshot", lambda force=False: __import__("asyncio").sleep(0, result={}))
+    monkeypatch.setattr(store_sections, "_find_game_name", lambda _game_id, _snapshot: "PUBG Mobile")
     monkeypatch.setattr(store_sections, "digital_provider_enabled", lambda _provider: True)
 
     await store_sections.choose_manual_digital_auto_api(FakeCallback())
@@ -296,9 +302,11 @@ async def test_auto_api_manual_topup_submits_provider_order(monkeypatch):
     assert calls["create"]["ref_id"] == "2968"
     assert calls["create"]["player_id"] == "51293484551"
     assert calls["updates"][-1][1]["provider_order_id"] == "api-1"
-    assert calls["updates"][-1][1]["manual_fulfillment_status"] == "auto_api_submitted"
+    assert calls["updates"][-1][1]["manual_fulfillment_status"] == "processing"
     assert calls["send"]["chat_id"] == 123
+    assert "Status: PROCESSING" in calls["send"]["text"]
     assert "Auto API submitted" in calls["edit"]
+    assert calls["edit_kwargs"]["reply_markup"] == "markup"
     assert calls["answer"] == ("Auto API submitted", None)
 
 
@@ -314,6 +322,8 @@ async def test_future_manual_topup_submits_gift_order(monkeypatch):
         "status": "paid",
         "fulfillment_mode": store_sections.MANUAL_TOPUP_MODE,
         "manual_item_name": "1800 UC",
+        "game_id": "pubgm",
+        "player_id": "51293484551",
         "provider_offers_attempted": [
             {"provider": "g2bulk", "ref_id": "2968", "price": 21.25, "available": True},
             {
@@ -347,9 +357,11 @@ async def test_future_manual_topup_submits_gift_order(monkeypatch):
 
     class FakeMessage:
         text = "Manual digital top-up pending"
+        reply_markup = "markup"
 
-        async def edit_text(self, text):
+        async def edit_text(self, text, **kwargs):
             calls["edit"] = text
+            calls["edit_kwargs"] = kwargs
 
     class FakeCallback:
         from_user = SimpleNamespace(id=7417429062)
@@ -365,6 +377,8 @@ async def test_future_manual_topup_submits_gift_order(monkeypatch):
     monkeypatch.setattr(store_sections, "update_order_details", fake_update)
     monkeypatch.setattr(store_sections, "_create_provider_gift_order", fake_create)
     monkeypatch.setattr(store_sections, "get_user", fake_get_user)
+    monkeypatch.setattr(store_sections, "get_catalog_snapshot", lambda force=False: __import__("asyncio").sleep(0, result={}))
+    monkeypatch.setattr(store_sections, "_find_game_name", lambda _game_id, _snapshot: "PUBG Mobile")
     monkeypatch.setattr(store_sections, "digital_provider_enabled", lambda _provider: True)
 
     await store_sections.choose_manual_digital_future(FakeCallback())
@@ -373,10 +387,79 @@ async def test_future_manual_topup_submits_gift_order(monkeypatch):
     assert calls["create"]["ref_id"] == "future-1800"
     assert calls["updates"][-1][1]["provider_order_id"] == "future-api-1"
     assert calls["updates"][-1][1]["delivery_lines_private"] == ["FUTURE-CODE"]
-    assert calls["updates"][-1][1]["manual_fulfillment_status"] == "future_submitted"
+    assert calls["updates"][-1][1]["manual_fulfillment_status"] == "processing"
     assert calls["send"]["chat_id"] == 123
+    assert "Status: PROCESSING" in calls["send"]["text"]
     assert "FUTURE-CODE" in calls["edit"]
+    assert calls["edit_kwargs"]["reply_markup"] == "markup"
     assert calls["answer"] == ("Future submitted", None)
+
+
+@pytest.mark.asyncio
+async def test_complete_manual_topup_sends_completed_game_summary(monkeypatch):
+    import handlers.store_sections as store_sections
+
+    calls: dict[str, object] = {}
+    order = {
+        "_id": "order-1",
+        "user_id": 123,
+        "reseller_id": 123,
+        "status": "paid",
+        "fulfillment_mode": store_sections.MANUAL_TOPUP_MODE,
+        "manual_item_name": "1800 UC",
+        "game_id": "pubgm",
+        "player_id": "51293484551",
+        "retail_amount": 21.25,
+    }
+
+    async def fake_find(_order_id):
+        return order
+
+    async def fake_update_details(order_id, payload):
+        calls["details"] = (order_id, payload)
+
+    async def fake_update_status(order_id, status):
+        calls["status"] = (order_id, status)
+
+    async def fake_get_user(_user_id):
+        return {"language": "en"}
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            calls["send"] = kwargs
+
+    class FakeMessage:
+        text = "Manual digital top-up pending"
+
+        async def edit_text(self, text, **kwargs):
+            calls["edit"] = text
+
+    class FakeCallback:
+        from_user = SimpleNamespace(id=7417429062)
+        data = "dpm:done:order-1"
+        bot = FakeBot()
+        message = FakeMessage()
+
+        async def answer(self, text=None, show_alert=None):
+            calls["answer"] = (text, show_alert)
+
+    monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
+    monkeypatch.setattr(store_sections, "_find_order_for_owner_action", fake_find)
+    monkeypatch.setattr(store_sections, "update_order_details", fake_update_details)
+    monkeypatch.setattr(store_sections, "update_order_status", fake_update_status)
+    monkeypatch.setattr(store_sections, "get_user", fake_get_user)
+    monkeypatch.setattr(store_sections, "get_catalog_snapshot", lambda force=False: __import__("asyncio").sleep(0, result={}))
+    monkeypatch.setattr(store_sections, "_find_game_name", lambda _game_id, _snapshot: "PUBG Mobile")
+
+    await store_sections.complete_manual_digital_topup(FakeCallback())
+
+    assert calls["details"][1]["manual_fulfillment_status"] == "completed"
+    assert calls["status"] == ("order-1", "success")
+    assert calls["send"]["chat_id"] == 123
+    assert "Order Created Successfully" in calls["send"]["text"]
+    assert "Status: COMPLETED" in calls["send"]["text"]
+    assert "Player ID: 51293484551" in calls["send"]["text"]
+    assert calls["answer"] == ("Completed", None)
 
 
 @pytest.mark.asyncio
