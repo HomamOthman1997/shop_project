@@ -130,30 +130,18 @@ def reseller_user_main_menu(lang: str) -> ReplyKeyboardMarkup:
     )
 
 
-def digital_products_main_menu(lang: str) -> ReplyKeyboardMarkup:
+def digital_products_main_menu(lang: str) -> InlineKeyboardMarkup:
     miniapp_url = _digital_store_webapp_url()
     miniapp_ready = bool(getattr(settings, "digital_products_miniapp_enabled", False)) and bool(miniapp_url)
+    inline_keyboard: list[list[InlineKeyboardButton]] = []
     if miniapp_ready:
-        keyboard = [
-            [_kb_button(_label(lang, "Open Digital Store", "فتح المتجر الرقمي"), web_app=WebAppInfo(url=miniapp_url))],
+        inline_keyboard.append(
             [
-                _kb_button(t(lang, "user_settings_my_account"), icon_id=_ICON_ACCOUNT),
-                _kb_button(t(lang, "btn_support"), icon_id=_ICON_SUPPORT),
-            ],
-        ]
-    else:
-        keyboard = [
-            [
-                KeyboardButton(text=t(lang, "btn_games_topups")),
-                KeyboardButton(text=t(lang, "btn_giftcards")),
-            ],
-            [KeyboardButton(text=t(lang, "btn_sim_topup"))],
-            [
-                _kb_button(t(lang, "user_settings_my_account"), icon_id=_ICON_ACCOUNT),
-                _kb_button(t(lang, "btn_support"), icon_id=_ICON_SUPPORT),
-            ],
-        ]
-    return ReplyKeyboardMarkup(
-        keyboard=keyboard,
-        resize_keyboard=True,
-    )
+                InlineKeyboardButton(
+                    text=_label(lang, "Open Digital Store", "فتح المتجر الرقمي"),
+                    web_app=WebAppInfo(url=miniapp_url),
+                )
+            ]
+        )
+    inline_keyboard.append([InlineKeyboardButton(text=t(lang, "btn_add_balance"), callback_data="uset:recharge")])
+    return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)

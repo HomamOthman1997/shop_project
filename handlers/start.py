@@ -207,6 +207,7 @@ async def _open_digital_products_start_payload(message: types.Message, *, lang: 
         "esim": t(lang, "digital_products_start_esim_text"),
     }
     text = payload_text_map.get(payload)
+    await _hide_reply_keyboard(message, lang)
     await message.answer(
         t(lang, "main_menu"),
         reply_markup=await menu_for_current_bot(lang, int(await _resolve_runtime_bot_id(message.bot) or 0), user_id=message.from_user.id),
@@ -368,7 +369,7 @@ async def start_cmd(
             await _open_numbers_start_menu(message, state, lang=lang)
             _log_start_perf(started_at=started_at, user_id=user_id, bot_id=bot_id, outcome="numbers_start_menu", stage_ms=stage_ms)
             return
-        if is_card_ex_runtime_bot:
+        if is_card_ex_runtime_bot or is_digital_products_runtime_bot:
             await _hide_reply_keyboard(message, lang)
         stage_started = monotonic()
         await message.answer(
@@ -429,6 +430,8 @@ async def start_cmd(
                     )
                 _log_start_perf(started_at=started_at, user_id=user_id, bot_id=bot_id, outcome="member_reseller", stage_ms=stage_ms)
                 return
+            if is_digital_products_runtime_bot:
+                await _hide_reply_keyboard(message, lang)
             stage_started = monotonic()
             await message.answer(
                 t(lang, "main_menu"),
@@ -491,7 +494,7 @@ async def _forced_start_flow(message: types.Message, state: FSMContext):
         return
 
     if (isinstance(main_bot_id, int) and bot_id == main_bot_id) or is_digital_products_runtime_bot or is_card_ex_runtime_bot:
-        if is_card_ex_runtime_bot:
+        if is_card_ex_runtime_bot or is_digital_products_runtime_bot:
             await _hide_reply_keyboard(message, lang)
         await message.answer(
             t(lang, "main_menu"),

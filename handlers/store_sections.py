@@ -338,6 +338,18 @@ async def _hide_reply_keyboard(message: types.Message, lang: str) -> None:
         pass
 
 
+async def _redirect_digital_bot_message_to_miniapp(message: types.Message, state: FSMContext, lang: str) -> bool:
+    if not await is_digital_products_bot(message.bot):
+        return False
+    await state.clear()
+    await _hide_reply_keyboard(message, lang)
+    await message.answer(
+        t(lang, "main_menu"),
+        reply_markup=await menu_for_current_bot(lang, message.bot, user_id=message.from_user.id),
+    )
+    return True
+
+
 _SIM_COUNTRY_INLINE_PREFIX = "simcountry"
 _SIM_COUNTRY_TOKEN_PREFIX = "__simtopup_country__:"
 _ISO3166_TAB = (Path(getattr(_pytz, "__file__", "")).resolve().parent / "zoneinfo" / "iso3166.tab") if _pytz else None
@@ -3969,6 +3981,8 @@ def _esim_mode_text(lang: str) -> str:
 async def open_giftcards_section(message: types.Message, state):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
+    if await _redirect_digital_bot_message_to_miniapp(message, state, lang):
+        return
     if not await guard_core_service_message(message, lang):
         return
     await _hide_reply_keyboard(message, lang)
@@ -3993,6 +4007,8 @@ async def open_giftcards_section(message: types.Message, state):
 async def open_mobile_topups_section(message: types.Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
+    if await _redirect_digital_bot_message_to_miniapp(message, state, lang):
+        return
     if not await guard_core_service_message(message, lang):
         return
     await state.clear()
@@ -5212,6 +5228,8 @@ async def digital_products_web_app_selection(message: types.Message, state: FSMC
 async def open_games_section(message: types.Message, state):
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "en")
+    if await _redirect_digital_bot_message_to_miniapp(message, state, lang):
+        return
     if not await guard_core_service_message(message, lang):
         return
     await _hide_reply_keyboard(message, lang)

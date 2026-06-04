@@ -118,15 +118,20 @@ def test_digital_products_menu_exposes_miniapp_button_when_enabled(monkeypatch):
     monkeypatch.setattr(main_menu_kb.settings, "digital_products_miniapp_public_url", "https://store.example.com")
 
     kb = digital_products_main_menu("en")
-    first_button = kb.keyboard[0][0]
-    labels = [btn.text for row in kb.keyboard for btn in row]
+    first_button = kb.inline_keyboard[0][0]
+    labels = [btn.text for row in kb.inline_keyboard for btn in row]
+    callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
 
     assert first_button.text == "Open Digital Store"
     assert first_button.web_app is not None
     assert first_button.web_app.url == "https://store.example.com/mini/digital"
+    assert labels == ["Open Digital Store", t("en", "btn_add_balance")]
+    assert callbacks == [None, "uset:recharge"]
     assert t("en", "btn_giftcards") not in labels
     assert t("en", "btn_games_topups") not in labels
     assert t("en", "btn_sim_topup") not in labels
+    assert t("en", "user_settings_my_account") not in labels
+    assert t("en", "btn_support") not in labels
 
 
 def test_digital_products_menu_uses_arabic_miniapp_label_when_enabled(monkeypatch):
@@ -136,7 +141,7 @@ def test_digital_products_menu_uses_arabic_miniapp_label_when_enabled(monkeypatc
     monkeypatch.setattr(main_menu_kb.settings, "digital_products_miniapp_public_url", "https://store.example.com")
 
     kb = digital_products_main_menu("ar")
-    first_button = kb.keyboard[0][0]
+    first_button = kb.inline_keyboard[0][0]
 
     assert first_button.text == "فتح المتجر الرقمي"
 
@@ -174,7 +179,7 @@ def test_numbers_menu_adds_miniapp_button_when_enabled(monkeypatch):
 
     assert first_button.text == "Open Numbers App"
     assert first_button.web_app is not None
-    assert first_button.web_app.url == "https://numbers.example.com/mini/numbers"
+    assert first_button.web_app.url == "https://numbers.example.com/mini/numbers-v2"
     assert kb.inline_keyboard[1][0].callback_data == "uset:open"
 
 
@@ -193,10 +198,11 @@ async def test_menu_for_current_bot_prioritizes_platform_store_bots_over_reselle
     monkeypatch.setattr(bot_menu_context, "is_card_ex_bot", _false)
 
     kb = await bot_menu_context.menu_for_current_bot("ar", 123)
-    labels = [btn.text for row in kb.keyboard for btn in row]
+    labels = [btn.text for row in kb.inline_keyboard for btn in row]
 
-    assert labels == [btn.text for row in bot_menu_context.digital_products_main_menu("ar").keyboard for btn in row]
-    assert t("ar", "btn_giftcards") in labels
+    assert labels == [btn.text for row in bot_menu_context.digital_products_main_menu("ar").inline_keyboard for btn in row]
+    assert t("ar", "btn_giftcards") not in labels
+    assert t("ar", "btn_add_balance") in labels
 
 
 @pytest.mark.asyncio
