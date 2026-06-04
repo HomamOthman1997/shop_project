@@ -52,7 +52,7 @@ def test_public_order_payload_exposes_rental_sms_state():
 
 
 @pytest.mark.asyncio
-async def test_temp_quote_rejects_service_blacklisted_provider(monkeypatch):
+async def test_temp_quote_does_not_reject_lab_provider_by_blacklist(monkeypatch):
     monkeypatch.setattr(api_payloads.settings, "bot_numbers_token", "numbers-token", raising=False)
     monkeypatch.setattr(api_payloads.settings, "bot_main_token", "main-token", raising=False)
     quote = make_quote_token(
@@ -65,10 +65,15 @@ async def test_temp_quote_rejects_service_blacklisted_provider(monkeypatch):
         }
     )
 
+    async def _no_prices(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(order_service, "get_all_prices", _no_prices)
+
     with pytest.raises(order_service.NumbersOrderError) as exc:
         await order_service._resolve_temp_offer_from_quote(quote)
 
-    assert exc.value.code == "provider_service_blacklisted"
+    assert exc.value.code == "offer_unavailable"
     assert exc.value.status == 409
 
 

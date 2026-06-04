@@ -651,7 +651,7 @@ def test_numbers_price_rows_mark_best_choice_and_hide_unavailable(monkeypatch):
     assert all("base_price_label" not in row for row in rows)
 
 
-def test_numbers_price_rows_hide_telegram_blacklisted_providers(monkeypatch):
+def test_numbers_price_rows_show_telegram_lab_providers_when_blacklist_disabled(monkeypatch):
     monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
     monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
     monkeypatch.setattr(miniapp.settings, "numbers_success_rate_display_min_attempts", 1, raising=False)
@@ -689,7 +689,7 @@ def test_numbers_price_rows_hide_telegram_blacklisted_providers(monkeypatch):
         state="none",
     )
 
-    assert [row["provider_id"] for row in rows] == ["S4"]
+    assert {row["provider_id"] for row in rows} == {"S1", "S2", "S4"}
 
 
 def test_numbers_price_rows_prefer_classified_provider_over_unclassified_when_close(monkeypatch):

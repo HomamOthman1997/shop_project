@@ -29,10 +29,10 @@ def test_telegram_quality_bonus_is_service_specific():
     assert provider_recommendation_bonus("telabot", "telegram") > provider_recommendation_bonus("textverified", "telegram")
 
 
-def test_telegram_provider_blacklist_is_service_specific():
-    assert provider_service_blacklisted("herosms", "telegram") is True
-    assert provider_service_blacklisted("textverified", "telegram") is True
-    assert provider_service_blacklisted("smspool", "telegram") is True
+def test_telegram_provider_blacklist_is_currently_disabled_for_lab_testing():
+    assert provider_service_blacklisted("herosms", "telegram") is False
+    assert provider_service_blacklisted("textverified", "telegram") is False
+    assert provider_service_blacklisted("smspool", "telegram") is False
     assert provider_service_blacklisted("herosms", "whatsapp") is False
     assert provider_service_blacklisted("telabot", "telegram") is False
 

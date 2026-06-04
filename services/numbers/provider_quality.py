@@ -103,9 +103,7 @@ _SERVICE_BONUS_OVERRIDES: dict[str, dict[str, float]] = {
 }
 
 
-_SERVICE_PROVIDER_BLACKLIST: dict[str, set[str]] = {
-    "telegram": {"herosms", "textverified", "smspool"},
-}
+_SERVICE_PROVIDER_BLACKLIST: dict[str, set[str]] = {}
 
 
 def provider_quality(provider_code: str) -> ProviderQuality:

@@ -496,7 +496,7 @@ async def test_get_all_prices_hides_recent_purchase_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_all_prices_hides_telegram_blacklisted_provider(monkeypatch):
+async def test_get_all_prices_allows_telegram_lab_provider_when_blacklist_disabled(monkeypatch):
     calls: list[str] = []
 
     class _Provider:
@@ -513,8 +513,8 @@ async def test_get_all_prices_hides_telegram_blacklisted_provider(monkeypatch):
 
     result = await manager.get_all_prices("telegram", "none", None, ignore_balance=True)
 
-    assert result == {}
-    assert calls == []
+    assert result["herosms"]["base_price"] == 0.25
+    assert calls == ["tg"]
 
 
 @pytest.mark.asyncio
