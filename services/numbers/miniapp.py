@@ -144,6 +144,8 @@ from services.numbers.shared.temp_order import (
 
     _seconds_left_until,
 
+    _split_number_for_copy,
+
     _temp_elapsed_sec,
 
     _temp_order_has_received_code,
@@ -2895,6 +2897,14 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
     sale_price, _cost_price = extract_order_amounts(order)
 
     payload["service_label"] = _service_label(service_key)
+
+    number_cc, number_local = _split_number_for_copy(
+        str((order or {}).get("provider_number") or payload.get("number") or ""),
+        str((order or {}).get("temp_country") or (order or {}).get("rental_country") or payload.get("country") or ""),
+    )
+    if number_local:
+        payload["number_local"] = str(number_local)
+        payload["number_display"] = f"+{number_cc} {number_local}" if number_cc else str(number_local)
 
     payload["price"] = float(sale_price)
 

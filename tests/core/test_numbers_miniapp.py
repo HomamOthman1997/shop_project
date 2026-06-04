@@ -1744,6 +1744,32 @@ def test_my_numbers_does_not_refresh_long_waiting_temp_order_before_timeout():
     assert miniapp._should_refresh_temp_my_numbers_order(order) is False
 
 
+def test_order_payload_uses_country_code_for_three_digit_number_prefix():
+    order = {
+        "_id": "order-tm",
+        "number_mode": "temp",
+        "status": "success",
+        "provisioning_state": "provisioned",
+        "provider": "alphasms",
+        "provider_order_id": "provider-tm",
+        "provider_number": "99363978993",
+        "temp_service_key": "whatsapp",
+        "temp_country": "993",
+        "temp_country_name": "Turkmenistan",
+        "temp_wait_state": "waiting",
+        "selling_price": 0.50,
+        "base_price": 0.25,
+        "created_at": datetime.now(UTC),
+        "temp_wait_started_at": datetime.now(UTC),
+        "temp_wait_timeout_sec": 20 * 60,
+    }
+
+    payload = miniapp._order_payload(order)
+
+    assert payload["number_display"] == "+993 63978993"
+    assert payload["number_local"] == "63978993"
+
+
 @pytest.mark.asyncio
 async def test_refresh_temp_order_refunds_old_missing_provider_order(monkeypatch):
     now = datetime.now(UTC)

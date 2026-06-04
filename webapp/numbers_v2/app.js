@@ -1592,7 +1592,7 @@ function renderOrders() {
       card.className = `order-card order-${orderTone(order)}`;
       const note = customerStateText(order);
       const details = Array.isArray(order.details) ? order.details.slice(0, 4) : [];
-      const numberValue = formatPhoneNumber(order.number || order.provider_number || "");
+      const numberValue = order.number_display || formatPhoneNumber(order.number || order.provider_number || "");
       card.innerHTML = `
         <h3>${order.service_label || order.service || t("orderNumber")}</h3>
         <div class="meta-grid">
@@ -1613,7 +1613,7 @@ function renderOrders() {
       }
       const numberCopyTarget = card.querySelector(".copyable-number");
       const copyLocalNumber = async () => {
-        const value = localPhoneNumber(order.number || order.provider_number || "");
+        const value = order.number_local || localPhoneNumber(order.number || order.provider_number || "");
         if (value) await navigator.clipboard?.writeText(value);
         showToast(t("copied"), "success");
       };
@@ -1728,7 +1728,7 @@ async function runOrderAction(order, key, button) {
       showResultModal(testActiveMessage(order));
       return;
     }
-    const value = key === "copy_code" ? order.code : localPhoneNumber(order.number || order.provider_number || "");
+    const value = key === "copy_code" ? order.code : (order.number_local || localPhoneNumber(order.number || order.provider_number || ""));
     if (value) await navigator.clipboard?.writeText(value);
     showToast(t("copied"), "success");
     return;
