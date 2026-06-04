@@ -372,7 +372,7 @@ async def test_numbers_api_temp_quotes_show_primary_nonvoip_provider(monkeypatch
             "provider_codes": tuple(provider_codes or ()),
         }
         return {
-            "textverified": {
+            "telabot": {
                 "price": 0.44,
                 "api_service_name": "telegram",
                 "available_for_buy": True,
@@ -413,7 +413,7 @@ async def test_numbers_api_temp_quotes_show_primary_nonvoip_provider(monkeypatch
     assert payload["providers"][0]["provider_id"] == "S7"
     assert payload["providers"][0]["provider"] == "Golf"
     assert payload["providers"][0]["price_label"] == "$0.01"
-    assert payload["providers"][1]["provider_id"] == "S2"
+    assert payload["providers"][1]["provider_id"] == "S4"
     assert payload["providers"][1]["price_label"] == "$0.44"
     assert payload["providers"][0]["quote_token"]
     quote = api_payloads.verify_quote_token(payload["providers"][0]["quote_token"])

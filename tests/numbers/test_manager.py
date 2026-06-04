@@ -347,7 +347,7 @@ async def test_get_all_prices(monkeypatch):
         return 'telegram'
     monkeypatch.setattr(manager, 'get_provider_service_name_dynamic', fake_name)
     monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
-    res = await manager.get_all_prices('telegram', None, None)
+    res = await manager.get_all_prices('whatsapp', None, None)
     assert 'smspool' in res
     assert res['smspool']['price'] == 1.23
 
@@ -473,7 +473,7 @@ async def test_get_all_prices_hides_recent_purchase_failure(monkeypatch):
         async def get_balance(self):
             return 10.0
 
-    monkeypatch.setattr(manager, "PROVIDERS", {"herosms": _Provider()})
+    monkeypatch.setattr(manager, "PROVIDERS", {"telabot": _Provider()})
     monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
 
     async def _resolve(*args, **kwargs):
@@ -496,6 +496,28 @@ async def test_get_all_prices_hides_recent_purchase_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_all_prices_hides_telegram_blacklisted_provider(monkeypatch):
+    calls: list[str] = []
+
+    class _Provider:
+        async def get_price(self, service, country=None, state=None):
+            calls.append(service)
+            return {"success": True, "price": 0.25, "api_service_name": "tg"}
+
+        async def get_balance(self):
+            return 10.0
+
+    monkeypatch.setattr(manager, "PROVIDERS", {"herosms": _Provider()})
+    monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
+    manager._PROVIDER_BALANCE_CACHE.clear()
+
+    result = await manager.get_all_prices("telegram", "none", None, ignore_balance=True)
+
+    assert result == {}
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_telegram_us_pricing_keeps_provider_cost(monkeypatch):
     class _Provider:
         async def get_price(self, service, country=None, state=None):
@@ -504,7 +526,7 @@ async def test_telegram_us_pricing_keeps_provider_cost(monkeypatch):
         async def get_balance(self):
             return 10.0
 
-    monkeypatch.setattr(manager, "PROVIDERS", {"herosms": _Provider()})
+    monkeypatch.setattr(manager, "PROVIDERS", {"telabot": _Provider()})
     monkeypatch.setattr(manager.settings, "numbers_service_markup_percent", 0.0)
 
     async def _resolve(*args, **kwargs):
@@ -514,8 +536,8 @@ async def test_telegram_us_pricing_keeps_provider_cost(monkeypatch):
     manager._PROVIDER_BALANCE_CACHE.clear()
 
     result = await manager.get_all_prices("telegram", "1", None, ignore_balance=True)
-    assert result["herosms"]["base_price"] == 0.5
-    assert result["herosms"]["price"] == 0.5
+    assert result["telabot"]["base_price"] == 0.5
+    assert result["telabot"]["price"] == 0.5
 
 
 @pytest.mark.asyncio
@@ -676,7 +698,7 @@ async def test_get_all_prices_uses_provider_country_iso_field(monkeypatch):
         }
 
     monkeypatch.setattr(manager, "get_provider_service_resolution_dynamic", fake_resolution)
-    result = await manager.get_all_prices("telegram", None, None)
+    result = await manager.get_all_prices("whatsapp", None, None)
     assert result["herosms"]["provider_country_iso"] == "KE"
 
 
@@ -731,8 +753,8 @@ async def test_get_all_prices_fetches_live_each_time(monkeypatch):
 
     monkeypatch.setattr(manager, "get_provider_service_name_dynamic", fake_name)
 
-    r1 = await manager.get_all_prices("telegram", "1", "none")
-    r2 = await manager.get_all_prices("telegram", "1", "none")
+    r1 = await manager.get_all_prices("whatsapp", "1", "none")
+    r2 = await manager.get_all_prices("whatsapp", "1", "none")
     assert r1 and r2
     # direct provider pricing is now preferred over stale cache snapshots.
     assert calls["n"] == 2

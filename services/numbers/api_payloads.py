@@ -10,7 +10,7 @@ from typing import Any
 from config import settings
 from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.data.states_us import STATES_LIST
-from services.numbers.provider_quality import provider_quality, provider_recommendation_bonus
+from services.numbers.provider_quality import provider_quality, provider_recommendation_bonus, provider_service_blacklisted
 from services.numbers.provider_readiness import provider_purchase_enabled
 from services.numbers.service_map import (
     get_service_aliases,
@@ -429,9 +429,11 @@ def _provider_sort_key(code: str) -> tuple[int, str, str]:
     return (rank, public, code)
 
 
-def _provider_buyable_for_temp(provider_code: str, info: dict[str, Any]) -> bool:
+def _provider_buyable_for_temp(provider_code: str, info: dict[str, Any], *, service: str | None = None) -> bool:
     code = str(provider_code or "").strip().lower()
     if not code or code in HIDDEN_TEMP_PROVIDER_CODES:
+        return False
+    if provider_service_blacklisted(code, service):
         return False
     if not provider_purchase_enabled(code, mode="temp"):
         return False
@@ -446,7 +448,8 @@ def _provider_buyable_for_temp(provider_code: str, info: dict[str, Any]) -> bool
 
 
 def temp_provider_offer_is_buyable(provider_code: str, info: dict[str, Any]) -> bool:
-    return _provider_buyable_for_temp(provider_code, info)
+    service = str((info or {}).get("requested_service") or (info or {}).get("canonical_service") or "").strip()
+    return _provider_buyable_for_temp(provider_code, info, service=service)
 
 
 def rental_state_code_for_quote(state: str | None) -> str:
@@ -619,7 +622,7 @@ def _recommended_temp_provider_code(data: dict[str, Any], *, service: str | None
     min_attempts = max(1, int(getattr(settings, "numbers_success_rate_display_min_attempts", 5) or 5))
     for provider_code, info in (data or {}).items():
         code = str(provider_code or "").strip().lower()
-        if not isinstance(info, dict) or not _provider_buyable_for_temp(code, info):
+        if not isinstance(info, dict) or not _provider_buyable_for_temp(code, info, service=service):
             continue
         if bool(info.get("recommendation_blocked")):
             continue
@@ -653,7 +656,7 @@ def normalize_temp_quote_rows(
 
     for raw_code, info in sorted((data or {}).items(), key=lambda item: _provider_sort_key(str(item[0]))):
         code = str(raw_code or "").strip().lower()
-        if not isinstance(info, dict) or not _provider_buyable_for_temp(code, info):
+        if not isinstance(info, dict) or not _provider_buyable_for_temp(code, info, service=service):
             continue
 
         attempts = success_attempt_count(info)

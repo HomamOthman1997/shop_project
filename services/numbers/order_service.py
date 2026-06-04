@@ -33,6 +33,7 @@ from services.numbers.order_lifecycle_service import (
 )
 from services.numbers.order_rental_protection_service import schedule_rental_refund_guard
 from services.numbers.provider_delivery import provider_sms_delivery_strategy
+from services.numbers.provider_quality import provider_service_blacklisted
 from services.numbers.provider_readiness import provider_purchase_enabled, provider_readiness
 from services.numbers.data.countries import COUNTRIES_LIST
 from services.numbers.shared.events import _log_number_event_from_order, _log_temp_event
@@ -608,6 +609,12 @@ async def _resolve_temp_offer_from_quote(quote_token: str) -> dict[str, Any]:
         )
     if not service or not provider_code:
         raise NumbersOrderError("invalid_quote", "This quote is incomplete.", status=400)
+    if provider_service_blacklisted(provider_code, service):
+        raise NumbersOrderError(
+            "provider_service_blacklisted",
+            "This provider is not available for this service.",
+            status=409,
+        )
     if not provider_purchase_enabled(provider_code, mode="temp"):
         readiness = provider_readiness(provider_code)
         raise NumbersOrderError(

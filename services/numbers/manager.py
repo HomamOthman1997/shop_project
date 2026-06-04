@@ -37,6 +37,7 @@ from services.numbers.manager_resolution import (
     _service_resolution_snapshot,
 )
 from services.numbers.pricing_policy import temp_sale_price
+from services.numbers.provider_quality import provider_service_blacklisted
 from services.numbers.provider_readiness import provider_quote_enabled, readiness_block_payload
 from services.numbers.virtual_policy import apply_virtual_offer_policy
 from services.numbers.providers.herosms_provider import HeroSMSProvider
@@ -720,6 +721,8 @@ async def get_all_prices(
     requested_country_iso = _country_iso_value(str(country or "").strip()) if country and str(country).strip().lower() != "none" else ""
     async def fetch_single_provider(code, provider_obj):
         try:
+            if provider_service_blacklisted(code, service_key):
+                return (code, None)
             if not provider_quote_enabled(code, mode="temp"):
                 return (code, readiness_block_payload(code, mode="temp") if show_all_for_testing else None)
             if not provider_allows_temp(code, country_iso=requested_country_iso, state_selected=state_selected):
@@ -928,6 +931,8 @@ async def get_all_prices(
                 resolved_api_service_name = str(price_data.get("api_service_name") or api_service_name)
                 price_data["base_price"] = base_price
                 price_data["api_service_name"] = resolved_api_service_name
+                price_data["requested_service"] = str(service_key or "")
+                price_data["canonical_service"] = resolve_canonical_service_key(service_key)
                 price_data["available_for_buy"] = bool(price_data.get("available_for_buy", True))
                 if not c_code:
                     provider_state_code, provider_country_iso = _extract_provider_location(

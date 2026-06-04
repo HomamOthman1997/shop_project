@@ -107,7 +107,7 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
             "textverified": {
                 "price": 1.25,
                 "base_price": 1.0,
-                "api_service_name": "telegram",
+                "api_service_name": "whatsapp",
                 "success_rate": 88,
                 "success_attempts": 10,
                 "recommended_success_rate": 92,
@@ -122,7 +122,7 @@ def test_numbers_price_rows_use_public_provider_ids(monkeypatch):
             },
         },
         "temp",
-        service="telegram",
+        service="whatsapp",
         country="none",
         state="none",
     )
@@ -147,28 +147,28 @@ def test_numbers_price_rows_show_fixed_rate_for_trusted_providers(monkeypatch):
         {
             "pvadeals": {
                 "price": 1.25,
-                "api_service_name": "telegram",
+                "api_service_name": "whatsapp",
                 "available_for_buy": True,
                 "success_rate": 12,
                 "success_attempts": 0,
             },
             "vaksms": {
                 "price": 1.35,
-                "api_service_name": "telegram",
+                "api_service_name": "whatsapp",
                 "available_for_buy": True,
                 "success_rate": 73,
                 "success_attempts": 10,
             },
             "herosms": {
                 "price": 1.45,
-                "api_service_name": "telegram",
+                "api_service_name": "whatsapp",
                 "available_for_buy": True,
                 "success_rate": 99,
                 "success_attempts": 10,
             },
         },
         "temp",
-        service="telegram",
+        service="whatsapp",
         country="none",
         state="none",
     )
@@ -211,13 +211,13 @@ async def test_numbers_prices_endpoint_skips_blocking_success_rates(monkeypatch)
         }
 
     monkeypatch.setattr(miniapp, "get_all_prices", fake_get_all_prices)
-    request = make_mocked_request("GET", "/mini/numbers/api/prices?mode=temp&service=telegram&country=1&state=none")
+    request = make_mocked_request("GET", "/mini/numbers/api/prices?mode=temp&service=whatsapp&country=1&state=none")
 
     response = await miniapp.prices(request)
     payload = json.loads(response.text)
 
     assert calls == {
-        "service": "telegram",
+        "service": "whatsapp",
         "country": "1",
         "state": "none",
         "ignore_balance": True,
@@ -618,7 +618,7 @@ def test_numbers_price_rows_mark_best_choice_and_hide_unavailable(monkeypatch):
             "herosms": {
                 "price": 0.1,
                 "base_price": 0.08,
-                "api_service_name": "telegram",
+                "api_service_name": "whatsapp",
                 "available_for_buy": True,
                 "success_rate": 50,
                 "success_attempts": 20,
@@ -626,20 +626,20 @@ def test_numbers_price_rows_mark_best_choice_and_hide_unavailable(monkeypatch):
             "textverified": {
                 "price": 0.11,
                 "base_price": 0.09,
-                "api_service_name": "telegram",
+                "api_service_name": "whatsapp",
                 "available_for_buy": True,
                 "success_rate": 99,
                 "success_attempts": 20,
             },
             "down": {
                 "price": 0.09,
-                "api_service_name": "telegram",
+                "api_service_name": "whatsapp",
                 "available_for_buy": False,
                 "provider_reason": "provider_balance_low",
             },
         },
         "temp",
-        service="telegram",
+        service="whatsapp",
         country="none",
         state="none",
     )
@@ -649,6 +649,47 @@ def test_numbers_price_rows_mark_best_choice_and_hide_unavailable(monkeypatch):
     assert all(row["available"] for row in rows)
     assert all("reason" not in row for row in rows)
     assert all("base_price_label" not in row for row in rows)
+
+
+def test_numbers_price_rows_hide_telegram_blacklisted_providers(monkeypatch):
+    monkeypatch.setattr(miniapp.settings, "bot_numbers_token", "numbers-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "bot_main_token", "main-token", raising=False)
+    monkeypatch.setattr(miniapp.settings, "numbers_success_rate_display_min_attempts", 1, raising=False)
+
+    rows = miniapp._normalize_provider_rows(
+        {
+            "herosms": {
+                "price": 0.1,
+                "base_price": 0.08,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "success_rate": 90,
+                "success_attempts": 20,
+            },
+            "textverified": {
+                "price": 0.11,
+                "base_price": 0.09,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "success_rate": 90,
+                "success_attempts": 20,
+            },
+            "telabot": {
+                "price": 0.2,
+                "base_price": 0.18,
+                "api_service_name": "telegram",
+                "available_for_buy": True,
+                "success_rate": 90,
+                "success_attempts": 20,
+            },
+        },
+        "temp",
+        service="telegram",
+        country="none",
+        state="none",
+    )
+
+    assert [row["provider_id"] for row in rows] == ["S4"]
 
 
 def test_numbers_price_rows_prefer_classified_provider_over_unclassified_when_close(monkeypatch):
@@ -676,7 +717,7 @@ def test_numbers_price_rows_prefer_classified_provider_over_unclassified_when_cl
             },
         },
         "temp",
-        service="telegram",
+        service="whatsapp",
         country="none",
         state="none",
     )
@@ -1446,7 +1487,7 @@ async def test_numbers_miniapp_purchase_api_quotes_use_shared_order_service(monk
                 }
             },
             "rental",
-            service="telegram",
+        service="whatsapp",
             country="1",
             state="none",
         )

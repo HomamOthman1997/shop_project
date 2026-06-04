@@ -103,11 +103,24 @@ _SERVICE_BONUS_OVERRIDES: dict[str, dict[str, float]] = {
 }
 
 
+_SERVICE_PROVIDER_BLACKLIST: dict[str, set[str]] = {
+    "telegram": {"herosms", "textverified", "smspool"},
+}
+
+
 def provider_quality(provider_code: str) -> ProviderQuality:
     code = str(provider_code or "").strip().lower()
     if not code:
         return _DEFAULT
     return _QUALITY.get(code, ProviderQuality(**{**_DEFAULT.to_dict(), "provider": code}))
+
+
+def provider_service_blacklisted(provider_code: str, service_key: str | None = None) -> bool:
+    code = str(provider_code or "").strip().lower()
+    service = str(service_key or "").strip().lower()
+    if not code or not service:
+        return False
+    return code in (_SERVICE_PROVIDER_BLACKLIST.get(service) or set())
 
 
 def provider_recommendation_bonus(provider_code: str, service_key: str | None = None) -> float:

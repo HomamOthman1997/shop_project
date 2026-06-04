@@ -1,4 +1,5 @@
 from services.numbers.provider_quality import (
+    provider_service_blacklisted,
     provider_quality,
     provider_quality_rows,
     provider_recommendation_bonus,
@@ -26,6 +27,14 @@ def test_telegram_quality_bonus_is_service_specific():
     assert provider_recommendation_bonus("textverified") > 0
     assert provider_recommendation_bonus("textverified", "telegram") < 0
     assert provider_recommendation_bonus("telabot", "telegram") > provider_recommendation_bonus("textverified", "telegram")
+
+
+def test_telegram_provider_blacklist_is_service_specific():
+    assert provider_service_blacklisted("herosms", "telegram") is True
+    assert provider_service_blacklisted("textverified", "telegram") is True
+    assert provider_service_blacklisted("smspool", "telegram") is True
+    assert provider_service_blacklisted("herosms", "whatsapp") is False
+    assert provider_service_blacklisted("telabot", "telegram") is False
 
 
 def test_provider_quality_rows_include_smsready_as_unclassified():

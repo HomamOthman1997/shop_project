@@ -51,6 +51,27 @@ def test_public_order_payload_exposes_rental_sms_state():
     assert payload["can_notes"] is True
 
 
+@pytest.mark.asyncio
+async def test_temp_quote_rejects_service_blacklisted_provider(monkeypatch):
+    monkeypatch.setattr(api_payloads.settings, "bot_numbers_token", "numbers-token", raising=False)
+    monkeypatch.setattr(api_payloads.settings, "bot_main_token", "main-token", raising=False)
+    quote = make_quote_token(
+        {
+            "mode": "temp",
+            "service": "telegram",
+            "country": "none",
+            "state": "none",
+            "provider": "herosms",
+        }
+    )
+
+    with pytest.raises(order_service.NumbersOrderError) as exc:
+        await order_service._resolve_temp_offer_from_quote(quote)
+
+    assert exc.value.code == "provider_service_blacklisted"
+    assert exc.value.status == 409
+
+
 def test_public_order_payload_exposes_voice_recording_state():
     payload = order_service.public_order_payload(
         {
@@ -341,7 +362,7 @@ def test_public_order_payload_customer_state_marks_support_review_refund():
 @pytest.mark.asyncio
 async def test_create_temp_order_from_quote_success(monkeypatch):
     calls = {"details": [], "statuses": [], "events": [], "temp_events": []}
-    quote = make_quote_token({"mode": "temp", "service": "telegram", "country": "1", "state": "CA", "provider": "textverified"})
+    quote = make_quote_token({"mode": "temp", "service": "telegram", "country": "1", "state": "CA", "provider": "telabot"})
 
     async def fake_idempotency_get(user_id, key):
         calls["idempotency_get"] = (user_id, key)
@@ -353,7 +374,7 @@ async def test_create_temp_order_from_quote_success(monkeypatch):
     async def fake_get_all_prices(service, country, state, **kwargs):
         calls["prices"] = (service, country, state, kwargs)
         return {
-            "textverified": {
+            "telabot": {
                 "price": 0.44,
                 "base_price": 0.4,
                 "api_service_name": "telegram",
@@ -466,7 +487,7 @@ async def test_create_temp_order_from_quote_success(monkeypatch):
     assert "base_price" not in result["order"]
     assert calls["prices"][0:3] == ("telegram", "1", "CA")
     assert calls["charge"]["sale_price"] == 0.44
-    assert calls["buy"]["provider_code"] == "textverified"
+    assert calls["buy"]["provider_code"] == "telabot"
     assert calls["buy"]["api_service_name"] == "telegram"
     assert calls["statuses"] == [("order-1", "success")]
     assert calls["idempotency_save"][0:2] == (123, "idem-1")
