@@ -110,8 +110,8 @@ async def test_auto_refund_refunds_customer_on_retryable_provider_failure(monkey
         calls["finalize"] = kwargs
         return {"success": True, "reason": "ok"}
 
-    async def fake_notify_support(order, reason):
-        calls["notify"] = {"order": order, "reason": reason}
+    async def fake_notify_support(order, reason, **kwargs):
+        calls["notify"] = {"order": order, "reason": reason, **kwargs}
 
     monkeypatch.setattr(order_auto_refund_service, "cancel_number_order", fake_cancel_number_order)
     monkeypatch.setattr(order_auto_refund_service, "finalize_temp_local_refund", fake_finalize_temp_local_refund)
@@ -128,6 +128,7 @@ async def test_auto_refund_refunds_customer_on_retryable_provider_failure(monkey
     assert calls["finalize"]["extra_patch"]["temp_provider_refund_followup_required"] is True
     assert calls["notify"]["order"]["_id"] == "order-1"
     assert calls["notify"]["reason"] == "provider_cancel_failed"
+    assert calls["notify"]["provider_failure_detail"] == "503 Could not cancel this order right now."
 
 
 @pytest.mark.asyncio
@@ -141,8 +142,8 @@ async def test_auto_refund_refunds_customer_on_nonretryable_provider_failure(mon
         calls["finalize"] = kwargs
         return {"success": True, "reason": "ok"}
 
-    async def fake_notify_support(order, reason):
-        calls["notify"] = {"order": order, "reason": reason}
+    async def fake_notify_support(order, reason, **kwargs):
+        calls["notify"] = {"order": order, "reason": reason, **kwargs}
 
     monkeypatch.setattr(order_auto_refund_service, "cancel_number_order", fake_cancel_number_order)
     monkeypatch.setattr(order_auto_refund_service, "finalize_temp_local_refund", fake_finalize_temp_local_refund)
@@ -156,6 +157,7 @@ async def test_auto_refund_refunds_customer_on_nonretryable_provider_failure(mon
     assert result["order"]["public_status"] == "refunded"
     assert calls["finalize"]["provider_terminal_reason"] == "customer_refunded_provider_followup"
     assert calls["notify"]["reason"] == "provider_cancel_failed"
+    assert calls["notify"]["provider_failure_detail"] == "409 Could not cancel this order right now."
 
 
 @pytest.mark.asyncio

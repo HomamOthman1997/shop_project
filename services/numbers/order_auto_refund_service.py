@@ -88,7 +88,12 @@ async def auto_refund_temp_order_if_due(
     except Exception as exc:
         reason = getattr(exc, "code", "auto_refund_failed")
         if str(reason) != "financial_refund_failed":
-            local_refund = await _refund_customer_after_provider_failure(order, user_id, str(reason))
+            local_refund = await _refund_customer_after_provider_failure(
+                order,
+                user_id,
+                str(reason),
+                provider_failure_detail=_provider_failure_detail(exc),
+            )
             if local_refund:
                 return local_refund
         retryable = _auto_refund_exception_retryable(exc, str(reason))
@@ -111,6 +116,7 @@ async def _refund_customer_after_provider_failure(
     order: dict[str, Any],
     user_id: int,
     provider_failure_reason: str,
+    provider_failure_detail: str = "",
 ) -> dict[str, Any] | None:
     result = await finalize_temp_local_refund(
         order_id=order["_id"],
@@ -134,7 +140,7 @@ async def _refund_customer_after_provider_failure(
     )
     if not result.get("success"):
         return None
-    await _notify_support_provider_refund_followup(order, provider_failure_reason)
+    await _notify_support_provider_refund_followup(order, provider_failure_reason, provider_failure_detail=provider_failure_detail)
     return {
         "ok": True,
         "refunded": True,
@@ -143,7 +149,23 @@ async def _refund_customer_after_provider_failure(
     }
 
 
-async def _notify_support_provider_refund_followup(order: dict[str, Any], provider_failure_reason: str) -> None:
+def _provider_failure_detail(exc: Exception) -> str:
+    status = getattr(exc, "status", None)
+    message = str(getattr(exc, "message", "") or str(exc) or "").strip()
+    parts: list[str] = []
+    if status is not None:
+        parts.append(str(status))
+    if message:
+        parts.append(message)
+    return " ".join(parts)[:500]
+
+
+async def _notify_support_provider_refund_followup(
+    order: dict[str, Any],
+    provider_failure_reason: str,
+    *,
+    provider_failure_detail: str = "",
+) -> None:
     token = support_bridge_token()
     if not token:
         return
@@ -170,6 +192,8 @@ async def _notify_support_provider_refund_followup(order: dict[str, Any], provid
         f"Number: {number}\n"
         f"Reason: {str(provider_failure_reason or 'provider_cancel_failed')[:300]}"
     )
+    if str(provider_failure_detail or "").strip():
+        text += f"\nProvider error: {str(provider_failure_detail).strip()[:500]}"
 
     bot = Bot(token=token)
     try:
