@@ -1785,6 +1785,15 @@ def test_order_payload_can_split_number_by_known_prefix_without_country_context(
     assert payload["number_local"] == "63978993"
 
 
+def test_country_name_hides_unknown_numeric_internal_code():
+    assert miniapp._country_name("161") == ""
+
+
+def test_country_name_from_number_uses_unique_calling_code():
+    assert miniapp._country_name_from_number("99363978993") == "Turkmenistan"
+    assert miniapp._country_name_from_number("+16105550123") == ""
+
+
 @pytest.mark.asyncio
 async def test_refresh_temp_order_refunds_old_missing_provider_order(monkeypatch):
     now = datetime.now(UTC)

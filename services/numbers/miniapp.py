@@ -52,7 +52,7 @@ from database.orders_repo import (
 from database.user_repo import create_user, get_user, update_user_language
 
 from services.numbers.data.countries import COUNTRIES_LIST
-from services.numbers.data.phone_calling_codes import KNOWN_CALLING_CODES, calling_codes_for_iso
+from services.numbers.data.phone_calling_codes import COUNTRY_CALLING_CODES_BY_ISO, KNOWN_CALLING_CODES, calling_codes_for_iso
 
 from services.numbers.data.states_us import STATES_LIST
 
@@ -1437,6 +1437,10 @@ def _country_name(code: Any, *, fallback: Any = "") -> str:
 
             return str(item.get("name") or raw)
 
+    if raw.isdigit():
+
+        return ""
+
     return str(fallback or raw)
 
 def _state_name(code: Any) -> str:
@@ -1459,9 +1463,27 @@ def _country_name_from_number(number: Any) -> str:
 
     digits = "".join(ch for ch in str(number or "") if ch.isdigit())
 
-    if digits.startswith("30"):
+    if digits.startswith("00"):
 
-        return "Greece"
+        digits = digits[2:]
+
+    for calling_code in KNOWN_CALLING_CODES:
+
+        if not digits.startswith(calling_code):
+
+            continue
+
+        matching_isos = [iso for iso, codes in COUNTRY_CALLING_CODES_BY_ISO.items() if calling_code in codes]
+
+        if len(matching_isos) != 1:
+
+            continue
+
+        for item in COUNTRIES_LIST:
+
+            if str(item.get("iso") or "").strip().upper() == matching_isos[0]:
+
+                return str(item.get("name") or "")
 
     return ""
 
