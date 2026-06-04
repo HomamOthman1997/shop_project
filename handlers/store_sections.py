@@ -2536,6 +2536,11 @@ def _manual_topup_notification_payload(
     params = [f"- {str(key).replace('_', ' ').title()}: {value}" for key, value in dict(player_data or {}).items() if str(value).strip()]
     vouchers = [f"- {line}" for line in list(delivery_lines or []) if str(line).strip()]
     offer = dict(provider_offer or {})
+    attempted_offers = [
+        dict(row)
+        for row in list(order.get("provider_offers_attempted") or [])
+        if isinstance(row, dict)
+    ]
     source_url = str(offer.get("source_url") or order.get("provider_source_url") or "").strip()
     provider_ref_id = str(offer.get("ref_id") or order.get("provider_ref_id") or "").strip()
     source_product = str(offer.get("source_product_name") or offer.get("product_name") or "").strip()
@@ -2559,6 +2564,11 @@ def _manual_topup_notification_payload(
         lines.append(f"Provider cost: {format_usd(float(_money_decimal(provider_price)))}")
     if source_url:
         lines.append(f"Source URL: {source_url}")
+    option_lines = _manual_execution_option_lines(attempted_offers or ([offer] if offer else []))
+    if option_lines:
+        lines.append("")
+        lines.append("Execution options:")
+        lines.extend(option_lines)
     if params:
         lines.append("")
         lines.append("Customer data:")
@@ -2585,6 +2595,60 @@ def _manual_topup_notification_payload(
     return "\n".join(lines), markup
 
 
+def _manual_execution_option_lines(offers: list[dict[str, Any]]) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for offer in offers:
+        provider = str(offer.get("provider") or "-").strip() or "-"
+        ref_id = str(offer.get("ref_id") or offer.get("provider_ref_id") or "").strip()
+        source_url = str(offer.get("source_url") or "").strip()
+        mode = str(offer.get("fulfillment_mode") or "").strip()
+        price_raw = offer.get("price")
+        try:
+            price_label = format_usd(float(_money_decimal(price_raw or 0)))
+        except Exception:
+            price_label = "-"
+        source_name = str(offer.get("source_product_name") or offer.get("product_name") or "").strip()
+        denom = str(offer.get("source_denomination_name") or offer.get("name") or "").strip()
+        key = "|".join([provider, ref_id, price_label, source_url])
+        if key in seen:
+            continue
+        seen.add(key)
+        detail_parts = [provider, price_label]
+        if mode:
+            detail_parts.append(mode)
+        if ref_id:
+            detail_parts.append(f"ref={ref_id}")
+        if source_name or denom:
+            detail_parts.append(" / ".join(part for part in (source_name, denom) if part))
+        if source_url:
+            detail_parts.append(source_url)
+        rows.append(f"- {' | '.join(detail_parts)}")
+    return rows[:8]
+
+
+def _manual_processing_text(lang: str, *, item_name: str, order_id: str) -> str:
+    if str(lang or "").lower().startswith("ar"):
+        return f"تم استلام طلبك وهو قيد المعالجة الآن.\nالخدمة: {item_name}\nرقم الطلب: {order_id}"
+    return f"Your order was claimed by support and is now processing.\nItem: {item_name}\nOrder: {order_id}"
+
+
+async def _notify_manual_processing_user(bot: types.Bot, order: dict[str, Any]) -> None:
+    user_id = int(order.get("user_id") or 0)
+    if user_id <= 0:
+        return
+    user = await get_user(user_id)
+    lang = (user or {}).get("language", "en")
+    item_name = str(order.get("manual_item_name") or order.get("service_ref_id") or "-")
+    try:
+        await bot.send_message(
+            chat_id=user_id,
+            text=_manual_processing_text(lang, item_name=item_name, order_id=str(order.get("_id") or "")),
+        )
+    except Exception:
+        pass
+
+
 async def _mark_manual_digital_topup_route(callback: types.CallbackQuery, *, route: str, status: str, label: str) -> None:
     if not _owner_action_allowed(int(callback.from_user.id)):
         return await callback.answer("Unauthorized", show_alert=True)
@@ -2604,6 +2668,8 @@ async def _mark_manual_digital_topup_route(callback: types.CallbackQuery, *, rou
             "manual_route_updated_at": now,
         },
     )
+    if route == "manual_claimed":
+        await _notify_manual_processing_user(callback.bot, order)
     if callback.message:
         try:
             await callback.message.edit_text(f"{callback.message.text or ''}\n\nRoute: {label}")

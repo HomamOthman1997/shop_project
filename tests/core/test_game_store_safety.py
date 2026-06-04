@@ -175,6 +175,61 @@ async def test_manual_topup_notification_falls_back_to_owner_dm(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_claim_manual_topup_notifies_customer_processing(monkeypatch):
+    import handlers.store_sections as store_sections
+
+    calls: dict[str, object] = {}
+    order = {
+        "_id": "order-1",
+        "user_id": 123,
+        "reseller_id": 123,
+        "status": "paid",
+        "fulfillment_mode": store_sections.MANUAL_TOPUP_MODE,
+        "manual_item_name": "1800 UC",
+    }
+
+    async def fake_find(_order_id):
+        return order
+
+    async def fake_update(order_id, payload):
+        calls["update"] = (order_id, payload)
+
+    async def fake_get_user(_user_id):
+        return {"language": "en"}
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            calls["send"] = kwargs
+
+    class FakeMessage:
+        text = "Manual digital top-up pending"
+
+        async def edit_text(self, text):
+            calls["edit"] = text
+
+    class FakeCallback:
+        from_user = SimpleNamespace(id=7417429062)
+        data = "dpm:claim:order-1"
+        bot = FakeBot()
+        message = FakeMessage()
+
+        async def answer(self, text=None, show_alert=None):
+            calls["answer"] = (text, show_alert)
+
+    monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
+    monkeypatch.setattr(store_sections, "_find_order_for_owner_action", fake_find)
+    monkeypatch.setattr(store_sections, "update_order_details", fake_update)
+    monkeypatch.setattr(store_sections, "get_user", fake_get_user)
+
+    await store_sections.claim_manual_digital_topup(FakeCallback())
+
+    assert calls["update"][1]["manual_fulfillment_status"] == "processing"
+    assert calls["send"]["chat_id"] == 123
+    assert "now processing" in calls["send"]["text"]
+    assert calls["answer"] == ("Claimed", None)
+
+
+@pytest.mark.asyncio
 async def test_recover_manual_digital_order_sends_owner_notification(monkeypatch):
     import handlers.store_sections as store_sections
 

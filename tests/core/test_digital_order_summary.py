@@ -48,7 +48,16 @@ def test_manual_topup_notification_includes_provider_source_details():
     from handlers.store_sections import _manual_topup_notification_payload
 
     text, markup = _manual_topup_notification_payload(
-        order={"_id": "order-1", "user_id": 123, "reseller_id": 456},
+        order={
+            "_id": "order-1",
+            "user_id": 123,
+            "reseller_id": 456,
+            "provider_offers_attempted": [
+                {"provider": "g2bulk", "ref_id": "2968", "price": 21.25, "available": True},
+                {"provider": "bittopup", "ref_id": "pubg-mobile-uc#1800", "price": 20.75, "source_url": "https://bittopup.com/pubg/"},
+                {"provider": "future", "ref_id": "pubg-1800", "price": 20.50},
+            ],
+        },
         item_name="60 UC",
         provider_code="bittopup",
         external_order_id="",
@@ -67,6 +76,10 @@ def test_manual_topup_notification_includes_provider_source_details():
     assert "Provider ref: pubg-mobile-uc#60-uc" in text
     assert "Source item: PUBG Mobile UC / 60 UC" in text
     assert "Source URL: https://bittopup.com/pubg-mobile-uc/" in text
+    assert "Execution options:" in text
+    assert "- g2bulk | 21.25" in text and "ref=2968" in text
+    assert "- bittopup | 20.75" in text and "ref=pubg-mobile-uc#1800" in text and "https://bittopup.com/pubg/" in text
+    assert "- future | 20.50" in text and "ref=pubg-1800" in text
     assert markup.inline_keyboard[0][0].callback_data == "dpm:auto:order-1"
     assert markup.inline_keyboard[0][1].callback_data == "dpm:future:order-1"
     assert markup.inline_keyboard[1][0].callback_data == "dpm:claim:order-1"
