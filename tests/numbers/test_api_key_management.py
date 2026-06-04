@@ -61,6 +61,10 @@ async def test_create_key_filters_to_allowed_customer_scopes(monkeypatch):
                 "numbers:orders:replace",
                 "numbers:orders:rental",
                 "numbers:account:read",
+                "digital:account:read",
+                "digital:catalog",
+                "digital:orders:create",
+                "digital:orders:read",
             ],
         }
     ).encode("utf-8")
@@ -73,6 +77,10 @@ async def test_create_key_filters_to_allowed_customer_scopes(monkeypatch):
     assert calls["create"]["user_id"] == 123
     assert calls["create"]["reseller_id"] == 123
     assert calls["create"]["scopes"] == [
+        "digital:account:read",
+        "digital:catalog",
+        "digital:orders:create",
+        "digital:orders:read",
         "numbers:account:read",
         "numbers:orders:create",
         "numbers:orders:refresh",

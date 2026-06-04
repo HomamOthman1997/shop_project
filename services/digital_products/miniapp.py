@@ -36,6 +36,7 @@ from services.digital_products.fulfillment_rules import (
     offer_compare_key,
 )
 from services.digital_products.zendit_client import ZenditClient
+from services.digital_products.api import register_digital_api_routes
 from services.digital_products.esim_route_service import (
     build_single_country_offers_live,
     choose_recommended_offer,
@@ -2035,6 +2036,7 @@ def create_app() -> web.Application:
     register_api_key_routes(app)
     register_webhook_routes(app)
     register_numbers_api_routes(app)
+    register_digital_api_routes(app)
     register_provider_webhook_routes(app)
     register_numbers_routes(app)
     return app

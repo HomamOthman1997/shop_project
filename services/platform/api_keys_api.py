@@ -29,6 +29,10 @@ _ALLOWED_CUSTOMER_SCOPES = {
     "numbers:orders:resend",
     "numbers:orders:replace",
     "numbers:orders:rental",
+    "digital:account:read",
+    "digital:catalog",
+    "digital:orders:read",
+    "digital:orders:create",
     "webhooks:manage",
 }
 
