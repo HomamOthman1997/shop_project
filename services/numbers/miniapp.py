@@ -2939,7 +2939,13 @@ def _order_payload(order: dict[str, Any]) -> dict[str, Any]:
 
     payload["can_refresh"] = public_status in {"waiting", "code_received", "refund_pending"}
 
-    payload["can_cancel"] = bool(public_status == "waiting" and not payload.get("code") and payload.get("number") and payload.get("can_cancel"))
+    provider_code = str((order or {}).get("provider") or (order or {}).get("provisioning_provider") or "").strip()
+    payload["can_cancel"] = bool(
+        public_status == "waiting"
+        and not payload.get("code")
+        and payload.get("number")
+        and provider_code
+    )
 
     payload["cancel_wait_sec"] = 0
 

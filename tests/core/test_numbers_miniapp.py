@@ -1067,6 +1067,30 @@ def test_numbers_temp_waiting_order_hides_test_active_action():
     assert payload["actions"]["cancel"]["confirm_label_key"] == "confirmCancelOrder"
 
 
+def test_numbers_temp_waiting_order_shows_cancel_when_number_is_visible():
+    payload = miniapp._order_payload(
+        {
+            "_id": "temp-order-id",
+            "number_mode": "temp",
+            "status": "success",
+            "provider": "herosms",
+            "provider_number": "+306997781499",
+            "temp_service_key": "whatsapp",
+            "temp_country": "102",
+            "temp_country_name": "Greece",
+            "selling_price": 0.25,
+            "temp_wait_state": "waiting",
+            "temp_codes": [],
+            "temp_codes_count": 0,
+        }
+    )
+
+    assert payload["public_status"] == "waiting"
+    assert payload["number"] == "+306997781499"
+    assert payload["can_cancel"] is True
+    assert payload["actions"]["cancel"]["enabled"] is True
+
+
 def test_numbers_temp_smspool_forex_active_estimate_is_long_unreliable():
     payload = miniapp._order_payload(
         {
