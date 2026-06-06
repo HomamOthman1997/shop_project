@@ -409,6 +409,42 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   flex-wrap: wrap;
   gap: 8px;
 }
+.payment-method-row {
+  border-bottom: 1px solid var(--line);
+  padding: 16px 18px;
+  display: grid;
+  gap: 12px;
+}
+.payment-method-row:last-child { border-bottom: 0; }
+.payment-method-row > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+}
+.payment-method-row span,
+.payment-method-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.payment-target {
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,.14);
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+}
+.payment-target code {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.payment-method-row p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
 .service-list a { color: var(--ink); text-decoration: none; }
 .service-list a:hover { background: rgba(255,255,255,.065); }
 .service-list a.locked { cursor: not-allowed; opacity: .62; }
@@ -993,6 +1029,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   .data-row, .service-list a, .settings-row { align-items: flex-start; flex-direction: column; }
   .order-row-button { align-items: stretch; }
   .order-meta-grid { grid-template-columns: 1fr; }
+  .payment-method-row > div:first-child { align-items: flex-start; flex-direction: column; }
   .settings-row > button, .settings-row > .primary, .settings-row > .secondary { width: 100%; }
   .email-code-row input { max-width: 100%; }
   .service-hero {

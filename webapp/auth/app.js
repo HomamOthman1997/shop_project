@@ -202,8 +202,63 @@ async function loadDashboard() {
       ...digitalRows.map((row) => ({ ...row, channel: "رقمي", channel_key: "digital" })),
       ...numberRows.map((row) => ({ ...row, channel: "أرقام", channel_key: "numbers" })),
     ]);
+    loadAccountExtras();
   } catch (error) {
     activity.textContent = "تعذر تحميل بيانات الحساب حاليا.";
+  }
+}
+
+async function loadAccountExtras() {
+  const rechargeTarget = $("#recharge-list");
+  const supportTarget = $("#support-list");
+  try {
+    const [recharge, support] = await Promise.all([
+      api("/api/v1/numbers/recharge"),
+      api("/api/v1/numbers/support"),
+    ]);
+    renderRechargeOptions(recharge);
+    renderSupportOptions(support);
+  } catch (error) {
+    if (rechargeTarget) rechargeTarget.textContent = "تعذر تحميل طرق الشحن حاليا.";
+    if (supportTarget) supportTarget.textContent = "تعذر تحميل خيارات الدعم حاليا.";
+  }
+}
+
+function renderRechargeOptions(payload) {
+  const target = $("#recharge-list");
+  const methods = payload.methods || [];
+  const canSubmitProof = Boolean(payload.capabilities?.submit_recharge_proof);
+  renderRows(target, methods, (method) => `
+    <div class="payment-method-row">
+      <div>
+        <strong>${esc(method.title || method.code || "طريقة دفع")}</strong>
+        <span>${esc(method.rate_label || "")}</span>
+      </div>
+      <div class="payment-target">
+        <span>بيانات الدفع</span>
+        <code>${esc(method.target || "-")}</code>
+      </div>
+      ${method.instructions ? `<p>${esc(method.instructions)}</p>` : ""}
+      ${method.support ? `<small>الدعم: ${esc(method.support)}</small>` : ""}
+    </div>`);
+  if (!methods.length) target.textContent = "لا توجد طرق شحن متاحة حالياً.";
+  else if (!canSubmitProof) {
+    target.insertAdjacentHTML("afterbegin", '<div class="notice">يمكنك نسخ بيانات الدفع من هنا. إرسال إثبات الدفع من الموقع غير مفعّل بعد، لذلك أرسل الإثبات عبر Telegram أو الدعم بعد التحويل.</div>');
+  }
+}
+
+function renderSupportOptions(payload) {
+  const target = $("#support-list");
+  const rows = payload.categories || [];
+  const submitEnabled = Boolean(payload.actions?.submit_ticket?.enabled);
+  renderRows(target, rows, (row) => `
+    <div class="data-row">
+      <div><strong>${esc(row.label || row.key || "Support")}</strong><span>${submitEnabled ? "يمكن فتح تذكرة من الموقع" : "فتح التذكرة حالياً عبر Telegram"}</span></div>
+      <b>${esc(row.key || "")}</b>
+    </div>`);
+  if (!rows.length) target.textContent = "لا توجد قنوات دعم مفعّلة حالياً.";
+  else if (!submitEnabled) {
+    target.insertAdjacentHTML("afterbegin", '<div class="notice">فتح التذاكر من الموقع غير مفعّل بعد. استخدم Telegram حالياً للمتابعة مع الدعم.</div>');
   }
 }
 
