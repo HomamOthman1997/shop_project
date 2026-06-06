@@ -315,10 +315,16 @@ function renderDigitalCatalog(payload) {
     const filter = (row) => !query || JSON.stringify(row).toLowerCase().includes(query);
     $("#digital-games").innerHTML = games.filter(filter).slice(0, 80).map((row) => digitalItemButton("game", row)).join("")
       || '<div class="service-muted">لا توجد ألعاب مطابقة.</div>';
-    $("#digital-products").innerHTML = products.filter(filter).slice(0, 80).map((row) => digitalItemButton("product", row)).join("")
+    $("#digital-products").innerHTML = products.filter(filter).sort(compareDigitalAvailability).slice(0, 80).map((row) => digitalItemButton("product", row)).join("")
       || '<div class="service-muted">لا توجد خدمات مطابقة.</div>';
     root.querySelectorAll("[data-digital-kind]").forEach((button) => {
-      button.addEventListener("click", () => loadDigitalQuotes(button.dataset.digitalKind, button.dataset.digitalId));
+      button.addEventListener("click", () => {
+        if (button.dataset.unavailable === "1") {
+          $("#digital-detail").innerHTML = '<div class="service-empty">هذه الخدمة غير متاحة حالياً لأنها بدون مصدر أسعار فعال.</div>';
+          return;
+        }
+        loadDigitalQuotes(button.dataset.digitalKind, button.dataset.digitalId);
+      });
     });
   };
   $("#digital-search").addEventListener("input", renderItems);
@@ -326,13 +332,36 @@ function renderDigitalCatalog(payload) {
   renderItems();
 }
 
+function compareDigitalAvailability(left, right) {
+  const leftAvailable = digitalProductAvailable(left) ? 1 : 0;
+  const rightAvailable = digitalProductAvailable(right) ? 1 : 0;
+  if (leftAvailable !== rightAvailable) return rightAvailable - leftAvailable;
+  return String(localized(left.label, left.name || left.id)).localeCompare(String(localized(right.label, right.name || right.id)), "ar");
+}
+
+function digitalProductAvailable(row) {
+  if (!row) return false;
+  if (row.orderable === false) return false;
+  if ("sources_count" in row) return Number(row.sources_count || 0) > 0;
+  return true;
+}
+
 function digitalItemButton(kind, row) {
   const name = localized(row.label, row.name || row.title || row.id);
   const meta = localized(row.category_label, row.category || row.provider || kind);
+  const isProduct = kind === "product";
+  const available = !isProduct || digitalProductAvailable(row);
+  const sourcesCount = Number(row.sources_count || 0);
+  const status = isProduct ? (available ? "متاح" : "غير متاح") : "";
+  const sourceText = isProduct && sourcesCount > 0 ? `${sourcesCount} source${sourcesCount > 1 ? "s" : ""}` : meta;
   return `
-    <button class="mini-card" type="button" data-digital-kind="${esc(kind)}" data-digital-id="${esc(row.id)}">
-      <strong>${esc(name)}</strong>
-      <span>${esc(meta)}</span>
+    <button class="mini-card ${available ? "is-available" : "is-unavailable"}" type="button" data-digital-kind="${esc(kind)}" data-digital-id="${esc(row.id)}" ${available ? "" : 'data-unavailable="1" aria-disabled="true"'}>
+      <span class="product-icon">${esc(name.slice(0, 1).toUpperCase())}</span>
+      <span class="product-copy">
+        <strong>${esc(name)}</strong>
+        <span>${esc(sourceText)}</span>
+      </span>
+      ${isProduct ? `<b class="availability">${esc(status)}</b>` : ""}
     </button>`;
 }
 
