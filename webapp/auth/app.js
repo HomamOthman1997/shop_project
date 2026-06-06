@@ -1,23 +1,30 @@
-const authView = document.querySelector("#auth-view");
-const verifyView = document.querySelector("#verify-view");
-const accountView = document.querySelector("#account-view");
-const form = document.querySelector("#auth-form");
-const emailInput = document.querySelector("#email");
-const passwordInput = document.querySelector("#password");
-const formError = document.querySelector("#form-error");
-const submitButton = document.querySelector("#submit-button");
-const telegramAction = document.querySelector("#telegram-action");
-const accountMessage = document.querySelector("#account-message");
-const sendEmailCodeButton = document.querySelector("#send-email-code");
-const verifyEmailCodeButton = document.querySelector("#verify-email-code");
-const verifySendEmailCodeButton = document.querySelector("#verify-send-email-code");
-const verifyEmailCodeSubmit = document.querySelector("#verify-email-code-button");
+const $ = (selector) => document.querySelector(selector);
+
+const authView = $("#auth-view");
+const verifyView = $("#verify-view");
+const accountView = $("#account-view");
+const form = $("#auth-form");
+const emailInput = $("#email");
+const passwordInput = $("#password");
+const formError = $("#form-error");
+const submitButton = $("#submit-button");
+const telegramAction = $("#telegram-action");
+const accountMessage = $("#account-message");
+const sendEmailCodeButton = $("#send-email-code");
+const verifyEmailCodeButton = $("#verify-email-code");
+const verifySendEmailCodeButton = $("#verify-send-email-code");
+const verifyEmailCodeSubmit = $("#verify-email-code-button");
+
 let mode = "login";
 let currentAccount = null;
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;",
   })[char]);
 }
 
@@ -30,12 +37,28 @@ async function api(path, options = {}) {
   const method = options.method || "GET";
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers["X-CSRF-Token"] = csrfToken();
-  const response = await fetch(path, { credentials: "same-origin", ...options, method, headers });
-  const text = await response.text();
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs || 20000);
+  let response;
+  let text = "";
+  try {
+    response = await fetch(path, { credentials: "same-origin", ...options, method, headers, signal: controller.signal });
+    text = await response.text();
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error("انتهت مهلة الطلب، حاول مرة أخرى.");
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch { data = {}; }
   if (!response.ok) throw new Error(data.message || text || "تعذر إكمال الطلب");
   return data;
+}
+
+function setText(selector, value) {
+  const node = $(selector);
+  if (node) node.textContent = value;
 }
 
 function showVerifyOnly(account) {
@@ -43,10 +66,10 @@ function showVerifyOnly(account) {
   authView.hidden = true;
   accountView.hidden = true;
   verifyView.hidden = false;
-  document.querySelector(".form-wrap").classList.remove("dashboard-mode");
-  document.querySelector("#verify-email").textContent = account.email || "";
-  document.querySelector("#verify-code-row").hidden = true;
-  document.querySelector("#verify-message").textContent = "";
+  $(".form-wrap").classList.remove("dashboard-mode");
+  setText("#verify-email", account.email || "");
+  $("#verify-code-row").hidden = true;
+  setText("#verify-message", "");
 }
 
 function showAccount(account) {
@@ -55,14 +78,15 @@ function showAccount(account) {
     showVerifyOnly(account);
     return;
   }
+
   authView.hidden = true;
   verifyView.hidden = true;
   accountView.hidden = false;
-  document.querySelector(".form-wrap").classList.add("dashboard-mode");
-  document.querySelector("#account-email").textContent = account.email;
-  document.querySelector("#settings-email").textContent = account.email;
-  document.querySelector("#customer-id").textContent = account.customer_id;
-  document.querySelector("#telegram-status").textContent = account.telegram_linked ? "مربوط" : "غير مربوط";
+  $(".form-wrap").classList.add("dashboard-mode");
+  setText("#account-email", account.email);
+  setText("#settings-email", account.email);
+  setText("#customer-id", account.customer_id);
+  setText("#telegram-status", account.telegram_linked ? "مربوط" : "غير مربوط");
   telegramAction.textContent = account.telegram_linked ? "فك الربط" : "ربط Telegram";
   applyEmailState(account);
   applyIdentityState(account.identity_status);
@@ -71,10 +95,13 @@ function showAccount(account) {
 
 function applyEmailState(account) {
   const verified = Boolean(account.email_verified);
-  document.querySelector("#email-status").textContent = verified ? "مؤكد" : "غير مؤكد";
-  document.querySelector("#email-verification-row").hidden = verified;
-  document.querySelector("#email-code-row").hidden = true;
-  document.querySelector("#purchase-readiness").hidden = verified;
+  setText("#email-status", verified ? "مؤكد" : "غير مؤكد");
+  const row = $("#email-verification-row");
+  if (row) row.hidden = verified;
+  const codeRow = $("#email-code-row");
+  if (codeRow) codeRow.hidden = true;
+  const readiness = $("#purchase-readiness");
+  if (readiness) readiness.hidden = verified;
 }
 
 async function sendEmailCode({ button, codeRow, message }) {
@@ -85,12 +112,14 @@ async function sendEmailCode({ button, codeRow, message }) {
     if (data.status === "already_verified") {
       const fresh = await api("/api/v1/auth/me");
       showAccount(fresh.account);
-      message.textContent = "البريد مؤكد مسبقاً.";
+      message.textContent = "البريد مؤكد مسبقا.";
       return;
     }
     codeRow.hidden = false;
     const debug = data.debug_code ? ` كود الاختبار: ${data.debug_code}` : "";
-    message.textContent = data.status === "sent" ? "تم إرسال كود التأكيد إلى بريدك." : `تم إنشاء الكود.${debug}`;
+    message.textContent = data.status === "sent"
+      ? "تم إرسال كود التأكيد إلى بريدك."
+      : `تم إنشاء الكود.${debug}`;
   } catch (error) {
     message.textContent = error.message;
   } finally {
@@ -109,7 +138,9 @@ async function verifyEmailCode({ button, input, message }) {
     showAccount(data.account);
     message.textContent = "تم تأكيد البريد.";
   } catch (error) {
-    message.textContent = error.message === "invalid or expired code" ? "الكود غير صحيح أو منتهي." : error.message;
+    message.textContent = error.message === "invalid or expired code"
+      ? "الكود غير صحيح أو منتهي."
+      : error.message;
   } finally {
     button.disabled = false;
   }
@@ -125,67 +156,395 @@ const identityLabels = {
 
 function applyIdentityState(status) {
   const label = identityLabels[status] || status;
-  document.querySelector("#identity-status").textContent = label;
-  document.querySelector("#identity-summary").textContent = label;
-  const identityForm = document.querySelector("#identity-form");
-  identityForm.hidden = ["pending", "approved"].includes(status);
-  const cardexLink = document.querySelector("#cardex-link");
+  setText("#identity-status", label);
+  setText("#identity-summary", label);
+  const identityForm = $("#identity-form");
+  if (identityForm) identityForm.hidden = ["pending", "approved"].includes(status);
+
+  const cardexLink = $("#cardex-link");
+  if (!cardexLink) return;
   const allowed = status === "approved";
   cardexLink.classList.toggle("locked", !allowed);
   cardexLink.href = allowed ? "/mini/cardex" : "#";
-  cardexLink.querySelector("b").textContent = allowed ? "فتح" : "مقفل";
-  document.querySelector("#cardex-reason").textContent = allowed ? "بيع البطاقات والسحب" : "يتطلب تأكيد الهوية";
+  const marker = cardexLink.querySelector("b");
+  if (marker) marker.textContent = allowed ? "فتح" : "مقفل";
+  setText("#cardex-reason", allowed ? "بيع البطاقات والسحب" : "يتطلب تأكيد الهوية");
 }
 
 function renderRows(target, rows, formatter) {
   target.classList.toggle("empty", !rows.length);
-  target.innerHTML = rows.length ? rows.map(formatter).join("") : "لا توجد بيانات حتى الآن.";
+  target.innerHTML = rows.length
+    ? rows.map(formatter).join("")
+    : "لا توجد بيانات حتى الآن.";
 }
 
 async function loadDashboard() {
-  const activity = document.querySelector("#activity-list");
+  const activity = $("#activity-list");
   try {
     const [digitalAccount, digitalOrders, numberOrders] = await Promise.all([
       api("/api/v1/digital/account"),
       api("/api/v1/digital/orders?limit=20"),
       api("/api/v1/numbers/orders?limit=20"),
     ]);
-    document.querySelector("#wallet-balance").textContent = digitalAccount.wallet?.balance_label || "$0.00";
+    setText("#wallet-balance", digitalAccount.wallet?.balance_label || "$0.00");
+
     const digitalRows = digitalOrders.orders || digitalOrders.items || [];
     const numberRows = numberOrders.orders || numberOrders.items || [];
-    document.querySelector("#digital-order-count").textContent = digitalRows.length;
-    document.querySelector("#numbers-order-count").textContent = numberRows.length;
+    setText("#digital-order-count", digitalRows.length);
+    setText("#numbers-order-count", numberRows.length);
+
     renderRows(activity, digitalAccount.recent_activity || [], (row) => `
-      <div class="data-row"><div><strong>${esc(row.reason || "حركة رصيد")}</strong><span>${esc(row.created_at || "")}</span></div><b>${row.direction === "debit" ? "-" : "+"}${esc(row.amount_label || "")}</b></div>`);
-    renderOrders([...digitalRows.map((row) => ({ ...row, channel: "رقمي" })), ...numberRows.map((row) => ({ ...row, channel: "أرقام" }))]);
+      <div class="data-row">
+        <div><strong>${esc(row.reason || "حركة رصيد")}</strong><span>${esc(row.created_at || "")}</span></div>
+        <b>${row.direction === "debit" ? "-" : "+"}${esc(row.amount_label || "")}</b>
+      </div>`);
+    renderOrders([
+      ...digitalRows.map((row) => ({ ...row, channel: "رقمي" })),
+      ...numberRows.map((row) => ({ ...row, channel: "أرقام" })),
+    ]);
   } catch (error) {
-    activity.textContent = "تعذر تحميل بيانات الحساب حالياً.";
+    activity.textContent = "تعذر تحميل بيانات الحساب حاليا.";
   }
 }
 
 function renderOrders(rows) {
-  const target = document.querySelector("#orders-list");
+  const target = $("#orders-list");
   renderRows(target, rows, (row) => `
-    <div class="data-row"><div><strong>${esc(row.title || row.service_name || row.service_id || "طلب")}</strong><span>${esc(row.channel)} · ${esc(row.created_at || "")}</span></div><b>${esc(row.status || "")}</b></div>`);
+    <div class="data-row">
+      <div>
+        <strong>${esc(row.title || row.service_name || row.service_id || "طلب")}</strong>
+        <span>${esc(row.channel)} · ${esc(row.created_at || "")}</span>
+      </div>
+      <b>${esc(row.status || "")}</b>
+    </div>`);
 }
 
-document.querySelectorAll(".nav-item[data-view]").forEach((button) => button.addEventListener("click", () => {
-  const view = button.dataset.view;
-  document.querySelectorAll(".nav-item[data-view]").forEach((item) => item.classList.toggle("active", item === button));
-  document.querySelectorAll(".app-view").forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === view));
-  document.querySelector("#view-title").textContent = button.textContent;
-}));
+function localized(value, fallback = "") {
+  if (value && typeof value === "object") return value.ar || value.en || Object.values(value)[0] || fallback;
+  return value || fallback;
+}
 
-document.querySelector("#cardex-link").addEventListener("click", (event) => {
+function serviceRoot() {
+  return $("#service-root");
+}
+
+function serviceLoading(label) {
+  const root = serviceRoot();
+  if (root) root.innerHTML = `<div class="service-loader">${esc(label || "جاري التحميل...")}</div>`;
+}
+
+function serviceError(message, retry) {
+  const root = serviceRoot();
+  if (!root) return;
+  root.innerHTML = `
+    <div class="service-empty">
+      <strong>تعذر تحميل الخدمة</strong>
+      <span>${esc(message)}</span>
+      ${retry ? '<button class="secondary compact" type="button" data-service-retry>إعادة المحاولة</button>' : ""}
+    </div>`;
+  root.querySelector("[data-service-retry]")?.addEventListener("click", retry);
+}
+
+function idempotencyKey(prefix) {
+  if (window.crypto?.randomUUID) return `${prefix}-${window.crypto.randomUUID()}`;
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function fieldsFormHtml(fields, fallback = []) {
+  const rows = (fields && fields.length ? fields : fallback).map((field) => {
+    const id = String(field.id || field.key || "").trim();
+    if (!id) return "";
+    const label = localized(field.label, id);
+    const required = field.required === false ? "" : "required";
+    return `
+      <label>
+        <span>${esc(label)}${required ? " *" : ""}</span>
+        <input name="${esc(id)}" ${required} autocomplete="off">
+      </label>`;
+  });
+  return rows.join("");
+}
+
+function fieldData(form) {
+  return Object.fromEntries([...new FormData(form).entries()].map(([key, value]) => [key, String(value).trim()]));
+}
+
+async function loadDigitalWorkspace() {
+  serviceLoading("جاري تحميل المنتجات الرقمية...");
+  try {
+    const payload = await api("/api/v1/digital/catalog");
+    renderDigitalCatalog(payload);
+  } catch (error) {
+    serviceError(error.message, loadDigitalWorkspace);
+  }
+}
+
+function renderDigitalCatalog(payload) {
+  const root = serviceRoot();
+  const products = payload.products || [];
+  const games = payload.games || [];
+  root.innerHTML = `
+    <div class="service-toolbar">
+      <input id="digital-search" type="search" placeholder="ابحث عن لعبة أو خدمة">
+      <button class="secondary compact" type="button" data-digital-refresh>تحديث</button>
+    </div>
+    <div class="service-split">
+      <div class="service-list-panel">
+        <h4>الألعاب</h4>
+        <div class="service-grid" id="digital-games"></div>
+        <h4>الخدمات الرقمية</h4>
+        <div class="service-grid" id="digital-products"></div>
+      </div>
+      <div class="service-detail" id="digital-detail">
+        <div class="service-empty">اختر خدمة لعرض الباقات والأسعار.</div>
+      </div>
+    </div>`;
+
+  const renderItems = () => {
+    const query = $("#digital-search").value.trim().toLowerCase();
+    const filter = (row) => !query || JSON.stringify(row).toLowerCase().includes(query);
+    $("#digital-games").innerHTML = games.filter(filter).slice(0, 80).map((row) => digitalItemButton("game", row)).join("")
+      || '<div class="service-muted">لا توجد ألعاب مطابقة.</div>';
+    $("#digital-products").innerHTML = products.filter(filter).slice(0, 80).map((row) => digitalItemButton("product", row)).join("")
+      || '<div class="service-muted">لا توجد خدمات مطابقة.</div>';
+    root.querySelectorAll("[data-digital-kind]").forEach((button) => {
+      button.addEventListener("click", () => loadDigitalQuotes(button.dataset.digitalKind, button.dataset.digitalId));
+    });
+  };
+  $("#digital-search").addEventListener("input", renderItems);
+  root.querySelector("[data-digital-refresh]").addEventListener("click", loadDigitalWorkspace);
+  renderItems();
+}
+
+function digitalItemButton(kind, row) {
+  const name = localized(row.label, row.name || row.title || row.id);
+  const meta = localized(row.category_label, row.category || row.provider || kind);
+  return `
+    <button class="mini-card" type="button" data-digital-kind="${esc(kind)}" data-digital-id="${esc(row.id)}">
+      <strong>${esc(name)}</strong>
+      <span>${esc(meta)}</span>
+    </button>`;
+}
+
+async function loadDigitalQuotes(kind, id) {
+  const detail = $("#digital-detail");
+  detail.innerHTML = `<div class="service-loader">جاري تحميل الباقات...</div>`;
+  try {
+    const path = `/api/v1/digital/quotes?kind=${encodeURIComponent(kind)}&${kind === "game" ? "game_id" : "product_id"}=${encodeURIComponent(id)}`;
+    const payload = await api(path);
+    renderDigitalQuotes(kind, id, payload);
+  } catch (error) {
+    detail.innerHTML = `<div class="service-empty">${esc(error.message)}</div>`;
+  }
+}
+
+function renderDigitalQuotes(kind, id, payload) {
+  const detail = $("#digital-detail");
+  const offers = payload.offers || payload.items || [];
+  const title = localized(payload.product?.label || payload.game?.label, payload.product?.name || payload.game?.name || id);
+  detail.innerHTML = `
+    <div class="service-detail-head">
+      <div><h4>${esc(title)}</h4><span>${kind === "game" ? "Game top-up" : "Digital product"}</span></div>
+    </div>
+    <div class="quote-list">
+      ${offers.length ? offers.map((offer, index) => digitalOfferHtml(kind, offer, index)).join("") : '<div class="service-empty">لا توجد باقات متاحة حالياً.</div>'}
+    </div>`;
+  detail.querySelectorAll("[data-digital-offer]").forEach((button) => {
+    button.addEventListener("click", () => renderDigitalOrderForm(kind, offers[Number(button.dataset.digitalOffer)], () => renderDigitalQuotes(kind, id, payload)));
+  });
+}
+
+function digitalOfferHtml(kind, offer, index) {
+  const name = offer.item_name || offer.name || offer.title || offer.package_name || "Package";
+  const price = offer.sale_price_label || offer.price_label || (offer.sale_price ? `$${Number(offer.sale_price).toFixed(2)}` : "-");
+  return `
+    <button class="quote-row" type="button" data-digital-offer="${index}">
+      <div><strong>${esc(name)}</strong><span>${esc(offer.duration || offer.provider || kind)}</span></div>
+      <b>${esc(price)}</b>
+    </button>`;
+}
+
+function renderDigitalOrderForm(kind, offer, back) {
+  const detail = $("#digital-detail");
+  const fallback = kind === "game"
+    ? [{ id: "player_id", label: "Player ID", required: true }, { id: "server_id", label: "Server ID", required: false }]
+    : [{ id: "account", label: "بيانات الحساب", required: true }];
+  detail.innerHTML = `
+    <form class="service-order-form" id="digital-order-form">
+      <div class="service-detail-head">
+        <div><h4>${esc(offer.item_name || offer.name || "تأكيد الطلب")}</h4><span>${esc(offer.sale_price_label || offer.price_label || "")}</span></div>
+        <button class="secondary compact" type="button" data-back-quotes>رجوع</button>
+      </div>
+      ${fieldsFormHtml(offer.input_fields, fallback)}
+      <p class="message">سيتم خصم قيمة الطلب من محفظتك بعد التأكيد.</p>
+      <button class="primary" type="submit">تأكيد الطلب</button>
+      <p class="message" id="digital-order-message"></p>
+    </form>`;
+  detail.querySelector("[data-back-quotes]").addEventListener("click", back);
+  $("#digital-order-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = $("#digital-order-message");
+    message.textContent = "";
+    const values = fieldData(event.currentTarget);
+    const body = kind === "game"
+      ? { quote_token: offer.quote_token, player_id: values.player_id, server_id: values.server_id, customer_data: values }
+      : { quote_token: offer.quote_token, customer_data: values };
+    try {
+      const result = await api("/api/v1/digital/orders", {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey("digital") },
+        body: JSON.stringify(body),
+      });
+      message.textContent = `تم إنشاء الطلب: ${result.order?.id || ""}`;
+      await loadDashboard();
+    } catch (error) {
+      message.textContent = error.message;
+    }
+  });
+}
+
+async function loadNumbersWorkspace() {
+  serviceLoading("جاري تحميل خدمات الأرقام...");
+  try {
+    const payload = await api("/api/v1/numbers/catalog/bootstrap");
+    renderNumbersCatalog(payload);
+  } catch (error) {
+    serviceError(error.message, loadNumbersWorkspace);
+  }
+}
+
+function renderNumbersCatalog(payload) {
+  const root = serviceRoot();
+  const services = payload.services || [];
+  const countries = payload.countries || [];
+  const states = payload.states_us || [];
+  const modes = payload.modes || [];
+  root.innerHTML = `
+    <form class="numbers-picker" id="numbers-picker">
+      <label><span>نوع الرقم</span><select name="mode">${modes.map((row) => `<option value="${esc(row.key)}">${esc(localized(row.label, row.key))}</option>`).join("")}</select></label>
+      <label><span>الخدمة</span><select name="service">${services.map((row) => `<option value="${esc(row.key)}">${esc(localized(row.label, row.name || row.key))}</option>`).join("")}</select></label>
+      <label><span>الدولة</span><select name="country">${countries.map((row) => `<option value="${esc(row.code)}">${esc(localized(row.label, row.name || row.code))}</option>`).join("")}</select></label>
+      <label><span>الولاية</span><select name="state">${states.map((row) => `<option value="${esc(row.code)}">${esc(localized(row.label, row.name || row.code))}</option>`).join("")}</select></label>
+      <button class="primary" type="submit">عرض الأسعار</button>
+    </form>
+    <div id="numbers-quotes" class="quote-list"><div class="service-empty">اختر الخدمة والدولة لعرض الأسعار.</div></div>`;
+  const serviceSelect = root.querySelector("[name='service']");
+  const preferred = [...serviceSelect.options].find((option) => option.value === "telegram") || serviceSelect.options[0];
+  if (preferred) serviceSelect.value = preferred.value;
+  const countrySelect = root.querySelector("[name='country']");
+  if ([...countrySelect.options].some((option) => option.value === "1")) countrySelect.value = "1";
+  $("#numbers-picker").addEventListener("submit", loadNumbersQuotes);
+}
+
+async function loadNumbersQuotes(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = fieldData(form);
+  const target = $("#numbers-quotes");
+  target.innerHTML = '<div class="service-loader">جاري تحميل الأسعار...</div>';
+  const params = new URLSearchParams(values);
+  try {
+    const payload = await api(`/api/v1/numbers/quotes?${params.toString()}`);
+    renderNumbersQuotes(payload);
+  } catch (error) {
+    target.innerHTML = `<div class="service-empty">${esc(error.message)}</div>`;
+  }
+}
+
+function renderNumbersQuotes(payload) {
+  const target = $("#numbers-quotes");
+  const rows = [];
+  (payload.providers || []).forEach((provider) => {
+    if (Array.isArray(provider.options)) {
+      provider.options.forEach((option) => rows.push({ ...option, provider: provider.provider, provider_id: provider.provider_id }));
+    } else {
+      rows.push(provider);
+    }
+  });
+  target.innerHTML = rows.length ? rows.map((row, index) => `
+    <button class="quote-row" type="button" data-number-offer="${index}">
+      <div><strong>${esc(row.provider || row.provider_id || "Provider")}</strong><span>${esc(row.duration_label || payload.mode || "")}</span></div>
+      <b>${esc(row.price_label || (row.price ? `$${Number(row.price).toFixed(2)}` : "-"))}</b>
+    </button>`).join("") : '<div class="service-empty">لا توجد أسعار متاحة حالياً.</div>';
+  target.querySelectorAll("[data-number-offer]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = rows[Number(button.dataset.numberOffer)];
+      button.disabled = true;
+      try {
+        const result = await api("/api/v1/numbers/orders", {
+          method: "POST",
+          headers: { "Idempotency-Key": idempotencyKey("numbers") },
+          body: JSON.stringify({ quote_token: row.quote_token, language: "ar" }),
+        });
+        target.insertAdjacentHTML("afterbegin", `<div class="notice">تم إنشاء الطلب: ${esc(result.order?.id || "")}</div>`);
+        await loadDashboard();
+      } catch (error) {
+        target.insertAdjacentHTML("afterbegin", `<div class="notice error">${esc(error.message)}</div>`);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+function openPanel(view, title = "") {
+  document.querySelectorAll(".nav-item[data-view]").forEach((item) => {
+    item.classList.toggle("active", item.dataset.view === view);
+  });
+  document.querySelectorAll(".app-view").forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.panel === view);
+  });
+  if (title) setText("#view-title", title);
+}
+
+function openService(service) {
+  const serviceMap = {
+    digital: {
+      title: "منتجات رقمية",
+      kicker: "DIGITAL PRODUCTS",
+      load: loadDigitalWorkspace,
+    },
+    numbers: {
+      title: "أرقام",
+      kicker: "NUMBERS SERVICE",
+      load: loadNumbersWorkspace,
+    },
+  };
+  const config = serviceMap[service];
+  if (!config) return;
+  setText("#workspace-title", config.title);
+  setText("#workspace-kicker", config.kicker);
+  openPanel("workspace", config.title);
+  config.load();
+}
+
+document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const view = button.dataset.view;
+    if (view !== "workspace" && serviceRoot()) serviceRoot().innerHTML = "";
+    openPanel(view, button.textContent.trim());
+  });
+});
+
+document.querySelectorAll("[data-open-service]").forEach((button) => {
+  button.addEventListener("click", () => openService(button.dataset.openService));
+});
+
+$("#workspace-close")?.addEventListener("click", () => {
+  if (serviceRoot()) serviceRoot().innerHTML = "";
+  openPanel("home", "الخدمات");
+});
+
+$("#cardex-link")?.addEventListener("click", (event) => {
   if (event.currentTarget.classList.contains("locked")) event.preventDefault();
 });
 
-document.querySelector("#refresh-orders").addEventListener("click", loadDashboard);
+$("#refresh-orders")?.addEventListener("click", loadDashboard);
 
 sendEmailCodeButton.addEventListener("click", async () => {
   await sendEmailCode({
     button: sendEmailCodeButton,
-    codeRow: document.querySelector("#email-code-row"),
+    codeRow: $("#email-code-row"),
     message: accountMessage,
   });
 });
@@ -193,7 +552,7 @@ sendEmailCodeButton.addEventListener("click", async () => {
 verifyEmailCodeButton.addEventListener("click", async () => {
   await verifyEmailCode({
     button: verifyEmailCodeButton,
-    input: document.querySelector("#email-code"),
+    input: $("#email-code"),
     message: accountMessage,
   });
 });
@@ -201,20 +560,20 @@ verifyEmailCodeButton.addEventListener("click", async () => {
 verifySendEmailCodeButton.addEventListener("click", async () => {
   await sendEmailCode({
     button: verifySendEmailCodeButton,
-    codeRow: document.querySelector("#verify-code-row"),
-    message: document.querySelector("#verify-message"),
+    codeRow: $("#verify-code-row"),
+    message: $("#verify-message"),
   });
 });
 
 verifyEmailCodeSubmit.addEventListener("click", async () => {
   await verifyEmailCode({
     button: verifyEmailCodeSubmit,
-    input: document.querySelector("#verify-email-code-input"),
-    message: document.querySelector("#verify-message"),
+    input: $("#verify-email-code-input"),
+    message: $("#verify-message"),
   });
 });
 
-document.querySelector("#identity-form").addEventListener("submit", async (event) => {
+$("#identity-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
   try {
@@ -233,16 +592,17 @@ function setMode(nextMode) {
   mode = nextMode;
   formError.textContent = "";
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.mode === mode));
-  document.querySelector("#form-title").textContent = mode === "login" ? "أهلاً بعودتك" : "إنشاء حساب جديد";
-  document.querySelector("#form-subtitle").textContent = mode === "login"
+  setText("#form-title", mode === "login" ? "أهلا بعودتك" : "إنشاء حساب جديد");
+  setText("#form-subtitle", mode === "login"
     ? "أدخل بريدك وكلمة المرور للمتابعة."
-    : "استخدم بريداً تستطيع الوصول إليه وكلمة مرور قوية.";
+    : "استخدم بريدا تستطيع الوصول إليه وكلمة مرور قوية.");
   submitButton.textContent = mode === "login" ? "تسجيل الدخول" : "إنشاء الحساب";
   passwordInput.autocomplete = mode === "login" ? "current-password" : "new-password";
 }
 
 document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => setMode(tab.dataset.mode)));
-document.querySelector("#toggle-password").addEventListener("click", (event) => {
+
+$("#toggle-password").addEventListener("click", (event) => {
   const visible = passwordInput.type === "text";
   passwordInput.type = visible ? "password" : "text";
   event.currentTarget.textContent = visible ? "إظهار" : "إخفاء";
@@ -280,7 +640,7 @@ telegramAction.addEventListener("click", async () => {
       return;
     }
     const data = await api("/api/v1/auth/telegram/link", { method: "POST" });
-    if (!data.telegram_url) throw new Error("رابط Telegram غير متوفر حالياً.");
+    if (!data.telegram_url) throw new Error("رابط Telegram غير متوفر حاليا.");
     window.location.href = data.telegram_url;
   } catch (error) {
     accountMessage.textContent = error.message;
@@ -292,7 +652,7 @@ async function logout() {
   window.location.reload();
 }
 
-document.querySelector("#logout-button").addEventListener("click", logout);
-document.querySelector("#verify-logout-button").addEventListener("click", logout);
+$("#logout-button").addEventListener("click", logout);
+$("#verify-logout-button").addEventListener("click", logout);
 
 api("/api/v1/auth/me").then((data) => showAccount(data.account)).catch(() => {});

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -706,7 +707,15 @@ async def account(request: web.Request) -> web.Response:
 async def catalog(request: web.Request) -> web.Response:
     auth = await require_digital_user_auth(request, "digital:catalog")
     rate_limit = await _check_rate_limit(auth, bucket="digital:catalog", limit=120)
-    snapshot = await get_catalog_snapshot(force=str(request.query.get("force") or "").lower() in {"1", "true", "yes"})
+    try:
+        snapshot = await asyncio.wait_for(
+            get_catalog_snapshot(force=str(request.query.get("force") or "").lower() in {"1", "true", "yes"}),
+            timeout=8.0,
+        )
+        snapshot_status = "ok"
+    except Exception:
+        snapshot = {"games": [], "gift_categories": [], "providers": {}}
+        snapshot_status = "timeout"
     watchlist = active_product_watchlist()
     sources = active_product_provider_sources()
     all_sources = load_product_provider_sources()
@@ -730,6 +739,7 @@ async def catalog(request: web.Request) -> web.Response:
             "product_categories": _watchlist_category_counts(watchlist),
             "products": public_products,
             "source_diagnostics": _provider_source_diagnostics(watchlist, all_sources),
+            "catalog_snapshot_status": snapshot_status,
             "providers": dict(snapshot.get("providers") or {}),
             "actions": {"quotes": {"endpoint": "/api/v1/digital/quotes", "method": "GET", "scope": "digital:catalog"}},
         },
