@@ -108,12 +108,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 .form-wrap { width: 100%; max-width: 430px; min-width: 0; }
-#auth-view {
+#auth-view, .verify-panel {
   background: rgba(255, 255, 255, .045);
   border: 1px solid var(--line);
   border-radius: 18px;
   padding: 28px;
   box-shadow: 0 20px 60px rgba(0,0,0,.26);
+}
+#auth-view, .verify-panel {
+  backdrop-filter: blur(18px);
 }
 .tabs {
   display: grid;
@@ -201,6 +204,37 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 
 .message { min-height: 20px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .error { color: var(--danger); }
+.verify-panel {
+  display: grid;
+  gap: 20px;
+}
+.verify-brand {
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.verify-email-box {
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+  padding: 15px 16px;
+  display: grid;
+  gap: 6px;
+}
+.verify-email-box span,
+.verify-code-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.verify-email-box strong {
+  overflow-wrap: anywhere;
+}
+.verify-code-row {
+  display: grid;
+  gap: 16px;
+}
+.verify-code-row input {
+  text-align: center;
+  direction: ltr;
+}
 .account-status {
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);

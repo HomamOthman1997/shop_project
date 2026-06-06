@@ -34,6 +34,15 @@ def test_register_website_auth_routes():
     assert ("GET", "/account") in routes
 
 
+def test_shop_root_serves_website_auth_page():
+    from services.digital_products.miniapp import create_app
+
+    app = create_app()
+    routes = {(route.method, route.resource.canonical, route.handler.__name__) for route in app.router.routes()}
+
+    assert ("GET", "/", "auth_page") in routes
+
+
 def test_password_hash_round_trip():
     salt, password_hash = website_auth._password_hash("long-secure-password")
 
@@ -47,7 +56,7 @@ def test_password_hash_round_trip():
     )
 
 
-def test_public_account_requires_verified_email_or_telegram_for_buying():
+def test_public_account_requires_verified_email_for_buying():
     account = website_auth._public_account(
         {
             "_id": "account-1",
@@ -64,7 +73,7 @@ def test_public_account_requires_verified_email_or_telegram_for_buying():
     assert verified["capabilities"]["buy_services"] is True
 
     linked = website_auth._public_account({**account, "_id": "account-1", "telegram_id": 123})
-    assert linked["capabilities"]["buy_services"] is True
+    assert linked["capabilities"]["buy_services"] is False
 
 
 @pytest.mark.asyncio

@@ -106,7 +106,6 @@ def _public_account(account: dict[str, Any]) -> dict[str, Any]:
     telegram_id = account.get("telegram_id")
     email_verified_at = account.get("email_verified_at")
     email_verified = isinstance(email_verified_at, datetime)
-    can_buy = email_verified or bool(telegram_id)
     return {
         "account_id": str(account.get("_id") or ""),
         "customer_id": int(account.get("customer_id") or 0),
@@ -118,7 +117,7 @@ def _public_account(account: dict[str, Any]) -> dict[str, Any]:
         "status": str(account.get("status") or "active"),
         "identity_status": str(account.get("identity_status") or "not_submitted"),
         "capabilities": {
-            "buy_services": can_buy,
+            "buy_services": email_verified,
             "sell_cards": str(account.get("identity_status") or "") == "approved",
         },
     }
@@ -212,12 +211,16 @@ async def require_website_auth(request: web.Request) -> WebsiteAuthContext:
 async def require_website_purchase_ready(request: web.Request) -> None:
     if not str(request.cookies.get(_SESSION_COOKIE) or ""):
         return
+    await require_website_email_verified(request)
+
+
+async def require_website_email_verified(request: web.Request) -> WebsiteAuthContext:
     auth = await require_website_auth(request)
     account = await find_website_account_by_id(auth.account_id) or {}
-    if isinstance(account.get("email_verified_at"), datetime) or account.get("telegram_id"):
-        return
+    if isinstance(account.get("email_verified_at"), datetime):
+        return auth
     raise web.HTTPForbidden(
-        text="email verification or telegram link required",
+        text="email verification required",
         content_type="text/plain",
     )
 

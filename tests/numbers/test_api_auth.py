@@ -64,3 +64,17 @@ async def test_require_api_auth_allows_wildcard_scope(monkeypatch):
     ctx = await api_auth.require_api_auth(request, "numbers:orders:create")
 
     assert ctx.user_id == 123
+
+
+@pytest.mark.asyncio
+async def test_require_api_auth_rejects_unverified_website_session(monkeypatch):
+    async def unverified(_request):
+        raise web.HTTPForbidden(text="email verification required")
+
+    import services.platform.website_auth as website_auth
+
+    monkeypatch.setattr(website_auth, "require_website_email_verified", unverified)
+    request = make_mocked_request("GET", "/api/v1/numbers/quotes")
+
+    with pytest.raises(web.HTTPForbidden):
+        await api_auth.require_api_auth(request, "numbers:quotes")

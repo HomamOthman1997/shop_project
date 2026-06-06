@@ -1,4 +1,5 @@
 const authView = document.querySelector("#auth-view");
+const verifyView = document.querySelector("#verify-view");
 const accountView = document.querySelector("#account-view");
 const form = document.querySelector("#auth-form");
 const emailInput = document.querySelector("#email");
@@ -9,6 +10,8 @@ const telegramAction = document.querySelector("#telegram-action");
 const accountMessage = document.querySelector("#account-message");
 const sendEmailCodeButton = document.querySelector("#send-email-code");
 const verifyEmailCodeButton = document.querySelector("#verify-email-code");
+const verifySendEmailCodeButton = document.querySelector("#verify-send-email-code");
+const verifyEmailCodeSubmit = document.querySelector("#verify-email-code-button");
 let mode = "login";
 let currentAccount = null;
 
@@ -35,9 +38,25 @@ async function api(path, options = {}) {
   return data;
 }
 
-function showAccount(account) {
+function showVerifyOnly(account) {
   currentAccount = account;
   authView.hidden = true;
+  accountView.hidden = true;
+  verifyView.hidden = false;
+  document.querySelector(".form-wrap").classList.remove("dashboard-mode");
+  document.querySelector("#verify-email").textContent = account.email || "";
+  document.querySelector("#verify-code-row").hidden = true;
+  document.querySelector("#verify-message").textContent = "";
+}
+
+function showAccount(account) {
+  currentAccount = account;
+  if (!account.email_verified) {
+    showVerifyOnly(account);
+    return;
+  }
+  authView.hidden = true;
+  verifyView.hidden = true;
   accountView.hidden = false;
   document.querySelector(".form-wrap").classList.add("dashboard-mode");
   document.querySelector("#account-email").textContent = account.email;
@@ -52,11 +71,48 @@ function showAccount(account) {
 
 function applyEmailState(account) {
   const verified = Boolean(account.email_verified);
-  const canBuy = Boolean(account.capabilities?.buy_services);
   document.querySelector("#email-status").textContent = verified ? "مؤكد" : "غير مؤكد";
   document.querySelector("#email-verification-row").hidden = verified;
   document.querySelector("#email-code-row").hidden = true;
-  document.querySelector("#purchase-readiness").hidden = canBuy;
+  document.querySelector("#purchase-readiness").hidden = verified;
+}
+
+async function sendEmailCode({ button, codeRow, message }) {
+  message.textContent = "";
+  button.disabled = true;
+  try {
+    const data = await api("/api/v1/auth/email/send-code", { method: "POST" });
+    if (data.status === "already_verified") {
+      const fresh = await api("/api/v1/auth/me");
+      showAccount(fresh.account);
+      message.textContent = "البريد مؤكد مسبقاً.";
+      return;
+    }
+    codeRow.hidden = false;
+    const debug = data.debug_code ? ` كود الاختبار: ${data.debug_code}` : "";
+    message.textContent = data.status === "sent" ? "تم إرسال كود التأكيد إلى بريدك." : `تم إنشاء الكود.${debug}`;
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function verifyEmailCode({ button, input, message }) {
+  message.textContent = "";
+  button.disabled = true;
+  try {
+    const data = await api("/api/v1/auth/email/verify", {
+      method: "POST",
+      body: JSON.stringify({ code: input.value.trim() }),
+    });
+    showAccount(data.account);
+    message.textContent = "تم تأكيد البريد.";
+  } catch (error) {
+    message.textContent = error.message === "invalid or expired code" ? "الكود غير صحيح أو منتهي." : error.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 const identityLabels = {
@@ -71,8 +127,8 @@ function applyIdentityState(status) {
   const label = identityLabels[status] || status;
   document.querySelector("#identity-status").textContent = label;
   document.querySelector("#identity-summary").textContent = label;
-  const form = document.querySelector("#identity-form");
-  form.hidden = ["pending", "approved"].includes(status);
+  const identityForm = document.querySelector("#identity-form");
+  identityForm.hidden = ["pending", "approved"].includes(status);
   const cardexLink = document.querySelector("#cardex-link");
   const allowed = status === "approved";
   cardexLink.classList.toggle("locked", !allowed);
@@ -127,42 +183,35 @@ document.querySelector("#cardex-link").addEventListener("click", (event) => {
 document.querySelector("#refresh-orders").addEventListener("click", loadDashboard);
 
 sendEmailCodeButton.addEventListener("click", async () => {
-  accountMessage.textContent = "";
-  sendEmailCodeButton.disabled = true;
-  try {
-    const data = await api("/api/v1/auth/email/send-code", { method: "POST" });
-    if (data.status === "already_verified") {
-      const fresh = await api("/api/v1/auth/me");
-      showAccount(fresh.account);
-      accountMessage.textContent = "البريد مؤكد مسبقاً.";
-      return;
-    }
-    document.querySelector("#email-code-row").hidden = false;
-    const debug = data.debug_code ? ` كود الاختبار: ${data.debug_code}` : "";
-    accountMessage.textContent = data.status === "sent" ? "تم إرسال كود التأكيد إلى بريدك." : `تم إنشاء الكود.${debug}`;
-  } catch (error) {
-    accountMessage.textContent = error.message;
-  } finally {
-    sendEmailCodeButton.disabled = false;
-  }
+  await sendEmailCode({
+    button: sendEmailCodeButton,
+    codeRow: document.querySelector("#email-code-row"),
+    message: accountMessage,
+  });
 });
 
 verifyEmailCodeButton.addEventListener("click", async () => {
-  accountMessage.textContent = "";
-  verifyEmailCodeButton.disabled = true;
-  try {
-    const code = document.querySelector("#email-code").value.trim();
-    const data = await api("/api/v1/auth/email/verify", {
-      method: "POST",
-      body: JSON.stringify({ code }),
-    });
-    showAccount(data.account);
-    accountMessage.textContent = "تم تأكيد البريد وتفعيل الشراء.";
-  } catch (error) {
-    accountMessage.textContent = error.message === "invalid or expired code" ? "الكود غير صحيح أو منتهي." : error.message;
-  } finally {
-    verifyEmailCodeButton.disabled = false;
-  }
+  await verifyEmailCode({
+    button: verifyEmailCodeButton,
+    input: document.querySelector("#email-code"),
+    message: accountMessage,
+  });
+});
+
+verifySendEmailCodeButton.addEventListener("click", async () => {
+  await sendEmailCode({
+    button: verifySendEmailCodeButton,
+    codeRow: document.querySelector("#verify-code-row"),
+    message: document.querySelector("#verify-message"),
+  });
+});
+
+verifyEmailCodeSubmit.addEventListener("click", async () => {
+  await verifyEmailCode({
+    button: verifyEmailCodeSubmit,
+    input: document.querySelector("#verify-email-code-input"),
+    message: document.querySelector("#verify-message"),
+  });
 });
 
 document.querySelector("#identity-form").addEventListener("submit", async (event) => {
@@ -238,9 +287,12 @@ telegramAction.addEventListener("click", async () => {
   }
 });
 
-document.querySelector("#logout-button").addEventListener("click", async () => {
+async function logout() {
   await api("/api/v1/auth/logout", { method: "POST" });
   window.location.reload();
-});
+}
+
+document.querySelector("#logout-button").addEventListener("click", logout);
+document.querySelector("#verify-logout-button").addEventListener("click", logout);
 
 api("/api/v1/auth/me").then((data) => showAccount(data.account)).catch(() => {});

@@ -39,7 +39,7 @@ from services.cards_bot.service import (
     trader_statement,
     update_withdrawal_status,
 )
-from services.platform.website_auth import require_website_auth
+from services.platform.website_auth import require_website_email_verified
 from database.website_auth_repo import find_website_account_by_id
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -114,7 +114,7 @@ async def _auth(request: web.Request, *, require_admin: bool = False) -> dict[st
         return auth
     if require_admin:
         raise web.HTTPForbidden(text="admin only")
-    website = await require_website_auth(request)
+    website = await require_website_email_verified(request)
     account = await find_website_account_by_id(website.account_id) or {}
     if str(account.get("identity_status") or "") != "approved":
         raise web.HTTPForbidden(text="identity verification required")

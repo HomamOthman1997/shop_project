@@ -54,6 +54,32 @@
           </form>
         </div>
 
+        <div id="verify-view" class="verify-panel" hidden>
+          <a class="brand verify-brand" href="/" aria-label="Phantom home">
+            <span class="brand-mark">P</span>
+            <span>Phantom</span>
+          </a>
+          <header class="form-header">
+            <p class="section-label">Email Verification</p>
+            <h2>تأكيد البريد الإلكتروني</h2>
+            <p>أرسل كود التأكيد إلى بريدك وأدخله هنا لتفعيل واجهة الموقع والخدمات.</p>
+          </header>
+          <div class="verify-email-box">
+            <span>الحساب</span>
+            <strong id="verify-email"></strong>
+          </div>
+          <button id="verify-send-email-code" class="primary" type="button">إرسال كود التأكيد</button>
+          <div id="verify-code-row" class="verify-code-row" hidden>
+            <label>
+              <span>كود التأكيد</span>
+              <input id="verify-email-code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
+            </label>
+            <button id="verify-email-code-button" class="primary" type="button">تأكيد البريد</button>
+          </div>
+          <p id="verify-message" class="message" role="status"></p>
+          <button id="verify-logout-button" class="text-button" type="button">تسجيل الخروج</button>
+        </div>
+
         <div id="account-view" class="site-app" hidden>
           <aside class="sidebar">
             <a class="brand sidebar-brand" href="/"><span class="brand-mark">P</span><span>Phantom</span></a>

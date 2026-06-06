@@ -31,7 +31,7 @@ def has_api_key_credentials(request: web.Request) -> bool:
 async def require_api_auth(request: web.Request, required_scope: str) -> ApiAuthContext:
     api_key = _extract_api_key(request)
     if not api_key:
-        from services.platform.website_auth import require_website_auth
+        from services.platform.website_auth import require_website_email_verified
 
         website_user_scopes = {
             "digital:account:read",
@@ -50,7 +50,7 @@ async def require_api_auth(request: web.Request, required_scope: str) -> ApiAuth
         }
         if required_scope not in website_user_scopes:
             raise web.HTTPUnauthorized(text="missing api key")
-        website = await require_website_auth(request)
+        website = await require_website_email_verified(request)
         return ApiAuthContext(
             key_id=f"website:{website.account_id}",
             user_id=website.customer_id,
