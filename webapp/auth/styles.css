@@ -647,7 +647,8 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   gap: 12px;
 }
 .owner-settings-grid,
-.owner-payment-methods {
+.owner-payment-methods,
+.owner-review-list {
   display: grid;
   gap: 12px;
 }
@@ -691,6 +692,26 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 .owner-payment-method {
   display: grid;
   gap: 14px;
+}
+.owner-review-card {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 16px;
+  display: grid;
+  gap: 13px;
+}
+.owner-review-form {
+  display: grid;
+  grid-template-columns: minmax(160px, .5fr) minmax(240px, 1fr);
+  gap: 10px;
+}
+.owner-review-form .owner-order-actions {
+  grid-column: 1 / -1;
+}
+.owner-support-reply {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
 }
 .owner-payment-fields {
   display: grid;
@@ -1345,6 +1366,8 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   .support-category-grid { grid-template-columns: 1fr; }
   .owner-metrics, .owner-queues, .owner-sections, .owner-settings-grid { grid-template-columns: 1fr; }
   .owner-payment-fields { grid-template-columns: 1fr; }
+  .owner-review-form { grid-template-columns: 1fr; }
+  .owner-support-reply { grid-template-columns: 1fr; }
   .owner-action-row { align-items: flex-start; }
   .owner-order-actions > button { flex: 1 1 calc(50% - 8px); }
   .owner-refund-form { grid-template-columns: 1fr; }

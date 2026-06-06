@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from typing import Any
 
 from aiohttp import web
+from bson import ObjectId
+from pymongo import ReturnDocument
 
 from database.bot_logs_repo import get_bot_logs_target
 from database.digital_products_config_repo import (
@@ -23,10 +26,17 @@ from database.provider_balance_alert_repo import (
     set_provider_balance_alert_enabled,
     set_provider_balance_alert_threshold,
 )
+from database.recharge_repo import update_recharge_request
+from database.support_tickets_repo import (
+    get_support_ticket,
+    mark_support_ticket_bug_triage,
+    mark_support_ticket_solved,
+)
 from database.support_topics_repo import get_all_support_targets
 from services.digital_products.api import _order_payload, execute_manual_order_action
 from services.numbers.api import _refund_review_payload
 from services.platform.api_auth import ApiAuthContext
+from services.platform.telegram_delivery import send_ticket_message
 from services.platform.website_auth import require_website_owner
 
 
@@ -47,8 +57,8 @@ def _management_sections() -> list[dict[str, Any]]:
                 {"key": "numbers_refunds", "title": "Numbers refund reviews", "status": "available", "endpoint": "/api/v1/numbers/ops/refund-reviews"},
                 {"key": "provider_readiness", "title": "Provider readiness", "status": "available", "endpoint": "/api/v1/numbers/ops/provider-readiness"},
                 {"key": "provider_webhooks", "title": "Provider webhook audit", "status": "available", "endpoint": "/api/v1/numbers/ops/provider-webhook-events"},
-                {"key": "recharge_reviews", "title": "User and reseller topup reviews", "status": "read_only"},
-                {"key": "identity_reviews", "title": "Identity verification reviews", "status": "read_only"},
+                {"key": "recharge_reviews", "title": "User and reseller topup reviews", "status": "available", "endpoint": "/api/v1/owner/recharge-reviews"},
+                {"key": "identity_reviews", "title": "Identity verification reviews", "status": "available", "endpoint": "/api/v1/owner/identity-reviews"},
             ],
         },
         {
@@ -75,6 +85,7 @@ def _management_sections() -> list[dict[str, Any]]:
             "key": "system",
             "title": "System and communication",
             "items": [
+                {"key": "support_inbox", "title": "Support inbox", "status": "available", "endpoint": "/api/v1/owner/support-tickets"},
                 {"key": "support_routing", "title": "Support topics and routing", "status": "read_only", "endpoint": "/api/v1/owner/settings"},
                 {"key": "logs_routing", "title": "Logs and alert routing", "status": "read_only", "endpoint": "/api/v1/owner/settings"},
                 {"key": "provider_alerts", "title": "Provider balance alerts", "status": "available", "endpoint": "/api/v1/owner/settings"},
@@ -92,6 +103,10 @@ async def _count(collection: str, query: dict[str, Any]) -> int:
 
 async def _system_setting(doc_id: str) -> dict[str, Any] | None:
     return await db.system_settings.find_one({"_id": str(doc_id)})
+
+
+async def _recharge_request(request_id: ObjectId) -> dict[str, Any] | None:
+    return await db.recharge_requests.find_one({"_id": request_id})
 
 
 async def _recent(
@@ -423,6 +438,208 @@ async def owner_update_payment_method(request: web.Request) -> web.Response:
     return await owner_settings(request)
 
 
+def _limit(request: web.Request, default: int = 30) -> int:
+    try:
+        return max(1, min(100, int(request.query.get("limit") or default)))
+    except Exception:
+        return default
+
+
+def _date_text(value: Any) -> str | None:
+    return value.isoformat() if isinstance(value, datetime) else None
+
+
+def _recharge_payload(row: dict[str, Any]) -> dict[str, Any]:
+    details = row.get("details") if isinstance(row.get("details"), dict) else {}
+    return {
+        "id": _text(row.get("_id")),
+        "status": _text(row.get("status")),
+        "user_id": int(row.get("user_id") or 0),
+        "reseller_id": int(row.get("reseller_id") or 0),
+        "wallet_type": _text(row.get("wallet_type") or "user"),
+        "method": _text(row.get("method")),
+        "amount": float(row.get("amount") or 0),
+        "approved_amount": float(row.get("approved_amount") or 0),
+        "decision_note": _text(row.get("decision_note")),
+        "details": details,
+        "has_proof": bool(row.get("proof_file_id")),
+        "created_at": _date_text(row.get("created_at")),
+    }
+
+
+async def owner_recharge_reviews(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    status = str(request.query.get("status") or "pending").strip().lower()
+    query: dict[str, Any] = {}
+    if status not in {"all", "*", ""}:
+        query["status"] = status
+    rows = await db.recharge_requests.find(query).sort("created_at", -1).limit(_limit(request)).to_list(length=_limit(request))
+    return web.json_response({"ok": True, "reviews": [_recharge_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_recharge_review_action(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    try:
+        request_id = ObjectId(str(request.match_info.get("request_id") or ""))
+    except Exception:
+        return web.json_response({"ok": False, "message": "Invalid recharge request id."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str((body or {}).get("action") or "").strip().lower()
+    note = str((body or {}).get("note") or "").strip()
+    row = await _recharge_request(request_id)
+    if not row:
+        return web.json_response({"ok": False, "message": "Recharge request was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    if action in {"accept", "reject"}:
+        approved_amount = (body or {}).get("approved_amount") if action == "accept" else None
+        try:
+            amount = float(approved_amount) if approved_amount not in {None, ""} else None
+        except Exception:
+            return web.json_response({"ok": False, "message": "Approved amount is invalid."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        if amount is not None and amount <= 0:
+            return web.json_response({"ok": False, "message": "Approved amount must be greater than zero."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        updated = await update_recharge_request(
+            request_id,
+            "accepted" if action == "accept" else "rejected",
+            owner.customer_id,
+            decision_note=note or f"website_owner_{action}",
+            approved_amount=amount,
+        )
+    elif action == "need_more_proof":
+        if len(note) < 5:
+            return web.json_response({"ok": False, "message": "Write a clear proof request note."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        updated = await db.recharge_requests.find_one_and_update(
+            {"_id": request_id, "status": "pending"},
+            {"$set": {"status": "need_more_proof", "decision_note": f"need_more_proof: {note}", "reviewed_by": owner.customer_id, "proof_file_id": None, "proof_deleted_at": datetime.now(UTC), "updated_at": datetime.now(UTC)}},
+            return_document=ReturnDocument.AFTER,
+        )
+    else:
+        return web.json_response({"ok": False, "message": "Unsupported recharge action."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if not updated:
+        return web.json_response({"ok": False, "message": "Recharge request is no longer pending."}, status=409, headers=dict(_NO_STORE_HEADERS))
+    current = await _recharge_request(request_id) or updated
+    return web.json_response({"ok": True, "review": _recharge_payload(current)}, headers=dict(_NO_STORE_HEADERS))
+
+
+def _identity_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": _text(row.get("_id")),
+        "account_id": _text(row.get("account_id")),
+        "customer_id": int(row.get("customer_id") or 0),
+        "status": _text(row.get("status")),
+        "full_name": _text(row.get("full_name")),
+        "birth_date": _text(row.get("birth_date")),
+        "country": _text(row.get("country")),
+        "id_type": _text(row.get("id_type")),
+        "review_note": _text(row.get("review_note")),
+        "created_at": _date_text(row.get("created_at")),
+    }
+
+
+async def owner_identity_reviews(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    status = str(request.query.get("status") or "pending").strip().lower()
+    query: dict[str, Any] = {}
+    if status not in {"all", "*", ""}:
+        query["status"] = status
+    rows = await db.identity_verification_requests.find(query).sort("created_at", -1).limit(_limit(request)).to_list(length=_limit(request))
+    return web.json_response({"ok": True, "reviews": [_identity_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_identity_review_action(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str((body or {}).get("action") or "").strip().lower()
+    if action not in {"approve", "reject"}:
+        return web.json_response({"ok": False, "message": "Unsupported identity action."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    note = str((body or {}).get("note") or "").strip()
+    if action == "reject" and len(note) < 3:
+        return web.json_response({"ok": False, "message": "Write a rejection reason."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    now = datetime.now(UTC)
+    review = await db.identity_verification_requests.find_one_and_update(
+        {"_id": str(request.match_info.get("review_id") or ""), "status": "pending"},
+        {"$set": {"status": "approved" if action == "approve" else "rejected", "review_note": note, "reviewed_by": owner.customer_id, "reviewed_at": now, "updated_at": now}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not review:
+        return web.json_response({"ok": False, "message": "Identity review is no longer pending."}, status=409, headers=dict(_NO_STORE_HEADERS))
+    await db.website_accounts.update_one(
+        {"_id": review.get("account_id")},
+        {"$set": {"identity_status": review["status"], "identity_updated_at": now, "updated_at": now}},
+    )
+    return web.json_response({"ok": True, "review": _identity_payload(review)}, headers=dict(_NO_STORE_HEADERS))
+
+
+def _support_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": _text(row.get("_id")),
+        "ticket_no": int(row.get("ticket_no") or 0),
+        "status": _text(row.get("status")),
+        "category": _text(row.get("category")),
+        "user_id": int(row.get("user_id") or 0),
+        "username": _text(row.get("username")),
+        "full_name": _text(row.get("full_name")),
+        "scope": _text(row.get("scope")),
+        "payload_count": int(row.get("payload_count") or 0),
+        "bug_triage": row.get("bug_triage") if isinstance(row.get("bug_triage"), dict) else {},
+        "opened_at": _date_text(row.get("opened_at")),
+    }
+
+
+async def owner_support_tickets(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    status = str(request.query.get("status") or "open").strip().lower()
+    query: dict[str, Any] = {}
+    if status == "open":
+        query["status"] = {"$in": ["open", "awaiting_user", "awaiting_admin", "replied"]}
+    elif status not in {"all", "*", ""}:
+        query["status"] = status
+    rows = await db.support_tickets.find(query).sort("opened_at", -1).limit(_limit(request)).to_list(length=_limit(request))
+    return web.json_response({"ok": True, "tickets": [_support_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_support_ticket_action(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    ticket_id = str(request.match_info.get("ticket_id") or "").strip()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ticket = await get_support_ticket(ticket_id)
+    if not ticket:
+        return web.json_response({"ok": False, "message": "Support ticket was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    action = str((body or {}).get("action") or "").strip().lower()
+    if action == "solve":
+        await mark_support_ticket_solved(ticket_id, actor_id=owner.customer_id)
+        await send_ticket_message(ticket, "Your support ticket has been solved.")
+    elif action == "reply":
+        message = " ".join(str((body or {}).get("message") or "").strip().split())
+        if len(message) < 2 or len(message) > 3500:
+            return web.json_response({"ok": False, "message": "Write a support reply between 2 and 3500 characters."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        delivered = await send_ticket_message(ticket, message)
+        if not delivered:
+            return web.json_response({"ok": False, "message": "Could not deliver the reply through the ticket source bot."}, status=502, headers=dict(_NO_STORE_HEADERS))
+        now = datetime.now(UTC)
+        await db.support_ticket_messages.insert_one(
+            {"ticket_id": ticket.get("_id"), "direction": "owner_to_user", "actor_id": owner.customer_id, "text": message, "created_at": now}
+        )
+        await db.support_tickets.update_one(
+            {"_id": ticket.get("_id")},
+            {"$set": {"status": "replied", "last_reply_by": owner.customer_id, "last_reply_at": now, "updated_at": now}, "$inc": {"payload_count": 1}},
+        )
+    elif action in {"bug_confirmed", "not_bug"}:
+        await mark_support_ticket_bug_triage(ticket_id, actor_id=owner.customer_id, status="confirmed" if action == "bug_confirmed" else "not_bug")
+    else:
+        return web.json_response({"ok": False, "message": "Unsupported support action."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    current = await get_support_ticket(ticket_id) or ticket
+    return web.json_response({"ok": True, "ticket": _support_payload(current)}, headers=dict(_NO_STORE_HEADERS))
+
+
 def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/dashboard", owner_dashboard)
     app.router.add_get("/api/v1/owner/queues", owner_queues)
@@ -433,3 +650,9 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/settings", owner_settings)
     app.router.add_put("/api/v1/owner/settings", owner_update_settings)
     app.router.add_patch("/api/v1/owner/payment-methods/{method_code}", owner_update_payment_method)
+    app.router.add_get("/api/v1/owner/recharge-reviews", owner_recharge_reviews)
+    app.router.add_post("/api/v1/owner/recharge-reviews/{request_id}/action", owner_recharge_review_action)
+    app.router.add_get("/api/v1/owner/identity-reviews", owner_identity_reviews)
+    app.router.add_post("/api/v1/owner/identity-reviews/{review_id}/action", owner_identity_review_action)
+    app.router.add_get("/api/v1/owner/support-tickets", owner_support_tickets)
+    app.router.add_post("/api/v1/owner/support-tickets/{ticket_id}/action", owner_support_ticket_action)

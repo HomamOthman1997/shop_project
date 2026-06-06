@@ -23,6 +23,12 @@ def test_register_owner_api_routes():
     assert ("GET", "/api/v1/owner/settings") in routes
     assert ("PUT", "/api/v1/owner/settings") in routes
     assert ("PATCH", "/api/v1/owner/payment-methods/{method_code}") in routes
+    assert ("GET", "/api/v1/owner/recharge-reviews") in routes
+    assert ("POST", "/api/v1/owner/recharge-reviews/{request_id}/action") in routes
+    assert ("GET", "/api/v1/owner/identity-reviews") in routes
+    assert ("POST", "/api/v1/owner/identity-reviews/{review_id}/action") in routes
+    assert ("GET", "/api/v1/owner/support-tickets") in routes
+    assert ("POST", "/api/v1/owner/support-tickets/{ticket_id}/action") in routes
 
 
 @pytest.mark.asyncio
@@ -282,3 +288,82 @@ async def test_owner_update_payment_method_only_accepts_supported_fields(monkeyp
     assert response.status == 200
     assert calls["code"] == "owner_crypto_usdt"
     assert calls["kwargs"] == {"target": "0x123", "enabled": False}
+
+
+@pytest.mark.asyncio
+async def test_owner_recharge_accept_uses_shared_financial_decision(monkeypatch):
+    calls = {}
+    request_id = "507f1f77bcf86cd799439011"
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    reads = 0
+
+    async def find_one(request_oid):
+        nonlocal reads
+        reads += 1
+        return {"_id": request_oid, "status": "pending" if reads == 1 else "accepted", "amount": 10, "user_id": 7, "reseller_id": 8}
+
+    async def update(*args, **kwargs):
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+        return {"_id": args[0], "status": "accepted", "amount": 10, "user_id": 7, "reseller_id": 8}
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_recharge_request", find_one)
+    monkeypatch.setattr(owner_api, "update_recharge_request", update)
+    request = make_mocked_request("POST", f"/api/v1/owner/recharge-reviews/{request_id}/action", match_info={"request_id": request_id})
+    request._read_bytes = json.dumps({"action": "accept", "approved_amount": 9.5}).encode()
+
+    response = await owner_api.owner_recharge_review_action(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["args"][1] == "accepted"
+    assert calls["kwargs"]["approved_amount"] == 9.5
+    assert payload["review"]["status"] == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_owner_identity_reject_requires_reason(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    request = make_mocked_request("POST", "/api/v1/owner/identity-reviews/review-1/action", match_info={"review_id": "review-1"})
+    request._read_bytes = json.dumps({"action": "reject", "note": ""}).encode()
+
+    response = await owner_api.owner_identity_review_action(request)
+
+    assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_owner_support_action_uses_shared_ticket_state(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def get_ticket(_ticket_id):
+        return {"_id": "507f1f77bcf86cd799439011", "ticket_no": 4, "status": "open", "category": "numbers"}
+
+    async def solve(ticket_id, *, actor_id):
+        calls["ticket_id"] = ticket_id
+        calls["actor_id"] = actor_id
+
+    async def send(_ticket, _text):
+        return True
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "get_support_ticket", get_ticket)
+    monkeypatch.setattr(owner_api, "mark_support_ticket_solved", solve)
+    monkeypatch.setattr(owner_api, "send_ticket_message", send)
+    request = make_mocked_request("POST", "/api/v1/owner/support-tickets/507f1f77bcf86cd799439011/action", match_info={"ticket_id": "507f1f77bcf86cd799439011"})
+    request._read_bytes = json.dumps({"action": "solve"}).encode()
+
+    response = await owner_api.owner_support_ticket_action(request)
+
+    assert response.status == 200
+    assert calls == {"ticket_id": "507f1f77bcf86cd799439011", "actor_id": 900000000001}

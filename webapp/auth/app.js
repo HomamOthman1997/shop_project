@@ -346,12 +346,18 @@ async function loadOwnerDashboard() {
   try {
     const digitalFilter = $("#owner-digital-filter")?.value || "pending";
     const showResolvedReviews = $("#owner-refunds-resolved")?.checked ? "1" : "0";
-    const [payload, queuePayload, digitalPayload, refundPayload, settingsPayload] = await Promise.all([
+    const rechargeFilter = $("#owner-recharge-filter")?.value || "pending";
+    const identityFilter = $("#owner-identity-filter")?.value || "pending";
+    const supportFilter = $("#owner-support-filter")?.value || "open";
+    const [payload, queuePayload, digitalPayload, refundPayload, settingsPayload, rechargePayload, identityPayload, supportPayload] = await Promise.all([
       api("/api/v1/owner/dashboard"),
       api("/api/v1/owner/queues"),
       api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
       api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
       api("/api/v1/owner/settings"),
+      api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
+      api(`/api/v1/owner/identity-reviews?status=${encodeURIComponent(identityFilter)}&limit=30`),
+      api(`/api/v1/owner/support-tickets?status=${encodeURIComponent(supportFilter)}&limit=30`),
     ]);
     const metrics = Object.entries(payload.metrics || {});
     metricsTarget.classList.toggle("empty", !metrics.length);
@@ -376,6 +382,9 @@ async function loadOwnerDashboard() {
     renderOwnerDigitalOrders(digitalPayload.orders || []);
     renderOwnerRefundReviews(refundPayload.reviews || []);
     renderOwnerSettings(settingsPayload);
+    renderOwnerRechargeReviews(rechargePayload.reviews || []);
+    renderOwnerIdentityReviews(identityPayload.reviews || []);
+    renderOwnerSupportTickets(supportPayload.tickets || []);
     const sections = payload.sections || [];
     sectionsTarget.classList.toggle("empty", !sections.length);
     sectionsTarget.innerHTML = sections.map((section) => `
@@ -397,9 +406,111 @@ async function loadOwnerDashboard() {
     $("#owner-finance-settings").textContent = "تعذر تحميل الإعدادات المالية.";
     $("#owner-routing-settings").textContent = "تعذر تحميل إعدادات التوجيه.";
     $("#owner-payment-methods").textContent = "تعذر تحميل طرق الدفع.";
+    $("#owner-recharge-reviews").textContent = "تعذر تحميل مراجعات الشحن.";
+    $("#owner-identity-reviews").textContent = "تعذر تحميل مراجعات الهوية.";
+    $("#owner-support-tickets").textContent = "تعذر تحميل تذاكر الدعم.";
     sectionsTarget.textContent = "تعذر تحميل خصائص الإدارة.";
     message.textContent = error.message;
   }
+}
+
+function renderOwnerRechargeReviews(rows) {
+  const target = $("#owner-recharge-reviews");
+  target.classList.toggle("empty", !rows.length);
+  target.innerHTML = rows.length ? rows.map((row) => `
+    <article class="owner-review-card">
+      <div class="owner-order-head"><div><strong>${esc(row.method || "طلب شحن")}</strong><span>${esc(row.id)}</span></div><b>${esc(row.status)}</b></div>
+      <div class="owner-order-meta"><span>المستخدم: ${esc(row.user_id)}</span><span>المحفظة: ${esc(row.wallet_type)}</span><span>المبلغ: ${esc(row.amount)}</span><span>${row.has_proof ? "يوجد إثبات" : "بدون إثبات"}</span></div>
+      ${row.decision_note ? `<div class="notice">${esc(row.decision_note)}</div>` : ""}
+      ${row.status === "pending" ? `<form class="owner-review-form" data-owner-recharge="${esc(row.id)}">
+        <label><span>المبلغ المقبول</span><input name="approved_amount" type="number" min="0.0001" step="0.0001" value="${esc(row.amount)}"></label>
+        <label><span>ملاحظة</span><input name="note" placeholder="ملاحظة القرار أو طلب إثبات جديد"></label>
+        <div class="owner-order-actions"><button class="primary compact" name="action" value="accept">قبول</button><button class="danger compact" name="action" value="reject">رفض</button><button class="secondary compact" name="action" value="need_more_proof">طلب إثبات</button></div>
+      </form>` : ""}
+    </article>`).join("") : '<div class="notice">لا توجد طلبات شحن ضمن هذا الفلتر.</div>';
+  target.querySelectorAll("[data-owner-recharge]").forEach((form) => form.addEventListener("submit", runOwnerRechargeAction));
+}
+
+async function runOwnerRechargeAction(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const action = event.submitter?.value || "";
+  const values = Object.fromEntries(new FormData(form).entries());
+  if (action === "accept" && !window.confirm("سيتم إضافة الرصيد فعلياً إلى المحفظة. متابعة؟")) return;
+  try {
+    await api(`/api/v1/owner/recharge-reviews/${encodeURIComponent(form.dataset.ownerRecharge)}/action`, {method: "POST", body: JSON.stringify({...values, action})});
+    setText("#owner-message", "تم تنفيذ إجراء طلب الشحن.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+function renderOwnerIdentityReviews(rows) {
+  const target = $("#owner-identity-reviews");
+  target.classList.toggle("empty", !rows.length);
+  target.innerHTML = rows.length ? rows.map((row) => `
+    <article class="owner-review-card">
+      <div class="owner-order-head"><div><strong>${esc(row.full_name || "طلب هوية")}</strong><span>${esc(row.id)}</span></div><b>${esc(row.status)}</b></div>
+      <div class="owner-order-meta"><span>العميل: ${esc(row.customer_id)}</span><span>${esc(row.country)}</span><span>${esc(row.id_type)}</span><span>${esc(row.birth_date)}</span></div>
+      ${row.review_note ? `<div class="notice">${esc(row.review_note)}</div>` : ""}
+      ${row.status === "pending" ? `<form class="owner-review-form" data-owner-identity="${esc(row.id)}">
+        <label><span>ملاحظة المراجعة</span><input name="note" placeholder="سبب الرفض مطلوب عند الرفض"></label>
+        <div class="owner-order-actions"><button class="primary compact" name="action" value="approve">قبول الهوية</button><button class="danger compact" name="action" value="reject">رفض الهوية</button></div>
+      </form>` : ""}
+    </article>`).join("") : '<div class="notice">لا توجد مراجعات هوية ضمن هذا الفلتر.</div>';
+  target.querySelectorAll("[data-owner-identity]").forEach((form) => form.addEventListener("submit", runOwnerIdentityAction));
+}
+
+async function runOwnerIdentityAction(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const action = event.submitter?.value || "";
+  const values = Object.fromEntries(new FormData(form).entries());
+  try {
+    await api(`/api/v1/owner/identity-reviews/${encodeURIComponent(form.dataset.ownerIdentity)}/action`, {method: "POST", body: JSON.stringify({...values, action})});
+    setText("#owner-message", "تم تنفيذ قرار الهوية.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+function renderOwnerSupportTickets(rows) {
+  const target = $("#owner-support-tickets");
+  target.classList.toggle("empty", !rows.length);
+  target.innerHTML = rows.length ? rows.map((row) => `
+    <article class="owner-review-card">
+      <div class="owner-order-head"><div><strong>تذكرة #${esc(row.ticket_no)} · ${esc(row.category)}</strong><span>${esc(row.full_name || row.username || row.user_id)}</span></div><b>${esc(row.status)}</b></div>
+      <div class="owner-order-meta"><span>المستخدم: ${esc(row.user_id)}</span><span>المصدر: ${esc(row.scope)}</span><span>عدد الرسائل: ${esc(row.payload_count)}</span><span>فرز الخطأ: ${esc(row.bug_triage?.status || "-")}</span></div>
+      ${row.status !== "solved" ? `<form class="owner-support-reply" data-owner-support-reply="${esc(row.id)}"><input name="message" required minlength="2" maxlength="3500" placeholder="اكتب الرد الذي سيصل للمستخدم عبر البوت"><button class="secondary compact" type="submit">إرسال الرد</button></form>` : ""}
+      <div class="owner-order-actions">
+        ${row.status !== "solved" ? `<button class="primary compact" data-owner-ticket="${esc(row.id)}" data-ticket-action="solve">حل التذكرة</button>` : ""}
+        <button class="secondary compact" data-owner-ticket="${esc(row.id)}" data-ticket-action="bug_confirmed">تأكيد الخطأ</button>
+        <button class="secondary compact" data-owner-ticket="${esc(row.id)}" data-ticket-action="not_bug">ليس خطأ</button>
+      </div>
+    </article>`).join("") : '<div class="notice">لا توجد تذاكر دعم ضمن هذا الفلتر.</div>';
+  target.querySelectorAll("[data-owner-ticket]").forEach((button) => button.addEventListener("click", () => runOwnerSupportAction(button)));
+  target.querySelectorAll("[data-owner-support-reply]").forEach((form) => form.addEventListener("submit", runOwnerSupportReply));
+}
+
+async function runOwnerSupportReply(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  button.disabled = true;
+  try {
+    await api(`/api/v1/owner/support-tickets/${encodeURIComponent(form.dataset.ownerSupportReply)}/action`, {method: "POST", body: JSON.stringify({action: "reply", message: form.elements.message.value})});
+    setText("#owner-message", "تم إرسال الرد للمستخدم.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+  finally { button.disabled = false; }
+}
+
+async function runOwnerSupportAction(button) {
+  button.disabled = true;
+  try {
+    await api(`/api/v1/owner/support-tickets/${encodeURIComponent(button.dataset.ownerTicket)}/action`, {method: "POST", body: JSON.stringify({action: button.dataset.ticketAction})});
+    setText("#owner-message", "تم تحديث تذكرة الدعم.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+  finally { button.disabled = false; }
 }
 
 function routingLabel(target) {
@@ -1121,6 +1232,9 @@ $("#refresh-orders")?.addEventListener("click", loadDashboard);
 $("#refresh-owner")?.addEventListener("click", loadOwnerDashboard);
 $("#owner-digital-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-refunds-resolved")?.addEventListener("change", loadOwnerDashboard);
+$("#owner-recharge-filter")?.addEventListener("change", loadOwnerDashboard);
+$("#owner-identity-filter")?.addEventListener("change", loadOwnerDashboard);
+$("#owner-support-filter")?.addEventListener("change", loadOwnerDashboard);
 
 sendEmailCodeButton.addEventListener("click", async () => {
   await sendEmailCode({

@@ -509,6 +509,15 @@ async def submit_support_ticket(
         kwargs["message_thread_id"] = int(target["message_thread_id"])
 
     ticket_id = str(ticket["_id"])
+    await db.support_ticket_messages.insert_one(
+        {
+            "ticket_id": ticket["_id"],
+            "direction": "user_to_owner",
+            "actor_id": user_id,
+            "text": message,
+            "created_at": datetime.now(UTC),
+        }
+    )
     bridge_bot = Bot(token=bridge_token)
     try:
         header = await bridge_bot.send_message(
