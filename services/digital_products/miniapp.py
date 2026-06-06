@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl
 from uuid import uuid4
 
 from aiohttp import web
@@ -58,6 +55,9 @@ from services.numbers.miniapp import register_numbers_routes
 from services.numbers.provider_webhooks import register_provider_webhook_routes
 from services.platform.api_keys_api import register_api_key_routes
 from services.platform.webhooks_api import register_webhook_routes
+from services.platform.telegram_webapp_auth import configured_bot_tokens, verify_telegram_init_data
+from services.platform.website_auth import register_website_auth_routes
+from database.website_auth_repo import bootstrap_website_auth_indexes
 from services.landing_page import landing_page as _landing_page_handler
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -1300,27 +1300,13 @@ def _game_root_group_label(key: str) -> dict[str, str]:
 
 
 def _verify_init_data(init_data: str) -> dict[str, Any]:
-    raw = str(init_data or "").strip()
-    if not raw:
-        raise web.HTTPUnauthorized(text="missing initData")
-    pairs = dict(parse_qsl(raw, keep_blank_values=True))
-    received_hash = str(pairs.pop("hash", "") or "")
-    if not received_hash:
-        raise web.HTTPUnauthorized(text="missing hash")
-    token = str(getattr(settings, "bot_digital_products_token", "") or "").strip()
-    if not token:
-        raise web.HTTPUnauthorized(text="bot token not configured")
-    check_string = "\n".join(f"{key}={pairs[key]}" for key in sorted(pairs))
-    secret = hmac.new(b"WebAppData", token.encode("utf-8"), hashlib.sha256).digest()
-    calculated = hmac.new(secret, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(calculated, received_hash):
-        raise web.HTTPUnauthorized(text="bad initData")
-    user_raw = pairs.get("user")
-    user = json.loads(user_raw) if user_raw else {}
-    user_id = int(user.get("id") or 0)
-    if user_id <= 0:
-        raise web.HTTPUnauthorized(text="missing user")
-    return {"user_id": user_id, "user": user}
+    return verify_telegram_init_data(
+        init_data,
+        bot_tokens=configured_bot_tokens(
+            getattr(settings, "bot_digital_products_token", ""),
+            getattr(settings, "bot_main_token", ""),
+        ),
+    )
 
 
 async def _catalog_payload() -> dict[str, Any]:
@@ -1699,10 +1685,16 @@ async def _server_quote_game_selection(game_id: str, item_id: str, group_key: st
 async def bootstrap_miniapp_indexes() -> None:
     await db.digital_product_miniapp_selections.create_index("expires_at", expireAfterSeconds=0, background=True)
     await db.digital_product_miniapp_selections.create_index([("user_id", 1), ("status", 1), ("created_at", -1)], background=True)
+    await bootstrap_website_auth_indexes()
 
 
 async def index(_request: web.Request) -> web.Response:
     html = (_STATIC / "index.html").read_text(encoding="utf-8")
+    return web.Response(text=html, content_type="text/html", headers=dict(_NO_STORE_HEADERS))
+
+
+async def admin_index(_request: web.Request) -> web.Response:
+    html = (_STATIC / "admin.html").read_text(encoding="utf-8")
     return web.Response(text=html, content_type="text/html", headers=dict(_NO_STORE_HEADERS))
 
 
@@ -2013,7 +2005,7 @@ async def health(_request: web.Request) -> web.Response:
     )
 
 
-def create_app() -> web.Application:
+def create_app(_argv: list[str] | None = None) -> web.Application:
     app = web.Application()
     app.on_cleanup.append(_cleanup_app)
     app.router.add_get("/", _landing_page_handler)
@@ -2021,6 +2013,7 @@ def create_app() -> web.Application:
     app.router.add_get("/healthz", health)
     app.router.add_get("/ready", health)
     app.router.add_get("/mini/digital", index)
+    app.router.add_get("/mini/digital/admin", admin_index)
     app.router.add_get("/mini/digital/static/{name}", static_file)
     app.router.add_get("/mini/digital/api/catalog", catalog)
     app.router.add_get("/mini/digital/api/gifts/{category_id}", gift_products)
@@ -2033,6 +2026,7 @@ def create_app() -> web.Application:
     app.router.add_post("/mini/digital/api/usage", record_usage)
     app.router.add_post("/mini/digital/api/selection", create_selection)
     register_cardex_routes(app)
+    register_website_auth_routes(app)
     register_api_key_routes(app)
     register_webhook_routes(app)
     register_numbers_api_routes(app)

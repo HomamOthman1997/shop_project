@@ -37,6 +37,7 @@ from database.lifecycle_repo import ensure_schema_markers, run_lifecycle_cleanup
 from database.number_events_repo import bootstrap_number_events_indexes
 from database.platform_api_repo import bootstrap_platform_api_indexes
 from database.temp_number_stats_repo import bootstrap_temp_number_stats_indexes
+from database.website_auth_repo import bootstrap_website_auth_indexes
 from services.subscriptions.bot_subscription_service import (
     mark_bot_subscription_expiry_notice,
     mark_bot_subscription_grace_notice,
@@ -173,6 +174,7 @@ async def _run_startup_bootstraps() -> None:
         ("recharge indexes", bootstrap_recharge_indexes),
         ("user indexes", bootstrap_user_indexes),
         ("user links indexes", bootstrap_user_links_indexes),
+        ("website auth indexes", bootstrap_website_auth_indexes),
         ("temp number stats indexes", bootstrap_temp_number_stats_indexes),
         ("number events indexes", bootstrap_number_events_indexes),
         ("platform API indexes", bootstrap_platform_api_indexes),
@@ -1770,9 +1772,14 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                     ),
                 )
                 logging.info(
-                    "lifecycle cleanup proxy_events_deleted=%s number_events_deleted=%s usage_stats_deleted=%s orders_archived=%s orders_deleted_after_archive=%s archive_errors=%s",
+                    "lifecycle cleanup proxy_events_deleted=%s number_events_deleted=%s temp_number_events_deleted=%s webhook_events_deleted=%s ops_reports_deleted=%s price_watch_runs_deleted=%s expired_purchase_blocks_deleted=%s usage_stats_deleted=%s orders_archived=%s orders_deleted_after_archive=%s archive_errors=%s",
                     int(cleanup.get("proxy_events_deleted") or 0),
                     int(cleanup.get("number_events_deleted") or 0),
+                    int(cleanup.get("temp_number_events_deleted") or 0),
+                    int(cleanup.get("provider_webhook_events_deleted") or 0),
+                    int(cleanup.get("ops_validation_reports_deleted") or 0),
+                    int(cleanup.get("digital_price_watch_runs_deleted") or 0),
+                    int(cleanup.get("expired_number_purchase_blocks_deleted") or 0),
                     int(cleanup.get("usage_stats_deleted") or 0),
                     int(cleanup.get("orders_archived") or 0),
                     int(cleanup.get("orders_deleted_after_archive") or 0),

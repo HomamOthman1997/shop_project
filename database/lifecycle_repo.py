@@ -63,6 +63,11 @@ async def run_lifecycle_cleanup(
         "ran_at": now,
         "proxy_events_deleted": 0,
         "number_events_deleted": 0,
+        "temp_number_events_deleted": 0,
+        "provider_webhook_events_deleted": 0,
+        "ops_validation_reports_deleted": 0,
+        "digital_price_watch_runs_deleted": 0,
+        "expired_number_purchase_blocks_deleted": 0,
         "usage_stats_deleted": 0,
         "orders_archived": 0,
         "orders_deleted_after_archive": 0,
@@ -81,6 +86,21 @@ async def run_lifecycle_cleanup(
 
     number_del = await db.number_order_events.delete_many({"created_at": {"$lt": num_evt_cutoff}})
     metrics["number_events_deleted"] = int(number_del.deleted_count or 0)
+
+    temp_number_del = await db.temp_number_events.delete_many({"created_at": {"$lt": num_evt_cutoff}})
+    metrics["temp_number_events_deleted"] = int(temp_number_del.deleted_count or 0)
+
+    webhook_del = await db.provider_webhook_events.delete_many({"created_at": {"$lt": num_evt_cutoff}})
+    metrics["provider_webhook_events_deleted"] = int(webhook_del.deleted_count or 0)
+
+    ops_validation_del = await db.ops_validation_reports.delete_many({"created_at": {"$lt": proxy_cutoff}})
+    metrics["ops_validation_reports_deleted"] = int(ops_validation_del.deleted_count or 0)
+
+    price_watch_del = await db.digital_price_watch_runs.delete_many({"created_at": {"$lt": proxy_cutoff}})
+    metrics["digital_price_watch_runs_deleted"] = int(price_watch_del.deleted_count or 0)
+
+    purchase_blocks_del = await db.number_provider_purchase_blocks.delete_many({"expires_at": {"$lt": now}})
+    metrics["expired_number_purchase_blocks_deleted"] = int(purchase_blocks_del.deleted_count or 0)
 
     usage_del = await db.usage_stats.delete_many(
         {

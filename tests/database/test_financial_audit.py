@@ -69,6 +69,26 @@ class _FakeDb:
         )
 
 
+class _StringOrderIdLedgerDb(_FakeDb):
+    def __init__(self):
+        super().__init__()
+        self.wallets = _FakeCollection([])
+        self.orders = _FakeCollection(
+            [
+                {
+                    "_id": 123,
+                    "user_id": 1,
+                    "reseller_id": 77,
+                    "status": "success",
+                    "service_type": "custom",
+                    "created_at": datetime.now(UTC),
+                },
+            ]
+        )
+        self.ledger_entries = _FakeCollection([{"order_id": "123"}])
+        self.recharge_requests = _FakeCollection([])
+
+
 def _matches(doc, query):
     for key, value in query.items():
         if key == "$or":
@@ -101,3 +121,12 @@ async def test_scan_financial_anomalies_reports_expected_categories(monkeypatch)
     assert report["negative_wallets_count"] == 1
     assert report["orders_missing_ledger_count"] == 1
     assert report["accepted_recharges_without_ledger_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_scan_financial_anomalies_matches_string_ledger_order_ids(monkeypatch):
+    monkeypatch.setattr(financial_ledger, "db", _StringOrderIdLedgerDb())
+
+    report = await financial_ledger.scan_financial_anomalies(days=30, max_rows=10)
+
+    assert report["orders_missing_ledger_count"] == 0

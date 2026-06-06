@@ -100,6 +100,45 @@ async def test_auto_refund_finalizes_local_refund_when_provider_already_closed(m
 
 
 @pytest.mark.asyncio
+async def test_auto_refund_recovers_provider_code_before_cancel(monkeypatch):
+    calls = {}
+
+    async def fake_fetch_provider_sms(providers, provider, provider_order_id, **kwargs):
+        calls["fetch"] = (provider, provider_order_id, kwargs)
+        return {"success": True, "messages": ["778899"], "raw": {"status": "completed"}}
+
+    async def fake_update_order_details(order_id, patch):
+        calls["patch"] = (order_id, patch)
+
+    async def fake_log_temp_event(order, event, payload):
+        calls["event"] = (event, payload)
+
+    async def fake_enqueue_event_for_user(**kwargs):
+        calls["webhook"] = kwargs
+
+    async def fail_cancel(*args, **kwargs):
+        raise AssertionError("provider cancel must not run after SMS recovery")
+
+    monkeypatch.setattr(order_auto_refund_service, "fetch_provider_sms", fake_fetch_provider_sms)
+    monkeypatch.setattr(order_auto_refund_service, "update_order_details", fake_update_order_details)
+    monkeypatch.setattr(order_auto_refund_service, "_log_temp_event", fake_log_temp_event)
+    monkeypatch.setattr(order_auto_refund_service, "enqueue_event_for_user", fake_enqueue_event_for_user)
+    monkeypatch.setattr(order_auto_refund_service, "cancel_number_order", fail_cancel)
+
+    result = await order_auto_refund_service.auto_refund_temp_order_if_due(
+        due_order(provider="smsready", provider_order_id="smsready-1", reseller_id=456)
+    )
+
+    assert calls["fetch"] == ("smsready", "smsready-1", {"force": True})
+    assert calls["patch"][1]["temp_last_code"] == "778899"
+    assert calls["patch"][1]["temp_wait_state"] == "code_received"
+    assert calls["event"][0] == "code_received_recovery"
+    assert calls["webhook"]["event_type"] == "numbers.order.sms"
+    assert result["refunded"] is False
+    assert result["reason"] == "code_received_recovery"
+
+
+@pytest.mark.asyncio
 async def test_auto_refund_refunds_customer_on_retryable_provider_failure(monkeypatch):
     calls = {}
 

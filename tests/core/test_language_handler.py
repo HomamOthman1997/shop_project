@@ -168,5 +168,5 @@ async def test_language_selection_opens_numbers_miniapp_inline_menu(monkeypatch)
     assert len(callback.message.answers) == 2
     assert callback.message.answers[0]["reply_markup"].__class__.__name__ == "ReplyKeyboardRemove"
     assert callback.message.answers[1]["text"] == "Menu"
-    assert callback.message.answers[1]["reply_markup"].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers"
+    assert callback.message.answers[1]["reply_markup"].inline_keyboard[0][0].web_app.url == "https://numbers.example.com/mini/numbers-v2"
     assert callback.message.stickers == []

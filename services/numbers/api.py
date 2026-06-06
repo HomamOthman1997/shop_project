@@ -56,6 +56,7 @@ from services.platform.api_rate_limits import (
     rate_limit_headers,
     retry_after_seconds,
 )
+from services.platform.website_auth import require_website_purchase_ready
 
 _NO_STORE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
@@ -825,6 +826,7 @@ async def _check_rate_limit(auth: ApiAuthContext, *, bucket: str, limit: int) ->
 
 async def create_order(request: web.Request) -> web.Response:
     auth = await require_api_auth(request, "numbers:orders:create")
+    await require_website_purchase_ready(request)
     rate_limit = await _check_rate_limit(auth, bucket="numbers:orders:create", limit=30)
 
     try:

@@ -149,9 +149,26 @@ class TelabotProvider(BaseProvider):
 
     async def get_sms(self, activation_id) -> Dict[str, Any]:
         response = await self._get({"cmd": "read_sms", "id": activation_id})
+        if not isinstance(response, dict):
+            return {"success": False, "messages": [], "raw": response}
+        status = str(response.get("status") or "").strip().lower()
+        if response.get("error") or status in {"error", "failed", "failure"}:
+            return {"success": False, "messages": [], "raw": response}
+        payload = response.get("message")
+        messages: list[str] = []
+        rows = payload if isinstance(payload, list) else [payload]
+        for row in rows:
+            if isinstance(row, str) and row.strip():
+                messages.append(row.strip())
+            elif isinstance(row, dict):
+                for key in ("pin", "code", "reply", "text", "message"):
+                    value = str(row.get(key) or "").strip()
+                    if value:
+                        messages.append(value)
+                        break
         return {
             "success": bool(response),
-            "messages": response.get("message", []),
+            "messages": messages,
             "raw": response,
         }
 

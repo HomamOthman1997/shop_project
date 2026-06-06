@@ -29,7 +29,7 @@ async def test_refresh_number_order_stores_new_temp_code(monkeypatch):
             return {**order, **patch}
         return order
 
-    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id):
+    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id, **kwargs):
         calls["fetch"] = (provider_code, provider_order_id)
         return {"success": True, "messages": ["123456"], "raw": {}}
 
@@ -47,7 +47,6 @@ async def test_refresh_number_order_stores_new_temp_code(monkeypatch):
     monkeypatch.setattr(order_refresh_service, "update_order_details", fake_update_order_details)
     monkeypatch.setattr(order_refresh_service, "_log_temp_event", fake_log_temp_event)
     monkeypatch.setattr(order_refresh_service, "enqueue_event_for_user", fake_enqueue_event_for_user)
-    monkeypatch.setattr(order_refresh_service, "provider_sms_polling_enabled", lambda provider=None: True)
     monkeypatch.setattr(order_refresh_service, "_utc_now", lambda: datetime(2026, 5, 25, 12, 1, tzinfo=UTC))
 
     result = await order_refresh_service.refresh_number_order(order)
@@ -78,26 +77,33 @@ async def test_refresh_number_order_marks_no_sms_refresh(monkeypatch):
     async def fake_get_order(order_id):
         return order
 
-    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id):
+    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id, **kwargs):
         return {"success": True, "messages": [], "raw": {}}
 
     async def fake_update_order_details(order_id, patch):
         calls["patch"] = patch
 
+    async def fake_log_temp_event(order_arg, event, payload):
+        calls["event"] = (event, payload)
+
     monkeypatch.setattr(order_refresh_service, "get_order", fake_get_order)
     monkeypatch.setattr(order_refresh_service, "fetch_provider_sms", fake_fetch_provider_sms)
     monkeypatch.setattr(order_refresh_service, "update_order_details", fake_update_order_details)
-    monkeypatch.setattr(order_refresh_service, "provider_sms_polling_enabled", lambda provider=None: True)
+    monkeypatch.setattr(order_refresh_service, "_log_temp_event", fake_log_temp_event)
     monkeypatch.setattr(order_refresh_service, "_utc_now", lambda: datetime(2026, 5, 25, 12, 1, tzinfo=UTC))
 
     result = await order_refresh_service.refresh_number_order(order)
 
     assert "temp_last_refresh_at" in calls["patch"]
+    assert calls["patch"]["temp_last_refresh_mode"] == "provider_direct_check"
+    assert calls["patch"]["temp_last_provider_check_success"] is True
+    assert calls["patch"]["temp_last_provider_check_messages_count"] == 0
+    assert calls["event"][0] == "manual_refresh_no_sms"
     assert result["message"] == "No SMS yet."
 
 
 @pytest.mark.asyncio
-async def test_refresh_number_order_does_not_poll_webhook_provider(monkeypatch):
+async def test_refresh_number_order_force_checks_webhook_provider(monkeypatch):
     calls = {}
     order = {
         "_id": "order-1",
@@ -111,23 +117,29 @@ async def test_refresh_number_order_does_not_poll_webhook_provider(monkeypatch):
     async def fake_get_order(order_id):
         return order
 
-    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id):
-        calls["fetch"] = (provider_code, provider_order_id)
+    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id, **kwargs):
+        calls["fetch"] = (provider_code, provider_order_id, kwargs)
         return {"success": True, "messages": [], "raw": {}}
 
     async def fake_update_order_details(order_id, patch):
         calls["patch"] = patch
 
+    async def fake_log_temp_event(order_arg, event, payload):
+        calls["event"] = (event, payload)
+
     monkeypatch.setattr(order_refresh_service, "get_order", fake_get_order)
     monkeypatch.setattr(order_refresh_service, "fetch_provider_sms", fake_fetch_provider_sms)
     monkeypatch.setattr(order_refresh_service, "update_order_details", fake_update_order_details)
+    monkeypatch.setattr(order_refresh_service, "_log_temp_event", fake_log_temp_event)
     monkeypatch.setattr(order_refresh_service, "_utc_now", lambda: datetime(2026, 5, 25, 12, 1, tzinfo=UTC))
 
     result = await order_refresh_service.refresh_number_order(order)
 
-    assert "fetch" not in calls
-    assert calls["patch"]["temp_last_refresh_mode"] == "provider_webhook"
-    assert result["message"] == "Waiting for provider webhook."
+    assert calls["fetch"] == ("smsready", "50", {"force": True})
+    assert "temp_last_refresh_at" in calls["patch"]
+    assert calls["patch"]["temp_last_refresh_mode"] == "provider_direct_check"
+    assert calls["event"][0] == "manual_refresh_no_sms"
+    assert result["message"] == "No SMS yet."
 
 
 @pytest.mark.asyncio
@@ -161,7 +173,7 @@ async def test_refresh_number_order_polls_when_waiting_for_second_code(monkeypat
             return {**order, **calls["details"][-1][1]}
         return order
 
-    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id):
+    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id, **kwargs):
         calls["fetch"] = (provider_code, provider_order_id)
         return {"success": True, "messages": ["111111", "222222"], "raw": {}}
 
@@ -218,17 +230,21 @@ async def test_refresh_number_order_can_skip_auto_refund_on_timeout(monkeypatch)
         calls["refund"] = order_arg
         return {"ok": True, "refunded": True, "order": {"id": "refunded"}}
 
-    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id):
+    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id, **kwargs):
         calls["fetch"] = (provider_code, provider_order_id)
         return {"success": True, "messages": [], "raw": {}}
 
     async def fake_update_order_details(order_id, patch):
         calls["patch"] = patch
 
+    async def fake_log_temp_event(order_arg, event, payload):
+        calls["event"] = (event, payload)
+
     monkeypatch.setattr(order_refresh_service, "get_order", fake_get_order)
     monkeypatch.setattr(order_refresh_service, "auto_refund_temp_order_if_due", fake_auto_refund_temp_order_if_due)
     monkeypatch.setattr(order_refresh_service, "fetch_provider_sms", fake_fetch_provider_sms)
     monkeypatch.setattr(order_refresh_service, "update_order_details", fake_update_order_details)
+    monkeypatch.setattr(order_refresh_service, "_log_temp_event", fake_log_temp_event)
     monkeypatch.setattr(order_refresh_service, "_utc_now", lambda: datetime(2026, 5, 25, 12, 5, tzinfo=UTC))
 
     result = await order_refresh_service.refresh_number_order(order, allow_auto_refund=False)
@@ -260,7 +276,7 @@ async def test_refresh_number_order_polls_explicit_polling_provider_when_global_
             return {**order, **calls["patch"]}
         return order
 
-    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id):
+    async def fake_fetch_provider_sms(providers, provider_code, provider_order_id, **kwargs):
         calls["fetch"] = (provider_code, provider_order_id)
         return {"success": True, "messages": ["654321"], "raw": {}}
 

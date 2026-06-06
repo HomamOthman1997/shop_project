@@ -245,16 +245,20 @@ def test_cardex_miniapp_accepts_main_bot_signed_init_data(monkeypatch):
     assert auth["user_id"] == 123
 
 
-def test_cardex_miniapp_optional_auth_allows_public_prices_without_init_data(monkeypatch):
+@pytest.mark.asyncio
+async def test_cardex_miniapp_optional_auth_allows_public_prices_without_init_data(monkeypatch):
     from aiohttp import web
     from services.cards_bot import miniapp
 
     class Request:
         headers = {}
 
-    monkeypatch.setattr(miniapp, "_auth", lambda request: (_ for _ in ()).throw(web.HTTPUnauthorized()))
+    async def unauthorized(_request):
+        raise web.HTTPUnauthorized()
 
-    assert miniapp._optional_auth(Request()) is None
+    monkeypatch.setattr(miniapp, "_auth", unauthorized)
+
+    assert await miniapp._optional_auth(Request()) is None
 
 
 def test_cards_main_menu_uses_arabic_labels_for_ar():
@@ -291,7 +295,7 @@ def test_cards_main_menu_shows_admin_panel_and_card_actions_for_admins():
     labels = [button.text for row in kb.inline_keyboard for button in row]
     assert "Card EX Admin" in labels
     assert "Sell / Exchange Card" in labels
-    assert "Price Sheet" in labels
+    assert "Price Sheet (Mini App)" in labels
 
 
 def test_cards_main_menu_uses_cardex_miniapp_when_enabled(monkeypatch):

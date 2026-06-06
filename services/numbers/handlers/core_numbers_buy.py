@@ -1059,6 +1059,28 @@ async def _retry_temp_refund_until_success(
             await _log_temp_event(order, "auto_refund_retry_success", {"attempt": attempts, "source": source_reason})
             return
 
+        if str(result.get("reason") or "") == "provider_cancel_failed" and not bool(result.get("retryable")):
+            now = _utc_now()
+            await update_order_details(
+                order_id,
+                {
+                    "temp_wait_state": "refund_pending",
+                    "temp_refund_support_review_required": True,
+                    "temp_refund_support_review_status": "open",
+                    "temp_refund_support_review_reason": "provider_cancel_failed",
+                    "temp_refund_support_review_at": now,
+                    "temp_refund_retry_attempts": attempts,
+                    "temp_refund_retry_last_at": now,
+                    "temp_refund_retry_reason": "provider_cancel_failed",
+                },
+            )
+            await _log_temp_event(
+                order,
+                "auto_refund_retry_exhausted",
+                {"source": source_reason, "attempts": attempts, "reason": "provider_cancel_failed"},
+            )
+            return
+
         await update_order_details(
             order_id,
             {
@@ -1072,6 +1094,16 @@ async def _retry_temp_refund_until_success(
 
     order = await get_order(order_id)
     if order:
+        now = _utc_now()
+        await update_order_details(
+            order_id,
+            {
+                "temp_refund_support_review_required": True,
+                "temp_refund_support_review_status": "open",
+                "temp_refund_support_review_reason": str(order.get("temp_refund_retry_reason") or "retry_window_exhausted"),
+                "temp_refund_support_review_at": now,
+            },
+        )
         await _log_temp_event(
             order,
             "auto_refund_retry_exhausted",

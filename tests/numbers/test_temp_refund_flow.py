@@ -150,6 +150,66 @@ async def test_cancel_and_refund_temp_order_blocked_if_code_received(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_cancel_and_refund_temp_order_recovers_provider_code_before_cancel(monkeypatch):
+    import services.numbers.handlers.core_numbers_buy as hb
+
+    calls: dict = {}
+
+    class _DummyProvider:
+        async def get_sms(self, activation_id):
+            calls["provider_check"] = activation_id
+            return {"success": True, "messages": "778899", "raw": {}}
+
+        async def cancel(self, activation_id):
+            calls["provider_cancel"] = activation_id
+            return {"success": True}
+
+    class _DummyFinancialManager:
+        @classmethod
+        async def refund_core_purchase(cls, *args, **kwargs):
+            calls["refund"] = True
+            return True, "OK"
+
+    async def _fake_update_order_details(order_id, patch):
+        calls["patch"] = patch
+
+    async def _fake_log_temp_event(order, event, payload=None):
+        calls["event"] = (event, payload)
+
+    monkeypatch.setitem(hb.PROVIDERS, "smspool", _DummyProvider())
+    monkeypatch.setattr(hb, "FinancialManager", _DummyFinancialManager)
+    monkeypatch.setattr(hb, "update_order_details", _fake_update_order_details)
+    monkeypatch.setattr(hb, "_log_temp_event", _fake_log_temp_event)
+
+    order = {
+        "_id": "oid-recovery",
+        "status": "success",
+        "user_id": 11,
+        "reseller_id": 22,
+        "provider": "smspool",
+        "provider_order_id": "provider-1",
+        "selling_price": 1.0,
+        "base_price": 0.5,
+        "temp_codes": [],
+    }
+
+    result = await hb._cancel_and_refund_temp_order(
+        order_id=order["_id"],
+        order=order,
+        actor_user_id=11,
+        reason="timeout",
+        require_no_sms=True,
+    )
+
+    assert result == {"success": False, "reason": "sms_received", "provider_sms_recovered": True}
+    assert calls["provider_check"] == "provider-1"
+    assert calls["patch"]["temp_last_code"] == "778899"
+    assert calls["event"][0] == "code_received_recovery"
+    assert "provider_cancel" not in calls
+    assert "refund" not in calls
+
+
+@pytest.mark.asyncio
 async def test_confirm_buy_does_not_retry_without_state(monkeypatch):
     import services.numbers.handlers.core_numbers_buy as hb
 

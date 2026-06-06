@@ -24,10 +24,40 @@ def _extract_api_key(request: web.Request) -> str:
     return str(request.headers.get("X-API-Key") or "").strip()
 
 
+def has_api_key_credentials(request: web.Request) -> bool:
+    return bool(_extract_api_key(request))
+
+
 async def require_api_auth(request: web.Request, required_scope: str) -> ApiAuthContext:
     api_key = _extract_api_key(request)
     if not api_key:
-        raise web.HTTPUnauthorized(text="missing api key")
+        from services.platform.website_auth import require_website_auth
+
+        website_user_scopes = {
+            "digital:account:read",
+            "digital:catalog",
+            "digital:orders:create",
+            "digital:orders:read",
+            "numbers:account:read",
+            "numbers:quotes",
+            "numbers:orders:create",
+            "numbers:orders:read",
+            "numbers:orders:refresh",
+            "numbers:orders:resend",
+            "numbers:orders:cancel",
+            "numbers:orders:replace",
+            "numbers:orders:rental",
+        }
+        if required_scope not in website_user_scopes:
+            raise web.HTTPUnauthorized(text="missing api key")
+        website = await require_website_auth(request)
+        return ApiAuthContext(
+            key_id=f"website:{website.account_id}",
+            user_id=website.customer_id,
+            reseller_id=website.customer_id,
+            scopes=tuple(sorted(website_user_scopes)),
+            name="website-session",
+        )
 
     doc = await find_active_api_key(api_key)
     if not isinstance(doc, dict):

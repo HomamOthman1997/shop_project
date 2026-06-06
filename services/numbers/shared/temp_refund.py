@@ -6,7 +6,15 @@ from typing import Any, Awaitable, Callable
 
 from database.orders_repo import extract_order_amounts
 
-from .temp_order import _is_retryable_provider_cancel, _temp_order_has_received_code, _utc_now
+from .provider_io import normalize_provider_sms_result
+from .temp_order import (
+    _extract_new_sms_code,
+    _is_retryable_provider_cancel,
+    _safe_code_text,
+    _seconds_between,
+    _temp_order_has_received_code,
+    _utc_now,
+)
 
 
 _PROVIDER_TERMINAL_REFUND_MARKERS = (
@@ -23,6 +31,7 @@ _PROVIDER_TERMINAL_REFUND_MARKERS = (
     "canceled",
 )
 _PROVIDER_TERMINAL_MISSING_MARKERS = (
+    "provider_terminal_no_sms",
     "no_activation",
     "no activation",
     "activation not found",
@@ -271,6 +280,38 @@ async def cancel_and_refund_temp_order(
     if not prov or not hasattr(prov, "cancel"):
         return {"success": False, "reason": "provider_cancel_not_supported"}
 
+    if require_no_sms and hasattr(prov, "get_sms"):
+        try:
+            sms_data = normalize_provider_sms_result(await asyncio.wait_for(prov.get_sms(provider_order_id), timeout=12.0))
+        except Exception:
+            sms_data = {"success": False, "messages": []}
+        existing_codes = [str(code) for code in (order.get("temp_codes") or []) if str(code or "").strip()]
+        code = _extract_new_sms_code(sms_data.get("messages") or [], set(existing_codes))
+        if code:
+            clean_code = _safe_code_text(code)
+            now = _utc_now()
+            patch: dict[str, Any] = {
+                "temp_wait_state": "code_received",
+                "temp_last_sms_at": now,
+                "temp_last_code": clean_code,
+                "temp_codes": [*existing_codes, clean_code],
+                "temp_codes_count": len(existing_codes) + 1,
+                "temp_last_refresh_at": now,
+                "temp_last_refresh_mode": "provider_guard_before_cancel",
+            }
+            if not order.get("temp_first_sms_at"):
+                patch["temp_first_sms_at"] = now
+                seconds_to_first_sms = _seconds_between(now, order.get("created_at"))
+                if seconds_to_first_sms is not None:
+                    patch["temp_seconds_to_first_sms"] = seconds_to_first_sms
+            await update_order_details_fn(order_id, patch)
+            await log_temp_event_fn(
+                order,
+                "code_received_recovery",
+                {"code_len": len(clean_code), "source": "provider_guard_before_cancel"},
+            )
+            return {"success": False, "reason": "sms_received", "provider_sms_recovered": True}
+
     event_source_payload = {"source": source} if source else {}
     await log_number_event_from_order_fn(
         order,
@@ -280,7 +321,7 @@ async def cancel_and_refund_temp_order(
     )
 
     cancel_res: dict[str, Any] = {"success": False, "raw": "cancel_not_attempted"}
-    for attempt in range(1, 5):
+    for attempt in range(1, 4):
         try:
             cancel_res = await asyncio.wait_for(prov.cancel(provider_order_id), timeout=12.0)
         except Exception as exc:

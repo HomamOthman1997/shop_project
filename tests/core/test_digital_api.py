@@ -8,6 +8,7 @@ from aiohttp.test_utils import make_mocked_request
 from services.digital_products import api
 from services.platform.api_auth import ApiAuthContext
 from services.platform.api_rate_limits import ApiRateLimitDecision
+from tests.core.test_telegram_webapp_auth import signed_init_data
 
 
 async def allow_rate_limit(auth, *, bucket, limit, window_seconds=60):
@@ -18,8 +19,9 @@ def auth_context(scope: str = "digital:catalog") -> ApiAuthContext:
     return ApiAuthContext(key_id="key-1", user_id=123, reseller_id=456, scopes=(scope,))
 
 
-def json_request(method: str, path: str, body: dict | None = None, *, headers: dict | None = None):
-    request = make_mocked_request(method, path, headers={"Content-Type": "application/json", **(headers or {})})
+def json_request(method: str, path: str, body: dict | None = None, *, headers: dict | None = None, match_info: dict | None = None):
+    kwargs = {"match_info": match_info} if match_info is not None else {}
+    request = make_mocked_request(method, path, headers={"Content-Type": "application/json", **(headers or {})}, **kwargs)
     request._read_bytes = json.dumps(body or {}).encode("utf-8")
     return request
 
@@ -33,10 +35,13 @@ def test_register_digital_api_routes_adds_versioned_endpoints():
     assert ("GET", "/api/v1/digital/health") in routes
     assert ("GET", "/api/v1/digital/account") in routes
     assert ("GET", "/api/v1/digital/catalog") in routes
+    assert ("GET", "/api/v1/digital/source-diagnostics") in routes
     assert ("GET", "/api/v1/digital/quotes") in routes
     assert ("GET", "/api/v1/digital/orders") in routes
     assert ("GET", "/api/v1/digital/orders/{order_id}") in routes
+    assert ("GET", "/api/v1/digital/admin/orders") in routes
     assert ("POST", "/api/v1/digital/orders") in routes
+    assert ("POST", "/api/v1/digital/orders/{order_id}/manual-action") in routes
 
 
 def test_digital_quote_token_round_trips_signed_payload():
@@ -49,6 +54,267 @@ def test_digital_quote_token_round_trips_signed_payload():
     assert payload["item_id"] == "1800_uc"
     assert payload["sale_price"] == 21.25
     assert payload["exp"] > 0
+
+
+@pytest.mark.asyncio
+async def test_digital_user_auth_uses_direct_wallet_for_telegram_user(monkeypatch):
+    monkeypatch.setattr(api.settings, "bot_digital_products_token", "123:test", raising=False)
+    request = make_mocked_request(
+        "GET",
+        "/api/v1/digital/account",
+        headers={"X-Telegram-Init-Data": signed_init_data(token="123:test", user_id=777)},
+    )
+
+    auth = await api.require_digital_user_auth(request, "digital:account:read")
+
+    assert auth.user_id == 777
+    assert auth.reseller_id == 777
+    assert auth.key_id == "telegram:777"
+
+
+@pytest.mark.asyncio
+async def test_digital_user_auth_rejects_admin_scope_for_telegram_user(monkeypatch):
+    monkeypatch.setattr(api.settings, "bot_digital_products_token", "123:test", raising=False)
+    request = make_mocked_request(
+        "GET",
+        "/api/v1/digital/admin/orders",
+        headers={"X-Telegram-Init-Data": signed_init_data(token="123:test", user_id=777)},
+    )
+
+    with pytest.raises(web.HTTPForbidden) as exc_info:
+        await api.require_digital_user_auth(request, "digital:orders:manage")
+    assert exc_info.value.text == "api key required"
+
+
+@pytest.mark.asyncio
+async def test_digital_catalog_exposes_backend_product_watchlist(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return auth_context(required_scope)
+
+    async def fake_snapshot(force=False):
+        return {"games": [], "gift_categories": [], "providers": {}}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_catalog_snapshot", fake_snapshot)
+    monkeypatch.setattr(api, "load_product_provider_sources", lambda: [])
+
+    request = make_mocked_request("GET", "/api/v1/digital/catalog")
+    response = await api.catalog(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    products = {row["id"]: row for row in payload["products"]}
+    categories = {row["id"]: row for row in payload["product_categories"]}
+    assert products["syriatel"]["category"] == "syrian_services"
+    assert products["syriatel"]["input_fields"][0]["id"] == "phone_number"
+    assert products["syriatel"]["api_actions"]["quotes"]["endpoint"] == "/api/v1/digital/quotes?kind=product&product_id=syriatel"
+    assert products["chatgpt_via_apple"]["sourcing_policy"] == "indirect_apple"
+    assert products["chatgpt_via_apple"]["input_fields"][0]["id"] == "apple_region"
+    assert categories["syrian_services"]["count"] >= 12
+    assert categories["syrian_services"]["label"]["ar"] == "خدمات سورية"
+    assert payload["source_diagnostics"]["status"] == "ok"
+    assert payload["source_diagnostics"]["issues_count"] == 0
+    assert payload["source_diagnostics"]["watchlist_issues_count"] == 0
+    assert payload["source_diagnostics"]["source_issues_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_digital_catalog_reports_provider_source_diagnostics(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return auth_context(required_scope)
+
+    async def fake_snapshot(force=False):
+        return {"games": [], "gift_categories": [], "providers": {}}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_catalog_snapshot", fake_snapshot)
+    monkeypatch.setattr(
+        api,
+        "load_product_provider_sources",
+        lambda: [
+            api.ProductProviderSource(
+                product_key="missing_product",
+                package_key="broken",
+                package_name="Broken",
+                duration="",
+                provider="external",
+                fulfillment_mode="manual_topup",
+                source_ref="broken-source",
+                source_url="https://example.test/broken",
+                price_usd=1.0,
+                available=True,
+                public_note="",
+            )
+        ],
+    )
+
+    request = make_mocked_request("GET", "/api/v1/digital/catalog")
+    response = await api.catalog(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["source_diagnostics"]["status"] == "needs_review"
+    assert payload["source_diagnostics"]["source_issues_count"] == 1
+    assert payload["source_diagnostics"]["issue_counts"]["unknown_product"] == 1
+
+
+@pytest.mark.asyncio
+async def test_digital_catalog_diagnostics_include_inactive_broken_sources(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return auth_context(required_scope)
+
+    async def fake_snapshot(force=False):
+        return {"games": [], "gift_categories": [], "providers": {}}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_catalog_snapshot", fake_snapshot)
+    monkeypatch.setattr(api, "active_product_provider_sources", lambda: [])
+    monkeypatch.setattr(
+        api,
+        "load_product_provider_sources",
+        lambda: [
+            api.ProductProviderSource(
+                product_key="syriatel",
+                package_key="syriatel_balance",
+                package_name="Syriatel Balance",
+                duration="",
+                provider="external",
+                fulfillment_mode="manual_topup",
+                source_ref="syriatel-balance",
+                source_url="https://example.test/syriatel",
+                price_usd=0.0,
+                available=False,
+                public_note="",
+            )
+        ],
+    )
+
+    request = make_mocked_request("GET", "/api/v1/digital/catalog")
+    response = await api.catalog(request)
+    payload = json.loads(response.text)
+    products = {row["id"]: row for row in payload["products"]}
+
+    assert response.status == 200
+    assert products["syriatel"]["orderable"] is False
+    assert payload["source_diagnostics"]["status"] == "needs_review"
+    assert payload["source_diagnostics"]["issue_counts"]["invalid_price"] == 1
+
+
+@pytest.mark.asyncio
+async def test_digital_source_diagnostics_endpoint_returns_details(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["scope"] = required_scope
+        return auth_context(required_scope)
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(
+        api,
+        "load_product_provider_sources",
+        lambda: [
+            api.ProductProviderSource(
+                product_key="missing_product",
+                package_key="broken",
+                package_name="Broken",
+                duration="",
+                provider="external",
+                fulfillment_mode="manual_topup",
+                source_ref="broken-source",
+                source_url="https://example.test/broken",
+                price_usd=1.0,
+                available=True,
+                public_note="",
+            )
+        ],
+    )
+
+    request = make_mocked_request("GET", "/api/v1/digital/source-diagnostics")
+    response = await api.source_diagnostics(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["scope"] == "digital:sources:read"
+    assert payload["diagnostics"]["status"] == "needs_review"
+    assert payload["diagnostics"]["source_issues"][0]["code"] == "unknown_product"
+
+
+@pytest.mark.asyncio
+async def test_digital_product_quotes_return_empty_until_backend_source_exists(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return auth_context(required_scope)
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "active_product_provider_sources", lambda: [])
+
+    request = make_mocked_request("GET", "/api/v1/digital/quotes?kind=product&product_id=syriatel")
+    response = await api.quotes(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["kind"] == "product"
+    assert payload["product"]["id"] == "syriatel"
+    assert payload["offers"] == []
+
+
+@pytest.mark.asyncio
+async def test_digital_product_quotes_are_signed_from_backend_sources(monkeypatch):
+    async def fake_require_api_auth(request, required_scope):
+        return auth_context(required_scope)
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(
+        api,
+        "active_product_provider_sources",
+        lambda: [
+            api.ProductProviderSource(
+                product_key="netflix",
+                package_key="netflix_1m",
+                package_name="Netflix 1 Month",
+                duration="1 month",
+                provider="external",
+                fulfillment_mode="manual_topup",
+                source_ref="netflix-manual-1m",
+                source_url="https://example.test/netflix",
+                price_usd=4.25,
+                available=True,
+                public_note="Manual source",
+            ),
+            api.ProductProviderSource(
+                product_key="netflix",
+                package_key="netflix_1m",
+                package_name="Netflix 1 Month",
+                duration="1 month",
+                provider="g2g",
+                fulfillment_mode="manual_topup",
+                source_ref="g2g-netflix-1m",
+                source_url="https://example.test/g2g-netflix",
+                price_usd=4.75,
+                available=True,
+                public_note="Marketplace source",
+            )
+        ],
+    )
+
+    request = make_mocked_request("GET", "/api/v1/digital/quotes?kind=product&product_id=netflix")
+    response = await api.quotes(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["offers"][0]["id"] == "netflix_1m"
+    quote = api.verify_digital_quote_token(payload["offers"][0]["quote_token"])
+    assert quote["kind"] == "product"
+    assert quote["product_id"] == "netflix"
+    assert quote["provider"] == "external"
+    assert len(quote["provider_offers"]) == 2
+    assert quote["provider_offers"][0]["source_url"] == "https://example.test/netflix"
+    assert quote["provider_offers"][1]["source_url"] == "https://example.test/g2g-netflix"
 
 
 @pytest.mark.asyncio
@@ -162,7 +428,7 @@ async def test_digital_create_order_charges_and_marks_manual_topup(monkeypatch):
     assert calls["charge"] == {
         "user_id": 123,
         "reseller_id": 456,
-        "service_ref_id": "g2bulk:topup:2968",
+        "service_ref_id": "g2bulk:game:2968",
         "sale_price": 21.25,
         "cost_price": 21.25,
     }
@@ -173,6 +439,283 @@ async def test_digital_create_order_charges_and_marks_manual_topup(monkeypatch):
     assert calls["notify"]["player_data"]["Player Id"] == "51293484551"
     assert payload["order"]["id"] == "order-1"
     assert payload["order"]["public_status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_digital_create_product_order_uses_customer_data(monkeypatch):
+    calls = {}
+    quote_token = api.make_digital_quote_token(
+        {
+            "kind": "product",
+            "product_id": "netflix",
+            "product_name": "Netflix",
+            "item_id": "netflix_1m",
+            "item_name": "Netflix 1 Month",
+            "duration": "1 month",
+            "input_fields": [
+                {"id": "account", "required": True},
+                {"id": "notes", "required": False},
+            ],
+            "sale_price": 4.25,
+            "cost_price": 4.25,
+            "provider": "external",
+            "provider_ref_id": "netflix-manual-1m",
+            "provider_offers": [
+                {
+                    "provider": "external",
+                    "ref_id": "netflix-manual-1m",
+                    "price": 4.25,
+                    "available": True,
+                    "fulfillment_mode": "manual_topup",
+                    "source_url": "https://example.test/netflix",
+                }
+            ],
+        }
+    )
+
+    async def fake_require_api_auth(request, required_scope):
+        return auth_context(required_scope)
+
+    async def fake_charge(**kwargs):
+        calls["charge"] = kwargs
+        return {
+            "_id": "order-product-1",
+            "user_id": kwargs["user_id"],
+            "reseller_id": kwargs["reseller_id"],
+            "service_type": "core_digital_products",
+            "service_ref_id": kwargs["service_ref_id"],
+            "retail_amount": kwargs["sale_price"],
+            "wholesale_amount": kwargs["cost_price"],
+            "status": "paid",
+            "created_at": datetime(2026, 6, 4, 12, 0, tzinfo=UTC),
+        }, None
+
+    async def fake_update(order_id, details):
+        calls.setdefault("updates", []).append((order_id, details))
+
+    async def fake_notify(order, *, player_data, offers):
+        calls["notify"] = {"order": order, "player_data": player_data, "offers": offers}
+        return True
+
+    async def fake_existing(idempotency_key, auth):
+        return None
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "_find_idempotent_order", fake_existing)
+    monkeypatch.setattr(api, "_charge_digital_order", fake_charge)
+    monkeypatch.setattr(api, "update_order_details", fake_update)
+    monkeypatch.setattr(api, "_notify_owner_manual_order", fake_notify)
+    monkeypatch.setattr(
+        api,
+        "active_product_provider_sources",
+        lambda: [
+            api.ProductProviderSource(
+                product_key="netflix",
+                package_key="netflix_1m",
+                package_name="Netflix 1 Month",
+                duration="1 month",
+                provider="external",
+                fulfillment_mode="manual_topup",
+                source_ref="netflix-manual-1m",
+                source_url="https://example.test/netflix",
+                price_usd=4.25,
+                available=True,
+                public_note="Manual source",
+            )
+        ],
+    )
+
+    request = json_request(
+        "POST",
+        "/api/v1/digital/orders",
+        {"quote_token": quote_token, "customer_data": {"account": "customer@example.test"}},
+    )
+    response = await api.create_order(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["charge"]["service_ref_id"] == "external:product:netflix-manual-1m"
+    first_update = calls["updates"][0][1]
+    assert first_update["digital_kind"] == "product"
+    assert first_update["product_id"] == "netflix"
+    assert first_update["customer_data"] == {"account": "customer@example.test"}
+    assert calls["notify"]["player_data"] == {"account": "customer@example.test"}
+    assert calls["notify"]["offers"][0]["source_url"] == "https://example.test/netflix"
+    assert payload["order"]["id"] == "order-product-1"
+
+
+@pytest.mark.asyncio
+async def test_digital_create_product_order_requires_backend_input_fields(monkeypatch):
+    quote_token = api.make_digital_quote_token(
+        {
+            "kind": "product",
+            "product_id": "syriatel",
+            "product_name": "Syriatel",
+            "item_id": "syriatel_balance",
+            "item_name": "Syriatel Balance",
+            "sale_price": 1.0,
+            "cost_price": 1.0,
+            "provider": "external",
+            "provider_ref_id": "syriatel-balance",
+            "input_fields": [{"id": "phone_number", "required": True}, {"id": "amount", "required": True}],
+            "provider_offers": [{"provider": "external", "ref_id": "syriatel-balance", "price": 1.0, "available": True}],
+        }
+    )
+
+    async def fake_require_api_auth(request, required_scope):
+        return auth_context(required_scope)
+
+    async def fake_existing(idempotency_key, auth):
+        return None
+
+    async def fail_charge(**kwargs):
+        raise AssertionError("charge should not run when required fields are missing")
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "_find_idempotent_order", fake_existing)
+    monkeypatch.setattr(api, "_charge_digital_order", fail_charge)
+    monkeypatch.setattr(
+        api,
+        "active_product_provider_sources",
+        lambda: [
+            api.ProductProviderSource(
+                product_key="syriatel",
+                package_key="syriatel_balance",
+                package_name="Syriatel Balance",
+                duration="",
+                provider="external",
+                fulfillment_mode="manual_topup",
+                source_ref="syriatel-balance",
+                source_url="https://example.test/syriatel",
+                price_usd=1.0,
+                available=True,
+                public_note="Manual source",
+            )
+        ],
+    )
+
+    request = json_request(
+        "POST",
+        "/api/v1/digital/orders",
+        {"quote_token": quote_token, "customer_data": {"phone_number": "0999999999"}},
+    )
+    response = await api.create_order(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 400
+    assert payload["code"] == "missing_customer_data_fields"
+    assert "amount" in payload["message"]
+
+
+@pytest.mark.asyncio
+async def test_digital_create_product_order_rejects_removed_source(monkeypatch):
+    quote_token = api.make_digital_quote_token(
+        {
+            "kind": "product",
+            "product_id": "netflix",
+            "product_name": "Netflix",
+            "item_id": "netflix_1m",
+            "item_name": "Netflix 1 Month",
+            "sale_price": 4.25,
+            "cost_price": 4.25,
+            "provider": "external",
+            "provider_ref_id": "netflix-manual-1m",
+            "input_fields": [{"id": "account", "required": True}],
+            "provider_offers": [{"provider": "external", "ref_id": "netflix-manual-1m", "price": 4.25, "available": True}],
+        }
+    )
+
+    async def fake_require_api_auth(request, required_scope):
+        return auth_context(required_scope)
+
+    async def fake_existing(idempotency_key, auth):
+        return None
+
+    async def fail_charge(**kwargs):
+        raise AssertionError("charge should not run when backend source is gone")
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "_find_idempotent_order", fake_existing)
+    monkeypatch.setattr(api, "_charge_digital_order", fail_charge)
+    monkeypatch.setattr(api, "active_product_provider_sources", lambda: [])
+
+    request = json_request(
+        "POST",
+        "/api/v1/digital/orders",
+        {"quote_token": quote_token, "customer_data": {"account": "customer@example.test"}},
+    )
+    response = await api.create_order(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 409
+    assert payload["code"] == "product_source_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_digital_create_product_order_rejects_changed_backend_price(monkeypatch):
+    quote_token = api.make_digital_quote_token(
+        {
+            "kind": "product",
+            "product_id": "netflix",
+            "product_name": "Netflix",
+            "item_id": "netflix_1m",
+            "item_name": "Netflix 1 Month",
+            "sale_price": 4.25,
+            "cost_price": 4.25,
+            "provider": "external",
+            "provider_ref_id": "netflix-manual-1m",
+            "input_fields": [{"id": "account", "required": True}],
+            "provider_offers": [{"provider": "external", "ref_id": "netflix-manual-1m", "price": 4.25, "available": True}],
+        }
+    )
+
+    async def fake_require_api_auth(request, required_scope):
+        return auth_context(required_scope)
+
+    async def fake_existing(idempotency_key, auth):
+        return None
+
+    async def fail_charge(**kwargs):
+        raise AssertionError("charge should not run when backend price changed")
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "_find_idempotent_order", fake_existing)
+    monkeypatch.setattr(api, "_charge_digital_order", fail_charge)
+    monkeypatch.setattr(
+        api,
+        "active_product_provider_sources",
+        lambda: [
+            api.ProductProviderSource(
+                product_key="netflix",
+                package_key="netflix_1m",
+                package_name="Netflix 1 Month",
+                duration="1 month",
+                provider="external",
+                fulfillment_mode="manual_topup",
+                source_ref="netflix-manual-1m",
+                source_url="https://example.test/netflix",
+                price_usd=5.0,
+                available=True,
+                public_note="Manual source",
+            )
+        ],
+    )
+
+    request = json_request(
+        "POST",
+        "/api/v1/digital/orders",
+        {"quote_token": quote_token, "customer_data": {"account": "customer@example.test"}},
+    )
+    response = await api.create_order(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 409
+    assert payload["code"] == "quote_price_changed"
+    assert payload["current_price"] == 5.0
 
 
 @pytest.mark.asyncio
@@ -209,3 +752,299 @@ async def test_digital_create_order_replays_existing_idempotent_order(monkeypatc
     assert response.status == 200
     assert payload["order"]["id"] == "order-1"
     assert payload["order"]["idempotent_replay"] is True
+
+
+@pytest.mark.asyncio
+async def test_digital_admin_orders_lists_manual_orders(monkeypatch):
+    calls = {}
+    rows = [
+        {
+            "_id": "order-1",
+            "user_id": 123,
+            "reseller_id": 456,
+            "service_type": "core_digital_products",
+            "fulfillment_mode": "manual_topup",
+            "manual_fulfillment_status": "processing",
+            "manual_item_name": "Netflix 1 Month",
+            "retail_amount": 4.25,
+            "wholesale_amount": 4.25,
+            "status": "paid",
+        }
+    ]
+
+    class FakeCursor:
+        def sort(self, *args, **kwargs):
+            calls["sort"] = (args, kwargs)
+            return self
+
+        def limit(self, limit):
+            calls["limit"] = limit
+            return self
+
+        async def to_list(self, length):
+            calls["length"] = length
+            return rows
+
+    class FakeOrders:
+        def find(self, query):
+            calls["query"] = query
+            return FakeCursor()
+
+    class FakeDb:
+        orders = FakeOrders()
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["scope"] = required_scope
+        return ApiAuthContext(key_id="admin-key", user_id=999, reseller_id=456, scopes=("digital:orders:manage",))
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "db", FakeDb())
+
+    request = make_mocked_request("GET", "/api/v1/digital/admin/orders?status=processing&limit=25")
+    response = await api.list_admin_manual_orders(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["scope"] == "digital:orders:manage"
+    assert calls["query"]["fulfillment_mode"] == "manual_topup"
+    assert calls["query"]["reseller_id"] == 456
+    assert calls["query"]["manual_fulfillment_status"] == "processing"
+    assert calls["limit"] == 25
+    assert payload["orders"][0]["id"] == "order-1"
+    assert payload["orders"][0]["public_status"] == "processing"
+
+
+@pytest.mark.asyncio
+async def test_digital_manual_order_claim_updates_processing(monkeypatch):
+    calls = {}
+    order = {
+        "_id": "order-1",
+        "user_id": 123,
+        "reseller_id": 456,
+        "service_type": "core_digital_products",
+        "fulfillment_mode": "manual_topup",
+        "manual_item_name": "Netflix 1 Month",
+        "status": "paid",
+        "retail_amount": 4.25,
+        "wholesale_amount": 4.25,
+    }
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["scope"] = required_scope
+        return ApiAuthContext(key_id="admin-key", user_id=999, reseller_id=456, scopes=("digital:orders:manage",))
+
+    async def fake_find(order_id, auth):
+        calls["find"] = (order_id, auth.reseller_id)
+        return order
+
+    async def fake_update(order_id, details):
+        calls.setdefault("updates", []).append((order_id, details))
+
+    async def fake_notify(updated_order, *, status):
+        calls["notify"] = (updated_order, status)
+        return True
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "_find_manageable_manual_order", fake_find)
+    monkeypatch.setattr(api, "update_order_details", fake_update)
+    monkeypatch.setattr(api, "_notify_manual_order_user", fake_notify)
+
+    request = json_request(
+        "POST",
+        "/api/v1/digital/orders/order-1/manual-action",
+        {"action": "claim", "note": "working"},
+        match_info={"order_id": "order-1"},
+    )
+    response = await api.manual_order_action(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["scope"] == "digital:orders:manage"
+    assert calls["find"] == ("order-1", 456)
+    assert calls["updates"][0][1]["manual_fulfillment_status"] == "processing"
+    assert calls["updates"][0][1]["manual_action_note"] == "working"
+    assert calls["notify"][1] == "processing"
+    assert payload["order"]["public_status"] == "processing"
+
+
+@pytest.mark.asyncio
+async def test_digital_manual_order_auto_api_action_uses_backend_executor(monkeypatch):
+    calls = {}
+    order = {
+        "_id": "order-1",
+        "user_id": 123,
+        "reseller_id": 456,
+        "service_type": "core_digital_products",
+        "fulfillment_mode": "manual_topup",
+        "manual_item_name": "1800 UC",
+        "status": "paid",
+        "retail_amount": 21.25,
+        "wholesale_amount": 21.25,
+    }
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["scope"] = required_scope
+        return ApiAuthContext(key_id="admin-key", user_id=999, reseller_id=456, scopes=("digital:orders:manage",))
+
+    async def fake_find(order_id, auth):
+        return order
+
+    async def fake_submit(order_arg, *, actor_id):
+        calls["submit"] = (order_arg, actor_id)
+        return {
+            "ok": True,
+            "code": "auto_api_submitted",
+            "provider_order_id": "provider-1",
+            "patch": {
+                "manual_execution_route": "auto_api",
+                "manual_fulfillment_status": "processing",
+                "provider_order_id": "provider-1",
+            },
+        }
+
+    async def fake_notify(updated_order, *, status):
+        calls["notify"] = (updated_order, status)
+        return True
+
+    async def fake_update(order_id, details):
+        calls.setdefault("updates", []).append((order_id, details))
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "_find_manageable_manual_order", fake_find)
+    monkeypatch.setattr(api, "submit_manual_auto_api", fake_submit)
+    monkeypatch.setattr(api, "_notify_manual_order_user", fake_notify)
+    monkeypatch.setattr(api, "update_order_details", fake_update)
+
+    request = json_request(
+        "POST",
+        "/api/v1/digital/orders/order-1/manual-action",
+        {"action": "auto_api"},
+        match_info={"order_id": "order-1"},
+    )
+    response = await api.manual_order_action(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["scope"] == "digital:orders:manage"
+    assert calls["submit"][1] == 999
+    assert calls["notify"][1] == "processing"
+    assert payload["provider_order_id"] == "provider-1"
+    assert payload["order"]["public_status"] == "processing"
+
+
+@pytest.mark.asyncio
+async def test_digital_manual_order_complete_marks_success(monkeypatch):
+    calls = {}
+    order = {
+        "_id": "order-1",
+        "user_id": 123,
+        "reseller_id": 456,
+        "service_type": "core_digital_products",
+        "fulfillment_mode": "manual_topup",
+        "manual_item_name": "Netflix 1 Month",
+        "status": "paid",
+        "retail_amount": 4.25,
+        "wholesale_amount": 4.25,
+    }
+
+    async def fake_require_api_auth(request, required_scope):
+        return ApiAuthContext(key_id="admin-key", user_id=999, reseller_id=456, scopes=("digital:orders:manage",))
+
+    async def fake_find(order_id, auth):
+        return order
+
+    async def fake_update(order_id, details):
+        calls.setdefault("updates", []).append((order_id, details))
+
+    async def fake_status(order_id, status):
+        calls["status"] = (order_id, status)
+
+    async def fake_notify(updated_order, *, status):
+        calls["notify"] = (updated_order, status)
+        return True
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "_find_manageable_manual_order", fake_find)
+    monkeypatch.setattr(api, "update_order_details", fake_update)
+    monkeypatch.setattr(api, "update_order_status", fake_status)
+    monkeypatch.setattr(api, "_notify_manual_order_user", fake_notify)
+
+    request = json_request(
+        "POST",
+        "/api/v1/digital/orders/order-1/manual-action",
+        {"action": "complete"},
+        match_info={"order_id": "order-1"},
+    )
+    response = await api.manual_order_action(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["updates"][0][1]["manual_fulfillment_status"] == "completed"
+    assert calls["status"] == ("order-1", "success")
+    assert calls["notify"][1] == "completed"
+    assert payload["order"]["public_status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_digital_manual_order_refund_uses_financial_manager(monkeypatch):
+    calls = {}
+    order = {
+        "_id": "order-1",
+        "user_id": 123,
+        "reseller_id": 456,
+        "service_type": "core_digital_products",
+        "fulfillment_mode": "manual_topup",
+        "manual_item_name": "Netflix 1 Month",
+        "status": "paid",
+        "retail_amount": 4.25,
+        "wholesale_amount": 4.25,
+    }
+
+    async def fake_require_api_auth(request, required_scope):
+        return ApiAuthContext(key_id="admin-key", user_id=999, reseller_id=456, scopes=("digital:orders:manage",))
+
+    async def fake_find(order_id, auth):
+        return order
+
+    async def fake_update(order_id, details):
+        calls.setdefault("updates", []).append((order_id, details))
+
+    async def fake_refund(cls, **kwargs):
+        calls["refund"] = kwargs
+        return True, "Refund Success"
+
+    async def fake_notify(updated_order, *, status):
+        calls["notify"] = (updated_order, status)
+        return False
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "_find_manageable_manual_order", fake_find)
+    monkeypatch.setattr(api, "update_order_details", fake_update)
+    monkeypatch.setattr(api.FinancialManager, "refund_core_purchase", classmethod(fake_refund))
+    monkeypatch.setattr(api, "_notify_manual_order_user", fake_notify)
+
+    request = json_request(
+        "POST",
+        "/api/v1/digital/orders/order-1/manual-action",
+        {"action": "refund"},
+        match_info={"order_id": "order-1"},
+    )
+    response = await api.manual_order_action(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["refund"] == {
+        "user_id": 123,
+        "order_id": "order-1",
+        "sale_price": 4.25,
+        "cost_price": 4.25,
+        "reseller_id": 456,
+    }
+    assert calls["updates"][0][1]["manual_fulfillment_status"] == "refunded"
+    assert calls["notify"][1] == "refunded"
+    assert payload["order"]["public_status"] == "refunded"

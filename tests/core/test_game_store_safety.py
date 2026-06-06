@@ -234,6 +234,7 @@ async def test_claim_manual_topup_notifies_customer_processing(monkeypatch):
 @pytest.mark.asyncio
 async def test_auto_api_manual_topup_submits_provider_order(monkeypatch):
     import handlers.store_sections as store_sections
+    from services.digital_products import manual_fulfillment
 
     calls: dict[str, object] = {}
     order = {
@@ -290,11 +291,12 @@ async def test_auto_api_manual_topup_submits_provider_order(monkeypatch):
     monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
     monkeypatch.setattr(store_sections, "_find_order_for_owner_action", fake_find)
     monkeypatch.setattr(store_sections, "update_order_details", fake_update)
-    monkeypatch.setattr(store_sections, "_create_provider_game_order", fake_create)
+    monkeypatch.setattr(manual_fulfillment, "update_order_details", fake_update)
+    monkeypatch.setattr(manual_fulfillment, "create_provider_game_order", fake_create)
     monkeypatch.setattr(store_sections, "get_user", fake_get_user)
     monkeypatch.setattr(store_sections, "get_catalog_snapshot", lambda force=False: __import__("asyncio").sleep(0, result={}))
     monkeypatch.setattr(store_sections, "_find_game_name", lambda _game_id, _snapshot: "PUBG Mobile")
-    monkeypatch.setattr(store_sections, "digital_provider_enabled", lambda _provider: True)
+    monkeypatch.setattr(manual_fulfillment, "digital_provider_enabled", lambda _provider: True)
 
     await store_sections.choose_manual_digital_auto_api(FakeCallback())
 
@@ -313,6 +315,7 @@ async def test_auto_api_manual_topup_submits_provider_order(monkeypatch):
 @pytest.mark.asyncio
 async def test_future_manual_topup_submits_gift_order(monkeypatch):
     import handlers.store_sections as store_sections
+    from services.digital_products import manual_fulfillment
 
     calls: dict[str, object] = {}
     order = {
@@ -375,11 +378,12 @@ async def test_future_manual_topup_submits_gift_order(monkeypatch):
     monkeypatch.setattr(store_sections.settings, "owner_id", 7417429062, raising=False)
     monkeypatch.setattr(store_sections, "_find_order_for_owner_action", fake_find)
     monkeypatch.setattr(store_sections, "update_order_details", fake_update)
-    monkeypatch.setattr(store_sections, "_create_provider_gift_order", fake_create)
+    monkeypatch.setattr(manual_fulfillment, "update_order_details", fake_update)
+    monkeypatch.setattr(manual_fulfillment, "create_provider_gift_order", fake_create)
     monkeypatch.setattr(store_sections, "get_user", fake_get_user)
     monkeypatch.setattr(store_sections, "get_catalog_snapshot", lambda force=False: __import__("asyncio").sleep(0, result={}))
     monkeypatch.setattr(store_sections, "_find_game_name", lambda _game_id, _snapshot: "PUBG Mobile")
-    monkeypatch.setattr(store_sections, "digital_provider_enabled", lambda _provider: True)
+    monkeypatch.setattr(manual_fulfillment, "digital_provider_enabled", lambda _provider: True)
 
     await store_sections.choose_manual_digital_future(FakeCallback())
 

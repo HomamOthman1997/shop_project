@@ -2227,7 +2227,7 @@ async def test_cancel_temp_order_exposes_retryable_provider_cancel_failure(monke
         require_no_sms=True,
     )
 
-    assert calls["cancel"] == 4
+    assert calls["cancel"] == 3
     assert calls["sleep"] == 2
     assert result["reason"] == "provider_cancel_failed"
     assert result["retryable"] is True

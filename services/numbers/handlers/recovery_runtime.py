@@ -69,6 +69,8 @@ async def run_temp_wait_recovery_sweep(
         user = await get_user(int(latest.get("user_id") or 0))
         lang = (user or {}).get("language", "en")
         wait_state = str(latest.get("temp_wait_state") or "").strip().lower()
+        if latest.get("temp_refund_support_review_required"):
+            continue
 
         if wait_state == "refund_pending":
             result = await cancel_and_refund_temp_order(
@@ -88,6 +90,21 @@ async def run_temp_wait_recovery_sweep(
                         text=translations_t(lang, "temp_timeout_refunded_retry"),
                         reply_markup=temp_post_refund_kb(str(order_id), lang=lang, allow_replace=True),
                     )
+            elif str(result.get("reason") or "") == "provider_cancel_failed" and not bool(result.get("retryable")):
+                await update_order_details(
+                    order_id,
+                    {
+                        "temp_refund_support_review_required": True,
+                        "temp_refund_support_review_status": "open",
+                        "temp_refund_support_review_reason": "provider_cancel_failed",
+                        "temp_refund_support_review_at": utc_now(),
+                    },
+                )
+                await log_temp_event(
+                    latest,
+                    "auto_refund_retry_exhausted",
+                    {"source": "global_temp_recovery_retry", "reason": "provider_cancel_failed"},
+                )
             continue
 
         if wait_state == "code_received":

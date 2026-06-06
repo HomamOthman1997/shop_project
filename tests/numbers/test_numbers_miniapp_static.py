@@ -136,6 +136,13 @@ def test_numbers_miniapp_v2_uses_server_driven_contracts():
     assert "AbortController" in app
     assert "function updateOrderInState(order)" in app
     assert "function testActiveMessage(order)" in app
+    assert "function ordersNeedPolling()" in app
+    assert "scheduleOrdersPolling()" in app
+    assert "function connectLiveOrderUpdates()" in app
+    assert 'fetch("/mini/numbers/api/orders/live"' in app
+    assert 'chunk.includes("event: order_changed")' in app
+    assert 'document.addEventListener("visibilitychange"' in app
+    assert "loadOrders({ quiet: true })" in app
     assert "loadAccount().catch(() => {})" in app
     assert "loadAccount(), loadOrders()" not in app
     assert "function orderWaitingForCode(order)" in app

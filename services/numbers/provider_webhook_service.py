@@ -10,6 +10,7 @@ from database.provider_webhook_repo import (
 )
 from database.orders_repo import get_number_order_by_provider_order, get_order, get_temp_order_by_provider_order, update_order_details
 from services.numbers.order_service import public_order_payload
+from services.numbers.miniapp_live import publish_number_order_update
 from services.numbers.provider_webhook_normalizer import normalize_provider_sms_webhook
 from services.numbers.shared.events import _log_rental_event, _log_temp_event
 from services.numbers.shared.temp_order import _extract_new_sms_code, _safe_code_text, _seconds_between, _utc_now
@@ -116,6 +117,11 @@ async def apply_provider_temp_sms_webhook(
         reseller_id=int(refreshed.get("reseller_id") or order.get("reseller_id") or order.get("user_id") or 0),
         event_type="numbers.order.sms",
         data={"order": payload["order"]},
+    )
+    await publish_number_order_update(
+        user_id=int(refreshed.get("user_id") or order.get("user_id") or 0),
+        order_id=refreshed.get("_id") or order.get("_id"),
+        reason="provider_webhook_code_received",
     )
     if record_audit:
         await _record_provider_event(

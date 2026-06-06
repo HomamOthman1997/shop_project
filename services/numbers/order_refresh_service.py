@@ -6,7 +6,6 @@ from database.orders_repo import get_order, update_order_details
 from services.numbers.manager import PROVIDERS
 from services.numbers.order_auto_refund_service import auto_refund_temp_order_if_due
 from services.numbers.order_service import NumbersOrderError, public_order_payload
-from services.numbers.provider_delivery import order_uses_provider_sms_webhook, provider_sms_polling_enabled
 from services.numbers.shared.events import _log_temp_event
 from services.numbers.shared.provider_io import fetch_provider_sms
 from services.numbers.shared.temp_order import (
@@ -45,43 +44,15 @@ async def refresh_number_order(order: dict[str, Any], *, allow_auto_refund: bool
     if _has_received_code(current) and not _second_code_waiting(current):
         return {"ok": True, "order": public_order_payload(current)}
 
-    timeout_reached = _temp_elapsed_sec(current) >= _order_temp_timeout_sec(current)
-    if allow_auto_refund and (timeout_reached or str(current.get("temp_wait_state") or "").strip().lower() == "refund_pending"):
-        refund_result = await auto_refund_temp_order_if_due(current)
-        refreshed_order = (refund_result.get("order") if isinstance(refund_result.get("order"), dict) else None)
-        if refund_result.get("refunded"):
-            return {
-                "ok": True,
-                "order": refreshed_order or public_order_payload(current),
-                "message": "Order was automatically refunded.",
-                "auto_refund": {"status": "refunded", "reason": str(refund_result.get("reason") or "")},
-            }
-        if refund_result.get("support_review_required"):
-            return {
-                "ok": True,
-                "order": refreshed_order or public_order_payload(current),
-                "message": "Refund requires support review.",
-                "auto_refund": {"status": "support_review", "reason": str(refund_result.get("reason") or "")},
-            }
-        if timeout_reached:
-            return {
-                "ok": True,
-                "order": refreshed_order or public_order_payload(current),
-                "message": "Refund is being reviewed.",
-                "auto_refund": {"status": "pending", "reason": str(refund_result.get("reason") or "")},
-            }
-
     provider = order_provider_code(current)
     provider_order_id = order_provider_order_id(current)
     if not provider or not provider_order_id:
         raise NumbersOrderError("order_not_refreshable", "This order cannot be refreshed.", status=409)
-    if order_uses_provider_sms_webhook(current) or not provider_sms_polling_enabled(provider):
-        now = _utc_now()
-        await update_order_details(current["_id"], {"temp_last_refresh_at": now, "temp_last_refresh_mode": "provider_webhook"})
-        refreshed = await get_order(current["_id"]) or {**current, "temp_last_refresh_at": now, "temp_last_refresh_mode": "provider_webhook"}
-        return {"ok": True, "order": public_order_payload(refreshed), "message": "Waiting for provider webhook."}
 
-    sms_data = await fetch_provider_sms(PROVIDERS, provider, provider_order_id)
+    # A user-triggered refresh is also the fallback when a provider webhook was
+    # delayed or lost. Force a read-only provider check before saying no SMS or
+    # allowing a timeout refund.
+    sms_data = await fetch_provider_sms(PROVIDERS, provider, provider_order_id, force=True)
     existing_codes = [str(code) for code in (current.get("temp_codes") or []) if str(code or "").strip()]
     code = _extract_new_sms_code(sms_data.get("messages") or [], set(existing_codes))
     now = _utc_now()
@@ -122,8 +93,50 @@ async def refresh_number_order(order: dict[str, Any], *, allow_auto_refund: bool
         )
         return payload
 
-    await update_order_details(current["_id"], {"temp_last_refresh_at": now})
-    refreshed = await get_order(current["_id"]) or {**current, "temp_last_refresh_at": now}
+    no_sms_patch = {
+        "temp_last_refresh_at": now,
+        "temp_last_refresh_mode": "provider_direct_check",
+        "temp_last_provider_check_success": bool(sms_data.get("success")),
+        "temp_last_provider_check_messages_count": len(sms_data.get("messages") or []),
+    }
+    await update_order_details(current["_id"], no_sms_patch)
+    await _log_temp_event(
+        current,
+        "manual_refresh_no_sms",
+        {
+            "source": "numbers_api_refresh",
+            "provider_check_success": no_sms_patch["temp_last_provider_check_success"],
+            "messages_count": no_sms_patch["temp_last_provider_check_messages_count"],
+        },
+    )
+
+    timeout_reached = _temp_elapsed_sec(current) >= _order_temp_timeout_sec(current)
+    if allow_auto_refund and (timeout_reached or str(current.get("temp_wait_state") or "").strip().lower() == "refund_pending"):
+        refund_result = await auto_refund_temp_order_if_due(current)
+        refreshed_order = (refund_result.get("order") if isinstance(refund_result.get("order"), dict) else None)
+        if refund_result.get("refunded"):
+            return {
+                "ok": True,
+                "order": refreshed_order or public_order_payload(current),
+                "message": "Order was automatically refunded.",
+                "auto_refund": {"status": "refunded", "reason": str(refund_result.get("reason") or "")},
+            }
+        if refund_result.get("support_review_required"):
+            return {
+                "ok": True,
+                "order": refreshed_order or public_order_payload(current),
+                "message": "Refund requires support review.",
+                "auto_refund": {"status": "support_review", "reason": str(refund_result.get("reason") or "")},
+            }
+        if timeout_reached:
+            return {
+                "ok": True,
+                "order": refreshed_order or public_order_payload(current),
+                "message": "Refund is being reviewed.",
+                "auto_refund": {"status": "pending", "reason": str(refund_result.get("reason") or "")},
+            }
+
+    refreshed = await get_order(current["_id"]) or {**current, **no_sms_patch}
     return {"ok": True, "order": public_order_payload(refreshed), "message": "No SMS yet."}
 
 

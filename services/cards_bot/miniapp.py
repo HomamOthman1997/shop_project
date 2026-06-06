@@ -39,6 +39,8 @@ from services.cards_bot.service import (
     trader_statement,
     update_withdrawal_status,
 )
+from services.platform.website_auth import require_website_auth
+from database.website_auth_repo import find_website_account_by_id
 
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "webapp" / "cardex"
@@ -103,18 +105,26 @@ def _cardex_admin_ids() -> set[int]:
     return ids
 
 
-def _auth(request: web.Request, *, require_admin: bool = False) -> dict[str, Any]:
+async def _auth(request: web.Request, *, require_admin: bool = False) -> dict[str, Any]:
     init_data = request.headers.get("X-Telegram-Init-Data", "")
-    auth = _verify_cardex_init_data(init_data)
-    if require_admin and int(auth["user_id"]) not in _cardex_admin_ids():
+    if str(init_data or "").strip():
+        auth = _verify_cardex_init_data(init_data)
+        if require_admin and int(auth["user_id"]) not in _cardex_admin_ids():
+            raise web.HTTPForbidden(text="admin only")
+        return auth
+    if require_admin:
         raise web.HTTPForbidden(text="admin only")
-    return auth
+    website = await require_website_auth(request)
+    account = await find_website_account_by_id(website.account_id) or {}
+    if str(account.get("identity_status") or "") != "approved":
+        raise web.HTTPForbidden(text="identity verification required")
+    return {"user_id": website.customer_id, "user": {"id": website.customer_id}, "source": "website"}
 
 
-def _optional_auth(request: web.Request) -> dict[str, Any] | None:
+async def _optional_auth(request: web.Request) -> dict[str, Any] | None:
     try:
-        return _auth(request)
-    except web.HTTPUnauthorized:
+        return await _auth(request)
+    except (web.HTTPUnauthorized, web.HTTPForbidden):
         return None
 
 
@@ -365,7 +375,7 @@ async def cardex_static(request: web.Request) -> web.Response:
 
 
 async def cardex_prices(request: web.Request) -> web.Response:
-    auth = _optional_auth(request)
+    auth = await _optional_auth(request)
     is_admin = bool(auth and int(auth["user_id"]) in _cardex_admin_ids())
     rows = [
         _rule_payload(row, include_private=is_admin)
@@ -375,7 +385,7 @@ async def cardex_prices(request: web.Request) -> web.Response:
 
 
 async def cardex_wallet(request: web.Request) -> web.Response:
-    auth = _auth(request)
+    auth = await _auth(request)
     card_user = await _card_user_from_auth(auth)
     wallet = await get_wallet_snapshot(str(card_user.get("_id")))
     return web.json_response(
@@ -391,21 +401,21 @@ async def cardex_wallet(request: web.Request) -> web.Response:
 
 
 async def cardex_my_cards(request: web.Request) -> web.Response:
-    auth = _auth(request)
+    auth = await _auth(request)
     card_user = await _card_user_from_auth(auth)
     rows = await list_cards_for_user(str(card_user.get("_id")), limit=50)
     return web.json_response({"cards": [_card_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def cardex_withdrawals(request: web.Request) -> web.Response:
-    auth = _auth(request)
+    auth = await _auth(request)
     card_user = await _card_user_from_auth(auth)
     rows = await list_withdrawals_for_user(str(card_user.get("_id")), limit=50)
     return web.json_response({"withdrawals": [_withdrawal_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def cardex_admin_queue(request: web.Request) -> web.Response:
-    _auth(request, require_admin=True)
+    await _auth(request, require_admin=True)
     cards = await list_cards_for_review(limit=50)
     today_since, today_until = _today_window()
     today_cards = await list_cards_for_daily_export(since=today_since, until=today_until, limit=2000)
@@ -449,7 +459,7 @@ async def cardex_admin_queue(request: web.Request) -> web.Response:
 
 
 async def cardex_admin_card_action(request: web.Request) -> web.Response:
-    auth = _auth(request, require_admin=True)
+    auth = await _auth(request, require_admin=True)
     card_id = str(request.match_info.get("card_id") or "").strip()
     body = await request.json()
     action = str(body.get("action") or "").strip().lower()
@@ -467,7 +477,7 @@ async def cardex_admin_card_action(request: web.Request) -> web.Response:
 
 
 async def cardex_admin_withdrawal_action(request: web.Request) -> web.Response:
-    auth = _auth(request, require_admin=True)
+    auth = await _auth(request, require_admin=True)
     withdrawal_id = str(request.match_info.get("withdrawal_id") or "").strip()
     body = await request.json()
     action = str(body.get("action") or "").strip().lower()
@@ -488,7 +498,7 @@ async def cardex_admin_withdrawal_action(request: web.Request) -> web.Response:
 
 
 async def cardex_admin_missing_pricing_action(request: web.Request) -> web.Response:
-    auth = _auth(request, require_admin=True)
+    auth = await _auth(request, require_admin=True)
     missing_id = str(request.match_info.get("missing_id") or "").strip()
     row = await get_missing_pricing(missing_id)
     if not row:
@@ -513,7 +523,7 @@ async def cardex_admin_missing_pricing_action(request: web.Request) -> web.Respo
 
 
 async def cardex_admin_create_trader(request: web.Request) -> web.Response:
-    auth = _auth(request, require_admin=True)
+    auth = await _auth(request, require_admin=True)
     body = await request.json()
     try:
         row = await create_trader(
@@ -527,14 +537,14 @@ async def cardex_admin_create_trader(request: web.Request) -> web.Response:
 
 
 async def cardex_admin_trader_statement(request: web.Request) -> web.Response:
-    _auth(request, require_admin=True)
+    await _auth(request, require_admin=True)
     trader_id = str(request.match_info.get("trader_id") or "").strip()
     rows = await trader_statement(trader_id, limit=50)
     return web.json_response({"statement": [_trader_statement_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def cardex_admin_trader_payment(request: web.Request) -> web.Response:
-    auth = _auth(request, require_admin=True)
+    auth = await _auth(request, require_admin=True)
     trader_id = str(request.match_info.get("trader_id") or "").strip()
     body = await request.json()
     try:
@@ -552,7 +562,7 @@ async def cardex_admin_trader_payment(request: web.Request) -> web.Response:
 
 
 async def cardex_admin_trader_batch(request: web.Request) -> web.Response:
-    auth = _auth(request, require_admin=True)
+    auth = await _auth(request, require_admin=True)
     trader_id = str(request.match_info.get("trader_id") or "").strip()
     body = await request.json()
     raw_card_ids = body.get("card_ids") or []
@@ -574,7 +584,7 @@ async def cardex_admin_trader_batch(request: web.Request) -> web.Response:
 
 
 async def cardex_create_withdrawal(request: web.Request) -> web.Response:
-    auth = _auth(request)
+    auth = await _auth(request)
     card_user = await _card_user_from_auth(auth)
     body = await request.json()
     try:
@@ -614,7 +624,7 @@ def _parse_values(raw: str) -> tuple[list[Decimal], str, Decimal | None, Decimal
 
 
 async def cardex_price_create(request: web.Request) -> web.Response:
-    auth = _auth(request, require_admin=True)
+    auth = await _auth(request, require_admin=True)
     body = await request.json()
     try:
         values, label, range_min, range_max = _parse_values(str(body.get("values") or ""))
@@ -640,7 +650,7 @@ async def cardex_price_create(request: web.Request) -> web.Response:
 
 
 async def cardex_price_delete(request: web.Request) -> web.Response:
-    auth = _auth(request, require_admin=True)
+    auth = await _auth(request, require_admin=True)
     rule_id = str(request.match_info.get("rule_id") or "").strip()
     if rule_id.startswith("lona-cardex:"):
         return web.json_response({"ok": True, "readonly": True}, headers=dict(_NO_STORE_HEADERS))
@@ -666,7 +676,7 @@ async def cardex_quote_submission(request: web.Request) -> web.Response:
 
 
 async def cardex_submit_card(request: web.Request) -> web.Response:
-    auth = _auth(request)
+    auth = await _auth(request)
     card_user = await _card_user_from_auth(auth)
     body = await request.json()
     code = str(body.get("code") or "").strip()

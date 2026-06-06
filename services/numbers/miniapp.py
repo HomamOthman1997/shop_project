@@ -86,6 +86,7 @@ from services.numbers.customer_flows import (
 )
 
 from services.numbers.order_refresh_service import refresh_number_order as _api_refresh_number_order
+from services.numbers.miniapp_live import subscribe_number_updates, unsubscribe_number_updates
 from services.numbers.order_recording_service import (
     download_voice_order_recording as _api_download_voice_order_recording,
     voice_recording_uri_from_calls as _api_voice_recording_uri_from_calls,
@@ -5341,6 +5342,40 @@ async def notes_order(request: web.Request) -> web.Response:
     return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
 
 
+async def live_order_events(request: web.Request) -> web.StreamResponse:
+    auth = _require_auth(request)
+    user_id = int(auth["user_id"])
+    queue = subscribe_number_updates(user_id)
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            **_NO_STORE_HEADERS,
+            "Content-Type": "text/event-stream",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+    await response.prepare(request)
+    try:
+        await response.write(b"event: connected\ndata: {}\n\n")
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=20)
+                payload = json.dumps(event, separators=(",", ":")).encode("utf-8")
+                await response.write(b"event: order_changed\ndata: " + payload + b"\n\n")
+            except TimeoutError:
+                await response.write(b": keepalive\n\n")
+    except (asyncio.CancelledError, ConnectionError, RuntimeError):
+        pass
+    finally:
+        unsubscribe_number_updates(user_id, queue)
+        try:
+            await response.write_eof()
+        except Exception:
+            pass
+    return response
+
+
 def register_numbers_routes(app: web.Application) -> None:
 
     app.router.add_get("/mini/numbers", index)
@@ -5374,6 +5409,7 @@ def register_numbers_routes(app: web.Application) -> None:
     app.router.add_get("/mini/numbers/api/prices", prices)
 
     app.router.add_get("/mini/numbers/api/orders", active_orders)
+    app.router.add_get("/mini/numbers/api/orders/live", live_order_events)
 
     app.router.add_post("/mini/numbers/api/purchase", purchase_temp)
 

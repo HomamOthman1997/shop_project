@@ -1,0 +1,342 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b111d;
+  --panel: #121b2a;
+  --panel-2: #162235;
+  --line: #26364c;
+  --text: #f7fbff;
+  --muted: #93a4ba;
+  --accent: #11b5b9;
+  --accent-2: #19d3c5;
+  --danger: #ff5d73;
+  --success: #31d07d;
+  --warn: #f2b84b;
+  --radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, Tajawal, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+.admin-shell {
+  width: min(100%, 980px);
+  margin: 0 auto;
+  padding: 18px 14px 60px;
+}
+
+.admin-header,
+.key-row,
+.tabs,
+.order-top,
+.actions {
+  display: flex;
+  align-items: center;
+}
+
+.admin-header {
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.eyebrow {
+  margin: 0 0 2px;
+  color: var(--accent-2);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  font-size: 22px;
+}
+
+.auth-panel,
+.diagnostics,
+.order-card,
+.status {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.auth-panel {
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.auth-panel label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.key-row {
+  gap: 8px;
+}
+
+input {
+  min-width: 0;
+  flex: 1;
+  height: 44px;
+  padding: 0 12px;
+  color: var(--text);
+  background: #0d1522;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  outline: none;
+}
+
+input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(17, 181, 185, 0.14);
+}
+
+.key-row button,
+.actions button {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #001316;
+  font-weight: 800;
+}
+
+.status {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  color: var(--muted);
+}
+
+.status.error {
+  border-color: rgba(255, 93, 115, 0.6);
+  color: var(--danger);
+}
+
+.status.success {
+  border-color: rgba(49, 208, 125, 0.45);
+  color: var(--success);
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.tab {
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  font-weight: 800;
+}
+
+.tab.is-active {
+  background: rgba(17, 181, 185, 0.18);
+  border-color: var(--accent);
+  color: var(--accent-2);
+}
+
+.diagnostics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+
+.diagnostics:empty {
+  display: none;
+}
+
+.diag-item {
+  padding: 10px;
+  border-radius: var(--radius);
+  background: #0d1522;
+}
+
+.diag-label {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diag-value {
+  display: block;
+  margin-top: 2px;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.orders {
+  display: grid;
+  gap: 10px;
+}
+
+.order-card {
+  padding: 14px;
+}
+
+.order-top {
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.order-id {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.order-title {
+  margin-top: 3px;
+  font-size: 18px;
+}
+
+.badge {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(17, 181, 185, 0.14);
+  color: var(--accent-2);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.order-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.order-grid div {
+  min-width: 0;
+}
+
+.order-grid dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.order-grid dd {
+  margin: 2px 0 0;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.payload-details {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+  margin: 8px 0 12px;
+}
+
+.payload-details summary {
+  color: var(--accent-2);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.customer-data {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 10px 0 0;
+  color: #d8e7f7;
+  font-size: 12px;
+}
+
+.actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actions button.secondary {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.actions button.danger {
+  background: rgba(255, 93, 115, 0.14);
+  color: var(--danger);
+  border: 1px solid rgba(255, 93, 115, 0.45);
+}
+
+.actions button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--muted);
+}
+
+@media (max-width: 560px) {
+  .tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tab[data-status="all"] {
+    grid-column: span 2;
+  }
+
+  .diagnostics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .order-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .key-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

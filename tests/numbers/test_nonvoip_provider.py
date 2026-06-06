@@ -123,7 +123,7 @@ async def test_get_sms_wait_and_code(monkeypatch):
     monkeypatch.setattr(provider, "_request", fake_request)
 
     first = await provider.get_sms("1")
-    assert first["success"] is False
+    assert first["success"] is True
     assert first["messages"] == []
 
     second = await provider.get_sms("1")

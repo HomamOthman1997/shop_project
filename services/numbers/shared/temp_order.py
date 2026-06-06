@@ -502,7 +502,30 @@ def _is_temp_order_active_for_trust_gate(order: dict | None, now: datetime | Non
 
 
 def _safe_code_text(value: str) -> str:
-    return str(value or "").strip().replace("\n", " ")[:200]
+    text = str(value or "").strip().replace("\n", " ")
+    if not text:
+        return ""
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{2,31}", text):
+        return text
+    keyword_matches = re.finditer(
+        r"(?i)\b(?:verification\s+code|security\s+code|one[- ]time\s+(?:code|passcode)|passcode|otp|pin|code)"
+        r"\b\s*(?:is|:|-)?\s*([A-Z0-9][A-Z0-9-]{3,15})\b",
+        text,
+    )
+    for keyword_match in keyword_matches:
+        candidate = keyword_match.group(1)
+        if any(char.isdigit() for char in candidate):
+            return candidate
+    reverse_match = re.search(
+        r"(?i)\b([A-Z0-9][A-Z0-9-]{3,15})\b\s+is\s+your\b.{0,40}\b(?:code|otp|pin|passcode)\b",
+        text,
+    )
+    if reverse_match:
+        return reverse_match.group(1)
+    numeric_candidates = list(dict.fromkeys(re.findall(r"(?<!\d)\d{4,8}(?!\d)", text)))
+    if len(numeric_candidates) == 1:
+        return numeric_candidates[0]
+    return text[:200]
 
 
 def _clean_provider_error_text(value: str) -> str:

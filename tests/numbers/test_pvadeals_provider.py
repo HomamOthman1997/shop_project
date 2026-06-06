@@ -366,6 +366,36 @@ async def test_pvadeals_get_sms_reads_codes_pin_payload(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_pvadeals_get_sms_marks_completed_request_without_sms_terminal(monkeypatch):
+    request_payload = {
+        "success": True,
+        "data": {
+            "_id": "req_1",
+            "status": "COMPLETED",
+            "messages": [],
+            "codes": [],
+        },
+    }
+    session = DummySession(
+        {
+            ("GET", "https://prod-v3.pvadeals.com/v3/api/request/req_1"): DummyResponse(status=200, json_data=request_payload),
+        }
+    )
+
+    async def fake_get_session():
+        return session
+
+    monkeypatch.setattr(SessionManager, "get_session", fake_get_session)
+    provider = PVADealsProvider()
+
+    result = await provider.get_sms("req_1")
+
+    assert result["success"] is True
+    assert result["messages"] == []
+    assert result["raw"]["provider_terminal_no_sms"] is True
+
+
+@pytest.mark.asyncio
 async def test_pvadeals_cancel_resend_and_renew(monkeypatch):
     session = DummySession(
         {

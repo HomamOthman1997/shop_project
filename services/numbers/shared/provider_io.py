@@ -5,8 +5,29 @@ from typing import Any
 from services.numbers.provider_delivery import provider_sms_polling_enabled
 
 
-async def fetch_provider_sms(providers: dict[str, Any], provider_code: str, provider_order_id: str) -> dict:
-    if not provider_sms_polling_enabled(provider_code):
+def normalize_provider_sms_result(result: Any) -> dict:
+    if not isinstance(result, dict):
+        return {"success": False, "messages": [], "raw": result}
+    normalized = dict(result)
+    messages = normalized.get("messages")
+    if messages in (None, ""):
+        normalized["messages"] = []
+    elif isinstance(messages, (list, tuple, set)):
+        normalized["messages"] = [str(item) for item in messages if str(item or "").strip()]
+    else:
+        normalized["messages"] = [str(messages)]
+    normalized["success"] = bool(normalized.get("success"))
+    return normalized
+
+
+async def fetch_provider_sms(
+    providers: dict[str, Any],
+    provider_code: str,
+    provider_order_id: str,
+    *,
+    force: bool = False,
+) -> dict:
+    if not force and not provider_sms_polling_enabled(provider_code):
         return {
             "success": True,
             "messages": [],
@@ -19,7 +40,7 @@ async def fetch_provider_sms(providers: dict[str, Any], provider_code: str, prov
     if not hasattr(prov, "get_sms"):
         return {"success": False, "messages": [], "raw": "get_sms_not_supported"}
     try:
-        return await prov.get_sms(provider_order_id)
+        return normalize_provider_sms_result(await prov.get_sms(provider_order_id))
     except Exception as exc:
         return {"success": False, "messages": [], "raw": str(exc)}
 

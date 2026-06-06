@@ -54,13 +54,13 @@ _POLICY: dict[str, ProviderReadiness] = {
     ),
     "pvadeals": ProviderReadiness(
         provider="pvadeals",
-        status="webhook_pending",
+        status="ready",
         quote_enabled=True,
         purchase_enabled=True,
         auto_refund_enabled=True,
         webhook_documented=True,
-        webhook_verified=False,
-        reason="Live order and provider flag/cancel path verified; refund settlement still needs observation.",
+        webhook_verified=True,
+        reason="Live purchase and provider-generated SMS webhook delivery verified.",
     ),
     "herosms": ProviderReadiness(
         provider="herosms",

@@ -40,6 +40,10 @@ async def test_apply_provider_temp_sms_webhook_updates_order_and_enqueues_custom
     async def fake_enqueue_event_for_user(**kwargs):
         calls["webhook"] = kwargs
 
+    async def fake_publish_number_order_update(**kwargs):
+        calls["live_update"] = kwargs
+        return 1
+
     async def fake_record_provider_webhook_event(**kwargs):
         calls["provider_event"] = kwargs
 
@@ -48,6 +52,7 @@ async def test_apply_provider_temp_sms_webhook_updates_order_and_enqueues_custom
     monkeypatch.setattr(provider_webhook_service, "_log_temp_event", fake_log_temp_event)
     monkeypatch.setattr(provider_webhook_service, "get_order", fake_get_order)
     monkeypatch.setattr(provider_webhook_service, "enqueue_event_for_user", fake_enqueue_event_for_user)
+    monkeypatch.setattr(provider_webhook_service, "publish_number_order_update", fake_publish_number_order_update)
     monkeypatch.setattr(provider_webhook_service, "record_provider_webhook_event", fake_record_provider_webhook_event)
 
     result = await provider_webhook_service.apply_provider_temp_sms_webhook(
@@ -69,6 +74,11 @@ async def test_apply_provider_temp_sms_webhook_updates_order_and_enqueues_custom
     assert calls["event"][1] == {}
     assert calls["webhook"]["event_type"] == "numbers.order.sms"
     assert calls["webhook"]["data"]["order"]["code"] == "245646"
+    assert calls["live_update"] == {
+        "user_id": 123,
+        "order_id": "order-1",
+        "reason": "provider_webhook_code_received",
+    }
     assert calls["provider_event"]["status"] == "processed"
     assert calls["provider_event"]["reason"] == "code_received"
     assert calls["provider_event"]["order_id"] == "order-1"
@@ -111,6 +121,51 @@ async def test_apply_provider_temp_sms_webhook_is_idempotent_for_duplicate_code(
     assert result["reason"] == "duplicate_code"
     assert "patch" not in calls
     assert calls["provider_event"]["status"] == "duplicate"
+
+
+@pytest.mark.asyncio
+async def test_apply_provider_temp_sms_webhook_extracts_code_from_full_sms(monkeypatch):
+    calls = {}
+    order = {
+        "_id": "order-1",
+        "number_mode": "temp",
+        "provider": "pvadeals",
+        "provider_order_id": "request-1",
+        "user_id": 123,
+        "status": "success",
+        "temp_codes": [],
+    }
+
+    async def fake_lookup(provider_code, provider_order_id):
+        return order
+
+    async def fake_update(order_id, patch):
+        calls["patch"] = patch
+
+    async def fake_get_order(order_id):
+        return {**order, **calls["patch"]}
+
+    async def noop(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(provider_webhook_service, "get_temp_order_by_provider_order", fake_lookup)
+    monkeypatch.setattr(provider_webhook_service, "update_order_details", fake_update)
+    monkeypatch.setattr(provider_webhook_service, "get_order", fake_get_order)
+    monkeypatch.setattr(provider_webhook_service, "_log_temp_event", noop)
+    monkeypatch.setattr(provider_webhook_service, "enqueue_event_for_user", noop)
+    monkeypatch.setattr(provider_webhook_service, "publish_number_order_update", noop)
+    monkeypatch.setattr(provider_webhook_service, "record_provider_webhook_event", noop)
+
+    result = await provider_webhook_service.apply_provider_temp_sms_webhook(
+        provider_code="pvadeals",
+        provider_order_id="request-1",
+        code="",
+        full_sms="PayPal: Your security code is 345537. Your code expires in 10 minutes. #345537",
+    )
+
+    assert result["ok"] is True
+    assert calls["patch"]["temp_last_code"] == "345537"
+    assert calls["patch"]["temp_last_sms_text"].startswith("PayPal:")
 
 
 @pytest.mark.asyncio
@@ -178,6 +233,10 @@ async def test_apply_provider_temp_sms_webhook_updates_rental_order(monkeypatch)
     async def fake_enqueue_event_for_user(**kwargs):
         calls["webhook"] = kwargs
 
+    async def fake_publish_number_order_update(**kwargs):
+        calls["live_update"] = kwargs
+        return 1
+
     async def fake_record_provider_webhook_event(**kwargs):
         calls["provider_event"] = kwargs
 
@@ -187,6 +246,7 @@ async def test_apply_provider_temp_sms_webhook_updates_rental_order(monkeypatch)
     monkeypatch.setattr(provider_webhook_service, "_log_rental_event", fake_log_rental_event)
     monkeypatch.setattr(provider_webhook_service, "get_order", fake_get_order)
     monkeypatch.setattr(provider_webhook_service, "enqueue_event_for_user", fake_enqueue_event_for_user)
+    monkeypatch.setattr(provider_webhook_service, "publish_number_order_update", fake_publish_number_order_update)
     monkeypatch.setattr(provider_webhook_service, "record_provider_webhook_event", fake_record_provider_webhook_event)
 
     result = await provider_webhook_service.apply_provider_temp_sms_webhook(
@@ -208,6 +268,7 @@ async def test_apply_provider_temp_sms_webhook_updates_rental_order(monkeypatch)
     assert calls["webhook"]["event_type"] == "numbers.order.sms"
     assert calls["webhook"]["data"]["order"]["mode"] == "rental"
     assert calls["webhook"]["data"]["order"]["code"] == "778899"
+    assert calls["live_update"]["order_id"] == "rental-1"
     assert calls["provider_event"]["status"] == "processed"
 
 

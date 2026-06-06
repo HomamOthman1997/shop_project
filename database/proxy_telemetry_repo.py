@@ -1,9 +1,59 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import re
 from typing import Any
 
 from .mongo import db
+
+_REDACTED = "[redacted]"
+_SENSITIVE_KEYS = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "credential",
+    "credentials",
+    "login",
+    "pass",
+    "passwd",
+    "password",
+    "secret",
+    "token",
+    "username",
+}
+_INLINE_SECRET_RE = re.compile(
+    r"(?i)(['\"]?(?:api[_-]?key|authorization|credential(?:s)?|login|pass(?:wd|word)?|secret|token|username)['\"]?\s*[:=]\s*)"
+    r"(['\"]?)[^,'\"\s}\]]+\2"
+)
+_URL_CREDENTIAL_RE = re.compile(r"(?i)(https?://)[^/@\s:]+:[^/@\s]+@")
+
+
+def _sanitize_text(value: Any, *, limit: int = 240) -> str:
+    text = str(value or "").strip()
+    text = _URL_CREDENTIAL_RE.sub(r"\1[redacted]@", text)
+    text = _INLINE_SECRET_RE.sub(rf"\1{_REDACTED}", text)
+    return text[:limit]
+
+
+def _sanitize_value(value: Any, *, depth: int = 0) -> Any:
+    if depth >= 5:
+        return "[truncated]"
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for raw_key, raw_value in list(value.items())[:50]:
+            key = str(raw_key)
+            if key.strip().lower().replace("-", "_") in _SENSITIVE_KEYS:
+                sanitized[key] = _REDACTED
+            else:
+                sanitized[key] = _sanitize_value(raw_value, depth=depth + 1)
+        return sanitized
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_value(item, depth=depth + 1) for item in list(value)[:50]]
+    if isinstance(value, str):
+        return _sanitize_text(value, limit=500)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return _sanitize_text(value, limit=500)
 
 
 async def bootstrap_proxy_events_indexes() -> None:
@@ -25,8 +75,8 @@ async def record_proxy_event(
             "event_type": str(event_type or "").strip().lower(),
             "provider": str(provider or "").strip().lower(),
             "success": None if success is None else bool(success),
-            "reason": str(reason or "").strip().lower() if reason else "",
-            "extra": dict(extra or {}),
+            "reason": _sanitize_text(reason).lower() if reason else "",
+            "extra": _sanitize_value(dict(extra or {})),
             "created_at": datetime.now(UTC),
         }
     )

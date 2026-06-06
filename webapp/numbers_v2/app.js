@@ -31,7 +31,12 @@ const state = {
   accountActivityExpanded: false,
   accountActivityAll: null,
   expandedOrderDetails: {},
+  ordersLoadInFlight: false,
+  ordersPollTimer: null,
+  liveOrdersAbortController: null,
 };
+
+const ORDERS_POLL_INTERVAL_MS = 8000;
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -1804,9 +1809,71 @@ function testActiveMessage(order) {
   return t("numberActiveNoNewCode");
 }
 
-async function loadOrders() {
-  setViewLoading("orders", true);
-  renderOrders();
+function ordersNeedPolling() {
+  return (state.orders || []).some((order) => {
+    const status = String(order?.public_status || order?.status || "").toLowerCase();
+    return ["waiting", "pending", "paid", "refund_pending", "waiting_for_recording"].includes(status);
+  });
+}
+
+function stopOrdersPolling() {
+  if (state.ordersPollTimer) {
+    window.clearTimeout(state.ordersPollTimer);
+    state.ordersPollTimer = null;
+  }
+}
+
+function scheduleOrdersPolling() {
+  stopOrdersPolling();
+  if (state.view !== "orders" || document.hidden || !ordersNeedPolling()) return;
+  state.ordersPollTimer = window.setTimeout(async () => {
+    state.ordersPollTimer = null;
+    await loadOrders({ quiet: true });
+  }, ORDERS_POLL_INTERVAL_MS);
+}
+
+async function connectLiveOrderUpdates() {
+  state.liveOrdersAbortController?.abort();
+  const controller = new AbortController();
+  state.liveOrdersAbortController = controller;
+  try {
+    const response = await fetch("/mini/numbers/api/orders/live", {
+      headers: headers(),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) throw new Error("live_updates_unavailable");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (!controller.signal.aborted) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split("\n\n");
+      buffer = chunks.pop() || "";
+      for (const chunk of chunks) {
+        if (!chunk.includes("event: order_changed")) continue;
+        if (state.view === "orders") await loadOrders({ quiet: true });
+      }
+    }
+    if (!controller.signal.aborted) {
+      window.setTimeout(connectLiveOrderUpdates, ORDERS_POLL_INTERVAL_MS);
+    }
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      window.setTimeout(connectLiveOrderUpdates, ORDERS_POLL_INTERVAL_MS);
+    }
+  }
+}
+
+async function loadOrders({ quiet = false } = {}) {
+  if (state.ordersLoadInFlight) return;
+  state.ordersLoadInFlight = true;
+  if (!quiet) {
+    setViewLoading("orders", true);
+    renderOrders();
+  }
   try {
     const action = actionFor("orders", "/mini/numbers/api/orders");
     const payload = await api(action.endpoint);
@@ -1814,13 +1881,17 @@ async function loadOrders() {
     state.orders = payload.orders || [];
     if (payload.balance_label) els.balance.textContent = payload.balance_label;
   } catch (_error) {
-    state.orders = [];
-    showToast(t("loadOrdersFailed"), "danger");
+    if (!quiet) {
+      state.orders = [];
+      showToast(t("loadOrdersFailed"), "danger");
+    }
   } finally {
-    setViewLoading("orders", false);
+    state.ordersLoadInFlight = false;
+    if (!quiet) setViewLoading("orders", false);
   }
   renderOrders();
   renderSupportOrders();
+  scheduleOrdersPolling();
 }
 
 function renderAccount() {
@@ -2405,6 +2476,7 @@ function setView(view) {
   document.querySelectorAll(".view").forEach((el) => el.classList.toggle("active", el.dataset.view === view));
   document.querySelectorAll(".nav-item, .menu-item").forEach((el) => el.classList.toggle("active", el.dataset.view === view));
   closeMenu();
+  if (view !== "orders") stopOrdersPolling();
   if (view === wasView) return;
   if (view === "buy" && wasView !== "buy") {
     resetBuySelections({ mode: state.mode });
@@ -2439,8 +2511,17 @@ async function boot() {
   renderSupportOrders();
   if (headers()["X-Telegram-Init-Data"]) {
     requestAnimationFrame(() => loadAccount().catch(() => {}));
+    requestAnimationFrame(() => connectLiveOrderUpdates());
   }
 }
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopOrdersPolling();
+  } else if (state.view === "orders") {
+    loadOrders({ quiet: true });
+  }
+});
 
 els.serviceButton.addEventListener("click", () => openPicker("service"));
 els.countryButton.addEventListener("click", () => {

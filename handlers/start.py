@@ -21,9 +21,11 @@ from utils.bot_menu_context import (
 )
 
 from database.user_repo import get_user, create_user, set_user_reseller_for_bot, update_user_version
+from database.website_auth_repo import find_website_account_by_telegram_id
 from database.bots_repo import get_bot_settings, get_reseller_id_for_bot
 from database.mongo import db
 from services.numbers.handlers.core_numbers_buy import _handle_rental_exit_message_guard
+from services.platform.website_auth import consume_telegram_link
 from utils.translations import t
 from config import settings
 from utils.reseller_setup_guard import get_reseller_setup_status, render_reseller_setup_notice
@@ -243,6 +245,72 @@ async def _handle_admin_start(message: types.Message) -> None:
     await message.answer(text, reply_markup=keyboard)
 
 
+async def _handle_website_link_payload(
+    message: types.Message,
+    *,
+    payload: str,
+    current_bot_id: int,
+    main_bot_id: int | None,
+    lang: str,
+) -> bool:
+    if not str(payload or "").startswith("link_"):
+        return False
+    if not isinstance(main_bot_id, int) or int(current_bot_id) != int(main_bot_id):
+        await message.answer("Please open this link with the main Phantom bot.")
+        return True
+    result = await consume_telegram_link(payload, telegram_id=int(message.from_user.id))
+    if result.get("ok"):
+        text = "تم ربط حساب Telegram بحساب الموقع بنجاح." if str(lang).startswith("ar") else "Telegram was linked to your website account."
+    else:
+        text = "رابط الربط منتهي أو مستخدم أو الحساب مربوط مسبقاً." if str(lang).startswith("ar") else "This link expired, was already used, or the account is already linked."
+    await message.answer(text)
+    return True
+
+
+def _website_login_url() -> str:
+    base = (
+        str(getattr(settings, "digital_products_miniapp_public_url", "") or "")
+        or str(getattr(settings, "numbers_miniapp_public_url", "") or "")
+        or "https://phantom-app.net"
+    ).rstrip("/")
+    return f"{base}/login"
+
+
+async def _require_website_account_gate(
+    message: types.Message,
+    *,
+    current_bot_id: int,
+    main_bot_id: int | None,
+    is_numbers_runtime_bot: bool,
+    is_digital_products_runtime_bot: bool,
+    is_card_ex_runtime_bot: bool,
+    lang: str,
+) -> bool:
+    protected = (
+        (isinstance(main_bot_id, int) and int(current_bot_id) == int(main_bot_id))
+        or is_numbers_runtime_bot
+        or is_digital_products_runtime_bot
+        or is_card_ex_runtime_bot
+    )
+    if not protected:
+        return False
+    account = await find_website_account_by_telegram_id(int(message.from_user.id))
+    if account:
+        return False
+    url = _website_login_url()
+    text = (
+        "صار تسجيل الحساب من الموقع إلزامي قبل استخدام الخدمات.\n"
+        "افتح الموقع وسجّل دخول أو أنشئ حساب. ربط Telegram اختياري للتنبيهات والدخول الأسرع."
+        if str(lang).startswith("ar")
+        else "Website registration is required before using services.\nOpen the website and sign in or create an account. Linking Telegram is optional for notifications and faster access."
+    )
+    keyboard = types.InlineKeyboardMarkup(
+        inline_keyboard=[[types.InlineKeyboardButton(text="فتح الموقع" if str(lang).startswith("ar") else "Open website", url=url)]]
+    )
+    await message.answer(text, reply_markup=keyboard)
+    return True
+
+
 async def _resolve_runtime_bot_id(bot: Bot) -> int:
     key = id(bot)
     now_ts = monotonic()
@@ -320,7 +388,8 @@ async def start_cmd(
         stage_ms["user_second"] = (monotonic() - stage_started) * 1000.0
 
     bot_id = current_bot_id
-    payload = str((command.args if command else "") or "").strip().lower()
+    raw_payload = str((command.args if command else "") or "").strip()
+    payload = raw_payload.lower()
     stage_started = monotonic()
     is_digital_products_runtime_bot = await is_digital_products_bot(bot_id)
     is_card_ex_runtime_bot = await is_card_ex_bot(bot_id)
@@ -335,15 +404,53 @@ async def start_cmd(
     # Ù…Ø³ØªØ®Ø¯Ù… Ø¬Ø¯ÙŠØ¯ â†’ Ù†Ø·Ù„Ø¨ Ù…Ù†Ù‡ Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ù„ØºØ©
     if not user:
         username = message.from_user.username or ""
-        await create_user(user_id, username, reseller_id=None)
+        user = await create_user(user_id, username, reseller_id=None)
         if inferred_reseller_id:
             await set_user_reseller_for_bot(user_id, bot_id, inferred_reseller_id)
 
+        if await _handle_website_link_payload(
+            message,
+            payload=raw_payload,
+            current_bot_id=current_bot_id,
+            main_bot_id=main_bot_id,
+            lang=lang,
+        ):
+            return
+        if await _require_website_account_gate(
+            message,
+            current_bot_id=current_bot_id,
+            main_bot_id=main_bot_id,
+            is_numbers_runtime_bot=is_numbers_runtime_bot,
+            is_digital_products_runtime_bot=is_digital_products_runtime_bot,
+            is_card_ex_runtime_bot=is_card_ex_runtime_bot,
+            lang=lang,
+        ):
+            return
         _log_start_perf(started_at=started_at, user_id=user_id, bot_id=bot_id, outcome="new_user_language", stage_ms=stage_ms)
         return await message.answer(
             t("en", "choose_language"),
             reply_markup=language_keyboard("en", show_nav=False)
         )
+
+    if await _handle_website_link_payload(
+        message,
+        payload=raw_payload,
+        current_bot_id=current_bot_id,
+        main_bot_id=main_bot_id,
+        lang=lang,
+    ):
+        return
+
+    if await _require_website_account_gate(
+        message,
+        current_bot_id=current_bot_id,
+        main_bot_id=main_bot_id,
+        is_numbers_runtime_bot=is_numbers_runtime_bot,
+        is_digital_products_runtime_bot=is_digital_products_runtime_bot,
+        is_card_ex_runtime_bot=is_card_ex_runtime_bot,
+        lang=lang,
+    ):
+        return
 
     if inferred_reseller_id and user.get("reseller_id") != inferred_reseller_id:
         await set_user_reseller_for_bot(user_id, bot_id, inferred_reseller_id)

@@ -1,0 +1,125 @@
+product_key,category,priority,display_name,region_policy,default_duration,unit_kind,preferred_provider,sourcing_policy,g2bulk_hint,bittopup_slug,g2g_search_query,public_note,active
+pubg,games,priority_1_mobile_games,PUBG Mobile,global,,uc,g2bulk,g2bulk_first,PUBG MOBILE UC Vouchers,pubg-uc,PUBG Mobile UC,Use G2Bulk when available; external sources are manual fallback,true
+free_fire,games,priority_1_mobile_games,Free Fire,global,,diamond,g2bulk,g2bulk_first,Garena Free Fire Vouchers,,Free Fire Diamonds,Use G2Bulk when available; external sources are manual fallback,true
+mobile_legends,games,priority_1_mobile_games,Mobile Legends,global,,diamond,g2bulk,g2bulk_first,,,Mobile Legends Diamonds,Use external source only when G2Bulk does not cover the package,true
+honor_of_kings,games,priority_1_mobile_games,Honor of Kings,global,,token,g2bulk,g2bulk_first,,,Honor of Kings Tokens,Use external source only when G2Bulk does not cover the package,true
+roblox,games,priority_2_games,Roblox,global,,robux,g2bulk,g2bulk_first,Roblox Global,,Roblox Robux,Prefer G2Bulk gift-card or voucher options,true
+valorant,games,priority_2_games,Valorant,usa,,vp,g2bulk,g2bulk_first,Valorant GiftCard USA,,Valorant Points USA,Prefer G2Bulk gift-card or voucher options,true
+yalla_ludo,games,priority_2_games,Yalla Ludo,global,,diamond,g2bulk,g2bulk_first,Yalla Ludo,,Yalla Ludo Diamonds,Prefer G2Bulk when available,true
+jawaker,games,priority_2_games,Jawaker,global,,token,g2bulk,g2bulk_first,Jawaker Gift Cards,,Jawaker Tokens,Prefer G2Bulk when available,true
+new_state,games,priority_2_games,New State Mobile,global,,nc,g2bulk,g2bulk_first,New State Mobile,,New State NC,Prefer G2Bulk when available,true
+discord,chat_apps,priority_1_chat_apps,Discord,global,1 month,subscription,g2bulk,g2bulk_first,Discord,Discord-Nitro-Subscription,Discord Nitro Subscription,G2Bulk has Discord Nitro subscriptions,true
+imo,chat_apps,priority_1_chat_apps,IMO,global,,usd,g2bulk,g2bulk_first,IMO GiftCards,imo-diamond-recharge,IMO Diamond Recharge,G2Bulk first; BitTopup fallback only if exact package missing,true
+likee,chat_apps,priority_1_chat_apps,Likee,global,,diamond,bittopup,external_manual,,Likee-Diamond,Likee Diamond,Manual external source,true
+likee_gift_card,chat_apps,priority_1_chat_apps,Likee Gift Card,global,,usd,bittopup,external_manual,,Likee-Gift-Card,Likee Gift Card,Manual external source,true
+mico_live,chat_apps,priority_1_chat_apps,Mico Live,global,,coin,bittopup,external_manual,,mico-live-coins,Mico Live Coins,Manual external source,true
+mico_live_mena,chat_apps,priority_1_chat_apps,Mico Live MENA,mena,,coin,bittopup,external_manual,,MICO-Live-Coins-MENA,Mico Live Coins MENA,Manual external source,true
+mika_chat_coins,chat_apps,priority_1_chat_apps,Mika Chat Coins,global,,coin,bittopup,external_manual,,MIKA-Chat-Coins,Mika Chat Coins,Manual external source,true
+bigo_live,chat_apps,priority_1_chat_apps,Bigo Live,global,,diamond,bittopup,external_manual,,bigo-live-diamonds,Bigo Live Diamonds,Manual external source,true
+nimo_tv,chat_apps,priority_1_chat_apps,Nimo TV,global,,diamond,bittopup,external_manual,,Nimo-TV-Diamonds,Nimo TV Diamonds,Manual external source,true
+kwai,chat_apps,priority_1_chat_apps,Kwai,global,,coin,bittopup,external_manual,,Kuaishou-Kwai-CN-Coin,Kwai Coin,Manual external source,true
+poppo_live,chat_apps,priority_1_chat_apps,Poppo Live,global,,coin,bittopup,external_manual,,Poppo-Live-Coins,Poppo Live Coins,Manual external source,true
+soul_chill,chat_apps,priority_1_chat_apps,Soul Chill,global,,crystal,bittopup,external_manual,,soulchill,Soul Chill Crystals,Manual external source,true
+sugo_voice,chat_apps,priority_1_chat_apps,SUGO Voice,global,,coin,bittopup,external_manual,,sugovoice-chat-party-top-up,SUGO Coins,Manual external source,true
+chamet,chat_apps,priority_1_chat_apps,Chamet,global,,diamond,bittopup,external_manual,,chamet,Chamet Diamond,Manual external source,true
+xena_live,chat_apps,priority_1_chat_apps,Xena Live,global,,coin,bittopup,external_manual,,xena-live,Xena Live,Manual external source,true
+yoho_group_voice_chat,chat_apps,priority_1_chat_apps,YoHo Group Voice Chat,global,,coin,bittopup,external_manual,,yoho-group-voice-chat,YoHo Group Voice Chat,Manual external source,true
+yoyo_live,chat_apps,priority_1_chat_apps,Yoyo Live,global,,coin,bittopup,external_manual,,yoyo,Yoyo Live,Manual external source,true
+migo_live,chat_apps,priority_1_chat_apps,Migo Live,global,,coin,bittopup,external_manual,,migo-live,Migo Live,Manual external source,true
+tango,chat_apps,priority_1_chat_apps,Tango,global,,coin,bittopup,external_manual,,tango-coins,Tango Coins,Manual external source,true
+one_star_chat,chat_apps,priority_1_chat_apps,1Star Chat,global,,coin,bittopup,external_manual,,1star-chat,1Star Chat,Manual external source,true
+four_chat,chat_apps,priority_1_chat_apps,4CHAT,global,,coin,bittopup,external_manual,,4chat,4CHAT,Manual external source,true
+amo_chat,chat_apps,priority_1_chat_apps,Amo Chat,global,,coin,bittopup,external_manual,,amo-chat,Amo Chat,Manual external source,true
+azal_live,chat_apps,priority_1_chat_apps,Azal Live,global,,coin,bittopup,external_manual,,azal,Azal Live,Manual external source,true
+boli,chat_apps,priority_1_chat_apps,Boli,global,,coin,bittopup,external_manual,,boli,Boli,Manual external source,true
+chata,chat_apps,priority_1_chat_apps,CHATA,global,,coin,bittopup,external_manual,,chata,CHATA,Manual external source,true
+chati,chat_apps,priority_1_chat_apps,CHATI,global,,coin,bittopup,external_manual,,chati,CHATI,Manual external source,true
+chillchat,chat_apps,priority_1_chat_apps,ChillChat,global,,coin,bittopup,external_manual,,chillchat,ChillChat,Manual external source,true
+apple_itunes,gift_cards,priority_1_gift_cards,Apple Gift Card / iTunes,usa,,usd,g2bulk,g2bulk_first,Itunes USA,,Apple Gift Card US,Can be shown as Apple balance; not as direct app subscription,true
+playstation,gift_cards,priority_1_gift_cards,PlayStation Network,usa_ksa,,usd,g2bulk,g2bulk_first,PlayStation Network GiftCards,,PlayStation Network Card,Prefer G2Bulk regions USA and KSA,true
+steam,gift_cards,priority_1_gift_cards,Steam Wallet,global_us_eu_tr_arab,,usd,g2bulk,g2bulk_first,Steam Global,,Steam Wallet Code,Use allowed regions only,true
+xbox,gift_cards,priority_1_gift_cards,Xbox Gift Card,usa,,usd,g2bulk,g2bulk_first,XBOX Giftcards,,Xbox Gift Card USA,Prefer G2Bulk USA,true
+nintendo,gift_cards,priority_2_gift_cards,Nintendo eShop,usa,,usd,g2bulk,g2bulk_first,Nintendo eShop,,Nintendo eShop USA,Prefer G2Bulk USA,true
+razer,gift_cards,priority_2_gift_cards,Razer Gold,global,,usd,g2bulk,g2bulk_first,RAZER Gold GiftCards,,Razer Gold Global,Prefer G2Bulk when stock exists,true
+netflix,subscriptions,priority_1_subscriptions,Netflix,global,1 month,subscription,external,on_demand,,,Netflix subscription,Manual or provider-specific source needed,true
+shahid,subscriptions,priority_1_subscriptions,Shahid VIP,global,1 month,subscription,bittopup,on_demand,,,Shahid VIP,Direct source must be confirmed per package,true
+telegram_premium,subscriptions,priority_1_subscriptions,Telegram Premium,global,1 month,subscription,external,on_demand,,,Telegram Premium,Manual or marketplace source needed,true
+telegram_stars,chat_apps,priority_1_chat_apps,Telegram Stars,global,,star,external,on_demand,,,Telegram Stars,Manual or marketplace source needed,true
+crunchyroll,subscriptions,priority_1_subscriptions,Crunchyroll,global,1 month,subscription,external,on_demand,,,Crunchyroll subscription,Manual source needed,true
+anghami_plus,subscriptions,priority_1_subscriptions,Anghami Plus,mena,1 month,subscription,external,on_demand,,,Anghami Plus,Manual source needed,true
+chatgpt_via_apple,subscriptions,priority_2_apps_via_apple,ChatGPT via Apple Gift Card,usa,1 month,apple_balance,g2bulk,indirect_apple,Itunes USA,,ChatGPT Plus Apple Gift Card,Customer receives Apple Gift Card; not direct ChatGPT,true
+canva_via_apple,subscriptions,priority_2_apps_via_apple,Canva via Apple Gift Card,usa,1 month,apple_balance,g2bulk,indirect_apple,Itunes USA,,Canva Pro Apple Gift Card,Customer receives Apple Gift Card; not direct Canva,true
+capcut_via_apple,subscriptions,priority_2_apps_via_apple,CapCut via Apple Gift Card,usa,1 month,apple_balance,g2bulk,indirect_apple,Itunes USA,,CapCut Pro Apple Gift Card,Customer receives Apple Gift Card; not direct CapCut,true
+picsart_via_apple,subscriptions,priority_2_apps_via_apple,Picsart via Apple Gift Card,usa,1 month,apple_balance,g2bulk,indirect_apple,Itunes USA,,Picsart Apple Gift Card,Customer receives Apple Gift Card; not direct Picsart,true
+duolingo_via_apple,subscriptions,priority_2_apps_via_apple,Duolingo via Apple Gift Card,usa,1 month,apple_balance,g2bulk,indirect_apple,Itunes USA,,Duolingo Apple Gift Card,Customer receives Apple Gift Card; not direct Duolingo,true
+gemini_via_apple,subscriptions,priority_2_apps_via_apple,Gemini via Apple Gift Card,usa,1 month,apple_balance,g2bulk,indirect_apple,Itunes USA,,Gemini Apple Gift Card,Customer receives Apple Gift Card; not direct Gemini,true
+claude_via_apple,subscriptions,priority_2_apps_via_apple,Claude via Apple Gift Card,usa,1 month,apple_balance,g2bulk,indirect_apple,Itunes USA,,Claude Apple Gift Card,Customer receives Apple Gift Card; not direct Claude,true
+supergrok,subscriptions,priority_2_ai_subscriptions,SuperGrok,global,1 month,subscription,external,on_demand,,,SuperGrok subscription,Manual source needed,true
+perplexity_pro,subscriptions,priority_2_ai_subscriptions,Perplexity Pro,global,1 month,subscription,external,on_demand,,,Perplexity Pro subscription,Manual source needed,true
+cursor,subscriptions,priority_2_ai_subscriptions,Cursor,global,1 month,subscription,external,on_demand,,,Cursor subscription,Manual source needed,true
+google_antigravity,subscriptions,priority_2_ai_subscriptions,Google Antigravity,global,1 month,subscription,external,on_demand,,,Google Antigravity,Manual source needed,true
+windows,software,priority_3_software,Windows,global,,license,external,on_demand,,,Windows license,Manual source needed,true
+office_365,software,priority_3_software,Office 365,global,1 year,subscription,external,on_demand,,,Office 365 subscription,Manual source needed,true
+kaspersky,software,priority_3_software,Kaspersky,global,1 year,license,external,on_demand,,,Kaspersky license,Manual source needed,true
+adobe,software,priority_3_software,Adobe,global,1 month,subscription,external,on_demand,,,Adobe subscription,Manual source needed,true
+proton_vpn,software,priority_3_software,Proton VPN,global,1 month,subscription,external,on_demand,,,Proton VPN,Manual source needed,true
+nord_vpn,software,priority_3_software,Nord VPN,global,1 month,subscription,external,on_demand,,,Nord VPN,Manual source needed,true
+express_vpn,software,priority_3_software,Express VPN,global,1 month,subscription,external,on_demand,,,Express VPN,Manual source needed,true
+iptv_look_4k,iptv,priority_3_iptv,IP TV LOOK 4K,global,1 month,subscription,external,on_demand,,,IPTV LOOK 4K,Manual source needed,true
+iptv_shamna,iptv,priority_3_iptv,IP TV Shamna,global,1 month,subscription,external,on_demand,,,IPTV Shamna,Manual source needed,true
+iptv_world_cup,iptv,priority_3_iptv,IPTV World Cup,global,1 month,subscription,external,on_demand,,,IPTV World Cup,Manual source needed,true
+syriatel,syrian_services,priority_3_syrian_services,Syriatel,syria,,balance,external,on_demand,,,Syriatel recharge,Manual source needed,true
+mtn,syrian_services,priority_3_syrian_services,MTN Syria,syria,,balance,external,on_demand,,,MTN recharge,Manual source needed,true
+sham_cash,syrian_services,priority_3_syrian_services,Sham Cash,syria,,transfer,external,on_demand,,,Sham Cash,Manual source needed,true
+internet_bills,syrian_services,priority_3_syrian_services,Internet Bills,syria,,bill,external,on_demand,,,Internet bill payment,Manual source needed,true
+bank_transfers,syrian_services,priority_3_syrian_services,Bank Transfers,syria,,transfer,external,on_demand,,,Bank transfer,Manual source needed,true
+smart_touch,syrian_services,priority_3_syrian_services,Smart Touch,syria,,service,external,on_demand,,,Smart Touch,Manual source needed,true
+satellite_internet,syrian_services,priority_3_syrian_services,Satellite Internet,syria,,subscription,external,on_demand,,,Satellite internet,Manual source needed,true
+passport_booking,syrian_services,priority_3_syrian_services,Passport Booking,syria,,booking,external,on_demand,,,Passport booking,Manual source needed,true
+electricity_bills,syrian_services,priority_3_syrian_services,Electricity Bills,syria,,bill,external,on_demand,,,Electricity bill payment,Manual source needed,true
+ecsc_bills,syrian_services,priority_3_syrian_services,ECSC Bills,syria,,bill,external,on_demand,,,ECSC bill payment,Manual source needed,true
+yalla_go,syrian_services,priority_3_syrian_services,Yalla Go,syria,,ride,external,on_demand,,,Yalla Go,Manual source needed,true
+raken,syrian_services,priority_3_syrian_services,Raken,syria,,ride,external,on_demand,,,Raken,Manual source needed,true
+chimera_tool,software_tools,priority_3_software_tools,Chimera Tool,global,,license,external,on_demand,,,Chimera Tool,Manual source needed,true
+dft_pro_tools,software_tools,priority_3_software_tools,DFT Pro Tools,global,,license,external,on_demand,,,DFT Pro Tools,Manual source needed,true
+borneo_schematics,software_tools,priority_3_software_tools,Borneo Schematics,global,,license,external,on_demand,,,Borneo Schematics,Manual source needed,true
+eft_pro,software_tools,priority_3_software_tools,EFT Pro,global,,license,external,on_demand,,,EFT Pro,Manual source needed,true
+tsm_tool,software_tools,priority_3_software_tools,TSM Tool,global,,license,external,on_demand,,,TSM Tool,Manual source needed,true
+unlocktool,software_tools,priority_3_software_tools,UnlockTool,global,,license,external,on_demand,,,UnlockTool,Manual source needed,true
+z3x_team,software_tools,priority_3_software_tools,Z3X Team,global,,license,external,on_demand,,,Z3X Team,Manual source needed,true
+auto_reply,services,priority_3_services,Auto Reply,global,,service,external,on_demand,,,Auto reply service,Manual source needed,true
+arabstar,chat_apps,priority_1_chat_apps,Arabstar,global,,coin,external,on_demand,,,Arabstar,Manual source needed,true
+kiyo_live,chat_apps,priority_1_chat_apps,Kiyo Live,global,,coin,external,on_demand,,,Kiyo Live,Manual source needed,true
+waho_live,chat_apps,priority_1_chat_apps,Waho Live,global,,coin,external,on_demand,,,Waho Live,Manual source needed,true
+yaahlan_chat,chat_apps,priority_1_chat_apps,Yaahlan Chat,global,,coin,external,on_demand,,,Yaahlan Chat,Manual source needed,true
+yalla_live,chat_apps,priority_1_chat_apps,Yalla Live,global,,coin,external,on_demand,,,Yalla Live,Manual source needed,true
+bella_chat,chat_apps,priority_1_chat_apps,Bella Chat,global,,coin,external,on_demand,,,Bella Chat,Manual source needed,true
+yoho,chat_apps,priority_1_chat_apps,Yoho,global,,coin,external,on_demand,,,Yoho,Manual source needed,true
+soulfa_chat,chat_apps,priority_1_chat_apps,Soulfa Chat,global,,coin,external,on_demand,,,Soulfa Chat,Manual source needed,true
+haki_chat,chat_apps,priority_1_chat_apps,Haki Chat,global,,coin,external,on_demand,,,Haki Chat,Manual source needed,true
+party_star,chat_apps,priority_1_chat_apps,Party Star,global,,coin,external,on_demand,,,Party Star,Manual source needed,true
+habbey_chat,chat_apps,priority_1_chat_apps,Habbey Chat,global,,coin,external,on_demand,,,Habbey Chat,Manual source needed,true
+super_live,chat_apps,priority_1_chat_apps,Super Live,global,,coin,external,on_demand,,,Super Live,Manual source needed,true
+ayome_chat,chat_apps,priority_1_chat_apps,Ayome Chat,global,,coin,external,on_demand,,,Ayome Chat,Manual source needed,true
+talk_talk,chat_apps,priority_1_chat_apps,Talk Talk,global,,coin,external,on_demand,,,Talk Talk,Manual source needed,true
+ahlan_chat,chat_apps,priority_1_chat_apps,Ahlan Chat,global,,coin,external,on_demand,,,Ahlan Chat,Manual source needed,true
+tami_live,chat_apps,priority_1_chat_apps,Tami Live,global,,coin,external,on_demand,,,Tami Live,Manual source needed,true
+tada,chat_apps,priority_1_chat_apps,Tada,global,,coin,external,on_demand,,,Tada,Manual source needed,true
+light_chat,chat_apps,priority_1_chat_apps,Light Chat,global,,coin,external,on_demand,,,Light Chat,Manual source needed,true
+aswat_chat,chat_apps,priority_1_chat_apps,Aswat Chat,global,,coin,external,on_demand,,,Aswat Chat,Manual source needed,true
+lami_chat,chat_apps,priority_1_chat_apps,Lami Chat,global,,coin,external,on_demand,,,Lami Chat,Manual source needed,true
+higo_chat,chat_apps,priority_1_chat_apps,Higo Chat,global,,coin,external,on_demand,,,Higo Chat,Manual source needed,true
+soyo,chat_apps,priority_1_chat_apps,Soyo,global,,coin,external,on_demand,,,Soyo,Manual source needed,true
+layla_chat,chat_apps,priority_1_chat_apps,Layla Chat,global,,coin,external,on_demand,,,Layla Chat,Manual source needed,true
+yooy_chat,chat_apps,priority_1_chat_apps,Yooy Chat,global,,coin,external,on_demand,,,Yooy Chat,Manual source needed,true
+dimo,chat_apps,priority_1_chat_apps,Dimo,global,,coin,external,on_demand,,,Dimo,Manual source needed,true
+mango_live,chat_apps,priority_1_chat_apps,Mango Live,global,,coin,external,on_demand,,,Mango Live,Manual source needed,true
+olmet_chat,chat_apps,priority_1_chat_apps,Olmet Chat,global,,coin,external,on_demand,,,Olmet Chat,Manual source needed,true
+lama_chat,chat_apps,priority_1_chat_apps,Lama Chat,global,,coin,external,on_demand,,,Lama Chat,Manual source needed,true
+honey_jar_chat,chat_apps,priority_1_chat_apps,Honey Jar Chat,global,,coin,external,on_demand,,,Honey Jar Chat,Manual source needed,true
+ligo_live,chat_apps,priority_1_chat_apps,Ligo Live,global,,coin,external,on_demand,,,Ligo Live,Manual source needed,true
+soul_star,chat_apps,priority_1_chat_apps,Soul Star,global,,coin,external,on_demand,,,Soul Star,Manual source needed,true
+hami_party,chat_apps,priority_1_chat_apps,Hami Party,global,,coin,external,on_demand,,,Hami Party,Manual source needed,true
+hawa_chat,chat_apps,priority_1_chat_apps,HAWA Chat,global,,coin,external,on_demand,,,HAWA Chat,Manual source needed,true
+so_match,chat_apps,priority_1_chat_apps,SO Match,global,,coin,external,on_demand,,,SO Match,Manual source needed,true
+opa_live,chat_apps,priority_1_chat_apps,OPA Live,global,,coin,external,on_demand,,,OPA Live,Manual source needed,true

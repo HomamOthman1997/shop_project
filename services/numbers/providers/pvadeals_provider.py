@@ -436,7 +436,10 @@ class PVADealsProvider(BaseProvider):
         if not self._response_ok(status, payload) or not isinstance(data, dict):
             return {"success": False, "messages": [], "raw": payload}
         messages = self._extract_messages_from_request(data)
-        return {"success": True, "messages": messages, "raw": payload}
+        raw = payload
+        if not messages and str(data.get("status") or "").strip().upper() == "COMPLETED":
+            raw = {**payload, "provider_terminal_no_sms": True}
+        return {"success": True, "messages": messages, "raw": raw}
 
     async def cancel(self, activation_id: str):
         status, payload, _headers = await self._request("POST", f"/flag/{activation_id}")

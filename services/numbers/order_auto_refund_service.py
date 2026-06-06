@@ -4,7 +4,7 @@ from typing import Any, Awaitable, Callable
 
 from aiogram import Bot
 
-from database.orders_repo import list_api_temp_orders_for_auto_refund, update_order_details, update_order_status
+from database.orders_repo import get_order, list_api_temp_orders_for_auto_refund, update_order_details, update_order_status
 from database.support_topics_repo import get_support_target
 from services.numbers.manager import PROVIDERS
 from services.numbers.order_cancel_service import cancel_number_order
@@ -12,7 +12,16 @@ from services.numbers.order_service import public_order_payload
 from services.numbers.customer_flows import support_bridge_token
 from services.numbers.provider_readiness import provider_readiness
 from services.numbers.shared.events import _log_number_event_from_order, _log_temp_event
-from services.numbers.shared.temp_order import _order_temp_timeout_sec, _temp_elapsed_sec, _temp_order_has_received_code, _utc_now
+from services.numbers.shared.provider_io import fetch_provider_sms
+from services.numbers.shared.temp_order import (
+    _extract_new_sms_code,
+    _order_temp_timeout_sec,
+    _safe_code_text,
+    _seconds_between,
+    _temp_elapsed_sec,
+    _temp_order_has_received_code,
+    _utc_now,
+)
 from services.numbers.shared.temp_refund import (
     finalize_temp_local_refund,
     order_provider_code,
@@ -20,6 +29,7 @@ from services.numbers.shared.temp_refund import (
     provider_terminal_refund_reason,
     temp_refund_result_retryable,
 )
+from services.platform.webhooks import enqueue_event_for_user
 from utils.financial_manager import FinancialManager
 
 
@@ -70,6 +80,10 @@ async def auto_refund_temp_order_if_due(
             "order": public_order_payload(order),
         }
 
+    recovered = await _recover_provider_sms_before_refund(order)
+    if recovered:
+        return recovered
+
     already_refunded = await _finalize_if_provider_already_closed(order, user_id)
     if already_refunded:
         return already_refunded
@@ -87,6 +101,14 @@ async def auto_refund_temp_order_if_due(
         )
     except Exception as exc:
         reason = getattr(exc, "code", "auto_refund_failed")
+        if str(reason) == "sms_received":
+            refreshed = await get_order(order["_id"]) or order
+            return {
+                "ok": True,
+                "refunded": False,
+                "reason": "code_received_recovery",
+                "order": public_order_payload(refreshed),
+            }
         if str(reason) != "financial_refund_failed":
             local_refund = await _refund_customer_after_provider_failure(
                 order,
@@ -110,6 +132,55 @@ async def auto_refund_temp_order_if_due(
             "order": public_order_payload(marked_order),
         }
     return {"ok": True, "refunded": True, "reason": "timeout_no_code", "order": result.get("order") or public_order_payload(order)}
+
+
+async def _recover_provider_sms_before_refund(order: dict[str, Any]) -> dict[str, Any] | None:
+    provider = order_provider_code(order)
+    provider_order_id = order_provider_order_id(order)
+    if not provider or not provider_order_id:
+        return None
+    sms_data = await fetch_provider_sms(PROVIDERS, provider, provider_order_id, force=True)
+    existing_codes = [str(code) for code in (order.get("temp_codes") or []) if str(code or "").strip()]
+    code = _extract_new_sms_code((sms_data or {}).get("messages") or [], set(existing_codes))
+    if not code:
+        return None
+
+    clean_code = _safe_code_text(code)
+    now = _utc_now()
+    updated_codes = [*existing_codes, clean_code]
+    patch: dict[str, Any] = {
+        "temp_wait_state": "code_received",
+        "temp_last_refresh_at": now,
+        "temp_last_refresh_mode": "provider_recovery_before_refund",
+        "temp_last_sms_at": now,
+        "temp_last_code": clean_code,
+        "temp_codes": updated_codes,
+        "temp_codes_count": len(updated_codes),
+    }
+    if not order.get("temp_first_sms_at"):
+        patch["temp_first_sms_at"] = now
+        seconds_to_first_sms = _seconds_between(now, order.get("created_at"))
+        if seconds_to_first_sms is not None:
+            patch["temp_seconds_to_first_sms"] = seconds_to_first_sms
+    await update_order_details(order["_id"], patch)
+    await _log_temp_event(
+        order,
+        "code_received_recovery",
+        {
+            "code_len": len(clean_code),
+            "seconds_since_purchase": _seconds_between(now, order.get("created_at")),
+            "source": "numbers_api_auto_refund_provider_guard",
+        },
+    )
+    recovered_order = {**order, **patch}
+    payload = public_order_payload(recovered_order)
+    await enqueue_event_for_user(
+        user_id=int(order.get("user_id") or 0),
+        reseller_id=int(order.get("reseller_id") or order.get("user_id") or 0),
+        event_type="numbers.order.sms",
+        data={"order": payload},
+    )
+    return {"ok": True, "refunded": False, "reason": "code_received_recovery", "order": payload}
 
 
 async def _refund_customer_after_provider_failure(

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#0b111d" />
+    <title>PHANTOM Digital Admin</title>
+    <link rel="stylesheet" href="/mini/digital/static/admin.css?v=20260605a" />
+  </head>
+  <body>
+    <main class="admin-shell">
+      <header class="admin-header">
+        <div>
+          <p class="eyebrow">PHANTOM</p>
+          <h1>Digital Admin</h1>
+        </div>
+        <button id="refreshBtn" class="icon-btn" type="button" title="Refresh">↻</button>
+      </header>
+
+      <section class="auth-panel">
+        <label for="apiKeyInput">Admin API key</label>
+        <div class="key-row">
+          <input id="apiKeyInput" type="password" autocomplete="off" placeholder="Bearer key with digital:orders:manage" />
+          <button id="saveKeyBtn" type="button">Save</button>
+        </div>
+      </section>
+
+      <section id="status" class="status">Enter an admin API key to load orders.</section>
+
+      <section class="tabs" aria-label="Order status filter">
+        <button class="tab is-active" data-status="pending" type="button">Pending</button>
+        <button class="tab" data-status="processing" type="button">Processing</button>
+        <button class="tab" data-status="completed" type="button">Completed</button>
+        <button class="tab" data-status="refunded" type="button">Refunded</button>
+        <button class="tab" data-status="all" type="button">All</button>
+      </section>
+
+      <section id="diagnostics" class="diagnostics"></section>
+      <section id="orders" class="orders" aria-live="polite"></section>
+    </main>
+
+    <template id="orderTemplate">
+      <article class="order-card">
+        <header class="order-top">
+          <div>
+            <p class="order-id"></p>
+            <h2 class="order-title"></h2>
+          </div>
+          <span class="badge"></span>
+        </header>
+        <dl class="order-grid"></dl>
+        <details class="payload-details">
+          <summary>Customer data</summary>
+          <pre class="customer-data"></pre>
+        </details>
+        <div class="actions"></div>
+      </article>
+    </template>
+
+    <script src="/mini/digital/static/admin.js?v=20260605a"></script>
+  </body>
+</html>

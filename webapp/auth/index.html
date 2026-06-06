@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <title>تسجيل الدخول | Phantom</title>
+  <link rel="stylesheet" href="/auth/static/styles.css">
+  <script src="/auth/static/app.js" defer></script>
+</head>
+<body>
+  <main class="auth-shell">
+    <section class="brand-panel" aria-label="Phantom">
+      <a class="brand" href="/" aria-label="Phantom home">
+        <span class="brand-mark">P</span>
+        <span>Phantom</span>
+      </a>
+      <div class="brand-copy">
+        <h1>خدماتك الرقمية<br>بحساب واحد.</h1>
+        <p>ادخل إلى مشترياتك، رصيدك، وطلباتك من الويب أو Telegram.</p>
+      </div>
+      <div class="trust-row">
+        <span>جلسة محمية</span>
+        <span>ربط Telegram</span>
+        <span>تحكم بالحساب</span>
+      </div>
+    </section>
+
+    <section class="form-panel">
+      <div class="form-wrap">
+        <div id="auth-view">
+          <div class="tabs" role="tablist">
+            <button class="tab active" type="button" data-mode="login">تسجيل الدخول</button>
+            <button class="tab" type="button" data-mode="register">إنشاء حساب</button>
+          </div>
+          <header class="form-header">
+            <h2 id="form-title">أهلاً بعودتك</h2>
+            <p id="form-subtitle">أدخل بريدك وكلمة المرور للمتابعة.</p>
+          </header>
+          <form id="auth-form" novalidate>
+            <label>
+              <span>البريد الإلكتروني</span>
+              <input id="email" name="email" type="email" autocomplete="email" inputmode="email" required>
+            </label>
+            <label>
+              <span>كلمة المرور</span>
+              <span class="password-field">
+                <input id="password" name="password" type="password" autocomplete="current-password" minlength="10" required>
+                <button id="toggle-password" type="button" aria-label="إظهار كلمة المرور">إظهار</button>
+              </span>
+            </label>
+            <p id="form-error" class="message error" role="alert"></p>
+            <button id="submit-button" class="primary" type="submit">تسجيل الدخول</button>
+          </form>
+        </div>
+
+        <div id="account-view" class="site-app" hidden>
+          <aside class="sidebar">
+            <a class="brand sidebar-brand" href="/"><span class="brand-mark">P</span><span>Phantom</span></a>
+            <nav>
+              <button class="nav-item active" data-view="home">الرئيسية</button>
+              <button class="nav-item" data-view="services">الخدمات</button>
+              <button class="nav-item" data-view="orders">طلباتي</button>
+              <button class="nav-item" data-view="identity">تأكيد الهوية</button>
+              <button class="nav-item" data-view="settings">الحساب والأمان</button>
+            </nav>
+            <button id="logout-button" class="nav-item logout" type="button">تسجيل الخروج</button>
+          </aside>
+
+          <div class="app-main">
+            <header class="app-header">
+              <div>
+                <p class="section-label">Phantom Account</p>
+                <h2 id="view-title">الرئيسية</h2>
+              </div>
+              <div class="balance-block"><span>الرصيد</span><strong id="wallet-balance">$0.00</strong></div>
+            </header>
+
+            <section class="app-view active" data-panel="home">
+              <div class="welcome-band">
+                <div><h3>أهلاً بك في Phantom</h3><p id="account-email"></p></div>
+                <a class="primary compact" href="/mini/digital">بدء طلب جديد</a>
+              </div>
+              <div class="summary-grid">
+                <div><span>الطلبات الرقمية</span><strong id="digital-order-count">0</strong></div>
+                <div><span>طلبات الأرقام</span><strong id="numbers-order-count">0</strong></div>
+                <div><span>حالة الهوية</span><strong id="identity-summary">غير مقدمة</strong></div>
+              </div>
+              <div class="section-head"><h3>آخر نشاط</h3></div>
+              <div id="activity-list" class="data-list empty">لا يوجد نشاط حتى الآن.</div>
+            </section>
+
+            <section class="app-view" data-panel="services">
+              <div class="section-head"><div><h3>الخدمات</h3><p>اختر الخدمة التي تريد استخدامها.</p></div></div>
+              <div id="purchase-readiness" class="notice" hidden>أكد بريدك الإلكتروني أو اربط Telegram قبل تنفيذ أول عملية شراء.</div>
+              <div class="service-list">
+                <a href="/mini/digital"><div><strong>المتجر الرقمي</strong><span>ألعاب، شدات، بطاقات وخدمات رقمية</span></div><b>فتح</b></a>
+                <a href="/mini/numbers-v2"><div><strong>خدمة الأرقام</strong><span>أرقام مؤقتة وإيجار واستقبال أكواد</span></div><b>فتح</b></a>
+                <a id="cardex-link" class="locked" href="#"><div><strong>بيع وتبديل البطاقات</strong><span id="cardex-reason">يتطلب تأكيد الهوية</span></div><b>مقفل</b></a>
+              </div>
+            </section>
+
+            <section class="app-view" data-panel="orders">
+              <div class="section-head"><div><h3>طلباتي</h3><p>كل الطلبات المرتبطة بحساب الموقع.</p></div><button id="refresh-orders" class="secondary compact">تحديث</button></div>
+              <div id="orders-list" class="data-list empty">لا توجد طلبات.</div>
+            </section>
+
+            <section class="app-view" data-panel="identity">
+              <div class="section-head"><div><h3>تأكيد الهوية</h3><p>مطلوب فقط لبيع البطاقات والسحب والعمليات الحساسة.</p></div></div>
+              <div class="identity-state"><span>الحالة الحالية</span><strong id="identity-status">غير مقدمة</strong></div>
+              <form id="identity-form">
+                <label><span>الاسم الكامل</span><input name="full_name" minlength="5" required></label>
+                <label><span>تاريخ الميلاد</span><input name="birth_date" type="date" required></label>
+                <label><span>البلد</span><input name="country" value="Syria" required></label>
+                <label><span>نوع الوثيقة</span><select name="id_type"><option value="national_id">هوية شخصية</option><option value="passport">جواز سفر</option></select></label>
+                <p class="message">رفع صور الوثائق سيُضاف بعد تجهيز تخزين خاص ومشفّر لها.</p>
+                <button class="primary" type="submit">إرسال طلب المراجعة</button>
+              </form>
+            </section>
+
+            <section class="app-view" data-panel="settings">
+              <div class="section-head"><div><h3>الحساب والأمان</h3><p>إدارة طرق الوصول والربط.</p></div></div>
+              <div class="settings-row"><div><strong>البريد الإلكتروني</strong><span id="settings-email"></span></div><b id="email-status">غير مؤكد</b></div>
+              <div id="email-verification-row" class="settings-row">
+                <div><strong>تأكيد البريد</strong><span id="email-verification-help">أرسل كود تأكيد إلى بريدك لتفعيل الشراء من الموقع.</span></div>
+                <button id="send-email-code" class="secondary compact" type="button">إرسال الكود</button>
+              </div>
+              <div id="email-code-row" class="settings-row email-code-row" hidden>
+                <div><strong>كود التأكيد</strong><input id="email-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"></div>
+                <button id="verify-email-code" class="primary compact" type="button">تأكيد</button>
+              </div>
+              <div class="settings-row"><div><strong>Telegram</strong><span id="telegram-status">غير مربوط</span></div><button id="telegram-action" class="secondary compact" type="button">ربط Telegram</button></div>
+              <div class="settings-row"><div><strong>معرّف العميل</strong><span id="customer-id"></span></div><b>داخلي</b></div>
+              <p id="account-message" class="message" role="status"></p>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

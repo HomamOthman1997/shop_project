@@ -168,6 +168,9 @@ class Settings(BaseSettings):
     numbers_miniapp_path: str = "/mini/numbers-v2"
     cardex_miniapp_enabled: bool = False
     cardex_miniapp_public_url: Optional[str] = None
+    transactional_email_provider: str = "none"
+    transactional_email_from: Optional[str] = None
+    resend_api_key: Optional[str] = None
     cardex_release_sweep_interval_sec: int = 600
     financial_anomaly_sweep_interval_sec: int = 21600
     financial_anomaly_scan_days: int = 7

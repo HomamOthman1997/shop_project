@@ -268,7 +268,6 @@ async def list_api_temp_refund_support_reviews(
     include_resolved: bool = False,
 ):
     query = {
-        "source": "numbers_api",
         "number_mode": "temp",
         "temp_refund_support_review_required": True,
     }

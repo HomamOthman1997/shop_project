@@ -59,6 +59,10 @@ from services.digital_products.lona_cards import (
 )
 from services.digital_products.esim_access_client import EsimAccessClient
 from services.digital_products.miniapp import consume_selection
+from services.digital_products.manual_fulfillment import (
+    submit_manual_auto_api,
+    submit_manual_future,
+)
 from services.digital_products.za3em_client import Za3emClient
 from services.digital_products.zendit_client import ZenditClient
 from services.digital_products.esim_route_service import (
@@ -2787,56 +2791,8 @@ async def _submit_manual_game_auto_api(callback: types.CallbackQuery) -> None:
     if str(order.get("status") or "") in {"success", "done", "refunded"}:
         return await callback.answer("Order is already closed", show_alert=True)
 
-    offer = _manual_game_auto_offer(order)
-    if not offer:
-        return await callback.answer("No Auto API option for this order", show_alert=True)
-
-    provider = str(offer.get("provider") or order.get("provider_code") or "g2bulk").strip().lower()
-    ref_id = str(offer.get("ref_id") or offer.get("provider_ref_id") or order.get("provider_ref_id") or "").strip()
-    game_id = str(order.get("game_id") or "").strip()
-    player_id = str(order.get("player_id") or "").strip()
-    server_id = str(order.get("server_id") or "").strip()
-    item_name = str(order.get("manual_item_name") or order.get("service_ref_id") or "Digital top-up")
-    if not (provider and ref_id and game_id and player_id):
-        return await callback.answer("Order is missing API execution data", show_alert=True)
-
-    now = datetime.now(UTC)
-    await update_order_details(
-        order["_id"],
-        {
-            "manual_execution_route": "auto_api",
-            "manual_fulfillment_status": "auto_api_submitting",
-            "manual_route_updated_by": int(callback.from_user.id),
-            "manual_route_updated_at": now,
-            "selected_provider_offer": offer,
-            "provider_code": provider,
-            "provider_ref_id": ref_id,
-        },
-    )
-    attempt = await _create_provider_game_order(
-        provider=provider,
-        ref_id=ref_id,
-        game_id=game_id,
-        player_id=player_id,
-        server_id=server_id or None,
-        catalogue_name=item_name,
-    )
-    provider_data = attempt.get("data") if isinstance(attempt, dict) else attempt
-    external_order_id = _extract_external_order_id(provider_data)
-    update_payload = {
-        "provider_response": attempt,
-        "provider_order_id": external_order_id,
-        "manual_execution_route": "auto_api",
-        "manual_fulfillment_status": "processing" if _provider_ok(attempt) else "auto_api_failed",
-        "manual_route_updated_by": int(callback.from_user.id),
-        "manual_route_updated_at": datetime.now(UTC),
-        "selected_provider_offer": offer,
-        "provider_code": provider,
-        "provider_ref_id": ref_id,
-    }
-    if not _provider_ok(attempt):
-        update_payload["provider_error"] = _extract_provider_error(provider_data)
-        await update_order_details(order["_id"], update_payload)
+    result = await submit_manual_auto_api(order, actor_id=int(callback.from_user.id))
+    if not result.get("ok"):
         if callback.message:
             try:
                 await callback.message.edit_text(
@@ -2845,9 +2801,11 @@ async def _submit_manual_game_auto_api(callback: types.CallbackQuery) -> None:
                 )
             except Exception:
                 pass
-        return await callback.answer("Auto API failed. Order is still pending.", show_alert=True)
+        message = str(result.get("message") or "Auto API failed. Order is still pending.")
+        return await callback.answer(message, show_alert=True)
 
-    await update_order_details(order["_id"], update_payload)
+    update_payload = dict(result.get("patch") or {})
+    external_order_id = str(result.get("provider_order_id") or "")
     await _notify_manual_processing_user(callback.bot, {**order, **update_payload})
     if callback.message:
         try:
@@ -2870,52 +2828,8 @@ async def _submit_manual_game_future(callback: types.CallbackQuery) -> None:
     if str(order.get("status") or "") in {"success", "done", "refunded"}:
         return await callback.answer("Order is already closed", show_alert=True)
 
-    offer = _manual_game_future_offer(order)
-    if not offer:
-        return await callback.answer("No Future option for this order", show_alert=True)
-
-    ref_id = str(offer.get("ref_id") or offer.get("provider_ref_id") or "").strip()
-    item_name = str(order.get("manual_item_name") or order.get("service_ref_id") or "Digital top-up")
-    if not ref_id:
-        return await callback.answer("Future option is missing provider ref", show_alert=True)
-
-    now = datetime.now(UTC)
-    await update_order_details(
-        order["_id"],
-        {
-            "manual_execution_route": "future",
-            "manual_fulfillment_status": "future_submitting",
-            "manual_route_updated_by": int(callback.from_user.id),
-            "manual_route_updated_at": now,
-            "selected_provider_offer": offer,
-            "provider_code": "g2bulk",
-            "provider_ref_id": ref_id,
-        },
-    )
-    attempt = await _create_provider_gift_order(
-        provider="g2bulk",
-        ref_id=ref_id,
-        quantity=1,
-        extra_params=None,
-    )
-    provider_data = attempt.get("data") if isinstance(attempt, dict) else attempt
-    external_order_id = _extract_external_order_id(provider_data)
-    voucher_lines = _extract_voucher_lines(provider_data)
-    update_payload = {
-        "provider_response": attempt,
-        "provider_order_id": external_order_id,
-        "delivery_lines_private": voucher_lines,
-        "manual_execution_route": "future",
-        "manual_fulfillment_status": "processing" if _provider_ok(attempt) else "future_failed",
-        "manual_route_updated_by": int(callback.from_user.id),
-        "manual_route_updated_at": datetime.now(UTC),
-        "selected_provider_offer": offer,
-        "provider_code": "g2bulk",
-        "provider_ref_id": ref_id,
-    }
-    if not _provider_ok(attempt):
-        update_payload["provider_error"] = _extract_provider_error(provider_data)
-        await update_order_details(order["_id"], update_payload)
+    result = await submit_manual_future(order, actor_id=int(callback.from_user.id))
+    if not result.get("ok"):
         if callback.message:
             try:
                 await callback.message.edit_text(
@@ -2924,9 +2838,12 @@ async def _submit_manual_game_future(callback: types.CallbackQuery) -> None:
                 )
             except Exception:
                 pass
-        return await callback.answer("Future failed. Order is still pending.", show_alert=True)
+        message = str(result.get("message") or "Future failed. Order is still pending.")
+        return await callback.answer(message, show_alert=True)
 
-    await update_order_details(order["_id"], update_payload)
+    update_payload = dict(result.get("patch") or {})
+    external_order_id = str(result.get("provider_order_id") or "")
+    voucher_lines = list(result.get("delivery_lines_private") or [])
     await _notify_manual_processing_user(callback.bot, {**order, **update_payload})
     if callback.message:
         try:

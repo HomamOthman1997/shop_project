@@ -473,7 +473,7 @@ class NonVoipProvider(BaseProvider):
             return {"success": False, "messages": [], "raw": data}
 
         return {
-            "success": False,
+            "success": True,
             "code": code,
             "messages": messages,
             "raw": data,

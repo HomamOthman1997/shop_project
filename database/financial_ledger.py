@@ -1047,13 +1047,15 @@ async def scan_financial_anomalies(*, days: int = 30, max_rows: int = 20) -> dic
         },
     ).to_list(None)
     order_ids = [doc["_id"] for doc in order_docs if doc.get("_id") is not None]
+    order_lookup_ids = list(order_ids)
+    order_lookup_ids.extend(str(order_id) for order_id in order_ids)
     order_ledger_ids = set()
     if order_ids:
         ledger_rows = await db.ledger_entries.find(
-            {"order_id": {"$in": order_ids}},
+            {"order_id": {"$in": order_lookup_ids}},
             {"order_id": 1},
         ).to_list(None)
-        order_ledger_ids = {row.get("order_id") for row in ledger_rows if row.get("order_id") is not None}
+        order_ledger_ids = {str(row.get("order_id")) for row in ledger_rows if row.get("order_id") is not None}
     orders_missing_ledger = [
         {
             "order_id": str(doc.get("_id")),
@@ -1063,7 +1065,7 @@ async def scan_financial_anomalies(*, days: int = 30, max_rows: int = 20) -> dic
             "reseller_id": doc.get("reseller_id"),
         }
         for doc in order_docs
-        if doc.get("_id") not in order_ledger_ids
+        if str(doc.get("_id")) not in order_ledger_ids
     ]
 
     recharge_docs = await db.recharge_requests.find(
