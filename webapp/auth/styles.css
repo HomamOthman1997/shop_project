@@ -632,6 +632,33 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   background: rgba(248, 113, 113, .12);
   color: #fda4af;
 }
+.owner-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.owner-toggle input {
+  width: auto;
+}
+.owner-refund-reviews {
+  display: grid;
+  gap: 12px;
+}
+.owner-refund-review {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 16px;
+  display: grid;
+  gap: 13px;
+}
+.owner-refund-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
 .owner-section {
   border: 1px solid var(--line);
   background: var(--surface);
@@ -1264,6 +1291,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   .owner-metrics, .owner-queues, .owner-sections { grid-template-columns: 1fr; }
   .owner-action-row { align-items: flex-start; }
   .owner-order-actions > button { flex: 1 1 calc(50% - 8px); }
+  .owner-refund-form { grid-template-columns: 1fr; }
   .settings-row > button, .settings-row > .primary, .settings-row > .secondary { width: 100%; }
   .email-code-row input { max-width: 100%; }
   .service-hero {

@@ -18,6 +18,8 @@ def test_register_owner_api_routes():
     assert ("GET", "/api/v1/owner/queues") in routes
     assert ("GET", "/api/v1/owner/digital/orders") in routes
     assert ("POST", "/api/v1/owner/digital/orders/{order_id}/action") in routes
+    assert ("GET", "/api/v1/owner/numbers/refund-reviews") in routes
+    assert ("POST", "/api/v1/owner/numbers/refund-reviews/{order_id}/resolve") in routes
 
 
 @pytest.mark.asyncio
@@ -120,3 +122,46 @@ async def test_owner_digital_order_action_uses_shared_manual_action(monkeypatch)
     assert calls["order_id"] == "order-1"
     assert calls["body"]["action"] == "complete"
     assert payload["action"] == "complete"
+
+
+@pytest.mark.asyncio
+async def test_owner_resolve_numbers_refund_review_marks_review_only(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1",
+            customer_id=900000000001,
+            email="homamothman1@gmail.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    async def resolve(**kwargs):
+        calls.update(kwargs)
+        return {
+            "_id": kwargs["order_id"],
+            "temp_refund_support_review_status": "resolved",
+            "temp_refund_support_review_resolution": kwargs["resolution"],
+            "temp_refund_support_review_notes": kwargs["notes"],
+            "number_mode": "temp",
+        }
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "resolve_api_temp_refund_support_review", resolve)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/owner/numbers/refund-reviews/order-1/resolve",
+        match_info={"order_id": "order-1"},
+        headers={"Content-Type": "application/json"},
+    )
+    request._read_bytes = json.dumps({"resolution": "Checked manually", "notes": "No financial action"}).encode()
+
+    response = await owner_api.owner_resolve_numbers_refund_review(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["actor_user_id"] == 900000000001
+    assert calls["reseller_id"] is None
+    assert calls["resolution"] == "Checked manually"
+    assert payload["review"]["status"] == "resolved"

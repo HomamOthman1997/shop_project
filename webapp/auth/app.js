@@ -345,10 +345,12 @@ async function loadOwnerDashboard() {
   message.textContent = "";
   try {
     const digitalFilter = $("#owner-digital-filter")?.value || "pending";
-    const [payload, queuePayload, digitalPayload] = await Promise.all([
+    const showResolvedReviews = $("#owner-refunds-resolved")?.checked ? "1" : "0";
+    const [payload, queuePayload, digitalPayload, refundPayload] = await Promise.all([
       api("/api/v1/owner/dashboard"),
       api("/api/v1/owner/queues"),
       api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
+      api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
     ]);
     const metrics = Object.entries(payload.metrics || {});
     metricsTarget.classList.toggle("empty", !metrics.length);
@@ -371,6 +373,7 @@ async function loadOwnerDashboard() {
         </div>
       </section>`).join("");
     renderOwnerDigitalOrders(digitalPayload.orders || []);
+    renderOwnerRefundReviews(refundPayload.reviews || []);
     const sections = payload.sections || [];
     sectionsTarget.classList.toggle("empty", !sections.length);
     sectionsTarget.innerHTML = sections.map((section) => `
@@ -388,8 +391,58 @@ async function loadOwnerDashboard() {
     metricsTarget.textContent = "تعذر تحميل مؤشرات المالك.";
     queuesTarget.textContent = "تعذر تحميل طوابير المتابعة.";
     $("#owner-digital-orders").textContent = "تعذر تحميل الطلبات الرقمية.";
+    $("#owner-refund-reviews").textContent = "تعذر تحميل مراجعات الأرقام.";
     sectionsTarget.textContent = "تعذر تحميل خصائص الإدارة.";
     message.textContent = error.message;
+  }
+}
+
+function renderOwnerRefundReviews(rows) {
+  const target = $("#owner-refund-reviews");
+  target.classList.toggle("empty", !rows.length);
+  target.innerHTML = rows.length ? rows.map((review) => `
+    <article class="owner-refund-review">
+      <div class="owner-order-head">
+        <div><strong>${esc(review.order?.service_name || review.order?.service || "طلب أرقام")}</strong><span>${esc(review.id || "")}</span></div>
+        <b>${esc(review.status || "")}</b>
+      </div>
+      <div class="owner-order-meta">
+        <span>السبب: ${esc(review.reason || "-")}</span>
+        <span>حالة الطلب: ${esc(review.order?.public_status || review.order?.status || "-")}</span>
+        <span>المزود: ${esc(review.order?.provider || "-")}</span>
+      </div>
+      ${review.status === "resolved" ? `
+        <div class="notice">القرار: ${esc(review.resolution || "-")}${review.notes ? ` · ${esc(review.notes)}` : ""}</div>` : `
+        <form class="owner-refund-form" data-owner-refund="${esc(review.id)}">
+          <label><span>القرار</span><input name="resolution" required minlength="3" placeholder="مثال: تم التحقق وإغلاق المراجعة"></label>
+          <label><span>ملاحظات</span><input name="notes" placeholder="ملاحظات اختيارية"></label>
+          <button class="primary compact" type="submit">إغلاق المراجعة</button>
+        </form>`}
+    </article>`).join("") : '<div class="notice">لا توجد مراجعات استرداد معلقة.</div>';
+  target.querySelectorAll("[data-owner-refund]").forEach((form) => {
+    form.addEventListener("submit", resolveOwnerRefundReview);
+  });
+}
+
+async function resolveOwnerRefundReview(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const orderId = form.dataset.ownerRefund;
+  if (!window.confirm("سيتم إغلاق علامة المراجعة فقط، ولن يتم تنفيذ استرداد مالي. متابعة؟")) return;
+  const button = form.querySelector("button[type='submit']");
+  button.disabled = true;
+  try {
+    const values = Object.fromEntries(new FormData(form).entries());
+    await api(`/api/v1/owner/numbers/refund-reviews/${encodeURIComponent(orderId)}/resolve`, {
+      method: "POST",
+      body: JSON.stringify(values),
+    });
+    setText("#owner-message", "تم إغلاق مراجعة طلب الأرقام.");
+    await loadOwnerDashboard();
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -937,6 +990,7 @@ $("#cardex-link")?.addEventListener("click", (event) => {
 $("#refresh-orders")?.addEventListener("click", loadDashboard);
 $("#refresh-owner")?.addEventListener("click", loadOwnerDashboard);
 $("#owner-digital-filter")?.addEventListener("change", loadOwnerDashboard);
+$("#owner-refunds-resolved")?.addEventListener("change", loadOwnerDashboard);
 
 sendEmailCodeButton.addEventListener("click", async () => {
   await sendEmailCode({

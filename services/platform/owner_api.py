@@ -6,7 +6,9 @@ from typing import Any
 from aiohttp import web
 
 from database.mongo import db
+from database.orders_repo import list_api_temp_refund_support_reviews, resolve_api_temp_refund_support_review
 from services.digital_products.api import _order_payload, execute_manual_order_action
+from services.numbers.api import _refund_review_payload
 from services.platform.api_auth import ApiAuthContext
 from services.platform.website_auth import require_website_owner
 
@@ -231,8 +233,53 @@ async def owner_digital_order_action(request: web.Request) -> web.Response:
     return await execute_manual_order_action(auth=auth, order_id=order_id, body=body)
 
 
+async def owner_numbers_refund_reviews(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    include_resolved = str(request.query.get("include_resolved") or "").strip().lower() in {"1", "true", "yes"}
+    try:
+        limit = max(1, min(100, int(request.query.get("limit") or 30)))
+    except Exception:
+        limit = 30
+    rows = await list_api_temp_refund_support_reviews(limit=limit, reseller_id=None, include_resolved=include_resolved)
+    return web.json_response(
+        {"ok": True, "reviews": [_refund_review_payload(row) for row in rows]},
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_resolve_numbers_refund_review(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    resolution = str((body or {}).get("resolution") or "").strip()
+    if len(resolution) < 3:
+        return web.json_response(
+            {"ok": False, "code": "missing_resolution", "message": "Write a resolution before closing the review."},
+            status=400,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+    order = await resolve_api_temp_refund_support_review(
+        order_id=str(request.match_info.get("order_id") or "").strip(),
+        actor_user_id=owner.customer_id,
+        reseller_id=None,
+        resolution=resolution,
+        notes=str((body or {}).get("notes") or "").strip(),
+    )
+    if not isinstance(order, dict):
+        return web.json_response(
+            {"ok": False, "code": "review_not_found", "message": "Review was not found."},
+            status=404,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+    return web.json_response({"ok": True, "review": _refund_review_payload(order)}, headers=dict(_NO_STORE_HEADERS))
+
+
 def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/dashboard", owner_dashboard)
     app.router.add_get("/api/v1/owner/queues", owner_queues)
     app.router.add_get("/api/v1/owner/digital/orders", owner_digital_orders)
     app.router.add_post("/api/v1/owner/digital/orders/{order_id}/action", owner_digital_order_action)
+    app.router.add_get("/api/v1/owner/numbers/refund-reviews", owner_numbers_refund_reviews)
+    app.router.add_post("/api/v1/owner/numbers/refund-reviews/{order_id}/resolve", owner_resolve_numbers_refund_review)
