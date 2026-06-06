@@ -289,14 +289,23 @@ function renderSupportOptions(payload) {
   const target = $("#support-list");
   const rows = payload.categories || [];
   const submitEnabled = Boolean(payload.actions?.submit_ticket?.enabled);
+  const categoryMeta = {
+    numbers: { icon: "📱", description: "مشاكل الطلبات، الأكواد، الأرقام المؤقتة والإيجار." },
+    services: { icon: "🎮", description: "طلبات المنتجات الرقمية، الشحن، والأسعار." },
+    user_balance: { icon: "💳", description: "شحن الرصيد، الدفعات، والاستردادات." },
+  };
   renderRows(target, rows, (row) => `
-    <div class="data-row">
-      <div><strong>${esc(row.label || row.key || "Support")}</strong><span>${submitEnabled ? "يمكن فتح تذكرة من الموقع" : "فتح التذكرة حالياً عبر Telegram"}</span></div>
-      <b>${esc(row.key || "")}</b>
+    <div class="support-category">
+      <span class="support-category-icon">${categoryMeta[row.key]?.icon || "💬"}</span>
+      <div>
+        <strong>${esc(row.label || row.key || "Support")}</strong>
+        <span>${esc(categoryMeta[row.key]?.description || "تواصل مع فريق الدعم.")}</span>
+      </div>
+      <b>${submitEnabled ? "فتح تذكرة" : "قريباً"}</b>
     </div>`);
   if (!rows.length) target.textContent = "لا توجد قنوات دعم مفعّلة حالياً.";
   else if (!submitEnabled) {
-    target.insertAdjacentHTML("afterbegin", '<div class="notice">فتح التذاكر من الموقع غير مفعّل بعد. استخدم Telegram حالياً للمتابعة مع الدعم.</div>');
+    target.insertAdjacentHTML("beforeend", '<div class="notice support-roadmap">نعمل على صندوق تذاكر داخل الموقع ليستقبل ردود الدعم مباشرة، بدون اشتراط ربط Telegram.</div>');
   }
 }
 

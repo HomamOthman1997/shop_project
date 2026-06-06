@@ -400,10 +400,11 @@ async def test_numbers_api_support_returns_read_only_contract(monkeypatch):
     payload = json.loads(response.text)
 
     assert calls["auth_scope"] == "numbers:account:read"
-    assert [row["key"] for row in payload["categories"]] == ["numbers", "user_balance"]
+    assert [row["key"] for row in payload["categories"]] == ["numbers", "services", "user_balance"]
     assert payload["actions"]["submit_ticket"]["enabled"] is False
     assert payload["actions"]["submit_ticket"]["reason"] == "miniapp_only"
     assert payload["capabilities"]["submit_ticket"] is False
+    assert payload["capabilities"]["central_support"] is True
 
 
 @pytest.mark.asyncio

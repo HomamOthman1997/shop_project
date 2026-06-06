@@ -70,9 +70,14 @@ logger = logging.getLogger("numbers_api")
 
 _SUPPORT_CATEGORY_LABELS = {
     "numbers": "Numbers orders",
+    "services": "Digital products and services",
     "user_balance": "Balance and payments",
 }
-_SUPPORT_CATEGORIES = tuple((key, _SUPPORT_CATEGORY_LABELS.get(key, key.replace("_", " ").title())) for key in SUPPORT_CATEGORIES)
+_CENTRAL_SUPPORT_CATEGORIES = ("numbers", "services", "user_balance")
+_SUPPORT_CATEGORIES = tuple(
+    (key, _SUPPORT_CATEGORY_LABELS.get(key, key.replace("_", " ").title()))
+    for key in _CENTRAL_SUPPORT_CATEGORIES
+)
 _MAX_RECHARGE_PROOF_BYTES = 6 * 1024 * 1024
 
 
@@ -408,7 +413,8 @@ async def support_options(request: web.Request) -> web.Response:
             },
             "capabilities": {
                 "submit_ticket": False,
-                "reason": "Support ticket replies still depend on Telegram chat threads.",
+                "central_support": True,
+                "reason": "Website support replies are being moved to a dedicated website inbox.",
             },
         },
         headers=_response_headers(rate_limit),
