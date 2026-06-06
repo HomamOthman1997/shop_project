@@ -199,8 +199,8 @@ async function loadDashboard() {
         <b>${row.direction === "debit" ? "-" : "+"}${esc(row.amount_label || "")}</b>
       </div>`);
     renderOrders([
-      ...digitalRows.map((row) => ({ ...row, channel: "رقمي" })),
-      ...numberRows.map((row) => ({ ...row, channel: "أرقام" })),
+      ...digitalRows.map((row) => ({ ...row, channel: "رقمي", channel_key: "digital" })),
+      ...numberRows.map((row) => ({ ...row, channel: "أرقام", channel_key: "numbers" })),
     ]);
   } catch (error) {
     activity.textContent = "تعذر تحميل بيانات الحساب حاليا.";
@@ -210,13 +210,118 @@ async function loadDashboard() {
 function renderOrders(rows) {
   const target = $("#orders-list");
   renderRows(target, rows, (row) => `
-    <div class="data-row">
+    <button class="data-row order-row-button" type="button" data-order-channel="${esc(row.channel_key || "")}" data-order-id="${esc(row.id || "")}">
       <div>
-        <strong>${esc(row.title || row.service_name || row.service_id || "طلب")}</strong>
+        <strong>${esc(orderTitle(row))}</strong>
         <span>${esc(row.channel)} · ${esc(row.created_at || "")}</span>
       </div>
-      <b>${esc(row.status || "")}</b>
-    </div>`);
+      <b>${esc(orderStatus(row))}</b>
+    </button>`);
+  target.querySelectorAll("[data-order-id]").forEach((button) => {
+    button.addEventListener("click", () => loadOrderDetail(button.dataset.orderChannel, button.dataset.orderId));
+  });
+}
+
+function orderTitle(row, fallback = "طلب") {
+  return row.title || row.item_name || row.product_name || row.game_name || row.service_name || row.service || row.service_id || fallback;
+}
+
+function orderStatus(row) {
+  return row.public_status || row.status || "";
+}
+
+function orderMetaRows(order, channel) {
+  const rows = [
+    ["القناة", channel === "numbers" ? "أرقام" : "رقمي"],
+    ["رقم الطلب", order.id],
+    ["الحالة", orderStatus(order)],
+    ["السعر", order.price_label || (order.selling_price ? `$${Number(order.selling_price).toFixed(2)}` : "")],
+    ["التاريخ", order.created_at || ""],
+  ];
+  if (channel === "numbers") {
+    rows.push(["النوع", order.mode || ""]);
+    rows.push(["الرقم", order.number || ""]);
+    rows.push(["الكود", order.code || ""]);
+    rows.push(["الوقت المتبقي", order.seconds_left ? `${order.seconds_left}s` : ""]);
+  } else {
+    rows.push(["المنتج", order.product_name || order.game_name || ""]);
+    rows.push(["بيانات العميل", Object.entries(order.customer_data || {}).map(([key, value]) => `${key}: ${value}`).join(" · ")]);
+  }
+  return rows.filter(([, value]) => value !== undefined && value !== null && String(value).trim()).map(([label, value]) => `
+    <div><span>${esc(label)}</span><strong>${esc(String(value))}</strong></div>
+  `).join("");
+}
+
+async function loadOrderDetail(channel, orderId) {
+  const target = $("#orders-list");
+  if (!channel || !orderId) return;
+  target.insertAdjacentHTML("afterbegin", '<div class="notice" id="order-detail-loading">جاري تحميل تفاصيل الطلب...</div>');
+  try {
+    const path = channel === "numbers" ? `/api/v1/numbers/orders/${encodeURIComponent(orderId)}` : `/api/v1/digital/orders/${encodeURIComponent(orderId)}`;
+    const payload = await api(path);
+    renderOrderDetail(channel, payload.order || {});
+  } catch (error) {
+    $("#order-detail-loading")?.remove();
+    target.insertAdjacentHTML("afterbegin", `<div class="notice error">${esc(error.message)}</div>`);
+  }
+}
+
+function renderOrderDetail(channel, order) {
+  const target = $("#orders-list");
+  const messages = (order.messages || []).filter((value) => String(value || "").trim());
+  target.innerHTML = `
+    <div class="order-detail-card">
+      <div class="service-detail-head">
+        <div><h4>${esc(orderTitle(order))}</h4><span>${esc(order.id || "")}</span></div>
+        <button class="secondary compact" type="button" data-back-orders>رجوع</button>
+      </div>
+      <div class="order-meta-grid">${orderMetaRows(order, channel)}</div>
+      ${messages.length ? `<div class="order-messages">${messages.map((message) => `<pre>${esc(message)}</pre>`).join("")}</div>` : ""}
+      <div class="order-actions">${channel === "numbers" ? numbersOrderActionsHtml(order) : ""}</div>
+      <p class="message" id="order-action-message"></p>
+    </div>`;
+  target.querySelector("[data-back-orders]").addEventListener("click", loadDashboard);
+  target.querySelectorAll("[data-order-action]").forEach((button) => {
+    button.addEventListener("click", () => runOrderAction(order, button.dataset.orderAction));
+  });
+}
+
+function numbersOrderActionsHtml(order) {
+  const labels = {
+    refresh: "تحديث الكود",
+    resend: "طلب كود ثاني",
+    replace: "تبديل الرقم",
+    alternate_provider: "مزود آخر",
+    cancel: "إلغاء",
+    rental_sms: "جلب رسائل الإيجار",
+    rental_finish: "إنهاء الإيجار",
+    rental_renew: "تجديد الإيجار",
+    rental_wake: "تنشيط الإيجار",
+  };
+  return Object.entries(order.api_actions || {})
+    .filter(([key, action]) => labels[key] && action?.enabled && action?.endpoint)
+    .map(([key]) => `<button class="secondary compact" type="button" data-order-action="${esc(key)}">${esc(labels[key])}</button>`)
+    .join("");
+}
+
+async function runOrderAction(order, actionKey) {
+  const action = (order.api_actions || {})[actionKey] || {};
+  const message = $("#order-action-message");
+  if (!action.endpoint || !action.enabled) return;
+  message.textContent = "جاري تنفيذ الإجراء...";
+  try {
+    const options = { method: action.method || "POST" };
+    if (action.requires_idempotency_key) options.headers = { "Idempotency-Key": idempotencyKey(`order-${actionKey}`) };
+    const payload = await api(action.endpoint, options);
+    if (payload.order) {
+      renderOrderDetail("numbers", payload.order);
+      return;
+    }
+    const fresh = await api(`/api/v1/numbers/orders/${encodeURIComponent(order.id || "")}`);
+    renderOrderDetail("numbers", fresh.order || order);
+  } catch (error) {
+    message.textContent = error.message;
+  }
 }
 
 function localized(value, fallback = "") {

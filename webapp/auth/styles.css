@@ -355,6 +355,60 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 .data-row:last-child, .service-list a:last-child, .settings-row:last-child { border-bottom: 0; }
 .data-row div, .service-list div, .settings-row div { display: grid; gap: 5px; min-width: 0; }
 .data-row span, .service-list span, .settings-row span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.order-row-button {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  background: transparent;
+}
+.order-row-button:hover { background: rgba(255,255,255,.065); }
+.order-row-button b { color: var(--accent); white-space: nowrap; }
+.order-detail-card {
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+.order-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.order-meta-grid div {
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,.12);
+  padding: 12px;
+  min-width: 0;
+}
+.order-meta-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+.order-meta-grid strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.order-messages { display: grid; gap: 8px; }
+.order-messages pre {
+  margin: 0;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,.18);
+  padding: 12px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+}
+.order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .service-list a { color: var(--ink); text-decoration: none; }
 .service-list a:hover { background: rgba(255,255,255,.065); }
 .service-list a.locked { cursor: not-allowed; opacity: .62; }
@@ -937,6 +991,8 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   .welcome-band { align-items: stretch; flex-direction: column; }
   .welcome-band .primary { width: 100%; }
   .data-row, .service-list a, .settings-row { align-items: flex-start; flex-direction: column; }
+  .order-row-button { align-items: stretch; }
+  .order-meta-grid { grid-template-columns: 1fr; }
   .settings-row > button, .settings-row > .primary, .settings-row > .secondary { width: 100%; }
   .email-code-row input { max-width: 100%; }
   .service-hero {
