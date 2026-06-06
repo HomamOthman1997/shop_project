@@ -933,11 +933,26 @@ async def manual_order_action(request: web.Request) -> web.Response:
         body = await request.json()
     except Exception:
         body = {}
+    return await execute_manual_order_action(
+        auth=auth,
+        order_id=str(request.match_info.get("order_id") or ""),
+        body=body,
+        rate_limit=rate_limit,
+    )
+
+
+async def execute_manual_order_action(
+    *,
+    auth: ApiAuthContext,
+    order_id: str,
+    body: dict[str, Any] | None,
+    rate_limit: ApiRateLimitDecision | None = None,
+) -> web.Response:
     action = str((body or {}).get("action") or "").strip().lower()
     if action not in {"claim", "auto_api", "future", "complete", "refund"}:
         return _json_error("Unsupported manual action.", status=400, code="unsupported_manual_action", rate_limit=rate_limit)
 
-    order = await _find_manageable_manual_order(str(request.match_info.get("order_id") or ""), auth)
+    order = await _find_manageable_manual_order(order_id, auth)
     if not order:
         return _json_error("Manual order not found.", status=404, code="order_not_found", rate_limit=rate_limit)
 

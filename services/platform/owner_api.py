@@ -6,6 +6,8 @@ from typing import Any
 from aiohttp import web
 
 from database.mongo import db
+from services.digital_products.api import _order_payload, execute_manual_order_action
+from services.platform.api_auth import ApiAuthContext
 from services.platform.website_auth import require_website_owner
 
 
@@ -183,6 +185,54 @@ async def owner_queues(request: web.Request) -> web.Response:
     )
 
 
+def _owner_digital_auth(*, customer_id: int) -> ApiAuthContext:
+    return ApiAuthContext(
+        key_id="website-owner",
+        user_id=int(customer_id),
+        reseller_id=int(customer_id),
+        scopes=("*",),
+        name="website-owner",
+    )
+
+
+async def owner_digital_orders(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    try:
+        limit = max(1, min(100, int(request.query.get("limit") or 30)))
+    except Exception:
+        limit = 30
+    status_filter = str(request.query.get("status") or "pending").strip().lower()
+    query: dict[str, Any] = {
+        "fulfillment_mode": "manual_topup",
+        "$or": [{"service_type": "core_digital_products"}, {"number_mode": "digital_products"}],
+    }
+    if status_filter not in {"", "all", "*"}:
+        if status_filter == "completed":
+            query["$and"] = [{"$or": [{"manual_fulfillment_status": "completed"}, {"status": {"$in": ["success", "done"]}}]}]
+        elif status_filter == "refunded":
+            query["$and"] = [{"$or": [{"manual_fulfillment_status": "refunded"}, {"status": "refunded"}]}]
+        else:
+            query["manual_fulfillment_status"] = status_filter
+    rows = await db.orders.find(query).sort("created_at", -1).limit(limit).to_list(length=limit)
+    return web.json_response(
+        {"ok": True, "status": status_filter or "all", "orders": [_order_payload(row) for row in rows]},
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_digital_order_action(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    auth = _owner_digital_auth(customer_id=owner.customer_id)
+    order_id = str(request.match_info.get("order_id") or "").strip()
+    return await execute_manual_order_action(auth=auth, order_id=order_id, body=body)
+
+
 def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/dashboard", owner_dashboard)
     app.router.add_get("/api/v1/owner/queues", owner_queues)
+    app.router.add_get("/api/v1/owner/digital/orders", owner_digital_orders)
+    app.router.add_post("/api/v1/owner/digital/orders/{order_id}/action", owner_digital_order_action)

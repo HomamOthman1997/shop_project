@@ -344,9 +344,11 @@ async function loadOwnerDashboard() {
   if (!currentAccount?.is_owner) return;
   message.textContent = "";
   try {
-    const [payload, queuePayload] = await Promise.all([
+    const digitalFilter = $("#owner-digital-filter")?.value || "pending";
+    const [payload, queuePayload, digitalPayload] = await Promise.all([
       api("/api/v1/owner/dashboard"),
       api("/api/v1/owner/queues"),
+      api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
     ]);
     const metrics = Object.entries(payload.metrics || {});
     metricsTarget.classList.toggle("empty", !metrics.length);
@@ -368,6 +370,7 @@ async function loadOwnerDashboard() {
             </div>`).join("") : '<span class="owner-queue-empty">لا توجد عناصر معلقة.</span>'}
         </div>
       </section>`).join("");
+    renderOwnerDigitalOrders(digitalPayload.orders || []);
     const sections = payload.sections || [];
     sectionsTarget.classList.toggle("empty", !sections.length);
     sectionsTarget.innerHTML = sections.map((section) => `
@@ -384,8 +387,68 @@ async function loadOwnerDashboard() {
   } catch (error) {
     metricsTarget.textContent = "تعذر تحميل مؤشرات المالك.";
     queuesTarget.textContent = "تعذر تحميل طوابير المتابعة.";
+    $("#owner-digital-orders").textContent = "تعذر تحميل الطلبات الرقمية.";
     sectionsTarget.textContent = "تعذر تحميل خصائص الإدارة.";
     message.textContent = error.message;
+  }
+}
+
+function renderOwnerDigitalOrders(rows) {
+  const target = $("#owner-digital-orders");
+  target.classList.toggle("empty", !rows.length);
+  target.innerHTML = rows.length ? rows.map((order) => {
+    const status = String(order.public_status || order.status || "").toLowerCase();
+    const closed = ["completed", "success", "done", "refunded", "failed", "cancelled"].includes(status);
+    return `
+    <article class="owner-digital-order">
+      <div class="owner-order-head">
+        <div>
+          <strong>${esc(order.item_name || order.product_name || order.game_name || "طلب رقمي")}</strong>
+          <span>${esc(order.id || "")}</span>
+        </div>
+        <b>${esc(order.public_status || order.status || "")}</b>
+      </div>
+      <div class="owner-order-meta">
+        <span>السعر: ${esc(order.price_label || order.price || "-")}</span>
+        <span>المزود: ${esc(order.provider || "-")}</span>
+        <span>اللاعب: ${esc(order.player_id || Object.values(order.customer_data || {}).filter(Boolean).slice(0, 2).join(" / ") || "-")}</span>
+      </div>
+      <details><summary>بيانات العميل</summary><pre>${esc(JSON.stringify(order.customer_data || {}, null, 2))}</pre></details>
+      ${closed ? '<div class="notice">هذا الطلب مغلق ولا يقبل إجراءات إضافية.</div>' : `<div class="owner-order-actions">
+        <button class="secondary compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="claim">استلام</button>
+        <button class="secondary compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="auto_api">Auto API</button>
+        <button class="secondary compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="future">Future</button>
+        <button class="primary compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="complete">إكمال</button>
+        <button class="danger compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="refund">استرداد</button>
+      </div>`}
+    </article>`;
+  }).join("") : '<div class="notice">لا توجد طلبات رقمية ضمن هذا الفلتر.</div>';
+  target.querySelectorAll("[data-owner-order]").forEach((button) => {
+    button.addEventListener("click", () => runOwnerDigitalAction(button));
+  });
+}
+
+async function runOwnerDigitalAction(button) {
+  const orderId = button.dataset.ownerOrder;
+  const action = button.dataset.ownerAction;
+  const warning = action === "refund"
+    ? "سيتم إعادة المبلغ إلى محفظة العميل. هل تريد تنفيذ الاسترداد؟"
+    : `هل تريد تنفيذ الإجراء ${action} على هذا الطلب؟`;
+  if (!window.confirm(warning)) return;
+  button.disabled = true;
+  setText("#owner-message", `جاري تنفيذ ${action}...`);
+  try {
+    const result = await api(`/api/v1/owner/digital/orders/${encodeURIComponent(orderId)}/action`, {
+      method: "POST",
+      body: JSON.stringify({ action, notify_user: true }),
+      timeoutMs: 45000,
+    });
+    setText("#owner-message", `تم تنفيذ ${result.action || action}.`);
+    await loadOwnerDashboard();
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -873,6 +936,7 @@ $("#cardex-link")?.addEventListener("click", (event) => {
 
 $("#refresh-orders")?.addEventListener("click", loadDashboard);
 $("#refresh-owner")?.addEventListener("click", loadOwnerDashboard);
+$("#owner-digital-filter")?.addEventListener("change", loadOwnerDashboard);
 
 sendEmailCodeButton.addEventListener("click", async () => {
   await sendEmailCode({

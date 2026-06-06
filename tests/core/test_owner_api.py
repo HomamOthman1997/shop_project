@@ -16,6 +16,8 @@ def test_register_owner_api_routes():
     routes = {(route.method, route.resource.canonical) for route in app.router.routes()}
     assert ("GET", "/api/v1/owner/dashboard") in routes
     assert ("GET", "/api/v1/owner/queues") in routes
+    assert ("GET", "/api/v1/owner/digital/orders") in routes
+    assert ("POST", "/api/v1/owner/digital/orders/{order_id}/action") in routes
 
 
 @pytest.mark.asyncio
@@ -78,3 +80,43 @@ async def test_owner_queues_returns_sanitized_pending_rows(monkeypatch):
     assert payload["queues"]["digital"][0]["title"] == "PUBG 60 UC"
     assert payload["queues"]["identity"] == []
     assert "projection" not in payload
+
+
+@pytest.mark.asyncio
+async def test_owner_digital_order_action_uses_shared_manual_action(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1",
+            customer_id=900000000001,
+            email="homamothman1@gmail.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    async def execute(*, auth, order_id, body, rate_limit=None):
+        calls["auth"] = auth
+        calls["order_id"] = order_id
+        calls["body"] = body
+        return web.json_response({"ok": True, "action": body["action"]})
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "execute_manual_order_action", execute)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/owner/digital/orders/order-1/action",
+        match_info={"order_id": "order-1"},
+        headers={"Content-Type": "application/json"},
+    )
+    request._read_bytes = json.dumps({"action": "complete", "notify_user": True}).encode()
+
+    response = await owner_api.owner_digital_order_action(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["auth"].scopes == ("*",)
+    assert calls["auth"].user_id == 900000000001
+    assert calls["order_id"] == "order-1"
+    assert calls["body"]["action"] == "complete"
+    assert payload["action"] == "complete"
