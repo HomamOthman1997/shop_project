@@ -89,6 +89,7 @@ function showAccount(account) {
   setText("#customer-id", account.customer_id);
   setText("#telegram-status", account.telegram_linked ? "مربوط" : "غير مربوط");
   telegramAction.textContent = account.telegram_linked ? "فك الربط" : "ربط Telegram";
+  document.querySelectorAll(".owner-nav").forEach((item) => { item.hidden = !account.is_owner; });
   applyEmailState(account);
   applyIdentityState(account.identity_status);
   loadDashboard();
@@ -306,6 +307,85 @@ function renderSupportOptions(payload) {
   if (!rows.length) target.textContent = "لا توجد قنوات دعم مفعّلة حالياً.";
   else if (!submitEnabled) {
     target.insertAdjacentHTML("beforeend", '<div class="notice support-roadmap">نعمل على صندوق تذاكر داخل الموقع ليستقبل ردود الدعم مباشرة، بدون اشتراط ربط Telegram.</div>');
+  }
+}
+
+const ownerMetricLabels = {
+  website_accounts: "حسابات الموقع",
+  verified_accounts: "حسابات مؤكدة",
+  pending_identity: "هويات قيد المراجعة",
+  pending_user_topups: "شحن مستخدمين معلق",
+  pending_reseller_topups: "شحن وكلاء معلق",
+  open_support_tickets: "تذاكر دعم مفتوحة",
+  open_numbers_orders: "طلبات أرقام مفتوحة",
+  pending_digital_orders: "طلبات رقمية معلقة",
+  active_bots: "بوتات فعالة",
+};
+
+const ownerStatusLabels = {
+  available: "جاهز",
+  read_only: "قراءة فقط",
+  telegram_only: "داخل Telegram",
+  miniapp: "Mini App",
+};
+
+const ownerQueueLabels = {
+  recharge: "طلبات شحن الرصيد",
+  identity: "تأكيد الهوية",
+  digital: "الطلبات الرقمية اليدوية",
+  support: "تذاكر الدعم",
+};
+
+async function loadOwnerDashboard() {
+  const metricsTarget = $("#owner-metrics");
+  const queuesTarget = $("#owner-queues");
+  const sectionsTarget = $("#owner-sections");
+  const message = $("#owner-message");
+  if (!currentAccount?.is_owner) return;
+  message.textContent = "";
+  try {
+    const [payload, queuePayload] = await Promise.all([
+      api("/api/v1/owner/dashboard"),
+      api("/api/v1/owner/queues"),
+    ]);
+    const metrics = Object.entries(payload.metrics || {});
+    metricsTarget.classList.toggle("empty", !metrics.length);
+    metricsTarget.innerHTML = metrics.map(([key, value]) => `
+      <div class="owner-metric">
+        <span>${esc(ownerMetricLabels[key] || key)}</span>
+        <strong>${esc(value)}</strong>
+      </div>`).join("");
+    const queues = Object.entries(queuePayload.queues || {});
+    queuesTarget.classList.toggle("empty", !queues.length);
+    queuesTarget.innerHTML = queues.map(([key, rows]) => `
+      <section class="owner-queue">
+        <div class="owner-queue-head"><strong>${esc(ownerQueueLabels[key] || key)}</strong><b>${esc(rows.length)}</b></div>
+        <div class="owner-queue-list">
+          ${rows.length ? rows.map((row) => `
+            <div class="owner-queue-row">
+              <div><strong>${esc(row.title || row.id)}</strong><span>${esc(row.detail || "")}</span></div>
+              <b>${esc(row.status || "")}</b>
+            </div>`).join("") : '<span class="owner-queue-empty">لا توجد عناصر معلقة.</span>'}
+        </div>
+      </section>`).join("");
+    const sections = payload.sections || [];
+    sectionsTarget.classList.toggle("empty", !sections.length);
+    sectionsTarget.innerHTML = sections.map((section) => `
+      <section class="owner-section">
+        <h4>${esc(section.title || section.key)}</h4>
+        <div class="owner-action-list">
+          ${(section.items || []).map((item) => `
+            <div class="owner-action-row">
+              <div><strong>${esc(item.title || item.key)}</strong><span>${esc(item.endpoint || "سيتم نقل الإجراء للموقع")}</span></div>
+              <b data-owner-status="${esc(item.status || "")}">${esc(ownerStatusLabels[item.status] || item.status)}</b>
+            </div>`).join("")}
+        </div>
+      </section>`).join("");
+  } catch (error) {
+    metricsTarget.textContent = "تعذر تحميل مؤشرات المالك.";
+    queuesTarget.textContent = "تعذر تحميل طوابير المتابعة.";
+    sectionsTarget.textContent = "تعذر تحميل خصائص الإدارة.";
+    message.textContent = error.message;
   }
 }
 
@@ -773,6 +853,7 @@ document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
       setWorkspaceTheme("");
     }
     openPanel(view, button.textContent.trim());
+    if (view === "owner") loadOwnerDashboard();
   });
 });
 
@@ -791,6 +872,7 @@ $("#cardex-link")?.addEventListener("click", (event) => {
 });
 
 $("#refresh-orders")?.addEventListener("click", loadDashboard);
+$("#refresh-owner")?.addEventListener("click", loadOwnerDashboard);
 
 sendEmailCodeButton.addEventListener("click", async () => {
   await sendEmailCode({

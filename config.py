@@ -171,6 +171,7 @@ class Settings(BaseSettings):
     transactional_email_provider: str = "none"
     transactional_email_from: Optional[str] = None
     resend_api_key: Optional[str] = None
+    website_owner_email: str = "homamothman1@gmail.com"
     cardex_release_sweep_interval_sec: int = 600
     financial_anomaly_sweep_interval_sec: int = 21600
     financial_anomaly_scan_days: int = 7

@@ -57,6 +57,7 @@ from services.platform.api_keys_api import register_api_key_routes
 from services.platform.webhooks_api import register_webhook_routes
 from services.platform.telegram_webapp_auth import configured_bot_tokens, verify_telegram_init_data
 from services.platform.website_auth import auth_page, register_website_auth_routes
+from services.platform.owner_api import register_owner_api_routes
 from database.website_auth_repo import bootstrap_website_auth_indexes
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -2026,6 +2027,7 @@ def create_app(_argv: list[str] | None = None) -> web.Application:
     app.router.add_post("/mini/digital/api/selection", create_selection)
     register_cardex_routes(app)
     register_website_auth_routes(app)
+    register_owner_api_routes(app)
     register_api_key_routes(app)
     register_webhook_routes(app)
     register_numbers_api_routes(app)

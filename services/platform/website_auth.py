@@ -106,6 +106,7 @@ def _public_account(account: dict[str, Any]) -> dict[str, Any]:
     telegram_id = account.get("telegram_id")
     email_verified_at = account.get("email_verified_at")
     email_verified = isinstance(email_verified_at, datetime)
+    is_owner = _is_owner_email(account.get("email_normalized") or account.get("email"))
     return {
         "account_id": str(account.get("_id") or ""),
         "customer_id": int(account.get("customer_id") or 0),
@@ -116,11 +117,19 @@ def _public_account(account: dict[str, Any]) -> dict[str, Any]:
         "email_verified_at": email_verified_at.isoformat() if isinstance(email_verified_at, datetime) else None,
         "status": str(account.get("status") or "active"),
         "identity_status": str(account.get("identity_status") or "not_submitted"),
+        "is_owner": is_owner,
         "capabilities": {
             "buy_services": email_verified,
             "sell_cards": str(account.get("identity_status") or "") == "approved",
+            "owner_dashboard": email_verified and is_owner,
         },
     }
+
+
+def _is_owner_email(value: Any) -> bool:
+    email = str(value or "").strip().lower()
+    owner_email = str(getattr(settings, "website_owner_email", "") or "").strip().lower()
+    return bool(email and owner_email and hmac.compare_digest(email, owner_email))
 
 
 async def _issue_session(account: dict[str, Any]) -> str:
@@ -223,6 +232,13 @@ async def require_website_email_verified(request: web.Request) -> WebsiteAuthCon
         text="email verification required",
         content_type="text/plain",
     )
+
+
+async def require_website_owner(request: web.Request) -> WebsiteAuthContext:
+    auth = await require_website_email_verified(request)
+    if _is_owner_email(auth.email):
+        return auth
+    raise web.HTTPForbidden(text="owner only", content_type="text/plain")
 
 
 def _email_code_hash(account_id: str, code: str) -> str:

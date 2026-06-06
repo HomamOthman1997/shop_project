@@ -76,6 +76,42 @@ def test_public_account_requires_verified_email_for_buying():
     assert linked["capabilities"]["buy_services"] is False
 
 
+def test_public_account_marks_configured_owner(monkeypatch):
+    monkeypatch.setattr(website_auth.settings, "website_owner_email", "homamothman1@gmail.com", raising=False)
+
+    account = website_auth._public_account(
+        {
+            "_id": "owner-1",
+            "customer_id": 900000000001,
+            "email": "HomamOthman1@gmail.com",
+            "email_normalized": "homamothman1@gmail.com",
+            "email_verified_at": website_auth._now(),
+            "identity_status": "not_submitted",
+        }
+    )
+
+    assert account["is_owner"] is True
+    assert account["capabilities"]["owner_dashboard"] is True
+
+
+@pytest.mark.asyncio
+async def test_require_website_owner_rejects_non_owner(monkeypatch):
+    async def verified(_request):
+        return website_auth.WebsiteAuthContext(
+            account_id="account-1",
+            customer_id=900000000001,
+            email="user@example.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    monkeypatch.setattr(website_auth, "require_website_email_verified", verified)
+    monkeypatch.setattr(website_auth.settings, "website_owner_email", "homamothman1@gmail.com", raising=False)
+
+    with pytest.raises(web.HTTPForbidden):
+        await website_auth.require_website_owner(make_mocked_request("GET", "/api/v1/owner/dashboard"))
+
+
 @pytest.mark.asyncio
 async def test_register_rejects_duplicate_email(monkeypatch):
     async def duplicate(_doc):

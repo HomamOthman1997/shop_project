@@ -500,6 +500,115 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 .support-roadmap {
   grid-column: 1 / -1;
 }
+.owner-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.owner-metric {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+}
+.owner-metric span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.owner-metric strong {
+  font-size: 26px;
+}
+.owner-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.owner-queues {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.owner-queue {
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.owner-queue-head,
+.owner-queue-row {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.owner-queue-head b {
+  color: var(--accent);
+}
+.owner-queue-list {
+  display: grid;
+}
+.owner-queue-row:last-child {
+  border-bottom: 0;
+}
+.owner-queue-row div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.owner-queue-row span,
+.owner-queue-empty {
+  color: var(--muted);
+  font-size: 11px;
+}
+.owner-queue-row b {
+  color: var(--muted);
+  font-size: 11px;
+}
+.owner-queue-empty {
+  padding: 16px;
+}
+.owner-section {
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.owner-section h4 {
+  margin: 0;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.owner-action-list {
+  display: grid;
+}
+.owner-action-row {
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+}
+.owner-action-row:last-child {
+  border-bottom: 0;
+}
+.owner-action-row div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.owner-action-row span {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.owner-action-row b {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+.owner-action-row b[data-owner-status="available"] { color: #55d6a9; }
+.owner-action-row b[data-owner-status="read_only"] { color: #f4c66d; }
+.owner-action-row b[data-owner-status="telegram_only"] { color: #95a0bd; }
+.owner-action-row b[data-owner-status="miniapp"] { color: #78a8ff; }
 .service-list a { color: var(--ink); text-decoration: none; }
 .service-list a:hover { background: rgba(255,255,255,.065); }
 .service-list a.locked { cursor: not-allowed; opacity: .62; }
@@ -1087,6 +1196,8 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   .payment-method-row > div:first-child { align-items: flex-start; flex-direction: column; }
   .recharge-submit-form { grid-template-columns: 1fr; }
   .support-category-grid { grid-template-columns: 1fr; }
+  .owner-metrics, .owner-queues, .owner-sections { grid-template-columns: 1fr; }
+  .owner-action-row { align-items: flex-start; }
   .settings-row > button, .settings-row > .primary, .settings-row > .secondary { width: 100%; }
   .email-code-row input { max-width: 100%; }
   .service-hero {

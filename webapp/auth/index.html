@@ -92,6 +92,7 @@
               <button class="nav-item" data-view="support">الدعم</button>
               <button class="nav-item" data-view="account">حسابي</button>
               <button class="nav-item" data-view="identity">تأكيد الهوية</button>
+              <button class="nav-item owner-nav" data-view="owner" hidden>لوحة المالك</button>
             </nav>
             <button id="logout-button" class="nav-item logout" type="button">تسجيل الخروج</button>
           </aside>
@@ -197,6 +198,27 @@
                 <p class="message">رفع صور الوثائق سيضاف بعد تجهيز تخزين خاص ومشفّر لها.</p>
                 <button class="primary" type="submit">إرسال طلب المراجعة</button>
               </form>
+            </section>
+
+            <section class="app-view" data-panel="owner">
+              <div class="section-head">
+                <div>
+                  <p class="section-label">OWNER CONTROL</p>
+                  <h3>لوحة المالك</h3>
+                  <p>نظرة مركزية على العمليات وخصائص الإدارة الموجودة في النظام.</p>
+                </div>
+                <button id="refresh-owner" class="secondary compact" type="button">تحديث</button>
+              </div>
+              <div id="owner-metrics" class="owner-metrics empty">جاري تحميل المؤشرات...</div>
+              <div class="section-head activity-head">
+                <div><h3>طوابير المتابعة</h3><p>العناصر التي تحتاج انتباه المالك حالياً.</p></div>
+              </div>
+              <div id="owner-queues" class="owner-queues empty">جاري تحميل الطوابير...</div>
+              <div class="section-head activity-head">
+                <div><h3>خصائص الإدارة</h3><p>حالة نقل أدوات البوتات ولوحات العمليات إلى الموقع.</p></div>
+              </div>
+              <div id="owner-sections" class="owner-sections empty">جاري تحميل خصائص الإدارة...</div>
+              <p id="owner-message" class="message" role="status"></p>
             </section>
           </div>
         </div>
