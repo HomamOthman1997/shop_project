@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from typing import Any
 
 from aiohttp import web
 
@@ -31,6 +32,7 @@ from services.numbers.country_suggestions_service import country_suggestions_for
 from services.numbers.customer_flows import (
     SUPPORT_CATEGORIES,
     recharge_methods_payload as shared_recharge_methods_payload,
+    submit_recharge_request as shared_submit_recharge_request,
 )
 from services.numbers.manager import get_all_prices, get_all_rental_prices, get_all_voice_prices
 from services.numbers.order_recording_service import download_voice_order_recording
@@ -71,6 +73,11 @@ _SUPPORT_CATEGORY_LABELS = {
     "user_balance": "Balance and payments",
 }
 _SUPPORT_CATEGORIES = tuple((key, _SUPPORT_CATEGORY_LABELS.get(key, key.replace("_", " ").title())) for key in SUPPORT_CATEGORIES)
+_MAX_RECHARGE_PROOF_BYTES = 6 * 1024 * 1024
+
+
+def _text(lang: str, en: str, ar: str) -> str:
+    return ar if str(lang or "").lower().startswith("ar") else en
 
 
 async def health(_request: web.Request) -> web.Response:
@@ -289,20 +296,96 @@ async def recharge_options(request: web.Request) -> web.Response:
             "actions": {
                 "submit_recharge": _api_action(
                     "submit_recharge",
-                    enabled=False,
+                    enabled=True,
                     endpoint="/api/v1/numbers/recharge/submit",
                     method="POST",
                     label="Submit recharge proof",
-                    reason="miniapp_only",
                 )
             },
             "capabilities": {
-                "submit_recharge_proof": False,
-                "reason": "Recharge proof upload still requires the authenticated Telegram Mini App review flow.",
+                "submit_recharge_proof": True,
+                "max_proof_bytes": _MAX_RECHARGE_PROOF_BYTES,
             },
         },
         headers=_response_headers(rate_limit),
     )
+
+
+async def _parse_recharge_submit_form(request: web.Request) -> tuple[dict[str, str], bytes, str, str]:
+    content_type = str(request.headers.get("Content-Type") or "").lower()
+    if "multipart/form-data" not in content_type:
+        raise web.HTTPBadRequest(text="multipart form required")
+    fields: dict[str, str] = {}
+    proof_bytes = b""
+    proof_filename = ""
+    proof_content_type = ""
+    reader = await request.multipart()
+    async for part in reader:
+        name = str(getattr(part, "name", "") or "").strip()
+        if not name:
+            continue
+        filename = str(getattr(part, "filename", "") or "").strip()
+        if filename or name == "proof":
+            proof_filename = filename or "recharge-proof"
+            proof_content_type = str(getattr(part, "headers", {}).get("Content-Type") or "application/octet-stream")
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                chunk = await part.read_chunk()
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _MAX_RECHARGE_PROOF_BYTES:
+                    raise web.HTTPRequestEntityTooLarge(max_size=_MAX_RECHARGE_PROOF_BYTES, actual_size=total)
+                chunks.append(chunk)
+            proof_bytes = b"".join(chunks)
+            continue
+        fields[name] = (await part.text()).strip()
+    return fields, proof_bytes, proof_filename, proof_content_type
+
+
+async def submit_recharge(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:account:read")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:recharge:submit", limit=20)
+    try:
+        fields, proof_bytes, proof_filename, proof_content_type = await _parse_recharge_submit_form(request)
+    except web.HTTPRequestEntityTooLarge:
+        return _json_error("Proof file is too large.", status=413, code="proof_too_large", rate_limit=rate_limit)
+    except web.HTTPException:
+        raise
+    except Exception:
+        return _json_error("Could not read the recharge form.", status=400, code="invalid_form", rate_limit=rate_limit)
+
+    lang = str(fields.get("language") or "ar").strip() or "ar"
+    user_doc = await get_user(auth.user_id) or {
+        "telegram_id": int(auth.user_id),
+        "reseller_id": int(auth.reseller_id),
+        "language": lang,
+    }
+    result = await shared_submit_recharge_request(
+        auth={"user_id": int(auth.user_id), "reseller_id": int(auth.reseller_id), "user": {}},
+        user_doc=user_doc,
+        lang=lang,
+        fields=fields,
+        proof_bytes=proof_bytes,
+        proof_filename=proof_filename,
+        proof_content_type=proof_content_type,
+        source="website",
+        source_label="Phantom Website",
+        text_fn=_text,
+        money_fn=_format_money,
+        compact_datetime_fn=lambda value: _iso_datetime(value) or "",
+    )
+    if not result.get("ok"):
+        return _json_error(
+            str(result.get("message") or "Recharge request failed."),
+            status=400,
+            code=str(result.get("code") or "recharge_failed"),
+            rate_limit=rate_limit,
+        )
+    balance = await get_user_wallet_balance(auth.user_id, auth.reseller_id)
+    result["wallet"] = {"balance": float(balance), "currency": "USD", "balance_label": _format_money(balance)}
+    return web.json_response(result, headers=_response_headers(rate_limit))
 
 
 async def support_options(request: web.Request) -> web.Response:
@@ -860,6 +943,7 @@ def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/numbers/country-suggestions", country_suggestions)
     app.router.add_get("/api/v1/numbers/account", account)
     app.router.add_get("/api/v1/numbers/recharge", recharge_options)
+    app.router.add_post("/api/v1/numbers/recharge/submit", submit_recharge)
     app.router.add_get("/api/v1/numbers/support", support_options)
     app.router.add_get("/api/v1/numbers/quotes", quotes)
     app.router.add_get("/api/v1/numbers/orders", list_orders)

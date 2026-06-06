@@ -279,8 +279,7 @@ def api_discovery_payload() -> dict[str, Any]:
                 "submit_recharge",
                 "/api/v1/numbers/recharge/submit",
                 method="POST",
-                enabled=False,
-                reason="miniapp_only",
+                scope="numbers:account:read",
             ),
             "submit_support_ticket": _api_action(
                 "submit_support_ticket",

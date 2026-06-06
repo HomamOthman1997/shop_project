@@ -35,7 +35,8 @@ function csrfToken() {
 
 async function api(path, options = {}) {
   const method = options.method || "GET";
-  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+  const headers = { ...(isFormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) };
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers["X-CSRF-Token"] = csrfToken();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs || 20000);
@@ -228,6 +229,16 @@ function renderRechargeOptions(payload) {
   const target = $("#recharge-list");
   const methods = payload.methods || [];
   const canSubmitProof = Boolean(payload.capabilities?.submit_recharge_proof);
+  const options = methods.map((method) => `<option value="${esc(method.code)}">${esc(method.title || method.code)}</option>`).join("");
+  const form = canSubmitProof && methods.length ? `
+    <form class="recharge-submit-form" id="recharge-submit-form">
+      <label><span>طريقة الدفع</span><select name="method_code" required>${options}</select></label>
+      <label><span>المبلغ المدفوع</span><input name="paid_amount" inputmode="decimal" required placeholder="0.00"></label>
+      <label><span>إثبات الدفع</span><input name="proof" type="file" accept="image/*,.pdf" required></label>
+      <input name="language" type="hidden" value="ar">
+      <button class="primary compact" type="submit">إرسال طلب الشحن</button>
+      <p class="message" id="recharge-submit-message"></p>
+    </form>` : "";
   renderRows(target, methods, (method) => `
     <div class="payment-method-row">
       <div>
@@ -242,8 +253,35 @@ function renderRechargeOptions(payload) {
       ${method.support ? `<small>الدعم: ${esc(method.support)}</small>` : ""}
     </div>`);
   if (!methods.length) target.textContent = "لا توجد طرق شحن متاحة حالياً.";
-  else if (!canSubmitProof) {
+  else if (canSubmitProof) {
+    target.insertAdjacentHTML("afterbegin", form);
+    $("#recharge-submit-form")?.addEventListener("submit", submitRechargeProof);
+  } else {
     target.insertAdjacentHTML("afterbegin", '<div class="notice">يمكنك نسخ بيانات الدفع من هنا. إرسال إثبات الدفع من الموقع غير مفعّل بعد، لذلك أرسل الإثبات عبر Telegram أو الدعم بعد التحويل.</div>');
+  }
+}
+
+async function submitRechargeProof(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = $("#recharge-submit-message");
+  const button = form.querySelector("button[type='submit']");
+  message.textContent = "جاري إرسال طلب الشحن...";
+  button.disabled = true;
+  try {
+    const data = new FormData(form);
+    const result = await api("/api/v1/numbers/recharge/submit", {
+      method: "POST",
+      body: data,
+      timeoutMs: 45000,
+    });
+    message.textContent = result.message || "تم إرسال طلب الشحن.";
+    form.reset();
+    await loadDashboard();
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 }
 

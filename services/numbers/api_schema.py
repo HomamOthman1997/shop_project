@@ -176,6 +176,30 @@ def numbers_openapi_schema() -> dict[str, Any]:
             },
             "/account": {"get": _operation(summary="Account and wallet snapshot", action_key="account", tags=["Account"])},
             "/recharge": {"get": _operation(summary="Recharge options", action_key="recharge", tags=["Account"])},
+            "/recharge/submit": {
+                "post": _operation(
+                    summary="Submit recharge proof",
+                    action_key="submit_recharge",
+                    tags=["Account"],
+                    request_body={
+                        "required": True,
+                        "content": {
+                            "multipart/form-data": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["method_code", "paid_amount", "proof"],
+                                    "properties": {
+                                        "method_code": {"type": "string"},
+                                        "paid_amount": {"type": "string"},
+                                        "language": {"type": "string", "enum": ["en", "ar"], "default": "ar"},
+                                        "proof": {"type": "string", "format": "binary"},
+                                    },
+                                }
+                            }
+                        },
+                    },
+                )
+            },
             "/support": {"get": _operation(summary="Support options", action_key="support", tags=["Support"])},
             "/quotes": {
                 "get": _operation(

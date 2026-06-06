@@ -32,6 +32,7 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     assert ("GET", "/api/v1/numbers/country-suggestions") in routes
     assert ("GET", "/api/v1/numbers/account") in routes
     assert ("GET", "/api/v1/numbers/recharge") in routes
+    assert ("POST", "/api/v1/numbers/recharge/submit") in routes
     assert ("GET", "/api/v1/numbers/support") in routes
     assert ("GET", "/api/v1/numbers/quotes") in routes
     assert ("GET", "/api/v1/numbers/orders") in routes
@@ -83,12 +84,14 @@ async def test_numbers_api_openapi_schema_exposes_public_contract():
     assert "/openapi.json" in payload["paths"]
     assert "/catalog/bootstrap" in payload["paths"]
     assert "/orders/{order_id}/refresh" in payload["paths"]
+    assert "/recharge/submit" in payload["paths"]
     assert "x-required-scope" not in payload["paths"]["/docs"]["get"]
     assert payload["paths"]["/orders"]["post"]["x-required-scope"] == "numbers:orders:create"
+    assert payload["paths"]["/recharge/submit"]["post"]["x-required-scope"] == "numbers:account:read"
     assert any(param["name"] == "Idempotency-Key" for param in payload["paths"]["/orders"]["post"]["parameters"])
     assert payload["paths"]["/orders/{order_id}/rental/renew"]["post"]["x-required-scope"] == "numbers:orders:rental"
     assert payload["components"]["securitySchemes"]["BearerAuth"]["type"] == "http"
-    assert payload["x-phantom-api-discovery"]["actions"]["submit_recharge"]["enabled"] is False
+    assert payload["x-phantom-api-discovery"]["actions"]["submit_recharge"]["enabled"] is True
     assert "/mini/" not in json.dumps(payload["paths"])
 
 
@@ -138,8 +141,7 @@ async def test_numbers_api_catalog_bootstrap_has_core_selectors():
     assert payload["api"]["actions"]["create_order"]["method"] == "POST"
     assert payload["api"]["actions"]["create_order"]["requires_idempotency_key"] is True
     assert payload["api"]["actions"]["resend_order"]["scope"] == "numbers:orders:resend"
-    assert payload["api"]["actions"]["submit_recharge"]["enabled"] is False
-    assert payload["api"]["actions"]["submit_recharge"]["reason"] == "miniapp_only"
+    assert payload["api"]["actions"]["submit_recharge"]["enabled"] is True
     assert "/mini/" not in json.dumps(payload["api"]["actions"])
     assert [item["key"] for item in payload["modes"]] == ["temp", "rental", "voice"]
     assert any(item["key"] == "telegram" for item in payload["services"])
@@ -326,9 +328,59 @@ async def test_numbers_api_recharge_returns_read_only_options(monkeypatch):
     assert payload["wallet"]["balance_label"] == "$7.25"
     assert payload["methods"][0]["code"] == "usdt"
     assert payload["methods"][0]["target"] == "T_WALLET"
-    assert payload["actions"]["submit_recharge"]["enabled"] is False
-    assert payload["actions"]["submit_recharge"]["reason"] == "miniapp_only"
-    assert payload["capabilities"]["submit_recharge_proof"] is False
+    assert payload["actions"]["submit_recharge"]["enabled"] is True
+    assert payload["capabilities"]["submit_recharge_proof"] is True
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_submit_recharge_uses_shared_flow(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="website:account-1", user_id=123, reseller_id=123, scopes=(required_scope,))
+
+    async def fake_parse(_request):
+        return (
+            {"method_code": "usdt", "paid_amount": "10", "language": "ar"},
+            b"proof-bytes",
+            "proof.jpg",
+            "image/jpeg",
+        )
+
+    async def fake_get_user(user_id):
+        calls["get_user"] = user_id
+        return {"telegram_id": user_id, "username": "site_user"}
+
+    async def fake_submit_recharge_request(**kwargs):
+        calls["submit"] = kwargs
+        return {"ok": True, "message": "submitted", "request": {"id": "req-1"}, "delivery_ok": True}
+
+    async def fake_get_user_wallet_balance(user_id, reseller_id):
+        calls["wallet"] = (user_id, reseller_id)
+        return 12.0
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "_parse_recharge_submit_form", fake_parse)
+    monkeypatch.setattr(api, "get_user", fake_get_user)
+    monkeypatch.setattr(api, "shared_submit_recharge_request", fake_submit_recharge_request)
+    monkeypatch.setattr(api, "get_user_wallet_balance", fake_get_user_wallet_balance)
+
+    request = make_mocked_request("POST", "/api/v1/numbers/recharge/submit")
+
+    response = await api.submit_recharge(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["auth_scope"] == "numbers:account:read"
+    assert calls["submit"]["fields"]["method_code"] == "usdt"
+    assert calls["submit"]["proof_bytes"] == b"proof-bytes"
+    assert calls["submit"]["source"] == "website"
+    assert calls["submit"]["source_label"] == "Phantom Website"
+    assert calls["wallet"] == (123, 123)
+    assert payload["request"]["id"] == "req-1"
+    assert payload["wallet"]["balance_label"] == "$12.00"
 
 
 @pytest.mark.asyncio
