@@ -228,6 +228,16 @@ function serviceRoot() {
   return $("#service-root");
 }
 
+function setWorkspaceTheme(service) {
+  const workspace = document.querySelector(".service-workspace");
+  const root = serviceRoot();
+  if (workspace) workspace.dataset.serviceTheme = service || "";
+  if (root) {
+    root.className = "service-root";
+    if (service) root.classList.add(`service-root-${service}`);
+  }
+}
+
 function serviceLoading(label) {
   const root = serviceRoot();
   if (root) root.innerHTML = `<div class="service-loader">${esc(label || "جاري التحميل...")}</div>`;
@@ -512,6 +522,7 @@ function openService(service) {
   };
   const config = serviceMap[service];
   if (!config) return;
+  setWorkspaceTheme(service);
   setText("#workspace-title", config.title);
   setText("#workspace-kicker", config.kicker);
   openPanel("workspace", config.title);
@@ -521,7 +532,10 @@ function openService(service) {
 document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
   button.addEventListener("click", () => {
     const view = button.dataset.view;
-    if (view !== "workspace" && serviceRoot()) serviceRoot().innerHTML = "";
+    if (view !== "workspace" && serviceRoot()) {
+      serviceRoot().innerHTML = "";
+      setWorkspaceTheme("");
+    }
     openPanel(view, button.textContent.trim());
   });
 });
@@ -532,6 +546,7 @@ document.querySelectorAll("[data-open-service]").forEach((button) => {
 
 $("#workspace-close")?.addEventListener("click", () => {
   if (serviceRoot()) serviceRoot().innerHTML = "";
+  setWorkspaceTheme("");
   openPanel("home", "الخدمات");
 });
 
