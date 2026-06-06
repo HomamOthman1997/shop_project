@@ -20,6 +20,9 @@ def test_register_owner_api_routes():
     assert ("POST", "/api/v1/owner/digital/orders/{order_id}/action") in routes
     assert ("GET", "/api/v1/owner/numbers/refund-reviews") in routes
     assert ("POST", "/api/v1/owner/numbers/refund-reviews/{order_id}/resolve") in routes
+    assert ("GET", "/api/v1/owner/settings") in routes
+    assert ("PUT", "/api/v1/owner/settings") in routes
+    assert ("PATCH", "/api/v1/owner/payment-methods/{method_code}") in routes
 
 
 @pytest.mark.asyncio
@@ -165,3 +168,117 @@ async def test_owner_resolve_numbers_refund_review_marks_review_only(monkeypatch
     assert calls["reseller_id"] is None
     assert calls["resolution"] == "Checked manually"
     assert payload["review"]["status"] == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_owner_settings_returns_finance_alerts_and_routing(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1",
+            customer_id=900000000001,
+            email="homamothman1@gmail.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    async def system_setting(doc_id):
+        if doc_id == "owner_notifications":
+            return {"chat_id": -1001, "message_thread_id": 4}
+        return None
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "get_owner_payment_methods", lambda: _async_value([{"code": "owner_crypto_usdt"}]))
+    monkeypatch.setattr(owner_api, "get_owner_exchange_rate", lambda: _async_value(13500.0))
+    monkeypatch.setattr(owner_api, "get_digital_products_markup_percent", lambda: _async_value(4.0))
+    monkeypatch.setattr(owner_api, "get_provider_balance_alert_settings", lambda: _async_value({"enabled": True, "threshold_usd": 2.0}))
+    monkeypatch.setattr(owner_api, "get_all_support_targets", lambda: _async_value({"numbers": {"chat_id": -1002}}))
+    monkeypatch.setattr(owner_api, "get_bot_logs_target", lambda: _async_value(None))
+    monkeypatch.setattr(owner_api, "_system_setting", system_setting)
+
+    response = await owner_api.owner_settings(make_mocked_request("GET", "/api/v1/owner/settings"))
+    payload = json.loads(response.text)
+
+    assert payload["finance"]["exchange_rate"] == 13500.0
+    assert payload["finance"]["numbers_markup_editable"] is False
+    assert payload["alerts"]["threshold_usd"] == 2.0
+    assert payload["routing"]["owner_notifications"]["bound"] is True
+    assert payload["routing"]["support"]["numbers"]["chat_id"] == -1002
+
+
+async def _async_value(value):
+    return value
+
+
+@pytest.mark.asyncio
+async def test_owner_update_settings_validates_and_applies_supported_setting(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1",
+            customer_id=900000000001,
+            email="homamothman1@gmail.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    async def set_markup(value):
+        calls["markup"] = value
+
+    async def settings(_request):
+        return web.json_response({"ok": True})
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "set_digital_products_markup_percent", set_markup)
+    monkeypatch.setattr(owner_api, "owner_settings", settings)
+    request = make_mocked_request("PUT", "/api/v1/owner/settings", headers={"Content-Type": "application/json"})
+    request._read_bytes = json.dumps({"key": "digital_markup_percent", "value": 7.5}).encode()
+
+    response = await owner_api.owner_update_settings(request)
+
+    assert response.status == 200
+    assert calls["markup"] == 7.5
+
+    invalid = make_mocked_request("PUT", "/api/v1/owner/settings", headers={"Content-Type": "application/json"})
+    invalid._read_bytes = json.dumps({"key": "numbers_markup_percent", "value": 20}).encode()
+    invalid_response = await owner_api.owner_update_settings(invalid)
+    assert invalid_response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_owner_update_payment_method_only_accepts_supported_fields(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1",
+            customer_id=900000000001,
+            email="homamothman1@gmail.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    async def update(code, **kwargs):
+        calls["code"] = code
+        calls["kwargs"] = kwargs
+        return True
+
+    async def settings(_request):
+        return web.json_response({"ok": True})
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "update_owner_payment_method", update)
+    monkeypatch.setattr(owner_api, "owner_settings", settings)
+    request = make_mocked_request(
+        "PATCH",
+        "/api/v1/owner/payment-methods/owner_crypto_usdt",
+        match_info={"method_code": "owner_crypto_usdt"},
+        headers={"Content-Type": "application/json"},
+    )
+    request._read_bytes = json.dumps({"target": "0x123", "enabled": False, "unsafe": "ignored"}).encode()
+
+    response = await owner_api.owner_update_payment_method(request)
+
+    assert response.status == 200
+    assert calls["code"] == "owner_crypto_usdt"
+    assert calls["kwargs"] == {"target": "0x123", "enabled": False}

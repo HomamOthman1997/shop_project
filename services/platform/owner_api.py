@@ -5,8 +5,25 @@ from typing import Any
 
 from aiohttp import web
 
+from database.bot_logs_repo import get_bot_logs_target
+from database.digital_products_config_repo import (
+    get_digital_products_markup_percent,
+    set_digital_products_markup_percent,
+)
 from database.mongo import db
+from database.owner_payment_settings_repo import (
+    get_owner_exchange_rate,
+    get_owner_payment_methods,
+    set_owner_exchange_rate,
+    update_owner_payment_method,
+)
 from database.orders_repo import list_api_temp_refund_support_reviews, resolve_api_temp_refund_support_review
+from database.provider_balance_alert_repo import (
+    get_provider_balance_alert_settings,
+    set_provider_balance_alert_enabled,
+    set_provider_balance_alert_threshold,
+)
+from database.support_topics_repo import get_all_support_targets
 from services.digital_products.api import _order_payload, execute_manual_order_action
 from services.numbers.api import _refund_review_payload
 from services.platform.api_auth import ApiAuthContext
@@ -38,10 +55,10 @@ def _management_sections() -> list[dict[str, Any]]:
             "key": "finance",
             "title": "Finance and pricing",
             "items": [
-                {"key": "payment_methods", "title": "Owner payment methods", "status": "telegram_only"},
-                {"key": "exchange_rate", "title": "Owner exchange rate", "status": "telegram_only"},
-                {"key": "numbers_margin", "title": "Numbers margin", "status": "telegram_only"},
-                {"key": "digital_margin", "title": "Digital products margin", "status": "telegram_only"},
+                {"key": "payment_methods", "title": "Owner payment methods", "status": "available", "endpoint": "/api/v1/owner/settings"},
+                {"key": "exchange_rate", "title": "Owner exchange rate", "status": "available", "endpoint": "/api/v1/owner/settings"},
+                {"key": "numbers_margin", "title": "Numbers margin", "status": "read_only"},
+                {"key": "digital_margin", "title": "Digital products margin", "status": "available", "endpoint": "/api/v1/owner/settings"},
                 {"key": "reseller_deposits", "title": "Reseller deposits and subscriptions", "status": "telegram_only"},
             ],
         },
@@ -58,9 +75,9 @@ def _management_sections() -> list[dict[str, Any]]:
             "key": "system",
             "title": "System and communication",
             "items": [
-                {"key": "support_routing", "title": "Support topics and routing", "status": "telegram_only"},
-                {"key": "logs_routing", "title": "Logs and alert routing", "status": "telegram_only"},
-                {"key": "provider_alerts", "title": "Provider balance alerts", "status": "telegram_only"},
+                {"key": "support_routing", "title": "Support topics and routing", "status": "read_only", "endpoint": "/api/v1/owner/settings"},
+                {"key": "logs_routing", "title": "Logs and alert routing", "status": "read_only", "endpoint": "/api/v1/owner/settings"},
+                {"key": "provider_alerts", "title": "Provider balance alerts", "status": "available", "endpoint": "/api/v1/owner/settings"},
                 {"key": "broadcast", "title": "Broadcast", "status": "telegram_only"},
                 {"key": "api_keys", "title": "API key management", "status": "available", "endpoint": "/api/v1/api-keys"},
                 {"key": "webhooks", "title": "Customer webhook management", "status": "available", "endpoint": "/api/v1/webhooks"},
@@ -71,6 +88,10 @@ def _management_sections() -> list[dict[str, Any]]:
 
 async def _count(collection: str, query: dict[str, Any]) -> int:
     return int(await db[collection].count_documents(query) or 0)
+
+
+async def _system_setting(doc_id: str) -> dict[str, Any] | None:
+    return await db.system_settings.find_one({"_id": str(doc_id)})
 
 
 async def _recent(
@@ -276,6 +297,132 @@ async def owner_resolve_numbers_refund_review(request: web.Request) -> web.Respo
     return web.json_response({"ok": True, "review": _refund_review_payload(order)}, headers=dict(_NO_STORE_HEADERS))
 
 
+def _routing_target(doc: dict[str, Any] | None) -> dict[str, Any]:
+    row = doc or {}
+    return {
+        "bound": isinstance(row.get("chat_id"), int),
+        "chat_id": row.get("chat_id") if isinstance(row.get("chat_id"), int) else None,
+        "message_thread_id": row.get("message_thread_id") if isinstance(row.get("message_thread_id"), int) else None,
+    }
+
+
+async def owner_settings(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    methods, exchange_rate, digital_markup, alerts, support, logs, owner_target, topup_target = await asyncio.gather(
+        get_owner_payment_methods(),
+        get_owner_exchange_rate(),
+        get_digital_products_markup_percent(),
+        get_provider_balance_alert_settings(),
+        get_all_support_targets(),
+        get_bot_logs_target(),
+        _system_setting("owner_notifications"),
+        _system_setting("owner_reseller_topups"),
+    )
+    return web.json_response(
+        {
+            "ok": True,
+            "finance": {
+                "exchange_rate": exchange_rate,
+                "digital_markup_percent": digital_markup,
+                "numbers_markup_percent": 0.0,
+                "numbers_markup_editable": False,
+                "payment_methods": methods,
+            },
+            "alerts": alerts,
+            "routing": {
+                "owner_notifications": _routing_target(owner_target),
+                "reseller_topups": _routing_target(topup_target),
+                "logs": _routing_target(logs),
+                "provider_alerts": _routing_target(alerts),
+                "support": {key: _routing_target(value) for key, value in support.items()},
+            },
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_update_settings(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    key = str((body or {}).get("key") or "").strip().lower()
+    value = (body or {}).get("value")
+    try:
+        if key == "exchange_rate":
+            parsed = float(value)
+            if parsed <= 0 or parsed > 10_000_000:
+                raise ValueError
+            await set_owner_exchange_rate(parsed)
+        elif key == "digital_markup_percent":
+            parsed = float(value)
+            if parsed < 0 or parsed > 500:
+                raise ValueError
+            await set_digital_products_markup_percent(parsed)
+        elif key == "provider_alert_threshold":
+            parsed = float(value)
+            if parsed <= 0 or parsed > 10_000:
+                raise ValueError
+            await set_provider_balance_alert_threshold(parsed)
+        elif key == "provider_alert_enabled":
+            if not isinstance(value, bool):
+                raise ValueError
+            await set_provider_balance_alert_enabled(value)
+        else:
+            return web.json_response(
+                {"ok": False, "code": "unsupported_setting", "message": "This setting cannot be changed here."},
+                status=400,
+                headers=dict(_NO_STORE_HEADERS),
+            )
+    except (TypeError, ValueError):
+        return web.json_response(
+            {"ok": False, "code": "invalid_setting_value", "message": "The supplied setting value is invalid."},
+            status=400,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+    return await owner_settings(request)
+
+
+async def owner_update_payment_method(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    allowed = {"title", "target", "support", "instructions", "currency", "enabled"}
+    updates = {key: value for key, value in (body or {}).items() if key in allowed}
+    if not updates:
+        return web.json_response(
+            {"ok": False, "code": "missing_updates", "message": "No supported payment method fields were supplied."},
+            status=400,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+    if "currency" in updates and str(updates["currency"]).upper() not in {"USD", "SYP"}:
+        return web.json_response(
+            {"ok": False, "code": "invalid_currency", "message": "Currency must be USD or SYP."},
+            status=400,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+    if "enabled" in updates and not isinstance(updates["enabled"], bool):
+        return web.json_response(
+            {"ok": False, "code": "invalid_enabled", "message": "Enabled must be a boolean."},
+            status=400,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+    for field in ("title", "target", "support", "instructions"):
+        if field in updates:
+            updates[field] = str(updates[field]).strip()
+    updated = await update_owner_payment_method(str(request.match_info.get("method_code") or ""), **updates)
+    if not updated:
+        return web.json_response(
+            {"ok": False, "code": "payment_method_not_found", "message": "Payment method was not found."},
+            status=404,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+    return await owner_settings(request)
+
+
 def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/dashboard", owner_dashboard)
     app.router.add_get("/api/v1/owner/queues", owner_queues)
@@ -283,3 +430,6 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/owner/digital/orders/{order_id}/action", owner_digital_order_action)
     app.router.add_get("/api/v1/owner/numbers/refund-reviews", owner_numbers_refund_reviews)
     app.router.add_post("/api/v1/owner/numbers/refund-reviews/{order_id}/resolve", owner_resolve_numbers_refund_review)
+    app.router.add_get("/api/v1/owner/settings", owner_settings)
+    app.router.add_put("/api/v1/owner/settings", owner_update_settings)
+    app.router.add_patch("/api/v1/owner/payment-methods/{method_code}", owner_update_payment_method)

@@ -346,11 +346,12 @@ async function loadOwnerDashboard() {
   try {
     const digitalFilter = $("#owner-digital-filter")?.value || "pending";
     const showResolvedReviews = $("#owner-refunds-resolved")?.checked ? "1" : "0";
-    const [payload, queuePayload, digitalPayload, refundPayload] = await Promise.all([
+    const [payload, queuePayload, digitalPayload, refundPayload, settingsPayload] = await Promise.all([
       api("/api/v1/owner/dashboard"),
       api("/api/v1/owner/queues"),
       api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
       api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
+      api("/api/v1/owner/settings"),
     ]);
     const metrics = Object.entries(payload.metrics || {});
     metricsTarget.classList.toggle("empty", !metrics.length);
@@ -374,6 +375,7 @@ async function loadOwnerDashboard() {
       </section>`).join("");
     renderOwnerDigitalOrders(digitalPayload.orders || []);
     renderOwnerRefundReviews(refundPayload.reviews || []);
+    renderOwnerSettings(settingsPayload);
     const sections = payload.sections || [];
     sectionsTarget.classList.toggle("empty", !sections.length);
     sectionsTarget.innerHTML = sections.map((section) => `
@@ -392,8 +394,136 @@ async function loadOwnerDashboard() {
     queuesTarget.textContent = "تعذر تحميل طوابير المتابعة.";
     $("#owner-digital-orders").textContent = "تعذر تحميل الطلبات الرقمية.";
     $("#owner-refund-reviews").textContent = "تعذر تحميل مراجعات الأرقام.";
+    $("#owner-finance-settings").textContent = "تعذر تحميل الإعدادات المالية.";
+    $("#owner-routing-settings").textContent = "تعذر تحميل إعدادات التوجيه.";
+    $("#owner-payment-methods").textContent = "تعذر تحميل طرق الدفع.";
     sectionsTarget.textContent = "تعذر تحميل خصائص الإدارة.";
     message.textContent = error.message;
+  }
+}
+
+function routingLabel(target) {
+  if (!target?.bound) return "غير مربوط";
+  return `${target.chat_id}${target.message_thread_id ? ` / topic ${target.message_thread_id}` : ""}`;
+}
+
+function renderOwnerSettings(payload) {
+  const finance = payload.finance || {};
+  const alerts = payload.alerts || {};
+  const routing = payload.routing || {};
+  const financeTarget = $("#owner-finance-settings");
+  financeTarget.classList.remove("empty");
+  financeTarget.innerHTML = `
+    <form class="owner-setting-card" data-owner-setting="exchange_rate">
+      <div><strong>سعر الصرف</strong><span>قيمة الدولار بالعملة المحلية</span></div>
+      <input name="value" type="number" min="0.01" max="10000000" step="0.01" value="${esc(finance.exchange_rate || 0)}" required>
+      <button class="secondary compact" type="submit">حفظ</button>
+    </form>
+    <form class="owner-setting-card" data-owner-setting="digital_markup_percent">
+      <div><strong>هامش المنتجات الرقمية</strong><span>نسبة تضاف إلى سعر المزود</span></div>
+      <input name="value" type="number" min="0" max="500" step="0.01" value="${esc(finance.digital_markup_percent || 0)}" required>
+      <button class="secondary compact" type="submit">حفظ</button>
+    </form>
+    <div class="owner-setting-card">
+      <div><strong>هامش الأرقام</strong><span>معطل مؤقتاً داخل محرك الأسعار</span></div>
+      <b>${esc(finance.numbers_markup_percent || 0)}%</b>
+    </div>`;
+
+  const routingTarget = $("#owner-routing-settings");
+  const support = routing.support || {};
+  routingTarget.classList.remove("empty");
+  routingTarget.innerHTML = `
+    <form class="owner-setting-card" data-owner-setting="provider_alert_threshold">
+      <div><strong>حد تنبيه رصيد المزود</strong><span>${routingLabel(routing.provider_alerts)}</span></div>
+      <input name="value" type="number" min="0.01" max="10000" step="0.01" value="${esc(alerts.threshold_usd || 1)}" required>
+      <button class="secondary compact" type="submit">حفظ</button>
+    </form>
+    <label class="owner-setting-card owner-setting-toggle">
+      <div><strong>تنبيه رصيد المزود</strong><span>تشغيل أو إيقاف التنبيهات منخفضة الرصيد</span></div>
+      <input id="owner-provider-alert-enabled" type="checkbox" ${alerts.enabled ? "checked" : ""}>
+    </label>
+    <div class="owner-setting-card"><div><strong>إشعارات المالك</strong><span>${esc(routingLabel(routing.owner_notifications))}</span></div></div>
+    <div class="owner-setting-card"><div><strong>سجلات النظام</strong><span>${esc(routingLabel(routing.logs))}</span></div></div>
+    <div class="owner-setting-card"><div><strong>دعم الأرقام</strong><span>${esc(routingLabel(support.numbers))}</span></div></div>
+    <div class="owner-setting-card"><div><strong>دعم الخدمات</strong><span>${esc(routingLabel(support.services))}</span></div></div>
+    <div class="owner-setting-card"><div><strong>دعم الرصيد</strong><span>${esc(routingLabel(support.user_balance))}</span></div></div>`;
+
+  renderOwnerPaymentMethods(finance.payment_methods || []);
+  document.querySelectorAll("[data-owner-setting]").forEach((form) => form.addEventListener("submit", saveOwnerSetting));
+  $("#owner-provider-alert-enabled")?.addEventListener("change", saveOwnerAlertEnabled);
+}
+
+function renderOwnerPaymentMethods(methods) {
+  const target = $("#owner-payment-methods");
+  target.classList.toggle("empty", !methods.length);
+  target.innerHTML = methods.length ? methods.map((method) => `
+    <form class="owner-payment-method" data-owner-payment-method="${esc(method.code)}">
+      <div class="owner-order-head">
+        <div><strong>${esc(method.title || method.code)}</strong><span>${esc(method.code)}</span></div>
+        <label class="owner-toggle"><input name="enabled" type="checkbox" ${method.enabled ? "checked" : ""}> مفعلة</label>
+      </div>
+      <div class="owner-payment-fields">
+        <label><span>اسم الوسيلة</span><input name="title" value="${esc(method.title || "")}" required></label>
+        <label><span>الحساب أو العنوان</span><input name="target" value="${esc(method.target || "")}" required></label>
+        <label><span>الدعم</span><input name="support" value="${esc(method.support || "")}"></label>
+        <label><span>العملة</span><select name="currency"><option value="SYP" ${method.currency === "SYP" ? "selected" : ""}>SYP</option><option value="USD" ${method.currency === "USD" ? "selected" : ""}>USD</option></select></label>
+      </div>
+      <label><span>تعليمات الدفع</span><textarea name="instructions" rows="3">${esc(method.instructions || "")}</textarea></label>
+      <button class="secondary compact" type="submit">حفظ طريقة الدفع</button>
+    </form>`).join("") : '<div class="notice">لا توجد طرق دفع معرفة.</div>';
+  target.querySelectorAll("[data-owner-payment-method]").forEach((form) => form.addEventListener("submit", saveOwnerPaymentMethod));
+}
+
+async function saveOwnerSetting(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  button.disabled = true;
+  try {
+    await api("/api/v1/owner/settings", {
+      method: "PUT",
+      body: JSON.stringify({ key: form.dataset.ownerSetting, value: Number(form.elements.value.value) }),
+    });
+    setText("#owner-message", "تم حفظ الإعداد.");
+    await loadOwnerDashboard();
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function saveOwnerAlertEnabled(event) {
+  try {
+    await api("/api/v1/owner/settings", {
+      method: "PUT",
+      body: JSON.stringify({ key: "provider_alert_enabled", value: event.currentTarget.checked }),
+    });
+    setText("#owner-message", "تم تحديث حالة التنبيه.");
+  } catch (error) {
+    event.currentTarget.checked = !event.currentTarget.checked;
+    setText("#owner-message", error.message);
+  }
+}
+
+async function saveOwnerPaymentMethod(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button[type='submit']");
+  const values = Object.fromEntries(new FormData(form).entries());
+  values.enabled = form.elements.enabled.checked;
+  button.disabled = true;
+  try {
+    await api(`/api/v1/owner/payment-methods/${encodeURIComponent(form.dataset.ownerPaymentMethod)}`, {
+      method: "PATCH",
+      body: JSON.stringify(values),
+    });
+    setText("#owner-message", "تم حفظ طريقة الدفع.");
+    await loadOwnerDashboard();
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 

@@ -646,6 +646,61 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   display: grid;
   gap: 12px;
 }
+.owner-settings-grid,
+.owner-payment-methods {
+  display: grid;
+  gap: 12px;
+}
+.owner-settings-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.owner-setting-card,
+.owner-payment-method {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 16px;
+}
+.owner-setting-card {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.owner-setting-card > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.owner-setting-card span,
+.owner-payment-method span {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.owner-setting-card b {
+  color: var(--accent);
+  font-size: 20px;
+}
+.owner-setting-toggle {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.owner-setting-toggle input {
+  width: auto;
+}
+.owner-payment-method {
+  display: grid;
+  gap: 14px;
+}
+.owner-payment-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.owner-payment-method textarea {
+  resize: vertical;
+  min-height: 82px;
+}
 .owner-refund-review {
   border: 1px solid var(--line);
   background: var(--surface);
@@ -1288,7 +1343,8 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   .payment-method-row > div:first-child { align-items: flex-start; flex-direction: column; }
   .recharge-submit-form { grid-template-columns: 1fr; }
   .support-category-grid { grid-template-columns: 1fr; }
-  .owner-metrics, .owner-queues, .owner-sections { grid-template-columns: 1fr; }
+  .owner-metrics, .owner-queues, .owner-sections, .owner-settings-grid { grid-template-columns: 1fr; }
+  .owner-payment-fields { grid-template-columns: 1fr; }
   .owner-action-row { align-items: flex-start; }
   .owner-order-actions > button { flex: 1 1 calc(50% - 8px); }
   .owner-refund-form { grid-template-columns: 1fr; }
