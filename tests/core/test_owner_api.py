@@ -30,6 +30,12 @@ def test_register_owner_api_routes():
     assert ("POST", "/api/v1/owner/digital/orders/{order_id}/action") in routes
     assert ("GET", "/api/v1/owner/custom-preorders") in routes
     assert ("POST", "/api/v1/owner/custom-preorders/{preorder_id}/action") in routes
+    assert ("GET", "/api/v1/owner/custom-catalog") in routes
+    assert ("POST", "/api/v1/owner/custom-catalog/nodes") in routes
+    assert ("GET", "/api/v1/owner/custom-catalog/nodes/{node_id}") in routes
+    assert ("PATCH", "/api/v1/owner/custom-catalog/nodes/{node_id}") in routes
+    assert ("DELETE", "/api/v1/owner/custom-catalog/nodes/{node_id}") in routes
+    assert ("POST", "/api/v1/owner/custom-catalog/nodes/{node_id}/inventory") in routes
     assert ("GET", "/api/v1/owner/numbers/refund-reviews") in routes
     assert ("POST", "/api/v1/owner/numbers/refund-reviews/{order_id}/resolve") in routes
     assert ("GET", "/api/v1/owner/settings") in routes
@@ -806,6 +812,41 @@ async def test_owner_custom_preorder_reject_requires_reason(monkeypatch):
     response = await owner_api.owner_custom_preorder_action(request)
 
     assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_owner_create_custom_catalog_folder(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def root(owner_id, *, catalog_type):
+        return {"_id": "root-1", "reseller_id": owner_id, "catalog_type": catalog_type, "node_type": "folder", "is_root": True}
+
+    async def node(_node_id, *, reseller_id, catalog_type):
+        return {"_id": "root-1", "reseller_id": reseller_id, "catalog_type": catalog_type, "node_type": "folder", "is_root": True}
+
+    async def create(reseller_id, parent_id, name, *, catalog_type):
+        calls.update({"reseller_id": reseller_id, "parent_id": parent_id, "name": name, "catalog_type": catalog_type})
+        return {"_id": "folder-1", "parent_id": parent_id, "name": name, "catalog_type": catalog_type, "node_type": "folder"}
+
+    async def audit(**_kwargs):
+        return None
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_owner_catalog_id", lambda: 77)
+    monkeypatch.setattr(owner_api, "ensure_root_node", root)
+    monkeypatch.setattr(owner_api, "get_node", node)
+    monkeypatch.setattr(owner_api, "create_folder", create)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    request = make_mocked_request("POST", "/api/v1/owner/custom-catalog/nodes")
+    request._read_bytes = json.dumps({"node_type": "folder", "name": " Accounts "}).encode()
+
+    response = await owner_api.owner_create_custom_catalog_node(request)
+
+    assert response.status == 200
+    assert calls == {"reseller_id": 77, "parent_id": "root-1", "name": "Accounts", "catalog_type": "custom"}
 
 
 @pytest.mark.asyncio

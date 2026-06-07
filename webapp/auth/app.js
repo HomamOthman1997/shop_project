@@ -18,6 +18,7 @@ const verifyEmailCodeSubmit = $("#verify-email-code-button");
 let mode = "login";
 let currentAccount = null;
 let activeOwnerTab = "overview";
+let ownerCatalogParentId = "";
 
 const customerRoutes = {
   home: "/app",
@@ -35,6 +36,7 @@ const adminRoutes = {
   support: "/admin/support",
   integrations: "/admin/integrations",
   providers: "/admin/providers",
+  catalog: "/admin/catalog",
   system: "/admin/system",
   orders: "/admin/orders",
 };
@@ -55,6 +57,7 @@ const ownerTabTitles = {
   support: "الدعم",
   integrations: "API",
   providers: "المزودون",
+  catalog: "Catalog",
   system: "النظام",
   orders: "الطلبات",
 };
@@ -87,6 +90,7 @@ function ownerTabForPath(pathname = window.location.pathname) {
   if (pathname.startsWith("/admin/support")) return "support";
   if (pathname.startsWith("/admin/integrations")) return "integrations";
   if (pathname.startsWith("/admin/providers")) return "providers";
+  if (pathname.startsWith("/admin/catalog")) return "catalog";
   if (pathname.startsWith("/admin/system")) return "system";
   if (pathname.startsWith("/admin/orders")) return "orders";
   return "overview";
@@ -439,6 +443,7 @@ const ownerGroupTargets = {
   support: ["owner-support-tickets"],
   integrations: ["owner-api-tools", "owner-bot-creation-reviews"],
   providers: ["owner-provider-diagnostics"],
+  catalog: ["owner-custom-catalog"],
   system: ["owner-routing-settings", "owner-system-operations"],
   orders: ["owner-digital-orders", "owner-custom-preorders", "owner-refund-reviews"],
 };
@@ -488,6 +493,7 @@ async function loadOwnerDashboardIsolated() {
   const auditDays = $("#owner-audit-days")?.value || "30";
   const botReviewFilter = $("#owner-bot-review-filter")?.value || "pending";
   const preorderFilter = $("#owner-preorder-filter")?.value || "active";
+  const catalogType = $("#owner-catalog-type")?.value || "custom";
   const entries = Object.entries({
     dashboard: api("/api/v1/owner/dashboard"),
     queues: api("/api/v1/owner/queues"),
@@ -498,6 +504,7 @@ async function loadOwnerDashboardIsolated() {
     resellers: api("/api/v1/owner/resellers?limit=50"),
     digital: api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
     preorders: api(`/api/v1/owner/custom-preorders?status=${encodeURIComponent(preorderFilter)}&limit=30`),
+    catalog: api(`/api/v1/owner/custom-catalog?catalog_type=${encodeURIComponent(catalogType)}${ownerCatalogParentId ? `&parent_id=${encodeURIComponent(ownerCatalogParentId)}` : ""}`),
     refunds: api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
     settings: api("/api/v1/owner/settings"),
     recharge: api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
@@ -562,6 +569,7 @@ async function loadOwnerDashboardIsolated() {
   }
   data.digital ? renderOwnerDigitalOrders(data.digital.orders || []) : fail("#owner-digital-orders", "تعذر تحميل الطلبات الرقمية.");
   data.preorders ? renderOwnerCustomPreorders(data.preorders.preorders || []) : fail("#owner-custom-preorders", "Could not load custom preorders.");
+  data.catalog ? renderOwnerCustomCatalog(data.catalog) : fail("#owner-custom-catalog", "Could not load custom services catalog.");
   data.refunds ? renderOwnerRefundReviews(data.refunds.reviews || []) : fail("#owner-refund-reviews", "تعذر تحميل مراجعات الأرقام.");
   data.settings ? renderOwnerSettings(data.settings) : fail("#owner-finance-settings", "تعذر تحميل الإعدادات المالية.");
   if (!data.settings) {
@@ -1197,6 +1205,7 @@ function renderOwnerSupportTickets(rows) {
         ${row.status !== "solved" ? `<button class="primary compact" data-owner-ticket="${esc(row.id)}" data-ticket-action="solve">حل التذكرة</button>` : ""}
         <button class="secondary compact" data-owner-ticket="${esc(row.id)}" data-ticket-action="bug_confirmed">تأكيد الخطأ</button>
         <button class="secondary compact" data-owner-ticket="${esc(row.id)}" data-ticket-action="not_bug">ليس خطأ</button>
+        ${row.bug_triage?.status === "confirmed" && row.bug_reward?.status !== "paid" ? `<button class="primary compact" data-owner-ticket="${esc(row.id)}" data-ticket-action="bug_reward">Pay $1 reward</button>` : ""}
       </div>
     </article>`).join("") : '<div class="notice">لا توجد تذاكر دعم ضمن هذا الفلتر.</div>';
   target.querySelectorAll("[data-owner-ticket]").forEach((button) => button.addEventListener("click", () => runOwnerSupportAction(button)));
@@ -1483,6 +1492,135 @@ async function resolveOwnerRefundReview(event) {
   } finally {
     button.disabled = false;
   }
+}
+
+function renderOwnerCustomCatalog(payload) {
+  const target = $("#owner-custom-catalog");
+  const parent = payload.parent || {};
+  const root = payload.root || {};
+  const nodes = payload.nodes || [];
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <div class="owner-order-head">
+      <div><strong>${esc(parent.name || "Catalog")}</strong><span>${esc(parent.id || "")}</span></div>
+      <div class="owner-order-actions">
+        ${parent.id && parent.id !== root.id ? `<button class="secondary compact" data-owner-catalog-folder="${esc(parent.parent_id || root.id)}">Back</button>` : ""}
+        ${parent.id && parent.id !== root.id ? `<button class="secondary compact" data-owner-catalog-folder="${esc(root.id)}">Root</button>` : ""}
+      </div>
+    </div>
+    <form class="owner-review-form" id="owner-catalog-create-form">
+      <label><span>Type</span><select name="node_type"><option value="folder">Folder</option><option value="endpoint">Product</option></select></label>
+      <label><span>Name</span><input name="name" required minlength="2" maxlength="100" placeholder="Folder or product name"></label>
+      <label><span>Price USD</span><input name="price" type="number" min="0" step="0.01" value="0"></label>
+      <label><span>Initial quantity</span><input name="available_qty" type="number" min="0" step="1" value="0"></label>
+      <label><span>Minimum purchase</span><input name="min_qty" type="number" min="1" step="1" value="1"></label>
+      <button class="primary compact" type="submit">Create</button>
+    </form>
+    <div id="owner-catalog-detail"></div>
+    <div class="owner-action-list">
+      ${nodes.length ? nodes.map((node) => `
+        <div class="owner-action-row">
+          <div><strong>${esc(node.name)}</strong><span>${esc(node.node_type)}${node.node_type === "endpoint" ? ` · ${esc(node.price)} USD · stock ${esc(node.available_qty)} · min ${esc(node.min_qty)}` : ""}</span></div>
+          <div class="owner-order-actions">
+            ${node.node_type === "folder" ? `<button class="secondary compact" data-owner-catalog-folder="${esc(node.id)}">Open</button>` : `<button class="secondary compact" data-owner-catalog-detail="${esc(node.id)}">Manage</button>`}
+            <button class="danger compact" data-owner-catalog-delete="${esc(node.id)}">Disable</button>
+          </div>
+        </div>`).join("") : '<div class="notice">This folder is empty.</div>'}
+    </div>`;
+  $("#owner-catalog-create-form")?.addEventListener("submit", createOwnerCatalogNode);
+  target.querySelectorAll("[data-owner-catalog-folder]").forEach((button) => button.addEventListener("click", () => openOwnerCatalogFolder(button.dataset.ownerCatalogFolder)));
+  target.querySelectorAll("[data-owner-catalog-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerCatalogNode(button.dataset.ownerCatalogDetail)));
+  target.querySelectorAll("[data-owner-catalog-delete]").forEach((button) => button.addEventListener("click", () => deleteOwnerCatalogNode(button.dataset.ownerCatalogDelete)));
+}
+
+async function openOwnerCatalogFolder(parentId) {
+  ownerCatalogParentId = parentId || "";
+  await loadOwnerDashboard();
+}
+
+async function createOwnerCatalogNode(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form).entries());
+  values.parent_id = ownerCatalogParentId;
+  values.catalog_type = $("#owner-catalog-type")?.value || "custom";
+  values.price = Number(values.price || 0);
+  values.available_qty = Number(values.available_qty || 0);
+  values.min_qty = Number(values.min_qty || 1);
+  try {
+    await api("/api/v1/owner/custom-catalog/nodes", {method: "POST", body: JSON.stringify(values)});
+    setText("#owner-message", "Catalog node was created.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function loadOwnerCatalogNode(nodeId) {
+  try {
+    const catalogType = $("#owner-catalog-type")?.value || "custom";
+    const payload = await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}`);
+    const node = payload.node || {};
+    const target = $("#owner-catalog-detail");
+    target.innerHTML = `
+      <article class="owner-review-card">
+        <div class="owner-order-head"><div><strong>Manage ${esc(node.name)}</strong><span>${esc(node.id)}</span></div><b>${esc(node.available_qty)} in stock</b></div>
+        <form class="owner-review-form" data-owner-catalog-update="${esc(node.id)}">
+          <label><span>Name</span><input name="name" value="${esc(node.name)}" required minlength="2" maxlength="100"></label>
+          <label><span>Price USD</span><input name="price" type="number" min="0" step="0.01" value="${esc(node.price)}"></label>
+          <label><span>Minimum purchase</span><input name="min_qty" type="number" min="1" step="1" value="${esc(node.min_qty)}"></label>
+          <label><span>Low stock threshold</span><input name="low_stock_threshold" type="number" min="0" step="1" value="${esc(node.low_stock_threshold)}"></label>
+          <label class="owner-toggle"><input name="preorder_enabled" type="checkbox" ${node.preorder_enabled ? "checked" : ""}> Enable preorder</label>
+          <label><span>Product information</span><textarea name="product_info_text" rows="3">${esc(node.product_info_text || "")}</textarea></label>
+          <label><span>Usage policy</span><textarea name="usage_policy_text" rows="3">${esc(node.usage_policy_text || "")}</textarea></label>
+          <button class="primary compact" type="submit">Save product</button>
+        </form>
+        <form class="owner-review-form" data-owner-catalog-inventory="${esc(node.id)}">
+          <label><span>Stock mode</span><select name="mode"><option value="append">Append</option><option value="replace">Replace all</option></select></label>
+          <label><span>Stock items, one per line</span><textarea name="payload" rows="6" placeholder="CODE-1&#10;CODE-2"></textarea></label>
+          <button class="secondary compact" type="submit">Update stock</button>
+        </form>
+        <details><summary>Current stock (${esc(node.inventory_count)})</summary><pre>${esc((node.inventory_items || []).join("\n"))}</pre></details>
+      </article>`;
+    target.querySelector("[data-owner-catalog-update]")?.addEventListener("submit", updateOwnerCatalogNode);
+    target.querySelector("[data-owner-catalog-inventory]")?.addEventListener("submit", updateOwnerCatalogInventory);
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function updateOwnerCatalogNode(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form).entries());
+  values.catalog_type = $("#owner-catalog-type")?.value || "custom";
+  values.price = Number(values.price || 0);
+  values.min_qty = Number(values.min_qty || 1);
+  values.low_stock_threshold = Number(values.low_stock_threshold || 0);
+  values.preorder_enabled = form.elements.preorder_enabled.checked;
+  try {
+    await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(form.dataset.ownerCatalogUpdate)}`, {method: "PATCH", body: JSON.stringify(values)});
+    setText("#owner-message", "Catalog product was updated.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function updateOwnerCatalogInventory(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form).entries());
+  values.catalog_type = $("#owner-catalog-type")?.value || "custom";
+  try {
+    await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(form.dataset.ownerCatalogInventory)}/inventory`, {method: "POST", body: JSON.stringify(values)});
+    setText("#owner-message", "Product stock was updated.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function deleteOwnerCatalogNode(nodeId) {
+  if (!window.confirm("Disable this catalog node and its children?")) return;
+  try {
+    const catalogType = $("#owner-catalog-type")?.value || "custom";
+    await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}`, {method: "DELETE"});
+    setText("#owner-message", "Catalog node was disabled.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
 }
 
 function renderOwnerCustomPreorders(rows) {
@@ -2154,6 +2292,7 @@ $("#refresh-orders")?.addEventListener("click", loadDashboard);
 $("#refresh-owner")?.addEventListener("click", loadOwnerDashboard);
 $("#owner-digital-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-preorder-filter")?.addEventListener("change", loadOwnerDashboard);
+$("#owner-catalog-type")?.addEventListener("change", () => { ownerCatalogParentId = ""; loadOwnerDashboard(); });
 $("#owner-refunds-resolved")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-recharge-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-identity-filter")?.addEventListener("change", loadOwnerDashboard);

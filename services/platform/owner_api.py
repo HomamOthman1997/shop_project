@@ -12,7 +12,24 @@ from pymongo import ReturnDocument
 
 from database.api_keys_repo import create_api_key, revoke_api_key, serialize_api_key_doc
 from database.bot_logs_repo import bind_bot_logs_target, get_bot_logs_target
-from database.custom_services_repo import get_pending_preorder_position, get_preorder_request
+from database.custom_services_repo import (
+    append_endpoint_inventory,
+    create_endpoint,
+    create_folder,
+    deactivate_node,
+    ensure_root_node,
+    get_node,
+    get_pending_preorder_position,
+    get_preorder_request,
+    list_children,
+    rename_node,
+    set_endpoint_inventory,
+    set_endpoint_low_stock_threshold,
+    set_endpoint_preorder_enabled,
+    update_endpoint,
+    update_endpoint_product_info,
+    update_endpoint_usage_policy,
+)
 from database.digital_products_config_repo import (
     get_digital_products_markup_percent,
     set_digital_products_markup_percent,
@@ -67,6 +84,7 @@ from services.platform.custom_preorder_ops import (
     release_preorder_from_owner,
 )
 from services.platform.telegram_delivery import send_owner_broadcast, send_ticket_message
+from services.platform.support_ops import pay_ticket_bug_reward
 from services.platform.webhooks_api import ALLOWED_WEBHOOK_EVENTS, _valid_https_url
 from services.platform.website_auth import require_website_owner
 from services.subscriptions.bot_subscription_service import (
@@ -93,6 +111,7 @@ def _management_sections() -> list[dict[str, Any]]:
             "items": [
                 {"key": "digital_orders", "title": "Digital manual orders", "status": "available", "endpoint": "/api/v1/digital/admin/orders"},
                 {"key": "custom_preorders", "title": "Custom preorder fulfillment", "status": "available", "endpoint": "/api/v1/owner/custom-preorders"},
+                {"key": "custom_catalog", "title": "Custom services catalog", "status": "available", "endpoint": "/api/v1/owner/custom-catalog"},
                 {"key": "numbers_refunds", "title": "Numbers refund reviews", "status": "available", "endpoint": "/api/v1/numbers/ops/refund-reviews"},
                 {"key": "provider_readiness", "title": "Provider readiness", "status": "available", "endpoint": "/api/v1/owner/provider-readiness"},
                 {"key": "provider_webhooks", "title": "Provider webhook audit", "status": "available", "endpoint": "/api/v1/owner/provider-webhook-events"},
@@ -868,6 +887,188 @@ async def owner_custom_preorder_action(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "result": reason, "preorder": _custom_preorder_payload(current)}, headers=dict(_NO_STORE_HEADERS))
 
 
+def _owner_catalog_id() -> int:
+    return int(getattr(settings, "owner_id", 0) or 0)
+
+
+def _catalog_type(value: Any) -> str:
+    return "id_info" if str(value or "").strip().lower() in {"id_info", "idinfo", "id-info"} else "custom"
+
+
+def _custom_catalog_node_payload(row: dict[str, Any], *, include_inventory: bool = True) -> dict[str, Any]:
+    payload = {
+        "id": _text(row.get("_id")),
+        "parent_id": _text(row.get("parent_id")),
+        "name": _text(row.get("name")),
+        "node_type": _text(row.get("node_type")),
+        "catalog_type": _text(row.get("catalog_type") or "custom"),
+        "is_root": bool(row.get("is_root")),
+        "position": int(row.get("position") or 0),
+        "price": _money(row.get("price")),
+        "available_qty": int(row.get("available_qty") or 0),
+        "min_qty": int(row.get("min_qty") or 1),
+        "preorder_enabled": bool(row.get("preorder_enabled")),
+        "low_stock_threshold": int(row.get("low_stock_threshold") or 0),
+        "product_info_text": _text(row.get("product_info_text")),
+        "usage_policy_text": _text(row.get("usage_policy_text")),
+        "inventory_count": len(list(row.get("inventory_items") or [])),
+        "updated_at": _iso_value(row.get("updated_at")),
+    }
+    if include_inventory:
+        payload["inventory_items"] = [_text(item) for item in list(row.get("inventory_items") or [])]
+    return payload
+
+
+async def owner_custom_catalog(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    if owner_id <= 0:
+        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
+    catalog_type = _catalog_type(request.query.get("catalog_type"))
+    root = await ensure_root_node(owner_id, catalog_type=catalog_type)
+    parent_id = str(request.query.get("parent_id") or "").strip() or str(root["_id"])
+    parent = await get_node(parent_id, reseller_id=owner_id, catalog_type=catalog_type)
+    if not parent or str(parent.get("node_type") or "") != "folder":
+        return web.json_response({"ok": False, "message": "Catalog folder was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    rows = await list_children(owner_id, parent["_id"], catalog_type=catalog_type)
+    return web.json_response(
+        {
+            "ok": True,
+            "root": _custom_catalog_node_payload(root, include_inventory=False),
+            "parent": _custom_catalog_node_payload(parent, include_inventory=False),
+            "nodes": [_custom_catalog_node_payload(row, include_inventory=False) for row in rows],
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_custom_catalog_node_detail(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    catalog_type = _catalog_type(request.query.get("catalog_type"))
+    node = await get_node(request.match_info.get("node_id"), reseller_id=owner_id, catalog_type=catalog_type)
+    if not node:
+        return web.json_response({"ok": False, "message": "Catalog node was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"ok": True, "node": _custom_catalog_node_payload(node)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_create_custom_catalog_node(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    name = " ".join(str((body or {}).get("name") or "").strip().split())
+    if len(name) < 2 or len(name) > 100:
+        return web.json_response({"ok": False, "message": "Name must be between 2 and 100 characters."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    catalog_type = _catalog_type((body or {}).get("catalog_type"))
+    root = await ensure_root_node(owner_id, catalog_type=catalog_type)
+    parent_id = str((body or {}).get("parent_id") or root["_id"])
+    parent = await get_node(parent_id, reseller_id=owner_id, catalog_type=catalog_type)
+    if not parent or str(parent.get("node_type") or "") != "folder":
+        return web.json_response({"ok": False, "message": "Parent folder was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    node_type = str((body or {}).get("node_type") or "folder").strip().lower()
+    if node_type == "folder":
+        node = await create_folder(owner_id, parent["_id"], name, catalog_type=catalog_type)
+    elif node_type == "endpoint":
+        try:
+            price = max(0.0, float((body or {}).get("price") or 0))
+            available_qty = max(0, int((body or {}).get("available_qty") or 0))
+            min_qty = max(1, int((body or {}).get("min_qty") or 1))
+        except Exception:
+            return web.json_response({"ok": False, "message": "Invalid endpoint values."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        node = await create_endpoint(owner_id, parent["_id"], name, price, available_qty, min_qty, catalog_type=catalog_type)
+    else:
+        return web.json_response({"ok": False, "message": "Unsupported node type."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action="custom_catalog_create", target_type=node_type, target_id=node["_id"])
+    return web.json_response({"ok": True, "node": _custom_catalog_node_payload(node)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_update_custom_catalog_node(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    catalog_type = _catalog_type((body or {}).get("catalog_type"))
+    node_id = str(request.match_info.get("node_id") or "")
+    node = await get_node(node_id, reseller_id=owner_id, catalog_type=catalog_type)
+    if not node:
+        return web.json_response({"ok": False, "message": "Catalog node was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    if "name" in body and not bool(node.get("is_root")):
+        name = " ".join(str(body.get("name") or "").strip().split())
+        if len(name) < 2 or len(name) > 100:
+            return web.json_response({"ok": False, "message": "Name must be between 2 and 100 characters."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        node = await rename_node(node_id, owner_id, name, catalog_type=catalog_type) or node
+    if str(node.get("node_type") or "") == "endpoint":
+        try:
+            node = await update_endpoint(
+                node_id,
+                owner_id,
+                price=float(body.get("price", node.get("price") or 0)),
+                available_qty=int(body.get("available_qty", node.get("available_qty") or 0)),
+                min_qty=int(body.get("min_qty", node.get("min_qty") or 1)),
+                catalog_type=catalog_type,
+            ) or node
+            if "preorder_enabled" in body:
+                node = await set_endpoint_preorder_enabled(node_id, owner_id, bool(body.get("preorder_enabled")), catalog_type=catalog_type) or node
+            if "low_stock_threshold" in body:
+                node = await set_endpoint_low_stock_threshold(node_id, owner_id, int(body.get("low_stock_threshold") or 0), catalog_type=catalog_type) or node
+        except Exception:
+            return web.json_response({"ok": False, "message": "Invalid endpoint values."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        if "product_info_text" in body:
+            node = await update_endpoint_product_info(node_id, owner_id, body.get("product_info_text"), catalog_type=catalog_type) or node
+        if "usage_policy_text" in body:
+            node = await update_endpoint_usage_policy(node_id, owner_id, body.get("usage_policy_text"), catalog_type=catalog_type) or node
+    await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action="custom_catalog_update", target_type=_text(node.get("node_type")), target_id=node_id)
+    return web.json_response({"ok": True, "node": _custom_catalog_node_payload(node)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_update_custom_catalog_inventory(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    catalog_type = _catalog_type((body or {}).get("catalog_type"))
+    node_id = str(request.match_info.get("node_id") or "")
+    node = await get_node(node_id, reseller_id=owner_id, catalog_type=catalog_type)
+    if not node or str(node.get("node_type") or "") != "endpoint":
+        return web.json_response({"ok": False, "message": "Catalog endpoint was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    items = body.get("items")
+    if not isinstance(items, list):
+        items = [line.strip() for line in str(body.get("payload") or "").splitlines() if line.strip()]
+    cleaned = [str(item or "").strip() for item in items if str(item or "").strip()]
+    if len(cleaned) > 500:
+        return web.json_response({"ok": False, "message": "A maximum of 500 stock items is allowed per update."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    mode = str(body.get("mode") or "replace").strip().lower()
+    writer = append_endpoint_inventory if mode == "append" else set_endpoint_inventory
+    updated = await writer(node_id, owner_id, inventory_items=cleaned, raw_payload="\n".join(cleaned), catalog_type=catalog_type)
+    if not updated:
+        return web.json_response({"ok": False, "message": "Could not update inventory."}, status=409, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action=f"custom_catalog_inventory_{mode}", target_type="endpoint", target_id=node_id, metadata={"count": len(cleaned)})
+    return web.json_response({"ok": True, "node": _custom_catalog_node_payload(updated)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_delete_custom_catalog_node(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    catalog_type = _catalog_type(request.query.get("catalog_type"))
+    node_id = str(request.match_info.get("node_id") or "")
+    node = await get_node(node_id, reseller_id=owner_id, catalog_type=catalog_type)
+    if not node or bool(node.get("is_root")):
+        return web.json_response({"ok": False, "message": "Catalog node was not found or cannot be deleted."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    pending = await db.custom_service_preorders.count_documents({"endpoint_id": node.get("_id"), "status": {"$in": ["pending", "fulfilling", "refunding"]}})
+    if pending:
+        return web.json_response({"ok": False, "message": "Resolve pending preorders before deleting this item."}, status=409, headers=dict(_NO_STORE_HEADERS))
+    deleted = await deactivate_node(node_id, owner_id, catalog_type=catalog_type)
+    await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action="custom_catalog_delete", target_type=_text(node.get("node_type")), target_id=node_id, metadata={"nodes": deleted})
+    return web.json_response({"ok": True, "deleted_nodes": int(deleted)}, headers=dict(_NO_STORE_HEADERS))
+
+
 async def owner_numbers_refund_reviews(request: web.Request) -> web.Response:
     await require_website_owner(request)
     include_resolved = str(request.query.get("include_resolved") or "").strip().lower() in {"1", "true", "yes"}
@@ -1269,6 +1470,7 @@ def _support_payload(row: dict[str, Any]) -> dict[str, Any]:
         "scope": _text(row.get("scope")),
         "payload_count": int(row.get("payload_count") or 0),
         "bug_triage": row.get("bug_triage") if isinstance(row.get("bug_triage"), dict) else {},
+        "bug_reward": row.get("bug_reward") if isinstance(row.get("bug_reward"), dict) else {},
         "opened_at": _date_text(row.get("opened_at")),
         "updated_at": _date_text(row.get("updated_at")),
     }
@@ -1744,6 +1946,12 @@ async def owner_support_ticket_action(request: web.Request) -> web.Response:
         )
     elif action in {"bug_confirmed", "not_bug"}:
         await mark_support_ticket_bug_triage(ticket_id, actor_id=owner.customer_id, status="confirmed" if action == "bug_confirmed" else "not_bug")
+    elif action == "bug_reward":
+        if str(((ticket.get("bug_triage") or {}).get("status") or "")).lower() != "confirmed":
+            return web.json_response({"ok": False, "message": "Confirm the bug before paying a reward."}, status=409, headers=dict(_NO_STORE_HEADERS))
+        ok, reason, _reward = await pay_ticket_bug_reward(ticket, actor_id=owner.customer_id, amount=1.0)
+        if not ok:
+            return web.json_response({"ok": False, "message": reason}, status=409, headers=dict(_NO_STORE_HEADERS))
     else:
         return web.json_response({"ok": False, "message": "Unsupported support action."}, status=400, headers=dict(_NO_STORE_HEADERS))
     await _write_owner_audit(
@@ -1773,6 +1981,12 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/owner/digital/orders/{order_id}/action", owner_digital_order_action)
     app.router.add_get("/api/v1/owner/custom-preorders", owner_custom_preorders)
     app.router.add_post("/api/v1/owner/custom-preorders/{preorder_id}/action", owner_custom_preorder_action)
+    app.router.add_get("/api/v1/owner/custom-catalog", owner_custom_catalog)
+    app.router.add_post("/api/v1/owner/custom-catalog/nodes", owner_create_custom_catalog_node)
+    app.router.add_get("/api/v1/owner/custom-catalog/nodes/{node_id}", owner_custom_catalog_node_detail)
+    app.router.add_patch("/api/v1/owner/custom-catalog/nodes/{node_id}", owner_update_custom_catalog_node)
+    app.router.add_delete("/api/v1/owner/custom-catalog/nodes/{node_id}", owner_delete_custom_catalog_node)
+    app.router.add_post("/api/v1/owner/custom-catalog/nodes/{node_id}/inventory", owner_update_custom_catalog_inventory)
     app.router.add_get("/api/v1/owner/numbers/refund-reviews", owner_numbers_refund_reviews)
     app.router.add_post("/api/v1/owner/numbers/refund-reviews/{order_id}/resolve", owner_resolve_numbers_refund_review)
     app.router.add_get("/api/v1/owner/settings", owner_settings)

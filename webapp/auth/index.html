@@ -217,6 +217,7 @@
                 <button class="admin-tab" type="button" data-owner-tab="support">الدعم</button>
                 <button class="admin-tab" type="button" data-owner-tab="integrations">API</button>
                 <button class="admin-tab" type="button" data-owner-tab="providers">المزودون</button>
+                <button class="admin-tab" type="button" data-owner-tab="catalog">Catalog</button>
                 <button class="admin-tab" type="button" data-owner-tab="system">النظام</button>
                 <button class="admin-tab" type="button" data-owner-tab="orders">الطلبات</button>
               </nav>
@@ -279,6 +280,11 @@
                 <select id="owner-source-filter" class="compact-select"><option value="under_review">تحتاج مراجعة</option><option value="unmapped">غير مربوطة</option><option value="active">فعالة</option><option value="disabled">معطلة</option><option value="all">الكل</option></select>
               </div>
               <div id="owner-provider-diagnostics" class="owner-review-list empty">جاري تحميل تشخيص المزودين...</div>
+              <div class="section-head activity-head">
+                <div><h3>Custom services catalog</h3><p>Manage folders, products, pricing, preorder settings, and inventory directly from the website.</p></div>
+                <select id="owner-catalog-type" class="compact-select"><option value="custom">Custom services</option><option value="id_info">ID info</option></select>
+              </div>
+              <div id="owner-custom-catalog" class="owner-review-list empty">Loading custom services catalog...</div>
               <div class="section-head activity-head">
                 <div><h3>إدارة البوتات والأوامر</h3><p>البث، إيداع الوكلاء، وتجديد اشتراكات البوتات من الموقع مباشرة.</p></div>
               </div>
