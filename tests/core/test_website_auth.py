@@ -7,7 +7,7 @@ from aiohttp.test_utils import make_mocked_request
 from pymongo.errors import DuplicateKeyError
 
 from services import landing_page
-from services.platform import website_auth
+from services.platform import owner_api, website_auth
 
 
 def json_request(method: str, path: str, body: dict | None = None, *, token: str = ""):
@@ -125,6 +125,28 @@ def test_owner_dashboard_tabs_have_routes_nav_and_content_groups():
     for _group, raw_ids in re.findall(r'^\s+([a-z_]+):\s+\[([^\]]+)\]', owner_groups_block, flags=re.MULTILINE):
         for node_id in re.findall(r'"([^"]+)"', raw_ids):
             assert f'id="{node_id}"' in html
+
+
+def test_every_owner_api_route_has_a_dashboard_callsite():
+    from pathlib import Path
+
+    app = web.Application()
+    owner_api.register_owner_api_routes(app)
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+    api_calls = [
+        next(value for value in groups if value)
+        for groups in re.findall(r"""api\((?:`([^`]+)`|"([^"]+)"|'([^']+)')""", js)
+    ]
+    missing = []
+    for route in app.router.routes():
+        if route.method == "HEAD":
+            continue
+        canonical = route.resource.canonical
+        parts = [part for part in re.split(r"\{[^}]+\}", canonical) if part]
+        if not any(all(part in call for part in parts) for call in api_calls):
+            missing.append(f"{route.method} {canonical}")
+
+    assert missing == []
 
 
 def test_owner_dashboard_overview_shortcuts_cover_management_sections():
