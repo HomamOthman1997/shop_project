@@ -701,6 +701,10 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 .owner-settings-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+#owner-routing-settings.owner-settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  align-items: stretch;
+}
 .owner-setting-card,
 .owner-payment-method {
   border: 1px solid var(--line);
@@ -717,6 +721,10 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   min-width: 0;
   display: grid;
   gap: 4px;
+}
+.owner-setting-card strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .owner-setting-card span,
 .owner-payment-method span {
@@ -834,7 +842,14 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   gap: 14px;
 }
 .owner-routing-card {
-  grid-template-columns: minmax(0, 1.2fr) minmax(110px, .7fr) minmax(90px, .55fr) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.owner-routing-card > div,
+.owner-routing-card button {
+  grid-column: 1 / -1;
+}
+.owner-routing-card button {
+  width: 100%;
 }
 .owner-inline-action {
   display: flex;
@@ -1739,6 +1754,10 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 
   .owner-settings-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  #owner-routing-settings.owner-settings-grid {
+    grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
   }
 
   .owner-queues,
