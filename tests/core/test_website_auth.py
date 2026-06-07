@@ -276,6 +276,17 @@ def test_sensitive_owner_actions_require_confirmation():
     assert "Reject this reseller bot creation request?" in js
 
 
+def test_sensitive_owner_forms_block_duplicate_submissions():
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+
+    assert "function setOwnerFormBusy(form, busy)" in js
+    assert 'form.setAttribute("aria-busy", busy ? "true" : "false");' in js
+    assert js.count("setOwnerFormBusy(form, true);") >= 6
+    assert js.count("setOwnerFormBusy(form, false);") >= 6
+
+
 def test_password_hash_round_trip():
     salt, password_hash = website_auth._password_hash("long-secure-password")
 

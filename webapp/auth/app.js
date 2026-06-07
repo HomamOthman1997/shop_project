@@ -640,6 +640,13 @@ function bindOwnerPagination(target) {
   target.querySelectorAll("[data-owner-page]").forEach((button) => button.addEventListener("click", () => loadMoreOwnerList(button)));
 }
 
+function setOwnerFormBusy(form, busy) {
+  form.querySelectorAll("button").forEach((button) => {
+    button.disabled = Boolean(busy);
+  });
+  form.setAttribute("aria-busy", busy ? "true" : "false");
+}
+
 function ownerPagedRequest(key, offset) {
   const params = `limit=30&offset=${encodeURIComponent(offset)}`;
   if (key === "digital") return api(`/api/v1/owner/digital/orders?status=${encodeURIComponent($("#owner-digital-filter")?.value || "pending")}&${params}`);
@@ -874,6 +881,7 @@ async function createOwnerApiKey(event) {
   const form = event.currentTarget;
   const body = Object.fromEntries(new FormData(form).entries());
   body.scopes = selectedValues(form.elements.scopes);
+  setOwnerFormBusy(form, true);
   try {
     const result = await api("/api/v1/owner/api-keys", {method: "POST", body: JSON.stringify(body)});
     const box = $("#owner-api-secret");
@@ -881,6 +889,7 @@ async function createOwnerApiKey(event) {
     box.textContent = `API key يظهر مرة واحدة فقط: ${result.api_key}`;
     setText("#owner-message", "تم إنشاء المفتاح. احفظه الآن لأنه لن يظهر مرة ثانية.");
   } catch (error) { setText("#owner-message", error.message); }
+  finally { setOwnerFormBusy(form, false); }
 }
 
 async function createOwnerWebhook(event) {
@@ -888,6 +897,7 @@ async function createOwnerWebhook(event) {
   const form = event.currentTarget;
   const body = Object.fromEntries(new FormData(form).entries());
   body.events = selectedValues(form.elements.events);
+  setOwnerFormBusy(form, true);
   try {
     const result = await api("/api/v1/owner/webhooks", {method: "POST", body: JSON.stringify(body)});
     const box = $("#owner-webhook-secret");
@@ -895,6 +905,7 @@ async function createOwnerWebhook(event) {
     box.textContent = `Webhook secret يظهر مرة واحدة فقط: ${result.secret}`;
     setText("#owner-message", "تم إنشاء webhook. احفظ السر الآن لأنه لن يظهر مرة ثانية.");
   } catch (error) { setText("#owner-message", error.message); }
+  finally { setOwnerFormBusy(form, false); }
 }
 
 async function revokeOwnerApiKey(button) {
@@ -1080,11 +1091,13 @@ async function sendOwnerBroadcastForm(event) {
   const form = event.currentTarget;
   if (!window.confirm("سيتم إرسال هذه الرسالة فعليا عبر بوت المنصة. متابعة؟")) return;
   const body = Object.fromEntries(new FormData(form).entries());
+  setOwnerFormBusy(form, true);
   try {
     await api("/api/v1/owner/broadcast", {method: "POST", body: JSON.stringify(body)});
     setText("#owner-message", "تم إرسال البث.");
     form.reset();
   } catch (error) { setText("#owner-message", error.message); }
+  finally { setOwnerFormBusy(form, false); }
 }
 
 async function createOwnerResellerDeposit(event) {
@@ -1092,12 +1105,14 @@ async function createOwnerResellerDeposit(event) {
   const form = event.currentTarget;
   const body = Object.fromEntries(new FormData(form).entries());
   if (!window.confirm(`سيتم إضافة ${body.amount || 0} إلى محفظة الوكيل ${body.reseller_id || ""}. متابعة؟`)) return;
+  setOwnerFormBusy(form, true);
   try {
     await api("/api/v1/owner/reseller-deposits", {method: "POST", body: JSON.stringify(body)});
     setText("#owner-message", "تم إضافة رصيد الوكيل.");
     form.reset();
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
+  finally { setOwnerFormBusy(form, false); }
 }
 
 async function runOwnerBotSubscriptionAction(event) {
@@ -1429,11 +1444,13 @@ async function runOwnerRechargeAction(event) {
   const values = Object.fromEntries(new FormData(form).entries());
   if (action === "accept" && !window.confirm("سيتم إضافة الرصيد فعلياً إلى المحفظة. متابعة؟")) return;
   if (action === "reject" && !window.confirm("Reject this recharge request? This decision closes the request.")) return;
+  setOwnerFormBusy(form, true);
   try {
     await api(`/api/v1/owner/recharge-reviews/${encodeURIComponent(form.dataset.ownerRecharge)}/action`, {method: "POST", body: JSON.stringify({...values, action})});
     setText("#owner-message", "تم تنفيذ إجراء طلب الشحن.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
+  finally { setOwnerFormBusy(form, false); }
 }
 
 function renderOwnerIdentityReviews(payload, append = false) {
@@ -1464,11 +1481,13 @@ async function runOwnerIdentityAction(event) {
     ? "Approve this identity verification request and unlock identity-gated access?"
     : "Reject this identity verification request?";
   if (!window.confirm(warning)) return;
+  setOwnerFormBusy(form, true);
   try {
     await api(`/api/v1/owner/identity-reviews/${encodeURIComponent(form.dataset.ownerIdentity)}/action`, {method: "POST", body: JSON.stringify({...values, action})});
     setText("#owner-message", "تم تنفيذ قرار الهوية.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
+  finally { setOwnerFormBusy(form, false); }
 }
 
 function renderOwnerSupportTickets(payload, append = false) {
