@@ -448,6 +448,30 @@ const ownerGroupTargets = {
   orders: ["owner-digital-orders", "owner-custom-preorders", "owner-refund-reviews"],
 };
 
+const ownerLoadingLabels = {
+  "owner-metrics": "جاري تحميل مؤشرات الإدارة...",
+  "owner-queues": "جاري تحميل طوابير المتابعة...",
+  "owner-sections": "جاري تحميل خصائص الإدارة...",
+  "owner-finance-settings": "جاري تحميل الإعدادات المالية...",
+  "owner-payment-methods": "جاري تحميل طرق الدفع...",
+  "owner-recharge-reviews": "جاري تحميل مراجعات الشحن...",
+  "owner-finance-audit": "جاري تحميل التدقيق المالي...",
+  "owner-reseller-management": "جاري تحميل الوكلاء...",
+  "owner-bot-tools": "جاري تحميل أدوات البوتات...",
+  "owner-user-management": "جاري تحميل المستخدمين...",
+  "owner-identity-reviews": "جاري تحميل مراجعات الهوية...",
+  "owner-support-tickets": "جاري تحميل تذاكر الدعم...",
+  "owner-api-tools": "جاري تحميل أدوات API...",
+  "owner-bot-creation-reviews": "جاري تحميل مراجعات إنشاء البوتات...",
+  "owner-provider-diagnostics": "جاري تحميل تشخيص المزودين...",
+  "owner-custom-catalog": "جاري تحميل الكتالوغ...",
+  "owner-routing-settings": "جاري تحميل إعدادات التوجيه...",
+  "owner-system-operations": "جاري تحميل حالة النظام...",
+  "owner-digital-orders": "جاري تحميل الطلبات الرقمية...",
+  "owner-custom-preorders": "جاري تحميل طلبات preorder...",
+  "owner-refund-reviews": "جاري تحميل مراجعات استرداد الأرقام...",
+};
+
 function ownerRequestMap() {
   const digitalFilter = $("#owner-digital-filter")?.value || "pending";
   const showResolvedReviews = $("#owner-refunds-resolved")?.checked ? "1" : "0";
@@ -529,6 +553,20 @@ function applyOwnerTab(tab = "overview", updateRoute = true) {
   if (updateRoute) pushRoute(adminRoutes[activeOwnerTab] || "/admin");
 }
 
+function setOwnerTabLoading(tab = activeOwnerTab) {
+  (ownerGroupTargets[tab] || []).forEach((id) => {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.classList.add("empty");
+    node.setAttribute("aria-busy", "true");
+    node.textContent = ownerLoadingLabels[id] || "جاري تحميل بيانات الإدارة...";
+  });
+}
+
+function clearOwnerBusy(...ids) {
+  ids.forEach((id) => document.getElementById(id)?.removeAttribute("aria-busy"));
+}
+
 async function loadOwnerDashboardIsolated() {
   const metricsTarget = $("#owner-metrics");
   const queuesTarget = $("#owner-queues");
@@ -541,6 +579,7 @@ async function loadOwnerDashboardIsolated() {
     target.textContent = text;
   };
   const requests = ownerRequestMap()[activeOwnerTab] || ownerRequestMap().overview;
+  setOwnerTabLoading(activeOwnerTab);
   const requested = (key) => Object.prototype.hasOwnProperty.call(requests, key);
   const settled = await Promise.allSettled(Object.entries(requests).map(async ([key, factory]) => [key, await factory()]));
   const data = {};
@@ -550,6 +589,7 @@ async function loadOwnerDashboardIsolated() {
     else failures.push(result.reason?.message || "request failed");
   });
   if (requested("dashboard") && data.dashboard) {
+    clearOwnerBusy("owner-metrics", "owner-sections");
     const metrics = Object.entries(data.dashboard.metrics || {});
     metricsTarget.classList.toggle("empty", !metrics.length);
     metricsTarget.innerHTML = metrics.map(([key, value]) => `
@@ -571,10 +611,12 @@ async function loadOwnerDashboardIsolated() {
         </div>
       </section>`).join("");
   } else if (requested("dashboard")) {
+    clearOwnerBusy("owner-metrics", "owner-sections");
     fail(metricsTarget, "تعذر تحميل مؤشرات المالك.");
     fail(sectionsTarget, "تعذر تحميل خصائص الإدارة.");
   }
   if (requested("queues") && data.queues) {
+    clearOwnerBusy("owner-queues");
     const queues = Object.entries(data.queues.queues || {});
     queuesTarget.classList.toggle("empty", !queues.length);
     queuesTarget.innerHTML = queues.map(([key, rows]) => `
@@ -589,34 +631,37 @@ async function loadOwnerDashboardIsolated() {
         </div>
       </section>`).join("");
   } else if (requested("queues")) {
+    clearOwnerBusy("owner-queues");
     fail(queuesTarget, "تعذر تحميل طوابير المتابعة.");
   }
-  if (requested("digital")) data.digital ? renderOwnerDigitalOrders(data.digital.orders || []) : fail("#owner-digital-orders", "تعذر تحميل الطلبات الرقمية.");
-  if (requested("preorders")) data.preorders ? renderOwnerCustomPreorders(data.preorders.preorders || []) : fail("#owner-custom-preorders", "Could not load custom preorders.");
-  if (requested("catalog")) data.catalog ? renderOwnerCustomCatalog(data.catalog) : fail("#owner-custom-catalog", "Could not load custom services catalog.");
-  if (requested("refunds")) data.refunds ? renderOwnerRefundReviews(data.refunds.reviews || []) : fail("#owner-refund-reviews", "تعذر تحميل مراجعات الأرقام.");
-  if (requested("settings")) data.settings ? renderOwnerSettings(data.settings) : fail("#owner-finance-settings", "تعذر تحميل الإعدادات المالية.");
+  if (requested("digital")) { clearOwnerBusy("owner-digital-orders"); data.digital ? renderOwnerDigitalOrders(data.digital.orders || []) : fail("#owner-digital-orders", "تعذر تحميل الطلبات الرقمية."); }
+  if (requested("preorders")) { clearOwnerBusy("owner-custom-preorders"); data.preorders ? renderOwnerCustomPreorders(data.preorders.preorders || []) : fail("#owner-custom-preorders", "Could not load custom preorders."); }
+  if (requested("catalog")) { clearOwnerBusy("owner-custom-catalog"); data.catalog ? renderOwnerCustomCatalog(data.catalog) : fail("#owner-custom-catalog", "Could not load custom services catalog."); }
+  if (requested("refunds")) { clearOwnerBusy("owner-refund-reviews"); data.refunds ? renderOwnerRefundReviews(data.refunds.reviews || []) : fail("#owner-refund-reviews", "تعذر تحميل مراجعات الأرقام."); }
+  if (requested("settings")) { clearOwnerBusy("owner-finance-settings", "owner-routing-settings", "owner-payment-methods"); data.settings ? renderOwnerSettings(data.settings) : fail("#owner-finance-settings", "تعذر تحميل الإعدادات المالية."); }
   if (requested("settings") && !data.settings) {
     fail("#owner-routing-settings", "تعذر تحميل إعدادات التوجيه.");
     fail("#owner-payment-methods", "تعذر تحميل طرق الدفع.");
   }
-  if (requested("recharge")) data.recharge ? renderOwnerRechargeReviews(data.recharge.reviews || []) : fail("#owner-recharge-reviews", "تعذر تحميل مراجعات الشحن.");
-  if (requested("financeAudit")) data.financeAudit ? renderOwnerFinanceAudit(data.financeAudit.audit || {}) : fail("#owner-finance-audit", "تعذر تحميل التدقيق المالي.");
+  if (requested("recharge")) { clearOwnerBusy("owner-recharge-reviews"); data.recharge ? renderOwnerRechargeReviews(data.recharge.reviews || []) : fail("#owner-recharge-reviews", "تعذر تحميل مراجعات الشحن."); }
+  if (requested("financeAudit")) { clearOwnerBusy("owner-finance-audit"); data.financeAudit ? renderOwnerFinanceAudit(data.financeAudit.audit || {}) : fail("#owner-finance-audit", "تعذر تحميل التدقيق المالي."); }
   if (requested("systemStatus") || requested("ownerAudit")) {
+    clearOwnerBusy("owner-system-operations");
     data.systemStatus && data.ownerAudit ? renderOwnerSystemOperations(data.systemStatus.system || {}, data.ownerAudit.events || []) : fail("#owner-system-operations", "تعذر تحميل عمليات النظام.");
   }
-  if (requested("resellers")) data.resellers ? renderOwnerResellerManagement(data.resellers.resellers || []) : fail("#owner-reseller-management", "تعذر تحميل الوكلاء.");
-  if (requested("users")) data.users ? renderOwnerUserManagement(data.users.users || []) : fail("#owner-user-management", "تعذر تحميل المستخدمين.");
-  if (requested("identity")) data.identity ? renderOwnerIdentityReviews(data.identity.reviews || []) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية.");
-  if (requested("support")) data.support ? renderOwnerSupportTickets(data.support.tickets || []) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم.");
-  if (requested("apiKeys") || requested("webhooks")) data.apiKeys && data.webhooks ? renderOwnerApiTools(data.apiKeys, data.webhooks) : fail("#owner-api-tools", "تعذر تحميل أدوات API.");
-  if (requested("botCreationReviews")) data.botCreationReviews ? renderOwnerBotCreationReviews(data.botCreationReviews.reviews || []) : fail("#owner-bot-creation-reviews", "تعذر تحميل مراجعات إنشاء البوتات.");
+  if (requested("resellers")) { clearOwnerBusy("owner-reseller-management"); data.resellers ? renderOwnerResellerManagement(data.resellers.resellers || []) : fail("#owner-reseller-management", "تعذر تحميل الوكلاء."); }
+  if (requested("users")) { clearOwnerBusy("owner-user-management"); data.users ? renderOwnerUserManagement(data.users.users || []) : fail("#owner-user-management", "تعذر تحميل المستخدمين."); }
+  if (requested("identity")) { clearOwnerBusy("owner-identity-reviews"); data.identity ? renderOwnerIdentityReviews(data.identity.reviews || []) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية."); }
+  if (requested("support")) { clearOwnerBusy("owner-support-tickets"); data.support ? renderOwnerSupportTickets(data.support.tickets || []) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم."); }
+  if (requested("apiKeys") || requested("webhooks")) { clearOwnerBusy("owner-api-tools"); data.apiKeys && data.webhooks ? renderOwnerApiTools(data.apiKeys, data.webhooks) : fail("#owner-api-tools", "تعذر تحميل أدوات API."); }
+  if (requested("botCreationReviews")) { clearOwnerBusy("owner-bot-creation-reviews"); data.botCreationReviews ? renderOwnerBotCreationReviews(data.botCreationReviews.reviews || []) : fail("#owner-bot-creation-reviews", "تعذر تحميل مراجعات إنشاء البوتات."); }
   if (requested("providers") || requested("providerEvents") || requested("sources")) {
+    clearOwnerBusy("owner-provider-diagnostics");
     data.providers && data.providerEvents && data.sources
       ? renderOwnerProviderDiagnostics(data.providers.providers || [], data.providerEvents.events || [], data.sources)
       : fail("#owner-provider-diagnostics", "تعذر تحميل تشخيص المزودين.");
   }
-  if (requested("bots")) data.bots ? renderOwnerBotTools(data.bots.bots || []) : fail("#owner-bot-tools", "تعذر تحميل أدوات البوتات.");
+  if (requested("bots")) { clearOwnerBusy("owner-bot-tools"); data.bots ? renderOwnerBotTools(data.bots.bots || []) : fail("#owner-bot-tools", "تعذر تحميل أدوات البوتات."); }
   message.textContent = failures.length ? `تعذر تحميل ${failures.length} قسم/أقسام. آخر خطأ: ${failures[0]}` : "";
   applyOwnerTab(activeOwnerTab, false);
 }
