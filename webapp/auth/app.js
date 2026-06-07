@@ -349,7 +349,7 @@ async function loadOwnerDashboard() {
     const rechargeFilter = $("#owner-recharge-filter")?.value || "pending";
     const identityFilter = $("#owner-identity-filter")?.value || "pending";
     const supportFilter = $("#owner-support-filter")?.value || "open";
-    const [payload, queuePayload, digitalPayload, refundPayload, settingsPayload, rechargePayload, identityPayload, supportPayload, apiKeysPayload, webhooksPayload, providerPayload, providerEventsPayload] = await Promise.all([
+    const [payload, queuePayload, digitalPayload, refundPayload, settingsPayload, rechargePayload, identityPayload, supportPayload, apiKeysPayload, webhooksPayload, providerPayload, providerEventsPayload, botsPayload] = await Promise.all([
       api("/api/v1/owner/dashboard"),
       api("/api/v1/owner/queues"),
       api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
@@ -362,6 +362,7 @@ async function loadOwnerDashboard() {
       api("/api/v1/owner/webhooks?status=all&limit=30"),
       api("/api/v1/owner/provider-readiness"),
       api("/api/v1/owner/provider-webhook-events?limit=12"),
+      api("/api/v1/owner/bots?status=all&limit=30"),
     ]);
     const metrics = Object.entries(payload.metrics || {});
     metricsTarget.classList.toggle("empty", !metrics.length);
@@ -391,6 +392,7 @@ async function loadOwnerDashboard() {
     renderOwnerSupportTickets(supportPayload.tickets || []);
     renderOwnerApiTools(apiKeysPayload, webhooksPayload);
     renderOwnerProviderDiagnostics(providerPayload.providers || [], providerEventsPayload.events || []);
+    renderOwnerBotTools(botsPayload.bots || []);
     const sections = payload.sections || [];
     sectionsTarget.classList.toggle("empty", !sections.length);
     sectionsTarget.innerHTML = sections.map((section) => `
@@ -417,6 +419,7 @@ async function loadOwnerDashboard() {
     $("#owner-support-tickets").textContent = "تعذر تحميل تذاكر الدعم.";
     $("#owner-api-tools").textContent = "تعذر تحميل أدوات API.";
     $("#owner-provider-diagnostics").textContent = "تعذر تحميل تشخيص المزودين.";
+    $("#owner-bot-tools").textContent = "تعذر تحميل أدوات البوتات.";
     sectionsTarget.textContent = "تعذر تحميل خصائص الإدارة.";
     message.textContent = error.message;
   }
@@ -534,6 +537,95 @@ async function replayOwnerProviderEvent(button) {
   } catch (error) { setText("#owner-message", error.message); }
 }
 
+function renderOwnerBotTools(bots) {
+  const target = $("#owner-bot-tools");
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <article class="owner-review-card">
+      <h4>بث عبر بوت المنصة</h4>
+      <form class="owner-review-form" id="owner-broadcast-form">
+        <label><span>Chat ID</span><input name="chat_id" required inputmode="numeric" placeholder="-100..."></label>
+        <label><span>Topic ID</span><input name="message_thread_id" inputmode="numeric" placeholder="اختياري"></label>
+        <label><span>نص البث</span><textarea name="text" required minlength="2" maxlength="3500" rows="3" placeholder="اكتب الرسالة التي ستصل للقناة أو المجموعة"></textarea></label>
+        <div class="owner-order-actions"><button class="primary compact" type="submit">إرسال البث</button></div>
+      </form>
+    </article>
+    <article class="owner-review-card">
+      <h4>إيداع رصيد وكيل</h4>
+      <form class="owner-review-form" id="owner-reseller-deposit-form">
+        <label><span>Reseller ID</span><input name="reseller_id" required inputmode="numeric"></label>
+        <label><span>المبلغ</span><input name="amount" required type="number" min="0.01" max="10000000" step="0.01"></label>
+        <label><span>ملاحظة</span><input name="note" maxlength="300" placeholder="اختياري"></label>
+        <div class="owner-order-actions"><button class="primary compact" type="submit">إضافة الرصيد</button></div>
+      </form>
+    </article>
+    <article class="owner-review-card">
+      <h4>بوتات الوكلاء والاشتراكات</h4>
+      ${bots.length ? bots.map((bot) => {
+        const sub = bot.subscription || {};
+        return `<div class="owner-action-row owner-bot-row">
+          <div>
+            <strong>${esc(bot.username || `Bot ${bot.bot_id}`)}</strong>
+            <span>owner ${esc(bot.owner_id)} · ${esc(bot.active ? "active" : "inactive")} · ${esc(sub.status || "-")} · end ${esc(sub.subscription_ends_at || "-")}</span>
+          </div>
+          <form class="owner-inline-action" data-owner-bot="${esc(bot.bot_id)}">
+            <select name="months">
+              <option value="1" ${sub.renewal_plan_months === 1 ? "selected" : ""}>1 شهر</option>
+              <option value="6" ${sub.renewal_plan_months === 6 ? "selected" : ""}>6 أشهر</option>
+              <option value="12" ${sub.renewal_plan_months === 12 ? "selected" : ""}>12 شهر</option>
+            </select>
+            <input name="note" placeholder="ملاحظة">
+            <button class="secondary compact" name="action" value="sync">Sync</button>
+            <button class="secondary compact" name="action" value="set_plan">حفظ الخطة</button>
+            <button class="primary compact" name="action" value="activate">تفعيل</button>
+          </form>
+        </div>`;
+      }).join("") : '<div class="notice">لا توجد بوتات مسجلة حاليا.</div>'}
+    </article>`;
+  $("#owner-broadcast-form")?.addEventListener("submit", sendOwnerBroadcastForm);
+  $("#owner-reseller-deposit-form")?.addEventListener("submit", createOwnerResellerDeposit);
+  target.querySelectorAll("[data-owner-bot]").forEach((form) => form.addEventListener("submit", runOwnerBotSubscriptionAction));
+}
+
+async function sendOwnerBroadcastForm(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!window.confirm("سيتم إرسال هذه الرسالة فعليا عبر بوت المنصة. متابعة؟")) return;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    await api("/api/v1/owner/broadcast", {method: "POST", body: JSON.stringify(body)});
+    setText("#owner-message", "تم إرسال البث.");
+    form.reset();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function createOwnerResellerDeposit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const body = Object.fromEntries(new FormData(form).entries());
+  if (!window.confirm(`سيتم إضافة ${body.amount || 0} إلى محفظة الوكيل ${body.reseller_id || ""}. متابعة؟`)) return;
+  try {
+    await api("/api/v1/owner/reseller-deposits", {method: "POST", body: JSON.stringify(body)});
+    setText("#owner-message", "تم إضافة رصيد الوكيل.");
+    form.reset();
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function runOwnerBotSubscriptionAction(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const action = event.submitter?.value || "sync";
+  const body = Object.fromEntries(new FormData(form).entries());
+  body.action = action;
+  if (action === "activate" && !window.confirm("سيتم تمديد اشتراك هذا البوت. متابعة؟")) return;
+  try {
+    await api(`/api/v1/owner/bots/${encodeURIComponent(form.dataset.ownerBot)}/subscription/action`, {method: "POST", body: JSON.stringify(body)});
+    setText("#owner-message", "تم تحديث اشتراك البوت.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
 function renderOwnerRechargeReviews(rows) {
   const target = $("#owner-recharge-reviews");
   target.classList.toggle("empty", !rows.length);
@@ -638,6 +730,15 @@ function routingLabel(target) {
   return `${target.chat_id}${target.message_thread_id ? ` / topic ${target.message_thread_id}` : ""}`;
 }
 
+function routingForm(key, title, target) {
+  return `<form class="owner-setting-card owner-routing-card" data-owner-routing="${esc(key)}">
+    <div><strong>${esc(title)}</strong><span>${esc(routingLabel(target))}</span></div>
+    <input name="chat_id" required inputmode="numeric" placeholder="Chat ID" value="${esc(target?.chat_id || "")}">
+    <input name="message_thread_id" inputmode="numeric" placeholder="Topic ID" value="${esc(target?.message_thread_id || "")}">
+    <button class="secondary compact" type="submit">حفظ</button>
+  </form>`;
+}
+
 function renderOwnerSettings(payload) {
   const finance = payload.finance || {};
   const alerts = payload.alerts || {};
@@ -673,14 +774,17 @@ function renderOwnerSettings(payload) {
       <div><strong>تنبيه رصيد المزود</strong><span>تشغيل أو إيقاف التنبيهات منخفضة الرصيد</span></div>
       <input id="owner-provider-alert-enabled" type="checkbox" ${alerts.enabled ? "checked" : ""}>
     </label>
-    <div class="owner-setting-card"><div><strong>إشعارات المالك</strong><span>${esc(routingLabel(routing.owner_notifications))}</span></div></div>
-    <div class="owner-setting-card"><div><strong>سجلات النظام</strong><span>${esc(routingLabel(routing.logs))}</span></div></div>
-    <div class="owner-setting-card"><div><strong>دعم الأرقام</strong><span>${esc(routingLabel(support.numbers))}</span></div></div>
-    <div class="owner-setting-card"><div><strong>دعم الخدمات</strong><span>${esc(routingLabel(support.services))}</span></div></div>
-    <div class="owner-setting-card"><div><strong>دعم الرصيد</strong><span>${esc(routingLabel(support.user_balance))}</span></div></div>`;
+    ${routingForm("owner_notifications", "إشعارات المالك", routing.owner_notifications)}
+    ${routingForm("reseller_topups", "إشعارات شحن الوكلاء", routing.reseller_topups)}
+    ${routingForm("logs", "سجلات النظام", routing.logs)}
+    ${routingForm("provider_alerts", "تنبيهات رصيد المزود", routing.provider_alerts)}
+    ${routingForm("support_numbers", "دعم الأرقام", support.numbers)}
+    ${routingForm("support_services", "دعم الخدمات", support.services)}
+    ${routingForm("support_user_balance", "دعم الرصيد", support.user_balance)}`;
 
   renderOwnerPaymentMethods(finance.payment_methods || []);
   document.querySelectorAll("[data-owner-setting]").forEach((form) => form.addEventListener("submit", saveOwnerSetting));
+  document.querySelectorAll("[data-owner-routing]").forEach((form) => form.addEventListener("submit", saveOwnerRoutingTarget));
   $("#owner-provider-alert-enabled")?.addEventListener("change", saveOwnerAlertEnabled);
 }
 
@@ -716,6 +820,26 @@ async function saveOwnerSetting(event) {
       body: JSON.stringify({ key: form.dataset.ownerSetting, value: Number(form.elements.value.value) }),
     });
     setText("#owner-message", "تم حفظ الإعداد.");
+    await loadOwnerDashboard();
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function saveOwnerRoutingTarget(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  button.disabled = true;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    await api(`/api/v1/owner/routing-targets/${encodeURIComponent(form.dataset.ownerRouting)}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    setText("#owner-message", "تم حفظ وجهة التوجيه.");
     await loadOwnerDashboard();
   } catch (error) {
     setText("#owner-message", error.message);

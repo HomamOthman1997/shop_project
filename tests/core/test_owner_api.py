@@ -22,6 +22,7 @@ def test_register_owner_api_routes():
     assert ("POST", "/api/v1/owner/numbers/refund-reviews/{order_id}/resolve") in routes
     assert ("GET", "/api/v1/owner/settings") in routes
     assert ("PUT", "/api/v1/owner/settings") in routes
+    assert ("POST", "/api/v1/owner/routing-targets/{target_key}") in routes
     assert ("PATCH", "/api/v1/owner/payment-methods/{method_code}") in routes
     assert ("GET", "/api/v1/owner/recharge-reviews") in routes
     assert ("POST", "/api/v1/owner/recharge-reviews/{request_id}/action") in routes
@@ -38,6 +39,10 @@ def test_register_owner_api_routes():
     assert ("GET", "/api/v1/owner/provider-readiness") in routes
     assert ("GET", "/api/v1/owner/provider-webhook-events") in routes
     assert ("POST", "/api/v1/owner/provider-webhook-events/{event_id}/replay") in routes
+    assert ("GET", "/api/v1/owner/bots") in routes
+    assert ("POST", "/api/v1/owner/bots/{bot_id}/subscription/action") in routes
+    assert ("POST", "/api/v1/owner/reseller-deposits") in routes
+    assert ("POST", "/api/v1/owner/broadcast") in routes
 
 
 @pytest.mark.asyncio
@@ -297,6 +302,124 @@ async def test_owner_update_payment_method_only_accepts_supported_fields(monkeyp
     assert response.status == 200
     assert calls["code"] == "owner_crypto_usdt"
     assert calls["kwargs"] == {"target": "0x123", "enabled": False}
+
+
+@pytest.mark.asyncio
+async def test_owner_update_routing_target_binds_support_topic(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def bind(category, **kwargs):
+        calls["category"] = category
+        calls.update(kwargs)
+
+    async def settings(_request):
+        return web.json_response({"ok": True})
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "bind_support_target", bind)
+    monkeypatch.setattr(owner_api, "owner_settings", settings)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/owner/routing-targets/support_numbers",
+        match_info={"target_key": "support_numbers"},
+        headers={"Content-Type": "application/json"},
+    )
+    request._read_bytes = json.dumps({"chat_id": -1001, "message_thread_id": 9}).encode()
+
+    response = await owner_api.owner_update_routing_target(request)
+
+    assert response.status == 200
+    assert calls == {"category": "numbers", "chat_id": -1001, "message_thread_id": 9}
+
+
+@pytest.mark.asyncio
+async def test_owner_bot_subscription_action_delegates_activation(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def activate(bot_id, *, months, note=None):
+        calls.update({"bot_id": bot_id, "months": months, "note": note})
+        return {"status": "active", "renewal_plan_months": months, "renewal_charge_usd": 10, "subscription_ends_at": None}
+
+    class BotsCollection:
+        async def find_one(self, query, projection=None):
+            return {"bot_id": query["bot_id"], "owner_id": 7, "active": True, "subscription": {"status": "active", "renewal_plan_months": 6}}
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "activate_bot_subscription", activate)
+    monkeypatch.setattr(owner_api.db, "bots", BotsCollection())
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/owner/bots/123/subscription/action",
+        match_info={"bot_id": "123"},
+        headers={"Content-Type": "application/json"},
+    )
+    request._read_bytes = json.dumps({"action": "activate", "months": 6, "note": "paid"}).encode()
+
+    response = await owner_api.owner_bot_subscription_action(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls == {"bot_id": 123, "months": 6, "note": "paid"}
+    assert payload["bot"]["bot_id"] == 123
+
+
+@pytest.mark.asyncio
+async def test_owner_reseller_deposit_credits_main_wallet(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def credit(**kwargs):
+        calls.update(kwargs)
+        return {"_id": "ledger-1"}
+
+    class LedgerEntries:
+        async def update_one(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "credit_reseller_main_wallet", credit)
+    monkeypatch.setattr(owner_api.db, "ledger_entries", LedgerEntries())
+    request = make_mocked_request("POST", "/api/v1/owner/reseller-deposits", headers={"Content-Type": "application/json"})
+    request._read_bytes = json.dumps({"reseller_id": 77, "amount": 12.5, "note": "cash"}).encode()
+
+    response = await owner_api.owner_reseller_deposit(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["reseller_id"] == 77
+    assert calls["amount"] == 12.5
+    assert calls["actor_id"] == 900000000001
+    assert payload["deposit"]["ledger_entry_id"] == "ledger-1"
+
+
+@pytest.mark.asyncio
+async def test_owner_broadcast_uses_delivery_helper(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def send(**kwargs):
+        calls.update(kwargs)
+        return True
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "send_owner_broadcast", send)
+    request = make_mocked_request("POST", "/api/v1/owner/broadcast", headers={"Content-Type": "application/json"})
+    request._read_bytes = json.dumps({"chat_id": -1001, "message_thread_id": 3, "text": "Hello owners"}).encode()
+
+    response = await owner_api.owner_broadcast(request)
+
+    assert response.status == 200
+    assert calls == {"chat_id": -1001, "message_thread_id": 3, "text": "Hello owners"}
 
 
 @pytest.mark.asyncio

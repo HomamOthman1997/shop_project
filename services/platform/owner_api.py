@@ -9,11 +9,12 @@ from bson import ObjectId
 from pymongo import ReturnDocument
 
 from database.api_keys_repo import create_api_key, revoke_api_key, serialize_api_key_doc
-from database.bot_logs_repo import get_bot_logs_target
+from database.bot_logs_repo import bind_bot_logs_target, get_bot_logs_target
 from database.digital_products_config_repo import (
     get_digital_products_markup_percent,
     set_digital_products_markup_percent,
 )
+from database.financial_ledger import credit_reseller_main_wallet
 from database.mongo import db
 from database.owner_payment_settings_repo import (
     get_owner_exchange_rate,
@@ -23,6 +24,7 @@ from database.owner_payment_settings_repo import (
 )
 from database.orders_repo import list_api_temp_refund_support_reviews, resolve_api_temp_refund_support_review
 from database.provider_balance_alert_repo import (
+    bind_provider_balance_alert_target,
     get_provider_balance_alert_settings,
     set_provider_balance_alert_enabled,
     set_provider_balance_alert_threshold,
@@ -34,7 +36,7 @@ from database.support_tickets_repo import (
     mark_support_ticket_bug_triage,
     mark_support_ticket_solved,
 )
-from database.support_topics_repo import get_all_support_targets
+from database.support_topics_repo import bind_support_target, get_all_support_targets
 from database.webhooks_repo import create_webhook, revoke_webhook, serialize_webhook_doc
 from services.digital_products.api import _order_payload, execute_manual_order_action
 from services.numbers.api import _refund_review_payload
@@ -42,9 +44,14 @@ from services.numbers.provider_readiness import provider_readiness_rows
 from services.numbers.provider_webhook_service import replay_provider_webhook_event
 from services.platform.api_auth import ApiAuthContext
 from services.platform.api_keys_api import _ALLOWED_CUSTOMER_SCOPES
-from services.platform.telegram_delivery import send_ticket_message
+from services.platform.telegram_delivery import send_owner_broadcast, send_ticket_message
 from services.platform.webhooks_api import ALLOWED_WEBHOOK_EVENTS, _valid_https_url
 from services.platform.website_auth import require_website_owner
+from services.subscriptions.bot_subscription_service import (
+    activate_bot_subscription,
+    set_bot_subscription_plan,
+    sync_bot_subscription,
+)
 
 
 _NO_STORE_HEADERS = {
@@ -76,7 +83,7 @@ def _management_sections() -> list[dict[str, Any]]:
                 {"key": "exchange_rate", "title": "Owner exchange rate", "status": "available", "endpoint": "/api/v1/owner/settings"},
                 {"key": "numbers_margin", "title": "Numbers margin", "status": "read_only"},
                 {"key": "digital_margin", "title": "Digital products margin", "status": "available", "endpoint": "/api/v1/owner/settings"},
-                {"key": "reseller_deposits", "title": "Reseller deposits and subscriptions", "status": "telegram_only"},
+                {"key": "reseller_deposits", "title": "Reseller deposits and subscriptions", "status": "available", "endpoint": "/api/v1/owner/reseller-deposits"},
             ],
         },
         {
@@ -93,12 +100,13 @@ def _management_sections() -> list[dict[str, Any]]:
             "title": "System and communication",
             "items": [
                 {"key": "support_inbox", "title": "Support inbox", "status": "available", "endpoint": "/api/v1/owner/support-tickets"},
-                {"key": "support_routing", "title": "Support topics and routing", "status": "read_only", "endpoint": "/api/v1/owner/settings"},
-                {"key": "logs_routing", "title": "Logs and alert routing", "status": "read_only", "endpoint": "/api/v1/owner/settings"},
+                {"key": "support_routing", "title": "Support topics and routing", "status": "available", "endpoint": "/api/v1/owner/routing-targets/{target_key}"},
+                {"key": "logs_routing", "title": "Logs and alert routing", "status": "available", "endpoint": "/api/v1/owner/routing-targets/{target_key}"},
                 {"key": "provider_alerts", "title": "Provider balance alerts", "status": "available", "endpoint": "/api/v1/owner/settings"},
-                {"key": "broadcast", "title": "Broadcast", "status": "telegram_only"},
+                {"key": "broadcast", "title": "Broadcast", "status": "available", "endpoint": "/api/v1/owner/broadcast"},
                 {"key": "api_keys", "title": "API key management", "status": "available", "endpoint": "/api/v1/owner/api-keys"},
                 {"key": "webhooks", "title": "Customer webhook management", "status": "available", "endpoint": "/api/v1/owner/webhooks"},
+                {"key": "bot_subscriptions", "title": "Bot subscriptions", "status": "available", "endpoint": "/api/v1/owner/bots"},
             ],
         },
     ]
@@ -328,6 +336,19 @@ def _routing_target(doc: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _parse_chat_target(body: dict[str, Any]) -> tuple[int, int | None]:
+    chat_id = int((body or {}).get("chat_id") or 0)
+    if chat_id == 0:
+        raise ValueError("chat_id")
+    raw_thread = (body or {}).get("message_thread_id")
+    if raw_thread in {None, "", 0, "0"}:
+        return chat_id, None
+    thread_id = int(raw_thread)
+    if thread_id < 0:
+        raise ValueError("message_thread_id")
+    return chat_id, thread_id
+
+
 async def owner_settings(request: web.Request) -> web.Response:
     await require_website_owner(request)
     methods, exchange_rate, digital_markup, alerts, support, logs, owner_target, topup_target = await asyncio.gather(
@@ -361,6 +382,46 @@ async def owner_settings(request: web.Request) -> web.Response:
         },
         headers=dict(_NO_STORE_HEADERS),
     )
+
+
+async def owner_update_routing_target(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    try:
+        body = await request.json()
+        chat_id, message_thread_id = _parse_chat_target(body or {})
+    except Exception:
+        return web.json_response(
+            {"ok": False, "code": "invalid_routing_target", "message": "Provide a valid chat_id and optional message_thread_id."},
+            status=400,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+
+    key = str(request.match_info.get("target_key") or "").strip().lower()
+    now = datetime.now(UTC)
+    if key == "owner_notifications":
+        await db.system_settings.update_one(
+            {"_id": "owner_notifications"},
+            {"$set": {"chat_id": chat_id, "message_thread_id": message_thread_id, "updated_at": now}},
+            upsert=True,
+        )
+    elif key in {"reseller_topups", "owner_reseller_topups"}:
+        await db.system_settings.update_one(
+            {"_id": "owner_reseller_topups"},
+            {"$set": {"chat_id": chat_id, "message_thread_id": message_thread_id, "updated_at": now}},
+            upsert=True,
+        )
+    elif key == "logs":
+        await bind_bot_logs_target(chat_id=chat_id, message_thread_id=message_thread_id)
+    elif key == "provider_alerts":
+        await bind_provider_balance_alert_target(chat_id=chat_id, message_thread_id=message_thread_id)
+    elif key.startswith("support_"):
+        category = key.removeprefix("support_")
+        if category not in {"proxies", "numbers", "services", "user_balance"}:
+            return web.json_response({"ok": False, "message": "Unsupported routing target."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        await bind_support_target(category, chat_id=chat_id, message_thread_id=message_thread_id)
+    else:
+        return web.json_response({"ok": False, "message": "Unsupported routing target."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    return await owner_settings(request)
 
 
 async def owner_update_settings(request: web.Request) -> web.Response:
@@ -720,6 +781,118 @@ async def owner_replay_provider_webhook_event(request: web.Request) -> web.Respo
     return web.json_response(result, status=status, headers=dict(_NO_STORE_HEADERS))
 
 
+def _bot_payload(row: dict[str, Any]) -> dict[str, Any]:
+    settings_doc = row.get("settings") if isinstance(row.get("settings"), dict) else {}
+    reseller = row.get("reseller") if isinstance(row.get("reseller"), dict) else {}
+    provisioning = row.get("provisioning") if isinstance(row.get("provisioning"), dict) else {}
+    subscription = row.get("subscription") if isinstance(row.get("subscription"), dict) else {}
+    return {
+        "bot_id": int(row.get("bot_id") or 0),
+        "owner_id": int(row.get("owner_id") or 0),
+        "active": bool(row.get("active")),
+        "status": _text(row.get("status") or provisioning.get("status") or ("active" if row.get("active") else "inactive")),
+        "username": _text(row.get("username") or row.get("bot_username") or reseller.get("bot_username")),
+        "subscription_channel": _text(settings_doc.get("subscription_channel")),
+        "subscription": {
+            "status": _text(subscription.get("status")),
+            "renewal_plan_months": int(subscription.get("renewal_plan_months") or 1),
+            "renewal_charge_usd": float(subscription.get("renewal_charge_usd") or 0),
+            "renewal_discount_percent": float(subscription.get("renewal_discount_percent") or 0),
+            "trial_ends_at": _date_text(subscription.get("trial_ends_at")),
+            "subscription_ends_at": _date_text(subscription.get("subscription_ends_at")),
+            "grace_ends_at": _date_text(subscription.get("grace_ends_at")),
+        },
+        "created_at": _date_text(row.get("created_at")),
+    }
+
+
+async def owner_bots(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    query: dict[str, Any] = {}
+    status = str(request.query.get("status") or "all").strip().lower()
+    if status == "active":
+        query["active"] = True
+    elif status == "inactive":
+        query["active"] = {"$ne": True}
+    rows = await db.bots.find(query, {"token": 0}).sort("created_at", -1).limit(_limit(request, default=30)).to_list(length=_limit(request, default=30))
+    return web.json_response({"ok": True, "bots": [_bot_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_bot_subscription_action(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    try:
+        bot_id = int(request.match_info.get("bot_id") or 0)
+    except Exception:
+        bot_id = 0
+    if bot_id <= 0:
+        return web.json_response({"ok": False, "message": "Invalid bot id."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str((body or {}).get("action") or "").strip().lower()
+    try:
+        months = int((body or {}).get("months") or 1)
+    except Exception:
+        months = 1
+    if months not in {1, 6, 12}:
+        return web.json_response({"ok": False, "message": "Months must be 1, 6, or 12."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if action == "activate":
+        subscription = await activate_bot_subscription(bot_id, months=months, note=str((body or {}).get("note") or "").strip() or None)
+    elif action == "set_plan":
+        subscription = await set_bot_subscription_plan(bot_id, months=months)
+    elif action == "sync":
+        subscription = await sync_bot_subscription(bot_id, collect_due=bool((body or {}).get("collect_due")))
+    else:
+        return web.json_response({"ok": False, "message": "Unsupported subscription action."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if not subscription:
+        return web.json_response({"ok": False, "message": "Bot was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    row = await db.bots.find_one({"bot_id": bot_id}, {"token": 0}) or {"bot_id": bot_id, "subscription": subscription}
+    return web.json_response({"ok": True, "bot": _bot_payload(row), "subscription": _bot_payload(row)["subscription"]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_reseller_deposit(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    try:
+        body = await request.json()
+        reseller_id = int((body or {}).get("reseller_id") or 0)
+        amount = float((body or {}).get("amount") or 0)
+    except Exception:
+        return web.json_response({"ok": False, "message": "Provide a valid reseller_id and amount."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if reseller_id <= 0 or amount <= 0 or amount > 10_000_000:
+        return web.json_response({"ok": False, "message": "Provide a positive amount and valid reseller id."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    note = str((body or {}).get("note") or "").strip()[:300]
+    entry = await credit_reseller_main_wallet(
+        reseller_id=reseller_id,
+        amount=amount,
+        reason="owner_reseller_deposit",
+        actor_id=owner.customer_id,
+        order_id=f"owner-deposit:{owner.customer_id}:{reseller_id}:{datetime.now(UTC).timestamp()}",
+    )
+    if note:
+        await db.ledger_entries.update_one({"_id": entry.get("_id")}, {"$set": {"owner_note": note}})
+    return web.json_response(
+        {"ok": True, "deposit": {"reseller_id": reseller_id, "amount": float(amount), "ledger_entry_id": _text(entry.get("_id"))}},
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_broadcast(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    try:
+        body = await request.json()
+        chat_id, message_thread_id = _parse_chat_target(body or {})
+    except Exception:
+        return web.json_response({"ok": False, "message": "Provide a valid broadcast chat target."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    text = "\n".join(line.rstrip() for line in str((body or {}).get("text") or "").strip().splitlines()).strip()
+    if len(text) < 2 or len(text) > 3500:
+        return web.json_response({"ok": False, "message": "Broadcast text must be between 2 and 3500 characters."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    delivered = await send_owner_broadcast(chat_id=chat_id, message_thread_id=message_thread_id, text=text)
+    if not delivered:
+        return web.json_response({"ok": False, "message": "Could not send broadcast with the configured main bot."}, status=502, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"ok": True, "broadcast": {"chat_id": chat_id, "message_thread_id": message_thread_id, "length": len(text)}}, headers=dict(_NO_STORE_HEADERS))
+
+
 async def owner_support_tickets(request: web.Request) -> web.Response:
     await require_website_owner(request)
     status = str(request.query.get("status") or "open").strip().lower()
@@ -778,6 +951,7 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/owner/numbers/refund-reviews/{order_id}/resolve", owner_resolve_numbers_refund_review)
     app.router.add_get("/api/v1/owner/settings", owner_settings)
     app.router.add_put("/api/v1/owner/settings", owner_update_settings)
+    app.router.add_post("/api/v1/owner/routing-targets/{target_key}", owner_update_routing_target)
     app.router.add_patch("/api/v1/owner/payment-methods/{method_code}", owner_update_payment_method)
     app.router.add_get("/api/v1/owner/recharge-reviews", owner_recharge_reviews)
     app.router.add_post("/api/v1/owner/recharge-reviews/{request_id}/action", owner_recharge_review_action)
@@ -794,3 +968,7 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/provider-readiness", owner_provider_readiness)
     app.router.add_get("/api/v1/owner/provider-webhook-events", owner_provider_webhook_events)
     app.router.add_post("/api/v1/owner/provider-webhook-events/{event_id}/replay", owner_replay_provider_webhook_event)
+    app.router.add_get("/api/v1/owner/bots", owner_bots)
+    app.router.add_post("/api/v1/owner/bots/{bot_id}/subscription/action", owner_bot_subscription_action)
+    app.router.add_post("/api/v1/owner/reseller-deposits", owner_reseller_deposit)
+    app.router.add_post("/api/v1/owner/broadcast", owner_broadcast)

@@ -34,3 +34,18 @@ async def send_ticket_message(ticket: dict, text: str) -> bool:
         return True
     finally:
         await bot.session.close()
+
+
+async def send_owner_broadcast(*, chat_id: int, text: str, message_thread_id: int | None = None) -> bool:
+    token = str(getattr(settings, "bot_main_token", "") or "").strip()
+    if not token:
+        return False
+    bot = Bot(token=token)
+    try:
+        kwargs = {}
+        if message_thread_id is not None:
+            kwargs["message_thread_id"] = int(message_thread_id)
+        await bot.send_message(chat_id=int(chat_id), text=str(text), **kwargs)
+        return True
+    finally:
+        await bot.session.close()
