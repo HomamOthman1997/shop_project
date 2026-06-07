@@ -81,25 +81,31 @@ async def _notify_requester(req: dict, text: str) -> None:
                 pass
 
 
-@router.callback_query(lambda c: c.data and c.data.startswith("verify_owner:"))
-async def owner_review_callback(callback: types.CallbackQuery):
-    if callback.from_user.id != OWNER_ID:
-        return await callback.answer(t("en", "no_permission"), show_alert=True)
-
-    parts = (callback.data or "").split(":", 2)
-    if len(parts) != 3:
-        return await callback.answer(t("en", "invalid_action"), show_alert=True)
-
-    action = parts[1]
-    req_id = parts[2]
+async def review_bot_creation_request(
+    *,
+    request_id: str,
+    action: str,
+    reviewer_id: int,
+    reviewer_username: str = "",
+    source: str = "website_owner_api",
+    chat_id: int | None = None,
+    message_id: int | None = None,
+    thread_id: int | None = None,
+    reviewed_bot_id: int | None = None,
+    notify_requester: bool = True,
+) -> tuple[dict | None, str, str]:
     try:
-        oid = ObjectId(req_id)
+        oid = ObjectId(str(request_id))
     except Exception:
-        return await callback.answer(t("en", "owner_request_not_found"), show_alert=True)
+        return None, "not_found", t("en", "owner_request_not_found")
+
+    action = str(action or "").strip().lower()
+    if action not in {"approve", "reject"}:
+        return None, "invalid_action", t("en", "invalid_action")
 
     req = await db.bot_creation_requests.find_one({"_id": oid, "status": "pending"})
     if not req:
-        return await callback.answer(t("en", "owner_request_not_found"), show_alert=True)
+        return None, "not_found", t("en", "owner_request_not_found")
 
     payload = req.get("payload", {})
     requester_lang = req.get("requester_lang", "en")
@@ -134,7 +140,7 @@ async def owner_review_callback(callback: types.CallbackQuery):
                 f"{t(requester_lang, 'reseller_setup_post_approval')}"
             )
         except Exception as exc:
-            logger.exception("owner approve failed for request=%s: %s", req_id, exc)
+            logger.exception("owner approve failed for request=%s: %s", request_id, exc)
             new_status = "failed"
             owner_msg = t("en", "owner_approve_failed").format(error=exc)
             user_msg = t(requester_lang, "owner_approve_request_failed_user").format(error=exc)
@@ -150,20 +156,68 @@ async def owner_review_callback(callback: types.CallbackQuery):
             "$set": {
                 "status": new_status,
                 "reviewed_at": datetime.now(UTC),
-                "reviewed_by": callback.from_user.id,
-                "reviewed_by_username": callback.from_user.username or "",
-                "reviewed_from_chat_id": callback.message.chat.id if callback.message else None,
-                "reviewed_from_message_id": callback.message.message_id if callback.message else None,
-                "reviewed_from_thread_id": getattr(callback.message, "message_thread_id", None) if callback.message else None,
+                "reviewed_by": int(reviewer_id),
+                "reviewed_by_username": reviewer_username or "",
+                "reviewed_from_chat_id": chat_id,
+                "reviewed_from_message_id": message_id,
+                "reviewed_from_thread_id": thread_id,
                 "audit": {
                     "action": action,
-                    "source": "owner_requests_router",
-                    "reviewed_bot_id": (await callback.bot.get_me()).id,
+                    "source": source,
+                    "reviewed_bot_id": reviewed_bot_id,
                     "payload_snapshot": safe_payload,
                 },
             }
         },
     )
+    reviewed = dict(req)
+    reviewed.update(
+        {
+            "status": new_status,
+            "reviewed_at": datetime.now(UTC),
+            "reviewed_by": int(reviewer_id),
+            "reviewed_by_username": reviewer_username or "",
+            "reviewed_from_chat_id": chat_id,
+            "reviewed_from_message_id": message_id,
+            "reviewed_from_thread_id": thread_id,
+            "audit": {
+                "action": action,
+                "source": source,
+                "reviewed_bot_id": reviewed_bot_id,
+                "payload_snapshot": safe_payload,
+            },
+        }
+    )
+    if notify_requester:
+        await _notify_requester(req, user_msg)
+    return reviewed, new_status, owner_msg
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("verify_owner:"))
+async def owner_review_callback(callback: types.CallbackQuery):
+    if callback.from_user.id != OWNER_ID:
+        return await callback.answer(t("en", "no_permission"), show_alert=True)
+
+    parts = (callback.data or "").split(":", 2)
+    if len(parts) != 3:
+        return await callback.answer(t("en", "invalid_action"), show_alert=True)
+
+    action = parts[1]
+    req_id = parts[2]
+    me = await callback.bot.get_me()
+    reviewed, _status, owner_msg = await review_bot_creation_request(
+        request_id=req_id,
+        action=action,
+        reviewer_id=callback.from_user.id,
+        reviewer_username=callback.from_user.username or "",
+        source="owner_requests_router",
+        chat_id=callback.message.chat.id if callback.message else None,
+        message_id=callback.message.message_id if callback.message else None,
+        thread_id=getattr(callback.message, "message_thread_id", None) if callback.message else None,
+        reviewed_bot_id=me.id,
+    )
+    if not reviewed:
+        return await callback.answer(owner_msg, show_alert=True)
 
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
@@ -171,7 +225,6 @@ async def owner_review_callback(callback: types.CallbackQuery):
         pass
 
     await callback.answer(owner_msg, show_alert=True)
-    await _notify_requester(req, user_msg)
 
 
 

@@ -238,6 +238,15 @@
               </div>
               <div id="owner-recharge-reviews" class="owner-review-list empty">جاري تحميل مراجعات الشحن...</div>
               <div class="section-head activity-head">
+                <div><h3>التدقيق المالي</h3><p>فحص المحافظ والسجل المالي والطلبات التي تحتاج مراجعة مالك.</p></div>
+                <select id="owner-audit-days" class="compact-select"><option value="7">7 أيام</option><option value="30" selected>30 يوم</option><option value="90">90 يوم</option></select>
+              </div>
+              <div id="owner-finance-audit" class="owner-review-list empty">جاري تحميل التدقيق المالي...</div>
+              <div class="section-head activity-head">
+                <div><h3>إدارة المستخدمين</h3><p>بحث الحسابات، الأرصدة، الطلبات، وحالة الحساب من الموقع.</p></div>
+              </div>
+              <div id="owner-user-management" class="owner-review-list empty">جاري تحميل المستخدمين...</div>
+              <div class="section-head activity-head">
                 <div><h3>مراجعات تأكيد الهوية</h3><p>القبول يفتح صلاحيات العمليات الحساسة المرتبطة بالهوية.</p></div>
                 <select id="owner-identity-filter" class="compact-select"><option value="pending">معلقة</option><option value="approved">مقبولة</option><option value="rejected">مرفوضة</option><option value="all">الكل</option></select>
               </div>
@@ -251,6 +260,11 @@
                 <div><h3>تكامل API</h3><p>إدارة مفاتيح API وwebhooks من الموقع. الأسرار تظهر مرة واحدة عند الإنشاء فقط.</p></div>
               </div>
               <div id="owner-api-tools" class="owner-review-list empty">جاري تحميل أدوات التكامل...</div>
+              <div class="section-head activity-head">
+                <div><h3>مراجعات إنشاء البوتات</h3><p>قبول أو رفض طلبات إنشاء بوتات الريسيلر من لوحة الموقع.</p></div>
+                <select id="owner-bot-review-filter" class="compact-select"><option value="pending">معلقة</option><option value="approved">مقبولة</option><option value="rejected">مرفوضة</option><option value="failed">فاشلة</option><option value="all">الكل</option></select>
+              </div>
+              <div id="owner-bot-creation-reviews" class="owner-review-list empty">جاري تحميل مراجعات إنشاء البوتات...</div>
               <div class="section-head activity-head">
                 <div><h3>تشخيص مزودي الأرقام</h3><p>جاهزية المزودين وآخر أحداث webhook الواردة.</p></div>
                 <select id="owner-source-filter" class="compact-select"><option value="under_review">تحتاج مراجعة</option><option value="unmapped">غير مربوطة</option><option value="active">فعالة</option><option value="disabled">معطلة</option><option value="all">الكل</option></select>

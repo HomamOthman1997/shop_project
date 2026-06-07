@@ -431,10 +431,10 @@ const ownerQueueLabels = {
 
 const ownerGroupTargets = {
   overview: ["owner-metrics", "owner-queues", "owner-sections"],
-  finance: ["owner-finance-settings", "owner-routing-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-bot-tools"],
-  users: ["owner-identity-reviews"],
+  finance: ["owner-finance-settings", "owner-routing-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-finance-audit", "owner-bot-tools"],
+  users: ["owner-user-management", "owner-identity-reviews"],
   support: ["owner-support-tickets"],
-  integrations: ["owner-api-tools"],
+  integrations: ["owner-api-tools", "owner-bot-creation-reviews"],
   providers: ["owner-provider-diagnostics"],
   orders: ["owner-digital-orders", "owner-refund-reviews"],
 };
@@ -481,9 +481,13 @@ async function loadOwnerDashboardIsolated() {
   const identityFilter = $("#owner-identity-filter")?.value || "pending";
   const supportFilter = $("#owner-support-filter")?.value || "open";
   const sourceFilter = $("#owner-source-filter")?.value || "under_review";
+  const auditDays = $("#owner-audit-days")?.value || "30";
+  const botReviewFilter = $("#owner-bot-review-filter")?.value || "pending";
   const entries = Object.entries({
     dashboard: api("/api/v1/owner/dashboard"),
     queues: api("/api/v1/owner/queues"),
+    users: api("/api/v1/owner/users?limit=20"),
+    financeAudit: api(`/api/v1/owner/finance/audit?days=${encodeURIComponent(auditDays)}&limit=20`),
     digital: api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
     refunds: api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
     settings: api("/api/v1/owner/settings"),
@@ -495,6 +499,7 @@ async function loadOwnerDashboardIsolated() {
     providers: api("/api/v1/owner/provider-readiness"),
     providerEvents: api("/api/v1/owner/provider-webhook-events?limit=12"),
     sources: api(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent(sourceFilter)}&limit=30`),
+    botCreationReviews: api(`/api/v1/owner/bot-creation-reviews?status=${encodeURIComponent(botReviewFilter)}&limit=30`),
     bots: api("/api/v1/owner/bots?status=all&limit=30"),
   });
   const settled = await Promise.allSettled(entries.map(async ([key, promise]) => [key, await promise]));
@@ -554,9 +559,12 @@ async function loadOwnerDashboardIsolated() {
     fail("#owner-payment-methods", "تعذر تحميل طرق الدفع.");
   }
   data.recharge ? renderOwnerRechargeReviews(data.recharge.reviews || []) : fail("#owner-recharge-reviews", "تعذر تحميل مراجعات الشحن.");
+  data.financeAudit ? renderOwnerFinanceAudit(data.financeAudit.audit || {}) : fail("#owner-finance-audit", "تعذر تحميل التدقيق المالي.");
+  data.users ? renderOwnerUserManagement(data.users.users || []) : fail("#owner-user-management", "تعذر تحميل المستخدمين.");
   data.identity ? renderOwnerIdentityReviews(data.identity.reviews || []) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية.");
   data.support ? renderOwnerSupportTickets(data.support.tickets || []) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم.");
   data.apiKeys && data.webhooks ? renderOwnerApiTools(data.apiKeys, data.webhooks) : fail("#owner-api-tools", "تعذر تحميل أدوات API.");
+  data.botCreationReviews ? renderOwnerBotCreationReviews(data.botCreationReviews.reviews || []) : fail("#owner-bot-creation-reviews", "تعذر تحميل مراجعات إنشاء البوتات.");
   data.providers && data.providerEvents && data.sources
     ? renderOwnerProviderDiagnostics(data.providers.providers || [], data.providerEvents.events || [], data.sources)
     : fail("#owner-provider-diagnostics", "تعذر تحميل تشخيص المزودين.");
@@ -900,6 +908,126 @@ async function runOwnerBotSubscriptionAction(event) {
     setText("#owner-message", "تم تحديث اشتراك البوت.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
+}
+
+function renderOwnerFinanceAudit(audit) {
+  const target = $("#owner-finance-audit");
+  const rows = [
+    ...(audit.negative_wallets || []).map((row) => ({kind: "Negative wallet", detail: `${row.owner_type}:${row.owner_id} / ${row.wallet_type}`, amount: row.balance})),
+    ...(audit.orders_missing_ledger || []).map((row) => ({kind: "Order missing ledger", detail: `${row.order_id} / ${row.service_type}`, amount: row.status})),
+    ...(audit.accepted_recharges_without_ledger || []).map((row) => ({kind: "Recharge missing ledger", detail: `${row.request_id} / ${row.wallet_type}`, amount: row.amount})),
+  ];
+  const totals = [
+    ["Negative wallets", audit.negative_wallets_count || 0],
+    ["Orders missing ledger", audit.orders_missing_ledger_count || 0],
+    ["Accepted recharges without ledger", audit.accepted_recharges_without_ledger_count || 0],
+  ];
+  target.classList.toggle("empty", false);
+  target.innerHTML = `
+    <div class="owner-metrics compact">
+      ${totals.map(([label, value]) => `<div class="owner-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("")}
+    </div>
+    ${rows.length ? rows.map((row) => `
+      <div class="owner-action-row"><div><strong>${esc(row.kind)}</strong><span>${esc(row.detail)}</span></div><b>${esc(row.amount)}</b></div>
+    `).join("") : '<div class="notice">No financial anomalies were found in this window.</div>'}
+  `;
+}
+
+function renderOwnerUserManagement(rows) {
+  const target = $("#owner-user-management");
+  target.classList.toggle("empty", false);
+  target.innerHTML = `
+    <form class="owner-review-form" id="owner-user-search-form">
+      <label><span>Search</span><input id="owner-user-search-input" name="q" placeholder="email, customer id, telegram id"></label>
+      <button class="secondary compact" type="submit">Search</button>
+    </form>
+    <div id="owner-user-detail" class="notice" hidden></div>
+    <div class="owner-action-list">
+      ${rows.length ? rows.map((row) => `
+        <div class="owner-action-row">
+          <div>
+            <strong>${esc(row.email || row.username || row.customer_id)}</strong>
+            <span>ID ${esc(row.customer_id)} · ${row.email_verified ? "verified" : "unverified"} · ${row.telegram_id ? `TG ${esc(row.telegram_id)}` : "no telegram"}</span>
+          </div>
+          <div class="owner-order-actions">
+            <b>${esc(row.balance || 0)}$</b>
+            <button class="secondary compact" data-owner-user-detail="${esc(row.customer_id)}">Details</button>
+            <button class="${row.banned ? "secondary" : "danger"} compact" data-owner-user-action="${esc(row.customer_id)}" data-action="${row.banned ? "unban" : "ban"}">${row.banned ? "Unban" : "Ban"}</button>
+          </div>
+        </div>
+      `).join("") : '<div class="notice">No users found.</div>'}
+    </div>
+  `;
+  $("#owner-user-search-form")?.addEventListener("submit", searchOwnerUsers);
+  target.querySelectorAll("[data-owner-user-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerUserDetail(button.dataset.ownerUserDetail)));
+  target.querySelectorAll("[data-owner-user-action]").forEach((button) => button.addEventListener("click", () => runOwnerUserAction(button)));
+}
+
+async function searchOwnerUsers(event) {
+  event.preventDefault();
+  const q = $("#owner-user-search-input")?.value || "";
+  try {
+    const payload = await api(`/api/v1/owner/users?q=${encodeURIComponent(q)}&limit=30`);
+    renderOwnerUserManagement(payload.users || []);
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function loadOwnerUserDetail(customerId) {
+  try {
+    const payload = await api(`/api/v1/owner/users/${encodeURIComponent(customerId)}`);
+    const target = $("#owner-user-detail");
+    const user = payload.user || {};
+    target.hidden = false;
+    target.innerHTML = `
+      <strong>${esc(user.email || user.customer_id)}</strong>
+      <div class="owner-order-meta"><span>Balance: ${esc(payload.wallet?.balance || 0)}$</span><span>Status: ${esc(user.status)}</span><span>Identity: ${esc(user.identity_status)}</span><span>Banned: ${user.banned ? "yes" : "no"}</span></div>
+      <h4>Recent ledger</h4>
+      ${(payload.ledger || []).map((row) => `<div class="owner-queue-row"><div><strong>${esc(row.reason)}</strong><span>${esc(row.created_at)}</span></div><b>${esc(row.direction)} ${esc(row.amount)}</b></div>`).join("") || '<div>No ledger entries.</div>'}
+      <h4>Recent orders</h4>
+      ${(payload.orders || []).map((row) => `<div class="owner-queue-row"><div><strong>${esc(row.title || row.service_type)}</strong><span>${esc(row.id)}</span></div><b>${esc(row.status)}</b></div>`).join("") || '<div>No recent orders.</div>'}
+    `;
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function runOwnerUserAction(button) {
+  const customerId = button.dataset.ownerUserAction;
+  const action = button.dataset.action;
+  if (!window.confirm(`${action} user ${customerId}?`)) return;
+  button.disabled = true;
+  try {
+    await api(`/api/v1/owner/users/${encodeURIComponent(customerId)}/action`, {method: "POST", body: JSON.stringify({action})});
+    setText("#owner-message", "User account was updated.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+  finally { button.disabled = false; }
+}
+
+function renderOwnerBotCreationReviews(rows) {
+  const target = $("#owner-bot-creation-reviews");
+  target.classList.toggle("empty", !rows.length);
+  target.innerHTML = rows.length ? rows.map((row) => {
+    const payload = row.payload || {};
+    return `
+      <article class="owner-review-card">
+        <div class="owner-order-head"><div><strong>${esc(payload.bot_title || payload.bot_username || "Bot request")}</strong><span>${esc(row.id)}</span></div><b>${esc(row.status)}</b></div>
+        <div class="owner-order-meta"><span>Requester: ${esc(row.requester_id)}</span><span>Bot: ${esc(payload.bot_id || "-")}</span><span>Channel: ${esc(payload.channel || "-")}</span><span>${esc((row.review_reasons || []).join(", ") || "manual review")}</span></div>
+        ${row.status === "pending" ? `<div class="owner-order-actions"><button class="primary compact" data-owner-bot-review="${esc(row.id)}" data-action="approve">Approve</button><button class="danger compact" data-owner-bot-review="${esc(row.id)}" data-action="reject">Reject</button></div>` : ""}
+      </article>
+    `;
+  }).join("") : '<div class="notice">No bot creation reviews found.</div>';
+  target.querySelectorAll("[data-owner-bot-review]").forEach((button) => button.addEventListener("click", () => runOwnerBotCreationReview(button)));
+}
+
+async function runOwnerBotCreationReview(button) {
+  const action = button.dataset.action;
+  if (action === "approve" && !window.confirm("Approve this reseller bot creation request?")) return;
+  button.disabled = true;
+  try {
+    await api(`/api/v1/owner/bot-creation-reviews/${encodeURIComponent(button.dataset.ownerBotReview)}/action`, {method: "POST", body: JSON.stringify({action})});
+    setText("#owner-message", "Bot creation review was updated.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+  finally { button.disabled = false; }
 }
 
 function renderOwnerRechargeReviews(rows) {
@@ -1849,6 +1977,8 @@ $("#owner-recharge-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-identity-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-support-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-source-filter")?.addEventListener("change", loadOwnerDashboard);
+$("#owner-audit-days")?.addEventListener("change", loadOwnerDashboard);
+$("#owner-bot-review-filter")?.addEventListener("change", loadOwnerDashboard);
 
 sendEmailCodeButton.addEventListener("click", async () => {
   await sendEmailCode({

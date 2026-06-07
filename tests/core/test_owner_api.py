@@ -17,6 +17,10 @@ def test_register_owner_api_routes():
     routes = {(route.method, route.resource.canonical) for route in app.router.routes()}
     assert ("GET", "/api/v1/owner/dashboard") in routes
     assert ("GET", "/api/v1/owner/queues") in routes
+    assert ("GET", "/api/v1/owner/users") in routes
+    assert ("GET", "/api/v1/owner/users/{customer_id}") in routes
+    assert ("POST", "/api/v1/owner/users/{customer_id}/action") in routes
+    assert ("GET", "/api/v1/owner/finance/audit") in routes
     assert ("GET", "/api/v1/owner/digital/orders") in routes
     assert ("POST", "/api/v1/owner/digital/orders/{order_id}/action") in routes
     assert ("GET", "/api/v1/owner/numbers/refund-reviews") in routes
@@ -43,6 +47,8 @@ def test_register_owner_api_routes():
     assert ("GET", "/api/v1/owner/digital-provider-sources") in routes
     assert ("POST", "/api/v1/owner/digital-provider-sources/scan") in routes
     assert ("POST", "/api/v1/owner/digital-provider-sources/{source_id}/action") in routes
+    assert ("GET", "/api/v1/owner/bot-creation-reviews") in routes
+    assert ("POST", "/api/v1/owner/bot-creation-reviews/{request_id}/action") in routes
     assert ("GET", "/api/v1/owner/bots") in routes
     assert ("POST", "/api/v1/owner/bots/{bot_id}/subscription/action") in routes
     assert ("POST", "/api/v1/owner/reseller-deposits") in routes
@@ -109,6 +115,125 @@ async def test_owner_queues_returns_sanitized_pending_rows(monkeypatch):
     assert payload["queues"]["digital"][0]["title"] == "PUBG 60 UC"
     assert payload["queues"]["identity"] == []
     assert "projection" not in payload
+
+
+@pytest.mark.asyncio
+async def test_owner_user_detail_returns_account_wallet_and_activity(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1",
+            customer_id=900000000001,
+            email="homamothman1@gmail.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    class FakeCursor:
+        def __init__(self, rows):
+            self.rows = list(rows)
+
+        def sort(self, *_args):
+            return self
+
+        def limit(self, limit):
+            self.rows = self.rows[:limit]
+            return self
+
+        async def to_list(self, length=None):
+            return self.rows[:length] if length is not None else list(self.rows)
+
+    class FakeCollection:
+        def __init__(self, rows):
+            self.rows = list(rows)
+
+        async def find_one(self, query, *args, **kwargs):
+            for row in self.rows:
+                ok = True
+                for key, value in query.items():
+                    if isinstance(value, dict) and "$in" in value:
+                        ok = row.get(key) in value["$in"]
+                    elif row.get(key) != value:
+                        ok = False
+                if ok:
+                    return row
+            return None
+
+        def find(self, query=None, *args, **kwargs):
+            query = query or {}
+            rows = []
+            for row in self.rows:
+                ok = True
+                for key, value in query.items():
+                    if isinstance(value, dict) and "$in" in value:
+                        ok = row.get(key) in value["$in"]
+                    elif row.get(key) != value:
+                        ok = False
+                if ok:
+                    rows.append(row)
+            return FakeCursor(rows)
+
+    class FakeDb:
+        website_accounts = FakeCollection([
+            {"_id": "acct-1", "customer_id": 900000000123, "email": "user@example.com", "email_verified_at": datetime(2026, 6, 7, tzinfo=UTC), "status": "active"}
+        ])
+        users = FakeCollection([
+            {"telegram_id": 900000000123, "username": "user", "banned": False}
+        ])
+        wallets = FakeCollection([
+            {"wallet_key": "user:900000000123:user:900000000123", "owner_type": "user", "owner_id": 900000000123, "reseller_id": 900000000123, "wallet_type": "user", "balance": 12.5}
+        ])
+        orders = FakeCollection([
+            {"_id": "order-1", "user_id": 900000000123, "status": "paid", "service_type": "core", "retail_amount": 2.0}
+        ])
+        recharge_requests = FakeCollection([
+            {"_id": "rch-1", "user_id": 900000000123, "status": "accepted", "amount": 10.0}
+        ])
+
+    async def entries(user_id, reseller_id, limit=12):
+        return [{"_id": "tx-1", "direction": "credit", "amount": 12.5, "reason": "manual", "balance_after": 12.5, "created_at": datetime(2026, 6, 7, tzinfo=UTC)}]
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "db", FakeDb())
+    monkeypatch.setattr(owner_api, "list_user_wallet_entries", entries)
+
+    request = make_mocked_request("GET", "/api/v1/owner/users/900000000123", match_info={"customer_id": "900000000123"})
+    response = await owner_api.owner_user_detail(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["user"]["email"] == "user@example.com"
+    assert payload["wallet"]["balance"] == 12.5
+    assert payload["ledger"][0]["reason"] == "manual"
+    assert payload["orders"][0]["id"] == "order-1"
+
+
+@pytest.mark.asyncio
+async def test_owner_finance_audit_delegates_to_financial_scan(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1",
+            customer_id=900000000001,
+            email="homamothman1@gmail.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    calls = {}
+
+    async def scan(*, days, max_rows):
+        calls["days"] = days
+        calls["max_rows"] = max_rows
+        return {"days": days, "negative_wallets_count": 1}
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "scan_financial_anomalies", scan)
+
+    response = await owner_api.owner_finance_audit(make_mocked_request("GET", "/api/v1/owner/finance/audit?days=7&limit=5"))
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["audit"]["negative_wallets_count"] == 1
+    assert calls == {"days": 7, "max_rows": 5}
 
 
 @pytest.mark.asyncio

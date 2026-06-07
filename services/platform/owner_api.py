@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+import re
 from typing import Any
 
 from aiohttp import web
@@ -20,7 +21,7 @@ from database.digital_provider_sources_repo import (
     list_price_watch_runs,
     list_provider_sources,
 )
-from database.financial_ledger import credit_reseller_main_wallet
+from database.financial_ledger import credit_reseller_main_wallet, list_user_wallet_entries, scan_financial_anomalies
 from database.mongo import db
 from database.numbers_config_repo import get_numbers_markup_percent, set_numbers_markup_percent
 from database.owner_payment_settings_repo import (
@@ -60,6 +61,7 @@ from services.subscriptions.bot_subscription_service import (
     set_bot_subscription_plan,
     sync_bot_subscription,
 )
+from handlers.owner_requests import review_bot_creation_request
 
 
 _NO_STORE_HEADERS = {
@@ -145,6 +147,198 @@ async def _recent(
 
 def _text(value: Any) -> str:
     return str(value or "")
+
+
+def _money(value: Any) -> float:
+    try:
+        return round(float(value or 0), 2)
+    except Exception:
+        return 0.0
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _public_account_payload(account: dict[str, Any] | None, user: dict[str, Any] | None = None) -> dict[str, Any]:
+    account = account or {}
+    user = user or {}
+    customer_id = _safe_int(account.get("customer_id") or user.get("telegram_id")) or 0
+    telegram_id = _safe_int(account.get("telegram_id"))
+    return {
+        "id": _text(account.get("_id")),
+        "customer_id": customer_id,
+        "email": _text(account.get("email")),
+        "email_verified": bool(account.get("email_verified_at") or user.get("email_verified_at")),
+        "email_verified_at": _iso_value(account.get("email_verified_at") or user.get("email_verified_at")),
+        "telegram_id": telegram_id,
+        "telegram_linked_at": _iso_value(account.get("telegram_linked_at")),
+        "username": _text(user.get("username")),
+        "identity_status": _text(account.get("identity_status") or "unsubmitted"),
+        "status": _text(account.get("status") or "active"),
+        "banned": bool(user.get("banned")),
+        "created_at": _iso_value(account.get("created_at") or user.get("created_at")),
+        "updated_at": _iso_value(account.get("updated_at")),
+    }
+
+
+async def _find_owner_user_subject(customer_id: int) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    account = await db.website_accounts.find_one({"customer_id": int(customer_id)})
+    user_query: dict[str, Any] = {"telegram_id": int(customer_id)}
+    if account and account.get("telegram_id"):
+        user_query = {"telegram_id": {"$in": [int(customer_id), int(account["telegram_id"])]}}
+    user = await db.users.find_one(user_query)
+    return account, user
+
+
+async def owner_users(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    q = str(request.query.get("q") or "").strip()
+    limit = _limit(request, 50)
+    query: dict[str, Any] = {}
+    if q:
+        escaped = re.escape(q)
+        ors: list[dict[str, Any]] = [
+            {"email": {"$regex": escaped, "$options": "i"}},
+            {"email_normalized": {"$regex": escaped.lower(), "$options": "i"}},
+        ]
+        username_rows = await db.users.find(
+            {"username": {"$regex": escaped, "$options": "i"}},
+            {"telegram_id": 1},
+        ).limit(20).to_list(length=20)
+        username_ids = [int(row.get("telegram_id")) for row in username_rows if _safe_int(row.get("telegram_id")) is not None]
+        if username_ids:
+            ors.extend([{"customer_id": {"$in": username_ids}}, {"telegram_id": {"$in": username_ids}}])
+        numeric = _safe_int(q)
+        if numeric is not None:
+            ors.extend([{"customer_id": numeric}, {"telegram_id": numeric}])
+        query = {"$or": ors}
+    accounts = await db.website_accounts.find(query).sort("created_at", -1).limit(limit).to_list(length=limit)
+    customer_ids = [int(row.get("customer_id")) for row in accounts if _safe_int(row.get("customer_id")) is not None]
+    telegram_ids = [int(row.get("telegram_id")) for row in accounts if _safe_int(row.get("telegram_id")) is not None]
+    users_by_id: dict[int, dict[str, Any]] = {}
+    if customer_ids or telegram_ids:
+        user_rows = await db.users.find({"telegram_id": {"$in": list(set(customer_ids + telegram_ids))}}).to_list(length=None)
+        users_by_id = {int(row.get("telegram_id")): row for row in user_rows if _safe_int(row.get("telegram_id")) is not None}
+    rows = []
+    for account in accounts:
+        customer_id = _safe_int(account.get("customer_id")) or 0
+        telegram_id = _safe_int(account.get("telegram_id"))
+        user = users_by_id.get(customer_id) or (users_by_id.get(telegram_id) if telegram_id is not None else None) or {}
+        payload = _public_account_payload(account, user)
+        wallet = await db.wallets.find_one(
+            {
+                "owner_type": "user",
+                "owner_id": int(customer_id),
+                "reseller_id": int(customer_id),
+                "wallet_type": "user",
+            }
+        )
+        payload["balance"] = _money((wallet or {}).get("balance"))
+        rows.append(payload)
+    return web.json_response({"ok": True, "users": rows}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_user_detail(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    customer_id = _safe_int(request.match_info.get("customer_id"))
+    if customer_id is None:
+        return web.json_response({"ok": False, "message": "Invalid customer id."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    account, user = await _find_owner_user_subject(customer_id)
+    if not account and not user:
+        return web.json_response({"ok": False, "message": "User was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    wallet = await db.wallets.find_one(
+        {"owner_type": "user", "owner_id": int(customer_id), "reseller_id": int(customer_id), "wallet_type": "user"}
+    )
+    entries = await list_user_wallet_entries(int(customer_id), int(customer_id), limit=12)
+    order_rows = await db.orders.find({"user_id": int(customer_id)}).sort("created_at", -1).limit(12).to_list(length=12)
+    recharge_rows = await db.recharge_requests.find({"user_id": int(customer_id)}).sort("created_at", -1).limit(8).to_list(length=8)
+    return web.json_response(
+        {
+            "ok": True,
+            "user": _public_account_payload(account, user),
+            "wallet": {"balance": _money((wallet or {}).get("balance")), "wallet_key": _text((wallet or {}).get("wallet_key"))},
+            "ledger": [
+                {
+                    "id": _text(row.get("_id")),
+                    "direction": _text(row.get("direction")),
+                    "amount": _money(row.get("amount")),
+                    "reason": _text(row.get("reason")),
+                    "balance_after": _money(row.get("balance_after")),
+                    "order_id": _text(row.get("order_id")),
+                    "created_at": _iso_value(row.get("created_at")),
+                }
+                for row in entries
+            ],
+            "orders": [
+                {
+                    "id": _text(row.get("_id")),
+                    "status": _text(row.get("status")),
+                    "service_type": _text(row.get("service_type") or row.get("number_mode")),
+                    "title": _text(row.get("manual_item_name") or row.get("service_ref_id") or row.get("service_id")),
+                    "amount": _money(row.get("retail_amount", row.get("selling_price", row.get("price")))),
+                    "created_at": _iso_value(row.get("created_at")),
+                }
+                for row in order_rows
+            ],
+            "recharges": [
+                {
+                    "id": _text(row.get("_id")),
+                    "status": _text(row.get("status")),
+                    "method": _text(row.get("method")),
+                    "amount": _money(row.get("approved_amount") if row.get("approved_amount") is not None else row.get("amount")),
+                    "created_at": _iso_value(row.get("created_at")),
+                }
+                for row in recharge_rows
+            ],
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_user_action(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    customer_id = _safe_int(request.match_info.get("customer_id"))
+    if customer_id is None:
+        return web.json_response({"ok": False, "message": "Invalid customer id."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    payload = await request.json()
+    action = str(payload.get("action") or "").strip().lower()
+    if action not in {"ban", "unban"}:
+        return web.json_response({"ok": False, "message": "Unsupported user action."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    banned = action == "ban"
+    now = datetime.now(UTC)
+    result = await db.users.update_one(
+        {"telegram_id": int(customer_id)},
+        {
+            "$set": {
+                "banned": banned,
+                "admin_updated_at": now,
+                "admin_updated_by": int(owner.customer_id),
+            }
+        },
+        upsert=False,
+    )
+    if not result.matched_count:
+        return web.json_response({"ok": False, "message": "User was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    await db.website_accounts.update_one(
+        {"customer_id": int(customer_id)},
+        {"$set": {"status": "banned" if banned else "active", "updated_at": now}},
+    )
+    account, user = await _find_owner_user_subject(customer_id)
+    return web.json_response({"ok": True, "user": _public_account_payload(account, user)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_finance_audit(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    try:
+        days = max(1, min(365, int(request.query.get("days") or 30)))
+    except Exception:
+        days = 30
+    report = await scan_financial_anomalies(days=days, max_rows=_limit(request, 30))
+    return web.json_response({"ok": True, "audit": report}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_dashboard(request: web.Request) -> web.Response:
@@ -958,6 +1152,54 @@ def _bot_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _bot_creation_review_payload(row: dict[str, Any]) -> dict[str, Any]:
+    payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+    safe_payload = {key: value for key, value in payload.items() if key != "bot_token"}
+    return {
+        "id": _text(row.get("_id")),
+        "status": _text(row.get("status")),
+        "requester_id": int(row.get("requester_id") or 0),
+        "requester_lang": _text(row.get("requester_lang") or "en"),
+        "review_reasons": list(row.get("review_reasons") or []),
+        "owner_notified": bool(row.get("owner_notified")),
+        "notify_route": _text(row.get("owner_notify_route")),
+        "payload": safe_payload,
+        "created_at": _date_text(row.get("created_at")),
+        "reviewed_at": _date_text(row.get("reviewed_at")),
+        "reviewed_by": row.get("reviewed_by"),
+    }
+
+
+async def owner_bot_creation_reviews(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    status = str(request.query.get("status") or "pending").strip().lower()
+    query: dict[str, Any] = {}
+    if status not in {"all", "*", ""}:
+        query["status"] = status
+    rows = await db.bot_creation_requests.find(query, {"payload.bot_token": 0}).sort("created_at", -1).limit(_limit(request)).to_list(length=_limit(request))
+    return web.json_response({"ok": True, "reviews": [_bot_creation_review_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_bot_creation_review_action(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str((body or {}).get("action") or "").strip().lower()
+    reviewed, _status, message = await review_bot_creation_request(
+        request_id=str(request.match_info.get("request_id") or ""),
+        action=action,
+        reviewer_id=int(owner.customer_id),
+        reviewer_username=owner.email,
+        source="website_owner_api",
+        notify_requester=True,
+    )
+    if not reviewed:
+        return web.json_response({"ok": False, "message": message}, status=404, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"ok": True, "message": message, "review": _bot_creation_review_payload(reviewed)}, headers=dict(_NO_STORE_HEADERS))
+
+
 async def owner_bots(request: web.Request) -> web.Response:
     await require_website_owner(request)
     query: dict[str, Any] = {}
@@ -1097,6 +1339,10 @@ async def owner_support_ticket_action(request: web.Request) -> web.Response:
 def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/dashboard", owner_dashboard)
     app.router.add_get("/api/v1/owner/queues", owner_queues)
+    app.router.add_get("/api/v1/owner/users", owner_users)
+    app.router.add_get("/api/v1/owner/users/{customer_id}", owner_user_detail)
+    app.router.add_post("/api/v1/owner/users/{customer_id}/action", owner_user_action)
+    app.router.add_get("/api/v1/owner/finance/audit", owner_finance_audit)
     app.router.add_get("/api/v1/owner/digital/orders", owner_digital_orders)
     app.router.add_post("/api/v1/owner/digital/orders/{order_id}/action", owner_digital_order_action)
     app.router.add_get("/api/v1/owner/numbers/refund-reviews", owner_numbers_refund_reviews)
@@ -1123,6 +1369,8 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/digital-provider-sources", owner_digital_provider_sources)
     app.router.add_post("/api/v1/owner/digital-provider-sources/scan", owner_run_digital_provider_scan)
     app.router.add_post("/api/v1/owner/digital-provider-sources/{source_id}/action", owner_digital_provider_source_action)
+    app.router.add_get("/api/v1/owner/bot-creation-reviews", owner_bot_creation_reviews)
+    app.router.add_post("/api/v1/owner/bot-creation-reviews/{request_id}/action", owner_bot_creation_review_action)
     app.router.add_get("/api/v1/owner/bots", owner_bots)
     app.router.add_post("/api/v1/owner/bots/{bot_id}/subscription/action", owner_bot_subscription_action)
     app.router.add_post("/api/v1/owner/reseller-deposits", owner_reseller_deposit)
