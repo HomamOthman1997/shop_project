@@ -243,6 +243,7 @@ _LANDING_HTML = """\
       .service-card { min-height: 0; }
     }
   </style>
+  <script src="/auth/static/i18n.js" defer></script>
 </head>
 <body>
   <main class="shell">

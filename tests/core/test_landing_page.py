@@ -4,6 +4,7 @@ from services import landing_page
 def test_landing_page_exposes_public_website_navigation():
     html = landing_page.landing_page_html()
 
+    assert 'src="/auth/static/i18n.js"' in html
     assert 'href="/login"' in html
     assert 'href="/register"' in html
     assert 'href="/app/numbers"' in html

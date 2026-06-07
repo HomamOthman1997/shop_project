@@ -49,6 +49,15 @@ def test_shop_root_serves_public_landing_page():
     assert ("GET", "/", "landing_page") in routes
 
 
+def test_auth_page_loads_site_translator():
+    from pathlib import Path
+
+    html = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "index.html").read_text(encoding="utf-8")
+
+    assert 'src="/auth/static/i18n.js"' in html
+    assert html.index("/auth/static/i18n.js") < html.index("/auth/static/app.js")
+
+
 @pytest.mark.asyncio
 async def test_public_landing_page_links_to_auth_and_service_routes():
     response = await landing_page.landing_page(make_mocked_request("GET", "/"))
