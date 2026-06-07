@@ -448,6 +448,62 @@ const ownerGroupTargets = {
   orders: ["owner-digital-orders", "owner-custom-preorders", "owner-refund-reviews"],
 };
 
+function ownerRequestMap() {
+  const digitalFilter = $("#owner-digital-filter")?.value || "pending";
+  const showResolvedReviews = $("#owner-refunds-resolved")?.checked ? "1" : "0";
+  const rechargeFilter = $("#owner-recharge-filter")?.value || "pending";
+  const identityFilter = $("#owner-identity-filter")?.value || "pending";
+  const supportFilter = $("#owner-support-filter")?.value || "open";
+  const sourceFilter = $("#owner-source-filter")?.value || "under_review";
+  const auditDays = $("#owner-audit-days")?.value || "30";
+  const botReviewFilter = $("#owner-bot-review-filter")?.value || "pending";
+  const preorderFilter = $("#owner-preorder-filter")?.value || "active";
+  const catalogType = $("#owner-catalog-type")?.value || "custom";
+  return {
+    overview: {
+      dashboard: () => api("/api/v1/owner/dashboard"),
+      queues: () => api("/api/v1/owner/queues"),
+    },
+    finance: {
+      settings: () => api("/api/v1/owner/settings"),
+      recharge: () => api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
+      financeAudit: () => api(`/api/v1/owner/finance/audit?days=${encodeURIComponent(auditDays)}&limit=20`),
+      resellers: () => api("/api/v1/owner/resellers?limit=50"),
+      bots: () => api("/api/v1/owner/bots?status=all&limit=30"),
+    },
+    users: {
+      users: () => api("/api/v1/owner/users?limit=20"),
+      identity: () => api(`/api/v1/owner/identity-reviews?status=${encodeURIComponent(identityFilter)}&limit=30`),
+    },
+    support: {
+      support: () => api(`/api/v1/owner/support-tickets?status=${encodeURIComponent(supportFilter)}&limit=30`),
+    },
+    integrations: {
+      apiKeys: () => api("/api/v1/owner/api-keys?status=all&limit=30"),
+      webhooks: () => api("/api/v1/owner/webhooks?status=all&limit=30"),
+      botCreationReviews: () => api(`/api/v1/owner/bot-creation-reviews?status=${encodeURIComponent(botReviewFilter)}&limit=30`),
+    },
+    providers: {
+      providers: () => api("/api/v1/owner/provider-readiness"),
+      providerEvents: () => api("/api/v1/owner/provider-webhook-events?limit=12"),
+      sources: () => api(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent(sourceFilter)}&limit=30`),
+    },
+    catalog: {
+      catalog: () => api(`/api/v1/owner/custom-catalog?catalog_type=${encodeURIComponent(catalogType)}${ownerCatalogParentId ? `&parent_id=${encodeURIComponent(ownerCatalogParentId)}` : ""}`),
+    },
+    system: {
+      settings: () => api("/api/v1/owner/settings"),
+      systemStatus: () => api("/api/v1/owner/system/status"),
+      ownerAudit: () => api("/api/v1/owner/audit?limit=30"),
+    },
+    orders: {
+      digital: () => api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
+      preorders: () => api(`/api/v1/owner/custom-preorders?status=${encodeURIComponent(preorderFilter)}&limit=30`),
+      refunds: () => api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
+    },
+  };
+}
+
 function tagOwnerGroups() {
   Object.entries(ownerGroupTargets).forEach(([group, ids]) => {
     ids.forEach((id) => {
@@ -484,48 +540,16 @@ async function loadOwnerDashboardIsolated() {
     target.classList?.add("empty");
     target.textContent = text;
   };
-  const digitalFilter = $("#owner-digital-filter")?.value || "pending";
-  const showResolvedReviews = $("#owner-refunds-resolved")?.checked ? "1" : "0";
-  const rechargeFilter = $("#owner-recharge-filter")?.value || "pending";
-  const identityFilter = $("#owner-identity-filter")?.value || "pending";
-  const supportFilter = $("#owner-support-filter")?.value || "open";
-  const sourceFilter = $("#owner-source-filter")?.value || "under_review";
-  const auditDays = $("#owner-audit-days")?.value || "30";
-  const botReviewFilter = $("#owner-bot-review-filter")?.value || "pending";
-  const preorderFilter = $("#owner-preorder-filter")?.value || "active";
-  const catalogType = $("#owner-catalog-type")?.value || "custom";
-  const entries = Object.entries({
-    dashboard: api("/api/v1/owner/dashboard"),
-    queues: api("/api/v1/owner/queues"),
-    users: api("/api/v1/owner/users?limit=20"),
-    financeAudit: api(`/api/v1/owner/finance/audit?days=${encodeURIComponent(auditDays)}&limit=20`),
-    systemStatus: api("/api/v1/owner/system/status"),
-    ownerAudit: api("/api/v1/owner/audit?limit=30"),
-    resellers: api("/api/v1/owner/resellers?limit=50"),
-    digital: api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
-    preorders: api(`/api/v1/owner/custom-preorders?status=${encodeURIComponent(preorderFilter)}&limit=30`),
-    catalog: api(`/api/v1/owner/custom-catalog?catalog_type=${encodeURIComponent(catalogType)}${ownerCatalogParentId ? `&parent_id=${encodeURIComponent(ownerCatalogParentId)}` : ""}`),
-    refunds: api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
-    settings: api("/api/v1/owner/settings"),
-    recharge: api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
-    identity: api(`/api/v1/owner/identity-reviews?status=${encodeURIComponent(identityFilter)}&limit=30`),
-    support: api(`/api/v1/owner/support-tickets?status=${encodeURIComponent(supportFilter)}&limit=30`),
-    apiKeys: api("/api/v1/owner/api-keys?status=all&limit=30"),
-    webhooks: api("/api/v1/owner/webhooks?status=all&limit=30"),
-    providers: api("/api/v1/owner/provider-readiness"),
-    providerEvents: api("/api/v1/owner/provider-webhook-events?limit=12"),
-    sources: api(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent(sourceFilter)}&limit=30`),
-    botCreationReviews: api(`/api/v1/owner/bot-creation-reviews?status=${encodeURIComponent(botReviewFilter)}&limit=30`),
-    bots: api("/api/v1/owner/bots?status=all&limit=30"),
-  });
-  const settled = await Promise.allSettled(entries.map(async ([key, promise]) => [key, await promise]));
+  const requests = ownerRequestMap()[activeOwnerTab] || ownerRequestMap().overview;
+  const requested = (key) => Object.prototype.hasOwnProperty.call(requests, key);
+  const settled = await Promise.allSettled(Object.entries(requests).map(async ([key, factory]) => [key, await factory()]));
   const data = {};
   const failures = [];
   settled.forEach((result) => {
     if (result.status === "fulfilled") data[result.value[0]] = result.value[1];
     else failures.push(result.reason?.message || "request failed");
   });
-  if (data.dashboard) {
+  if (requested("dashboard") && data.dashboard) {
     const metrics = Object.entries(data.dashboard.metrics || {});
     metricsTarget.classList.toggle("empty", !metrics.length);
     metricsTarget.innerHTML = metrics.map(([key, value]) => `
@@ -546,11 +570,11 @@ async function loadOwnerDashboardIsolated() {
             </div>`).join("")}
         </div>
       </section>`).join("");
-  } else {
+  } else if (requested("dashboard")) {
     fail(metricsTarget, "تعذر تحميل مؤشرات المالك.");
     fail(sectionsTarget, "تعذر تحميل خصائص الإدارة.");
   }
-  if (data.queues) {
+  if (requested("queues") && data.queues) {
     const queues = Object.entries(data.queues.queues || {});
     queuesTarget.classList.toggle("empty", !queues.length);
     queuesTarget.innerHTML = queues.map(([key, rows]) => `
@@ -564,127 +588,44 @@ async function loadOwnerDashboardIsolated() {
             </div>`).join("") : '<span class="owner-queue-empty">لا توجد عناصر معلقة.</span>'}
         </div>
       </section>`).join("");
-  } else {
+  } else if (requested("queues")) {
     fail(queuesTarget, "تعذر تحميل طوابير المتابعة.");
   }
-  data.digital ? renderOwnerDigitalOrders(data.digital.orders || []) : fail("#owner-digital-orders", "تعذر تحميل الطلبات الرقمية.");
-  data.preorders ? renderOwnerCustomPreorders(data.preorders.preorders || []) : fail("#owner-custom-preorders", "Could not load custom preorders.");
-  data.catalog ? renderOwnerCustomCatalog(data.catalog) : fail("#owner-custom-catalog", "Could not load custom services catalog.");
-  data.refunds ? renderOwnerRefundReviews(data.refunds.reviews || []) : fail("#owner-refund-reviews", "تعذر تحميل مراجعات الأرقام.");
-  data.settings ? renderOwnerSettings(data.settings) : fail("#owner-finance-settings", "تعذر تحميل الإعدادات المالية.");
-  if (!data.settings) {
+  if (requested("digital")) data.digital ? renderOwnerDigitalOrders(data.digital.orders || []) : fail("#owner-digital-orders", "تعذر تحميل الطلبات الرقمية.");
+  if (requested("preorders")) data.preorders ? renderOwnerCustomPreorders(data.preorders.preorders || []) : fail("#owner-custom-preorders", "Could not load custom preorders.");
+  if (requested("catalog")) data.catalog ? renderOwnerCustomCatalog(data.catalog) : fail("#owner-custom-catalog", "Could not load custom services catalog.");
+  if (requested("refunds")) data.refunds ? renderOwnerRefundReviews(data.refunds.reviews || []) : fail("#owner-refund-reviews", "تعذر تحميل مراجعات الأرقام.");
+  if (requested("settings")) data.settings ? renderOwnerSettings(data.settings) : fail("#owner-finance-settings", "تعذر تحميل الإعدادات المالية.");
+  if (requested("settings") && !data.settings) {
     fail("#owner-routing-settings", "تعذر تحميل إعدادات التوجيه.");
     fail("#owner-payment-methods", "تعذر تحميل طرق الدفع.");
   }
-  data.recharge ? renderOwnerRechargeReviews(data.recharge.reviews || []) : fail("#owner-recharge-reviews", "تعذر تحميل مراجعات الشحن.");
-  data.financeAudit ? renderOwnerFinanceAudit(data.financeAudit.audit || {}) : fail("#owner-finance-audit", "تعذر تحميل التدقيق المالي.");
-  data.systemStatus && data.ownerAudit ? renderOwnerSystemOperations(data.systemStatus.system || {}, data.ownerAudit.events || []) : fail("#owner-system-operations", "تعذر تحميل عمليات النظام.");
-  data.resellers ? renderOwnerResellerManagement(data.resellers.resellers || []) : fail("#owner-reseller-management", "تعذر تحميل الوكلاء.");
-  data.users ? renderOwnerUserManagement(data.users.users || []) : fail("#owner-user-management", "تعذر تحميل المستخدمين.");
-  data.identity ? renderOwnerIdentityReviews(data.identity.reviews || []) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية.");
-  data.support ? renderOwnerSupportTickets(data.support.tickets || []) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم.");
-  data.apiKeys && data.webhooks ? renderOwnerApiTools(data.apiKeys, data.webhooks) : fail("#owner-api-tools", "تعذر تحميل أدوات API.");
-  data.botCreationReviews ? renderOwnerBotCreationReviews(data.botCreationReviews.reviews || []) : fail("#owner-bot-creation-reviews", "تعذر تحميل مراجعات إنشاء البوتات.");
-  data.providers && data.providerEvents && data.sources
-    ? renderOwnerProviderDiagnostics(data.providers.providers || [], data.providerEvents.events || [], data.sources)
-    : fail("#owner-provider-diagnostics", "تعذر تحميل تشخيص المزودين.");
-  data.bots ? renderOwnerBotTools(data.bots.bots || []) : fail("#owner-bot-tools", "تعذر تحميل أدوات البوتات.");
+  if (requested("recharge")) data.recharge ? renderOwnerRechargeReviews(data.recharge.reviews || []) : fail("#owner-recharge-reviews", "تعذر تحميل مراجعات الشحن.");
+  if (requested("financeAudit")) data.financeAudit ? renderOwnerFinanceAudit(data.financeAudit.audit || {}) : fail("#owner-finance-audit", "تعذر تحميل التدقيق المالي.");
+  if (requested("systemStatus") || requested("ownerAudit")) {
+    data.systemStatus && data.ownerAudit ? renderOwnerSystemOperations(data.systemStatus.system || {}, data.ownerAudit.events || []) : fail("#owner-system-operations", "تعذر تحميل عمليات النظام.");
+  }
+  if (requested("resellers")) data.resellers ? renderOwnerResellerManagement(data.resellers.resellers || []) : fail("#owner-reseller-management", "تعذر تحميل الوكلاء.");
+  if (requested("users")) data.users ? renderOwnerUserManagement(data.users.users || []) : fail("#owner-user-management", "تعذر تحميل المستخدمين.");
+  if (requested("identity")) data.identity ? renderOwnerIdentityReviews(data.identity.reviews || []) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية.");
+  if (requested("support")) data.support ? renderOwnerSupportTickets(data.support.tickets || []) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم.");
+  if (requested("apiKeys") || requested("webhooks")) data.apiKeys && data.webhooks ? renderOwnerApiTools(data.apiKeys, data.webhooks) : fail("#owner-api-tools", "تعذر تحميل أدوات API.");
+  if (requested("botCreationReviews")) data.botCreationReviews ? renderOwnerBotCreationReviews(data.botCreationReviews.reviews || []) : fail("#owner-bot-creation-reviews", "تعذر تحميل مراجعات إنشاء البوتات.");
+  if (requested("providers") || requested("providerEvents") || requested("sources")) {
+    data.providers && data.providerEvents && data.sources
+      ? renderOwnerProviderDiagnostics(data.providers.providers || [], data.providerEvents.events || [], data.sources)
+      : fail("#owner-provider-diagnostics", "تعذر تحميل تشخيص المزودين.");
+  }
+  if (requested("bots")) data.bots ? renderOwnerBotTools(data.bots.bots || []) : fail("#owner-bot-tools", "تعذر تحميل أدوات البوتات.");
   message.textContent = failures.length ? `تعذر تحميل ${failures.length} قسم/أقسام. آخر خطأ: ${failures[0]}` : "";
   applyOwnerTab(activeOwnerTab, false);
 }
 
 async function loadOwnerDashboard() {
-  const metricsTarget = $("#owner-metrics");
-  const queuesTarget = $("#owner-queues");
-  const sectionsTarget = $("#owner-sections");
   const message = $("#owner-message");
   if (!currentAccount?.is_owner) return;
   message.textContent = "";
   return loadOwnerDashboardIsolated();
-  try {
-    const digitalFilter = $("#owner-digital-filter")?.value || "pending";
-    const showResolvedReviews = $("#owner-refunds-resolved")?.checked ? "1" : "0";
-    const rechargeFilter = $("#owner-recharge-filter")?.value || "pending";
-    const identityFilter = $("#owner-identity-filter")?.value || "pending";
-    const supportFilter = $("#owner-support-filter")?.value || "open";
-    const sourceFilter = $("#owner-source-filter")?.value || "under_review";
-    const [payload, queuePayload, digitalPayload, refundPayload, settingsPayload, rechargePayload, identityPayload, supportPayload, apiKeysPayload, webhooksPayload, providerPayload, providerEventsPayload, sourcesPayload, botsPayload] = await Promise.all([
-      api("/api/v1/owner/dashboard"),
-      api("/api/v1/owner/queues"),
-      api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
-      api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
-      api("/api/v1/owner/settings"),
-      api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
-      api(`/api/v1/owner/identity-reviews?status=${encodeURIComponent(identityFilter)}&limit=30`),
-      api(`/api/v1/owner/support-tickets?status=${encodeURIComponent(supportFilter)}&limit=30`),
-      api("/api/v1/owner/api-keys?status=all&limit=30"),
-      api("/api/v1/owner/webhooks?status=all&limit=30"),
-      api("/api/v1/owner/provider-readiness"),
-      api("/api/v1/owner/provider-webhook-events?limit=12"),
-      api(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent(sourceFilter)}&limit=30`),
-      api("/api/v1/owner/bots?status=all&limit=30"),
-    ]);
-    const metrics = Object.entries(payload.metrics || {});
-    metricsTarget.classList.toggle("empty", !metrics.length);
-    metricsTarget.innerHTML = metrics.map(([key, value]) => `
-      <div class="owner-metric">
-        <span>${esc(ownerMetricLabels[key] || key)}</span>
-        <strong>${esc(value)}</strong>
-      </div>`).join("");
-    const queues = Object.entries(queuePayload.queues || {});
-    queuesTarget.classList.toggle("empty", !queues.length);
-    queuesTarget.innerHTML = queues.map(([key, rows]) => `
-      <section class="owner-queue">
-        <div class="owner-queue-head"><strong>${esc(ownerQueueLabels[key] || key)}</strong><b>${esc(rows.length)}</b></div>
-        <div class="owner-queue-list">
-          ${rows.length ? rows.map((row) => `
-            <div class="owner-queue-row">
-              <div><strong>${esc(row.title || row.id)}</strong><span>${esc(row.detail || "")}</span></div>
-              <b>${esc(row.status || "")}</b>
-            </div>`).join("") : '<span class="owner-queue-empty">لا توجد عناصر معلقة.</span>'}
-        </div>
-      </section>`).join("");
-    renderOwnerDigitalOrders(digitalPayload.orders || []);
-    renderOwnerRefundReviews(refundPayload.reviews || []);
-    renderOwnerSettings(settingsPayload);
-    renderOwnerRechargeReviews(rechargePayload.reviews || []);
-    renderOwnerIdentityReviews(identityPayload.reviews || []);
-    renderOwnerSupportTickets(supportPayload.tickets || []);
-    renderOwnerApiTools(apiKeysPayload, webhooksPayload);
-    renderOwnerProviderDiagnostics(providerPayload.providers || [], providerEventsPayload.events || [], sourcesPayload);
-    renderOwnerBotTools(botsPayload.bots || []);
-    const sections = payload.sections || [];
-    sectionsTarget.classList.toggle("empty", !sections.length);
-    sectionsTarget.innerHTML = sections.map((section) => `
-      <section class="owner-section">
-        <h4>${esc(section.title || section.key)}</h4>
-        <div class="owner-action-list">
-          ${(section.items || []).map((item) => `
-            <div class="owner-action-row">
-              <div><strong>${esc(item.title || item.key)}</strong><span>${esc(item.endpoint || "سيتم نقل الإجراء للموقع")}</span></div>
-              <b data-owner-status="${esc(item.status || "")}">${esc(ownerStatusLabels[item.status] || item.status)}</b>
-            </div>`).join("")}
-        </div>
-      </section>`).join("");
-    applyOwnerTab(activeOwnerTab, false);
-  } catch (error) {
-    metricsTarget.textContent = "تعذر تحميل مؤشرات المالك.";
-    queuesTarget.textContent = "تعذر تحميل طوابير المتابعة.";
-    $("#owner-digital-orders").textContent = "تعذر تحميل الطلبات الرقمية.";
-    $("#owner-refund-reviews").textContent = "تعذر تحميل مراجعات الأرقام.";
-    $("#owner-finance-settings").textContent = "تعذر تحميل الإعدادات المالية.";
-    $("#owner-routing-settings").textContent = "تعذر تحميل إعدادات التوجيه.";
-    $("#owner-payment-methods").textContent = "تعذر تحميل طرق الدفع.";
-    $("#owner-recharge-reviews").textContent = "تعذر تحميل مراجعات الشحن.";
-    $("#owner-identity-reviews").textContent = "تعذر تحميل مراجعات الهوية.";
-    $("#owner-support-tickets").textContent = "تعذر تحميل تذاكر الدعم.";
-    $("#owner-api-tools").textContent = "تعذر تحميل أدوات API.";
-    $("#owner-provider-diagnostics").textContent = "تعذر تحميل تشخيص المزودين.";
-    $("#owner-bot-tools").textContent = "تعذر تحميل أدوات البوتات.";
-    sectionsTarget.textContent = "تعذر تحميل خصائص الإدارة.";
-    message.textContent = error.message;
-    applyOwnerTab(activeOwnerTab, false);
-  }
 }
 
 function renderOwnerApiTools(keysPayload, webhooksPayload) {
@@ -2335,6 +2276,7 @@ document.querySelectorAll("[data-owner-tab]").forEach((button) => {
   button.addEventListener("click", () => {
     openPanel("owner", ownerTabTitles[button.dataset.ownerTab] || "لوحة الإدارة", { updateRoute: false });
     applyOwnerTab(button.dataset.ownerTab || "overview");
+    loadOwnerDashboard();
   });
 });
 
