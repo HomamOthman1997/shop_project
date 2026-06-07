@@ -193,6 +193,17 @@ def test_owner_admin_tools_are_grouped_by_operational_area():
     assert 'bots: () => api("/api/v1/owner/bots?status=all&limit=30")' in request_block
 
 
+def test_owner_numbers_markup_is_editable_from_dashboard():
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+    settings_block = js[js.index("function renderOwnerSettings"): js.index("function renderOwnerPaymentMethods")]
+
+    assert 'data-owner-setting="numbers_markup_percent"' in settings_block
+    assert 'value="${esc(finance.numbers_markup_percent || 0)}"' in settings_block
+    assert "معطل مؤقتاً" not in settings_block
+
+
 def test_owner_audit_trail_has_connected_filters():
     from pathlib import Path
 

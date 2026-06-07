@@ -1623,10 +1623,11 @@ function renderOwnerSettings(payload) {
       <input name="value" type="number" min="0" max="500" step="0.01" value="${esc(finance.digital_markup_percent || 0)}" required>
       <button class="secondary compact" type="submit">حفظ</button>
     </form>
-    <div class="owner-setting-card">
-      <div><strong>هامش الأرقام</strong><span>معطل مؤقتاً داخل محرك الأسعار</span></div>
-      <b>${esc(finance.numbers_markup_percent || 0)}%</b>
-    </div>`;
+    <form class="owner-setting-card" data-owner-setting="numbers_markup_percent">
+      <div><strong>هامش الأرقام</strong><span>نسبة تضاف إلى أسعار مزودي الأرقام</span></div>
+      <input name="value" type="number" min="0" max="500" step="0.01" value="${esc(finance.numbers_markup_percent || 0)}" required>
+      <button class="secondary compact" type="submit">حفظ</button>
+    </form>`;
 
   const routingTarget = $("#owner-routing-settings");
   const support = routing.support || {};
