@@ -808,6 +808,57 @@ async def test_owner_identity_reject_requires_reason(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_owner_identity_action_updates_website_account_by_customer_id(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    class IdentityRequests:
+        async def find_one_and_update(self, query, update, **_kwargs):
+            assert query == {"_id": "review-1", "status": "pending"}
+            return {
+                "_id": "review-1",
+                "customer_id": 900000000123,
+                "status": update["$set"]["status"],
+                "review_note": update["$set"]["review_note"],
+                "reviewed_by": update["$set"]["reviewed_by"],
+            }
+
+    class WebsiteAccounts:
+        def __init__(self):
+            self.updated = None
+
+        async def update_one(self, query, update):
+            self.updated = (query, update)
+
+    class FakeDb:
+        def __init__(self):
+            self.identity_verification_requests = IdentityRequests()
+            self.website_accounts = WebsiteAccounts()
+
+    fake_db = FakeDb()
+    audit_calls = []
+
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "db", fake_db)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    request = make_mocked_request("POST", "/api/v1/owner/identity-reviews/review-1/action", match_info={"review_id": "review-1"})
+    request._read_bytes = json.dumps({"action": "approve", "note": "ok"}).encode()
+
+    response = await owner_api.owner_identity_review_action(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["review"]["status"] == "approved"
+    assert fake_db.website_accounts.updated[0] == {"customer_id": 900000000123}
+    assert fake_db.website_accounts.updated[1]["$set"]["identity_status"] == "approved"
+    assert audit_calls[0]["action"] == "identity.approve"
+    assert audit_calls[0]["metadata"]["customer_id"] == 900000000123
+
+
+@pytest.mark.asyncio
 async def test_owner_support_action_uses_shared_ticket_state(monkeypatch):
     calls = {}
 

@@ -1602,9 +1602,25 @@ async def owner_identity_review_action(request: web.Request) -> web.Response:
     )
     if not review:
         return web.json_response({"ok": False, "message": "Identity review is no longer pending."}, status=409, headers=dict(_NO_STORE_HEADERS))
-    await db.website_accounts.update_one(
-        {"_id": review.get("account_id")},
-        {"$set": {"identity_status": review["status"], "identity_updated_at": now, "updated_at": now}},
+    account_selectors: list[dict[str, Any]] = []
+    if review.get("account_id"):
+        account_selectors.append({"_id": review.get("account_id")})
+    customer_id = _safe_int(review.get("customer_id"))
+    if customer_id is not None:
+        account_selectors.append({"customer_id": int(customer_id)})
+    if account_selectors:
+        account_query = account_selectors[0] if len(account_selectors) == 1 else {"$or": account_selectors}
+        await db.website_accounts.update_one(
+            account_query,
+            {"$set": {"identity_status": review["status"], "identity_updated_at": now, "updated_at": now}},
+        )
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action=f"identity.{action}",
+        target_type="identity_review",
+        target_id=_text(review.get("_id") or request.match_info.get("review_id")),
+        metadata={"customer_id": customer_id, "status": review.get("status")},
     )
     return web.json_response({"ok": True, "review": _identity_payload(review)}, headers=dict(_NO_STORE_HEADERS))
 
