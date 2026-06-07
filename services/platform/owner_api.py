@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import logging
 import re
 from typing import Any
+from urllib.parse import urlsplit
 
 from aiohttp import web
 from bson import ObjectId
@@ -1664,6 +1665,11 @@ def _clean_owner_events(values: Any) -> list[str]:
     return sorted({str(value).strip() for value in (values or []) if str(value).strip() in ALLOWED_WEBHOOK_EVENTS})
 
 
+def _audit_webhook_url(value: Any) -> str:
+    parsed = urlsplit(str(value or "").strip())
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}" if parsed.scheme and parsed.netloc else ""
+
+
 async def owner_api_keys(request: web.Request) -> web.Response:
     await require_website_owner(request)
     query: dict[str, Any] = {}
@@ -1696,15 +1702,30 @@ async def owner_create_api_key(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({"ok": False, "message": "Invalid user or reseller id."}, status=400, headers=dict(_NO_STORE_HEADERS))
     key, doc = await create_api_key(user_id=user_id, reseller_id=reseller_id, name=str((body or {}).get("name") or "").strip(), scopes=scopes)
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="api_key.create",
+        target_type="api_key",
+        target_id=_text(doc.get("_id")),
+        metadata={"user_id": user_id, "reseller_id": reseller_id, "name": _text(doc.get("name")), "prefix": _text(doc.get("prefix")), "scopes": scopes},
+    )
     return web.json_response({"ok": True, "api_key": key, "key": serialize_api_key_doc(doc)}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_revoke_api_key(request: web.Request) -> web.Response:
-    await require_website_owner(request)
+    owner = await require_website_owner(request)
     key_id = str(request.match_info.get("key_id") or "").strip()
     ok = await revoke_api_key(key_id=key_id, reseller_id=None)
     if not ok:
         return web.json_response({"ok": False, "message": "API key was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="api_key.revoke",
+        target_type="api_key",
+        target_id=key_id,
+    )
     return web.json_response({"ok": True, "id": key_id, "status": "revoked"}, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -1743,15 +1764,30 @@ async def owner_create_webhook(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({"ok": False, "message": "Invalid user or reseller id."}, status=400, headers=dict(_NO_STORE_HEADERS))
     secret, doc = await create_webhook(user_id=user_id, reseller_id=reseller_id, url=url, events=events)
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="webhook.create",
+        target_type="webhook",
+        target_id=_text(doc.get("_id")),
+        metadata={"user_id": user_id, "reseller_id": reseller_id, "url": _audit_webhook_url(url), "events": events},
+    )
     return web.json_response({"ok": True, "secret": secret, "webhook": serialize_webhook_doc(doc)}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_revoke_webhook(request: web.Request) -> web.Response:
-    await require_website_owner(request)
+    owner = await require_website_owner(request)
     webhook_id = str(request.match_info.get("webhook_id") or "").strip()
     ok = await revoke_webhook(webhook_id=webhook_id, reseller_id=None)
     if not ok:
         return web.json_response({"ok": False, "message": "Webhook was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="webhook.revoke",
+        target_type="webhook",
+        target_id=webhook_id,
+    )
     return web.json_response({"ok": True, "id": webhook_id, "status": "revoked"}, headers=dict(_NO_STORE_HEADERS))
 
 

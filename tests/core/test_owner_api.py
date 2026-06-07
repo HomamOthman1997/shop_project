@@ -1092,6 +1092,7 @@ async def test_owner_custom_catalog_move_delegates(monkeypatch):
 @pytest.mark.asyncio
 async def test_owner_create_api_key_filters_scopes(monkeypatch):
     calls = {}
+    audit_calls = []
 
     async def owner(_request):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
@@ -1100,8 +1101,12 @@ async def test_owner_create_api_key_filters_scopes(monkeypatch):
         calls.update(kwargs)
         return "ph_live_secret", {"_id": "key-1", "prefix": "ph_live_abc", **kwargs, "status": "active"}
 
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "create_api_key", create)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     request = make_mocked_request("POST", "/api/v1/owner/api-keys")
     request._read_bytes = json.dumps({"scopes": ["numbers:quotes", "bad"], "name": "Client", "user_id": 10, "reseller_id": 11}).encode()
 
@@ -1113,6 +1118,9 @@ async def test_owner_create_api_key_filters_scopes(monkeypatch):
     assert calls["scopes"] == ["numbers:quotes"]
     assert calls["user_id"] == 10
     assert calls["reseller_id"] == 11
+    assert audit_calls[0]["action"] == "api_key.create"
+    assert audit_calls[0]["metadata"]["scopes"] == ["numbers:quotes"]
+    assert "ph_live_secret" not in json.dumps(audit_calls[0])
 
 
 @pytest.mark.asyncio
@@ -1127,6 +1135,66 @@ async def test_owner_create_webhook_requires_https(monkeypatch):
     response = await owner_api.owner_create_webhook(request)
 
     assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_owner_create_webhook_audits_without_secret(monkeypatch):
+    audit_calls = []
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def create(**kwargs):
+        return "whsec_secret", {"_id": "hook-1", **kwargs, "secret": "whsec_secret", "status": "active"}
+
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "create_webhook", create)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    request = make_mocked_request("POST", "/api/v1/owner/webhooks")
+    request._read_bytes = json.dumps({"url": "https://example.com/hook?token=private", "events": ["numbers.order.sms"], "user_id": 10, "reseller_id": 11}).encode()
+
+    response = await owner_api.owner_create_webhook(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["secret"] == "whsec_secret"
+    assert audit_calls[0]["action"] == "webhook.create"
+    assert audit_calls[0]["metadata"]["events"] == ["numbers.order.sms"]
+    assert audit_calls[0]["metadata"]["url"] == "https://example.com/hook"
+    assert "private" not in json.dumps(audit_calls[0])
+    assert "whsec_secret" not in json.dumps(audit_calls[0])
+
+
+@pytest.mark.asyncio
+async def test_owner_revoke_integration_credentials_audits_success(monkeypatch):
+    audit_calls = []
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def revoke(**_kwargs):
+        return True
+
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "revoke_api_key", revoke)
+    monkeypatch.setattr(owner_api, "revoke_webhook", revoke)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+
+    key_request = make_mocked_request("POST", "/api/v1/owner/api-keys/key-1/revoke", match_info={"key_id": "key-1"})
+    hook_request = make_mocked_request("POST", "/api/v1/owner/webhooks/hook-1/revoke", match_info={"webhook_id": "hook-1"})
+    key_response = await owner_api.owner_revoke_api_key(key_request)
+    hook_response = await owner_api.owner_revoke_webhook(hook_request)
+
+    assert key_response.status == 200
+    assert hook_response.status == 200
+    assert [call["action"] for call in audit_calls] == ["api_key.revoke", "webhook.revoke"]
+    assert [call["target_id"] for call in audit_calls] == ["key-1", "hook-1"]
 
 
 @pytest.mark.asyncio
