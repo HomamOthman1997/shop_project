@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+import logging
 import re
 from typing import Any
 
@@ -21,7 +22,12 @@ from database.digital_provider_sources_repo import (
     list_price_watch_runs,
     list_provider_sources,
 )
-from database.financial_ledger import credit_reseller_main_wallet, list_user_wallet_entries, scan_financial_anomalies
+from database.financial_ledger import (
+    credit_reseller_main_wallet,
+    get_reseller_wallet_balance,
+    list_user_wallet_entries,
+    scan_financial_anomalies,
+)
 from database.mongo import db
 from database.numbers_config_repo import get_numbers_markup_percent, set_numbers_markup_percent
 from database.owner_payment_settings_repo import (
@@ -62,6 +68,7 @@ from services.subscriptions.bot_subscription_service import (
     sync_bot_subscription,
 )
 from handlers.owner_requests import review_bot_creation_request
+from config import settings
 
 
 _NO_STORE_HEADERS = {
@@ -147,6 +154,31 @@ async def _recent(
 
 def _text(value: Any) -> str:
     return str(value or "")
+
+
+async def _write_owner_audit(
+    *,
+    actor_id: int,
+    actor_email: str,
+    action: str,
+    target_type: str = "",
+    target_id: Any = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    try:
+        await db.owner_admin_audit.insert_one(
+            {
+                "actor_id": int(actor_id),
+                "actor_email": str(actor_email or ""),
+                "action": str(action or ""),
+                "target_type": str(target_type or ""),
+                "target_id": _text(target_id),
+                "metadata": metadata or {},
+                "created_at": datetime.now(UTC),
+            }
+        )
+    except Exception:
+        logging.getLogger("owner.audit").exception("Could not write owner audit event: %s", action)
 
 
 def _money(value: Any) -> float:
@@ -327,6 +359,13 @@ async def owner_user_action(request: web.Request) -> web.Response:
         {"customer_id": int(customer_id)},
         {"$set": {"status": "banned" if banned else "active", "updated_at": now}},
     )
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action=f"user.{action}",
+        target_type="user",
+        target_id=customer_id,
+    )
     account, user = await _find_owner_user_subject(customer_id)
     return web.json_response({"ok": True, "user": _public_account_payload(account, user)}, headers=dict(_NO_STORE_HEADERS))
 
@@ -339,6 +378,217 @@ async def owner_finance_audit(request: web.Request) -> web.Response:
         days = 30
     report = await scan_financial_anomalies(days=days, max_rows=_limit(request, 30))
     return web.json_response({"ok": True, "audit": report}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def _mongo_health() -> dict[str, Any]:
+    try:
+        result = await db.command("ping")
+        return {"status": "healthy" if int((result or {}).get("ok") or 0) == 1 else "degraded"}
+    except Exception as exc:
+        return {"status": "unavailable", "reason": str(exc)[:240]}
+
+
+async def owner_system_status(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    mongo, logs, alerts, support, active_bots, inactive_bots, pending_orders, pending_recharges = await asyncio.gather(
+        _mongo_health(),
+        get_bot_logs_target(),
+        get_provider_balance_alert_settings(),
+        get_all_support_targets(),
+        _count("bots", {"active": True}),
+        _count("bots", {"active": {"$ne": True}}),
+        _count("orders", {"status": {"$in": ["pending", "paid", "processing", "active", "waiting_code"]}}),
+        _count("recharge_requests", {"status": {"$in": ["pending", "need_more_proof"]}}),
+    )
+    readiness = provider_readiness_rows()
+    configured_providers = sum(1 for row in readiness if str(row.get("status") or "") == "ready")
+    support_bound = sum(1 for row in support.values() if isinstance((row or {}).get("chat_id"), int))
+    return web.json_response(
+        {
+            "ok": True,
+            "system": {
+                "mongo": mongo,
+                "website_enabled": bool(settings.website_enabled),
+                "bot_version": int(settings.bot_version),
+                "active_bots": active_bots,
+                "inactive_bots": inactive_bots,
+                "pending_orders": pending_orders,
+                "pending_recharges": pending_recharges,
+                "provider_readiness": {"ready": configured_providers, "total": len(readiness)},
+                "routing": {
+                    "logs_bound": bool(logs),
+                    "provider_alerts_bound": isinstance(alerts.get("chat_id"), int),
+                    "provider_alerts_enabled": bool(alerts.get("enabled")),
+                    "support_bound": support_bound,
+                    "support_total": 4,
+                },
+            },
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_system_test_log(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    target = await get_bot_logs_target()
+    if not target:
+        return web.json_response(
+            {"ok": False, "code": "logs_target_missing", "message": "Configure the logs routing target first."},
+            status=409,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+    logging.getLogger("owner.logs").error(
+        "Owner test log emitted from website dashboard by %s (%s).",
+        owner.email,
+        owner.customer_id,
+    )
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="system.test_log",
+        target_type="routing",
+        target_id="logs",
+    )
+    return web.json_response({"ok": True, "target": _routing_target(target)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_admin_audit(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    rows = await db.owner_admin_audit.find({}).sort("created_at", -1).limit(_limit(request, 50)).to_list(length=_limit(request, 50))
+    return web.json_response(
+        {
+            "ok": True,
+            "events": [
+                {
+                    "id": _text(row.get("_id")),
+                    "actor_id": row.get("actor_id"),
+                    "actor_email": _text(row.get("actor_email")),
+                    "action": _text(row.get("action")),
+                    "target_type": _text(row.get("target_type")),
+                    "target_id": _text(row.get("target_id")),
+                    "metadata": row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
+                    "created_at": _iso_value(row.get("created_at")),
+                }
+                for row in rows
+            ],
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_resellers(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    q = str(request.query.get("q") or "").strip()
+    limit = _limit(request, 50)
+    bot_query: dict[str, Any] = {}
+    numeric = _safe_int(q) if q else None
+    reseller_ids: set[int] = set()
+    if q:
+        escaped = re.escape(q)
+        user_matches = await db.users.find(
+            {"username": {"$regex": escaped, "$options": "i"}},
+            {"telegram_id": 1},
+        ).limit(30).to_list(length=30)
+        user_ids = [int(row.get("telegram_id")) for row in user_matches if _safe_int(row.get("telegram_id")) is not None]
+        bot_query = {
+            "$or": [
+                {"username": {"$regex": escaped, "$options": "i"}},
+                {"bot_username": {"$regex": escaped, "$options": "i"}},
+                {"reseller.bot_username": {"$regex": escaped, "$options": "i"}},
+            ]
+        }
+        if user_ids:
+            bot_query["$or"].append({"owner_id": {"$in": user_ids}})
+            reseller_ids = set(user_ids)
+        if numeric is not None:
+            bot_query["$or"].extend([{"owner_id": numeric}, {"bot_id": numeric}])
+            reseller_ids = {numeric}
+    bots = await db.bots.find(bot_query, {"token": 0}).sort("created_at", -1).limit(200).to_list(length=200)
+    reseller_ids.update(int(row.get("owner_id")) for row in bots if _safe_int(row.get("owner_id")) is not None)
+    if not q:
+        wallet_rows = await db.wallets.find({"owner_type": "reseller"}).limit(500).to_list(length=500)
+        reseller_ids.update(int(row.get("owner_id")) for row in wallet_rows if _safe_int(row.get("owner_id")) is not None)
+    reseller_ids = set(list(reseller_ids)[:limit])
+    users = await db.users.find({"telegram_id": {"$in": list(reseller_ids)}}).to_list(length=None) if reseller_ids else []
+    users_by_id = {int(row.get("telegram_id")): row for row in users if _safe_int(row.get("telegram_id")) is not None}
+    bots_by_owner: dict[int, list[dict[str, Any]]] = {}
+    for bot in bots:
+        owner_id = _safe_int(bot.get("owner_id"))
+        if owner_id in reseller_ids:
+            bots_by_owner.setdefault(int(owner_id), []).append(bot)
+    rows = []
+    for reseller_id in sorted(reseller_ids):
+        main_balance, earnings_balance = await asyncio.gather(
+            get_reseller_wallet_balance(reseller_id, wallet_type="main"),
+            get_reseller_wallet_balance(reseller_id, wallet_type="earnings"),
+        )
+        owner_bots = bots_by_owner.get(reseller_id, [])
+        user = users_by_id.get(reseller_id) or {}
+        rows.append(
+            {
+                "reseller_id": reseller_id,
+                "username": _text(user.get("username")),
+                "main_balance": _money(main_balance),
+                "earnings_balance": _money(earnings_balance),
+                "bots_count": len(owner_bots),
+                "active_bots_count": sum(1 for bot in owner_bots if bool(bot.get("active"))),
+                "bots": [_bot_payload(bot) for bot in owner_bots[:5]],
+            }
+        )
+    return web.json_response({"ok": True, "resellers": rows}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_reseller_detail(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    reseller_id = _safe_int(request.match_info.get("reseller_id"))
+    if reseller_id is None:
+        return web.json_response({"ok": False, "message": "Invalid reseller id."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    user, bots, wallets, ledger, recharges, orders = await asyncio.gather(
+        db.users.find_one({"telegram_id": int(reseller_id)}),
+        db.bots.find({"owner_id": int(reseller_id)}, {"token": 0}).sort("created_at", -1).limit(50).to_list(length=50),
+        db.wallets.find({"owner_type": "reseller", "owner_id": int(reseller_id)}).to_list(length=None),
+        db.ledger_entries.find({"owner_type": "reseller", "owner_id": int(reseller_id)}).sort("created_at", -1).limit(20).to_list(length=20),
+        db.recharge_requests.find({"reseller_id": int(reseller_id)}).sort("created_at", -1).limit(15).to_list(length=15),
+        db.orders.find({"reseller_id": int(reseller_id)}).sort("created_at", -1).limit(15).to_list(length=15),
+    )
+    if not user and not bots and not wallets:
+        return web.json_response({"ok": False, "message": "Reseller was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response(
+        {
+            "ok": True,
+            "reseller": {
+                "reseller_id": int(reseller_id),
+                "username": _text((user or {}).get("username")),
+                "banned": bool((user or {}).get("banned")),
+                "wallets": [{"wallet_type": _text(row.get("wallet_type")), "balance": _money(row.get("balance"))} for row in wallets],
+                "bots": [_bot_payload(row) for row in bots],
+                "ledger": [
+                    {
+                        "id": _text(row.get("_id")),
+                        "direction": _text(row.get("direction")),
+                        "amount": _money(row.get("amount")),
+                        "reason": _text(row.get("reason")),
+                        "balance_after": _money(row.get("balance_after")),
+                        "created_at": _iso_value(row.get("created_at")),
+                    }
+                    for row in ledger
+                ],
+                "recharges": [_recharge_payload(row) for row in recharges],
+                "orders": [
+                    {
+                        "id": _text(row.get("_id")),
+                        "status": _text(row.get("status")),
+                        "service_type": _text(row.get("service_type") or row.get("number_mode")),
+                        "user_id": row.get("user_id"),
+                        "amount": _money(row.get("retail_amount", row.get("selling_price", row.get("price")))),
+                        "created_at": _iso_value(row.get("created_at")),
+                    }
+                    for row in orders
+                ],
+            },
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
 
 
 async def owner_dashboard(request: web.Request) -> web.Response:
@@ -630,7 +880,7 @@ async def owner_settings(request: web.Request) -> web.Response:
 
 
 async def owner_update_routing_target(request: web.Request) -> web.Response:
-    await require_website_owner(request)
+    owner = await require_website_owner(request)
     try:
         body = await request.json()
         chat_id, message_thread_id = _parse_chat_target(body or {})
@@ -666,11 +916,19 @@ async def owner_update_routing_target(request: web.Request) -> web.Response:
         await bind_support_target(category, chat_id=chat_id, message_thread_id=message_thread_id)
     else:
         return web.json_response({"ok": False, "message": "Unsupported routing target."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="routing.update",
+        target_type="routing",
+        target_id=key,
+        metadata={"chat_id": chat_id, "message_thread_id": message_thread_id},
+    )
     return await owner_settings(request)
 
 
 async def owner_update_settings(request: web.Request) -> web.Response:
-    await require_website_owner(request)
+    owner = await require_website_owner(request)
     try:
         body = await request.json()
     except Exception:
@@ -714,11 +972,19 @@ async def owner_update_settings(request: web.Request) -> web.Response:
             status=400,
             headers=dict(_NO_STORE_HEADERS),
         )
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="settings.update",
+        target_type="setting",
+        target_id=key,
+        metadata={"value": value},
+    )
     return await owner_settings(request)
 
 
 async def owner_update_payment_method(request: web.Request) -> web.Response:
-    await require_website_owner(request)
+    owner = await require_website_owner(request)
     try:
         body = await request.json()
     except Exception:
@@ -753,6 +1019,14 @@ async def owner_update_payment_method(request: web.Request) -> web.Response:
             status=404,
             headers=dict(_NO_STORE_HEADERS),
         )
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="payment_method.update",
+        target_type="payment_method",
+        target_id=request.match_info.get("method_code"),
+        metadata={"fields": sorted(updates)},
+    )
     return await owner_settings(request)
 
 
@@ -1197,6 +1471,13 @@ async def owner_bot_creation_review_action(request: web.Request) -> web.Response
     )
     if not reviewed:
         return web.json_response({"ok": False, "message": message}, status=404, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action=f"bot_creation_review.{action}",
+        target_type="bot_creation_request",
+        target_id=request.match_info.get("request_id"),
+    )
     return web.json_response({"ok": True, "message": message, "review": _bot_creation_review_payload(reviewed)}, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -1213,7 +1494,7 @@ async def owner_bots(request: web.Request) -> web.Response:
 
 
 async def owner_bot_subscription_action(request: web.Request) -> web.Response:
-    await require_website_owner(request)
+    owner = await require_website_owner(request)
     try:
         bot_id = int(request.match_info.get("bot_id") or 0)
     except Exception:
@@ -1241,6 +1522,14 @@ async def owner_bot_subscription_action(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "message": "Unsupported subscription action."}, status=400, headers=dict(_NO_STORE_HEADERS))
     if not subscription:
         return web.json_response({"ok": False, "message": "Bot was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action=f"bot_subscription.{action}",
+        target_type="bot",
+        target_id=bot_id,
+        metadata={"months": months},
+    )
     row = await db.bots.find_one({"bot_id": bot_id}, {"token": 0}) or {"bot_id": bot_id, "subscription": subscription}
     return web.json_response({"ok": True, "bot": _bot_payload(row), "subscription": _bot_payload(row)["subscription"]}, headers=dict(_NO_STORE_HEADERS))
 
@@ -1262,6 +1551,14 @@ async def owner_reseller_deposit(request: web.Request) -> web.Response:
         reason="owner_reseller_deposit",
         actor_id=owner.customer_id,
         order_id=f"owner-deposit:{owner.customer_id}:{reseller_id}:{datetime.now(UTC).timestamp()}",
+    )
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="reseller.deposit",
+        target_type="reseller",
+        target_id=reseller_id,
+        metadata={"amount": amount, "note": note},
     )
     if note:
         await db.ledger_entries.update_one({"_id": entry.get("_id")}, {"$set": {"owner_note": note}})
@@ -1343,6 +1640,11 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/users/{customer_id}", owner_user_detail)
     app.router.add_post("/api/v1/owner/users/{customer_id}/action", owner_user_action)
     app.router.add_get("/api/v1/owner/finance/audit", owner_finance_audit)
+    app.router.add_get("/api/v1/owner/system/status", owner_system_status)
+    app.router.add_post("/api/v1/owner/system/test-log", owner_system_test_log)
+    app.router.add_get("/api/v1/owner/audit", owner_admin_audit)
+    app.router.add_get("/api/v1/owner/resellers", owner_resellers)
+    app.router.add_get("/api/v1/owner/resellers/{reseller_id}", owner_reseller_detail)
     app.router.add_get("/api/v1/owner/digital/orders", owner_digital_orders)
     app.router.add_post("/api/v1/owner/digital/orders/{order_id}/action", owner_digital_order_action)
     app.router.add_get("/api/v1/owner/numbers/refund-reviews", owner_numbers_refund_reviews)

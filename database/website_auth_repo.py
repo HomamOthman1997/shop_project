@@ -21,6 +21,9 @@ async def bootstrap_website_auth_indexes() -> None:
     await db.website_auth_rate_limits.create_index("expires_at", expireAfterSeconds=0, background=True)
     await db.identity_verification_requests.create_index([("account_id", 1), ("created_at", -1)], background=True)
     await db.identity_verification_requests.create_index([("status", 1), ("created_at", 1)], background=True)
+    await db.owner_admin_audit.create_index([("created_at", -1)], background=True)
+    await db.owner_admin_audit.create_index([("actor_id", 1), ("created_at", -1)], background=True)
+    await db.owner_admin_audit.create_index([("action", 1), ("created_at", -1)], background=True)
 
 
 async def allocate_website_customer_id() -> int:

@@ -35,6 +35,7 @@ const adminRoutes = {
   support: "/admin/support",
   integrations: "/admin/integrations",
   providers: "/admin/providers",
+  system: "/admin/system",
   orders: "/admin/orders",
 };
 
@@ -54,6 +55,7 @@ const ownerTabTitles = {
   support: "الدعم",
   integrations: "API",
   providers: "المزودون",
+  system: "النظام",
   orders: "الطلبات",
 };
 
@@ -85,6 +87,7 @@ function ownerTabForPath(pathname = window.location.pathname) {
   if (pathname.startsWith("/admin/support")) return "support";
   if (pathname.startsWith("/admin/integrations")) return "integrations";
   if (pathname.startsWith("/admin/providers")) return "providers";
+  if (pathname.startsWith("/admin/system")) return "system";
   if (pathname.startsWith("/admin/orders")) return "orders";
   return "overview";
 }
@@ -431,11 +434,12 @@ const ownerQueueLabels = {
 
 const ownerGroupTargets = {
   overview: ["owner-metrics", "owner-queues", "owner-sections"],
-  finance: ["owner-finance-settings", "owner-routing-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-finance-audit", "owner-bot-tools"],
+  finance: ["owner-finance-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-finance-audit", "owner-reseller-management", "owner-bot-tools"],
   users: ["owner-user-management", "owner-identity-reviews"],
   support: ["owner-support-tickets"],
   integrations: ["owner-api-tools", "owner-bot-creation-reviews"],
   providers: ["owner-provider-diagnostics"],
+  system: ["owner-routing-settings", "owner-system-operations"],
   orders: ["owner-digital-orders", "owner-refund-reviews"],
 };
 
@@ -488,6 +492,9 @@ async function loadOwnerDashboardIsolated() {
     queues: api("/api/v1/owner/queues"),
     users: api("/api/v1/owner/users?limit=20"),
     financeAudit: api(`/api/v1/owner/finance/audit?days=${encodeURIComponent(auditDays)}&limit=20`),
+    systemStatus: api("/api/v1/owner/system/status"),
+    ownerAudit: api("/api/v1/owner/audit?limit=30"),
+    resellers: api("/api/v1/owner/resellers?limit=50"),
     digital: api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
     refunds: api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
     settings: api("/api/v1/owner/settings"),
@@ -560,6 +567,8 @@ async function loadOwnerDashboardIsolated() {
   }
   data.recharge ? renderOwnerRechargeReviews(data.recharge.reviews || []) : fail("#owner-recharge-reviews", "تعذر تحميل مراجعات الشحن.");
   data.financeAudit ? renderOwnerFinanceAudit(data.financeAudit.audit || {}) : fail("#owner-finance-audit", "تعذر تحميل التدقيق المالي.");
+  data.systemStatus && data.ownerAudit ? renderOwnerSystemOperations(data.systemStatus.system || {}, data.ownerAudit.events || []) : fail("#owner-system-operations", "تعذر تحميل عمليات النظام.");
+  data.resellers ? renderOwnerResellerManagement(data.resellers.resellers || []) : fail("#owner-reseller-management", "تعذر تحميل الوكلاء.");
   data.users ? renderOwnerUserManagement(data.users.users || []) : fail("#owner-user-management", "تعذر تحميل المستخدمين.");
   data.identity ? renderOwnerIdentityReviews(data.identity.reviews || []) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية.");
   data.support ? renderOwnerSupportTickets(data.support.tickets || []) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم.");
@@ -931,6 +940,90 @@ function renderOwnerFinanceAudit(audit) {
       <div class="owner-action-row"><div><strong>${esc(row.kind)}</strong><span>${esc(row.detail)}</span></div><b>${esc(row.amount)}</b></div>
     `).join("") : '<div class="notice">No financial anomalies were found in this window.</div>'}
   `;
+}
+
+function renderOwnerSystemOperations(system, events) {
+  const target = $("#owner-system-operations");
+  const routing = system.routing || {};
+  const checks = [
+    ["MongoDB", system.mongo?.status || "unknown"],
+    ["Website", system.website_enabled ? "enabled" : "disabled"],
+    ["Active bots", system.active_bots || 0],
+    ["Inactive bots", system.inactive_bots || 0],
+    ["Pending orders", system.pending_orders || 0],
+    ["Pending recharges", system.pending_recharges || 0],
+    ["Ready providers", `${system.provider_readiness?.ready || 0}/${system.provider_readiness?.total || 0}`],
+    ["Support routing", `${routing.support_bound || 0}/${routing.support_total || 4}`],
+  ];
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <article class="owner-review-card">
+      <div class="owner-order-head"><div><h4>System status</h4><span>Bot version ${esc(system.bot_version || "-")}</span></div><button id="owner-test-log" class="secondary compact" type="button">Send test log</button></div>
+      <div class="owner-metrics compact">${checks.map(([label, value]) => `<div class="owner-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("")}</div>
+      <div class="owner-order-meta"><span>Logs: ${routing.logs_bound ? "bound" : "not bound"}</span><span>Provider alerts: ${routing.provider_alerts_enabled ? "enabled" : "disabled"}</span><span>Alerts target: ${routing.provider_alerts_bound ? "bound" : "not bound"}</span></div>
+    </article>
+    <article class="owner-review-card">
+      <h4>Owner audit trail</h4>
+      ${events.length ? events.map((event) => `<div class="owner-action-row"><div><strong>${esc(event.action)}</strong><span>${esc(event.actor_email || event.actor_id)} · ${esc(event.target_type)} ${esc(event.target_id)} · ${esc(event.created_at)}</span></div></div>`).join("") : '<div class="notice">No website owner actions recorded yet.</div>'}
+    </article>
+  `;
+  $("#owner-test-log")?.addEventListener("click", sendOwnerTestLog);
+}
+
+async function sendOwnerTestLog() {
+  try {
+    await api("/api/v1/owner/system/test-log", {method: "POST", body: JSON.stringify({})});
+    setText("#owner-message", "Test log was emitted to the configured logs target.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+function renderOwnerResellerManagement(rows) {
+  const target = $("#owner-reseller-management");
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <form class="owner-review-form" id="owner-reseller-search-form">
+      <label><span>Search reseller</span><input id="owner-reseller-search-input" name="q" placeholder="reseller id, bot id, username"></label>
+      <button class="secondary compact" type="submit">Search</button>
+    </form>
+    <div id="owner-reseller-detail" class="notice" hidden></div>
+    <div class="owner-action-list">
+      ${rows.length ? rows.map((row) => `
+        <div class="owner-action-row">
+          <div><strong>${esc(row.username ? `@${row.username}` : `Reseller ${row.reseller_id}`)}</strong><span>${esc(row.reseller_id)} · bots ${esc(row.active_bots_count)}/${esc(row.bots_count)}</span></div>
+          <div class="owner-order-actions"><b>Main ${esc(row.main_balance)}$ · Earnings ${esc(row.earnings_balance)}$</b><button class="secondary compact" data-owner-reseller-detail="${esc(row.reseller_id)}">Details</button></div>
+        </div>
+      `).join("") : '<div class="notice">No resellers found.</div>'}
+    </div>
+  `;
+  $("#owner-reseller-search-form")?.addEventListener("submit", searchOwnerResellers);
+  target.querySelectorAll("[data-owner-reseller-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerResellerDetail(button.dataset.ownerResellerDetail)));
+}
+
+async function searchOwnerResellers(event) {
+  event.preventDefault();
+  const q = $("#owner-reseller-search-input")?.value || "";
+  try {
+    const payload = await api(`/api/v1/owner/resellers?q=${encodeURIComponent(q)}&limit=50`);
+    renderOwnerResellerManagement(payload.resellers || []);
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function loadOwnerResellerDetail(resellerId) {
+  try {
+    const payload = await api(`/api/v1/owner/resellers/${encodeURIComponent(resellerId)}`);
+    const row = payload.reseller || {};
+    const target = $("#owner-reseller-detail");
+    target.hidden = false;
+    target.innerHTML = `
+      <strong>${esc(row.username ? `@${row.username}` : `Reseller ${row.reseller_id}`)}</strong>
+      <div class="owner-order-meta">${(row.wallets || []).map((wallet) => `<span>${esc(wallet.wallet_type)}: ${esc(wallet.balance)}$</span>`).join("")}<span>Bots: ${esc((row.bots || []).length)}</span><span>Banned: ${row.banned ? "yes" : "no"}</span></div>
+      <h4>Bots</h4>
+      ${(row.bots || []).map((bot) => `<div class="owner-queue-row"><div><strong>${esc(bot.username || bot.bot_id)}</strong><span>${esc(bot.subscription?.status || "-")} · ${esc(bot.subscription_channel || "no channel")}</span></div><b>${bot.active ? "active" : "inactive"}</b></div>`).join("") || '<div>No bots.</div>'}
+      <h4>Recent ledger</h4>
+      ${(row.ledger || []).map((entry) => `<div class="owner-queue-row"><div><strong>${esc(entry.reason)}</strong><span>${esc(entry.created_at)}</span></div><b>${esc(entry.direction)} ${esc(entry.amount)}</b></div>`).join("") || '<div>No ledger entries.</div>'}
+    `;
+  } catch (error) { setText("#owner-message", error.message); }
 }
 
 function renderOwnerUserManagement(rows) {

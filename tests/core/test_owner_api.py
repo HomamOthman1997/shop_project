@@ -21,6 +21,11 @@ def test_register_owner_api_routes():
     assert ("GET", "/api/v1/owner/users/{customer_id}") in routes
     assert ("POST", "/api/v1/owner/users/{customer_id}/action") in routes
     assert ("GET", "/api/v1/owner/finance/audit") in routes
+    assert ("GET", "/api/v1/owner/system/status") in routes
+    assert ("POST", "/api/v1/owner/system/test-log") in routes
+    assert ("GET", "/api/v1/owner/audit") in routes
+    assert ("GET", "/api/v1/owner/resellers") in routes
+    assert ("GET", "/api/v1/owner/resellers/{reseller_id}") in routes
     assert ("GET", "/api/v1/owner/digital/orders") in routes
     assert ("POST", "/api/v1/owner/digital/orders/{order_id}/action") in routes
     assert ("GET", "/api/v1/owner/numbers/refund-reviews") in routes
@@ -234,6 +239,45 @@ async def test_owner_finance_audit_delegates_to_financial_scan(monkeypatch):
     assert response.status == 200
     assert payload["audit"]["negative_wallets_count"] == 1
     assert calls == {"days": 7, "max_rows": 5}
+
+
+@pytest.mark.asyncio
+async def test_owner_system_status_combines_runtime_and_routing(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def count(collection, query):
+        return {"bots": 2, "orders": 3, "recharge_requests": 4}.get(collection, 0)
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_mongo_health", lambda: _async_value({"status": "healthy"}))
+    monkeypatch.setattr(owner_api, "get_bot_logs_target", lambda: _async_value({"chat_id": -1001}))
+    monkeypatch.setattr(owner_api, "get_provider_balance_alert_settings", lambda: _async_value({"enabled": True, "chat_id": -1002}))
+    monkeypatch.setattr(owner_api, "get_all_support_targets", lambda: _async_value({"numbers": {"chat_id": -1003}, "services": {}}))
+    monkeypatch.setattr(owner_api, "_count", count)
+    monkeypatch.setattr(owner_api, "provider_readiness_rows", lambda: [{"status": "ready"}, {"status": "disabled"}])
+
+    response = await owner_api.owner_system_status(make_mocked_request("GET", "/api/v1/owner/system/status"))
+    payload = json.loads(response.text)["system"]
+
+    assert response.status == 200
+    assert payload["mongo"]["status"] == "healthy"
+    assert payload["routing"]["logs_bound"] is True
+    assert payload["routing"]["support_bound"] == 1
+    assert payload["provider_readiness"] == {"ready": 1, "total": 2}
+
+
+@pytest.mark.asyncio
+async def test_owner_system_test_log_requires_bound_target(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "get_bot_logs_target", lambda: _async_value(None))
+
+    response = await owner_api.owner_system_test_log(make_mocked_request("POST", "/api/v1/owner/system/test-log"))
+
+    assert response.status == 409
 
 
 @pytest.mark.asyncio
