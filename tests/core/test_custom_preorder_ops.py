@@ -71,6 +71,53 @@ async def test_fulfill_preorder_does_not_complete_when_delivery_fails(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_fulfill_preorder_attachment_completes_after_delivery(monkeypatch):
+    row = {
+        "_id": "pre-1",
+        "status": "fulfilling",
+        "source_bot_id": 5,
+        "buyer_user_id": 8,
+        "order_id": "order-1",
+    }
+    details = {}
+
+    async def get_preorder(_preorder_id):
+        return row
+
+    async def deliver(_ticket, **kwargs):
+        assert kwargs["content"] == b"file"
+        return True, "document"
+
+    async def complete(_preorder_id, *, actor_id):
+        return {**row, "status": "fulfilled", "fulfilled_by": actor_id}
+
+    async def update_details(_order_id, payload):
+        details.update(payload)
+
+    async def update_status(*_args):
+        return None
+
+    monkeypatch.setattr(custom_preorder_ops, "get_preorder_request", get_preorder)
+    monkeypatch.setattr(custom_preorder_ops, "send_ticket_attachment", deliver)
+    monkeypatch.setattr(custom_preorder_ops, "mark_preorder_fulfilled", complete)
+    monkeypatch.setattr(custom_preorder_ops, "update_order_details", update_details)
+    monkeypatch.setattr(custom_preorder_ops, "update_order_status", update_status)
+
+    ok, reason, _ = await custom_preorder_ops.fulfill_preorder_attachment_from_owner(
+        "pre-1",
+        actor_id=7,
+        content=b"file",
+        filename="code.txt",
+        content_type="text/plain",
+    )
+
+    assert ok
+    assert reason == "fulfilled"
+    assert details["custom_preorder_delivery_kind"] == "document"
+    assert details["custom_preorder_delivery_filename"] == "code.txt"
+
+
+@pytest.mark.asyncio
 async def test_reject_preorder_refunds_and_closes_order(monkeypatch):
     row = {
         "_id": "pre-1",

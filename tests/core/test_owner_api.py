@@ -30,6 +30,7 @@ def test_register_owner_api_routes():
     assert ("POST", "/api/v1/owner/digital/orders/{order_id}/action") in routes
     assert ("GET", "/api/v1/owner/custom-preorders") in routes
     assert ("POST", "/api/v1/owner/custom-preorders/{preorder_id}/action") in routes
+    assert ("POST", "/api/v1/owner/custom-preorders/{preorder_id}/attachment") in routes
     assert ("GET", "/api/v1/owner/custom-catalog") in routes
     assert ("POST", "/api/v1/owner/custom-catalog/nodes") in routes
     assert ("GET", "/api/v1/owner/custom-catalog/nodes/{node_id}") in routes

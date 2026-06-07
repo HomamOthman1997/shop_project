@@ -12,7 +12,7 @@ from database.custom_services_repo import (
     reset_preorder_to_pending,
 )
 from database.orders_repo import update_order_details, update_order_status
-from services.platform.telegram_delivery import send_source_bot_message
+from services.platform.telegram_delivery import send_source_bot_message, send_ticket_attachment
 from utils.financial_manager import FinancialManager
 
 
@@ -31,6 +31,59 @@ async def fulfill_preorder_from_owner(
     actor_id: int,
     delivery_text: str,
 ) -> tuple[bool, str, dict[str, Any] | None]:
+    text = str(delivery_text or "").strip()
+    if len(text) < 2 or len(text) > 3500:
+        return False, "invalid_delivery_text", None
+    ok, reason, preorder = await _claim_preorder(preorder_id, actor_id=actor_id)
+    if not ok:
+        return ok, reason, preorder
+    delivered = await send_source_bot_message(
+        source_bot_id=int(preorder.get("source_bot_id") or 0),
+        user_id=int(preorder.get("buyer_user_id") or 0),
+        text=text,
+    )
+    if not delivered:
+        return False, "delivery_failed", preorder
+    return await _complete_preorder(preorder, actor_id=actor_id, delivery_metadata={"custom_preorder_delivery_text": text})
+
+
+async def fulfill_preorder_attachment_from_owner(
+    preorder_id: str,
+    *,
+    actor_id: int,
+    content: bytes,
+    filename: str,
+    content_type: str,
+    caption: str = "",
+) -> tuple[bool, str, dict[str, Any] | None]:
+    ok, reason, preorder = await _claim_preorder(preorder_id, actor_id=actor_id)
+    if not ok:
+        return ok, reason, preorder
+    delivered, kind = await send_ticket_attachment(
+        {"source_bot_id": preorder.get("source_bot_id"), "user_id": preorder.get("buyer_user_id")},
+        content=content,
+        filename=filename,
+        content_type=content_type,
+        caption=caption,
+    )
+    if not delivered:
+        return False, "delivery_failed", preorder
+    return await _complete_preorder(
+        preorder,
+        actor_id=actor_id,
+        delivery_metadata={
+            "custom_preorder_delivery_kind": kind,
+            "custom_preorder_delivery_filename": str(filename or ""),
+            "custom_preorder_delivery_caption": str(caption or ""),
+        },
+    )
+
+
+async def _claim_preorder(
+    preorder_id: str,
+    *,
+    actor_id: int,
+) -> tuple[bool, str, dict[str, Any] | None]:
     preorder = await get_preorder_request(preorder_id)
     if not preorder:
         return False, "not_found", None
@@ -40,10 +93,6 @@ async def fulfill_preorder_from_owner(
     if status not in {"pending", "fulfilling"}:
         return False, "not_fulfillable", preorder
 
-    text = str(delivery_text or "").strip()
-    if len(text) < 2 or len(text) > 3500:
-        return False, "invalid_delivery_text", preorder
-
     if status == "pending":
         next_pending = await get_next_pending_preorder(preorder.get("endpoint_id"))
         if next_pending and str(next_pending.get("_id")) != str(preorder.get("_id")):
@@ -52,15 +101,15 @@ async def fulfill_preorder_from_owner(
         if not claimed:
             return False, "claim_conflict", preorder
         preorder = claimed
+    return True, "claimed", preorder
 
-    delivered = await send_source_bot_message(
-        source_bot_id=int(preorder.get("source_bot_id") or 0),
-        user_id=int(preorder.get("buyer_user_id") or 0),
-        text=text,
-    )
-    if not delivered:
-        return False, "delivery_failed", preorder
 
+async def _complete_preorder(
+    preorder: dict[str, Any],
+    *,
+    actor_id: int,
+    delivery_metadata: dict[str, Any],
+) -> tuple[bool, str, dict[str, Any] | None]:
     fulfilled = await mark_preorder_fulfilled(preorder["_id"], actor_id=actor_id)
     if not fulfilled:
         return False, "status_conflict", preorder
@@ -72,7 +121,7 @@ async def fulfill_preorder_from_owner(
                 "status": "success",
                 "custom_preorder_fulfilled_manually": True,
                 "custom_preorder_fulfilled_by": int(actor_id),
-                "custom_preorder_delivery_text": text,
+                **delivery_metadata,
             },
         )
         await update_order_status(order_id, "success")

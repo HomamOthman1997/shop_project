@@ -1699,10 +1699,12 @@ function renderOwnerCustomPreorders(rows) {
               ${actions.includes("release") ? '<button class="secondary compact" type="button" data-preorder-action="release">Release claim</button>' : ""}
               ${actions.includes("reject") ? '<button class="danger compact" type="button" data-preorder-action="reject">Reject and refund</button>' : ""}
             </div>
+            ${actions.includes("fulfill") ? `<div class="owner-support-reply"><input name="delivery_attachment" type="file"><input name="delivery_caption" maxlength="1024" placeholder="Attachment caption"><button class="secondary compact" type="button" data-preorder-attachment="send">Deliver attachment and complete</button></div>` : ""}
           </form>` : '<div class="notice">This preorder is closed.</div>'}
       </article>`;
   }).join("") : '<div class="notice">No custom preorders found for this filter.</div>';
   target.querySelectorAll("[data-preorder-action]").forEach((button) => button.addEventListener("click", () => runOwnerPreorderAction(button)));
+  target.querySelectorAll("[data-preorder-attachment]").forEach((button) => button.addEventListener("click", () => runOwnerPreorderAttachment(button)));
 }
 
 async function runOwnerPreorderAction(button) {
@@ -1732,6 +1734,24 @@ async function runOwnerPreorderAction(button) {
   } finally {
     form.querySelectorAll("button").forEach((item) => { item.disabled = false; });
   }
+}
+
+async function runOwnerPreorderAttachment(button) {
+  const form = button.closest("[data-owner-preorder]");
+  const file = form.elements.delivery_attachment.files?.[0];
+  if (!file) return setText("#owner-message", "Choose a delivery attachment.");
+  if (file.size > 8 * 1024 * 1024) return setText("#owner-message", "Attachment is larger than 8 MB.");
+  if (!window.confirm("Deliver this attachment and complete the preorder?")) return;
+  const body = new FormData();
+  body.append("attachment", file);
+  body.append("caption", form.elements.delivery_caption.value || "");
+  form.querySelectorAll("button").forEach((item) => { item.disabled = true; });
+  try {
+    await api(`/api/v1/owner/custom-preorders/${encodeURIComponent(form.dataset.ownerPreorder)}/attachment`, {method: "POST", body, timeoutMs: 45000});
+    setText("#owner-message", "Preorder attachment was delivered and the order was completed.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+  finally { form.querySelectorAll("button").forEach((item) => { item.disabled = false; }); }
 }
 
 const ownerDigitalActionLabels = {

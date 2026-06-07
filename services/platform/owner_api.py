@@ -84,6 +84,7 @@ from services.platform.api_auth import ApiAuthContext
 from services.platform.api_keys_api import _ALLOWED_CUSTOMER_SCOPES
 from services.platform.custom_preorder_ops import (
     available_preorder_actions,
+    fulfill_preorder_attachment_from_owner,
     fulfill_preorder_from_owner,
     reject_preorder_from_owner,
     release_preorder_from_owner,
@@ -891,6 +892,62 @@ async def owner_custom_preorder_action(request: web.Request) -> web.Response:
     )
     current = await get_preorder_request(preorder_id) or row or {}
     return web.json_response({"ok": True, "result": reason, "preorder": _custom_preorder_payload(current)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_custom_preorder_attachment(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    preorder_id = str(request.match_info.get("preorder_id") or "").strip()
+    if "multipart/form-data" not in str(request.headers.get("Content-Type") or "").lower():
+        return web.json_response({"ok": False, "message": "Multipart form required."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    caption = ""
+    content = b""
+    filename = ""
+    content_type = ""
+    try:
+        reader = await request.multipart()
+        async for part in reader:
+            if str(getattr(part, "name", "") or "") == "caption":
+                caption = (await part.text()).strip()[:1024]
+                continue
+            if str(getattr(part, "name", "") or "") != "attachment":
+                continue
+            filename = str(getattr(part, "filename", "") or "attachment.bin").strip()[:200]
+            content_type = str(getattr(part, "headers", {}).get("Content-Type") or "application/octet-stream")
+            chunks = []
+            total = 0
+            while True:
+                chunk = await part.read_chunk()
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _MAX_SUPPORT_ATTACHMENT_BYTES:
+                    return web.json_response({"ok": False, "message": "Attachment is larger than 8 MB."}, status=413, headers=dict(_NO_STORE_HEADERS))
+                chunks.append(chunk)
+            content = b"".join(chunks)
+    except Exception:
+        return web.json_response({"ok": False, "message": "Could not read attachment."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if not content:
+        return web.json_response({"ok": False, "message": "Choose an attachment."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    ok, reason, row = await fulfill_preorder_attachment_from_owner(
+        preorder_id,
+        actor_id=owner.customer_id,
+        content=content,
+        filename=filename,
+        content_type=content_type,
+        caption=caption,
+    )
+    if not ok:
+        status_code = 404 if reason == "not_found" else 409
+        return web.json_response({"ok": False, "message": reason}, status=status_code, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="custom_preorder_fulfill_attachment",
+        target_type="custom_preorder",
+        target_id=preorder_id,
+        metadata={"filename": filename, "content_type": content_type},
+    )
+    return web.json_response({"ok": True, "result": reason, "preorder": _custom_preorder_payload(row or {})}, headers=dict(_NO_STORE_HEADERS))
 
 
 def _owner_catalog_id() -> int:
@@ -2110,6 +2167,7 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/owner/digital/orders/{order_id}/action", owner_digital_order_action)
     app.router.add_get("/api/v1/owner/custom-preorders", owner_custom_preorders)
     app.router.add_post("/api/v1/owner/custom-preorders/{preorder_id}/action", owner_custom_preorder_action)
+    app.router.add_post("/api/v1/owner/custom-preorders/{preorder_id}/attachment", owner_custom_preorder_attachment)
     app.router.add_get("/api/v1/owner/custom-catalog", owner_custom_catalog)
     app.router.add_post("/api/v1/owner/custom-catalog/nodes", owner_create_custom_catalog_node)
     app.router.add_get("/api/v1/owner/custom-catalog/nodes/{node_id}", owner_custom_catalog_node_detail)
