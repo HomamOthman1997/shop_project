@@ -12,6 +12,7 @@ from pymongo import ReturnDocument
 
 from database.api_keys_repo import create_api_key, revoke_api_key, serialize_api_key_doc
 from database.bot_logs_repo import bind_bot_logs_target, get_bot_logs_target
+from database.custom_services_repo import get_pending_preorder_position, get_preorder_request
 from database.digital_products_config_repo import (
     get_digital_products_markup_percent,
     set_digital_products_markup_percent,
@@ -59,6 +60,12 @@ from services.numbers.provider_webhook_service import replay_provider_webhook_ev
 from services.digital_products.bittopup_scraper import run_bittopup_price_watch
 from services.platform.api_auth import ApiAuthContext
 from services.platform.api_keys_api import _ALLOWED_CUSTOMER_SCOPES
+from services.platform.custom_preorder_ops import (
+    available_preorder_actions,
+    fulfill_preorder_from_owner,
+    reject_preorder_from_owner,
+    release_preorder_from_owner,
+)
 from services.platform.telegram_delivery import send_owner_broadcast, send_ticket_message
 from services.platform.webhooks_api import ALLOWED_WEBHOOK_EVENTS, _valid_https_url
 from services.platform.website_auth import require_website_owner
@@ -85,6 +92,7 @@ def _management_sections() -> list[dict[str, Any]]:
             "title": "Operations",
             "items": [
                 {"key": "digital_orders", "title": "Digital manual orders", "status": "available", "endpoint": "/api/v1/digital/admin/orders"},
+                {"key": "custom_preorders", "title": "Custom preorder fulfillment", "status": "available", "endpoint": "/api/v1/owner/custom-preorders"},
                 {"key": "numbers_refunds", "title": "Numbers refund reviews", "status": "available", "endpoint": "/api/v1/numbers/ops/refund-reviews"},
                 {"key": "provider_readiness", "title": "Provider readiness", "status": "available", "endpoint": "/api/v1/owner/provider-readiness"},
                 {"key": "provider_webhooks", "title": "Provider webhook audit", "status": "available", "endpoint": "/api/v1/owner/provider-webhook-events"},
@@ -778,6 +786,88 @@ async def owner_digital_order_action(request: web.Request) -> web.Response:
     return await execute_manual_order_action(auth=auth, order_id=order_id, body=body)
 
 
+def _custom_preorder_payload(row: dict[str, Any], *, queue_position: int = 0) -> dict[str, Any]:
+    return {
+        "id": _text(row.get("_id")),
+        "status": _text(row.get("status")),
+        "service_name": _text(row.get("service_name")),
+        "buyer_user_id": int(row.get("buyer_user_id") or 0),
+        "catalog_owner_id": int(row.get("catalog_owner_id") or 0),
+        "wallet_scope_id": int(row.get("wallet_scope_id") or 0),
+        "source_bot_id": int(row.get("source_bot_id") or 0),
+        "order_id": _text(row.get("order_id")),
+        "endpoint_id": _text(row.get("endpoint_id")),
+        "qty": int(row.get("qty") or 0),
+        "unit_price": _money(row.get("unit_price")),
+        "total_price": _money(row.get("total_price")),
+        "customer_note": _text(row.get("customer_note")),
+        "catalog_type": _text(row.get("catalog_type")),
+        "queue_position": int(queue_position or 0),
+        "available_actions": available_preorder_actions(row),
+        "created_at": _iso_value(row.get("created_at")),
+        "updated_at": _iso_value(row.get("updated_at")),
+    }
+
+
+async def owner_custom_preorders(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    status = str(request.query.get("status") or "active").strip().lower()
+    query: dict[str, Any] = {}
+    if status == "active":
+        query["status"] = {"$in": ["pending", "fulfilling"]}
+    elif status not in {"all", "*", ""}:
+        query["status"] = status
+    limit = _limit(request)
+    rows = await db.custom_service_preorders.find(query).sort("created_at", 1).limit(limit).to_list(length=limit)
+    payloads = []
+    for row in rows:
+        position = await get_pending_preorder_position(row["_id"]) if str(row.get("status") or "") == "pending" else 0
+        payloads.append(_custom_preorder_payload(row, queue_position=position))
+    return web.json_response({"ok": True, "status": status or "all", "preorders": payloads}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_custom_preorder_action(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    preorder_id = str(request.match_info.get("preorder_id") or "").strip()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str((body or {}).get("action") or "").strip().lower()
+    if action == "fulfill":
+        ok, reason, row = await fulfill_preorder_from_owner(
+            preorder_id,
+            actor_id=owner.customer_id,
+            delivery_text=str((body or {}).get("delivery_text") or ""),
+        )
+    elif action == "release":
+        ok, reason, row = await release_preorder_from_owner(preorder_id, actor_id=owner.customer_id)
+    elif action == "reject":
+        rejection_reason = str((body or {}).get("reason") or "").strip()
+        if len(rejection_reason) < 3:
+            return web.json_response({"ok": False, "message": "Write a rejection reason."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        ok, reason, row = await reject_preorder_from_owner(
+            preorder_id,
+            actor_id=owner.customer_id,
+            reason=rejection_reason,
+        )
+    else:
+        return web.json_response({"ok": False, "message": "Unsupported preorder action."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if not ok:
+        status_code = 404 if reason == "not_found" else 409
+        return web.json_response({"ok": False, "message": reason}, status=status_code, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action=f"custom_preorder_{action}",
+        target_type="custom_preorder",
+        target_id=preorder_id,
+        metadata={"result": reason},
+    )
+    current = await get_preorder_request(preorder_id) or row or {}
+    return web.json_response({"ok": True, "result": reason, "preorder": _custom_preorder_payload(current)}, headers=dict(_NO_STORE_HEADERS))
+
+
 async def owner_numbers_refund_reviews(request: web.Request) -> web.Response:
     await require_website_owner(request)
     include_resolved = str(request.query.get("include_resolved") or "").strip().lower() in {"1", "true", "yes"}
@@ -1180,6 +1270,20 @@ def _support_payload(row: dict[str, Any]) -> dict[str, Any]:
         "payload_count": int(row.get("payload_count") or 0),
         "bug_triage": row.get("bug_triage") if isinstance(row.get("bug_triage"), dict) else {},
         "opened_at": _date_text(row.get("opened_at")),
+        "updated_at": _date_text(row.get("updated_at")),
+    }
+
+
+def _support_message_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": _text(row.get("_id")),
+        "direction": _text(row.get("direction")),
+        "actor_id": int(row.get("actor_id") or 0),
+        "kind": _text(row.get("kind") or ("text" if row.get("text") else "")),
+        "text": _text(row.get("text")),
+        "caption": _text(row.get("caption")),
+        "filename": _text(row.get("filename")),
+        "created_at": _iso_value(row.get("created_at")),
     }
 
 
@@ -1596,6 +1700,19 @@ async def owner_support_tickets(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "tickets": [_support_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
 
 
+async def owner_support_ticket_detail(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    ticket_id = str(request.match_info.get("ticket_id") or "").strip()
+    ticket = await get_support_ticket(ticket_id)
+    if not ticket:
+        return web.json_response({"ok": False, "message": "Support ticket was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    rows = await db.support_ticket_messages.find({"ticket_id": ticket.get("_id")}).sort("created_at", 1).limit(200).to_list(length=200)
+    return web.json_response(
+        {"ok": True, "ticket": _support_payload(ticket), "messages": [_support_message_payload(row) for row in rows]},
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
 async def owner_support_ticket_action(request: web.Request) -> web.Response:
     owner = await require_website_owner(request)
     ticket_id = str(request.match_info.get("ticket_id") or "").strip()
@@ -1629,6 +1746,13 @@ async def owner_support_ticket_action(request: web.Request) -> web.Response:
         await mark_support_ticket_bug_triage(ticket_id, actor_id=owner.customer_id, status="confirmed" if action == "bug_confirmed" else "not_bug")
     else:
         return web.json_response({"ok": False, "message": "Unsupported support action."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action=f"support_ticket_{action}",
+        target_type="support_ticket",
+        target_id=ticket_id,
+    )
     current = await get_support_ticket(ticket_id) or ticket
     return web.json_response({"ok": True, "ticket": _support_payload(current)}, headers=dict(_NO_STORE_HEADERS))
 
@@ -1647,6 +1771,8 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/resellers/{reseller_id}", owner_reseller_detail)
     app.router.add_get("/api/v1/owner/digital/orders", owner_digital_orders)
     app.router.add_post("/api/v1/owner/digital/orders/{order_id}/action", owner_digital_order_action)
+    app.router.add_get("/api/v1/owner/custom-preorders", owner_custom_preorders)
+    app.router.add_post("/api/v1/owner/custom-preorders/{preorder_id}/action", owner_custom_preorder_action)
     app.router.add_get("/api/v1/owner/numbers/refund-reviews", owner_numbers_refund_reviews)
     app.router.add_post("/api/v1/owner/numbers/refund-reviews/{order_id}/resolve", owner_resolve_numbers_refund_review)
     app.router.add_get("/api/v1/owner/settings", owner_settings)
@@ -1658,6 +1784,7 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/identity-reviews", owner_identity_reviews)
     app.router.add_post("/api/v1/owner/identity-reviews/{review_id}/action", owner_identity_review_action)
     app.router.add_get("/api/v1/owner/support-tickets", owner_support_tickets)
+    app.router.add_get("/api/v1/owner/support-tickets/{ticket_id}", owner_support_ticket_detail)
     app.router.add_post("/api/v1/owner/support-tickets/{ticket_id}/action", owner_support_ticket_action)
     app.router.add_get("/api/v1/owner/api-keys", owner_api_keys)
     app.router.add_post("/api/v1/owner/api-keys", owner_create_api_key)

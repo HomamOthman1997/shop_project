@@ -440,7 +440,7 @@ const ownerGroupTargets = {
   integrations: ["owner-api-tools", "owner-bot-creation-reviews"],
   providers: ["owner-provider-diagnostics"],
   system: ["owner-routing-settings", "owner-system-operations"],
-  orders: ["owner-digital-orders", "owner-refund-reviews"],
+  orders: ["owner-digital-orders", "owner-custom-preorders", "owner-refund-reviews"],
 };
 
 function tagOwnerGroups() {
@@ -487,6 +487,7 @@ async function loadOwnerDashboardIsolated() {
   const sourceFilter = $("#owner-source-filter")?.value || "under_review";
   const auditDays = $("#owner-audit-days")?.value || "30";
   const botReviewFilter = $("#owner-bot-review-filter")?.value || "pending";
+  const preorderFilter = $("#owner-preorder-filter")?.value || "active";
   const entries = Object.entries({
     dashboard: api("/api/v1/owner/dashboard"),
     queues: api("/api/v1/owner/queues"),
@@ -496,6 +497,7 @@ async function loadOwnerDashboardIsolated() {
     ownerAudit: api("/api/v1/owner/audit?limit=30"),
     resellers: api("/api/v1/owner/resellers?limit=50"),
     digital: api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
+    preorders: api(`/api/v1/owner/custom-preorders?status=${encodeURIComponent(preorderFilter)}&limit=30`),
     refunds: api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
     settings: api("/api/v1/owner/settings"),
     recharge: api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
@@ -559,6 +561,7 @@ async function loadOwnerDashboardIsolated() {
     fail(queuesTarget, "تعذر تحميل طوابير المتابعة.");
   }
   data.digital ? renderOwnerDigitalOrders(data.digital.orders || []) : fail("#owner-digital-orders", "تعذر تحميل الطلبات الرقمية.");
+  data.preorders ? renderOwnerCustomPreorders(data.preorders.preorders || []) : fail("#owner-custom-preorders", "Could not load custom preorders.");
   data.refunds ? renderOwnerRefundReviews(data.refunds.reviews || []) : fail("#owner-refund-reviews", "تعذر تحميل مراجعات الأرقام.");
   data.settings ? renderOwnerSettings(data.settings) : fail("#owner-finance-settings", "تعذر تحميل الإعدادات المالية.");
   if (!data.settings) {
@@ -1190,13 +1193,39 @@ function renderOwnerSupportTickets(rows) {
       <div class="owner-order-meta"><span>المستخدم: ${esc(row.user_id)}</span><span>المصدر: ${esc(row.scope)}</span><span>عدد الرسائل: ${esc(row.payload_count)}</span><span>فرز الخطأ: ${esc(row.bug_triage?.status || "-")}</span></div>
       ${row.status !== "solved" ? `<form class="owner-support-reply" data-owner-support-reply="${esc(row.id)}"><input name="message" required minlength="2" maxlength="3500" placeholder="اكتب الرد الذي سيصل للمستخدم عبر البوت"><button class="secondary compact" type="submit">إرسال الرد</button></form>` : ""}
       <div class="owner-order-actions">
+        <button class="secondary compact" data-owner-ticket-detail="${esc(row.id)}">Conversation</button>
         ${row.status !== "solved" ? `<button class="primary compact" data-owner-ticket="${esc(row.id)}" data-ticket-action="solve">حل التذكرة</button>` : ""}
         <button class="secondary compact" data-owner-ticket="${esc(row.id)}" data-ticket-action="bug_confirmed">تأكيد الخطأ</button>
         <button class="secondary compact" data-owner-ticket="${esc(row.id)}" data-ticket-action="not_bug">ليس خطأ</button>
       </div>
     </article>`).join("") : '<div class="notice">لا توجد تذاكر دعم ضمن هذا الفلتر.</div>';
   target.querySelectorAll("[data-owner-ticket]").forEach((button) => button.addEventListener("click", () => runOwnerSupportAction(button)));
+  target.querySelectorAll("[data-owner-ticket-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerSupportDetail(button)));
   target.querySelectorAll("[data-owner-support-reply]").forEach((form) => form.addEventListener("submit", runOwnerSupportReply));
+}
+
+async function loadOwnerSupportDetail(button) {
+  button.disabled = true;
+  try {
+    const payload = await api(`/api/v1/owner/support-tickets/${encodeURIComponent(button.dataset.ownerTicketDetail)}`);
+    const card = button.closest(".owner-review-card");
+    let conversation = card.querySelector(".owner-support-conversation");
+    if (!conversation) {
+      conversation = document.createElement("div");
+      conversation.className = "owner-support-conversation";
+      card.insertBefore(conversation, card.querySelector(".owner-support-reply"));
+    }
+    const messages = payload.messages || [];
+    conversation.innerHTML = messages.length ? messages.map((message) => `
+      <div class="owner-queue-row">
+        <div><strong>${esc(message.direction === "owner_to_user" ? "Owner" : "Customer")}</strong><span>${esc(message.created_at)}</span></div>
+        <p>${esc(message.text || message.caption || `[${message.kind || "Non-text Telegram payload"}${message.filename ? `: ${message.filename}` : ""}]`)}</p>
+      </div>`).join("") : '<div class="notice">No stored text messages are available for this ticket. Older Telegram media may only exist in the support topic.</div>';
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function runOwnerSupportReply(event) {
@@ -1453,6 +1482,65 @@ async function resolveOwnerRefundReview(event) {
     setText("#owner-message", error.message);
   } finally {
     button.disabled = false;
+  }
+}
+
+function renderOwnerCustomPreorders(rows) {
+  const target = $("#owner-custom-preorders");
+  target.classList.toggle("empty", !rows.length);
+  target.innerHTML = rows.length ? rows.map((row) => {
+    const actions = Array.isArray(row.available_actions) ? row.available_actions : [];
+    return `
+      <article class="owner-digital-order">
+        <div class="owner-order-head">
+          <div><strong>${esc(row.service_name || "Custom preorder")}</strong><span>${esc(row.id)}</span></div>
+          <b>${esc(row.status)}</b>
+        </div>
+        <div class="owner-order-meta">
+          <span>User: ${esc(row.buyer_user_id)}</span><span>Qty: ${esc(row.qty)}</span><span>Paid: ${esc(row.total_price)} USD</span><span>Queue: ${esc(row.queue_position || "-")}</span>
+        </div>
+        ${row.customer_note ? `<div class="notice">${esc(row.customer_note)}</div>` : ""}
+        ${actions.length ? `
+          <form class="owner-review-form" data-owner-preorder="${esc(row.id)}">
+            ${actions.includes("fulfill") ? `<label><span>Delivery text</span><textarea name="delivery_text" rows="3" maxlength="3500" placeholder="The code, account details, or delivery instructions sent to the customer"></textarea></label>` : ""}
+            ${actions.includes("reject") ? `<label><span>Rejection reason</span><input name="reason" maxlength="500" placeholder="Required when rejecting and refunding"></label>` : ""}
+            <div class="owner-order-actions">
+              ${actions.includes("fulfill") ? '<button class="primary compact" type="button" data-preorder-action="fulfill">Deliver and complete</button>' : ""}
+              ${actions.includes("release") ? '<button class="secondary compact" type="button" data-preorder-action="release">Release claim</button>' : ""}
+              ${actions.includes("reject") ? '<button class="danger compact" type="button" data-preorder-action="reject">Reject and refund</button>' : ""}
+            </div>
+          </form>` : '<div class="notice">This preorder is closed.</div>'}
+      </article>`;
+  }).join("") : '<div class="notice">No custom preorders found for this filter.</div>';
+  target.querySelectorAll("[data-preorder-action]").forEach((button) => button.addEventListener("click", () => runOwnerPreorderAction(button)));
+}
+
+async function runOwnerPreorderAction(button) {
+  const form = button.closest("[data-owner-preorder]");
+  const action = button.dataset.preorderAction;
+  const body = {action};
+  if (action === "fulfill") {
+    body.delivery_text = String(form.elements.delivery_text?.value || "").trim();
+    if (body.delivery_text.length < 2) return setText("#owner-message", "Write the delivery text before completing the preorder.");
+  }
+  if (action === "reject") {
+    body.reason = String(form.elements.reason?.value || "").trim();
+    if (body.reason.length < 3) return setText("#owner-message", "Write the rejection reason before refunding.");
+  }
+  if (!window.confirm(action === "reject" ? "Reject this preorder and refund the customer?" : `Run ${action} on this preorder?`)) return;
+  form.querySelectorAll("button").forEach((item) => { item.disabled = true; });
+  try {
+    await api(`/api/v1/owner/custom-preorders/${encodeURIComponent(form.dataset.ownerPreorder)}/action`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      timeoutMs: 45000,
+    });
+    setText("#owner-message", "Custom preorder was updated.");
+    await loadOwnerDashboard();
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    form.querySelectorAll("button").forEach((item) => { item.disabled = false; });
   }
 }
 
@@ -2065,6 +2153,7 @@ $("#cardex-link")?.addEventListener("click", (event) => {
 $("#refresh-orders")?.addEventListener("click", loadDashboard);
 $("#refresh-owner")?.addEventListener("click", loadOwnerDashboard);
 $("#owner-digital-filter")?.addEventListener("change", loadOwnerDashboard);
+$("#owner-preorder-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-refunds-resolved")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-recharge-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-identity-filter")?.addEventListener("change", loadOwnerDashboard);

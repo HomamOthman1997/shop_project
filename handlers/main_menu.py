@@ -725,7 +725,7 @@ async def _forward_support_message(
 
     bridge_bot: Bot | None = None
     try:
-        _, bridge_bot = await _send_support_header_if_needed(
+        ticket, bridge_bot = await _send_support_header_if_needed(
             source_bot,
             state=state,
             lang=lang,
@@ -737,6 +737,18 @@ async def _forward_support_message(
         )
         for payload in payloads:
             await _relay_support_payload(source_bot, bridge_bot, payload, target=target, user_id=user_id)
+            await db.support_ticket_messages.insert_one(
+                {
+                    "ticket_id": ticket["_id"],
+                    "direction": "user_to_owner",
+                    "actor_id": int(user_id),
+                    "kind": str(payload.get("kind") or "unsupported"),
+                    "text": str(payload.get("text") or ""),
+                    "caption": str(payload.get("caption") or ""),
+                    "filename": str(payload.get("filename") or ""),
+                    "created_at": datetime.now(UTC),
+                }
+            )
         return True
     except TelegramBadRequest as exc:
         logger.warning("support delivery failed category=%s user_id=%s error=%s", category, user_id, exc)

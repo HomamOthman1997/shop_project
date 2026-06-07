@@ -28,6 +28,8 @@ def test_register_owner_api_routes():
     assert ("GET", "/api/v1/owner/resellers/{reseller_id}") in routes
     assert ("GET", "/api/v1/owner/digital/orders") in routes
     assert ("POST", "/api/v1/owner/digital/orders/{order_id}/action") in routes
+    assert ("GET", "/api/v1/owner/custom-preorders") in routes
+    assert ("POST", "/api/v1/owner/custom-preorders/{preorder_id}/action") in routes
     assert ("GET", "/api/v1/owner/numbers/refund-reviews") in routes
     assert ("POST", "/api/v1/owner/numbers/refund-reviews/{order_id}/resolve") in routes
     assert ("GET", "/api/v1/owner/settings") in routes
@@ -39,6 +41,7 @@ def test_register_owner_api_routes():
     assert ("GET", "/api/v1/owner/identity-reviews") in routes
     assert ("POST", "/api/v1/owner/identity-reviews/{review_id}/action") in routes
     assert ("GET", "/api/v1/owner/support-tickets") in routes
+    assert ("GET", "/api/v1/owner/support-tickets/{ticket_id}") in routes
     assert ("POST", "/api/v1/owner/support-tickets/{ticket_id}/action") in routes
     assert ("GET", "/api/v1/owner/api-keys") in routes
     assert ("POST", "/api/v1/owner/api-keys") in routes
@@ -751,6 +754,58 @@ async def test_owner_support_action_uses_shared_ticket_state(monkeypatch):
 
     assert response.status == 200
     assert calls == {"ticket_id": "507f1f77bcf86cd799439011", "actor_id": 900000000001}
+
+
+@pytest.mark.asyncio
+async def test_owner_custom_preorder_action_fulfills_with_delivery_text(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def fulfill(preorder_id, *, actor_id, delivery_text):
+        calls.update({"preorder_id": preorder_id, "actor_id": actor_id, "delivery_text": delivery_text})
+        return True, "fulfilled", {"_id": preorder_id, "status": "fulfilled", "service_name": "Account"}
+
+    async def get_preorder(preorder_id):
+        return {"_id": preorder_id, "status": "fulfilled", "service_name": "Account"}
+
+    async def audit(**_kwargs):
+        return None
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "fulfill_preorder_from_owner", fulfill)
+    monkeypatch.setattr(owner_api, "get_preorder_request", get_preorder)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/owner/custom-preorders/pre-1/action",
+        match_info={"preorder_id": "pre-1"},
+    )
+    request._read_bytes = json.dumps({"action": "fulfill", "delivery_text": "CODE-123"}).encode()
+
+    response = await owner_api.owner_custom_preorder_action(request)
+
+    assert response.status == 200
+    assert calls == {"preorder_id": "pre-1", "actor_id": 900000000001, "delivery_text": "CODE-123"}
+
+
+@pytest.mark.asyncio
+async def test_owner_custom_preorder_reject_requires_reason(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/owner/custom-preorders/pre-1/action",
+        match_info={"preorder_id": "pre-1"},
+    )
+    request._read_bytes = json.dumps({"action": "reject", "reason": ""}).encode()
+
+    response = await owner_api.owner_custom_preorder_action(request)
+
+    assert response.status == 400
 
 
 @pytest.mark.asyncio

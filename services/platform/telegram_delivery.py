@@ -15,9 +15,9 @@ def _configured_token(bot_id: int) -> str:
     return ""
 
 
-async def send_ticket_message(ticket: dict, text: str) -> bool:
-    source_bot_id = int((ticket or {}).get("source_bot_id") or 0)
-    user_id = int((ticket or {}).get("user_id") or 0)
+async def send_source_bot_message(*, source_bot_id: int, user_id: int, text: str) -> bool:
+    source_bot_id = int(source_bot_id or 0)
+    user_id = int(user_id or 0)
     if source_bot_id <= 0 or user_id <= 0:
         return False
     token = _configured_token(source_bot_id)
@@ -34,6 +34,14 @@ async def send_ticket_message(ticket: dict, text: str) -> bool:
         return True
     finally:
         await bot.session.close()
+
+
+async def send_ticket_message(ticket: dict, text: str) -> bool:
+    return await send_source_bot_message(
+        source_bot_id=int((ticket or {}).get("source_bot_id") or 0),
+        user_id=int((ticket or {}).get("user_id") or 0),
+        text=text,
+    )
 
 
 async def send_owner_broadcast(*, chat_id: int, text: str, message_thread_id: int | None = None) -> bool:
