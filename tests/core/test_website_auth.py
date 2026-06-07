@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 from aiohttp import web
@@ -103,6 +104,27 @@ async def test_website_auth_page_contains_owner_sidebar_navigation():
     assert 'data-owner-tab="overview"' in text
     assert 'data-owner-tab="system"' in text
     assert 'data-view="owner"' not in text
+
+
+def test_owner_dashboard_tabs_have_routes_nav_and_content_groups():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    html = (root / "webapp" / "auth" / "index.html").read_text(encoding="utf-8")
+    js = (root / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+    owner_titles_block = js[js.index("const ownerTabTitles"): js.index("function setPageTitle")]
+    owner_groups_block = js[js.index("const ownerGroupTargets"): js.index("const ownerLoadingLabels")]
+
+    route_keys = set(re.findall(r"^\s+([a-z_]+):\s+\"/admin", js, flags=re.MULTILINE))
+    title_keys = set(re.findall(r"^\s+([a-z_]+):\s+\"", owner_titles_block, flags=re.MULTILINE))
+    group_keys = set(re.findall(r"^\s+([a-z_]+):\s+\[", owner_groups_block, flags=re.MULTILINE))
+    sidebar_keys = set(re.findall(r'class="nav-item owner-nav"[^>]+data-owner-tab="([^"]+)"', html))
+    header_tab_keys = set(re.findall(r'class="admin-tab[^"]*"[^>]+data-owner-tab="([^"]+)"', html))
+
+    assert route_keys == title_keys == group_keys == sidebar_keys == header_tab_keys
+    for _group, raw_ids in re.findall(r'^\s+([a-z_]+):\s+\[([^\]]+)\]', owner_groups_block, flags=re.MULTILINE):
+        for node_id in re.findall(r'"([^"]+)"', raw_ids):
+            assert f'id="{node_id}"' in html
 
 
 def test_password_hash_round_trip():
