@@ -528,12 +528,12 @@ async def owner_admin_audit(request: web.Request) -> web.Response:
         if numeric is not None:
             ors.append({"actor_id": numeric})
         query["$or"] = ors
-    limit = _limit(request, 50)
-    rows = await db.owner_admin_audit.find(query).sort("created_at", -1).limit(limit).to_list(length=limit)
+    rows, pagination = await _paged_rows(db.owner_admin_audit.find(query).sort("created_at", -1), request, default=50)
     return web.json_response(
         {
             "ok": True,
             "filters": {"q": q, "action": action, "target_type": target_type},
+            "pagination": pagination,
             "events": [
                 {
                     "id": _text(row.get("_id")),
@@ -1771,9 +1771,11 @@ async def owner_api_keys(request: web.Request) -> web.Response:
         reseller_id = 0
     if reseller_id > 0:
         query["reseller_id"] = reseller_id
-    cursor = db.api_keys.find(query).sort("created_at", -1).limit(_limit(request))
-    rows = [serialize_api_key_doc(row) async for row in cursor]
-    return web.json_response({"ok": True, "keys": rows, "scopes": sorted(_ALLOWED_CUSTOMER_SCOPES)}, headers=dict(_NO_STORE_HEADERS))
+    rows, pagination = await _paged_rows(db.api_keys.find(query).sort("created_at", -1), request)
+    return web.json_response(
+        {"ok": True, "keys": [serialize_api_key_doc(row) for row in rows], "scopes": sorted(_ALLOWED_CUSTOMER_SCOPES), "pagination": pagination},
+        headers=dict(_NO_STORE_HEADERS),
+    )
 
 
 async def owner_create_api_key(request: web.Request) -> web.Response:
@@ -1830,9 +1832,11 @@ async def owner_webhooks(request: web.Request) -> web.Response:
         reseller_id = 0
     if reseller_id > 0:
         query["reseller_id"] = reseller_id
-    cursor = db.api_webhooks.find(query).sort("created_at", -1).limit(_limit(request))
-    rows = [serialize_webhook_doc(row) async for row in cursor]
-    return web.json_response({"ok": True, "webhooks": rows, "events": sorted(ALLOWED_WEBHOOK_EVENTS)}, headers=dict(_NO_STORE_HEADERS))
+    rows, pagination = await _paged_rows(db.api_webhooks.find(query).sort("created_at", -1), request)
+    return web.json_response(
+        {"ok": True, "webhooks": [serialize_webhook_doc(row) for row in rows], "events": sorted(ALLOWED_WEBHOOK_EVENTS), "pagination": pagination},
+        headers=dict(_NO_STORE_HEADERS),
+    )
 
 
 async def owner_create_webhook(request: web.Request) -> web.Response:

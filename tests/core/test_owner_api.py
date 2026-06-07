@@ -124,6 +124,7 @@ async def test_owner_paged_rows_returns_next_offset_and_applies_offset():
 
 def test_owner_operational_lists_use_shared_pagination_contract():
     handlers = [
+        owner_api.owner_admin_audit,
         owner_api.owner_digital_orders,
         owner_api.owner_custom_preorders,
         owner_api.owner_recharge_reviews,
@@ -131,6 +132,8 @@ def test_owner_operational_lists_use_shared_pagination_contract():
         owner_api.owner_support_tickets,
         owner_api.owner_bot_creation_reviews,
         owner_api.owner_bots,
+        owner_api.owner_api_keys,
+        owner_api.owner_webhooks,
     ]
 
     for handler in handlers:
@@ -182,11 +185,11 @@ async def test_owner_admin_audit_filters_by_action_target_and_search(monkeypatch
             return self
 
         def limit(self, value):
-            assert value == 25
+            assert value == 26
             return self
 
         async def to_list(self, length=None):
-            assert length == 25
+            assert length == 26
             return []
 
     class AuditCollection:

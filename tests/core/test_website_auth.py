@@ -208,6 +208,11 @@ def test_owner_operational_lists_have_connected_pagination():
     for key in ("digital", "preorders", "refunds", "recharge", "identity", "support", "botCreationReviews", "bots"):
         assert f'ownerPaginationButton("{key}"' in js
         assert f"{key}:" in js
+    assert 'ownerPaginationButton("ownerAudit"' in js
+    assert 'ownerPaginationButton("apiKeys"' in js
+    assert 'ownerPaginationButton("webhooks"' in js
+    assert "async function loadMoreOwnerAudit(event)" in js
+    assert "async function loadMoreOwnerIntegration(button)" in js
 
 
 def test_owner_routing_cards_use_stable_field_group():

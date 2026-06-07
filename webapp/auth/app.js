@@ -24,6 +24,8 @@ let ownerAuditFilters = {q: "", action: "", target_type: ""};
 let ownerUserRows = [];
 let ownerUserQuery = "";
 let ownerPagedRows = {};
+let ownerIntegrationPayloads = {};
+let ownerSystemStatusPayload = {};
 
 const customerRoutes = {
   home: "/app",
@@ -755,7 +757,7 @@ async function loadOwnerDashboardIsolated() {
   if (requested("financeAudit")) { clearOwnerBusy("owner-finance-audit"); data.financeAudit ? renderOwnerFinanceAudit(data.financeAudit.audit || {}) : fail("#owner-finance-audit", "تعذر تحميل التدقيق المالي."); }
   if (requested("systemStatus") || requested("ownerAudit")) {
     clearOwnerBusy("owner-system-operations");
-    data.systemStatus && data.ownerAudit ? renderOwnerSystemOperations(data.systemStatus.system || {}, data.ownerAudit.events || [], data.ownerAudit.filters || ownerAuditFilters) : fail("#owner-system-operations", "تعذر تحميل عمليات النظام.");
+    data.systemStatus && data.ownerAudit ? renderOwnerSystemOperations(data.systemStatus.system || {}, data.ownerAudit) : fail("#owner-system-operations", "تعذر تحميل عمليات النظام.");
   }
   if (requested("resellers")) { clearOwnerBusy("owner-reseller-management"); data.resellers ? renderOwnerResellerManagement(data.resellers.resellers || []) : fail("#owner-reseller-management", "تعذر تحميل الوكلاء."); }
   if (requested("users")) { clearOwnerBusy("owner-user-management"); data.users ? renderOwnerUserManagement(data.users) : fail("#owner-user-management", "تعذر تحميل المستخدمين."); }
@@ -781,11 +783,15 @@ async function loadOwnerDashboard() {
   return loadOwnerDashboardIsolated();
 }
 
-function renderOwnerApiTools(keysPayload, webhooksPayload) {
+function renderOwnerApiTools(keysPayload, webhooksPayload, appendKey = "") {
   const keyScopes = keysPayload.scopes || [];
   const webhookEvents = webhooksPayload.events || [];
-  const keys = keysPayload.keys || [];
-  const hooks = webhooksPayload.webhooks || [];
+  const keys = ownerPagedItems("apiKeys", keysPayload, "keys", appendKey === "apiKeys");
+  const hooks = ownerPagedItems("webhooks", webhooksPayload, "webhooks", appendKey === "webhooks");
+  ownerIntegrationPayloads = {
+    apiKeys: {...keysPayload, keys, scopes: keyScopes},
+    webhooks: {...webhooksPayload, webhooks: hooks, events: webhookEvents},
+  };
   const target = $("#owner-api-tools");
   target.classList.remove("empty");
   target.innerHTML = `
@@ -823,6 +829,28 @@ function renderOwnerApiTools(keysPayload, webhooksPayload) {
   $("#owner-webhook-form")?.addEventListener("submit", createOwnerWebhook);
   target.querySelectorAll("[data-owner-api-key]").forEach((button) => button.addEventListener("click", () => revokeOwnerApiKey(button)));
   target.querySelectorAll("[data-owner-webhook]").forEach((button) => button.addEventListener("click", () => revokeOwnerWebhook(button)));
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("apiKeys", keysPayload.pagination, "Load more API keys"));
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("webhooks", webhooksPayload.pagination, "Load more webhooks"));
+  target.querySelectorAll("[data-owner-page='apiKeys'], [data-owner-page='webhooks']").forEach((button) => button.addEventListener("click", () => loadMoreOwnerIntegration(button)));
+}
+
+async function loadMoreOwnerIntegration(button) {
+  button.disabled = true;
+  try {
+    const key = button.dataset.ownerPage;
+    const offset = Number(button.dataset.nextOffset || 0);
+    const path = key === "apiKeys" ? "/api/v1/owner/api-keys" : "/api/v1/owner/webhooks";
+    const payload = await api(`${path}?status=all&limit=30&offset=${encodeURIComponent(offset)}`);
+    renderOwnerApiTools(
+      key === "apiKeys" ? payload : ownerIntegrationPayloads.apiKeys,
+      key === "webhooks" ? payload : ownerIntegrationPayloads.webhooks,
+      key,
+    );
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function selectedValues(select) {
@@ -1066,8 +1094,11 @@ function renderOwnerFinanceAudit(audit) {
   `;
 }
 
-function renderOwnerSystemOperations(system, events, filters = ownerAuditFilters) {
+function renderOwnerSystemOperations(system, auditPayload, append = false) {
   const target = $("#owner-system-operations");
+  const events = ownerPagedItems("ownerAudit", auditPayload, "events", append);
+  const filters = auditPayload.filters || ownerAuditFilters;
+  ownerSystemStatusPayload = system;
   const routing = system.routing || {};
   const checks = [
     ["MongoDB", system.mongo?.status || "unknown"],
@@ -1100,6 +1131,25 @@ function renderOwnerSystemOperations(system, events, filters = ownerAuditFilters
   $("#owner-test-log")?.addEventListener("click", sendOwnerTestLog);
   $("#owner-audit-filter-form")?.addEventListener("submit", applyOwnerAuditFilters);
   $("#owner-audit-filter-reset")?.addEventListener("click", resetOwnerAuditFilters);
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("ownerAudit", auditPayload.pagination, "Load more audit events"));
+  target.querySelector("[data-owner-page='ownerAudit']")?.addEventListener("click", loadMoreOwnerAudit);
+}
+
+async function loadMoreOwnerAudit(event) {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const query = new URLSearchParams({limit: "50", offset: String(button.dataset.nextOffset || 0)});
+    Object.entries(ownerAuditFilters).forEach(([key, value]) => {
+      if (value) query.set(key, value);
+    });
+    const payload = await api(`/api/v1/owner/audit?${query.toString()}`);
+    renderOwnerSystemOperations(ownerSystemStatusPayload, payload, true);
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function applyOwnerAuditFilters(event) {
