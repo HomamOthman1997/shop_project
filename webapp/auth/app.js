@@ -120,6 +120,15 @@ function esc(value) {
   })[char]);
 }
 
+function safeExternalUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
 function csrfToken() {
   const item = document.cookie.split("; ").find((row) => row.startsWith("phantom_csrf="));
   return item ? decodeURIComponent(item.split("=").slice(1).join("=")) : "";
@@ -928,7 +937,7 @@ function renderOwnerProviderDiagnostics(providersPayload, eventsPayload, sources
         <div>
           <strong>${esc(source.product_name || source.source_ref)} · ${esc(source.denomination_name)}</strong>
           <span>${esc(source.status)} · ${esc(source.reason || "ok")} · observed $${esc(source.observed_price)} · active $${esc(source.active_price)} · ${esc(source.compare_key || "no compare key")}</span>
-          ${source.source_url ? `<a href="${esc(source.source_url)}" target="_blank" rel="noreferrer">${esc(source.source_url)}</a>` : ""}
+          ${safeExternalUrl(source.source_url) ? `<a href="${esc(safeExternalUrl(source.source_url))}" target="_blank" rel="noopener noreferrer">${esc(source.source_url)}</a>` : ""}
         </div>
         <div class="owner-order-actions">
           <button class="secondary compact" data-owner-source="${esc(source.id)}" data-source-action="approve">Approve</button>

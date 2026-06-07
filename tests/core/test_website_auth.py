@@ -230,6 +230,17 @@ def test_owner_operational_lists_have_connected_pagination():
     assert "async function loadMoreOwnerProviderDiagnostics(button)" in js
 
 
+def test_owner_provider_source_links_reject_unsafe_protocols():
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+
+    assert "function safeExternalUrl(value)" in js
+    assert '[\"http:\", \"https:\"].includes(url.protocol)' in js
+    assert 'href="${esc(safeExternalUrl(source.source_url))}"' in js
+    assert 'rel="noopener noreferrer"' in js
+
+
 def test_owner_routing_cards_use_stable_field_group():
     from pathlib import Path
 
