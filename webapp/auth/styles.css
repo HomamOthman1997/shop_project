@@ -896,11 +896,16 @@ button.owner-action-row {
   outline-offset: -2px;
 }
 .owner-routing-card {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
-.owner-routing-card > div,
-.owner-routing-card button {
-  grid-column: 1 / -1;
+.owner-routing-fields {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.owner-routing-fields input {
+  min-width: 0;
 }
 .owner-routing-card button {
   width: 100%;

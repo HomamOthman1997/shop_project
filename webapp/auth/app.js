@@ -1320,8 +1320,10 @@ function routingLabel(target) {
 function routingForm(key, title, target) {
   return `<form class="owner-setting-card owner-routing-card" data-owner-routing="${esc(key)}">
     <div><strong>${esc(title)}</strong><span>${esc(routingLabel(target))}</span></div>
-    <input name="chat_id" required inputmode="numeric" placeholder="Chat ID" value="${esc(target?.chat_id || "")}">
-    <input name="message_thread_id" inputmode="numeric" placeholder="Topic ID" value="${esc(target?.message_thread_id || "")}">
+    <div class="owner-routing-fields">
+      <input name="chat_id" required inputmode="numeric" placeholder="Chat ID" value="${esc(target?.chat_id || "")}">
+      <input name="message_thread_id" inputmode="numeric" placeholder="Topic ID" value="${esc(target?.message_thread_id || "")}">
+    </div>
     <button class="secondary compact" type="submit">حفظ</button>
   </form>`;
 }

@@ -149,6 +149,19 @@ def test_owner_dashboard_overview_shortcuts_cover_management_sections():
     assert set(shortcut_pairs.values()) <= owner_tabs
 
 
+def test_owner_routing_cards_use_stable_field_group():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    js = (root / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+    css = (root / "webapp" / "auth" / "styles.css").read_text(encoding="utf-8")
+
+    assert 'class="owner-routing-fields"' in js
+    assert ".owner-routing-fields" in css
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in css
+    assert ".owner-routing-fields input" in css
+
+
 def test_password_hash_round_trip():
     salt, password_hash = website_auth._password_hash("long-secure-password")
 
