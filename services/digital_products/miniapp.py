@@ -2040,7 +2040,8 @@ def create_app(_argv: list[str] | None = None) -> web.Application:
 
 async def start_miniapp_server() -> tuple[web.AppRunner, web.TCPSite] | None:
     if (
-        not bool(getattr(settings, "digital_products_miniapp_enabled", False))
+        not bool(getattr(settings, "website_enabled", True))
+        and not bool(getattr(settings, "digital_products_miniapp_enabled", False))
         and not bool(getattr(settings, "cardex_miniapp_enabled", False))
         and not bool(getattr(settings, "numbers_miniapp_enabled", False))
     ):

@@ -38,6 +38,32 @@ const adminRoutes = {
   orders: "/admin/orders",
 };
 
+const customerViewTitles = {
+  home: "الخدمات",
+  orders: "طلباتي",
+  support: "الدعم",
+  account: "حسابي",
+  identity: "تأكيد الهوية",
+  workspace: "الخدمة",
+};
+
+const ownerTabTitles = {
+  overview: "النظرة العامة",
+  finance: "المالية",
+  users: "المستخدمون",
+  support: "الدعم",
+  integrations: "API",
+  providers: "المزودون",
+  orders: "الطلبات",
+};
+
+function setPageTitle(title) {
+  const clean = String(title || "Phantom Services").trim() || "Phantom Services";
+  setText("#view-title", clean);
+  document.title = `${clean} | Phantom`;
+  window.PhantomI18n?.translatePage?.();
+}
+
 function routeForView(view) {
   return customerRoutes[view] || "/app";
 }
@@ -434,7 +460,109 @@ function applyOwnerTab(tab = "overview", updateRoute = true) {
   document.querySelectorAll("[data-owner-group]").forEach((node) => {
     node.hidden = node.dataset.ownerGroup !== activeOwnerTab;
   });
+  setPageTitle(ownerTabTitles[activeOwnerTab] || "لوحة الإدارة");
   if (updateRoute) pushRoute(adminRoutes[activeOwnerTab] || "/admin");
+}
+
+async function loadOwnerDashboardIsolated() {
+  const metricsTarget = $("#owner-metrics");
+  const queuesTarget = $("#owner-queues");
+  const sectionsTarget = $("#owner-sections");
+  const message = $("#owner-message");
+  const fail = (selector, text) => {
+    const target = typeof selector === "string" ? $(selector) : selector;
+    if (!target) return;
+    target.classList?.add("empty");
+    target.textContent = text;
+  };
+  const digitalFilter = $("#owner-digital-filter")?.value || "pending";
+  const showResolvedReviews = $("#owner-refunds-resolved")?.checked ? "1" : "0";
+  const rechargeFilter = $("#owner-recharge-filter")?.value || "pending";
+  const identityFilter = $("#owner-identity-filter")?.value || "pending";
+  const supportFilter = $("#owner-support-filter")?.value || "open";
+  const sourceFilter = $("#owner-source-filter")?.value || "under_review";
+  const entries = Object.entries({
+    dashboard: api("/api/v1/owner/dashboard"),
+    queues: api("/api/v1/owner/queues"),
+    digital: api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
+    refunds: api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
+    settings: api("/api/v1/owner/settings"),
+    recharge: api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
+    identity: api(`/api/v1/owner/identity-reviews?status=${encodeURIComponent(identityFilter)}&limit=30`),
+    support: api(`/api/v1/owner/support-tickets?status=${encodeURIComponent(supportFilter)}&limit=30`),
+    apiKeys: api("/api/v1/owner/api-keys?status=all&limit=30"),
+    webhooks: api("/api/v1/owner/webhooks?status=all&limit=30"),
+    providers: api("/api/v1/owner/provider-readiness"),
+    providerEvents: api("/api/v1/owner/provider-webhook-events?limit=12"),
+    sources: api(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent(sourceFilter)}&limit=30`),
+    bots: api("/api/v1/owner/bots?status=all&limit=30"),
+  });
+  const settled = await Promise.allSettled(entries.map(async ([key, promise]) => [key, await promise]));
+  const data = {};
+  const failures = [];
+  settled.forEach((result) => {
+    if (result.status === "fulfilled") data[result.value[0]] = result.value[1];
+    else failures.push(result.reason?.message || "request failed");
+  });
+  if (data.dashboard) {
+    const metrics = Object.entries(data.dashboard.metrics || {});
+    metricsTarget.classList.toggle("empty", !metrics.length);
+    metricsTarget.innerHTML = metrics.map(([key, value]) => `
+      <div class="owner-metric">
+        <span>${esc(ownerMetricLabels[key] || key)}</span>
+        <strong>${esc(value)}</strong>
+      </div>`).join("");
+    const sections = data.dashboard.sections || [];
+    sectionsTarget.classList.toggle("empty", !sections.length);
+    sectionsTarget.innerHTML = sections.map((section) => `
+      <section class="owner-section">
+        <h4>${esc(section.title || section.key)}</h4>
+        <div class="owner-action-list">
+          ${(section.items || []).map((item) => `
+            <div class="owner-action-row">
+              <div><strong>${esc(item.title || item.key)}</strong><span>${esc(item.endpoint || "Website action")}</span></div>
+              <b data-owner-status="${esc(item.status || "")}">${esc(ownerStatusLabels[item.status] || item.status)}</b>
+            </div>`).join("")}
+        </div>
+      </section>`).join("");
+  } else {
+    fail(metricsTarget, "تعذر تحميل مؤشرات المالك.");
+    fail(sectionsTarget, "تعذر تحميل خصائص الإدارة.");
+  }
+  if (data.queues) {
+    const queues = Object.entries(data.queues.queues || {});
+    queuesTarget.classList.toggle("empty", !queues.length);
+    queuesTarget.innerHTML = queues.map(([key, rows]) => `
+      <section class="owner-queue">
+        <div class="owner-queue-head"><strong>${esc(ownerQueueLabels[key] || key)}</strong><b>${esc(rows.length)}</b></div>
+        <div class="owner-queue-list">
+          ${rows.length ? rows.map((row) => `
+            <div class="owner-queue-row">
+              <div><strong>${esc(row.title || row.id)}</strong><span>${esc(row.detail || "")}</span></div>
+              <b>${esc(row.status || "")}</b>
+            </div>`).join("") : '<span class="owner-queue-empty">لا توجد عناصر معلقة.</span>'}
+        </div>
+      </section>`).join("");
+  } else {
+    fail(queuesTarget, "تعذر تحميل طوابير المتابعة.");
+  }
+  data.digital ? renderOwnerDigitalOrders(data.digital.orders || []) : fail("#owner-digital-orders", "تعذر تحميل الطلبات الرقمية.");
+  data.refunds ? renderOwnerRefundReviews(data.refunds.reviews || []) : fail("#owner-refund-reviews", "تعذر تحميل مراجعات الأرقام.");
+  data.settings ? renderOwnerSettings(data.settings) : fail("#owner-finance-settings", "تعذر تحميل الإعدادات المالية.");
+  if (!data.settings) {
+    fail("#owner-routing-settings", "تعذر تحميل إعدادات التوجيه.");
+    fail("#owner-payment-methods", "تعذر تحميل طرق الدفع.");
+  }
+  data.recharge ? renderOwnerRechargeReviews(data.recharge.reviews || []) : fail("#owner-recharge-reviews", "تعذر تحميل مراجعات الشحن.");
+  data.identity ? renderOwnerIdentityReviews(data.identity.reviews || []) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية.");
+  data.support ? renderOwnerSupportTickets(data.support.tickets || []) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم.");
+  data.apiKeys && data.webhooks ? renderOwnerApiTools(data.apiKeys, data.webhooks) : fail("#owner-api-tools", "تعذر تحميل أدوات API.");
+  data.providers && data.providerEvents && data.sources
+    ? renderOwnerProviderDiagnostics(data.providers.providers || [], data.providerEvents.events || [], data.sources)
+    : fail("#owner-provider-diagnostics", "تعذر تحميل تشخيص المزودين.");
+  data.bots ? renderOwnerBotTools(data.bots.bots || []) : fail("#owner-bot-tools", "تعذر تحميل أدوات البوتات.");
+  message.textContent = failures.length ? `تعذر تحميل ${failures.length} قسم/أقسام. آخر خطأ: ${failures[0]}` : "";
+  applyOwnerTab(activeOwnerTab, false);
 }
 
 async function loadOwnerDashboard() {
@@ -444,6 +572,7 @@ async function loadOwnerDashboard() {
   const message = $("#owner-message");
   if (!currentAccount?.is_owner) return;
   message.textContent = "";
+  return loadOwnerDashboardIsolated();
   try {
     const digitalFilter = $("#owner-digital-filter")?.value || "pending";
     const showResolvedReviews = $("#owner-refunds-resolved")?.checked ? "1" : "0";
@@ -1634,7 +1763,7 @@ function openPanel(view, title = "", options = {}) {
   document.querySelectorAll(".app-view").forEach((panel) => {
     panel.classList.toggle("active", panel.dataset.panel === view);
   });
-  if (title) setText("#view-title", title);
+  if (title || customerViewTitles[view]) setPageTitle(title || customerViewTitles[view]);
   if (options.updateRoute !== false && view !== "owner") pushRoute(routeForView(view));
 }
 

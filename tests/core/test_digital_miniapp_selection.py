@@ -18,6 +18,48 @@ def test_create_app_registers_health_routes():
     assert ("GET", "/ready") in routes
 
 
+@pytest.mark.asyncio
+async def test_website_enabled_starts_http_server_without_miniapps(monkeypatch):
+    from services.digital_products import miniapp
+
+    calls = {}
+
+    class FakeRunner:
+        def __init__(self, app):
+            calls["app"] = app
+
+        async def setup(self):
+            calls["runner_setup"] = True
+
+    class FakeSite:
+        def __init__(self, runner, host, port):
+            calls["site"] = (runner, host, port)
+
+        async def start(self):
+            calls["site_started"] = True
+
+    async def fake_bootstrap():
+        calls["bootstrap"] = True
+
+    monkeypatch.setattr(miniapp.settings, "website_enabled", True, raising=False)
+    monkeypatch.setattr(miniapp.settings, "digital_products_miniapp_enabled", False, raising=False)
+    monkeypatch.setattr(miniapp.settings, "numbers_miniapp_enabled", False, raising=False)
+    monkeypatch.setattr(miniapp.settings, "cardex_miniapp_enabled", False, raising=False)
+    monkeypatch.setattr(miniapp.settings, "digital_products_miniapp_host", "0.0.0.0", raising=False)
+    monkeypatch.setattr(miniapp.settings, "digital_products_miniapp_port", 8123, raising=False)
+    monkeypatch.setattr(miniapp, "bootstrap_miniapp_indexes", fake_bootstrap)
+    monkeypatch.setattr(miniapp.web, "AppRunner", FakeRunner)
+    monkeypatch.setattr(miniapp.web, "TCPSite", FakeSite)
+
+    started = await miniapp.start_miniapp_server()
+
+    assert started is not None
+    assert calls["bootstrap"] is True
+    assert calls["runner_setup"] is True
+    assert calls["site_started"] is True
+    assert calls["site"][1:] == ("0.0.0.0", 8123)
+
+
 class _DummyRequest:
     def __init__(self, body, headers=None):
         self._body = dict(body)
