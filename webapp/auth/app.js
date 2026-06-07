@@ -349,7 +349,8 @@ async function loadOwnerDashboard() {
     const rechargeFilter = $("#owner-recharge-filter")?.value || "pending";
     const identityFilter = $("#owner-identity-filter")?.value || "pending";
     const supportFilter = $("#owner-support-filter")?.value || "open";
-    const [payload, queuePayload, digitalPayload, refundPayload, settingsPayload, rechargePayload, identityPayload, supportPayload, apiKeysPayload, webhooksPayload, providerPayload, providerEventsPayload, botsPayload] = await Promise.all([
+    const sourceFilter = $("#owner-source-filter")?.value || "under_review";
+    const [payload, queuePayload, digitalPayload, refundPayload, settingsPayload, rechargePayload, identityPayload, supportPayload, apiKeysPayload, webhooksPayload, providerPayload, providerEventsPayload, sourcesPayload, botsPayload] = await Promise.all([
       api("/api/v1/owner/dashboard"),
       api("/api/v1/owner/queues"),
       api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
@@ -362,6 +363,7 @@ async function loadOwnerDashboard() {
       api("/api/v1/owner/webhooks?status=all&limit=30"),
       api("/api/v1/owner/provider-readiness"),
       api("/api/v1/owner/provider-webhook-events?limit=12"),
+      api(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent(sourceFilter)}&limit=30`),
       api("/api/v1/owner/bots?status=all&limit=30"),
     ]);
     const metrics = Object.entries(payload.metrics || {});
@@ -391,7 +393,7 @@ async function loadOwnerDashboard() {
     renderOwnerIdentityReviews(identityPayload.reviews || []);
     renderOwnerSupportTickets(supportPayload.tickets || []);
     renderOwnerApiTools(apiKeysPayload, webhooksPayload);
-    renderOwnerProviderDiagnostics(providerPayload.providers || [], providerEventsPayload.events || []);
+    renderOwnerProviderDiagnostics(providerPayload.providers || [], providerEventsPayload.events || [], sourcesPayload);
     renderOwnerBotTools(botsPayload.bots || []);
     const sections = payload.sections || [];
     sectionsTarget.classList.toggle("empty", !sections.length);
@@ -513,8 +515,10 @@ async function revokeOwnerWebhook(button) {
   await loadOwnerDashboard();
 }
 
-function renderOwnerProviderDiagnostics(providers, events) {
+function renderOwnerProviderDiagnostics(providers, events, sourcesPayload = {}) {
   const target = $("#owner-provider-diagnostics");
+  const sources = sourcesPayload.sources || [];
+  const runs = sourcesPayload.runs || [];
   target.classList.remove("empty");
   target.innerHTML = `
     <article class="owner-review-card">
@@ -524,8 +528,25 @@ function renderOwnerProviderDiagnostics(providers, events) {
     <article class="owner-review-card">
       <h4>آخر provider webhooks</h4>
       ${events.map((event) => `<div class="owner-action-row"><div><strong>${esc(event.provider)} · ${esc(event.event_type)}</strong><span>${esc(event.provider_order_id)} · ${esc(event.reason || event.created_at || "")}</span></div><b>${esc(event.status)}</b><button class="secondary compact" data-provider-event="${esc(event.id)}">Replay</button></div>`).join("") || '<div class="notice">لا توجد أحداث webhook حديثة.</div>'}
+    </article>
+    <article class="owner-review-card">
+      <div class="owner-order-head"><div><h4>BitTopup price watch</h4><span>${runs.length ? `آخر تشغيل: ${esc(runs[0].status)} · ${esc(runs[0].finished_at || runs[0].started_at || "")}` : "لا يوجد تشغيل مسجل"}</span></div><button class="secondary compact" id="owner-bittopup-scan" type="button">تشغيل Scan</button></div>
+      ${runs.length ? `<div class="owner-order-meta">${runs.slice(0, 3).map((run) => `<span>${esc(run.status)} · pages ${esc(run.stats?.pages_checked || 0)} · offers ${esc(run.stats?.offers_seen || 0)}</span>`).join("")}</div>` : ""}
+      ${sources.length ? sources.map((source) => `<div class="owner-action-row owner-source-row">
+        <div>
+          <strong>${esc(source.product_name || source.source_ref)} · ${esc(source.denomination_name)}</strong>
+          <span>${esc(source.status)} · ${esc(source.reason || "ok")} · observed $${esc(source.observed_price)} · active $${esc(source.active_price)} · ${esc(source.compare_key || "no compare key")}</span>
+          ${source.source_url ? `<a href="${esc(source.source_url)}" target="_blank" rel="noreferrer">${esc(source.source_url)}</a>` : ""}
+        </div>
+        <div class="owner-order-actions">
+          <button class="secondary compact" data-owner-source="${esc(source.id)}" data-source-action="approve">Approve</button>
+          <button class="danger compact" data-owner-source="${esc(source.id)}" data-source-action="disable">Disable</button>
+        </div>
+      </div>`).join("") : '<div class="notice">لا توجد مصادر ضمن هذا الفلتر.</div>'}
     </article>`;
   target.querySelectorAll("[data-provider-event]").forEach((button) => button.addEventListener("click", () => replayOwnerProviderEvent(button)));
+  target.querySelector("#owner-bittopup-scan")?.addEventListener("click", runOwnerBittopupScan);
+  target.querySelectorAll("[data-owner-source]").forEach((button) => button.addEventListener("click", () => runOwnerSourceAction(button)));
 }
 
 async function replayOwnerProviderEvent(button) {
@@ -533,6 +554,29 @@ async function replayOwnerProviderEvent(button) {
   try {
     await api(`/api/v1/owner/provider-webhook-events/${encodeURIComponent(button.dataset.providerEvent)}/replay`, {method: "POST"});
     setText("#owner-message", "تم تنفيذ replay للحدث.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function runOwnerBittopupScan() {
+  if (!window.confirm("تشغيل BitTopup scan قد يستغرق وقتا ويحدّث مصادر الأسعار. متابعة؟")) return;
+  try {
+    setText("#owner-message", "جاري تشغيل BitTopup scan...");
+    const result = await api("/api/v1/owner/digital-provider-sources/scan", {method: "POST", body: JSON.stringify({})});
+    setText("#owner-message", `انتهى scan: ${result.scan?.status || "done"}.`);
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function runOwnerSourceAction(button) {
+  const action = button.dataset.sourceAction || "";
+  if (!window.confirm(`${action} لهذا المصدر؟`)) return;
+  try {
+    await api(`/api/v1/owner/digital-provider-sources/${encodeURIComponent(button.dataset.ownerSource)}/action`, {
+      method: "POST",
+      body: JSON.stringify({action}),
+    });
+    setText("#owner-message", "تم تحديث مصدر المنتج.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
 }
@@ -1479,6 +1523,7 @@ $("#owner-refunds-resolved")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-recharge-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-identity-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-support-filter")?.addEventListener("change", loadOwnerDashboard);
+$("#owner-source-filter")?.addEventListener("change", loadOwnerDashboard);
 
 sendEmailCodeButton.addEventListener("click", async () => {
   await sendEmailCode({

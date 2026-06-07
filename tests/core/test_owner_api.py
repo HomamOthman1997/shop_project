@@ -39,6 +39,9 @@ def test_register_owner_api_routes():
     assert ("GET", "/api/v1/owner/provider-readiness") in routes
     assert ("GET", "/api/v1/owner/provider-webhook-events") in routes
     assert ("POST", "/api/v1/owner/provider-webhook-events/{event_id}/replay") in routes
+    assert ("GET", "/api/v1/owner/digital-provider-sources") in routes
+    assert ("POST", "/api/v1/owner/digital-provider-sources/scan") in routes
+    assert ("POST", "/api/v1/owner/digital-provider-sources/{source_id}/action") in routes
     assert ("GET", "/api/v1/owner/bots") in routes
     assert ("POST", "/api/v1/owner/bots/{bot_id}/subscription/action") in routes
     assert ("POST", "/api/v1/owner/reseller-deposits") in routes
@@ -210,6 +213,7 @@ async def test_owner_settings_returns_finance_alerts_and_routing(monkeypatch):
     monkeypatch.setattr(owner_api, "get_owner_payment_methods", lambda: _async_value([{"code": "owner_crypto_usdt"}]))
     monkeypatch.setattr(owner_api, "get_owner_exchange_rate", lambda: _async_value(13500.0))
     monkeypatch.setattr(owner_api, "get_digital_products_markup_percent", lambda: _async_value(4.0))
+    monkeypatch.setattr(owner_api, "get_numbers_markup_percent", lambda: _async_value(3.5))
     monkeypatch.setattr(owner_api, "get_provider_balance_alert_settings", lambda: _async_value({"enabled": True, "threshold_usd": 2.0}))
     monkeypatch.setattr(owner_api, "get_all_support_targets", lambda: _async_value({"numbers": {"chat_id": -1002}}))
     monkeypatch.setattr(owner_api, "get_bot_logs_target", lambda: _async_value(None))
@@ -219,7 +223,8 @@ async def test_owner_settings_returns_finance_alerts_and_routing(monkeypatch):
     payload = json.loads(response.text)
 
     assert payload["finance"]["exchange_rate"] == 13500.0
-    assert payload["finance"]["numbers_markup_editable"] is False
+    assert payload["finance"]["numbers_markup_percent"] == 3.5
+    assert payload["finance"]["numbers_markup_editable"] is True
     assert payload["alerts"]["threshold_usd"] == 2.0
     assert payload["routing"]["owner_notifications"]["bound"] is True
     assert payload["routing"]["support"]["numbers"]["chat_id"] == -1002
@@ -245,11 +250,15 @@ async def test_owner_update_settings_validates_and_applies_supported_setting(mon
     async def set_markup(value):
         calls["markup"] = value
 
+    async def set_numbers(value):
+        calls["numbers_markup"] = value
+
     async def settings(_request):
         return web.json_response({"ok": True})
 
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "set_digital_products_markup_percent", set_markup)
+    monkeypatch.setattr(owner_api, "set_numbers_markup_percent", set_numbers)
     monkeypatch.setattr(owner_api, "owner_settings", settings)
     request = make_mocked_request("PUT", "/api/v1/owner/settings", headers={"Content-Type": "application/json"})
     request._read_bytes = json.dumps({"key": "digital_markup_percent", "value": 7.5}).encode()
@@ -259,10 +268,11 @@ async def test_owner_update_settings_validates_and_applies_supported_setting(mon
     assert response.status == 200
     assert calls["markup"] == 7.5
 
-    invalid = make_mocked_request("PUT", "/api/v1/owner/settings", headers={"Content-Type": "application/json"})
-    invalid._read_bytes = json.dumps({"key": "numbers_markup_percent", "value": 20}).encode()
-    invalid_response = await owner_api.owner_update_settings(invalid)
-    assert invalid_response.status == 400
+    numbers_request = make_mocked_request("PUT", "/api/v1/owner/settings", headers={"Content-Type": "application/json"})
+    numbers_request._read_bytes = json.dumps({"key": "numbers_markup_percent", "value": 20}).encode()
+    numbers_response = await owner_api.owner_update_settings(numbers_request)
+    assert numbers_response.status == 200
+    assert calls["numbers_markup"] == 20.0
 
 
 @pytest.mark.asyncio
@@ -562,3 +572,91 @@ async def test_owner_provider_webhook_replay_delegates(monkeypatch):
 
     assert response.status == 200
     assert payload["event_id"] == "event-1"
+
+
+@pytest.mark.asyncio
+async def test_owner_digital_provider_sources_returns_sources_and_runs(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def sources(**kwargs):
+        assert kwargs["provider"] == "bittopup"
+        assert kwargs["status"] == "under_review"
+        return [{
+            "_id": "bittopup:pubg#60",
+            "source_token": "src123",
+            "provider": "bittopup",
+            "price_status": "under_review",
+            "review_reason": "price_change_gt_guardrail",
+            "source_product_name": "PUBG UC",
+            "source_denomination_name": "60 UC",
+            "observed_price": 1.1,
+            "active_price": 1.0,
+            "compare_key": "pubg:global:60:uc",
+        }]
+
+    async def runs(**kwargs):
+        return [{"provider": "bittopup", "status": "success", "stats": {"offers_seen": 1}}]
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "list_provider_sources", sources)
+    monkeypatch.setattr(owner_api, "list_price_watch_runs", runs)
+    response = await owner_api.owner_digital_provider_sources(make_mocked_request("GET", "/api/v1/owner/digital-provider-sources?provider=bittopup&status=under_review"))
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["sources"][0]["id"] == "src123"
+    assert payload["sources"][0]["observed_price"] == 1.1
+    assert payload["runs"][0]["stats"]["offers_seen"] == 1
+
+
+@pytest.mark.asyncio
+async def test_owner_digital_provider_source_action_approves(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def approve(source_id, *, actor_id=None):
+        calls["source_id"] = source_id
+        calls["actor_id"] = actor_id
+        return {"_id": "bittopup:pubg#60", "source_token": source_id, "price_status": "active", "observed_price": 1.1, "active_price": 1.1}
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "approve_provider_source", approve)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/owner/digital-provider-sources/src123/action",
+        match_info={"source_id": "src123"},
+        headers={"Content-Type": "application/json"},
+    )
+    request._read_bytes = json.dumps({"action": "approve"}).encode()
+
+    response = await owner_api.owner_digital_provider_source_action(request)
+
+    assert response.status == 200
+    assert calls == {"source_id": "src123", "actor_id": 900000000001}
+
+
+@pytest.mark.asyncio
+async def test_owner_run_digital_provider_scan_delegates(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def scan(*, max_pages=None):
+        calls["max_pages"] = max_pages
+        return {"provider": "bittopup", "status": "success"}
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "run_bittopup_price_watch", scan)
+    request = make_mocked_request("POST", "/api/v1/owner/digital-provider-sources/scan", headers={"Content-Type": "application/json"})
+    request._read_bytes = json.dumps({"max_pages": 2}).encode()
+
+    response = await owner_api.owner_run_digital_provider_scan(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["max_pages"] == 2
+    assert payload["scan"]["status"] == "success"

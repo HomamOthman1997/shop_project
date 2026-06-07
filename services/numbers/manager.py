@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from config import settings
+from database.numbers_config_repo import get_numbers_markup_percent
 from database import temp_number_stats_repo
 from database.numbers_provider_circuit_repo import number_provider_purchase_blocked
 from services.numbers.data import smspool_services, telabot_services, textverified_services
@@ -395,10 +396,10 @@ def provider_allows_rental(
 
 
 async def _effective_numbers_markup_percent() -> float:
-    # Numbers are currently run at provider cost while provider integrations are
-    # being validated. Keep this as the single hard stop so stale production env
-    # markup values cannot affect quote screens or purchases.
-    return 0.0
+    try:
+        return await get_numbers_markup_percent(0.0)
+    except Exception:
+        return 0.0
 
 
 def _success_rate_enabled() -> bool:

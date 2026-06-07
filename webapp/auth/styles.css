@@ -794,6 +794,12 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 .owner-bot-row {
   align-items: flex-start;
 }
+.owner-source-row a {
+  color: var(--accent);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
 .owner-action-row:last-child {
   border-bottom: 0;
 }

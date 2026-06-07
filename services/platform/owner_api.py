@@ -14,8 +14,15 @@ from database.digital_products_config_repo import (
     get_digital_products_markup_percent,
     set_digital_products_markup_percent,
 )
+from database.digital_provider_sources_repo import (
+    approve_provider_source,
+    disable_provider_source,
+    list_price_watch_runs,
+    list_provider_sources,
+)
 from database.financial_ledger import credit_reseller_main_wallet
 from database.mongo import db
+from database.numbers_config_repo import get_numbers_markup_percent, set_numbers_markup_percent
 from database.owner_payment_settings_repo import (
     get_owner_exchange_rate,
     get_owner_payment_methods,
@@ -42,6 +49,7 @@ from services.digital_products.api import _order_payload, execute_manual_order_a
 from services.numbers.api import _refund_review_payload
 from services.numbers.provider_readiness import provider_readiness_rows
 from services.numbers.provider_webhook_service import replay_provider_webhook_event
+from services.digital_products.bittopup_scraper import run_bittopup_price_watch
 from services.platform.api_auth import ApiAuthContext
 from services.platform.api_keys_api import _ALLOWED_CUSTOMER_SCOPES
 from services.platform.telegram_delivery import send_owner_broadcast, send_ticket_message
@@ -81,7 +89,7 @@ def _management_sections() -> list[dict[str, Any]]:
             "items": [
                 {"key": "payment_methods", "title": "Owner payment methods", "status": "available", "endpoint": "/api/v1/owner/settings"},
                 {"key": "exchange_rate", "title": "Owner exchange rate", "status": "available", "endpoint": "/api/v1/owner/settings"},
-                {"key": "numbers_margin", "title": "Numbers margin", "status": "read_only"},
+                {"key": "numbers_margin", "title": "Numbers margin", "status": "available", "endpoint": "/api/v1/owner/settings"},
                 {"key": "digital_margin", "title": "Digital products margin", "status": "available", "endpoint": "/api/v1/owner/settings"},
                 {"key": "reseller_deposits", "title": "Reseller deposits and subscriptions", "status": "available", "endpoint": "/api/v1/owner/reseller-deposits"},
             ],
@@ -91,7 +99,7 @@ def _management_sections() -> list[dict[str, Any]]:
             "title": "Catalog and fulfillment",
             "items": [
                 {"key": "digital_sources", "title": "Digital provider sources", "status": "available", "endpoint": "/api/v1/digital/source-diagnostics"},
-                {"key": "bittopup_watch", "title": "BitTopup price watch", "status": "telegram_only"},
+                {"key": "bittopup_watch", "title": "BitTopup price watch", "status": "available", "endpoint": "/api/v1/owner/digital-provider-sources"},
                 {"key": "cardex_admin", "title": "Card exchange admin queue", "status": "miniapp", "endpoint": "/mini/cardex"},
             ],
         },
@@ -351,10 +359,11 @@ def _parse_chat_target(body: dict[str, Any]) -> tuple[int, int | None]:
 
 async def owner_settings(request: web.Request) -> web.Response:
     await require_website_owner(request)
-    methods, exchange_rate, digital_markup, alerts, support, logs, owner_target, topup_target = await asyncio.gather(
+    methods, exchange_rate, digital_markup, numbers_markup, alerts, support, logs, owner_target, topup_target = await asyncio.gather(
         get_owner_payment_methods(),
         get_owner_exchange_rate(),
         get_digital_products_markup_percent(),
+        get_numbers_markup_percent(),
         get_provider_balance_alert_settings(),
         get_all_support_targets(),
         get_bot_logs_target(),
@@ -367,8 +376,8 @@ async def owner_settings(request: web.Request) -> web.Response:
             "finance": {
                 "exchange_rate": exchange_rate,
                 "digital_markup_percent": digital_markup,
-                "numbers_markup_percent": 0.0,
-                "numbers_markup_editable": False,
+                "numbers_markup_percent": numbers_markup,
+                "numbers_markup_editable": True,
                 "payment_methods": methods,
             },
             "alerts": alerts,
@@ -443,6 +452,11 @@ async def owner_update_settings(request: web.Request) -> web.Response:
             if parsed < 0 or parsed > 500:
                 raise ValueError
             await set_digital_products_markup_percent(parsed)
+        elif key == "numbers_markup_percent":
+            parsed = float(value)
+            if parsed < 0 or parsed > 500:
+                raise ValueError
+            await set_numbers_markup_percent(parsed)
         elif key == "provider_alert_threshold":
             parsed = float(value)
             if parsed <= 0 or parsed > 10_000:
@@ -781,6 +795,102 @@ async def owner_replay_provider_webhook_event(request: web.Request) -> web.Respo
     return web.json_response(result, status=status, headers=dict(_NO_STORE_HEADERS))
 
 
+def _provider_source_payload(row: dict[str, Any]) -> dict[str, Any]:
+    payload = row.get("source_payload") if isinstance(row.get("source_payload"), dict) else {}
+    return {
+        "id": _text(row.get("source_token") or row.get("_id")),
+        "source_key": _text(row.get("_id")),
+        "provider": _text(row.get("provider")),
+        "status": _text(row.get("price_status")),
+        "reason": _text(row.get("review_reason")),
+        "available": bool(row.get("available")),
+        "compare_key": _text(row.get("compare_key")),
+        "source_ref": _text(row.get("source_ref")),
+        "source_url": _text(row.get("source_url")),
+        "product_name": _text(row.get("source_product_name")),
+        "denomination_name": _text(row.get("source_denomination_name")),
+        "active_price": float(row.get("active_price") or 0),
+        "observed_price": float(row.get("observed_price") or 0),
+        "old_price_usd": payload.get("old_price_usd"),
+        "discount_percent": payload.get("discount_percent"),
+        "parse_confidence": float(row.get("parse_confidence") or 0),
+        "last_seen_at": _date_text(row.get("last_seen_at")),
+        "updated_at": _date_text(row.get("updated_at")),
+    }
+
+
+def _price_watch_run_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "provider": _text(row.get("provider")),
+        "status": _text(row.get("status")),
+        "stats": row.get("stats") if isinstance(row.get("stats"), dict) else {},
+        "errors": row.get("errors") if isinstance(row.get("errors"), list) else [],
+        "started_at": _date_text(row.get("started_at")),
+        "finished_at": _date_text(row.get("finished_at")),
+        "created_at": _date_text(row.get("created_at")),
+    }
+
+
+async def owner_digital_provider_sources(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    provider = str(request.query.get("provider") or "bittopup").strip().lower()
+    status = str(request.query.get("status") or "under_review").strip().lower()
+    if status in {"all", "*"}:
+        status = ""
+    rows, runs = await asyncio.gather(
+        list_provider_sources(provider=provider or None, status=status or None, limit=_limit(request, default=30)),
+        list_price_watch_runs(provider=provider or None, limit=8),
+    )
+    return web.json_response(
+        {
+            "ok": True,
+            "sources": [_provider_source_payload(row) for row in rows],
+            "runs": [_price_watch_run_payload(row) for row in runs],
+            "statuses": ["under_review", "unmapped", "active", "disabled", "all"],
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_run_digital_provider_scan(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        max_pages = int((body or {}).get("max_pages") or 0)
+    except Exception:
+        max_pages = 0
+    result = await run_bittopup_price_watch(max_pages=max_pages if max_pages > 0 else None)
+    return web.json_response({"ok": True, "scan": result}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_digital_provider_source_action(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str((body or {}).get("action") or "").strip().lower()
+    source_id = str(request.match_info.get("source_id") or "").strip()
+    if action == "approve":
+        row = await approve_provider_source(source_id, actor_id=owner.customer_id)
+        if row and str(row.get("price_status") or "") != "active":
+            return web.json_response(
+                {"ok": False, "message": "Source cannot be approved until it has a price and compare key.", "source": _provider_source_payload(row)},
+                status=409,
+                headers=dict(_NO_STORE_HEADERS),
+            )
+    elif action == "disable":
+        row = await disable_provider_source(source_id, actor_id=owner.customer_id)
+    else:
+        return web.json_response({"ok": False, "message": "Unsupported source action."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if not row:
+        return web.json_response({"ok": False, "message": "Provider source was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"ok": True, "source": _provider_source_payload(row)}, headers=dict(_NO_STORE_HEADERS))
+
+
 def _bot_payload(row: dict[str, Any]) -> dict[str, Any]:
     settings_doc = row.get("settings") if isinstance(row.get("settings"), dict) else {}
     reseller = row.get("reseller") if isinstance(row.get("reseller"), dict) else {}
@@ -968,6 +1078,9 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/provider-readiness", owner_provider_readiness)
     app.router.add_get("/api/v1/owner/provider-webhook-events", owner_provider_webhook_events)
     app.router.add_post("/api/v1/owner/provider-webhook-events/{event_id}/replay", owner_replay_provider_webhook_event)
+    app.router.add_get("/api/v1/owner/digital-provider-sources", owner_digital_provider_sources)
+    app.router.add_post("/api/v1/owner/digital-provider-sources/scan", owner_run_digital_provider_scan)
+    app.router.add_post("/api/v1/owner/digital-provider-sources/{source_id}/action", owner_digital_provider_source_action)
     app.router.add_get("/api/v1/owner/bots", owner_bots)
     app.router.add_post("/api/v1/owner/bots/{bot_id}/subscription/action", owner_bot_subscription_action)
     app.router.add_post("/api/v1/owner/reseller-deposits", owner_reseller_deposit)
