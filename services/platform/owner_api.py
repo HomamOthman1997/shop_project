@@ -263,8 +263,9 @@ async def _find_owner_user_subject(customer_id: int) -> tuple[dict[str, Any] | N
 
 async def owner_users(request: web.Request) -> web.Response:
     await require_website_owner(request)
-    q = str(request.query.get("q") or "").strip()
+    q = str(request.query.get("q") or "").strip()[:160]
     limit = _limit(request, 50)
+    offset = _offset(request)
     query: dict[str, Any] = {}
     if q:
         escaped = re.escape(q)
@@ -283,7 +284,9 @@ async def owner_users(request: web.Request) -> web.Response:
         if numeric is not None:
             ors.extend([{"customer_id": numeric}, {"telegram_id": numeric}])
         query = {"$or": ors}
-    accounts = await db.website_accounts.find(query).sort("created_at", -1).limit(limit).to_list(length=limit)
+    accounts = await db.website_accounts.find(query).sort("created_at", -1).skip(offset).limit(limit + 1).to_list(length=limit + 1)
+    has_more = len(accounts) > limit
+    accounts = accounts[:limit]
     customer_ids = [int(row.get("customer_id")) for row in accounts if _safe_int(row.get("customer_id")) is not None]
     telegram_ids = [int(row.get("telegram_id")) for row in accounts if _safe_int(row.get("telegram_id")) is not None]
     users_by_id: dict[int, dict[str, Any]] = {}
@@ -306,7 +309,19 @@ async def owner_users(request: web.Request) -> web.Response:
         )
         payload["balance"] = _money((wallet or {}).get("balance"))
         rows.append(payload)
-    return web.json_response({"ok": True, "users": rows}, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response(
+        {
+            "ok": True,
+            "users": rows,
+            "pagination": {
+                "offset": offset,
+                "limit": limit,
+                "has_more": has_more,
+                "next_offset": offset + len(rows) if has_more else None,
+            },
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
 
 
 async def owner_user_detail(request: web.Request) -> web.Response:
@@ -1518,6 +1533,13 @@ def _limit(request: web.Request, default: int = 30) -> int:
         return max(1, min(100, int(request.query.get("limit") or default)))
     except Exception:
         return default
+
+
+def _offset(request: web.Request) -> int:
+    try:
+        return max(0, min(100_000, int(request.query.get("offset") or 0)))
+    except Exception:
+        return 0
 
 
 def _date_text(value: Any) -> str | None:

@@ -21,6 +21,8 @@ let activeOwnerTab = "overview";
 let ownerCatalogParentId = "";
 let ownerDashboardLoadId = 0;
 let ownerAuditFilters = {q: "", action: "", target_type: ""};
+let ownerUserRows = [];
+let ownerUserQuery = "";
 
 const customerRoutes = {
   home: "/app",
@@ -529,7 +531,7 @@ function ownerRequestMap() {
       resellers: () => api("/api/v1/owner/resellers?limit=50"),
     },
     users: {
-      users: () => api("/api/v1/owner/users?limit=20"),
+      users: () => api(`/api/v1/owner/users?q=${encodeURIComponent(ownerUserQuery)}&limit=20&offset=0`),
       identity: () => api(`/api/v1/owner/identity-reviews?status=${encodeURIComponent(identityFilter)}&limit=30`),
     },
     support: {
@@ -704,7 +706,7 @@ async function loadOwnerDashboardIsolated() {
     data.systemStatus && data.ownerAudit ? renderOwnerSystemOperations(data.systemStatus.system || {}, data.ownerAudit.events || [], data.ownerAudit.filters || ownerAuditFilters) : fail("#owner-system-operations", "تعذر تحميل عمليات النظام.");
   }
   if (requested("resellers")) { clearOwnerBusy("owner-reseller-management"); data.resellers ? renderOwnerResellerManagement(data.resellers.resellers || []) : fail("#owner-reseller-management", "تعذر تحميل الوكلاء."); }
-  if (requested("users")) { clearOwnerBusy("owner-user-management"); data.users ? renderOwnerUserManagement(data.users.users || []) : fail("#owner-user-management", "تعذر تحميل المستخدمين."); }
+  if (requested("users")) { clearOwnerBusy("owner-user-management"); data.users ? renderOwnerUserManagement(data.users) : fail("#owner-user-management", "تعذر تحميل المستخدمين."); }
   if (requested("identity")) { clearOwnerBusy("owner-identity-reviews"); data.identity ? renderOwnerIdentityReviews(data.identity.reviews || []) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية."); }
   if (requested("support")) { clearOwnerBusy("owner-support-tickets"); data.support ? renderOwnerSupportTickets(data.support.tickets || []) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم."); }
   if (requested("apiKeys") || requested("webhooks")) { clearOwnerBusy("owner-api-tools"); data.apiKeys && data.webhooks ? renderOwnerApiTools(data.apiKeys, data.webhooks) : fail("#owner-api-tools", "تعذر تحميل أدوات API."); }
@@ -1117,17 +1119,20 @@ async function loadOwnerResellerDetail(resellerId) {
   } catch (error) { setText("#owner-message", error.message); }
 }
 
-function renderOwnerUserManagement(rows) {
+function renderOwnerUserManagement(payload, append = false) {
   const target = $("#owner-user-management");
+  const rows = Array.isArray(payload?.users) ? payload.users : [];
+  ownerUserRows = append ? [...ownerUserRows, ...rows] : rows;
+  const pagination = payload?.pagination || {};
   target.classList.toggle("empty", false);
   target.innerHTML = `
     <form class="owner-review-form" id="owner-user-search-form">
-      <label><span>Search</span><input id="owner-user-search-input" name="q" placeholder="email, customer id, telegram id"></label>
+      <label><span>Search</span><input id="owner-user-search-input" name="q" value="${esc(ownerUserQuery)}" placeholder="email, customer id, telegram id"></label>
       <button class="secondary compact" type="submit">Search</button>
     </form>
     <div id="owner-user-detail" class="notice" hidden></div>
     <div class="owner-action-list">
-      ${rows.length ? rows.map((row) => `
+      ${ownerUserRows.length ? ownerUserRows.map((row) => `
         <div class="owner-action-row">
           <div>
             <strong>${esc(row.email || row.username || row.customer_id)}</strong>
@@ -1141,19 +1146,32 @@ function renderOwnerUserManagement(rows) {
         </div>
       `).join("") : '<div class="notice">No users found.</div>'}
     </div>
+    ${pagination.has_more ? `<div class="owner-order-actions"><button class="secondary compact" id="owner-users-load-more" data-next-offset="${esc(pagination.next_offset)}" type="button">Load more users</button></div>` : ""}
   `;
   $("#owner-user-search-form")?.addEventListener("submit", searchOwnerUsers);
+  $("#owner-users-load-more")?.addEventListener("click", loadMoreOwnerUsers);
   target.querySelectorAll("[data-owner-user-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerUserDetail(button.dataset.ownerUserDetail)));
   target.querySelectorAll("[data-owner-user-action]").forEach((button) => button.addEventListener("click", () => runOwnerUserAction(button)));
 }
 
 async function searchOwnerUsers(event) {
   event.preventDefault();
-  const q = $("#owner-user-search-input")?.value || "";
+  ownerUserQuery = String($("#owner-user-search-input")?.value || "").trim();
   try {
-    const payload = await api(`/api/v1/owner/users?q=${encodeURIComponent(q)}&limit=30`);
-    renderOwnerUserManagement(payload.users || []);
+    const payload = await api(`/api/v1/owner/users?q=${encodeURIComponent(ownerUserQuery)}&limit=20&offset=0`);
+    renderOwnerUserManagement(payload);
   } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function loadMoreOwnerUsers(event) {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const offset = Number(button.dataset.nextOffset || 0);
+    const payload = await api(`/api/v1/owner/users?q=${encodeURIComponent(ownerUserQuery)}&limit=20&offset=${encodeURIComponent(offset)}`);
+    renderOwnerUserManagement(payload, true);
+  } catch (error) { setText("#owner-message", error.message); }
+  finally { button.disabled = false; }
 }
 
 async function loadOwnerUserDetail(customerId) {

@@ -184,6 +184,18 @@ def test_owner_audit_trail_has_connected_filters():
     assert 'addEventListener("click", resetOwnerAuditFilters)' in js
 
 
+def test_owner_user_management_has_connected_pagination():
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+
+    assert "let ownerUserRows = [];" in js
+    assert "let ownerUserQuery = \"\";" in js
+    assert 'id="owner-users-load-more"' in js
+    assert "function loadMoreOwnerUsers(event)" in js
+    assert "renderOwnerUserManagement(payload, true);" in js
+
+
 def test_owner_routing_cards_use_stable_field_group():
     from pathlib import Path
 

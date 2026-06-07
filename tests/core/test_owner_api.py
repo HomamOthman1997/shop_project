@@ -1,4 +1,7 @@
+import ast
+import inspect
 import json
+import textwrap
 from datetime import UTC, datetime
 
 import pytest
@@ -71,6 +74,28 @@ def test_register_owner_api_routes():
     assert ("POST", "/api/v1/owner/bots/{bot_id}/subscription/action") in routes
     assert ("POST", "/api/v1/owner/reseller-deposits") in routes
     assert ("POST", "/api/v1/owner/broadcast") in routes
+
+
+def test_all_mutating_owner_routes_write_an_audit_event():
+    app = web.Application()
+    owner_api.register_owner_api_routes(app)
+
+    missing_audit = []
+    for route in app.router.routes():
+        if route.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+            continue
+        if not route.resource.canonical.startswith("/api/v1/owner/"):
+            continue
+        tree = ast.parse(textwrap.dedent(inspect.getsource(route.handler)))
+        calls = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        if "_write_owner_audit" not in calls:
+            missing_audit.append(f"{route.method} {route.resource.canonical} ({route.handler.__name__})")
+
+    assert missing_audit == []
 
 
 @pytest.mark.asyncio
@@ -280,6 +305,62 @@ def test_public_owner_account_payload_treats_banned_website_account_as_banned():
 
     assert payload["banned"] is True
     assert payload["status"] == "banned"
+
+
+@pytest.mark.asyncio
+async def test_owner_users_supports_offset_pagination(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1",
+            customer_id=900000000001,
+            email="homamothman1@gmail.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    class Cursor:
+        def __init__(self, rows):
+            self.rows = list(rows)
+
+        def sort(self, *_args):
+            return self
+
+        def skip(self, offset):
+            self.rows = self.rows[offset:]
+            return self
+
+        def limit(self, limit):
+            self.rows = self.rows[:limit]
+            return self
+
+        async def to_list(self, length=None):
+            return self.rows[:length] if length is not None else self.rows
+
+    class Collection:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def find(self, *_args, **_kwargs):
+            return Cursor(self.rows)
+
+        async def find_one(self, *_args, **_kwargs):
+            return None
+
+    class FakeDb:
+        website_accounts = Collection(
+            [{"_id": f"acct-{index}", "customer_id": index, "email": f"user{index}@example.com"} for index in range(5)]
+        )
+        users = Collection([])
+        wallets = Collection([])
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "db", FakeDb())
+
+    response = await owner_api.owner_users(make_mocked_request("GET", "/api/v1/owner/users?limit=2&offset=2"))
+    payload = json.loads(response.text)
+
+    assert [row["customer_id"] for row in payload["users"]] == [2, 3]
+    assert payload["pagination"] == {"offset": 2, "limit": 2, "has_more": True, "next_offset": 4}
 
 
 @pytest.mark.asyncio
