@@ -217,6 +217,21 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 .link-button { display: grid; place-items: center; text-decoration: none; margin-top: 22px; }
 
 .message { min-height: 20px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+#owner-message:not(:empty) {
+  position: fixed;
+  z-index: 30;
+  right: 24px;
+  bottom: 24px;
+  width: min(440px, calc(100vw - 48px));
+  min-height: 0;
+  border: 1px solid rgba(56, 189, 248, .38);
+  border-radius: 8px;
+  padding: 13px 16px;
+  background: rgba(9, 13, 27, .96);
+  color: #eef2ff;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .36);
+  backdrop-filter: blur(16px);
+}
 .error { color: var(--danger); }
 .verify-panel {
   display: grid;
@@ -1555,6 +1570,11 @@ button.owner-action-row {
   .owner-inline-action button { max-width: none; width: 100%; }
   .owner-order-actions > button { flex: 1 1 calc(50% - 8px); }
   .owner-refund-form { grid-template-columns: 1fr; }
+  #owner-message:not(:empty) {
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+  }
   .settings-row > button, .settings-row > .primary, .settings-row > .secondary { width: 100%; }
   .email-code-row input { max-width: 100%; }
   .service-hero {

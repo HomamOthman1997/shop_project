@@ -117,10 +117,10 @@ def _management_sections() -> list[dict[str, Any]]:
             "key": "operations",
             "title": "Operations",
             "items": [
-                {"key": "digital_orders", "title": "Digital manual orders", "status": "available", "endpoint": "/api/v1/digital/admin/orders"},
+                {"key": "digital_orders", "title": "Digital manual orders", "status": "available", "endpoint": "/api/v1/owner/digital/orders"},
                 {"key": "custom_preorders", "title": "Custom preorder fulfillment", "status": "available", "endpoint": "/api/v1/owner/custom-preorders"},
                 {"key": "custom_catalog", "title": "Custom services catalog", "status": "available", "endpoint": "/api/v1/owner/custom-catalog"},
-                {"key": "numbers_refunds", "title": "Numbers refund reviews", "status": "available", "endpoint": "/api/v1/numbers/ops/refund-reviews"},
+                {"key": "numbers_refunds", "title": "Numbers refund reviews", "status": "available", "endpoint": "/api/v1/owner/numbers/refund-reviews"},
                 {"key": "provider_readiness", "title": "Provider readiness", "status": "available", "endpoint": "/api/v1/owner/provider-readiness"},
                 {"key": "provider_webhooks", "title": "Provider webhook audit", "status": "available", "endpoint": "/api/v1/owner/provider-webhook-events"},
                 {"key": "recharge_reviews", "title": "User and reseller topup reviews", "status": "available", "endpoint": "/api/v1/owner/recharge-reviews"},
@@ -142,7 +142,7 @@ def _management_sections() -> list[dict[str, Any]]:
             "key": "catalog",
             "title": "Catalog and fulfillment",
             "items": [
-                {"key": "digital_sources", "title": "Digital provider sources", "status": "available", "endpoint": "/api/v1/digital/source-diagnostics"},
+                {"key": "digital_sources", "title": "Digital provider sources", "status": "available", "endpoint": "/api/v1/owner/digital-provider-sources"},
                 {"key": "bittopup_watch", "title": "BitTopup price watch", "status": "available", "endpoint": "/api/v1/owner/digital-provider-sources"},
                 {"key": "cardex_admin", "title": "Card exchange admin queue", "status": "miniapp", "endpoint": "/mini/cardex"},
             ],

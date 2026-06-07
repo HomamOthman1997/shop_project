@@ -76,6 +76,23 @@ def test_register_owner_api_routes():
     assert ("POST", "/api/v1/owner/broadcast") in routes
 
 
+def test_available_owner_management_items_point_to_registered_owner_routes():
+    app = web.Application()
+    owner_api.register_owner_api_routes(app)
+    routes = {route.resource.canonical for route in app.router.routes()}
+
+    available = [
+        item
+        for section in owner_api._management_sections()
+        for item in section["items"]
+        if item["status"] == "available"
+    ]
+
+    assert available
+    assert all(item["endpoint"].startswith("/api/v1/owner/") for item in available)
+    assert all(item["endpoint"] in routes for item in available)
+
+
 def test_all_mutating_owner_routes_write_an_audit_event():
     app = web.Application()
     owner_api.register_owner_api_routes(app)

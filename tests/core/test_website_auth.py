@@ -254,6 +254,28 @@ def test_owner_routing_cards_use_stable_field_group():
     assert ".owner-routing-fields input" in css
 
 
+def test_owner_action_feedback_is_visible_on_desktop_and_mobile():
+    from pathlib import Path
+
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "styles.css").read_text(encoding="utf-8")
+
+    assert "#owner-message:not(:empty)" in css
+    assert "position: fixed;" in css
+    assert "z-index: 30;" in css
+    assert "width: calc(100vw - 24px);" in css
+
+
+def test_sensitive_owner_actions_require_confirmation():
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+
+    assert "Pay the $1 bug reward to this user?" in js
+    assert "Approve this identity verification request" in js
+    assert "Reject this recharge request?" in js
+    assert "Reject this reseller bot creation request?" in js
+
+
 def test_password_hash_round_trip():
     salt, password_hash = website_auth._password_hash("long-secure-password")
 

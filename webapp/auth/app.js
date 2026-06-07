@@ -1389,7 +1389,10 @@ function renderOwnerBotCreationReviews(payload, append = false) {
 
 async function runOwnerBotCreationReview(button) {
   const action = button.dataset.action;
-  if (action === "approve" && !window.confirm("Approve this reseller bot creation request?")) return;
+  const warning = action === "approve"
+    ? "Approve this reseller bot creation request and activate its paid trial?"
+    : "Reject this reseller bot creation request?";
+  if (!window.confirm(warning)) return;
   button.disabled = true;
   try {
     await api(`/api/v1/owner/bot-creation-reviews/${encodeURIComponent(button.dataset.ownerBotReview)}/action`, {method: "POST", body: JSON.stringify({action})});
@@ -1425,6 +1428,7 @@ async function runOwnerRechargeAction(event) {
   const action = event.submitter?.value || "";
   const values = Object.fromEntries(new FormData(form).entries());
   if (action === "accept" && !window.confirm("سيتم إضافة الرصيد فعلياً إلى المحفظة. متابعة؟")) return;
+  if (action === "reject" && !window.confirm("Reject this recharge request? This decision closes the request.")) return;
   try {
     await api(`/api/v1/owner/recharge-reviews/${encodeURIComponent(form.dataset.ownerRecharge)}/action`, {method: "POST", body: JSON.stringify({...values, action})});
     setText("#owner-message", "تم تنفيذ إجراء طلب الشحن.");
@@ -1456,6 +1460,10 @@ async function runOwnerIdentityAction(event) {
   const form = event.currentTarget;
   const action = event.submitter?.value || "";
   const values = Object.fromEntries(new FormData(form).entries());
+  const warning = action === "approve"
+    ? "Approve this identity verification request and unlock identity-gated access?"
+    : "Reject this identity verification request?";
+  if (!window.confirm(warning)) return;
   try {
     await api(`/api/v1/owner/identity-reviews/${encodeURIComponent(form.dataset.ownerIdentity)}/action`, {method: "POST", body: JSON.stringify({...values, action})});
     setText("#owner-message", "تم تنفيذ قرار الهوية.");
@@ -1546,9 +1554,17 @@ async function runOwnerSupportAttachment(event) {
 }
 
 async function runOwnerSupportAction(button) {
+  const warnings = {
+    solve: "Mark this support ticket as solved?",
+    bug_confirmed: "Confirm this report as a valid bug?",
+    not_bug: "Mark this report as not a bug?",
+    bug_reward: "Pay the $1 bug reward to this user? This changes the wallet balance.",
+  };
+  const action = button.dataset.ticketAction;
+  if (warnings[action] && !window.confirm(warnings[action])) return;
   button.disabled = true;
   try {
-    await api(`/api/v1/owner/support-tickets/${encodeURIComponent(button.dataset.ownerTicket)}/action`, {method: "POST", body: JSON.stringify({action: button.dataset.ticketAction})});
+    await api(`/api/v1/owner/support-tickets/${encodeURIComponent(button.dataset.ownerTicket)}/action`, {method: "POST", body: JSON.stringify({action})});
     setText("#owner-message", "تم تحديث تذكرة الدعم.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
