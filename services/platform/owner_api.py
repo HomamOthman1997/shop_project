@@ -494,10 +494,31 @@ async def owner_system_test_log(request: web.Request) -> web.Response:
 
 async def owner_admin_audit(request: web.Request) -> web.Response:
     await require_website_owner(request)
-    rows = await db.owner_admin_audit.find({}).sort("created_at", -1).limit(_limit(request, 50)).to_list(length=_limit(request, 50))
+    query: dict[str, Any] = {}
+    action = str(request.query.get("action") or "").strip()[:120]
+    target_type = str(request.query.get("target_type") or "").strip()[:120]
+    q = str(request.query.get("q") or "").strip()[:160]
+    if action:
+        query["action"] = action
+    if target_type:
+        query["target_type"] = target_type
+    if q:
+        escaped = re.escape(q)
+        ors: list[dict[str, Any]] = [
+            {"actor_email": {"$regex": escaped, "$options": "i"}},
+            {"target_id": {"$regex": escaped, "$options": "i"}},
+            {"action": {"$regex": escaped, "$options": "i"}},
+        ]
+        numeric = _safe_int(q)
+        if numeric is not None:
+            ors.append({"actor_id": numeric})
+        query["$or"] = ors
+    limit = _limit(request, 50)
+    rows = await db.owner_admin_audit.find(query).sort("created_at", -1).limit(limit).to_list(length=limit)
     return web.json_response(
         {
             "ok": True,
+            "filters": {"q": q, "action": action, "target_type": target_type},
             "events": [
                 {
                     "id": _text(row.get("_id")),

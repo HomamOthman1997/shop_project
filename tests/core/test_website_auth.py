@@ -171,6 +171,19 @@ def test_owner_admin_tools_are_grouped_by_operational_area():
     assert 'bots: () => api("/api/v1/owner/bots?status=all&limit=30")' in request_block
 
 
+def test_owner_audit_trail_has_connected_filters():
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+
+    assert 'let ownerAuditFilters = {q: "", action: "", target_type: ""};' in js
+    assert 'new URLSearchParams({limit: "50"})' in js
+    assert 'id="owner-audit-filter-form"' in js
+    assert 'id="owner-audit-filter-reset"' in js
+    assert 'addEventListener("submit", applyOwnerAuditFilters)' in js
+    assert 'addEventListener("click", resetOwnerAuditFilters)' in js
+
+
 def test_owner_routing_cards_use_stable_field_group():
     from pathlib import Path
 

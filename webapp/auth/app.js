@@ -20,6 +20,7 @@ let currentAccount = null;
 let activeOwnerTab = "overview";
 let ownerCatalogParentId = "";
 let ownerDashboardLoadId = 0;
+let ownerAuditFilters = {q: "", action: "", target_type: ""};
 
 const customerRoutes = {
   home: "/app",
@@ -512,6 +513,10 @@ function ownerRequestMap() {
   const botReviewFilter = $("#owner-bot-review-filter")?.value || "pending";
   const preorderFilter = $("#owner-preorder-filter")?.value || "active";
   const catalogType = $("#owner-catalog-type")?.value || "custom";
+  const ownerAuditQuery = new URLSearchParams({limit: "50"});
+  Object.entries(ownerAuditFilters).forEach(([key, value]) => {
+    if (value) ownerAuditQuery.set(key, value);
+  });
   return {
     overview: {
       dashboard: () => api("/api/v1/owner/dashboard"),
@@ -547,7 +552,7 @@ function ownerRequestMap() {
     system: {
       settings: () => api("/api/v1/owner/settings"),
       systemStatus: () => api("/api/v1/owner/system/status"),
-      ownerAudit: () => api("/api/v1/owner/audit?limit=30"),
+      ownerAudit: () => api(`/api/v1/owner/audit?${ownerAuditQuery.toString()}`),
     },
     orders: {
       digital: () => api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
@@ -696,7 +701,7 @@ async function loadOwnerDashboardIsolated() {
   if (requested("financeAudit")) { clearOwnerBusy("owner-finance-audit"); data.financeAudit ? renderOwnerFinanceAudit(data.financeAudit.audit || {}) : fail("#owner-finance-audit", "تعذر تحميل التدقيق المالي."); }
   if (requested("systemStatus") || requested("ownerAudit")) {
     clearOwnerBusy("owner-system-operations");
-    data.systemStatus && data.ownerAudit ? renderOwnerSystemOperations(data.systemStatus.system || {}, data.ownerAudit.events || []) : fail("#owner-system-operations", "تعذر تحميل عمليات النظام.");
+    data.systemStatus && data.ownerAudit ? renderOwnerSystemOperations(data.systemStatus.system || {}, data.ownerAudit.events || [], data.ownerAudit.filters || ownerAuditFilters) : fail("#owner-system-operations", "تعذر تحميل عمليات النظام.");
   }
   if (requested("resellers")) { clearOwnerBusy("owner-reseller-management"); data.resellers ? renderOwnerResellerManagement(data.resellers.resellers || []) : fail("#owner-reseller-management", "تعذر تحميل الوكلاء."); }
   if (requested("users")) { clearOwnerBusy("owner-user-management"); data.users ? renderOwnerUserManagement(data.users.users || []) : fail("#owner-user-management", "تعذر تحميل المستخدمين."); }
@@ -1004,7 +1009,7 @@ function renderOwnerFinanceAudit(audit) {
   `;
 }
 
-function renderOwnerSystemOperations(system, events) {
+function renderOwnerSystemOperations(system, events, filters = ownerAuditFilters) {
   const target = $("#owner-system-operations");
   const routing = system.routing || {};
   const checks = [
@@ -1026,10 +1031,34 @@ function renderOwnerSystemOperations(system, events) {
     </article>
     <article class="owner-review-card">
       <h4>Owner audit trail</h4>
+      <form class="owner-review-form" id="owner-audit-filter-form">
+        <label><span>Search actor or target</span><input name="q" value="${esc(filters.q || "")}" placeholder="email, id, or action"></label>
+        <label><span>Action</span><input name="action" value="${esc(filters.action || "")}" placeholder="recharge_review.accept"></label>
+        <label><span>Target type</span><input name="target_type" value="${esc(filters.target_type || "")}" placeholder="recharge_request"></label>
+        <div class="owner-order-actions"><button class="secondary compact" type="submit">Filter audit</button><button class="secondary compact" id="owner-audit-filter-reset" type="button">Reset</button></div>
+      </form>
       ${events.length ? events.map((event) => `<div class="owner-action-row"><div><strong>${esc(event.action)}</strong><span>${esc(event.actor_email || event.actor_id)} · ${esc(event.target_type)} ${esc(event.target_id)} · ${esc(event.created_at)}</span></div></div>`).join("") : '<div class="notice">No website owner actions recorded yet.</div>'}
     </article>
   `;
   $("#owner-test-log")?.addEventListener("click", sendOwnerTestLog);
+  $("#owner-audit-filter-form")?.addEventListener("submit", applyOwnerAuditFilters);
+  $("#owner-audit-filter-reset")?.addEventListener("click", resetOwnerAuditFilters);
+}
+
+async function applyOwnerAuditFilters(event) {
+  event.preventDefault();
+  const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+  ownerAuditFilters = {
+    q: String(values.q || "").trim(),
+    action: String(values.action || "").trim(),
+    target_type: String(values.target_type || "").trim(),
+  };
+  await loadOwnerDashboard();
+}
+
+async function resetOwnerAuditFilters() {
+  ownerAuditFilters = {q: "", action: "", target_type: ""};
+  await loadOwnerDashboard();
 }
 
 async function sendOwnerTestLog() {

@@ -106,6 +106,53 @@ async def test_owner_dashboard_returns_metrics_and_management_catalog(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_owner_admin_audit_filters_by_action_target_and_search(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    class Cursor:
+        def sort(self, *_args):
+            return self
+
+        def limit(self, value):
+            assert value == 25
+            return self
+
+        async def to_list(self, length=None):
+            assert length == 25
+            return []
+
+    class AuditCollection:
+        def __init__(self):
+            self.query = None
+
+        def find(self, query):
+            self.query = query
+            return Cursor()
+
+    class FakeDb:
+        def __init__(self):
+            self.owner_admin_audit = AuditCollection()
+
+    fake_db = FakeDb()
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "db", fake_db)
+    request = make_mocked_request(
+        "GET",
+        "/api/v1/owner/audit?action=recharge_review.accept&target_type=recharge_request&q=900000000123&limit=25",
+    )
+
+    response = await owner_api.owner_admin_audit(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["filters"] == {"q": "900000000123", "action": "recharge_review.accept", "target_type": "recharge_request"}
+    assert fake_db.owner_admin_audit.query["action"] == "recharge_review.accept"
+    assert fake_db.owner_admin_audit.query["target_type"] == "recharge_request"
+    assert {"actor_id": 900000000123} in fake_db.owner_admin_audit.query["$or"]
+
+
+@pytest.mark.asyncio
 async def test_owner_queues_returns_sanitized_pending_rows(monkeypatch):
     async def owner(_request):
         return WebsiteAuthContext(
