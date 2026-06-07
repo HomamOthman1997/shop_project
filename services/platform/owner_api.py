@@ -554,8 +554,9 @@ async def owner_admin_audit(request: web.Request) -> web.Response:
 
 async def owner_resellers(request: web.Request) -> web.Response:
     await require_website_owner(request)
-    q = str(request.query.get("q") or "").strip()
+    q = str(request.query.get("q") or "").strip()[:160]
     limit = _limit(request, 50)
+    offset = _offset(request)
     bot_query: dict[str, Any] = {}
     numeric = _safe_int(q) if q else None
     reseller_ids: set[int] = set()
@@ -579,12 +580,20 @@ async def owner_resellers(request: web.Request) -> web.Response:
         if numeric is not None:
             bot_query["$or"].extend([{"owner_id": numeric}, {"bot_id": numeric}])
             reseller_ids = {numeric}
-    bots = await db.bots.find(bot_query, {"token": 0}).sort("created_at", -1).limit(200).to_list(length=200)
-    reseller_ids.update(int(row.get("owner_id")) for row in bots if _safe_int(row.get("owner_id")) is not None)
+    bot_owner_ids = await db.bots.distinct("owner_id", bot_query)
+    reseller_ids.update(int(value) for value in bot_owner_ids if _safe_int(value) is not None)
     if not q:
-        wallet_rows = await db.wallets.find({"owner_type": "reseller"}).limit(500).to_list(length=500)
-        reseller_ids.update(int(row.get("owner_id")) for row in wallet_rows if _safe_int(row.get("owner_id")) is not None)
-    reseller_ids = set(list(reseller_ids)[:limit])
+        wallet_owner_ids = await db.wallets.distinct("owner_id", {"owner_type": "reseller"})
+        reseller_ids.update(int(value) for value in wallet_owner_ids if _safe_int(value) is not None)
+    ordered_ids = sorted(reseller_ids)
+    page_ids = ordered_ids[offset : offset + limit + 1]
+    has_more = len(page_ids) > limit
+    reseller_ids = set(page_ids[:limit])
+    bots = (
+        await db.bots.find({"owner_id": {"$in": list(reseller_ids)}}, {"token": 0}).sort("created_at", -1).to_list(length=None)
+        if reseller_ids
+        else []
+    )
     users = await db.users.find({"telegram_id": {"$in": list(reseller_ids)}}).to_list(length=None) if reseller_ids else []
     users_by_id = {int(row.get("telegram_id")): row for row in users if _safe_int(row.get("telegram_id")) is not None}
     bots_by_owner: dict[int, list[dict[str, Any]]] = {}
@@ -611,7 +620,10 @@ async def owner_resellers(request: web.Request) -> web.Response:
                 "bots": [_bot_payload(bot) for bot in owner_bots[:5]],
             }
         )
-    return web.json_response({"ok": True, "resellers": rows}, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response(
+        {"ok": True, "resellers": rows, "pagination": _pagination(offset, limit, len(rows), has_more)},
+        headers=dict(_NO_STORE_HEADERS),
+    )
 
 
 async def owner_reseller_detail(request: web.Request) -> web.Response:
@@ -1892,12 +1904,17 @@ async def owner_provider_readiness(request: web.Request) -> web.Response:
 
 async def owner_provider_webhook_events(request: web.Request) -> web.Response:
     await require_website_owner(request)
+    limit = _limit(request, default=50)
+    offset = _offset(request)
     rows = await list_provider_webhook_events(
         provider=str(request.query.get("provider") or "").strip(),
         status=str(request.query.get("status") or "").strip(),
-        limit=_limit(request, default=50),
+        limit=limit + 1,
+        offset=offset,
     )
-    return web.json_response({"ok": True, "events": rows}, headers=dict(_NO_STORE_HEADERS))
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    return web.json_response({"ok": True, "events": rows, "pagination": _pagination(offset, limit, len(rows), has_more)}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_replay_provider_webhook_event(request: web.Request) -> web.Response:
@@ -1958,16 +1975,21 @@ async def owner_digital_provider_sources(request: web.Request) -> web.Response:
     status = str(request.query.get("status") or "under_review").strip().lower()
     if status in {"all", "*"}:
         status = ""
+    limit = _limit(request, default=30)
+    offset = _offset(request)
     rows, runs = await asyncio.gather(
-        list_provider_sources(provider=provider or None, status=status or None, limit=_limit(request, default=30)),
+        list_provider_sources(provider=provider or None, status=status or None, limit=limit + 1, offset=offset),
         list_price_watch_runs(provider=provider or None, limit=8),
     )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
     return web.json_response(
         {
             "ok": True,
             "sources": [_provider_source_payload(row) for row in rows],
             "runs": [_price_watch_run_payload(row) for row in runs],
             "statuses": ["under_review", "unmapped", "active", "disabled", "all"],
+            "pagination": _pagination(offset, limit, len(rows), has_more),
         },
         headers=dict(_NO_STORE_HEADERS),
     )

@@ -44,6 +44,7 @@ async def list_provider_sources(
     provider: str | None = None,
     status: str | None = None,
     limit: int = 20,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     query: dict[str, Any] = {}
     if provider:
@@ -51,7 +52,9 @@ async def list_provider_sources(
     if status:
         query["price_status"] = str(status).strip().lower()
     cursor = db.digital_provider_sources.find(query).sort([("updated_at", -1), ("last_seen_at", -1)])
-    rows = await cursor.to_list(length=max(1, min(100, int(limit or 20))))
+    if int(offset) > 0:
+        cursor = cursor.skip(int(offset))
+    rows = await cursor.to_list(length=max(1, min(101, int(limit or 20))))
     for row in rows:
         if not row.get("source_token") and row.get("_id"):
             token = _source_token(str(row["_id"]))

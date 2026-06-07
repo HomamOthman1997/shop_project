@@ -58,13 +58,17 @@ async def list_provider_webhook_events(
     provider: str = "",
     status: str = "",
     limit: int = 100,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     query: dict[str, Any] = {}
     if str(provider or "").strip():
         query["provider"] = str(provider or "").strip().lower()
     if str(status or "").strip():
         query["status"] = str(status or "").strip()
-    cursor = db.provider_webhook_events.find(query).sort("created_at", -1).limit(max(1, int(limit)))
+    cursor = db.provider_webhook_events.find(query).sort("created_at", -1)
+    if int(offset) > 0:
+        cursor = cursor.skip(int(offset))
+    cursor = cursor.limit(max(1, int(limit)))
     return [serialize_provider_webhook_event(doc) async for doc in cursor]
 
 

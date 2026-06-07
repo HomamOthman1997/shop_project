@@ -141,6 +141,8 @@ def test_owner_operational_lists_use_shared_pagination_contract():
         assert '"pagination"' in inspect.getsource(handler), handler.__name__
 
     assert '"pagination"' in inspect.getsource(owner_api.owner_numbers_refund_reviews)
+    assert '"pagination"' in inspect.getsource(owner_api.owner_provider_webhook_events)
+    assert '"pagination"' in inspect.getsource(owner_api.owner_digital_provider_sources)
 
 
 @pytest.mark.asyncio
@@ -406,6 +408,58 @@ async def test_owner_users_supports_offset_pagination(monkeypatch):
 
     assert [row["customer_id"] for row in payload["users"]] == [2, 3]
     assert payload["pagination"] == {"offset": 2, "limit": 2, "has_more": True, "next_offset": 4}
+
+
+@pytest.mark.asyncio
+async def test_owner_resellers_pages_across_all_bot_and_wallet_owners(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    class Cursor:
+        def __init__(self, rows):
+            self.rows = list(rows)
+
+        def sort(self, *_args):
+            return self
+
+        async def to_list(self, length=None):
+            return self.rows[:length] if length is not None else self.rows
+
+    class Collection:
+        def __init__(self, rows, distinct_ids):
+            self.rows = rows
+            self.distinct_ids = distinct_ids
+
+        async def distinct(self, _field, _query):
+            return self.distinct_ids
+
+        def find(self, query=None, *_args, **_kwargs):
+            query = query or {}
+            wanted = set((query.get("owner_id") or {}).get("$in") or [])
+            rows = [row for row in self.rows if not wanted or row.get("owner_id") in wanted]
+            return Cursor(rows)
+
+    class EmptyUsers:
+        def find(self, *_args, **_kwargs):
+            return Cursor([])
+
+    class FakeDb:
+        bots = Collection([{"bot_id": 20, "owner_id": 2, "active": True}], [4, 2, 1])
+        wallets = Collection([], [3, 2])
+        users = EmptyUsers()
+
+    async def balance(reseller_id, *, wallet_type):
+        return float(reseller_id) if wallet_type == "main" else 0.0
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "db", FakeDb())
+    monkeypatch.setattr(owner_api, "get_reseller_wallet_balance", balance)
+
+    response = await owner_api.owner_resellers(make_mocked_request("GET", "/api/v1/owner/resellers?limit=2&offset=1"))
+    payload = json.loads(response.text)
+
+    assert [row["reseller_id"] for row in payload["resellers"]] == [2, 3]
+    assert payload["pagination"] == {"offset": 1, "limit": 2, "has_more": True, "next_offset": 3}
 
 
 @pytest.mark.asyncio

@@ -23,9 +23,12 @@ let ownerDashboardLoadId = 0;
 let ownerAuditFilters = {q: "", action: "", target_type: ""};
 let ownerUserRows = [];
 let ownerUserQuery = "";
+let ownerResellerRows = [];
+let ownerResellerQuery = "";
 let ownerPagedRows = {};
 let ownerIntegrationPayloads = {};
 let ownerSystemStatusPayload = {};
+let ownerProviderPayloads = {};
 
 const customerRoutes = {
   home: "/app",
@@ -531,7 +534,7 @@ function ownerRequestMap() {
       settings: () => api("/api/v1/owner/settings"),
       recharge: () => api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
       financeAudit: () => api(`/api/v1/owner/finance/audit?days=${encodeURIComponent(auditDays)}&limit=20`),
-      resellers: () => api("/api/v1/owner/resellers?limit=50"),
+      resellers: () => api(`/api/v1/owner/resellers?q=${encodeURIComponent(ownerResellerQuery)}&limit=30&offset=0`),
     },
     users: {
       users: () => api(`/api/v1/owner/users?q=${encodeURIComponent(ownerUserQuery)}&limit=20&offset=0`),
@@ -759,7 +762,7 @@ async function loadOwnerDashboardIsolated() {
     clearOwnerBusy("owner-system-operations");
     data.systemStatus && data.ownerAudit ? renderOwnerSystemOperations(data.systemStatus.system || {}, data.ownerAudit) : fail("#owner-system-operations", "تعذر تحميل عمليات النظام.");
   }
-  if (requested("resellers")) { clearOwnerBusy("owner-reseller-management"); data.resellers ? renderOwnerResellerManagement(data.resellers.resellers || []) : fail("#owner-reseller-management", "تعذر تحميل الوكلاء."); }
+  if (requested("resellers")) { clearOwnerBusy("owner-reseller-management"); data.resellers ? renderOwnerResellerManagement(data.resellers) : fail("#owner-reseller-management", "تعذر تحميل الوكلاء."); }
   if (requested("users")) { clearOwnerBusy("owner-user-management"); data.users ? renderOwnerUserManagement(data.users) : fail("#owner-user-management", "تعذر تحميل المستخدمين."); }
   if (requested("identity")) { clearOwnerBusy("owner-identity-reviews"); data.identity ? renderOwnerIdentityReviews(data.identity) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية."); }
   if (requested("support")) { clearOwnerBusy("owner-support-tickets"); data.support ? renderOwnerSupportTickets(data.support) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم."); }
@@ -768,7 +771,7 @@ async function loadOwnerDashboardIsolated() {
   if (requested("providers") || requested("providerEvents") || requested("sources")) {
     clearOwnerBusy("owner-provider-diagnostics");
     data.providers && data.providerEvents && data.sources
-      ? renderOwnerProviderDiagnostics(data.providers.providers || [], data.providerEvents.events || [], data.sources)
+      ? renderOwnerProviderDiagnostics(data.providers, data.providerEvents, data.sources)
       : fail("#owner-provider-diagnostics", "تعذر تحميل تشخيص المزودين.");
   }
   if (requested("bots")) { clearOwnerBusy("owner-bot-tools"); data.bots ? renderOwnerBotTools(data.bots) : fail("#owner-bot-tools", "تعذر تحميل أدوات البوتات."); }
@@ -897,10 +900,17 @@ async function revokeOwnerWebhook(button) {
   await loadOwnerDashboard();
 }
 
-function renderOwnerProviderDiagnostics(providers, events, sourcesPayload = {}) {
+function renderOwnerProviderDiagnostics(providersPayload, eventsPayload, sourcesPayload = {}, appendKey = "") {
   const target = $("#owner-provider-diagnostics");
-  const sources = sourcesPayload.sources || [];
+  const providers = providersPayload.providers || [];
+  const events = ownerPagedItems("providerEvents", eventsPayload, "events", appendKey === "providerEvents");
+  const sources = ownerPagedItems("providerSources", sourcesPayload, "sources", appendKey === "providerSources");
   const runs = sourcesPayload.runs || [];
+  ownerProviderPayloads = {
+    providers: providersPayload,
+    events: {...eventsPayload, events},
+    sources: {...sourcesPayload, sources, runs},
+  };
   target.classList.remove("empty");
   target.innerHTML = `
     <article class="owner-review-card">
@@ -929,6 +939,30 @@ function renderOwnerProviderDiagnostics(providers, events, sourcesPayload = {}) 
   target.querySelectorAll("[data-provider-event]").forEach((button) => button.addEventListener("click", () => replayOwnerProviderEvent(button)));
   target.querySelector("#owner-bittopup-scan")?.addEventListener("click", runOwnerBittopupScan);
   target.querySelectorAll("[data-owner-source]").forEach((button) => button.addEventListener("click", () => runOwnerSourceAction(button)));
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("providerEvents", eventsPayload.pagination, "Load more provider webhook events"));
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("providerSources", sourcesPayload.pagination, "Load more provider sources"));
+  target.querySelectorAll("[data-owner-page='providerEvents'], [data-owner-page='providerSources']").forEach((button) => button.addEventListener("click", () => loadMoreOwnerProviderDiagnostics(button)));
+}
+
+async function loadMoreOwnerProviderDiagnostics(button) {
+  button.disabled = true;
+  try {
+    const key = button.dataset.ownerPage;
+    const offset = Number(button.dataset.nextOffset || 0);
+    const payload = key === "providerEvents"
+      ? await api(`/api/v1/owner/provider-webhook-events?limit=30&offset=${encodeURIComponent(offset)}`)
+      : await api(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent($("#owner-source-filter")?.value || "under_review")}&limit=30&offset=${encodeURIComponent(offset)}`);
+    renderOwnerProviderDiagnostics(
+      ownerProviderPayloads.providers,
+      key === "providerEvents" ? payload : ownerProviderPayloads.events,
+      key === "providerSources" ? payload : ownerProviderPayloads.sources,
+      key,
+    );
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function replayOwnerProviderEvent(button) {
@@ -1176,35 +1210,51 @@ async function sendOwnerTestLog() {
   } catch (error) { setText("#owner-message", error.message); }
 }
 
-function renderOwnerResellerManagement(rows) {
+function renderOwnerResellerManagement(payload, append = false) {
   const target = $("#owner-reseller-management");
+  const rows = Array.isArray(payload?.resellers) ? payload.resellers : [];
+  ownerResellerRows = append ? [...ownerResellerRows, ...rows] : rows;
+  const pagination = payload?.pagination || {};
   target.classList.remove("empty");
   target.innerHTML = `
     <form class="owner-review-form" id="owner-reseller-search-form">
-      <label><span>Search reseller</span><input id="owner-reseller-search-input" name="q" placeholder="reseller id, bot id, username"></label>
+      <label><span>Search reseller</span><input id="owner-reseller-search-input" name="q" value="${esc(ownerResellerQuery)}" placeholder="reseller id, bot id, username"></label>
       <button class="secondary compact" type="submit">Search</button>
     </form>
     <div id="owner-reseller-detail" class="notice" hidden></div>
     <div class="owner-action-list">
-      ${rows.length ? rows.map((row) => `
+      ${ownerResellerRows.length ? ownerResellerRows.map((row) => `
         <div class="owner-action-row">
           <div><strong>${esc(row.username ? `@${row.username}` : `Reseller ${row.reseller_id}`)}</strong><span>${esc(row.reseller_id)} · bots ${esc(row.active_bots_count)}/${esc(row.bots_count)}</span></div>
           <div class="owner-order-actions"><b>Main ${esc(row.main_balance)}$ · Earnings ${esc(row.earnings_balance)}$</b><button class="secondary compact" data-owner-reseller-detail="${esc(row.reseller_id)}">Details</button></div>
         </div>
       `).join("") : '<div class="notice">No resellers found.</div>'}
     </div>
+    ${pagination.has_more ? `<div class="owner-order-actions"><button class="secondary compact" id="owner-resellers-load-more" data-next-offset="${esc(pagination.next_offset)}" type="button">Load more resellers</button></div>` : ""}
   `;
   $("#owner-reseller-search-form")?.addEventListener("submit", searchOwnerResellers);
+  $("#owner-resellers-load-more")?.addEventListener("click", loadMoreOwnerResellers);
   target.querySelectorAll("[data-owner-reseller-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerResellerDetail(button.dataset.ownerResellerDetail)));
 }
 
 async function searchOwnerResellers(event) {
   event.preventDefault();
-  const q = $("#owner-reseller-search-input")?.value || "";
+  ownerResellerQuery = String($("#owner-reseller-search-input")?.value || "").trim();
   try {
-    const payload = await api(`/api/v1/owner/resellers?q=${encodeURIComponent(q)}&limit=50`);
-    renderOwnerResellerManagement(payload.resellers || []);
+    const payload = await api(`/api/v1/owner/resellers?q=${encodeURIComponent(ownerResellerQuery)}&limit=30&offset=0`);
+    renderOwnerResellerManagement(payload);
   } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function loadMoreOwnerResellers(event) {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const offset = Number(button.dataset.nextOffset || 0);
+    const payload = await api(`/api/v1/owner/resellers?q=${encodeURIComponent(ownerResellerQuery)}&limit=30&offset=${encodeURIComponent(offset)}`);
+    renderOwnerResellerManagement(payload, true);
+  } catch (error) { setText("#owner-message", error.message); }
+  finally { button.disabled = false; }
 }
 
 async function loadOwnerResellerDetail(resellerId) {

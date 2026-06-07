@@ -196,6 +196,18 @@ def test_owner_user_management_has_connected_pagination():
     assert "renderOwnerUserManagement(payload, true);" in js
 
 
+def test_owner_reseller_management_has_connected_pagination():
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+
+    assert "let ownerResellerRows = [];" in js
+    assert "let ownerResellerQuery = \"\";" in js
+    assert 'id="owner-resellers-load-more"' in js
+    assert "function loadMoreOwnerResellers(event)" in js
+    assert "renderOwnerResellerManagement(payload, true);" in js
+
+
 def test_owner_operational_lists_have_connected_pagination():
     from pathlib import Path
 
@@ -213,6 +225,9 @@ def test_owner_operational_lists_have_connected_pagination():
     assert 'ownerPaginationButton("webhooks"' in js
     assert "async function loadMoreOwnerAudit(event)" in js
     assert "async function loadMoreOwnerIntegration(button)" in js
+    assert 'ownerPaginationButton("providerEvents"' in js
+    assert 'ownerPaginationButton("providerSources"' in js
+    assert "async function loadMoreOwnerProviderDiagnostics(button)" in js
 
 
 def test_owner_routing_cards_use_stable_field_group():
