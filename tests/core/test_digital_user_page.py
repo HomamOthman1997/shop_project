@@ -23,8 +23,9 @@ async def test_digital_user_app_uses_versioned_digital_api_only_for_purchases():
 
     assert response.status == 200
     assert "/api/v1/digital/catalog" in source
+    assert "/mini/digital/api/catalog" in source
+    assert "service_tree" in source
     assert "featured_collections" in source
-    assert "product_categories" in source
     assert "/api/v1/digital/quotes" in source
     assert "/api/v1/digital/orders" in source
     assert "/api/v1/digital/account" in source

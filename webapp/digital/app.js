@@ -47,6 +47,9 @@ const state = {
   catalog: null,
   account: null,
   orders: null,
+  legacyCatalog: null,
+  legacyService: "",
+  legacyFamily: null,
   filter: "all",
   search: "",
   busy: false,
@@ -163,20 +166,27 @@ async function loadCatalog(force = false) {
   return state.catalog;
 }
 
+async function loadLegacyCatalog(force = false) {
+  if (state.legacyCatalog && !force) return state.legacyCatalog;
+  state.legacyCatalog = await api(`/mini/digital/api/catalog${force ? "?force=1" : ""}`);
+  return state.legacyCatalog;
+}
+
+function localizedLabel(value, fallback = "") {
+  if (!value || typeof value !== "object") return String(fallback || value || "");
+  return String(value[state.lang] || value.en || value.ar || fallback || "");
+}
+
 async function renderStore(force = false) {
   state.tab = "store";
+  state.legacyService = "";
+  state.legacyFamily = null;
   title.textContent = t("store");
   content.innerHTML = loadingRows();
   try {
-    const catalog = await loadCatalog(force);
+    const [catalog, legacy] = await Promise.all([loadCatalog(force), loadLegacyCatalog(force)]);
     const query = state.search.trim().toLowerCase();
-    const games = catalog.games.filter((row) => !query || row.name.toLowerCase().includes(query));
     const products = catalog.products.filter((row) => !query || row.name.toLowerCase().includes(query));
-    const productsByCategory = new Map();
-    for (const row of products) {
-      if (!productsByCategory.has(row.category)) productsByCategory.set(row.category, []);
-      productsByCategory.get(row.category).push(row);
-    }
     const featuredSections = (catalog.featured_collections || []).map((collection) => {
       const ids = new Set(collection.product_ids || []);
       const rows = products.filter((row) => ids.has(row.id));
@@ -184,17 +194,14 @@ async function renderStore(force = false) {
       const label = collection.label?.[state.lang] || collection.label?.en || collection.id;
       return `<section><div class="section-heading"><h2>${esc(label)}</h2><span>${rows.length}</span></div><div class="service-list">${rows.map(productRow).join("")}</div></section>`;
     }).filter(Boolean);
-    const categorySections = (catalog.product_categories || []).map((category) => {
-      const rows = productsByCategory.get(category.id) || [];
-      if (!rows.length) return "";
-      const label = category.label?.[state.lang] || category.label?.en || category.id;
-      return `<section><div class="section-heading"><h2>${esc(label)}</h2><span>${rows.length}</span></div><div class="service-list">${rows.map(productRow).join("")}</div></section>`;
-    }).filter(Boolean);
-    const sections = [
-      ...featuredSections,
-      ...(games.length ? [`<section><div class="section-heading"><h2>${t("games")}</h2><span>${games.length}</span></div><div class="service-grid">${games.map(gameCard).join("")}</div></section>`] : []),
-      ...categorySections,
-    ];
+    const services = (legacy.service_tree || []).filter((row) => (row.families || []).length);
+    const serviceCards = services
+      .filter((row) => {
+        const label = localizedLabel(row.label, row.key).toLowerCase();
+        return !query || label.includes(query);
+      })
+      .map(serviceCard)
+      .join("");
     content.innerHTML = `
       <section class="search-section">
         <label class="search-box">
@@ -202,16 +209,24 @@ async function renderStore(force = false) {
           <input id="storeSearch" type="search" value="${esc(state.search)}" placeholder="${t("search")}" autocomplete="off" />
         </label>
       </section>
-      ${sections.join("") || `<section class="empty-state"><strong>${t("noResults")}</strong></section>`}
+      ${featuredSections.join("")}
+      <section><div class="section-heading"><h2>${state.lang === "ar" ? "الأقسام" : "Categories"}</h2><span>${services.length}</span></div><div class="service-grid">${serviceCards}</div></section>
+      ${!featuredSections.length && !serviceCards ? `<section class="empty-state"><strong>${t("noResults")}</strong></section>` : ""}
     `;
     document.getElementById("storeSearch")?.addEventListener("input", (event) => {
       state.search = event.target.value;
       window.clearTimeout(renderStore.searchTimer);
       renderStore.searchTimer = window.setTimeout(() => renderStore(), 180);
     });
-    content.querySelectorAll("[data-game]").forEach((button) => button.addEventListener("click", () => openOffers("game", button.dataset.game, button.dataset.name)));
+    content.querySelectorAll("[data-service]").forEach((button) => button.addEventListener("click", () => renderLegacyFamilies(button.dataset.service)));
     content.querySelectorAll("[data-product]").forEach((button) => button.addEventListener("click", () => openOffers("product", button.dataset.product, button.dataset.name)));
   } catch (error) { errorState(error, () => renderStore(true)); }
+}
+
+function serviceCard(row) {
+  const name = localizedLabel(row.label, row.key);
+  const count = (row.families || []).length;
+  return `<button type="button" class="game-card category-card" data-service="${esc(row.key)}"><div class="game-art"><span>${esc(serviceInitial(name))}</span></div><strong>${esc(name)}</strong><small>${count} ${state.lang === "ar" ? "فئات" : "categories"}</small></button>`;
 }
 
 function gameCard(row) {
@@ -225,6 +240,90 @@ function productRow(row) {
     <span class="product-copy"><strong>${esc(row.name)}</strong><small>${esc(row.public_note || (row.orderable ? t("packages") : t("unavailable")))}</small></span>
     <span class="availability ${row.orderable ? "available" : ""}">${row.orderable ? t("continue") : t("unavailable")}</span>
   </button>`;
+}
+
+async function renderLegacyFamilies(serviceKey) {
+  state.legacyService = serviceKey;
+  state.legacyFamily = null;
+  title.textContent = t("store");
+  content.innerHTML = loadingRows();
+  try {
+    const legacy = await loadLegacyCatalog();
+    const node = (legacy.service_tree || []).find((row) => row.key === serviceKey);
+    const rows = (node?.families || []).filter((row) => {
+      const query = state.search.trim().toLowerCase();
+      return !query || String(row.name || "").toLowerCase().includes(query);
+    });
+    const serviceName = localizedLabel(node?.label, serviceKey);
+    content.innerHTML = `
+      <section class="search-section">
+        <label class="search-box">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          <input id="storeSearch" type="search" value="${esc(state.search)}" placeholder="${t("search")}" autocomplete="off" />
+        </label>
+      </section>
+      <button class="secondary-back" type="button" data-back-store>${t("back")}</button>
+      <section><div class="section-heading"><h2>${esc(serviceName)}</h2><span>${rows.length}</span></div><div class="service-list">${rows.map(legacyFamilyRow).join("")}</div></section>
+      ${!rows.length ? `<section class="empty-state"><strong>${t("noResults")}</strong></section>` : ""}
+    `;
+    document.getElementById("storeSearch")?.addEventListener("input", (event) => {
+      state.search = event.target.value;
+      window.clearTimeout(renderStore.searchTimer);
+      renderStore.searchTimer = window.setTimeout(() => renderLegacyFamilies(serviceKey), 180);
+    });
+    content.querySelector("[data-back-store]")?.addEventListener("click", () => renderStore());
+    content.querySelectorAll("[data-family]").forEach((button) => button.addEventListener("click", () => openLegacyFamily(serviceKey, button.dataset.family)));
+  } catch (error) { errorState(error, () => renderStore(true)); }
+}
+
+function legacyFamilyRow(row) {
+  const count = Number(row.count || (row.variants || []).length || 0);
+  return `<button type="button" class="product-row" data-family="${esc(row.family_key || row.id || row.name)}">
+    <span class="product-icon">${esc(serviceInitial(row.name))}</span>
+    <span class="product-copy"><strong>${esc(row.name || "-")}</strong><small>${esc(row.meta_label || `${count} ${state.lang === "ar" ? "خيارات" : "options"}`)}</small></span>
+    <span class="availability available">${t("continue")}</span>
+  </button>`;
+}
+
+async function openLegacyFamily(serviceKey, familyKey) {
+  const legacy = await loadLegacyCatalog();
+  const node = (legacy.service_tree || []).find((row) => row.key === serviceKey);
+  const family = (node?.families || []).find((row) => String(row.family_key || row.id || row.name) === String(familyKey));
+  if (!family) return;
+  const variants = family.variants || [];
+  if (variants.length <= 1) return openLegacyVariant(family, variants[0] || {});
+  state.legacyFamily = family;
+  content.innerHTML = `
+    <button class="secondary-back" type="button" data-back-families>${t("back")}</button>
+    <section><div class="section-heading"><h2>${esc(family.name)}</h2><span>${variants.length}</span></div><div class="service-list">${variants.map((row, index) => legacyVariantRow(row, index)).join("")}</div></section>
+  `;
+  content.querySelector("[data-back-families]")?.addEventListener("click", () => renderLegacyFamilies(serviceKey));
+  content.querySelectorAll("[data-variant]").forEach((button) => button.addEventListener("click", () => openLegacyVariant(family, variants[Number(button.dataset.variant)])));
+}
+
+function legacyVariantRow(row, index) {
+  return `<button type="button" class="product-row" data-variant="${index}">
+    <span class="product-icon">${esc(serviceInitial(row.name))}</span>
+    <span class="product-copy"><strong>${esc(row.name || "-")}</strong><small>${esc(row.meta_label || row.variant_kind || "")}</small></span>
+    <span class="availability available">${t("continue")}</span>
+  </button>`;
+}
+
+function normalizeMatchText(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+async function openLegacyVariant(family, variant) {
+  const gameId = String((variant.game_ids || [])[0] || (variant.entry_kind === "game" ? variant.id : "") || "").trim();
+  if (gameId) return openOffers("game", gameId, family.name || variant.name || gameId);
+  const catalog = await loadCatalog();
+  const haystack = normalizeMatchText(`${family.name} ${variant.name}`);
+  const product = (catalog.products || []).find((row) => {
+    const name = normalizeMatchText(row.name);
+    return name && (haystack.includes(name) || name.includes(haystack));
+  });
+  if (product) return openOffers("product", product.id, product.name);
+  openSheet(`<header class="sheet-header"><div><h2>${esc(family.name || variant.name || t("products"))}</h2><p>${t("selectPackage")}</p></div><button class="close-button" type="button" data-sheet-close>×</button></header><div class="empty-state"><strong>${t("emptyPackages")}</strong></div>`);
 }
 
 async function openOffers(kind, id, name) {

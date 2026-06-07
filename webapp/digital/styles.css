@@ -51,6 +51,7 @@ h2 { font-size: 17px; line-height: 1.2; }
 .game-card strong { font-size: 13px; }
 .game-card small { margin-top: 4px; color: var(--muted); font-size: 10px; }
 .service-list, .orders-list, .activity-list, .offer-list { display: grid; gap: 8px; }
+.secondary-back { justify-self: start; min-height: 40px; padding: 0 13px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 12px; font-weight: 800; }
 .product-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 11px; width: 100%; min-height: 68px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); text-align: start; }
 .product-icon, .profile-avatar { display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--radius); background: #202a34; color: var(--accent); font-weight: 800; }
 .product-copy { min-width: 0; }
