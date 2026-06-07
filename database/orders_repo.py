@@ -297,7 +297,6 @@ async def resolve_api_temp_refund_support_review(
         return None
     query = {
         "_id": oid,
-        "source": "numbers_api",
         "number_mode": "temp",
         "temp_refund_support_review_required": True,
     }
