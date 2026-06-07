@@ -1027,6 +1027,7 @@ function iconSvg(name) {
 }
 
 function renderViewTabs() {
+  if (!els.viewTabs) return;
   const tabs = surfaceTabs();
   els.viewTabs.replaceChildren(
     ...tabs.map((tab) => {

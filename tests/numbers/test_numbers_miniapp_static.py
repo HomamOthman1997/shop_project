@@ -66,7 +66,7 @@ def test_numbers_miniapp_figma_skin_runtime_guards_are_present():
     assert 'tg?.onEvent?.("themeChanged", applyTelegramTheme)' in app
     assert 'body.telegram-webapp-runtime.telegram-dark' in css
     assert "2026-05-27 Figma production conversion" in css
-    assert "20260603-recharge-ui" in index
+    assert "20260606-site-polish" in index
 
 
 def test_numbers_miniapp_provider_aliases_stay_customer_safe():
