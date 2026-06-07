@@ -82,6 +82,18 @@ async def test_website_auth_page_contains_admin_dashboard_tabs():
     assert 'data-owner-tab="orders"' in text
 
 
+@pytest.mark.asyncio
+async def test_website_auth_page_contains_owner_sidebar_navigation():
+    response = await website_auth.auth_page(make_mocked_request("GET", "/admin"))
+
+    assert response.status == 200
+    text = response.text
+    assert 'class="nav-item owner-nav"' in text
+    assert 'data-owner-tab="overview"' in text
+    assert 'data-owner-tab="system"' in text
+    assert 'data-view="owner"' not in text
+
+
 def test_password_hash_round_trip():
     salt, password_hash = website_auth._password_hash("long-secure-password")
 

@@ -310,6 +310,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 .logout { margin-top: auto; }
 .site-app.admin-mode .sidebar nav .nav-item:not(.owner-nav) { display: none; }
 .site-app.admin-mode .owner-nav { display: block; }
+.site-app.admin-mode .admin-tabs { display: none; }
 .site-app.admin-mode .balance-block { display: none; }
 .app-main { min-width: 0; padding: 28px clamp(20px, 4vw, 54px) 48px; background: rgba(9,13,27,.78); border: 1px solid var(--line); border-right: 0; border-radius: 0 18px 18px 0; }
 .app-header {

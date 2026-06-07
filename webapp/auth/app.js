@@ -2332,7 +2332,10 @@ document.querySelectorAll("[data-open-service]").forEach((button) => {
 });
 
 document.querySelectorAll("[data-owner-tab]").forEach((button) => {
-  button.addEventListener("click", () => applyOwnerTab(button.dataset.ownerTab || "overview"));
+  button.addEventListener("click", () => {
+    openPanel("owner", ownerTabTitles[button.dataset.ownerTab] || "لوحة الإدارة", { updateRoute: false });
+    applyOwnerTab(button.dataset.ownerTab || "overview");
+  });
 });
 
 window.addEventListener("popstate", () => {
