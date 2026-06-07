@@ -1106,12 +1106,54 @@ async function resolveOwnerRefundReview(event) {
   }
 }
 
+const ownerDigitalActionLabels = {
+  claim: "استلام",
+  auto_api: "Auto API",
+  future: "Future",
+  complete: "إكمال",
+  refund: "استرداد",
+};
+
+function ownerDigitalDetailRows(order) {
+  const details = order.owner_details || {};
+  const customerSummary = Object.values(order.customer_data || {}).filter(Boolean).slice(0, 3).join(" / ");
+  const rows = [
+    ["Order ID", order.id],
+    ["User / Reseller", [details.user_id, details.reseller_id].filter(Boolean).join(" / ")],
+    ["Source", details.source],
+    ["Route", details.execution_route || details.fulfillment_mode],
+    ["Fulfillment", details.fulfillment_status || order.manual_fulfillment_status],
+    ["Provider ref", details.provider_ref_id],
+    ["Provider order", details.provider_order_id || order.provider_order_id],
+    ["Customer", order.player_id || customerSummary],
+    ["Created", details.created_at || order.created_at],
+    ["Updated", details.updated_at],
+    ["Actor", details.route_updated_by || details.fulfilled_by || details.refunded_by],
+    ["Note", details.action_note],
+  ].filter(([, value]) => String(value || "").trim());
+  return rows.map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+}
+
+function ownerDigitalActionButtons(order, closed) {
+  if (closed) {
+    return '<div class="notice">هذا الطلب مغلق ولا يقبل إجراءات إضافية.</div>';
+  }
+  const actions = Array.isArray(order.available_actions) && order.available_actions.length
+    ? order.available_actions
+    : ["claim", "auto_api", "future", "complete", "refund"];
+  return `<div class="owner-order-actions">${actions.map((action) => {
+    const kind = action === "refund" ? "danger" : action === "complete" ? "primary" : "secondary";
+    return `<button class="${kind} compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="${esc(action)}">${esc(ownerDigitalActionLabels[action] || action)}</button>`;
+  }).join("")}</div>`;
+}
+
 function renderOwnerDigitalOrders(rows) {
   const target = $("#owner-digital-orders");
   target.classList.toggle("empty", !rows.length);
   target.innerHTML = rows.length ? rows.map((order) => {
     const status = String(order.public_status || order.status || "").toLowerCase();
-    const closed = ["completed", "success", "done", "refunded", "failed", "cancelled"].includes(status);
+    const closed = ["completed", "success", "done", "refunded", "failed", "cancelled"].includes(status)
+      || (Array.isArray(order.available_actions) && !order.available_actions.length);
     return `
     <article class="owner-digital-order">
       <div class="owner-order-head">
@@ -1124,16 +1166,11 @@ function renderOwnerDigitalOrders(rows) {
       <div class="owner-order-meta">
         <span>السعر: ${esc(order.price_label || order.price || "-")}</span>
         <span>المزود: ${esc(order.provider || "-")}</span>
-        <span>اللاعب: ${esc(order.player_id || Object.values(order.customer_data || {}).filter(Boolean).slice(0, 2).join(" / ") || "-")}</span>
+        <span>العميل: ${esc(order.player_id || Object.values(order.customer_data || {}).filter(Boolean).slice(0, 2).join(" / ") || "-")}</span>
       </div>
+      <div class="owner-digital-details">${ownerDigitalDetailRows(order)}</div>
       <details><summary>بيانات العميل</summary><pre>${esc(JSON.stringify(order.customer_data || {}, null, 2))}</pre></details>
-      ${closed ? '<div class="notice">هذا الطلب مغلق ولا يقبل إجراءات إضافية.</div>' : `<div class="owner-order-actions">
-        <button class="secondary compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="claim">استلام</button>
-        <button class="secondary compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="auto_api">Auto API</button>
-        <button class="secondary compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="future">Future</button>
-        <button class="primary compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="complete">إكمال</button>
-        <button class="danger compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="refund">استرداد</button>
-      </div>`}
+      ${ownerDigitalActionButtons(order, closed)}
     </article>`;
   }).join("") : '<div class="notice">لا توجد طلبات رقمية ضمن هذا الفلتر.</div>';
   target.querySelectorAll("[data-owner-order]").forEach((button) => {
@@ -1144,27 +1181,28 @@ function renderOwnerDigitalOrders(rows) {
 async function runOwnerDigitalAction(button) {
   const orderId = button.dataset.ownerOrder;
   const action = button.dataset.ownerAction;
+  const actionLabel = ownerDigitalActionLabels[action] || action;
   const warning = action === "refund"
     ? "سيتم إعادة المبلغ إلى محفظة العميل. هل تريد تنفيذ الاسترداد؟"
-    : `هل تريد تنفيذ الإجراء ${action} على هذا الطلب؟`;
+    : `هل تريد تنفيذ الإجراء ${actionLabel} على هذا الطلب؟`;
   if (!window.confirm(warning)) return;
-  button.disabled = true;
-  setText("#owner-message", `جاري تنفيذ ${action}...`);
+  const card = button.closest(".owner-digital-order");
+  card?.querySelectorAll("[data-owner-order]").forEach((item) => { item.disabled = true; });
+  setText("#owner-message", `جاري تنفيذ ${actionLabel}...`);
   try {
     const result = await api(`/api/v1/owner/digital/orders/${encodeURIComponent(orderId)}/action`, {
       method: "POST",
       body: JSON.stringify({ action, notify_user: true }),
       timeoutMs: 45000,
     });
-    setText("#owner-message", `تم تنفيذ ${result.action || action}.`);
+    setText("#owner-message", `تم تنفيذ ${ownerDigitalActionLabels[result.action] || result.action || actionLabel}.`);
     await loadOwnerDashboard();
   } catch (error) {
     setText("#owner-message", error.message);
   } finally {
-    button.disabled = false;
+    card?.querySelectorAll("[data-owner-order]").forEach((item) => { item.disabled = false; });
   }
 }
-
 function renderOrders(rows) {
   const target = $("#orders-list");
   renderRows(target, rows, (row) => `

@@ -256,6 +256,48 @@ def _owner_digital_auth(*, customer_id: int) -> ApiAuthContext:
     )
 
 
+def _iso_value(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.astimezone(UTC).isoformat()
+    return _text(value)
+
+
+def _owner_digital_available_actions(order: dict[str, Any]) -> list[str]:
+    status = str(order.get("status") or "").strip().lower()
+    manual_status = str(order.get("manual_fulfillment_status") or "").strip().lower()
+    if status in {"success", "done", "refunded", "failed", "cancelled"} or manual_status in {"completed", "refunded"}:
+        return []
+    return ["claim", "auto_api", "future", "complete", "refund"]
+
+
+def _owner_digital_order_payload(order: dict[str, Any]) -> dict[str, Any]:
+    order = dict(order or {})
+    payload = _order_payload(order)
+    payload["available_actions"] = _owner_digital_available_actions(order)
+    payload["owner_details"] = {
+        "user_id": _text(order.get("user_id")),
+        "reseller_id": _text(order.get("reseller_id")),
+        "source": _text(order.get("api_order_source") or order.get("source") or order.get("number_mode") or order.get("service_type")),
+        "fulfillment_mode": _text(order.get("fulfillment_mode")),
+        "fulfillment_status": _text(order.get("manual_fulfillment_status")),
+        "execution_route": _text(order.get("manual_execution_route")),
+        "route_updated_by": _text(order.get("manual_route_updated_by")),
+        "route_updated_at": _iso_value(order.get("manual_route_updated_at")),
+        "fulfilled_by": _text(order.get("manual_fulfilled_by")),
+        "fulfilled_at": _iso_value(order.get("manual_fulfilled_at")),
+        "refunded_by": _text(order.get("manual_refunded_by")),
+        "refunded_at": _iso_value(order.get("manual_refunded_at")),
+        "provider": _text(order.get("provider_code") or order.get("provider")),
+        "provider_ref_id": _text(order.get("provider_ref_id") or order.get("service_ref_id")),
+        "provider_order_id": _text(order.get("provider_order_id")),
+        "created_at": _iso_value(order.get("created_at")),
+        "completed_at": _iso_value(order.get("completed_at")),
+        "updated_at": _iso_value(order.get("updated_at") or order.get("manual_route_updated_at")),
+        "action_note": _text(order.get("manual_action_note")),
+    }
+    return payload
+
+
 async def owner_digital_orders(request: web.Request) -> web.Response:
     await require_website_owner(request)
     try:
@@ -276,7 +318,7 @@ async def owner_digital_orders(request: web.Request) -> web.Response:
             query["manual_fulfillment_status"] = status_filter
     rows = await db.orders.find(query).sort("created_at", -1).limit(limit).to_list(length=limit)
     return web.json_response(
-        {"ok": True, "status": status_filter or "all", "orders": [_order_payload(row) for row in rows]},
+        {"ok": True, "status": status_filter or "all", "orders": [_owner_digital_order_payload(row) for row in rows]},
         headers=dict(_NO_STORE_HEADERS),
     )
 

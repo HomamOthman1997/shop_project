@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 
 import pytest
 from aiohttp import web
@@ -148,6 +149,78 @@ async def test_owner_digital_order_action_uses_shared_manual_action(monkeypatch)
     assert calls["order_id"] == "order-1"
     assert calls["body"]["action"] == "complete"
     assert payload["action"] == "complete"
+
+
+@pytest.mark.asyncio
+async def test_owner_digital_orders_include_owner_details_and_actions(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1",
+            customer_id=900000000001,
+            email="homamothman1@gmail.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    class FakeCursor:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def sort(self, *_args):
+            return self
+
+        def limit(self, *_args):
+            return self
+
+        async def to_list(self, *, length):
+            return self.rows[:length]
+
+    class FakeOrders:
+        def find(self, query):
+            self.query = query
+            return FakeCursor(
+                [
+                    {
+                        "_id": "order-1",
+                        "user_id": 123,
+                        "reseller_id": 456,
+                        "status": "paid",
+                        "fulfillment_mode": "manual_topup",
+                        "manual_fulfillment_status": "processing",
+                        "manual_execution_route": "auto_api",
+                        "manual_route_updated_by": 900000000001,
+                        "manual_route_updated_at": datetime(2026, 6, 7, 8, 30, tzinfo=UTC),
+                        "manual_item_name": "PUBG 60 UC",
+                        "player_id": "555",
+                        "price": 1.5,
+                        "provider_code": "bittopup",
+                        "provider_ref_id": "pubg#60",
+                        "provider_order_id": "api-1",
+                        "service_type": "core_digital_products",
+                        "api_order_source": "website",
+                        "created_at": datetime(2026, 6, 7, 8, 0, tzinfo=UTC),
+                    }
+                ]
+            )
+
+    class FakeDb:
+        orders = FakeOrders()
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "db", FakeDb())
+
+    response = await owner_api.owner_digital_orders(make_mocked_request("GET", "/api/v1/owner/digital/orders?status=processing"))
+    payload = json.loads(response.text)
+    order = payload["orders"][0]
+
+    assert response.status == 200
+    assert order["id"] == "order-1"
+    assert order["available_actions"] == ["claim", "auto_api", "future", "complete", "refund"]
+    assert order["owner_details"]["user_id"] == "123"
+    assert order["owner_details"]["reseller_id"] == "456"
+    assert order["owner_details"]["provider_ref_id"] == "pubg#60"
+    assert order["owner_details"]["provider_order_id"] == "api-1"
+    assert order["owner_details"]["execution_route"] == "auto_api"
 
 
 @pytest.mark.asyncio
