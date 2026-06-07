@@ -56,7 +56,8 @@ from services.numbers.provider_webhooks import register_provider_webhook_routes
 from services.platform.api_keys_api import register_api_key_routes
 from services.platform.webhooks_api import register_webhook_routes
 from services.platform.telegram_webapp_auth import configured_bot_tokens, verify_telegram_init_data
-from services.platform.website_auth import auth_page, register_website_auth_routes
+from services.landing_page import landing_page
+from services.platform.website_auth import register_website_auth_routes
 from services.platform.owner_api import register_owner_api_routes
 from database.website_auth_repo import bootstrap_website_auth_indexes
 
@@ -2008,7 +2009,7 @@ async def health(_request: web.Request) -> web.Response:
 def create_app(_argv: list[str] | None = None) -> web.Application:
     app = web.Application()
     app.on_cleanup.append(_cleanup_app)
-    app.router.add_get("/", auth_page)
+    app.router.add_get("/", landing_page)
     app.router.add_get("/health", health)
     app.router.add_get("/healthz", health)
     app.router.add_get("/ready", health)

@@ -1716,6 +1716,8 @@ function setMode(nextMode) {
 
 document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => setMode(tab.dataset.mode)));
 
+setMode(window.location.pathname === "/register" ? "register" : "login");
+
 $("#toggle-password").addEventListener("click", (event) => {
   const visible = passwordInput.type === "text";
   passwordInput.type = visible ? "password" : "text";

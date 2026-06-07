@@ -510,6 +510,7 @@ async def auth_static(request: web.Request) -> web.Response:
 
 def register_website_auth_routes(app: web.Application) -> None:
     app.router.add_get("/login", auth_page)
+    app.router.add_get("/register", auth_page)
     app.router.add_get("/account", auth_page)
     app.router.add_get("/app", auth_page)
     app.router.add_get("/app/{tail:.*}", auth_page)

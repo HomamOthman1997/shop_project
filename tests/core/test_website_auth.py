@@ -5,6 +5,7 @@ from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 from pymongo.errors import DuplicateKeyError
 
+from services import landing_page
 from services.platform import website_auth
 
 
@@ -31,6 +32,7 @@ def test_register_website_auth_routes():
     assert ("POST", "/api/v1/auth/email/send-code") in routes
     assert ("POST", "/api/v1/auth/email/verify") in routes
     assert ("GET", "/login") in routes
+    assert ("GET", "/register") in routes
     assert ("GET", "/account") in routes
     assert ("GET", "/app") in routes
     assert ("GET", "/app/{tail}") in routes
@@ -38,13 +40,26 @@ def test_register_website_auth_routes():
     assert ("GET", "/admin/{tail}") in routes
 
 
-def test_shop_root_serves_website_auth_page():
+def test_shop_root_serves_public_landing_page():
     from services.digital_products.miniapp import create_app
 
     app = create_app()
     routes = {(route.method, route.resource.canonical, route.handler.__name__) for route in app.router.routes()}
 
-    assert ("GET", "/", "auth_page") in routes
+    assert ("GET", "/", "landing_page") in routes
+
+
+@pytest.mark.asyncio
+async def test_public_landing_page_links_to_auth_and_service_routes():
+    response = await landing_page.landing_page(make_mocked_request("GET", "/"))
+
+    assert response.status == 200
+    text = response.text
+    assert 'href="/login"' in text
+    assert 'href="/register"' in text
+    assert 'href="/app/digital"' in text
+    assert 'href="/app/numbers"' in text
+    assert "الشراء" in text
 
 
 @pytest.mark.asyncio
