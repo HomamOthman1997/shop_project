@@ -58,6 +58,17 @@ def test_auth_page_loads_site_translator():
     assert html.index("/auth/static/i18n.js") < html.index("/auth/static/app.js")
 
 
+def test_owner_dashboard_frontend_guards_stale_tab_loads():
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+
+    assert "let ownerDashboardLoadId = 0;" in js
+    assert "const loadId = ++ownerDashboardLoadId;" in js
+    assert "const loadTab = activeOwnerTab;" in js
+    assert "loadId !== ownerDashboardLoadId || loadTab !== activeOwnerTab" in js
+
+
 @pytest.mark.asyncio
 async def test_public_landing_page_links_to_auth_and_service_routes():
     response = await landing_page.landing_page(make_mocked_request("GET", "/"))

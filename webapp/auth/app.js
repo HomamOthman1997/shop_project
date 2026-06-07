@@ -19,6 +19,7 @@ let mode = "login";
 let currentAccount = null;
 let activeOwnerTab = "overview";
 let ownerCatalogParentId = "";
+let ownerDashboardLoadId = 0;
 
 const customerRoutes = {
   home: "/app",
@@ -568,6 +569,8 @@ function clearOwnerBusy(...ids) {
 }
 
 async function loadOwnerDashboardIsolated() {
+  const loadId = ++ownerDashboardLoadId;
+  const loadTab = activeOwnerTab;
   const metricsTarget = $("#owner-metrics");
   const queuesTarget = $("#owner-queues");
   const sectionsTarget = $("#owner-sections");
@@ -582,6 +585,7 @@ async function loadOwnerDashboardIsolated() {
   setOwnerTabLoading(activeOwnerTab);
   const requested = (key) => Object.prototype.hasOwnProperty.call(requests, key);
   const settled = await Promise.allSettled(Object.entries(requests).map(async ([key, factory]) => [key, await factory()]));
+  if (loadId !== ownerDashboardLoadId || loadTab !== activeOwnerTab) return;
   const data = {};
   const failures = [];
   settled.forEach((result) => {
