@@ -367,6 +367,7 @@ async def test_owner_system_test_log_requires_bound_target(monkeypatch):
 @pytest.mark.asyncio
 async def test_owner_digital_order_action_uses_shared_manual_action(monkeypatch):
     calls = {}
+    audit_calls = []
 
     async def owner(_request):
         return WebsiteAuthContext(
@@ -383,15 +384,19 @@ async def test_owner_digital_order_action_uses_shared_manual_action(monkeypatch)
         calls["body"] = body
         return web.json_response({"ok": True, "action": body["action"]})
 
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "execute_manual_order_action", execute)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     request = make_mocked_request(
         "POST",
         "/api/v1/owner/digital/orders/order-1/action",
         match_info={"order_id": "order-1"},
         headers={"Content-Type": "application/json"},
     )
-    request._read_bytes = json.dumps({"action": "complete", "notify_user": True}).encode()
+    request._read_bytes = json.dumps({"action": "complete", "notify_user": True, "delivery_text": "private delivery"}).encode()
 
     response = await owner_api.owner_digital_order_action(request)
     payload = json.loads(response.text)
@@ -402,6 +407,9 @@ async def test_owner_digital_order_action_uses_shared_manual_action(monkeypatch)
     assert calls["order_id"] == "order-1"
     assert calls["body"]["action"] == "complete"
     assert payload["action"] == "complete"
+    assert audit_calls[0]["action"] == "digital_order.complete"
+    assert audit_calls[0]["target_id"] == "order-1"
+    assert "private delivery" not in json.dumps(audit_calls[0])
 
 
 @pytest.mark.asyncio
@@ -479,6 +487,7 @@ async def test_owner_digital_orders_include_owner_details_and_actions(monkeypatc
 @pytest.mark.asyncio
 async def test_owner_resolve_numbers_refund_review_marks_review_only(monkeypatch):
     calls = {}
+    audit_calls = []
 
     async def owner(_request):
         return WebsiteAuthContext(
@@ -499,8 +508,12 @@ async def test_owner_resolve_numbers_refund_review_marks_review_only(monkeypatch
             "number_mode": "temp",
         }
 
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "resolve_api_temp_refund_support_review", resolve)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     request = make_mocked_request(
         "POST",
         "/api/v1/owner/numbers/refund-reviews/order-1/resolve",
@@ -517,6 +530,10 @@ async def test_owner_resolve_numbers_refund_review_marks_review_only(monkeypatch
     assert calls["reseller_id"] is None
     assert calls["resolution"] == "Checked manually"
     assert payload["review"]["status"] == "resolved"
+    assert audit_calls[0]["action"] == "numbers_refund_review.resolve"
+    assert audit_calls[0]["metadata"]["number_mode"] == "temp"
+    assert "Checked manually" not in json.dumps(audit_calls[0])
+    assert "No financial action" not in json.dumps(audit_calls[0])
 
 
 @pytest.mark.asyncio
@@ -761,6 +778,7 @@ async def test_owner_broadcast_uses_delivery_helper(monkeypatch):
 @pytest.mark.asyncio
 async def test_owner_recharge_accept_uses_shared_financial_decision(monkeypatch):
     calls = {}
+    audit_calls = []
     request_id = "507f1f77bcf86cd799439011"
 
     async def owner(_request):
@@ -778,9 +796,13 @@ async def test_owner_recharge_accept_uses_shared_financial_decision(monkeypatch)
         calls["kwargs"] = kwargs
         return {"_id": args[0], "status": "accepted", "amount": 10, "user_id": 7, "reseller_id": 8}
 
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "_recharge_request", find_one)
     monkeypatch.setattr(owner_api, "update_recharge_request", update)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     request = make_mocked_request("POST", f"/api/v1/owner/recharge-reviews/{request_id}/action", match_info={"request_id": request_id})
     request._read_bytes = json.dumps({"action": "accept", "approved_amount": 9.5}).encode()
 
@@ -791,6 +813,8 @@ async def test_owner_recharge_accept_uses_shared_financial_decision(monkeypatch)
     assert calls["args"][1] == "accepted"
     assert calls["kwargs"]["approved_amount"] == 9.5
     assert payload["review"]["status"] == "accepted"
+    assert audit_calls[0]["action"] == "recharge_review.accept"
+    assert audit_calls[0]["metadata"]["user_id"] == 7
 
 
 @pytest.mark.asyncio

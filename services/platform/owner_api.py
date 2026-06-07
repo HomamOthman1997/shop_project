@@ -827,7 +827,17 @@ async def owner_digital_order_action(request: web.Request) -> web.Response:
         body = {}
     auth = _owner_digital_auth(customer_id=owner.customer_id)
     order_id = str(request.match_info.get("order_id") or "").strip()
-    return await execute_manual_order_action(auth=auth, order_id=order_id, body=body)
+    response = await execute_manual_order_action(auth=auth, order_id=order_id, body=body)
+    if response.status < 400:
+        await _write_owner_audit(
+            actor_id=owner.customer_id,
+            actor_email=owner.email,
+            action=f"digital_order.{_text((body or {}).get('action')) or 'action'}",
+            target_type="digital_order",
+            target_id=order_id,
+            metadata={"notify_user": bool((body or {}).get("notify_user", True))},
+        )
+    return response
 
 
 def _custom_preorder_payload(row: dict[str, Any], *, queue_position: int = 0) -> dict[str, Any]:
@@ -1261,6 +1271,15 @@ async def owner_resolve_numbers_refund_review(request: web.Request) -> web.Respo
             status=404,
             headers=dict(_NO_STORE_HEADERS),
         )
+    order_id = str(request.match_info.get("order_id") or "").strip()
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="numbers_refund_review.resolve",
+        target_type="numbers_order",
+        target_id=order_id,
+        metadata={"number_mode": _text(order.get("number_mode")), "provider": _text(order.get("provider"))},
+    )
     return web.json_response({"ok": True, "review": _refund_review_payload(order)}, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -1555,6 +1574,18 @@ async def owner_recharge_review_action(request: web.Request) -> web.Response:
     if not updated:
         return web.json_response({"ok": False, "message": "Recharge request is no longer pending."}, status=409, headers=dict(_NO_STORE_HEADERS))
     current = await _recharge_request(request_id) or updated
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action=f"recharge_review.{action}",
+        target_type="recharge_request",
+        target_id=request_id,
+        metadata={
+            "user_id": _safe_int(current.get("user_id")),
+            "wallet_type": _text(current.get("wallet_type")),
+            "approved_amount": _money(current.get("approved_amount")) if action == "accept" else None,
+        },
+    )
     return web.json_response({"ok": True, "review": _recharge_payload(current)}, headers=dict(_NO_STORE_HEADERS))
 
 
