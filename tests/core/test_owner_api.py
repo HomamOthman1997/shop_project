@@ -99,6 +99,48 @@ def test_all_mutating_owner_routes_write_an_audit_event():
 
 
 @pytest.mark.asyncio
+async def test_owner_paged_rows_returns_next_offset_and_applies_offset():
+    class Cursor:
+        def __init__(self):
+            self.rows = [{"id": index} for index in range(7)]
+
+        def skip(self, offset):
+            self.rows = self.rows[offset:]
+            return self
+
+        def limit(self, limit):
+            self.rows = self.rows[:limit]
+            return self
+
+        async def to_list(self, length=None):
+            return self.rows[:length]
+
+    request = make_mocked_request("GET", "/api/v1/owner/example?limit=2&offset=3")
+    rows, pagination = await owner_api._paged_rows(Cursor(), request)
+
+    assert rows == [{"id": 3}, {"id": 4}]
+    assert pagination == {"offset": 3, "limit": 2, "has_more": True, "next_offset": 5}
+
+
+def test_owner_operational_lists_use_shared_pagination_contract():
+    handlers = [
+        owner_api.owner_digital_orders,
+        owner_api.owner_custom_preorders,
+        owner_api.owner_recharge_reviews,
+        owner_api.owner_identity_reviews,
+        owner_api.owner_support_tickets,
+        owner_api.owner_bot_creation_reviews,
+        owner_api.owner_bots,
+    ]
+
+    for handler in handlers:
+        assert "_paged_rows" in inspect.getsource(handler), handler.__name__
+        assert '"pagination"' in inspect.getsource(handler), handler.__name__
+
+    assert '"pagination"' in inspect.getsource(owner_api.owner_numbers_refund_reviews)
+
+
+@pytest.mark.asyncio
 async def test_owner_dashboard_returns_metrics_and_management_catalog(monkeypatch):
     async def owner(_request):
         return WebsiteAuthContext(

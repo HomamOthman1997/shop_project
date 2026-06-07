@@ -264,6 +264,7 @@ async def list_api_temp_orders_for_auto_refund(limit: int = 200):
 async def list_api_temp_refund_support_reviews(
     *,
     limit: int = 100,
+    offset: int = 0,
     reseller_id: int | None = None,
     include_resolved: bool = False,
 ):
@@ -275,11 +276,10 @@ async def list_api_temp_refund_support_reviews(
         query["reseller_id"] = int(reseller_id)
     if not include_resolved:
         query["temp_refund_support_review_status"] = {"$ne": "resolved"}
-    cursor = (
-        db.orders.find(query)
-        .sort([("temp_refund_support_review_at", 1), ("created_at", 1)])
-        .limit(max(1, int(limit)))
-    )
+    cursor = db.orders.find(query).sort([("temp_refund_support_review_at", 1), ("created_at", 1)])
+    if int(offset) > 0:
+        cursor = cursor.skip(int(offset))
+    cursor = cursor.limit(max(1, int(limit)))
     return await cursor.to_list(length=max(1, int(limit)))
 
 

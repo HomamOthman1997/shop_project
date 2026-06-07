@@ -23,6 +23,7 @@ let ownerDashboardLoadId = 0;
 let ownerAuditFilters = {q: "", action: "", target_type: ""};
 let ownerUserRows = [];
 let ownerUserQuery = "";
+let ownerPagedRows = {};
 
 const customerRoutes = {
   home: "/app",
@@ -610,6 +611,57 @@ function clearOwnerBusy(...ids) {
   ids.forEach((id) => document.getElementById(id)?.removeAttribute("aria-busy"));
 }
 
+function ownerPagedItems(key, payload, field, append = false) {
+  const rows = Array.isArray(payload?.[field]) ? payload[field] : [];
+  ownerPagedRows[key] = append ? [...(ownerPagedRows[key] || []), ...rows] : rows;
+  return ownerPagedRows[key];
+}
+
+function ownerPaginationButton(key, pagination, label = "Load more") {
+  if (!pagination?.has_more) return "";
+  return `<div class="owner-order-actions"><button class="secondary compact" type="button" data-owner-page="${esc(key)}" data-next-offset="${esc(pagination.next_offset)}">${esc(label)}</button></div>`;
+}
+
+function bindOwnerPagination(target) {
+  target.querySelectorAll("[data-owner-page]").forEach((button) => button.addEventListener("click", () => loadMoreOwnerList(button)));
+}
+
+function ownerPagedRequest(key, offset) {
+  const params = `limit=30&offset=${encodeURIComponent(offset)}`;
+  if (key === "digital") return api(`/api/v1/owner/digital/orders?status=${encodeURIComponent($("#owner-digital-filter")?.value || "pending")}&${params}`);
+  if (key === "preorders") return api(`/api/v1/owner/custom-preorders?status=${encodeURIComponent($("#owner-preorder-filter")?.value || "active")}&${params}`);
+  if (key === "refunds") return api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${$("#owner-refunds-resolved")?.checked ? "1" : "0"}&${params}`);
+  if (key === "recharge") return api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent($("#owner-recharge-filter")?.value || "pending")}&${params}`);
+  if (key === "identity") return api(`/api/v1/owner/identity-reviews?status=${encodeURIComponent($("#owner-identity-filter")?.value || "pending")}&${params}`);
+  if (key === "support") return api(`/api/v1/owner/support-tickets?status=${encodeURIComponent($("#owner-support-filter")?.value || "open")}&${params}`);
+  if (key === "botCreationReviews") return api(`/api/v1/owner/bot-creation-reviews?status=${encodeURIComponent($("#owner-bot-review-filter")?.value || "pending")}&${params}`);
+  if (key === "bots") return api(`/api/v1/owner/bots?status=all&${params}`);
+  throw new Error("Unsupported owner list.");
+}
+
+async function loadMoreOwnerList(button) {
+  button.disabled = true;
+  try {
+    const key = button.dataset.ownerPage;
+    const payload = await ownerPagedRequest(key, Number(button.dataset.nextOffset || 0));
+    const renderers = {
+      digital: renderOwnerDigitalOrders,
+      preorders: renderOwnerCustomPreorders,
+      refunds: renderOwnerRefundReviews,
+      recharge: renderOwnerRechargeReviews,
+      identity: renderOwnerIdentityReviews,
+      support: renderOwnerSupportTickets,
+      botCreationReviews: renderOwnerBotCreationReviews,
+      bots: renderOwnerBotTools,
+    };
+    renderers[key](payload, true);
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function loadOwnerDashboardIsolated() {
   const loadId = ++ownerDashboardLoadId;
   const loadTab = activeOwnerTab;
@@ -688,10 +740,10 @@ async function loadOwnerDashboardIsolated() {
     clearOwnerBusy("owner-queues");
     fail(queuesTarget, "تعذر تحميل طوابير المتابعة.");
   }
-  if (requested("digital")) { clearOwnerBusy("owner-digital-orders"); data.digital ? renderOwnerDigitalOrders(data.digital.orders || []) : fail("#owner-digital-orders", "تعذر تحميل الطلبات الرقمية."); }
-  if (requested("preorders")) { clearOwnerBusy("owner-custom-preorders"); data.preorders ? renderOwnerCustomPreorders(data.preorders.preorders || []) : fail("#owner-custom-preorders", "Could not load custom preorders."); }
+  if (requested("digital")) { clearOwnerBusy("owner-digital-orders"); data.digital ? renderOwnerDigitalOrders(data.digital) : fail("#owner-digital-orders", "تعذر تحميل الطلبات الرقمية."); }
+  if (requested("preorders")) { clearOwnerBusy("owner-custom-preorders"); data.preorders ? renderOwnerCustomPreorders(data.preorders) : fail("#owner-custom-preorders", "Could not load custom preorders."); }
   if (requested("catalog")) { clearOwnerBusy("owner-custom-catalog"); data.catalog ? renderOwnerCustomCatalog(data.catalog) : fail("#owner-custom-catalog", "Could not load custom services catalog."); }
-  if (requested("refunds")) { clearOwnerBusy("owner-refund-reviews"); data.refunds ? renderOwnerRefundReviews(data.refunds.reviews || []) : fail("#owner-refund-reviews", "تعذر تحميل مراجعات الأرقام."); }
+  if (requested("refunds")) { clearOwnerBusy("owner-refund-reviews"); data.refunds ? renderOwnerRefundReviews(data.refunds) : fail("#owner-refund-reviews", "تعذر تحميل مراجعات الأرقام."); }
   if (requested("settings")) { clearOwnerBusy("owner-finance-settings", "owner-routing-settings", "owner-broadcast-tools", "owner-payment-methods", "owner-reseller-deposit-tools"); data.settings ? renderOwnerSettings(data.settings) : fail("#owner-finance-settings", "تعذر تحميل الإعدادات المالية."); }
   if (requested("settings") && !data.settings) {
     fail("#owner-routing-settings", "تعذر تحميل إعدادات التوجيه.");
@@ -699,7 +751,7 @@ async function loadOwnerDashboardIsolated() {
     fail("#owner-payment-methods", "تعذر تحميل طرق الدفع.");
     fail("#owner-reseller-deposit-tools", "تعذر تحميل أداة إيداع الوكيل.");
   }
-  if (requested("recharge")) { clearOwnerBusy("owner-recharge-reviews"); data.recharge ? renderOwnerRechargeReviews(data.recharge.reviews || []) : fail("#owner-recharge-reviews", "تعذر تحميل مراجعات الشحن."); }
+  if (requested("recharge")) { clearOwnerBusy("owner-recharge-reviews"); data.recharge ? renderOwnerRechargeReviews(data.recharge) : fail("#owner-recharge-reviews", "تعذر تحميل مراجعات الشحن."); }
   if (requested("financeAudit")) { clearOwnerBusy("owner-finance-audit"); data.financeAudit ? renderOwnerFinanceAudit(data.financeAudit.audit || {}) : fail("#owner-finance-audit", "تعذر تحميل التدقيق المالي."); }
   if (requested("systemStatus") || requested("ownerAudit")) {
     clearOwnerBusy("owner-system-operations");
@@ -707,17 +759,17 @@ async function loadOwnerDashboardIsolated() {
   }
   if (requested("resellers")) { clearOwnerBusy("owner-reseller-management"); data.resellers ? renderOwnerResellerManagement(data.resellers.resellers || []) : fail("#owner-reseller-management", "تعذر تحميل الوكلاء."); }
   if (requested("users")) { clearOwnerBusy("owner-user-management"); data.users ? renderOwnerUserManagement(data.users) : fail("#owner-user-management", "تعذر تحميل المستخدمين."); }
-  if (requested("identity")) { clearOwnerBusy("owner-identity-reviews"); data.identity ? renderOwnerIdentityReviews(data.identity.reviews || []) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية."); }
-  if (requested("support")) { clearOwnerBusy("owner-support-tickets"); data.support ? renderOwnerSupportTickets(data.support.tickets || []) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم."); }
+  if (requested("identity")) { clearOwnerBusy("owner-identity-reviews"); data.identity ? renderOwnerIdentityReviews(data.identity) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية."); }
+  if (requested("support")) { clearOwnerBusy("owner-support-tickets"); data.support ? renderOwnerSupportTickets(data.support) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم."); }
   if (requested("apiKeys") || requested("webhooks")) { clearOwnerBusy("owner-api-tools"); data.apiKeys && data.webhooks ? renderOwnerApiTools(data.apiKeys, data.webhooks) : fail("#owner-api-tools", "تعذر تحميل أدوات API."); }
-  if (requested("botCreationReviews")) { clearOwnerBusy("owner-bot-creation-reviews"); data.botCreationReviews ? renderOwnerBotCreationReviews(data.botCreationReviews.reviews || []) : fail("#owner-bot-creation-reviews", "تعذر تحميل مراجعات إنشاء البوتات."); }
+  if (requested("botCreationReviews")) { clearOwnerBusy("owner-bot-creation-reviews"); data.botCreationReviews ? renderOwnerBotCreationReviews(data.botCreationReviews) : fail("#owner-bot-creation-reviews", "تعذر تحميل مراجعات إنشاء البوتات."); }
   if (requested("providers") || requested("providerEvents") || requested("sources")) {
     clearOwnerBusy("owner-provider-diagnostics");
     data.providers && data.providerEvents && data.sources
       ? renderOwnerProviderDiagnostics(data.providers.providers || [], data.providerEvents.events || [], data.sources)
       : fail("#owner-provider-diagnostics", "تعذر تحميل تشخيص المزودين.");
   }
-  if (requested("bots")) { clearOwnerBusy("owner-bot-tools"); data.bots ? renderOwnerBotTools(data.bots.bots || []) : fail("#owner-bot-tools", "تعذر تحميل أدوات البوتات."); }
+  if (requested("bots")) { clearOwnerBusy("owner-bot-tools"); data.bots ? renderOwnerBotTools(data.bots) : fail("#owner-bot-tools", "تعذر تحميل أدوات البوتات."); }
   message.textContent = failures.length ? `تعذر تحميل ${failures.length} قسم/أقسام. آخر خطأ: ${failures[0]}` : "";
   applyOwnerTab(activeOwnerTab, false);
 }
@@ -883,8 +935,9 @@ async function runOwnerSourceAction(button) {
   } catch (error) { setText("#owner-message", error.message); }
 }
 
-function renderOwnerBotTools(bots) {
+function renderOwnerBotTools(payload, append = false) {
   const target = $("#owner-bot-tools");
+  const bots = ownerPagedItems("bots", payload, "bots", append);
   target.classList.remove("empty");
   target.innerHTML = `
     <article class="owner-review-card">
@@ -911,6 +964,8 @@ function renderOwnerBotTools(bots) {
       }).join("") : '<div class="notice">لا توجد بوتات مسجلة حاليا.</div>'}
     </article>`;
   target.querySelectorAll("[data-owner-bot]").forEach((form) => form.addEventListener("submit", runOwnerBotSubscriptionAction));
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("bots", payload.pagination, "Load more bots"));
+  bindOwnerPagination(target);
 }
 
 function renderOwnerBroadcastTools(routing = {}) {
@@ -1204,8 +1259,9 @@ async function runOwnerUserAction(button) {
   finally { button.disabled = false; }
 }
 
-function renderOwnerBotCreationReviews(rows) {
+function renderOwnerBotCreationReviews(payload, append = false) {
   const target = $("#owner-bot-creation-reviews");
+  const rows = ownerPagedItems("botCreationReviews", payload, "reviews", append);
   target.classList.toggle("empty", !rows.length);
   target.innerHTML = rows.length ? rows.map((row) => {
     const payload = row.payload || {};
@@ -1218,6 +1274,8 @@ function renderOwnerBotCreationReviews(rows) {
     `;
   }).join("") : '<div class="notice">No bot creation reviews found.</div>';
   target.querySelectorAll("[data-owner-bot-review]").forEach((button) => button.addEventListener("click", () => runOwnerBotCreationReview(button)));
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("botCreationReviews", payload.pagination, "Load more reviews"));
+  bindOwnerPagination(target);
 }
 
 async function runOwnerBotCreationReview(button) {
@@ -1232,8 +1290,9 @@ async function runOwnerBotCreationReview(button) {
   finally { button.disabled = false; }
 }
 
-function renderOwnerRechargeReviews(rows) {
+function renderOwnerRechargeReviews(payload, append = false) {
   const target = $("#owner-recharge-reviews");
+  const rows = ownerPagedItems("recharge", payload, "reviews", append);
   target.classList.toggle("empty", !rows.length);
   target.innerHTML = rows.length ? rows.map((row) => `
     <article class="owner-review-card">
@@ -1247,6 +1306,8 @@ function renderOwnerRechargeReviews(rows) {
       </form>` : ""}
     </article>`).join("") : '<div class="notice">لا توجد طلبات شحن ضمن هذا الفلتر.</div>';
   target.querySelectorAll("[data-owner-recharge]").forEach((form) => form.addEventListener("submit", runOwnerRechargeAction));
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("recharge", payload.pagination, "Load more recharge reviews"));
+  bindOwnerPagination(target);
 }
 
 async function runOwnerRechargeAction(event) {
@@ -1262,8 +1323,9 @@ async function runOwnerRechargeAction(event) {
   } catch (error) { setText("#owner-message", error.message); }
 }
 
-function renderOwnerIdentityReviews(rows) {
+function renderOwnerIdentityReviews(payload, append = false) {
   const target = $("#owner-identity-reviews");
+  const rows = ownerPagedItems("identity", payload, "reviews", append);
   target.classList.toggle("empty", !rows.length);
   target.innerHTML = rows.length ? rows.map((row) => `
     <article class="owner-review-card">
@@ -1276,6 +1338,8 @@ function renderOwnerIdentityReviews(rows) {
       </form>` : ""}
     </article>`).join("") : '<div class="notice">لا توجد مراجعات هوية ضمن هذا الفلتر.</div>';
   target.querySelectorAll("[data-owner-identity]").forEach((form) => form.addEventListener("submit", runOwnerIdentityAction));
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("identity", payload.pagination, "Load more identity reviews"));
+  bindOwnerPagination(target);
 }
 
 async function runOwnerIdentityAction(event) {
@@ -1290,8 +1354,9 @@ async function runOwnerIdentityAction(event) {
   } catch (error) { setText("#owner-message", error.message); }
 }
 
-function renderOwnerSupportTickets(rows) {
+function renderOwnerSupportTickets(payload, append = false) {
   const target = $("#owner-support-tickets");
+  const rows = ownerPagedItems("support", payload, "tickets", append);
   target.classList.toggle("empty", !rows.length);
   target.innerHTML = rows.length ? rows.map((row) => `
     <article class="owner-review-card">
@@ -1311,6 +1376,8 @@ function renderOwnerSupportTickets(rows) {
   target.querySelectorAll("[data-owner-ticket-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerSupportDetail(button)));
   target.querySelectorAll("[data-owner-support-reply]").forEach((form) => form.addEventListener("submit", runOwnerSupportReply));
   target.querySelectorAll("[data-owner-support-attachment]").forEach((form) => form.addEventListener("submit", runOwnerSupportAttachment));
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("support", payload.pagination, "Load more support tickets"));
+  bindOwnerPagination(target);
 }
 
 async function loadOwnerSupportDetail(button) {
@@ -1557,8 +1624,9 @@ function ownerRefundDetailRows(review) {
   return rows.map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
 }
 
-function renderOwnerRefundReviews(rows) {
+function renderOwnerRefundReviews(payload, append = false) {
   const target = $("#owner-refund-reviews");
+  const rows = ownerPagedItems("refunds", payload, "reviews", append);
   target.classList.toggle("empty", !rows.length);
   target.innerHTML = rows.length ? rows.map((review) => {
     const details = review.details || {};
@@ -1586,6 +1654,8 @@ function renderOwnerRefundReviews(rows) {
   target.querySelectorAll("[data-owner-refund]").forEach((form) => {
     form.addEventListener("submit", resolveOwnerRefundReview);
   });
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("refunds", payload.pagination, "Load more refund reviews"));
+  bindOwnerPagination(target);
 }
 
 async function resolveOwnerRefundReview(event) {
@@ -1777,8 +1847,9 @@ async function loadOwnerCatalogStockLog(nodeId) {
   } catch (error) { setText("#owner-message", error.message); }
 }
 
-function renderOwnerCustomPreorders(rows) {
+function renderOwnerCustomPreorders(payload, append = false) {
   const target = $("#owner-custom-preorders");
+  const rows = ownerPagedItems("preorders", payload, "preorders", append);
   target.classList.toggle("empty", !rows.length);
   target.innerHTML = rows.length ? rows.map((row) => {
     const actions = Array.isArray(row.available_actions) ? row.available_actions : [];
@@ -1807,6 +1878,8 @@ function renderOwnerCustomPreorders(rows) {
   }).join("") : '<div class="notice">No custom preorders found for this filter.</div>';
   target.querySelectorAll("[data-preorder-action]").forEach((button) => button.addEventListener("click", () => runOwnerPreorderAction(button)));
   target.querySelectorAll("[data-preorder-attachment]").forEach((button) => button.addEventListener("click", () => runOwnerPreorderAttachment(button)));
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("preorders", payload.pagination, "Load more preorders"));
+  bindOwnerPagination(target);
 }
 
 async function runOwnerPreorderAction(button) {
@@ -1897,8 +1970,9 @@ function ownerDigitalActionButtons(order, closed) {
   }).join("")}</div>`;
 }
 
-function renderOwnerDigitalOrders(rows) {
+function renderOwnerDigitalOrders(payload, append = false) {
   const target = $("#owner-digital-orders");
+  const rows = ownerPagedItems("digital", payload, "orders", append);
   target.classList.toggle("empty", !rows.length);
   target.innerHTML = rows.length ? rows.map((order) => {
     const status = String(order.public_status || order.status || "").toLowerCase();
@@ -1926,6 +2000,8 @@ function renderOwnerDigitalOrders(rows) {
   target.querySelectorAll("[data-owner-order]").forEach((button) => {
     button.addEventListener("click", () => runOwnerDigitalAction(button));
   });
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("digital", payload.pagination, "Load more digital orders"));
+  bindOwnerPagination(target);
 }
 
 async function runOwnerDigitalAction(button) {

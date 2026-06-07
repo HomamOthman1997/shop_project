@@ -832,10 +832,6 @@ def _owner_digital_order_payload(order: dict[str, Any]) -> dict[str, Any]:
 
 async def owner_digital_orders(request: web.Request) -> web.Response:
     await require_website_owner(request)
-    try:
-        limit = max(1, min(100, int(request.query.get("limit") or 30)))
-    except Exception:
-        limit = 30
     status_filter = str(request.query.get("status") or "pending").strip().lower()
     query: dict[str, Any] = {
         "fulfillment_mode": "manual_topup",
@@ -848,9 +844,9 @@ async def owner_digital_orders(request: web.Request) -> web.Response:
             query["$and"] = [{"$or": [{"manual_fulfillment_status": "refunded"}, {"status": "refunded"}]}]
         else:
             query["manual_fulfillment_status"] = status_filter
-    rows = await db.orders.find(query).sort("created_at", -1).limit(limit).to_list(length=limit)
+    rows, pagination = await _paged_rows(db.orders.find(query).sort("created_at", -1), request)
     return web.json_response(
-        {"ok": True, "status": status_filter or "all", "orders": [_owner_digital_order_payload(row) for row in rows]},
+        {"ok": True, "status": status_filter or "all", "orders": [_owner_digital_order_payload(row) for row in rows], "pagination": pagination},
         headers=dict(_NO_STORE_HEADERS),
     )
 
@@ -907,13 +903,12 @@ async def owner_custom_preorders(request: web.Request) -> web.Response:
         query["status"] = {"$in": ["pending", "fulfilling"]}
     elif status not in {"all", "*", ""}:
         query["status"] = status
-    limit = _limit(request)
-    rows = await db.custom_service_preorders.find(query).sort("created_at", 1).limit(limit).to_list(length=limit)
+    rows, pagination = await _paged_rows(db.custom_service_preorders.find(query).sort("created_at", 1), request)
     payloads = []
     for row in rows:
         position = await get_pending_preorder_position(row["_id"]) if str(row.get("status") or "") == "pending" else 0
         payloads.append(_custom_preorder_payload(row, queue_position=position))
-    return web.json_response({"ok": True, "status": status or "all", "preorders": payloads}, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"ok": True, "status": status or "all", "preorders": payloads, "pagination": pagination}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_custom_preorder_action(request: web.Request) -> web.Response:
@@ -1270,13 +1265,13 @@ async def owner_delete_custom_catalog_node(request: web.Request) -> web.Response
 async def owner_numbers_refund_reviews(request: web.Request) -> web.Response:
     await require_website_owner(request)
     include_resolved = str(request.query.get("include_resolved") or "").strip().lower() in {"1", "true", "yes"}
-    try:
-        limit = max(1, min(100, int(request.query.get("limit") or 30)))
-    except Exception:
-        limit = 30
-    rows = await list_api_temp_refund_support_reviews(limit=limit, reseller_id=None, include_resolved=include_resolved)
+    limit = _limit(request)
+    offset = _offset(request)
+    rows = await list_api_temp_refund_support_reviews(limit=limit + 1, offset=offset, reseller_id=None, include_resolved=include_resolved)
+    has_more = len(rows) > limit
+    rows = rows[:limit]
     return web.json_response(
-        {"ok": True, "reviews": [_refund_review_payload(row) for row in rows]},
+        {"ok": True, "reviews": [_refund_review_payload(row) for row in rows], "pagination": _pagination(offset, limit, len(rows), has_more)},
         headers=dict(_NO_STORE_HEADERS),
     )
 
@@ -1542,6 +1537,26 @@ def _offset(request: web.Request) -> int:
         return 0
 
 
+def _pagination(offset: int, limit: int, count: int, has_more: bool) -> dict[str, Any]:
+    return {
+        "offset": offset,
+        "limit": limit,
+        "has_more": has_more,
+        "next_offset": offset + count if has_more else None,
+    }
+
+
+async def _paged_rows(cursor: Any, request: web.Request, default: int = 30) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    limit = _limit(request, default)
+    offset = _offset(request)
+    if offset:
+        cursor = cursor.skip(offset)
+    rows = await cursor.limit(limit + 1).to_list(length=limit + 1)
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    return rows, _pagination(offset, limit, len(rows), has_more)
+
+
 def _date_text(value: Any) -> str | None:
     return value.isoformat() if isinstance(value, datetime) else None
 
@@ -1570,8 +1585,8 @@ async def owner_recharge_reviews(request: web.Request) -> web.Response:
     query: dict[str, Any] = {}
     if status not in {"all", "*", ""}:
         query["status"] = status
-    rows = await db.recharge_requests.find(query).sort("created_at", -1).limit(_limit(request)).to_list(length=_limit(request))
-    return web.json_response({"ok": True, "reviews": [_recharge_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+    rows, pagination = await _paged_rows(db.recharge_requests.find(query).sort("created_at", -1), request)
+    return web.json_response({"ok": True, "reviews": [_recharge_payload(row) for row in rows], "pagination": pagination}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_recharge_review_action(request: web.Request) -> web.Response:
@@ -1653,8 +1668,8 @@ async def owner_identity_reviews(request: web.Request) -> web.Response:
     query: dict[str, Any] = {}
     if status not in {"all", "*", ""}:
         query["status"] = status
-    rows = await db.identity_verification_requests.find(query).sort("created_at", -1).limit(_limit(request)).to_list(length=_limit(request))
-    return web.json_response({"ok": True, "reviews": [_identity_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+    rows, pagination = await _paged_rows(db.identity_verification_requests.find(query).sort("created_at", -1), request)
+    return web.json_response({"ok": True, "reviews": [_identity_payload(row) for row in rows], "pagination": pagination}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_identity_review_action(request: web.Request) -> web.Response:
@@ -2058,8 +2073,8 @@ async def owner_bot_creation_reviews(request: web.Request) -> web.Response:
     query: dict[str, Any] = {}
     if status not in {"all", "*", ""}:
         query["status"] = status
-    rows = await db.bot_creation_requests.find(query, {"payload.bot_token": 0}).sort("created_at", -1).limit(_limit(request)).to_list(length=_limit(request))
-    return web.json_response({"ok": True, "reviews": [_bot_creation_review_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+    rows, pagination = await _paged_rows(db.bot_creation_requests.find(query, {"payload.bot_token": 0}).sort("created_at", -1), request)
+    return web.json_response({"ok": True, "reviews": [_bot_creation_review_payload(row) for row in rows], "pagination": pagination}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_bot_creation_review_action(request: web.Request) -> web.Response:
@@ -2097,8 +2112,8 @@ async def owner_bots(request: web.Request) -> web.Response:
         query["active"] = True
     elif status == "inactive":
         query["active"] = {"$ne": True}
-    rows = await db.bots.find(query, {"token": 0}).sort("created_at", -1).limit(_limit(request, default=30)).to_list(length=_limit(request, default=30))
-    return web.json_response({"ok": True, "bots": [_bot_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+    rows, pagination = await _paged_rows(db.bots.find(query, {"token": 0}).sort("created_at", -1), request)
+    return web.json_response({"ok": True, "bots": [_bot_payload(row) for row in rows], "pagination": pagination}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_bot_subscription_action(request: web.Request) -> web.Response:
@@ -2208,8 +2223,8 @@ async def owner_support_tickets(request: web.Request) -> web.Response:
         query["status"] = {"$in": ["open", "awaiting_user", "awaiting_admin", "replied"]}
     elif status not in {"all", "*", ""}:
         query["status"] = status
-    rows = await db.support_tickets.find(query).sort("opened_at", -1).limit(_limit(request)).to_list(length=_limit(request))
-    return web.json_response({"ok": True, "tickets": [_support_payload(row) for row in rows]}, headers=dict(_NO_STORE_HEADERS))
+    rows, pagination = await _paged_rows(db.support_tickets.find(query).sort("opened_at", -1), request)
+    return web.json_response({"ok": True, "tickets": [_support_payload(row) for row in rows], "pagination": pagination}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_support_ticket_detail(request: web.Request) -> web.Response:

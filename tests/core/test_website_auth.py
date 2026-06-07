@@ -196,6 +196,20 @@ def test_owner_user_management_has_connected_pagination():
     assert "renderOwnerUserManagement(payload, true);" in js
 
 
+def test_owner_operational_lists_have_connected_pagination():
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+
+    assert "let ownerPagedRows = {};" in js
+    assert "function ownerPagedItems(key, payload, field, append = false)" in js
+    assert "function ownerPagedRequest(key, offset)" in js
+    assert "async function loadMoreOwnerList(button)" in js
+    for key in ("digital", "preorders", "refunds", "recharge", "identity", "support", "botCreationReviews", "bots"):
+        assert f'ownerPaginationButton("{key}"' in js
+        assert f"{key}:" in js
+
+
 def test_owner_routing_cards_use_stable_field_group():
     from pathlib import Path
 
