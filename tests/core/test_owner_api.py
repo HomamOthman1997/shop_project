@@ -241,7 +241,7 @@ async def test_owner_finance_audit_delegates_to_financial_scan(monkeypatch):
     async def scan(*, days, max_rows):
         calls["days"] = days
         calls["max_rows"] = max_rows
-        return {"days": days, "negative_wallets_count": 1}
+        return {"days": days, "since": datetime(2026, 6, 7, 9, 0, tzinfo=UTC), "negative_wallets_count": 1}
 
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "scan_financial_anomalies", scan)
@@ -251,6 +251,7 @@ async def test_owner_finance_audit_delegates_to_financial_scan(monkeypatch):
 
     assert response.status == 200
     assert payload["audit"]["negative_wallets_count"] == 1
+    assert payload["audit"]["since"] == "2026-06-07T09:00:00+00:00"
     assert calls == {"days": 7, "max_rows": 5}
 
 
@@ -744,7 +745,14 @@ async def test_owner_support_action_uses_shared_ticket_state(monkeypatch):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
 
     async def get_ticket(_ticket_id):
-        return {"_id": "507f1f77bcf86cd799439011", "ticket_no": 4, "status": "open", "category": "numbers"}
+        return {
+            "_id": "507f1f77bcf86cd799439011",
+            "ticket_no": 4,
+            "status": "open",
+            "category": "numbers",
+            "bug_triage": {"status": "confirmed", "marked_at": datetime(2026, 6, 7, 9, 10, tzinfo=UTC)},
+            "bug_reward": {"status": "paid", "paid_at": datetime(2026, 6, 7, 9, 11, tzinfo=UTC)},
+        }
 
     async def solve(ticket_id, *, actor_id):
         calls["ticket_id"] = ticket_id
@@ -761,8 +769,11 @@ async def test_owner_support_action_uses_shared_ticket_state(monkeypatch):
     request._read_bytes = json.dumps({"action": "solve"}).encode()
 
     response = await owner_api.owner_support_ticket_action(request)
+    payload = json.loads(response.text)
 
     assert response.status == 200
+    assert payload["ticket"]["bug_triage"]["marked_at"] == "2026-06-07T09:10:00+00:00"
+    assert payload["ticket"]["bug_reward"]["paid_at"] == "2026-06-07T09:11:00+00:00"
     assert calls == {"ticket_id": "507f1f77bcf86cd799439011", "actor_id": 900000000001}
 
 

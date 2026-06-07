@@ -411,7 +411,7 @@ async def owner_finance_audit(request: web.Request) -> web.Response:
     except Exception:
         days = 30
     report = await scan_financial_anomalies(days=days, max_rows=_limit(request, 30))
-    return web.json_response({"ok": True, "audit": report}, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"ok": True, "audit": _json_safe(report)}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def _mongo_health() -> dict[str, Any]:
@@ -738,6 +738,18 @@ def _iso_value(value: Any) -> str:
     if isinstance(value, datetime):
         return value.astimezone(UTC).isoformat()
     return _text(value)
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.astimezone(UTC).isoformat()
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def _owner_digital_available_actions(order: dict[str, Any]) -> list[str]:
@@ -1603,8 +1615,8 @@ def _support_payload(row: dict[str, Any]) -> dict[str, Any]:
         "full_name": _text(row.get("full_name")),
         "scope": _text(row.get("scope")),
         "payload_count": int(row.get("payload_count") or 0),
-        "bug_triage": row.get("bug_triage") if isinstance(row.get("bug_triage"), dict) else {},
-        "bug_reward": row.get("bug_reward") if isinstance(row.get("bug_reward"), dict) else {},
+        "bug_triage": _json_safe(row.get("bug_triage")) if isinstance(row.get("bug_triage"), dict) else {},
+        "bug_reward": _json_safe(row.get("bug_reward")) if isinstance(row.get("bug_reward"), dict) else {},
         "opened_at": _date_text(row.get("opened_at")),
         "updated_at": _date_text(row.get("updated_at")),
     }
