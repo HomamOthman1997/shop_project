@@ -873,6 +873,28 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   align-items: center;
   gap: 14px;
 }
+button.owner-action-row {
+  width: 100%;
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.owner-shortcut-row {
+  transition: background .16s ease, border-color .16s ease;
+}
+.owner-shortcut-row:hover {
+  background: rgba(255, 255, 255, .045);
+}
+.owner-shortcut-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .owner-routing-card {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

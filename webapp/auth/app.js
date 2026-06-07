@@ -437,6 +437,32 @@ const ownerQueueLabels = {
   support: "تذاكر الدعم",
 };
 
+const ownerShortcutTabs = {
+  digital_orders: "orders",
+  custom_preorders: "orders",
+  numbers_refunds: "orders",
+  custom_catalog: "catalog",
+  provider_readiness: "providers",
+  provider_webhooks: "providers",
+  digital_sources: "providers",
+  bittopup_watch: "providers",
+  recharge_reviews: "finance",
+  payment_methods: "finance",
+  exchange_rate: "finance",
+  numbers_margin: "finance",
+  digital_margin: "finance",
+  reseller_deposits: "finance",
+  bot_subscriptions: "finance",
+  identity_reviews: "users",
+  support_inbox: "support",
+  support_routing: "system",
+  logs_routing: "system",
+  provider_alerts: "system",
+  broadcast: "finance",
+  api_keys: "integrations",
+  webhooks: "integrations",
+};
+
 const ownerGroupTargets = {
   overview: ["owner-metrics", "owner-queues", "owner-sections"],
   finance: ["owner-finance-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-finance-audit", "owner-reseller-management", "owner-bot-tools"],
@@ -554,6 +580,13 @@ function applyOwnerTab(tab = "overview", updateRoute = true) {
   if (updateRoute) pushRoute(adminRoutes[activeOwnerTab] || "/admin");
 }
 
+function openOwnerShortcut(tab = "overview") {
+  const nextTab = ownerGroupTargets[tab] ? tab : "overview";
+  openPanel("owner", ownerTabTitles[nextTab] || "لوحة الإدارة", { updateRoute: false });
+  applyOwnerTab(nextTab);
+  loadOwnerDashboard();
+}
+
 function setOwnerTabLoading(tab = activeOwnerTab) {
   (ownerGroupTargets[tab] || []).forEach((id) => {
     const node = document.getElementById(id);
@@ -607,13 +640,21 @@ async function loadOwnerDashboardIsolated() {
       <section class="owner-section">
         <h4>${esc(section.title || section.key)}</h4>
         <div class="owner-action-list">
-          ${(section.items || []).map((item) => `
-            <div class="owner-action-row">
+          ${(section.items || []).map((item) => {
+            const shortcutTab = ownerShortcutTabs[item.key] || ownerShortcutTabs[section.key] || "";
+            const tag = shortcutTab ? "button" : "div";
+            const shortcutAttrs = shortcutTab ? `type="button" data-owner-shortcut="${esc(shortcutTab)}"` : "";
+            return `
+            <${tag} class="owner-action-row ${shortcutTab ? "owner-shortcut-row" : ""}" ${shortcutAttrs}>
               <div><strong>${esc(item.title || item.key)}</strong><span>${esc(item.endpoint || "Website action")}</span></div>
               <b data-owner-status="${esc(item.status || "")}">${esc(ownerStatusLabels[item.status] || item.status)}</b>
-            </div>`).join("")}
+            </${tag}>`;
+          }).join("")}
         </div>
       </section>`).join("");
+    sectionsTarget.querySelectorAll("[data-owner-shortcut]").forEach((button) => {
+      button.addEventListener("click", () => openOwnerShortcut(button.dataset.ownerShortcut || "overview"));
+    });
   } else if (requested("dashboard")) {
     clearOwnerBusy("owner-metrics", "owner-sections");
     fail(metricsTarget, "تعذر تحميل مؤشرات المالك.");

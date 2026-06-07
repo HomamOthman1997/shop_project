@@ -127,6 +127,28 @@ def test_owner_dashboard_tabs_have_routes_nav_and_content_groups():
             assert f'id="{node_id}"' in html
 
 
+def test_owner_dashboard_overview_shortcuts_cover_management_sections():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    js = (root / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+    owner_api = (root / "services" / "platform" / "owner_api.py").read_text(encoding="utf-8")
+    shortcut_block = js[js.index("const ownerShortcutTabs"): js.index("const ownerGroupTargets")]
+    group_block = js[js.index("const ownerGroupTargets"): js.index("const ownerLoadingLabels")]
+    management_block = owner_api[owner_api.index("def _management_sections"): owner_api.index("async def owner_dashboard")]
+
+    management_keys = set(re.findall(r'\{"key": "([^"]+)"', management_block))
+    section_keys = {"operations", "finance", "catalog", "system"}
+    miniapp_only = {"cardex_admin"}
+    shortcut_pairs = dict(re.findall(r'^\s+([a-z_]+):\s+"([a-z_]+)"', shortcut_block, flags=re.MULTILINE))
+    owner_tabs = set(re.findall(r'^\s+([a-z_]+):\s+\[', group_block, flags=re.MULTILINE))
+
+    assert "function openOwnerShortcut" in js
+    assert 'data-owner-shortcut' in js
+    assert (management_keys - section_keys - miniapp_only) <= set(shortcut_pairs)
+    assert set(shortcut_pairs.values()) <= owner_tabs
+
+
 def test_password_hash_round_trip():
     salt, password_hash = website_auth._password_hash("long-secure-password")
 
