@@ -854,6 +854,21 @@ def _refund_review_payload(order: dict) -> dict:
         "resolved_by": order.get("temp_refund_support_review_resolved_by"),
         "resolution": str(order.get("temp_refund_support_review_resolution") or ""),
         "notes": str(order.get("temp_refund_support_review_notes") or ""),
+        "details": {
+            "source": str(order.get("source") or ""),
+            "user_id": order.get("user_id"),
+            "reseller_id": order.get("reseller_id"),
+            "provider": str(order.get("provider") or order.get("provisioning_provider") or ""),
+            "provider_order_id": str(
+                order.get("provider_order_id") or order.get("provisioning_provider_order_id") or ""
+            ),
+            "number": str(order.get("provider_number") or ""),
+            "service": str(order.get("temp_service_key") or order.get("service_id") or ""),
+            "country": str(order.get("temp_country") or order.get("rental_country") or ""),
+            "wait_state": str(order.get("temp_wait_state") or ""),
+            "created_at": _iso_datetime(order.get("created_at")),
+            "updated_at": _iso_datetime(order.get("updated_at")),
+        },
         "order": public_order_payload(order),
     }
 

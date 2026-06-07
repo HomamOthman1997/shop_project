@@ -1029,20 +1029,40 @@ async function saveOwnerPaymentMethod(event) {
   }
 }
 
+function ownerRefundDetailRows(review) {
+  const order = review.order || {};
+  const details = review.details || {};
+  const serviceParts = [details.service || order.service, details.country || order.country].filter(Boolean).join(" / ");
+  const rows = [
+    ["Order ID", review.id],
+    ["User / Reseller", [details.user_id, details.reseller_id].filter((item) => item !== undefined && item !== null && item !== "").join(" / ")],
+    ["Provider order", details.provider_order_id],
+    ["Number", details.number || order.number],
+    ["Service / Country", serviceParts],
+    ["Wait state", details.wait_state || order.wait_state],
+    ["Created", details.created_at || order.created_at],
+    ["Review opened", review.reviewed_at],
+  ].filter(([, value]) => String(value || "").trim());
+  return rows.map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+}
+
 function renderOwnerRefundReviews(rows) {
   const target = $("#owner-refund-reviews");
   target.classList.toggle("empty", !rows.length);
-  target.innerHTML = rows.length ? rows.map((review) => `
+  target.innerHTML = rows.length ? rows.map((review) => {
+    const details = review.details || {};
+    return `
     <article class="owner-refund-review">
       <div class="owner-order-head">
-        <div><strong>${esc(review.order?.service_name || review.order?.service || "طلب أرقام")}</strong><span>${esc(review.id || "")}</span></div>
+        <div><strong>${esc(review.order?.service_name || review.order?.service || details.service || "طلب أرقام")}</strong><span>${esc(review.id || "")}</span></div>
         <b>${esc(review.status || "")}</b>
       </div>
       <div class="owner-order-meta">
         <span>السبب: ${esc(review.reason || "-")}</span>
         <span>حالة الطلب: ${esc(review.order?.public_status || review.order?.status || "-")}</span>
-        <span>المزود: ${esc(review.order?.provider || "-")}</span>
+        <span>المزود: ${esc(review.order?.provider || details.provider || "-")}</span>
       </div>
+      <div class="owner-review-details">${ownerRefundDetailRows(review)}</div>
       ${review.status === "resolved" ? `
         <div class="notice">القرار: ${esc(review.resolution || "-")}${review.notes ? ` · ${esc(review.notes)}` : ""}</div>` : `
         <form class="owner-refund-form" data-owner-refund="${esc(review.id)}">
@@ -1050,7 +1070,8 @@ function renderOwnerRefundReviews(rows) {
           <label><span>ملاحظات</span><input name="notes" placeholder="ملاحظات اختيارية"></label>
           <button class="primary compact" type="submit">إغلاق المراجعة</button>
         </form>`}
-    </article>`).join("") : '<div class="notice">لا توجد مراجعات استرداد معلقة.</div>';
+    </article>`;
+  }).join("") : '<div class="notice">لا توجد مراجعات استرداد معلقة.</div>';
   target.querySelectorAll("[data-owner-refund]").forEach((form) => {
     form.addEventListener("submit", resolveOwnerRefundReview);
   });
@@ -1060,11 +1081,18 @@ async function resolveOwnerRefundReview(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const orderId = form.dataset.ownerRefund;
+  const resolution = String(form.elements.resolution?.value || "").trim();
+  if (resolution.length < 3) {
+    setText("#owner-message", "اكتب قرار واضح قبل إغلاق المراجعة.");
+    form.elements.resolution?.focus();
+    return;
+  }
   if (!window.confirm("سيتم إغلاق علامة المراجعة فقط، ولن يتم تنفيذ استرداد مالي. متابعة؟")) return;
   const button = form.querySelector("button[type='submit']");
   button.disabled = true;
   try {
     const values = Object.fromEntries(new FormData(form).entries());
+    values.resolution = resolution;
     await api(`/api/v1/owner/numbers/refund-reviews/${encodeURIComponent(orderId)}/resolve`, {
       method: "POST",
       body: JSON.stringify(values),

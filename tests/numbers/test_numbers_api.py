@@ -1188,6 +1188,11 @@ async def test_numbers_api_lists_refund_reviews_scoped_to_reseller(monkeypatch):
                 "number_mode": "temp",
                 "user_id": 123,
                 "reseller_id": 456,
+                "provider": "echo",
+                "provider_order_id": "P-100",
+                "provider_number": "+15550001111",
+                "temp_service_key": "anthropic",
+                "temp_country": "us",
                 "status": "success",
                 "temp_refund_support_review_status": "open",
                 "temp_refund_support_review_reason": "provider_cancel_failed",
@@ -1209,6 +1214,9 @@ async def test_numbers_api_lists_refund_reviews_scoped_to_reseller(monkeypatch):
     assert payload["reviews"][0]["id"] == "order-1"
     assert payload["reviews"][0]["status"] == "open"
     assert payload["reviews"][0]["reason"] == "provider_cancel_failed"
+    assert payload["reviews"][0]["details"]["provider_order_id"] == "P-100"
+    assert payload["reviews"][0]["details"]["number"] == "+15550001111"
+    assert payload["reviews"][0]["details"]["service"] == "anthropic"
 
 
 @pytest.mark.asyncio
