@@ -29,6 +29,15 @@ def test_register_owner_api_routes():
     assert ("POST", "/api/v1/owner/identity-reviews/{review_id}/action") in routes
     assert ("GET", "/api/v1/owner/support-tickets") in routes
     assert ("POST", "/api/v1/owner/support-tickets/{ticket_id}/action") in routes
+    assert ("GET", "/api/v1/owner/api-keys") in routes
+    assert ("POST", "/api/v1/owner/api-keys") in routes
+    assert ("POST", "/api/v1/owner/api-keys/{key_id}/revoke") in routes
+    assert ("GET", "/api/v1/owner/webhooks") in routes
+    assert ("POST", "/api/v1/owner/webhooks") in routes
+    assert ("POST", "/api/v1/owner/webhooks/{webhook_id}/revoke") in routes
+    assert ("GET", "/api/v1/owner/provider-readiness") in routes
+    assert ("GET", "/api/v1/owner/provider-webhook-events") in routes
+    assert ("POST", "/api/v1/owner/provider-webhook-events/{event_id}/replay") in routes
 
 
 @pytest.mark.asyncio
@@ -367,3 +376,66 @@ async def test_owner_support_action_uses_shared_ticket_state(monkeypatch):
 
     assert response.status == 200
     assert calls == {"ticket_id": "507f1f77bcf86cd799439011", "actor_id": 900000000001}
+
+
+@pytest.mark.asyncio
+async def test_owner_create_api_key_filters_scopes(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def create(**kwargs):
+        calls.update(kwargs)
+        return "ph_live_secret", {"_id": "key-1", "prefix": "ph_live_abc", **kwargs, "status": "active"}
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "create_api_key", create)
+    request = make_mocked_request("POST", "/api/v1/owner/api-keys")
+    request._read_bytes = json.dumps({"scopes": ["numbers:quotes", "bad"], "name": "Client", "user_id": 10, "reseller_id": 11}).encode()
+
+    response = await owner_api.owner_create_api_key(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["api_key"] == "ph_live_secret"
+    assert calls["scopes"] == ["numbers:quotes"]
+    assert calls["user_id"] == 10
+    assert calls["reseller_id"] == 11
+
+
+@pytest.mark.asyncio
+async def test_owner_create_webhook_requires_https(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    request = make_mocked_request("POST", "/api/v1/owner/webhooks")
+    request._read_bytes = json.dumps({"url": "http://example.com/hook", "events": ["numbers.order.sms"]}).encode()
+
+    response = await owner_api.owner_create_webhook(request)
+
+    assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_owner_provider_webhook_replay_delegates(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def replay(event_id):
+        return {"ok": True, "event_id": event_id}
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "replay_provider_webhook_event", replay)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/owner/provider-webhook-events/event-1/replay",
+        match_info={"event_id": "event-1"},
+    )
+
+    response = await owner_api.owner_replay_provider_webhook_event(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["event_id"] == "event-1"

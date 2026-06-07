@@ -349,7 +349,7 @@ async function loadOwnerDashboard() {
     const rechargeFilter = $("#owner-recharge-filter")?.value || "pending";
     const identityFilter = $("#owner-identity-filter")?.value || "pending";
     const supportFilter = $("#owner-support-filter")?.value || "open";
-    const [payload, queuePayload, digitalPayload, refundPayload, settingsPayload, rechargePayload, identityPayload, supportPayload] = await Promise.all([
+    const [payload, queuePayload, digitalPayload, refundPayload, settingsPayload, rechargePayload, identityPayload, supportPayload, apiKeysPayload, webhooksPayload, providerPayload, providerEventsPayload] = await Promise.all([
       api("/api/v1/owner/dashboard"),
       api("/api/v1/owner/queues"),
       api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
@@ -358,6 +358,10 @@ async function loadOwnerDashboard() {
       api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
       api(`/api/v1/owner/identity-reviews?status=${encodeURIComponent(identityFilter)}&limit=30`),
       api(`/api/v1/owner/support-tickets?status=${encodeURIComponent(supportFilter)}&limit=30`),
+      api("/api/v1/owner/api-keys?status=all&limit=30"),
+      api("/api/v1/owner/webhooks?status=all&limit=30"),
+      api("/api/v1/owner/provider-readiness"),
+      api("/api/v1/owner/provider-webhook-events?limit=12"),
     ]);
     const metrics = Object.entries(payload.metrics || {});
     metricsTarget.classList.toggle("empty", !metrics.length);
@@ -385,6 +389,8 @@ async function loadOwnerDashboard() {
     renderOwnerRechargeReviews(rechargePayload.reviews || []);
     renderOwnerIdentityReviews(identityPayload.reviews || []);
     renderOwnerSupportTickets(supportPayload.tickets || []);
+    renderOwnerApiTools(apiKeysPayload, webhooksPayload);
+    renderOwnerProviderDiagnostics(providerPayload.providers || [], providerEventsPayload.events || []);
     const sections = payload.sections || [];
     sectionsTarget.classList.toggle("empty", !sections.length);
     sectionsTarget.innerHTML = sections.map((section) => `
@@ -409,9 +415,123 @@ async function loadOwnerDashboard() {
     $("#owner-recharge-reviews").textContent = "تعذر تحميل مراجعات الشحن.";
     $("#owner-identity-reviews").textContent = "تعذر تحميل مراجعات الهوية.";
     $("#owner-support-tickets").textContent = "تعذر تحميل تذاكر الدعم.";
+    $("#owner-api-tools").textContent = "تعذر تحميل أدوات API.";
+    $("#owner-provider-diagnostics").textContent = "تعذر تحميل تشخيص المزودين.";
     sectionsTarget.textContent = "تعذر تحميل خصائص الإدارة.";
     message.textContent = error.message;
   }
+}
+
+function renderOwnerApiTools(keysPayload, webhooksPayload) {
+  const keyScopes = keysPayload.scopes || [];
+  const webhookEvents = webhooksPayload.events || [];
+  const keys = keysPayload.keys || [];
+  const hooks = webhooksPayload.webhooks || [];
+  const target = $("#owner-api-tools");
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <article class="owner-review-card">
+      <h4>إنشاء API Key</h4>
+      <form class="owner-review-form" id="owner-api-key-form">
+        <label><span>الاسم</span><input name="name" placeholder="Client name"></label>
+        <label><span>Reseller ID</span><input name="reseller_id" inputmode="numeric" placeholder="اتركه للمالك"></label>
+        <label><span>User ID</span><input name="user_id" inputmode="numeric" placeholder="اتركه للمالك"></label>
+        <label><span>Scopes</span><select name="scopes" multiple size="5">${keyScopes.map((scope) => `<option value="${esc(scope)}">${esc(scope)}</option>`).join("")}</select></label>
+        <div class="owner-order-actions"><button class="primary compact" type="submit">إنشاء المفتاح</button></div>
+      </form>
+      <div id="owner-api-secret" class="notice" hidden></div>
+    </article>
+    <article class="owner-review-card">
+      <h4>مفاتيح API</h4>
+      ${keys.length ? keys.map((key) => `<div class="owner-action-row"><div><strong>${esc(key.name || key.prefix)}</strong><span>${esc(key.prefix)} · ${esc((key.scopes || []).join(", "))}</span></div><b>${esc(key.status)}</b>${key.status === "active" ? `<button class="danger compact" data-owner-api-key="${esc(key.id)}">إلغاء</button>` : ""}</div>`).join("") : '<div class="notice">لا توجد مفاتيح API.</div>'}
+    </article>
+    <article class="owner-review-card">
+      <h4>إنشاء Webhook</h4>
+      <form class="owner-review-form" id="owner-webhook-form">
+        <label><span>URL</span><input name="url" type="url" placeholder="https://example.com/webhook"></label>
+        <label><span>Reseller ID</span><input name="reseller_id" inputmode="numeric" placeholder="اتركه للمالك"></label>
+        <label><span>User ID</span><input name="user_id" inputmode="numeric" placeholder="اتركه للمالك"></label>
+        <label><span>Events</span><select name="events" multiple size="4">${webhookEvents.map((event) => `<option value="${esc(event)}">${esc(event)}</option>`).join("")}</select></label>
+        <div class="owner-order-actions"><button class="primary compact" type="submit">إنشاء webhook</button></div>
+      </form>
+      <div id="owner-webhook-secret" class="notice" hidden></div>
+    </article>
+    <article class="owner-review-card">
+      <h4>Webhooks</h4>
+      ${hooks.length ? hooks.map((hook) => `<div class="owner-action-row"><div><strong>${esc(hook.url)}</strong><span>${esc((hook.events || []).join(", "))}</span></div><b>${esc(hook.status)}</b>${hook.status === "active" ? `<button class="danger compact" data-owner-webhook="${esc(hook.id)}">إلغاء</button>` : ""}</div>`).join("") : '<div class="notice">لا توجد webhooks.</div>'}
+    </article>`;
+  $("#owner-api-key-form")?.addEventListener("submit", createOwnerApiKey);
+  $("#owner-webhook-form")?.addEventListener("submit", createOwnerWebhook);
+  target.querySelectorAll("[data-owner-api-key]").forEach((button) => button.addEventListener("click", () => revokeOwnerApiKey(button)));
+  target.querySelectorAll("[data-owner-webhook]").forEach((button) => button.addEventListener("click", () => revokeOwnerWebhook(button)));
+}
+
+function selectedValues(select) {
+  return Array.from(select?.selectedOptions || []).map((option) => option.value);
+}
+
+async function createOwnerApiKey(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const body = Object.fromEntries(new FormData(form).entries());
+  body.scopes = selectedValues(form.elements.scopes);
+  try {
+    const result = await api("/api/v1/owner/api-keys", {method: "POST", body: JSON.stringify(body)});
+    const box = $("#owner-api-secret");
+    box.hidden = false;
+    box.textContent = `API key يظهر مرة واحدة فقط: ${result.api_key}`;
+    setText("#owner-message", "تم إنشاء المفتاح. احفظه الآن لأنه لن يظهر مرة ثانية.");
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function createOwnerWebhook(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const body = Object.fromEntries(new FormData(form).entries());
+  body.events = selectedValues(form.elements.events);
+  try {
+    const result = await api("/api/v1/owner/webhooks", {method: "POST", body: JSON.stringify(body)});
+    const box = $("#owner-webhook-secret");
+    box.hidden = false;
+    box.textContent = `Webhook secret يظهر مرة واحدة فقط: ${result.secret}`;
+    setText("#owner-message", "تم إنشاء webhook. احفظ السر الآن لأنه لن يظهر مرة ثانية.");
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function revokeOwnerApiKey(button) {
+  if (!window.confirm("إلغاء هذا المفتاح؟")) return;
+  await api(`/api/v1/owner/api-keys/${encodeURIComponent(button.dataset.ownerApiKey)}/revoke`, {method: "POST"});
+  await loadOwnerDashboard();
+}
+
+async function revokeOwnerWebhook(button) {
+  if (!window.confirm("إلغاء هذا webhook؟")) return;
+  await api(`/api/v1/owner/webhooks/${encodeURIComponent(button.dataset.ownerWebhook)}/revoke`, {method: "POST"});
+  await loadOwnerDashboard();
+}
+
+function renderOwnerProviderDiagnostics(providers, events) {
+  const target = $("#owner-provider-diagnostics");
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <article class="owner-review-card">
+      <h4>جاهزية المزودين</h4>
+      ${providers.map((provider) => `<div class="owner-action-row"><div><strong>${esc(provider.provider)}</strong><span>${esc(provider.reason || "")}</span></div><b>${esc(provider.status)}</b></div>`).join("") || '<div class="notice">لا توجد بيانات جاهزية.</div>'}
+    </article>
+    <article class="owner-review-card">
+      <h4>آخر provider webhooks</h4>
+      ${events.map((event) => `<div class="owner-action-row"><div><strong>${esc(event.provider)} · ${esc(event.event_type)}</strong><span>${esc(event.provider_order_id)} · ${esc(event.reason || event.created_at || "")}</span></div><b>${esc(event.status)}</b><button class="secondary compact" data-provider-event="${esc(event.id)}">Replay</button></div>`).join("") || '<div class="notice">لا توجد أحداث webhook حديثة.</div>'}
+    </article>`;
+  target.querySelectorAll("[data-provider-event]").forEach((button) => button.addEventListener("click", () => replayOwnerProviderEvent(button)));
+}
+
+async function replayOwnerProviderEvent(button) {
+  if (!window.confirm("إعادة تشغيل هذا الحدث قد يغير حالة الطلب المرتبط. متابعة؟")) return;
+  try {
+    await api(`/api/v1/owner/provider-webhook-events/${encodeURIComponent(button.dataset.providerEvent)}/replay`, {method: "POST"});
+    setText("#owner-message", "تم تنفيذ replay للحدث.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
 }
 
 function renderOwnerRechargeReviews(rows) {

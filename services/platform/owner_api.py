@@ -8,6 +8,7 @@ from aiohttp import web
 from bson import ObjectId
 from pymongo import ReturnDocument
 
+from database.api_keys_repo import create_api_key, revoke_api_key, serialize_api_key_doc
 from database.bot_logs_repo import get_bot_logs_target
 from database.digital_products_config_repo import (
     get_digital_products_markup_percent,
@@ -26,6 +27,7 @@ from database.provider_balance_alert_repo import (
     set_provider_balance_alert_enabled,
     set_provider_balance_alert_threshold,
 )
+from database.provider_webhook_repo import list_provider_webhook_events
 from database.recharge_repo import update_recharge_request
 from database.support_tickets_repo import (
     get_support_ticket,
@@ -33,10 +35,15 @@ from database.support_tickets_repo import (
     mark_support_ticket_solved,
 )
 from database.support_topics_repo import get_all_support_targets
+from database.webhooks_repo import create_webhook, revoke_webhook, serialize_webhook_doc
 from services.digital_products.api import _order_payload, execute_manual_order_action
 from services.numbers.api import _refund_review_payload
+from services.numbers.provider_readiness import provider_readiness_rows
+from services.numbers.provider_webhook_service import replay_provider_webhook_event
 from services.platform.api_auth import ApiAuthContext
+from services.platform.api_keys_api import _ALLOWED_CUSTOMER_SCOPES
 from services.platform.telegram_delivery import send_ticket_message
+from services.platform.webhooks_api import ALLOWED_WEBHOOK_EVENTS, _valid_https_url
 from services.platform.website_auth import require_website_owner
 
 
@@ -55,8 +62,8 @@ def _management_sections() -> list[dict[str, Any]]:
             "items": [
                 {"key": "digital_orders", "title": "Digital manual orders", "status": "available", "endpoint": "/api/v1/digital/admin/orders"},
                 {"key": "numbers_refunds", "title": "Numbers refund reviews", "status": "available", "endpoint": "/api/v1/numbers/ops/refund-reviews"},
-                {"key": "provider_readiness", "title": "Provider readiness", "status": "available", "endpoint": "/api/v1/numbers/ops/provider-readiness"},
-                {"key": "provider_webhooks", "title": "Provider webhook audit", "status": "available", "endpoint": "/api/v1/numbers/ops/provider-webhook-events"},
+                {"key": "provider_readiness", "title": "Provider readiness", "status": "available", "endpoint": "/api/v1/owner/provider-readiness"},
+                {"key": "provider_webhooks", "title": "Provider webhook audit", "status": "available", "endpoint": "/api/v1/owner/provider-webhook-events"},
                 {"key": "recharge_reviews", "title": "User and reseller topup reviews", "status": "available", "endpoint": "/api/v1/owner/recharge-reviews"},
                 {"key": "identity_reviews", "title": "Identity verification reviews", "status": "available", "endpoint": "/api/v1/owner/identity-reviews"},
             ],
@@ -90,8 +97,8 @@ def _management_sections() -> list[dict[str, Any]]:
                 {"key": "logs_routing", "title": "Logs and alert routing", "status": "read_only", "endpoint": "/api/v1/owner/settings"},
                 {"key": "provider_alerts", "title": "Provider balance alerts", "status": "available", "endpoint": "/api/v1/owner/settings"},
                 {"key": "broadcast", "title": "Broadcast", "status": "telegram_only"},
-                {"key": "api_keys", "title": "API key management", "status": "available", "endpoint": "/api/v1/api-keys"},
-                {"key": "webhooks", "title": "Customer webhook management", "status": "available", "endpoint": "/api/v1/webhooks"},
+                {"key": "api_keys", "title": "API key management", "status": "available", "endpoint": "/api/v1/owner/api-keys"},
+                {"key": "webhooks", "title": "Customer webhook management", "status": "available", "endpoint": "/api/v1/owner/webhooks"},
             ],
         },
     ]
@@ -591,6 +598,128 @@ def _support_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _clean_owner_scopes(values: Any) -> list[str]:
+    return sorted({str(value).strip() for value in (values or []) if str(value).strip() in _ALLOWED_CUSTOMER_SCOPES})
+
+
+def _clean_owner_events(values: Any) -> list[str]:
+    return sorted({str(value).strip() for value in (values or []) if str(value).strip() in ALLOWED_WEBHOOK_EVENTS})
+
+
+async def owner_api_keys(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    query: dict[str, Any] = {}
+    status = str(request.query.get("status") or "").strip().lower()
+    if status and status not in {"all", "*"}:
+        query["status"] = status
+    try:
+        reseller_id = int(request.query.get("reseller_id") or 0)
+    except Exception:
+        reseller_id = 0
+    if reseller_id > 0:
+        query["reseller_id"] = reseller_id
+    cursor = db.api_keys.find(query).sort("created_at", -1).limit(_limit(request))
+    rows = [serialize_api_key_doc(row) async for row in cursor]
+    return web.json_response({"ok": True, "keys": rows, "scopes": sorted(_ALLOWED_CUSTOMER_SCOPES)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_create_api_key(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    scopes = _clean_owner_scopes((body or {}).get("scopes") or [])
+    if not scopes:
+        return web.json_response({"ok": False, "message": "Choose at least one API scope."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    try:
+        user_id = int((body or {}).get("user_id") or owner.customer_id)
+        reseller_id = int((body or {}).get("reseller_id") or user_id)
+    except Exception:
+        return web.json_response({"ok": False, "message": "Invalid user or reseller id."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    key, doc = await create_api_key(user_id=user_id, reseller_id=reseller_id, name=str((body or {}).get("name") or "").strip(), scopes=scopes)
+    return web.json_response({"ok": True, "api_key": key, "key": serialize_api_key_doc(doc)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_revoke_api_key(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    key_id = str(request.match_info.get("key_id") or "").strip()
+    ok = await revoke_api_key(key_id=key_id, reseller_id=None)
+    if not ok:
+        return web.json_response({"ok": False, "message": "API key was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"ok": True, "id": key_id, "status": "revoked"}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_webhooks(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    query: dict[str, Any] = {}
+    status = str(request.query.get("status") or "").strip().lower()
+    if status and status not in {"all", "*"}:
+        query["status"] = status
+    try:
+        reseller_id = int(request.query.get("reseller_id") or 0)
+    except Exception:
+        reseller_id = 0
+    if reseller_id > 0:
+        query["reseller_id"] = reseller_id
+    cursor = db.api_webhooks.find(query).sort("created_at", -1).limit(_limit(request))
+    rows = [serialize_webhook_doc(row) async for row in cursor]
+    return web.json_response({"ok": True, "webhooks": rows, "events": sorted(ALLOWED_WEBHOOK_EVENTS)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_create_webhook(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    url = str((body or {}).get("url") or "").strip()
+    if not _valid_https_url(url):
+        return web.json_response({"ok": False, "message": "Webhook URL must be HTTPS."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    events = _clean_owner_events((body or {}).get("events") or [])
+    if not events:
+        return web.json_response({"ok": False, "message": "Choose at least one webhook event."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    try:
+        user_id = int((body or {}).get("user_id") or owner.customer_id)
+        reseller_id = int((body or {}).get("reseller_id") or user_id)
+    except Exception:
+        return web.json_response({"ok": False, "message": "Invalid user or reseller id."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    secret, doc = await create_webhook(user_id=user_id, reseller_id=reseller_id, url=url, events=events)
+    return web.json_response({"ok": True, "secret": secret, "webhook": serialize_webhook_doc(doc)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_revoke_webhook(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    webhook_id = str(request.match_info.get("webhook_id") or "").strip()
+    ok = await revoke_webhook(webhook_id=webhook_id, reseller_id=None)
+    if not ok:
+        return web.json_response({"ok": False, "message": "Webhook was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"ok": True, "id": webhook_id, "status": "revoked"}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_provider_readiness(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    rows = provider_readiness_rows()
+    return web.json_response({"ok": True, "providers": rows}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_provider_webhook_events(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    rows = await list_provider_webhook_events(
+        provider=str(request.query.get("provider") or "").strip(),
+        status=str(request.query.get("status") or "").strip(),
+        limit=_limit(request, default=50),
+    )
+    return web.json_response({"ok": True, "events": rows}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_replay_provider_webhook_event(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    result = await replay_provider_webhook_event(str(request.match_info.get("event_id") or "").strip())
+    status = 404 if not result.get("ok") and str(result.get("reason") or "") == "event_not_found" else 200
+    return web.json_response(result, status=status, headers=dict(_NO_STORE_HEADERS))
+
+
 async def owner_support_tickets(request: web.Request) -> web.Response:
     await require_website_owner(request)
     status = str(request.query.get("status") or "open").strip().lower()
@@ -656,3 +785,12 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/owner/identity-reviews/{review_id}/action", owner_identity_review_action)
     app.router.add_get("/api/v1/owner/support-tickets", owner_support_tickets)
     app.router.add_post("/api/v1/owner/support-tickets/{ticket_id}/action", owner_support_ticket_action)
+    app.router.add_get("/api/v1/owner/api-keys", owner_api_keys)
+    app.router.add_post("/api/v1/owner/api-keys", owner_create_api_key)
+    app.router.add_post("/api/v1/owner/api-keys/{key_id}/revoke", owner_revoke_api_key)
+    app.router.add_get("/api/v1/owner/webhooks", owner_webhooks)
+    app.router.add_post("/api/v1/owner/webhooks", owner_create_webhook)
+    app.router.add_post("/api/v1/owner/webhooks/{webhook_id}/revoke", owner_revoke_webhook)
+    app.router.add_get("/api/v1/owner/provider-readiness", owner_provider_readiness)
+    app.router.add_get("/api/v1/owner/provider-webhook-events", owner_provider_webhook_events)
+    app.router.add_post("/api/v1/owner/provider-webhook-events/{event_id}/replay", owner_replay_provider_webhook_event)
