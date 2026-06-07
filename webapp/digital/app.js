@@ -169,37 +169,46 @@ async function renderStore(force = false) {
   content.innerHTML = loadingRows();
   try {
     const catalog = await loadCatalog(force);
-    const chips = [
-      ["all", t("all")],
-      ["games", t("games")],
-      ...catalog.product_categories.map((row) => [`product:${row.id}`, row.label?.[state.lang] || row.label?.en || row.id]),
-    ];
     const query = state.search.trim().toLowerCase();
     const games = catalog.games.filter((row) => !query || row.name.toLowerCase().includes(query));
-    const products = catalog.products.filter((row) => {
-      const categoryMatch = state.filter === "all" || state.filter === `product:${row.category}`;
-      return categoryMatch && (!query || row.name.toLowerCase().includes(query));
-    });
-    const showGames = ["all", "games"].includes(state.filter) && games.length;
-    const showProducts = state.filter !== "games" && products.length;
+    const products = catalog.products.filter((row) => !query || row.name.toLowerCase().includes(query));
+    const productsByCategory = new Map();
+    for (const row of products) {
+      if (!productsByCategory.has(row.category)) productsByCategory.set(row.category, []);
+      productsByCategory.get(row.category).push(row);
+    }
+    const featuredSections = (catalog.featured_collections || []).map((collection) => {
+      const ids = new Set(collection.product_ids || []);
+      const rows = products.filter((row) => ids.has(row.id));
+      if (!rows.length) return "";
+      const label = collection.label?.[state.lang] || collection.label?.en || collection.id;
+      return `<section><div class="section-heading"><h2>${esc(label)}</h2><span>${rows.length}</span></div><div class="service-list">${rows.map(productRow).join("")}</div></section>`;
+    }).filter(Boolean);
+    const categorySections = (catalog.product_categories || []).map((category) => {
+      const rows = productsByCategory.get(category.id) || [];
+      if (!rows.length) return "";
+      const label = category.label?.[state.lang] || category.label?.en || category.id;
+      return `<section><div class="section-heading"><h2>${esc(label)}</h2><span>${rows.length}</span></div><div class="service-list">${rows.map(productRow).join("")}</div></section>`;
+    }).filter(Boolean);
+    const sections = [
+      ...featuredSections,
+      ...(games.length ? [`<section><div class="section-heading"><h2>${t("games")}</h2><span>${games.length}</span></div><div class="service-grid">${games.map(gameCard).join("")}</div></section>`] : []),
+      ...categorySections,
+    ];
     content.innerHTML = `
       <section class="search-section">
         <label class="search-box">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
           <input id="storeSearch" type="search" value="${esc(state.search)}" placeholder="${t("search")}" autocomplete="off" />
         </label>
-        <div class="filter-strip">${chips.map(([key, label]) => `<button type="button" class="filter-chip${state.filter === key ? " active" : ""}" data-filter="${esc(key)}">${esc(label)}</button>`).join("")}</div>
       </section>
-      ${showGames ? `<section><div class="section-heading"><h2>${t("games")}</h2><span>${games.length}</span></div><div class="service-grid">${games.map(gameCard).join("")}</div></section>` : ""}
-      ${showProducts ? `<section><div class="section-heading"><h2>${t("products")}</h2><span>${products.length}</span></div><div class="service-list">${products.map(productRow).join("")}</div></section>` : ""}
-      ${!showGames && !showProducts ? `<section class="empty-state"><strong>${t("noResults")}</strong></section>` : ""}
+      ${sections.join("") || `<section class="empty-state"><strong>${t("noResults")}</strong></section>`}
     `;
     document.getElementById("storeSearch")?.addEventListener("input", (event) => {
       state.search = event.target.value;
       window.clearTimeout(renderStore.searchTimer);
       renderStore.searchTimer = window.setTimeout(() => renderStore(), 180);
     });
-    content.querySelectorAll("[data-filter]").forEach((button) => button.addEventListener("click", () => { state.filter = button.dataset.filter; renderStore(); }));
     content.querySelectorAll("[data-game]").forEach((button) => button.addEventListener("click", () => openOffers("game", button.dataset.game, button.dataset.name)));
     content.querySelectorAll("[data-product]").forEach((button) => button.addEventListener("click", () => openOffers("product", button.dataset.product, button.dataset.name)));
   } catch (error) { errorState(error, () => renderStore(true)); }

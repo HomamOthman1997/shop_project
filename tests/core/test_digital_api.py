@@ -113,6 +113,11 @@ async def test_digital_catalog_exposes_backend_product_watchlist(monkeypatch):
     assert products["chatgpt_via_apple"]["input_fields"][0]["id"] == "apple_region"
     assert categories["syrian_services"]["count"] >= 12
     assert categories["syrian_services"]["label"]["ar"] == "خدمات سورية"
+    category_order = [row["id"] for row in payload["product_categories"]]
+    assert category_order[:4] == ["games", "chat_apps", "gift_cards", "subscriptions"]
+    featured = {row["id"]: row for row in payload["featured_collections"]}
+    assert "bittopup" in featured
+    assert "pubg" in featured["bittopup"]["product_ids"]
     assert payload["source_diagnostics"]["status"] == "ok"
     assert payload["source_diagnostics"]["issues_count"] == 0
     assert payload["source_diagnostics"]["watchlist_issues_count"] == 0

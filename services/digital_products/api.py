@@ -66,6 +66,18 @@ _PRODUCT_CATEGORY_LABELS = {
     "services": {"en": "Services", "ar": "خدمات"},
 }
 
+_PRODUCT_CATEGORY_ORDER = (
+    "games",
+    "chat_apps",
+    "gift_cards",
+    "subscriptions",
+    "software",
+    "software_tools",
+    "iptv",
+    "syrian_services",
+    "services",
+)
+
 _DIGITAL_USER_SCOPES = (
     "digital:account:read",
     "digital:catalog",
@@ -207,13 +219,33 @@ def _watchlist_category_counts(items: list[ProductWatchlistItem]) -> list[dict[s
     counts: dict[str, int] = {}
     for item in items:
         counts[item.category] = counts.get(item.category, 0) + 1
+    order = {key: index for index, key in enumerate(_PRODUCT_CATEGORY_ORDER)}
     return [
         {
             "id": key,
             "label": dict(_PRODUCT_CATEGORY_LABELS.get(key) or {"en": key.replace("_", " ").title(), "ar": key.replace("_", " ")}),
             "count": counts[key],
         }
-        for key in sorted(counts)
+        for key in sorted(counts, key=lambda value: (order.get(value, 999), value))
+    ]
+
+
+def _featured_product_collections(items: list[ProductWatchlistItem]) -> list[dict[str, Any]]:
+    product_ids = [
+        item.product_key
+        for item in items
+        if item.bittopup_slug or item.preferred_provider == "bittopup"
+    ]
+    if not product_ids:
+        return []
+    return [
+        {
+            "id": "bittopup",
+            "provider": "bittopup",
+            "label": {"en": "BitTopup", "ar": "BitTopup"},
+            "count": len(product_ids),
+            "product_ids": product_ids,
+        }
     ]
 
 
@@ -737,6 +769,7 @@ async def catalog(request: web.Request) -> web.Response:
                 for row in list(snapshot.get("gift_categories") or [])
             ],
             "product_categories": _watchlist_category_counts(watchlist),
+            "featured_collections": _featured_product_collections(watchlist),
             "products": public_products,
             "source_diagnostics": _provider_source_diagnostics(watchlist, all_sources),
             "catalog_snapshot_status": snapshot_status,
