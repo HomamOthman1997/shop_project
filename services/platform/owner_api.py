@@ -245,7 +245,7 @@ def _public_account_payload(account: dict[str, Any] | None, user: dict[str, Any]
         "username": _text(user.get("username")),
         "identity_status": _text(account.get("identity_status") or "unsubmitted"),
         "status": _text(account.get("status") or "active"),
-        "banned": bool(user.get("banned")),
+        "banned": bool(user.get("banned")) or _text(account.get("status")).lower() == "banned",
         "created_at": _iso_value(account.get("created_at") or user.get("created_at")),
         "updated_at": _iso_value(account.get("updated_at")),
     }
@@ -374,25 +374,31 @@ async def owner_user_action(request: web.Request) -> web.Response:
     action = str(payload.get("action") or "").strip().lower()
     if action not in {"ban", "unban"}:
         return web.json_response({"ok": False, "message": "Unsupported user action."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    account, user = await _find_owner_user_subject(customer_id)
+    if not account and not user:
+        return web.json_response({"ok": False, "message": "User was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
     banned = action == "ban"
     now = datetime.now(UTC)
-    result = await db.users.update_one(
-        {"telegram_id": int(customer_id)},
-        {
-            "$set": {
-                "banned": banned,
-                "admin_updated_at": now,
-                "admin_updated_by": int(owner.customer_id),
-            }
-        },
-        upsert=False,
-    )
-    if not result.matched_count:
-        return web.json_response({"ok": False, "message": "User was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
-    await db.website_accounts.update_one(
-        {"customer_id": int(customer_id)},
-        {"$set": {"status": "banned" if banned else "active", "updated_at": now}},
-    )
+    if account:
+        await db.website_accounts.update_one(
+            {"customer_id": int(customer_id)},
+            {"$set": {"status": "banned" if banned else "active", "updated_at": now}},
+        )
+        account = {**account, "status": "banned" if banned else "active", "updated_at": now}
+    telegram_id = _safe_int((user or {}).get("telegram_id")) or _safe_int((account or {}).get("telegram_id"))
+    if telegram_id is not None:
+        await db.users.update_one(
+            {"telegram_id": int(telegram_id)},
+            {
+                "$set": {
+                    "banned": banned,
+                    "admin_updated_at": now,
+                    "admin_updated_by": int(owner.customer_id),
+                }
+            },
+            upsert=False,
+        )
+        user = {**(user or {}), "telegram_id": int(telegram_id), "banned": banned, "admin_updated_at": now, "admin_updated_by": int(owner.customer_id)}
     await _write_owner_audit(
         actor_id=owner.customer_id,
         actor_email=owner.email,
@@ -400,7 +406,6 @@ async def owner_user_action(request: web.Request) -> web.Response:
         target_type="user",
         target_id=customer_id,
     )
-    account, user = await _find_owner_user_subject(customer_id)
     return web.json_response({"ok": True, "user": _public_account_payload(account, user)}, headers=dict(_NO_STORE_HEADERS))
 
 

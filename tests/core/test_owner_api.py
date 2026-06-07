@@ -225,6 +225,76 @@ async def test_owner_user_detail_returns_account_wallet_and_activity(monkeypatch
     assert payload["orders"][0]["id"] == "order-1"
 
 
+def test_public_owner_account_payload_treats_banned_website_account_as_banned():
+    payload = owner_api._public_account_payload(
+        {"_id": "acct-1", "customer_id": 900000000123, "email": "user@example.com", "status": "banned"},
+        None,
+    )
+
+    assert payload["banned"] is True
+    assert payload["status"] == "banned"
+
+
+@pytest.mark.asyncio
+async def test_owner_user_action_bans_website_only_account(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1",
+            customer_id=900000000001,
+            email="homamothman1@gmail.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    class FakeAccounts:
+        def __init__(self):
+            self.row = {"_id": "acct-1", "customer_id": 900000000123, "email": "user@example.com", "status": "active"}
+            self.updated = None
+
+        async def find_one(self, query):
+            return dict(self.row) if query == {"customer_id": 900000000123} else None
+
+        async def update_one(self, query, update):
+            self.updated = (query, update)
+            self.row.update(update["$set"])
+
+    class EmptyUsers:
+        async def find_one(self, _query):
+            return None
+
+        async def update_one(self, *_args, **_kwargs):
+            raise AssertionError("website-only ban must not require a Telegram user update")
+
+    class FakeDb:
+        def __init__(self):
+            self.website_accounts = FakeAccounts()
+            self.users = EmptyUsers()
+
+    fake_db = FakeDb()
+
+    async def audit(**_kwargs):
+        return None
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "db", fake_db)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    request = make_mocked_request(
+        "POST",
+        "/api/v1/owner/users/900000000123/action",
+        headers={"Content-Type": "application/json"},
+        match_info={"customer_id": "900000000123"},
+    )
+    request._read_bytes = json.dumps({"action": "ban"}).encode("utf-8")
+
+    response = await owner_api.owner_user_action(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert fake_db.website_accounts.updated[0] == {"customer_id": 900000000123}
+    assert fake_db.website_accounts.row["status"] == "banned"
+    assert payload["user"]["banned"] is True
+
+
 @pytest.mark.asyncio
 async def test_owner_finance_audit_delegates_to_financial_scan(monkeypatch):
     async def owner(_request):
