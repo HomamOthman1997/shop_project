@@ -725,6 +725,7 @@ async def test_owner_bot_subscription_action_delegates_activation(monkeypatch):
 @pytest.mark.asyncio
 async def test_owner_reseller_deposit_credits_main_wallet(monkeypatch):
     calls = {}
+    audit_calls = []
 
     async def owner(_request):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
@@ -737,8 +738,12 @@ async def test_owner_reseller_deposit_credits_main_wallet(monkeypatch):
         async def update_one(self, *_args, **_kwargs):
             return None
 
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "credit_reseller_main_wallet", credit)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     monkeypatch.setattr(owner_api.db, "ledger_entries", LedgerEntries())
     request = make_mocked_request("POST", "/api/v1/owner/reseller-deposits", headers={"Content-Type": "application/json"})
     request._read_bytes = json.dumps({"reseller_id": 77, "amount": 12.5, "note": "cash"}).encode()
@@ -751,11 +756,14 @@ async def test_owner_reseller_deposit_credits_main_wallet(monkeypatch):
     assert calls["amount"] == 12.5
     assert calls["actor_id"] == 900000000001
     assert payload["deposit"]["ledger_entry_id"] == "ledger-1"
+    assert audit_calls[0]["metadata"] == {"amount": 12.5}
+    assert "cash" not in json.dumps(audit_calls[0])
 
 
 @pytest.mark.asyncio
 async def test_owner_broadcast_uses_delivery_helper(monkeypatch):
     calls = {}
+    audit_calls = []
 
     async def owner(_request):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
@@ -764,8 +772,12 @@ async def test_owner_broadcast_uses_delivery_helper(monkeypatch):
         calls.update(kwargs)
         return True
 
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "send_owner_broadcast", send)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     request = make_mocked_request("POST", "/api/v1/owner/broadcast", headers={"Content-Type": "application/json"})
     request._read_bytes = json.dumps({"chat_id": -1001, "message_thread_id": 3, "text": "Hello owners"}).encode()
 
@@ -773,6 +785,9 @@ async def test_owner_broadcast_uses_delivery_helper(monkeypatch):
 
     assert response.status == 200
     assert calls == {"chat_id": -1001, "message_thread_id": 3, "text": "Hello owners"}
+    assert audit_calls[0]["action"] == "broadcast.send"
+    assert audit_calls[0]["metadata"] == {"message_thread_id": 3, "length": 12}
+    assert "Hello owners" not in json.dumps(audit_calls[0])
 
 
 @pytest.mark.asyncio
@@ -1223,14 +1238,20 @@ async def test_owner_revoke_integration_credentials_audits_success(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_owner_provider_webhook_replay_delegates(monkeypatch):
+    audit_calls = []
+
     async def owner(_request):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
 
     async def replay(event_id):
         return {"ok": True, "event_id": event_id}
 
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "replay_provider_webhook_event", replay)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     request = make_mocked_request(
         "POST",
         "/api/v1/owner/provider-webhook-events/event-1/replay",
@@ -1242,6 +1263,8 @@ async def test_owner_provider_webhook_replay_delegates(monkeypatch):
 
     assert response.status == 200
     assert payload["event_id"] == "event-1"
+    assert audit_calls[0]["action"] == "provider_webhook.replay"
+    assert audit_calls[0]["target_id"] == "event-1"
 
 
 @pytest.mark.asyncio
@@ -1283,6 +1306,7 @@ async def test_owner_digital_provider_sources_returns_sources_and_runs(monkeypat
 @pytest.mark.asyncio
 async def test_owner_digital_provider_source_action_approves(monkeypatch):
     calls = {}
+    audit_calls = []
 
     async def owner(_request):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
@@ -1290,10 +1314,14 @@ async def test_owner_digital_provider_source_action_approves(monkeypatch):
     async def approve(source_id, *, actor_id=None):
         calls["source_id"] = source_id
         calls["actor_id"] = actor_id
-        return {"_id": "bittopup:pubg#60", "source_token": source_id, "price_status": "active", "observed_price": 1.1, "active_price": 1.1}
+        return {"_id": "bittopup:pubg#60", "source_token": source_id, "provider": "bittopup", "price_status": "active", "observed_price": 1.1, "active_price": 1.1}
+
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
 
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "approve_provider_source", approve)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     request = make_mocked_request(
         "POST",
         "/api/v1/owner/digital-provider-sources/src123/action",
@@ -1306,11 +1334,14 @@ async def test_owner_digital_provider_source_action_approves(monkeypatch):
 
     assert response.status == 200
     assert calls == {"source_id": "src123", "actor_id": 900000000001}
+    assert audit_calls[0]["action"] == "digital_provider_source.approve"
+    assert audit_calls[0]["metadata"]["provider"] == "bittopup"
 
 
 @pytest.mark.asyncio
 async def test_owner_run_digital_provider_scan_delegates(monkeypatch):
     calls = {}
+    audit_calls = []
 
     async def owner(_request):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
@@ -1319,8 +1350,12 @@ async def test_owner_run_digital_provider_scan_delegates(monkeypatch):
         calls["max_pages"] = max_pages
         return {"provider": "bittopup", "status": "success"}
 
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "run_bittopup_price_watch", scan)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     request = make_mocked_request("POST", "/api/v1/owner/digital-provider-sources/scan", headers={"Content-Type": "application/json"})
     request._read_bytes = json.dumps({"max_pages": 2}).encode()
 
@@ -1330,3 +1365,5 @@ async def test_owner_run_digital_provider_scan_delegates(monkeypatch):
     assert response.status == 200
     assert calls["max_pages"] == 2
     assert payload["scan"]["status"] == "success"
+    assert audit_calls[0]["action"] == "digital_provider.scan"
+    assert audit_calls[0]["metadata"] == {"max_pages": 2, "status": "success"}

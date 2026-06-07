@@ -1839,9 +1839,18 @@ async def owner_provider_webhook_events(request: web.Request) -> web.Response:
 
 
 async def owner_replay_provider_webhook_event(request: web.Request) -> web.Response:
-    await require_website_owner(request)
-    result = await replay_provider_webhook_event(str(request.match_info.get("event_id") or "").strip())
+    owner = await require_website_owner(request)
+    event_id = str(request.match_info.get("event_id") or "").strip()
+    result = await replay_provider_webhook_event(event_id)
     status = 404 if not result.get("ok") and str(result.get("reason") or "") == "event_not_found" else 200
+    if result.get("ok"):
+        await _write_owner_audit(
+            actor_id=owner.customer_id,
+            actor_email=owner.email,
+            action="provider_webhook.replay",
+            target_type="provider_webhook_event",
+            target_id=event_id,
+        )
     return web.json_response(result, status=status, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -1903,7 +1912,7 @@ async def owner_digital_provider_sources(request: web.Request) -> web.Response:
 
 
 async def owner_run_digital_provider_scan(request: web.Request) -> web.Response:
-    await require_website_owner(request)
+    owner = await require_website_owner(request)
     try:
         body = await request.json()
     except Exception:
@@ -1913,6 +1922,14 @@ async def owner_run_digital_provider_scan(request: web.Request) -> web.Response:
     except Exception:
         max_pages = 0
     result = await run_bittopup_price_watch(max_pages=max_pages if max_pages > 0 else None)
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="digital_provider.scan",
+        target_type="digital_provider",
+        target_id="bittopup",
+        metadata={"max_pages": max_pages if max_pages > 0 else None, "status": _text((result or {}).get("status"))},
+    )
     return web.json_response({"ok": True, "scan": result}, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -1938,6 +1955,14 @@ async def owner_digital_provider_source_action(request: web.Request) -> web.Resp
         return web.json_response({"ok": False, "message": "Unsupported source action."}, status=400, headers=dict(_NO_STORE_HEADERS))
     if not row:
         return web.json_response({"ok": False, "message": "Provider source was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action=f"digital_provider_source.{action}",
+        target_type="digital_provider_source",
+        target_id=source_id,
+        metadata={"provider": _text(row.get("provider")), "status": _text(row.get("price_status")), "compare_key": _text(row.get("compare_key"))},
+    )
     return web.json_response({"ok": True, "source": _provider_source_payload(row)}, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -2098,7 +2123,7 @@ async def owner_reseller_deposit(request: web.Request) -> web.Response:
         action="reseller.deposit",
         target_type="reseller",
         target_id=reseller_id,
-        metadata={"amount": amount, "note": note},
+        metadata={"amount": amount},
     )
     if note:
         await db.ledger_entries.update_one({"_id": entry.get("_id")}, {"$set": {"owner_note": note}})
@@ -2109,7 +2134,7 @@ async def owner_reseller_deposit(request: web.Request) -> web.Response:
 
 
 async def owner_broadcast(request: web.Request) -> web.Response:
-    await require_website_owner(request)
+    owner = await require_website_owner(request)
     try:
         body = await request.json()
         chat_id, message_thread_id = _parse_chat_target(body or {})
@@ -2121,6 +2146,14 @@ async def owner_broadcast(request: web.Request) -> web.Response:
     delivered = await send_owner_broadcast(chat_id=chat_id, message_thread_id=message_thread_id, text=text)
     if not delivered:
         return web.json_response({"ok": False, "message": "Could not send broadcast with the configured main bot."}, status=502, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="broadcast.send",
+        target_type="telegram_chat",
+        target_id=chat_id,
+        metadata={"message_thread_id": message_thread_id, "length": len(text)},
+    )
     return web.json_response({"ok": True, "broadcast": {"chat_id": chat_id, "message_thread_id": message_thread_id, "length": len(text)}}, headers=dict(_NO_STORE_HEADERS))
 
 
