@@ -32,6 +32,10 @@ def test_register_website_auth_routes():
     assert ("POST", "/api/v1/auth/email/verify") in routes
     assert ("GET", "/login") in routes
     assert ("GET", "/account") in routes
+    assert ("GET", "/app") in routes
+    assert ("GET", "/app/{tail}") in routes
+    assert ("GET", "/admin") in routes
+    assert ("GET", "/admin/{tail}") in routes
 
 
 def test_shop_root_serves_website_auth_page():
@@ -41,6 +45,17 @@ def test_shop_root_serves_website_auth_page():
     routes = {(route.method, route.resource.canonical, route.handler.__name__) for route in app.router.routes()}
 
     assert ("GET", "/", "auth_page") in routes
+
+
+@pytest.mark.asyncio
+async def test_website_auth_page_contains_admin_dashboard_tabs():
+    response = await website_auth.auth_page(make_mocked_request("GET", "/admin"))
+
+    assert response.status == 200
+    text = response.text
+    assert 'class="admin-tabs"' in text
+    assert 'data-owner-tab="finance"' in text
+    assert 'data-owner-tab="orders"' in text
 
 
 def test_password_hash_round_trip():

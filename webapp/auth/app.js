@@ -17,6 +17,55 @@ const verifyEmailCodeSubmit = $("#verify-email-code-button");
 
 let mode = "login";
 let currentAccount = null;
+let activeOwnerTab = "overview";
+
+const customerRoutes = {
+  home: "/app",
+  orders: "/app/orders",
+  support: "/app/support",
+  account: "/app/account",
+  identity: "/app/identity",
+  workspace: "/app/services",
+};
+
+const adminRoutes = {
+  overview: "/admin",
+  finance: "/admin/finance",
+  users: "/admin/users",
+  support: "/admin/support",
+  integrations: "/admin/integrations",
+  providers: "/admin/providers",
+  orders: "/admin/orders",
+};
+
+function routeForView(view) {
+  return customerRoutes[view] || "/app";
+}
+
+function viewForPath(pathname = window.location.pathname) {
+  if (pathname.startsWith("/app/digital")) return "digital";
+  if (pathname.startsWith("/app/numbers")) return "numbers";
+  if (pathname.startsWith("/app/orders")) return "orders";
+  if (pathname.startsWith("/app/support")) return "support";
+  if (pathname.startsWith("/app/account")) return "account";
+  if (pathname.startsWith("/app/identity")) return "identity";
+  if (pathname.startsWith("/app/services")) return "workspace";
+  return "home";
+}
+
+function ownerTabForPath(pathname = window.location.pathname) {
+  if (pathname.startsWith("/admin/finance")) return "finance";
+  if (pathname.startsWith("/admin/users")) return "users";
+  if (pathname.startsWith("/admin/support")) return "support";
+  if (pathname.startsWith("/admin/integrations")) return "integrations";
+  if (pathname.startsWith("/admin/providers")) return "providers";
+  if (pathname.startsWith("/admin/orders")) return "orders";
+  return "overview";
+}
+
+function pushRoute(path) {
+  if (window.location.pathname !== path) window.history.pushState({}, "", path);
+}
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -84,6 +133,7 @@ function showAccount(account) {
   verifyView.hidden = true;
   accountView.hidden = false;
   $(".form-wrap").classList.add("dashboard-mode");
+  accountView.classList.toggle("admin-mode", Boolean(account.is_owner));
   setText("#account-email", account.email);
   setText("#settings-email", account.email);
   setText("#customer-id", account.customer_id);
@@ -92,6 +142,23 @@ function showAccount(account) {
   document.querySelectorAll(".owner-nav").forEach((item) => { item.hidden = !account.is_owner; });
   applyEmailState(account);
   applyIdentityState(account.identity_status);
+  if (account.is_owner) {
+    const tab = ownerTabForPath(window.location.pathname);
+    activeOwnerTab = tab;
+    if (!window.location.pathname.startsWith("/admin")) pushRoute(adminRoutes[tab] || "/admin");
+    openPanel("owner", "لوحة الإدارة", { updateRoute: false });
+    applyOwnerTab(tab, false);
+    loadOwnerDashboard();
+    return;
+  }
+  if (window.location.pathname.startsWith("/admin")) pushRoute("/app");
+  const initialView = viewForPath();
+  if (initialView === "digital" || initialView === "numbers") {
+    openPanel("home", "الخدمات", { updateRoute: false });
+    openService(initialView);
+  } else {
+    openPanel(initialView, "", { updateRoute: false });
+  }
   loadDashboard();
 }
 
@@ -336,6 +403,40 @@ const ownerQueueLabels = {
   support: "تذاكر الدعم",
 };
 
+const ownerGroupTargets = {
+  overview: ["owner-metrics", "owner-queues", "owner-sections"],
+  finance: ["owner-finance-settings", "owner-routing-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-bot-tools"],
+  users: ["owner-identity-reviews"],
+  support: ["owner-support-tickets"],
+  integrations: ["owner-api-tools"],
+  providers: ["owner-provider-diagnostics"],
+  orders: ["owner-digital-orders", "owner-refund-reviews"],
+};
+
+function tagOwnerGroups() {
+  Object.entries(ownerGroupTargets).forEach(([group, ids]) => {
+    ids.forEach((id) => {
+      const node = document.getElementById(id);
+      if (!node) return;
+      node.dataset.ownerGroup = group;
+      const head = node.previousElementSibling;
+      if (head?.classList.contains("section-head")) head.dataset.ownerGroup = group;
+    });
+  });
+}
+
+function applyOwnerTab(tab = "overview", updateRoute = true) {
+  activeOwnerTab = ownerGroupTargets[tab] ? tab : "overview";
+  tagOwnerGroups();
+  document.querySelectorAll("[data-owner-tab]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.ownerTab === activeOwnerTab);
+  });
+  document.querySelectorAll("[data-owner-group]").forEach((node) => {
+    node.hidden = node.dataset.ownerGroup !== activeOwnerTab;
+  });
+  if (updateRoute) pushRoute(adminRoutes[activeOwnerTab] || "/admin");
+}
+
 async function loadOwnerDashboard() {
   const metricsTarget = $("#owner-metrics");
   const queuesTarget = $("#owner-queues");
@@ -408,6 +509,7 @@ async function loadOwnerDashboard() {
             </div>`).join("")}
         </div>
       </section>`).join("");
+    applyOwnerTab(activeOwnerTab, false);
   } catch (error) {
     metricsTarget.textContent = "تعذر تحميل مؤشرات المالك.";
     queuesTarget.textContent = "تعذر تحميل طوابير المتابعة.";
@@ -424,6 +526,7 @@ async function loadOwnerDashboard() {
     $("#owner-bot-tools").textContent = "تعذر تحميل أدوات البوتات.";
     sectionsTarget.textContent = "تعذر تحميل خصائص الإدارة.";
     message.textContent = error.message;
+    applyOwnerTab(activeOwnerTab, false);
   }
 }
 
@@ -1458,7 +1561,7 @@ function renderNumbersQuotes(payload) {
   });
 }
 
-function openPanel(view, title = "") {
+function openPanel(view, title = "", options = {}) {
   document.querySelectorAll(".nav-item[data-view]").forEach((item) => {
     item.classList.toggle("active", item.dataset.view === view);
   });
@@ -1466,6 +1569,7 @@ function openPanel(view, title = "") {
     panel.classList.toggle("active", panel.dataset.panel === view);
   });
   if (title) setText("#view-title", title);
+  if (options.updateRoute !== false && view !== "owner") pushRoute(routeForView(view));
 }
 
 function openService(service) {
@@ -1486,24 +1590,50 @@ function openService(service) {
   setWorkspaceTheme(service);
   setText("#workspace-title", config.title);
   setText("#workspace-kicker", config.kicker);
-  openPanel("workspace", config.title);
+  pushRoute(`/app/${service}`);
+  openPanel("workspace", config.title, { updateRoute: false });
   config.load();
 }
 
 document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
   button.addEventListener("click", () => {
     const view = button.dataset.view;
+    if (view === "owner") {
+      activeOwnerTab = ownerTabForPath("/admin");
+      openPanel("owner", "لوحة الإدارة", { updateRoute: false });
+      applyOwnerTab(activeOwnerTab, true);
+      loadOwnerDashboard();
+      return;
+    }
     if (view !== "workspace" && serviceRoot()) {
       serviceRoot().innerHTML = "";
       setWorkspaceTheme("");
     }
     openPanel(view, button.textContent.trim());
-    if (view === "owner") loadOwnerDashboard();
   });
 });
 
 document.querySelectorAll("[data-open-service]").forEach((button) => {
   button.addEventListener("click", () => openService(button.dataset.openService));
+});
+
+document.querySelectorAll("[data-owner-tab]").forEach((button) => {
+  button.addEventListener("click", () => applyOwnerTab(button.dataset.ownerTab || "overview"));
+});
+
+window.addEventListener("popstate", () => {
+  if (!currentAccount) return;
+  if (currentAccount.is_owner && window.location.pathname.startsWith("/admin")) {
+    openPanel("owner", "لوحة الإدارة", { updateRoute: false });
+    applyOwnerTab(ownerTabForPath(), false);
+    return;
+  }
+  const pathView = viewForPath();
+  if (pathView === "digital" || pathView === "numbers") {
+    openService(pathView);
+    return;
+  }
+  openPanel(pathView, "", { updateRoute: false });
 });
 
 $("#workspace-close")?.addEventListener("click", () => {

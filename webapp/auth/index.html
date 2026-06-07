@@ -92,7 +92,7 @@
               <button class="nav-item" data-view="support">الدعم</button>
               <button class="nav-item" data-view="account">حسابي</button>
               <button class="nav-item" data-view="identity">تأكيد الهوية</button>
-              <button class="nav-item owner-nav" data-view="owner" hidden>لوحة المالك</button>
+              <button class="nav-item owner-nav" data-view="owner" hidden>لوحة الإدارة</button>
             </nav>
             <button id="logout-button" class="nav-item logout" type="button">تسجيل الخروج</button>
           </aside>
@@ -204,11 +204,20 @@
               <div class="section-head">
                 <div>
                   <p class="section-label">OWNER CONTROL</p>
-                  <h3>لوحة المالك</h3>
-                  <p>نظرة مركزية على العمليات وخصائص الإدارة الموجودة في النظام.</p>
+                  <h3>لوحة الإدارة</h3>
+                  <p>نظام إداري منفصل بتبويبات لكل قسم بدل صفحة واحدة طويلة.</p>
                 </div>
                 <button id="refresh-owner" class="secondary compact" type="button">تحديث</button>
               </div>
+              <nav class="admin-tabs" aria-label="Admin sections">
+                <button class="admin-tab active" type="button" data-owner-tab="overview">النظرة العامة</button>
+                <button class="admin-tab" type="button" data-owner-tab="finance">المالية</button>
+                <button class="admin-tab" type="button" data-owner-tab="users">المستخدمون</button>
+                <button class="admin-tab" type="button" data-owner-tab="support">الدعم</button>
+                <button class="admin-tab" type="button" data-owner-tab="integrations">API</button>
+                <button class="admin-tab" type="button" data-owner-tab="providers">المزودون</button>
+                <button class="admin-tab" type="button" data-owner-tab="orders">الطلبات</button>
+              </nav>
               <div id="owner-metrics" class="owner-metrics empty">جاري تحميل المؤشرات...</div>
               <div class="section-head activity-head">
                 <div><h3>المالية والتسعير</h3><p>إعدادات مشتركة بين الموقع والبوتات وتطبق مباشرة على عمليات الشراء.</p></div>
