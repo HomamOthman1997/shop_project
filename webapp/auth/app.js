@@ -452,26 +452,26 @@ const ownerShortcutTabs = {
   numbers_margin: "finance",
   digital_margin: "finance",
   reseller_deposits: "finance",
-  bot_subscriptions: "finance",
+  bot_subscriptions: "integrations",
   identity_reviews: "users",
   support_inbox: "support",
   support_routing: "system",
   logs_routing: "system",
   provider_alerts: "system",
-  broadcast: "finance",
+  broadcast: "system",
   api_keys: "integrations",
   webhooks: "integrations",
 };
 
 const ownerGroupTargets = {
   overview: ["owner-metrics", "owner-queues", "owner-sections"],
-  finance: ["owner-finance-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-finance-audit", "owner-reseller-management", "owner-bot-tools"],
+  finance: ["owner-finance-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-finance-audit", "owner-reseller-deposit-tools", "owner-reseller-management"],
   users: ["owner-user-management", "owner-identity-reviews"],
   support: ["owner-support-tickets"],
-  integrations: ["owner-api-tools", "owner-bot-creation-reviews"],
+  integrations: ["owner-api-tools", "owner-bot-creation-reviews", "owner-bot-tools"],
   providers: ["owner-provider-diagnostics"],
   catalog: ["owner-custom-catalog"],
-  system: ["owner-routing-settings", "owner-system-operations"],
+  system: ["owner-routing-settings", "owner-broadcast-tools", "owner-system-operations"],
   orders: ["owner-digital-orders", "owner-custom-preorders", "owner-refund-reviews"],
 };
 
@@ -483,6 +483,7 @@ const ownerLoadingLabels = {
   "owner-payment-methods": "جاري تحميل طرق الدفع...",
   "owner-recharge-reviews": "جاري تحميل مراجعات الشحن...",
   "owner-finance-audit": "جاري تحميل التدقيق المالي...",
+  "owner-reseller-deposit-tools": "جاري تحميل أداة إيداع الوكيل...",
   "owner-reseller-management": "جاري تحميل الوكلاء...",
   "owner-bot-tools": "جاري تحميل أدوات البوتات...",
   "owner-user-management": "جاري تحميل المستخدمين...",
@@ -493,6 +494,7 @@ const ownerLoadingLabels = {
   "owner-provider-diagnostics": "جاري تحميل تشخيص المزودين...",
   "owner-custom-catalog": "جاري تحميل الكتالوغ...",
   "owner-routing-settings": "جاري تحميل إعدادات التوجيه...",
+  "owner-broadcast-tools": "جاري تحميل أدوات البث...",
   "owner-system-operations": "جاري تحميل حالة النظام...",
   "owner-digital-orders": "جاري تحميل الطلبات الرقمية...",
   "owner-custom-preorders": "جاري تحميل طلبات preorder...",
@@ -520,7 +522,6 @@ function ownerRequestMap() {
       recharge: () => api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
       financeAudit: () => api(`/api/v1/owner/finance/audit?days=${encodeURIComponent(auditDays)}&limit=20`),
       resellers: () => api("/api/v1/owner/resellers?limit=50"),
-      bots: () => api("/api/v1/owner/bots?status=all&limit=30"),
     },
     users: {
       users: () => api("/api/v1/owner/users?limit=20"),
@@ -533,6 +534,7 @@ function ownerRequestMap() {
       apiKeys: () => api("/api/v1/owner/api-keys?status=all&limit=30"),
       webhooks: () => api("/api/v1/owner/webhooks?status=all&limit=30"),
       botCreationReviews: () => api(`/api/v1/owner/bot-creation-reviews?status=${encodeURIComponent(botReviewFilter)}&limit=30`),
+      bots: () => api("/api/v1/owner/bots?status=all&limit=30"),
     },
     providers: {
       providers: () => api("/api/v1/owner/provider-readiness"),
@@ -683,10 +685,12 @@ async function loadOwnerDashboardIsolated() {
   if (requested("preorders")) { clearOwnerBusy("owner-custom-preorders"); data.preorders ? renderOwnerCustomPreorders(data.preorders.preorders || []) : fail("#owner-custom-preorders", "Could not load custom preorders."); }
   if (requested("catalog")) { clearOwnerBusy("owner-custom-catalog"); data.catalog ? renderOwnerCustomCatalog(data.catalog) : fail("#owner-custom-catalog", "Could not load custom services catalog."); }
   if (requested("refunds")) { clearOwnerBusy("owner-refund-reviews"); data.refunds ? renderOwnerRefundReviews(data.refunds.reviews || []) : fail("#owner-refund-reviews", "تعذر تحميل مراجعات الأرقام."); }
-  if (requested("settings")) { clearOwnerBusy("owner-finance-settings", "owner-routing-settings", "owner-payment-methods"); data.settings ? renderOwnerSettings(data.settings) : fail("#owner-finance-settings", "تعذر تحميل الإعدادات المالية."); }
+  if (requested("settings")) { clearOwnerBusy("owner-finance-settings", "owner-routing-settings", "owner-broadcast-tools", "owner-payment-methods", "owner-reseller-deposit-tools"); data.settings ? renderOwnerSettings(data.settings) : fail("#owner-finance-settings", "تعذر تحميل الإعدادات المالية."); }
   if (requested("settings") && !data.settings) {
     fail("#owner-routing-settings", "تعذر تحميل إعدادات التوجيه.");
+    fail("#owner-broadcast-tools", "تعذر تحميل أدوات البث.");
     fail("#owner-payment-methods", "تعذر تحميل طرق الدفع.");
+    fail("#owner-reseller-deposit-tools", "تعذر تحميل أداة إيداع الوكيل.");
   }
   if (requested("recharge")) { clearOwnerBusy("owner-recharge-reviews"); data.recharge ? renderOwnerRechargeReviews(data.recharge.reviews || []) : fail("#owner-recharge-reviews", "تعذر تحميل مراجعات الشحن."); }
   if (requested("financeAudit")) { clearOwnerBusy("owner-finance-audit"); data.financeAudit ? renderOwnerFinanceAudit(data.financeAudit.audit || {}) : fail("#owner-finance-audit", "تعذر تحميل التدقيق المالي."); }
@@ -877,24 +881,6 @@ function renderOwnerBotTools(bots) {
   target.classList.remove("empty");
   target.innerHTML = `
     <article class="owner-review-card">
-      <h4>بث عبر بوت المنصة</h4>
-      <form class="owner-review-form" id="owner-broadcast-form">
-        <label><span>Chat ID</span><input name="chat_id" required inputmode="numeric" placeholder="-100..."></label>
-        <label><span>Topic ID</span><input name="message_thread_id" inputmode="numeric" placeholder="اختياري"></label>
-        <label><span>نص البث</span><textarea name="text" required minlength="2" maxlength="3500" rows="3" placeholder="اكتب الرسالة التي ستصل للقناة أو المجموعة"></textarea></label>
-        <div class="owner-order-actions"><button class="primary compact" type="submit">إرسال البث</button></div>
-      </form>
-    </article>
-    <article class="owner-review-card">
-      <h4>إيداع رصيد وكيل</h4>
-      <form class="owner-review-form" id="owner-reseller-deposit-form">
-        <label><span>Reseller ID</span><input name="reseller_id" required inputmode="numeric"></label>
-        <label><span>المبلغ</span><input name="amount" required type="number" min="0.01" max="10000000" step="0.01"></label>
-        <label><span>ملاحظة</span><input name="note" maxlength="300" placeholder="اختياري"></label>
-        <div class="owner-order-actions"><button class="primary compact" type="submit">إضافة الرصيد</button></div>
-      </form>
-    </article>
-    <article class="owner-review-card">
       <h4>بوتات الوكلاء والاشتراكات</h4>
       ${bots.length ? bots.map((bot) => {
         const sub = bot.subscription || {};
@@ -917,9 +903,43 @@ function renderOwnerBotTools(bots) {
         </div>`;
       }).join("") : '<div class="notice">لا توجد بوتات مسجلة حاليا.</div>'}
     </article>`;
-  $("#owner-broadcast-form")?.addEventListener("submit", sendOwnerBroadcastForm);
-  $("#owner-reseller-deposit-form")?.addEventListener("submit", createOwnerResellerDeposit);
   target.querySelectorAll("[data-owner-bot]").forEach((form) => form.addEventListener("submit", runOwnerBotSubscriptionAction));
+}
+
+function renderOwnerBroadcastTools(routing = {}) {
+  const target = $("#owner-broadcast-tools");
+  if (!target) return;
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <article class="owner-review-card">
+      <div class="owner-order-head">
+        <div><h4>بث عبر بوت المنصة</h4><span>${esc(routingLabel(routing.owner_notifications))}</span></div>
+      </div>
+      <form class="owner-review-form" id="owner-broadcast-form">
+        <label><span>Chat ID</span><input name="chat_id" required inputmode="numeric" placeholder="-100..."></label>
+        <label><span>Topic ID</span><input name="message_thread_id" inputmode="numeric" placeholder="اختياري"></label>
+        <label><span>نص البث</span><textarea name="text" required minlength="2" maxlength="3500" rows="3" placeholder="اكتب الرسالة التي ستصل للقناة أو المجموعة"></textarea></label>
+        <div class="owner-order-actions"><button class="primary compact" type="submit">إرسال البث</button></div>
+      </form>
+    </article>`;
+  $("#owner-broadcast-form")?.addEventListener("submit", sendOwnerBroadcastForm);
+}
+
+function renderOwnerResellerDepositTools() {
+  const target = $("#owner-reseller-deposit-tools");
+  if (!target) return;
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <article class="owner-review-card">
+      <h4>إيداع رصيد وكيل</h4>
+      <form class="owner-review-form" id="owner-reseller-deposit-form">
+        <label><span>Reseller ID</span><input name="reseller_id" required inputmode="numeric"></label>
+        <label><span>المبلغ</span><input name="amount" required type="number" min="0.01" max="10000000" step="0.01"></label>
+        <label><span>ملاحظة</span><input name="note" maxlength="300" placeholder="اختياري"></label>
+        <div class="owner-order-actions"><button class="primary compact" type="submit">إضافة الرصيد</button></div>
+      </form>
+    </article>`;
+  $("#owner-reseller-deposit-form")?.addEventListener("submit", createOwnerResellerDeposit);
 }
 
 async function sendOwnerBroadcastForm(event) {
@@ -1371,6 +1391,8 @@ function renderOwnerSettings(payload) {
     ${routingForm("support_services", "دعم الخدمات", support.services)}
     ${routingForm("support_user_balance", "دعم الرصيد", support.user_balance)}`;
 
+  renderOwnerBroadcastTools(routing);
+  renderOwnerResellerDepositTools();
   renderOwnerPaymentMethods(finance.payment_methods || []);
   document.querySelectorAll("[data-owner-setting]").forEach((form) => form.addEventListener("submit", saveOwnerSetting));
   document.querySelectorAll("[data-owner-routing]").forEach((form) => form.addEventListener("submit", saveOwnerRoutingTarget));

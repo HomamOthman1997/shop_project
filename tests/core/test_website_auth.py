@@ -149,6 +149,28 @@ def test_owner_dashboard_overview_shortcuts_cover_management_sections():
     assert set(shortcut_pairs.values()) <= owner_tabs
 
 
+def test_owner_admin_tools_are_grouped_by_operational_area():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    html = (root / "webapp" / "auth" / "index.html").read_text(encoding="utf-8")
+    js = (root / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+    shortcut_block = js[js.index("const ownerShortcutTabs"): js.index("const ownerGroupTargets")]
+    group_block = js[js.index("const ownerGroupTargets"): js.index("const ownerLoadingLabels")]
+    request_block = js[js.index("function ownerRequestMap"): js.index("function tagOwnerGroups")]
+
+    assert 'id="owner-broadcast-tools"' in html
+    assert 'id="owner-reseller-deposit-tools"' in html
+    assert 'id="owner-bot-tools"' in html
+    assert 'broadcast: "system"' in shortcut_block
+    assert 'reseller_deposits: "finance"' in shortcut_block
+    assert 'bot_subscriptions: "integrations"' in shortcut_block
+    assert '"owner-broadcast-tools"' in group_block
+    assert '"owner-reseller-deposit-tools"' in group_block
+    assert 'integrations: {' in request_block
+    assert 'bots: () => api("/api/v1/owner/bots?status=all&limit=30")' in request_block
+
+
 def test_owner_routing_cards_use_stable_field_group():
     from pathlib import Path
 
