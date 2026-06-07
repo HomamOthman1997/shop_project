@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from aiogram import Bot
+from aiogram.types import BufferedInputFile
 
 from config import settings
 from database.bots_repo import get_bot_token
@@ -42,6 +43,39 @@ async def send_ticket_message(ticket: dict, text: str) -> bool:
         user_id=int((ticket or {}).get("user_id") or 0),
         text=text,
     )
+
+
+async def send_ticket_attachment(
+    ticket: dict,
+    *,
+    content: bytes,
+    filename: str,
+    content_type: str,
+    caption: str = "",
+) -> tuple[bool, str]:
+    source_bot_id = int((ticket or {}).get("source_bot_id") or 0)
+    user_id = int((ticket or {}).get("user_id") or 0)
+    if source_bot_id <= 0 or user_id <= 0 or not content:
+        return False, ""
+    token = _configured_token(source_bot_id)
+    if not token:
+        try:
+            token = str(await get_bot_token(source_bot_id) or "").strip()
+        except Exception:
+            token = ""
+    if not token:
+        return False, ""
+    bot = Bot(token=token)
+    kind = "photo" if str(content_type or "").lower().startswith("image/") else "document"
+    upload = BufferedInputFile(content, filename=str(filename or "attachment.bin"))
+    try:
+        if kind == "photo":
+            await bot.send_photo(chat_id=user_id, photo=upload, caption=str(caption or "")[:1024] or None)
+        else:
+            await bot.send_document(chat_id=user_id, document=upload, caption=str(caption or "")[:1024] or None)
+        return True, kind
+    finally:
+        await bot.session.close()
 
 
 async def send_owner_broadcast(*, chat_id: int, text: str, message_thread_id: int | None = None) -> bool:

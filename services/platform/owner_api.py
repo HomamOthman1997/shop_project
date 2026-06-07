@@ -21,14 +21,19 @@ from database.custom_services_repo import (
     get_node,
     get_pending_preorder_position,
     get_preorder_request,
+    list_stock_events,
     list_children,
+    move_node_in_parent,
     rename_node,
+    record_stock_event,
     set_endpoint_inventory,
     set_endpoint_low_stock_threshold,
     set_endpoint_preorder_enabled,
     update_endpoint,
+    update_endpoint_delivery,
     update_endpoint_product_info,
     update_endpoint_usage_policy,
+    update_node_display_text,
 )
 from database.digital_products_config_repo import (
     get_digital_products_markup_percent,
@@ -83,7 +88,7 @@ from services.platform.custom_preorder_ops import (
     reject_preorder_from_owner,
     release_preorder_from_owner,
 )
-from services.platform.telegram_delivery import send_owner_broadcast, send_ticket_message
+from services.platform.telegram_delivery import send_owner_broadcast, send_ticket_attachment, send_ticket_message
 from services.platform.support_ops import pay_ticket_bug_reward
 from services.platform.webhooks_api import ALLOWED_WEBHOOK_EVENTS, _valid_https_url
 from services.platform.website_auth import require_website_owner
@@ -101,6 +106,7 @@ _NO_STORE_HEADERS = {
     "Pragma": "no-cache",
     "Expires": "0",
 }
+_MAX_SUPPORT_ATTACHMENT_BYTES = 8 * 1024 * 1024
 
 
 def _management_sections() -> list[dict[str, Any]]:
@@ -911,6 +917,9 @@ def _custom_catalog_node_payload(row: dict[str, Any], *, include_inventory: bool
         "low_stock_threshold": int(row.get("low_stock_threshold") or 0),
         "product_info_text": _text(row.get("product_info_text")),
         "usage_policy_text": _text(row.get("usage_policy_text")),
+        "display_text": _text(row.get("display_text")),
+        "delivery_type": _text(row.get("delivery_type")),
+        "delivery_text": _text(row.get("delivery_text")),
         "inventory_count": len(list(row.get("inventory_items") or [])),
         "updated_at": _iso_value(row.get("updated_at")),
     }
@@ -1002,6 +1011,8 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
         if len(name) < 2 or len(name) > 100:
             return web.json_response({"ok": False, "message": "Name must be between 2 and 100 characters."}, status=400, headers=dict(_NO_STORE_HEADERS))
         node = await rename_node(node_id, owner_id, name, catalog_type=catalog_type) or node
+    if "display_text" in body:
+        node = await update_node_display_text(node_id, owner_id, body.get("display_text"), catalog_type=catalog_type) or node
     if str(node.get("node_type") or "") == "endpoint":
         try:
             node = await update_endpoint(
@@ -1022,6 +1033,14 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
             node = await update_endpoint_product_info(node_id, owner_id, body.get("product_info_text"), catalog_type=catalog_type) or node
         if "usage_policy_text" in body:
             node = await update_endpoint_usage_policy(node_id, owner_id, body.get("usage_policy_text"), catalog_type=catalog_type) or node
+        if "delivery_text" in body:
+            node = await update_endpoint_delivery(
+                node_id,
+                owner_id,
+                delivery_type="text",
+                delivery_text=body.get("delivery_text"),
+                catalog_type=catalog_type,
+            ) or node
     await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action="custom_catalog_update", target_type=_text(node.get("node_type")), target_id=node_id)
     return web.json_response({"ok": True, "node": _custom_catalog_node_payload(node)}, headers=dict(_NO_STORE_HEADERS))
 
@@ -1050,7 +1069,65 @@ async def owner_update_custom_catalog_inventory(request: web.Request) -> web.Res
     if not updated:
         return web.json_response({"ok": False, "message": "Could not update inventory."}, status=409, headers=dict(_NO_STORE_HEADERS))
     await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action=f"custom_catalog_inventory_{mode}", target_type="endpoint", target_id=node_id, metadata={"count": len(cleaned)})
+    before_qty = int(node.get("available_qty") or 0)
+    delta = int(updated.get("available_qty") or 0) - before_qty
+    await record_stock_event(
+        endpoint_id=node_id,
+        catalog_owner_id=owner_id,
+        catalog_type=catalog_type,
+        event_type=f"website_stock_{mode}",
+        qty_delta=delta,
+        actor_id=owner.customer_id,
+    )
     return web.json_response({"ok": True, "node": _custom_catalog_node_payload(updated)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_custom_catalog_node_action(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    catalog_type = _catalog_type((body or {}).get("catalog_type"))
+    node_id = str(request.match_info.get("node_id") or "")
+    action = str((body or {}).get("action") or "").strip().lower()
+    if action == "move":
+        ok, reason = await move_node_in_parent(node_id, owner_id, str((body or {}).get("direction") or ""), catalog_type=catalog_type)
+        if not ok:
+            return web.json_response({"ok": False, "message": reason}, status=409, headers=dict(_NO_STORE_HEADERS))
+    else:
+        return web.json_response({"ok": False, "message": "Unsupported catalog action."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action=f"custom_catalog_{action}", target_type="node", target_id=node_id, metadata={"direction": body.get("direction")})
+    return web.json_response({"ok": True, "result": reason}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_custom_catalog_stock_events(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    catalog_type = _catalog_type(request.query.get("catalog_type"))
+    node_id = str(request.match_info.get("node_id") or "")
+    node = await get_node(node_id, reseller_id=owner_id, catalog_type=catalog_type)
+    if not node or str(node.get("node_type") or "") != "endpoint":
+        return web.json_response({"ok": False, "message": "Catalog endpoint was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    rows = await list_stock_events(node_id, owner_id, catalog_type=catalog_type, limit=_limit(request))
+    return web.json_response(
+        {
+            "ok": True,
+            "events": [
+                {
+                    "id": _text(row.get("_id")),
+                    "event_type": _text(row.get("event_type")),
+                    "qty_delta": int(row.get("qty_delta") or 0),
+                    "actor_id": int(row.get("actor_id") or 0),
+                    "note": _text(row.get("note")),
+                    "created_at": _iso_value(row.get("created_at")),
+                }
+                for row in rows
+            ],
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
 
 
 async def owner_delete_custom_catalog_node(request: web.Request) -> web.Response:
@@ -1915,6 +1992,58 @@ async def owner_support_ticket_detail(request: web.Request) -> web.Response:
     )
 
 
+async def owner_support_ticket_attachment(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    ticket_id = str(request.match_info.get("ticket_id") or "").strip()
+    ticket = await get_support_ticket(ticket_id)
+    if not ticket:
+        return web.json_response({"ok": False, "message": "Support ticket was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    if "multipart/form-data" not in str(request.headers.get("Content-Type") or "").lower():
+        return web.json_response({"ok": False, "message": "Multipart form required."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    caption = ""
+    content = b""
+    filename = ""
+    content_type = ""
+    try:
+        reader = await request.multipart()
+        async for part in reader:
+            if str(getattr(part, "name", "") or "") == "caption":
+                caption = (await part.text()).strip()[:1024]
+                continue
+            if str(getattr(part, "name", "") or "") != "attachment":
+                continue
+            filename = str(getattr(part, "filename", "") or "attachment.bin").strip()[:200]
+            content_type = str(getattr(part, "headers", {}).get("Content-Type") or "application/octet-stream")
+            chunks = []
+            total = 0
+            while True:
+                chunk = await part.read_chunk()
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _MAX_SUPPORT_ATTACHMENT_BYTES:
+                    return web.json_response({"ok": False, "message": "Attachment is larger than 8 MB."}, status=413, headers=dict(_NO_STORE_HEADERS))
+                chunks.append(chunk)
+            content = b"".join(chunks)
+    except Exception:
+        return web.json_response({"ok": False, "message": "Could not read attachment."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if not content:
+        return web.json_response({"ok": False, "message": "Choose an attachment."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    delivered, kind = await send_ticket_attachment(ticket, content=content, filename=filename, content_type=content_type, caption=caption)
+    if not delivered:
+        return web.json_response({"ok": False, "message": "Could not deliver attachment through the ticket source bot."}, status=502, headers=dict(_NO_STORE_HEADERS))
+    now = datetime.now(UTC)
+    await db.support_ticket_messages.insert_one(
+        {"ticket_id": ticket.get("_id"), "direction": "owner_to_user", "actor_id": owner.customer_id, "kind": kind, "caption": caption, "filename": filename, "created_at": now}
+    )
+    await db.support_tickets.update_one(
+        {"_id": ticket.get("_id")},
+        {"$set": {"status": "replied", "last_reply_by": owner.customer_id, "last_reply_at": now, "updated_at": now}, "$inc": {"payload_count": 1}},
+    )
+    await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action="support_ticket_attachment", target_type="support_ticket", target_id=ticket_id, metadata={"kind": kind, "filename": filename})
+    return web.json_response({"ok": True, "attachment": {"kind": kind, "filename": filename}}, headers=dict(_NO_STORE_HEADERS))
+
+
 async def owner_support_ticket_action(request: web.Request) -> web.Response:
     owner = await require_website_owner(request)
     ticket_id = str(request.match_info.get("ticket_id") or "").strip()
@@ -1986,7 +2115,9 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/custom-catalog/nodes/{node_id}", owner_custom_catalog_node_detail)
     app.router.add_patch("/api/v1/owner/custom-catalog/nodes/{node_id}", owner_update_custom_catalog_node)
     app.router.add_delete("/api/v1/owner/custom-catalog/nodes/{node_id}", owner_delete_custom_catalog_node)
+    app.router.add_post("/api/v1/owner/custom-catalog/nodes/{node_id}/action", owner_custom_catalog_node_action)
     app.router.add_post("/api/v1/owner/custom-catalog/nodes/{node_id}/inventory", owner_update_custom_catalog_inventory)
+    app.router.add_get("/api/v1/owner/custom-catalog/nodes/{node_id}/stock-events", owner_custom_catalog_stock_events)
     app.router.add_get("/api/v1/owner/numbers/refund-reviews", owner_numbers_refund_reviews)
     app.router.add_post("/api/v1/owner/numbers/refund-reviews/{order_id}/resolve", owner_resolve_numbers_refund_review)
     app.router.add_get("/api/v1/owner/settings", owner_settings)
@@ -1999,6 +2130,7 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/owner/identity-reviews/{review_id}/action", owner_identity_review_action)
     app.router.add_get("/api/v1/owner/support-tickets", owner_support_tickets)
     app.router.add_get("/api/v1/owner/support-tickets/{ticket_id}", owner_support_ticket_detail)
+    app.router.add_post("/api/v1/owner/support-tickets/{ticket_id}/attachment", owner_support_ticket_attachment)
     app.router.add_post("/api/v1/owner/support-tickets/{ticket_id}/action", owner_support_ticket_action)
     app.router.add_get("/api/v1/owner/api-keys", owner_api_keys)
     app.router.add_post("/api/v1/owner/api-keys", owner_create_api_key)

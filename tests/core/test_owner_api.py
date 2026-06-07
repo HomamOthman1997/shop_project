@@ -35,7 +35,9 @@ def test_register_owner_api_routes():
     assert ("GET", "/api/v1/owner/custom-catalog/nodes/{node_id}") in routes
     assert ("PATCH", "/api/v1/owner/custom-catalog/nodes/{node_id}") in routes
     assert ("DELETE", "/api/v1/owner/custom-catalog/nodes/{node_id}") in routes
+    assert ("POST", "/api/v1/owner/custom-catalog/nodes/{node_id}/action") in routes
     assert ("POST", "/api/v1/owner/custom-catalog/nodes/{node_id}/inventory") in routes
+    assert ("GET", "/api/v1/owner/custom-catalog/nodes/{node_id}/stock-events") in routes
     assert ("GET", "/api/v1/owner/numbers/refund-reviews") in routes
     assert ("POST", "/api/v1/owner/numbers/refund-reviews/{order_id}/resolve") in routes
     assert ("GET", "/api/v1/owner/settings") in routes
@@ -48,6 +50,7 @@ def test_register_owner_api_routes():
     assert ("POST", "/api/v1/owner/identity-reviews/{review_id}/action") in routes
     assert ("GET", "/api/v1/owner/support-tickets") in routes
     assert ("GET", "/api/v1/owner/support-tickets/{ticket_id}") in routes
+    assert ("POST", "/api/v1/owner/support-tickets/{ticket_id}/attachment") in routes
     assert ("POST", "/api/v1/owner/support-tickets/{ticket_id}/action") in routes
     assert ("GET", "/api/v1/owner/api-keys") in routes
     assert ("POST", "/api/v1/owner/api-keys") in routes
@@ -763,6 +766,83 @@ async def test_owner_support_action_uses_shared_ticket_state(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_owner_support_attachment_delivers_and_records(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def ticket(_ticket_id):
+        return {"_id": "ticket-1", "source_bot_id": 5, "user_id": 7}
+
+    async def deliver(_ticket, **kwargs):
+        calls["deliver"] = kwargs
+        return True, "document"
+
+    async def audit(**_kwargs):
+        return None
+
+    class Part:
+        def __init__(self, name, *, text="", content=b"", filename=""):
+            self.name = name
+            self.filename = filename
+            self.headers = {"Content-Type": "application/octet-stream"}
+            self._text = text
+            self._content = content
+            self._read = False
+
+        async def text(self):
+            return self._text
+
+        async def read_chunk(self):
+            if self._read:
+                return b""
+            self._read = True
+            return self._content
+
+    class Reader:
+        def __init__(self):
+            self.parts = iter([Part("caption", text="Invoice"), Part("attachment", content=b"file", filename="invoice.txt")])
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self.parts)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    class Collection:
+        async def insert_one(self, doc):
+            calls["message"] = doc
+
+        async def update_one(self, query, update):
+            calls["ticket_update"] = (query, update)
+
+    class Request:
+        match_info = {"ticket_id": "ticket-1"}
+        headers = {"Content-Type": "multipart/form-data; boundary=x"}
+
+        async def multipart(self):
+            return Reader()
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "get_support_ticket", ticket)
+    monkeypatch.setattr(owner_api, "send_ticket_attachment", deliver)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    monkeypatch.setattr(owner_api.db, "support_ticket_messages", Collection())
+    monkeypatch.setattr(owner_api.db, "support_tickets", Collection())
+
+    response = await owner_api.owner_support_ticket_attachment(Request())
+
+    assert response.status == 200
+    assert calls["deliver"]["content"] == b"file"
+    assert calls["deliver"]["filename"] == "invoice.txt"
+    assert calls["message"]["kind"] == "document"
+
+
+@pytest.mark.asyncio
 async def test_owner_custom_preorder_action_fulfills_with_delivery_text(monkeypatch):
     calls = {}
 
@@ -847,6 +927,33 @@ async def test_owner_create_custom_catalog_folder(monkeypatch):
 
     assert response.status == 200
     assert calls == {"reseller_id": 77, "parent_id": "root-1", "name": "Accounts", "catalog_type": "custom"}
+
+
+@pytest.mark.asyncio
+async def test_owner_custom_catalog_move_delegates(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def move(node_id, owner_id, direction, *, catalog_type):
+        calls.update({"node_id": node_id, "owner_id": owner_id, "direction": direction, "catalog_type": catalog_type})
+        return True, "moved"
+
+    async def audit(**_kwargs):
+        return None
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_owner_catalog_id", lambda: 77)
+    monkeypatch.setattr(owner_api, "move_node_in_parent", move)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    request = make_mocked_request("POST", "/api/v1/owner/custom-catalog/nodes/node-1/action", match_info={"node_id": "node-1"})
+    request._read_bytes = json.dumps({"action": "move", "direction": "up"}).encode()
+
+    response = await owner_api.owner_custom_catalog_node_action(request)
+
+    assert response.status == 200
+    assert calls == {"node_id": "node-1", "owner_id": 77, "direction": "up", "catalog_type": "custom"}
 
 
 @pytest.mark.asyncio

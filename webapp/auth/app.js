@@ -1200,6 +1200,7 @@ function renderOwnerSupportTickets(rows) {
       <div class="owner-order-head"><div><strong>تذكرة #${esc(row.ticket_no)} · ${esc(row.category)}</strong><span>${esc(row.full_name || row.username || row.user_id)}</span></div><b>${esc(row.status)}</b></div>
       <div class="owner-order-meta"><span>المستخدم: ${esc(row.user_id)}</span><span>المصدر: ${esc(row.scope)}</span><span>عدد الرسائل: ${esc(row.payload_count)}</span><span>فرز الخطأ: ${esc(row.bug_triage?.status || "-")}</span></div>
       ${row.status !== "solved" ? `<form class="owner-support-reply" data-owner-support-reply="${esc(row.id)}"><input name="message" required minlength="2" maxlength="3500" placeholder="اكتب الرد الذي سيصل للمستخدم عبر البوت"><button class="secondary compact" type="submit">إرسال الرد</button></form>` : ""}
+      ${row.status !== "solved" ? `<form class="owner-support-reply" data-owner-support-attachment="${esc(row.id)}"><input name="attachment" type="file" required><input name="caption" maxlength="1024" placeholder="Attachment caption"><button class="secondary compact" type="submit">Send attachment</button></form>` : ""}
       <div class="owner-order-actions">
         <button class="secondary compact" data-owner-ticket-detail="${esc(row.id)}">Conversation</button>
         ${row.status !== "solved" ? `<button class="primary compact" data-owner-ticket="${esc(row.id)}" data-ticket-action="solve">حل التذكرة</button>` : ""}
@@ -1211,6 +1212,7 @@ function renderOwnerSupportTickets(rows) {
   target.querySelectorAll("[data-owner-ticket]").forEach((button) => button.addEventListener("click", () => runOwnerSupportAction(button)));
   target.querySelectorAll("[data-owner-ticket-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerSupportDetail(button)));
   target.querySelectorAll("[data-owner-support-reply]").forEach((form) => form.addEventListener("submit", runOwnerSupportReply));
+  target.querySelectorAll("[data-owner-support-attachment]").forEach((form) => form.addEventListener("submit", runOwnerSupportAttachment));
 }
 
 async function loadOwnerSupportDetail(button) {
@@ -1245,6 +1247,25 @@ async function runOwnerSupportReply(event) {
   try {
     await api(`/api/v1/owner/support-tickets/${encodeURIComponent(form.dataset.ownerSupportReply)}/action`, {method: "POST", body: JSON.stringify({action: "reply", message: form.elements.message.value})});
     setText("#owner-message", "تم إرسال الرد للمستخدم.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+  finally { button.disabled = false; }
+}
+
+async function runOwnerSupportAttachment(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const file = form.elements.attachment.files?.[0];
+  if (!file) return setText("#owner-message", "Choose an attachment.");
+  if (file.size > 8 * 1024 * 1024) return setText("#owner-message", "Attachment is larger than 8 MB.");
+  const button = form.querySelector("button");
+  const body = new FormData();
+  body.append("attachment", file);
+  body.append("caption", form.elements.caption.value || "");
+  button.disabled = true;
+  try {
+    await api(`/api/v1/owner/support-tickets/${encodeURIComponent(form.dataset.ownerSupportAttachment)}/attachment`, {method: "POST", body, timeoutMs: 45000});
+    setText("#owner-message", "Attachment was sent to the customer.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
   finally { button.disabled = false; }
@@ -1522,7 +1543,10 @@ function renderOwnerCustomCatalog(payload) {
         <div class="owner-action-row">
           <div><strong>${esc(node.name)}</strong><span>${esc(node.node_type)}${node.node_type === "endpoint" ? ` · ${esc(node.price)} USD · stock ${esc(node.available_qty)} · min ${esc(node.min_qty)}` : ""}</span></div>
           <div class="owner-order-actions">
-            ${node.node_type === "folder" ? `<button class="secondary compact" data-owner-catalog-folder="${esc(node.id)}">Open</button>` : `<button class="secondary compact" data-owner-catalog-detail="${esc(node.id)}">Manage</button>`}
+            ${node.node_type === "folder" ? `<button class="secondary compact" data-owner-catalog-folder="${esc(node.id)}">Open</button>` : ""}
+            <button class="secondary compact" data-owner-catalog-detail="${esc(node.id)}">Manage</button>
+            <button class="secondary compact" data-owner-catalog-move="${esc(node.id)}" data-direction="up" title="Move up">↑</button>
+            <button class="secondary compact" data-owner-catalog-move="${esc(node.id)}" data-direction="down" title="Move down">↓</button>
             <button class="danger compact" data-owner-catalog-delete="${esc(node.id)}">Disable</button>
           </div>
         </div>`).join("") : '<div class="notice">This folder is empty.</div>'}
@@ -1530,6 +1554,7 @@ function renderOwnerCustomCatalog(payload) {
   $("#owner-catalog-create-form")?.addEventListener("submit", createOwnerCatalogNode);
   target.querySelectorAll("[data-owner-catalog-folder]").forEach((button) => button.addEventListener("click", () => openOwnerCatalogFolder(button.dataset.ownerCatalogFolder)));
   target.querySelectorAll("[data-owner-catalog-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerCatalogNode(button.dataset.ownerCatalogDetail)));
+  target.querySelectorAll("[data-owner-catalog-move]").forEach((button) => button.addEventListener("click", () => moveOwnerCatalogNode(button.dataset.ownerCatalogMove, button.dataset.direction)));
   target.querySelectorAll("[data-owner-catalog-delete]").forEach((button) => button.addEventListener("click", () => deleteOwnerCatalogNode(button.dataset.ownerCatalogDelete)));
 }
 
@@ -1565,23 +1590,29 @@ async function loadOwnerCatalogNode(nodeId) {
         <div class="owner-order-head"><div><strong>Manage ${esc(node.name)}</strong><span>${esc(node.id)}</span></div><b>${esc(node.available_qty)} in stock</b></div>
         <form class="owner-review-form" data-owner-catalog-update="${esc(node.id)}">
           <label><span>Name</span><input name="name" value="${esc(node.name)}" required minlength="2" maxlength="100"></label>
-          <label><span>Price USD</span><input name="price" type="number" min="0" step="0.01" value="${esc(node.price)}"></label>
-          <label><span>Minimum purchase</span><input name="min_qty" type="number" min="1" step="1" value="${esc(node.min_qty)}"></label>
-          <label><span>Low stock threshold</span><input name="low_stock_threshold" type="number" min="0" step="1" value="${esc(node.low_stock_threshold)}"></label>
-          <label class="owner-toggle"><input name="preorder_enabled" type="checkbox" ${node.preorder_enabled ? "checked" : ""}> Enable preorder</label>
-          <label><span>Product information</span><textarea name="product_info_text" rows="3">${esc(node.product_info_text || "")}</textarea></label>
-          <label><span>Usage policy</span><textarea name="usage_policy_text" rows="3">${esc(node.usage_policy_text || "")}</textarea></label>
-          <button class="primary compact" type="submit">Save product</button>
+          <label><span>Display text</span><textarea name="display_text" rows="3">${esc(node.display_text || "")}</textarea></label>
+          ${node.node_type === "endpoint" ? `
+            <label><span>Price USD</span><input name="price" type="number" min="0" step="0.01" value="${esc(node.price)}"></label>
+            <label><span>Minimum purchase</span><input name="min_qty" type="number" min="1" step="1" value="${esc(node.min_qty)}"></label>
+            <label><span>Low stock threshold</span><input name="low_stock_threshold" type="number" min="0" step="1" value="${esc(node.low_stock_threshold)}"></label>
+            <label class="owner-toggle"><input name="preorder_enabled" type="checkbox" ${node.preorder_enabled ? "checked" : ""}> Enable preorder</label>
+            <label><span>Product information</span><textarea name="product_info_text" rows="3">${esc(node.product_info_text || "")}</textarea></label>
+            <label><span>Usage policy</span><textarea name="usage_policy_text" rows="3">${esc(node.usage_policy_text || "")}</textarea></label>
+            <label><span>Automatic text delivery</span><textarea name="delivery_text" rows="3">${esc(node.delivery_type === "text" ? node.delivery_text || "" : "")}</textarea></label>` : ""}
+          <button class="primary compact" type="submit">Save</button>
         </form>
-        <form class="owner-review-form" data-owner-catalog-inventory="${esc(node.id)}">
+        ${node.node_type === "endpoint" ? `<form class="owner-review-form" data-owner-catalog-inventory="${esc(node.id)}">
           <label><span>Stock mode</span><select name="mode"><option value="append">Append</option><option value="replace">Replace all</option></select></label>
           <label><span>Stock items, one per line</span><textarea name="payload" rows="6" placeholder="CODE-1&#10;CODE-2"></textarea></label>
           <button class="secondary compact" type="submit">Update stock</button>
+          <button class="secondary compact" type="button" data-owner-catalog-stock-log="${esc(node.id)}">Stock log</button>
         </form>
-        <details><summary>Current stock (${esc(node.inventory_count)})</summary><pre>${esc((node.inventory_items || []).join("\n"))}</pre></details>
+        <div id="owner-catalog-stock-log"></div>
+        <details><summary>Current stock (${esc(node.inventory_count)})</summary><pre>${esc((node.inventory_items || []).join("\n"))}</pre></details>` : ""}
       </article>`;
     target.querySelector("[data-owner-catalog-update]")?.addEventListener("submit", updateOwnerCatalogNode);
     target.querySelector("[data-owner-catalog-inventory]")?.addEventListener("submit", updateOwnerCatalogInventory);
+    target.querySelector("[data-owner-catalog-stock-log]")?.addEventListener("click", () => loadOwnerCatalogStockLog(node.id));
   } catch (error) { setText("#owner-message", error.message); }
 }
 
@@ -1590,10 +1621,11 @@ async function updateOwnerCatalogNode(event) {
   const form = event.currentTarget;
   const values = Object.fromEntries(new FormData(form).entries());
   values.catalog_type = $("#owner-catalog-type")?.value || "custom";
-  values.price = Number(values.price || 0);
-  values.min_qty = Number(values.min_qty || 1);
-  values.low_stock_threshold = Number(values.low_stock_threshold || 0);
-  values.preorder_enabled = form.elements.preorder_enabled.checked;
+  if (form.elements.price) values.price = Number(values.price || 0);
+  if (form.elements.min_qty) values.min_qty = Number(values.min_qty || 1);
+  if (form.elements.low_stock_threshold) values.low_stock_threshold = Number(values.low_stock_threshold || 0);
+  if (form.elements.preorder_enabled) values.preorder_enabled = form.elements.preorder_enabled.checked;
+  if (!String(values.delivery_text || "").trim()) delete values.delivery_text;
   try {
     await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(form.dataset.ownerCatalogUpdate)}`, {method: "PATCH", body: JSON.stringify(values)});
     setText("#owner-message", "Catalog product was updated.");
@@ -1620,6 +1652,26 @@ async function deleteOwnerCatalogNode(nodeId) {
     await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}`, {method: "DELETE"});
     setText("#owner-message", "Catalog node was disabled.");
     await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function moveOwnerCatalogNode(nodeId, direction) {
+  try {
+    await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}/action`, {
+      method: "POST",
+      body: JSON.stringify({action: "move", direction, catalog_type: $("#owner-catalog-type")?.value || "custom"}),
+    });
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function loadOwnerCatalogStockLog(nodeId) {
+  try {
+    const catalogType = $("#owner-catalog-type")?.value || "custom";
+    const payload = await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}/stock-events?catalog_type=${encodeURIComponent(catalogType)}&limit=30`);
+    const target = $("#owner-catalog-stock-log");
+    target.innerHTML = (payload.events || []).length ? payload.events.map((event) => `
+      <div class="owner-queue-row"><div><strong>${esc(event.event_type)}</strong><span>${esc(event.created_at)} · ${esc(event.note)}</span></div><b>${esc(event.qty_delta)}</b></div>`).join("") : '<div class="notice">No stock events recorded.</div>';
   } catch (error) { setText("#owner-message", error.message); }
 }
 
