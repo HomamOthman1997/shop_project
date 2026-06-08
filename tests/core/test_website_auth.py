@@ -127,6 +127,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'id="support-ticket-form"' in html
     assert 'id="support-ticket-list"' in html
     assert 'id="support-ticket-detail"' in html
+    assert 'id="identity-message"' in html
     assert 'data-order-filter="numbers"' in html
     assert 'data-order-filter="digital"' in html
     assert 'recharge: "/app/recharge"' in js
@@ -143,13 +144,19 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "function submitSupportTicketReply" in js
     assert "/api/v1/numbers/support/tickets/" in js
     assert "renderSupportTickets(support)" in js
+    assert "$(\"#identity-message\")" in js
+    assert "جاري إرسال طلب مراجعة الهوية..." in js
+    assert "تم إرسال طلب مراجعة الهوية." in js
     assert "نعمل على صندوق تذاكر" not in js
     assert "إرسال إثبات الدفع من الموقع غير مفعّل بعد" not in js
+    assert "رفع صور الوثائق سيضاف" not in html
     assert "الدعم غير مفعّل حالياً" in js
     assert '"تذاكري": "My tickets"' in i18n
     assert '"فتح تذكرة دعم": "Open support ticket"' in i18n
     assert '"الرصيد والمدفوعات": "Balance and payments"' in i18n
     assert '"ردك": "Your reply"' in i18n
+    assert '"تتم المراجعة حالياً من بياناتك الأساسية، وقد يطلب الدعم وثائق إضافية عند الحاجة.": "Review currently uses your basic details, and support may request additional documents when needed."' in i18n
+    assert '"تم إرسال طلب مراجعة الهوية.": "Identity review request submitted."' in i18n
     assert '"تعذر تحميل نشاط الحساب حالياً.": "Could not load account activity right now."' in i18n
     assert '"تعذر تحميل طرق الشحن حالياً.": "Could not load recharge methods right now."' in i18n
     assert '"تعذر تحميل خيارات الدعم حالياً.": "Could not load support options right now."' in i18n

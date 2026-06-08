@@ -2956,7 +2956,12 @@ verifyEmailCodeSubmit.addEventListener("click", async () => {
 
 $("#identity-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const formData = new FormData(event.currentTarget);
+  const form = event.currentTarget;
+  const message = $("#identity-message");
+  const button = form.querySelector("button[type='submit']");
+  const formData = new FormData(form);
+  if (message) message.textContent = "جاري إرسال طلب مراجعة الهوية...";
+  if (button) button.disabled = true;
   try {
     const data = await api("/api/v1/auth/identity", {
       method: "POST",
@@ -2964,8 +2969,11 @@ $("#identity-form")?.addEventListener("submit", async (event) => {
     });
     currentAccount.identity_status = data.status;
     applyIdentityState(data.status);
+    if (message) message.textContent = "تم إرسال طلب مراجعة الهوية.";
   } catch (error) {
-    accountMessage.textContent = error.message;
+    if (message) message.textContent = error.message;
+  } finally {
+    if (button) button.disabled = false;
   }
 });
 
