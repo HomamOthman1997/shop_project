@@ -344,6 +344,7 @@ async function loadDashboard() {
     renderRechargeOptions(recharge);
     renderRechargeRequests(rechargeRequests);
     renderSupportOptions(support);
+    renderSupportTickets(support);
   } catch (error) {
     activity.textContent = "تعذر تحميل بيانات الحساب حاليا.";
   }
@@ -461,8 +462,25 @@ function renderSupportOptions(payload) {
     </div>`);
   if (!rows.length) target.textContent = "لا توجد قنوات دعم مفعّلة حالياً.";
   else if (!submitEnabled) {
-    target.insertAdjacentHTML("beforeend", '<div class="notice support-roadmap">نعمل على صندوق تذاكر داخل الموقع ليستقبل ردود الدعم مباشرة، بدون اشتراط ربط Telegram.</div>');
+    target.insertAdjacentHTML("beforeend", '<div class="notice support-roadmap">الدعم غير مفعّل حالياً. جرّب مرة أخرى لاحقاً أو تواصل مع الإدارة.</div>');
   }
+}
+
+function renderSupportTickets(payload) {
+  const target = $("#support-ticket-list");
+  if (!target) return;
+  const rows = payload.tickets || [];
+  renderRows(target, rows, (row) => `
+    <div class="data-row">
+      <div>
+        <strong>#${esc(row.ticket_no || row.id || "")} · ${esc(row.category_label || row.category || "Support")}</strong>
+        <span>${esc(row.opened_at || "")}${row.updated_at ? ` · ${esc(row.updated_at)}` : ""}</span>
+      </div>
+      <div class="stacked-meta">
+        <b>${esc(row.status_label || row.status || "")}</b>
+        <span>${row.is_open ? "مفتوحة" : "مغلقة"}</span>
+      </div>
+    </div>`);
 }
 
 async function submitSupportTicket(event) {
@@ -480,6 +498,9 @@ async function submitSupportTicket(event) {
     });
     message.textContent = result.message || `تم فتح التذكرة #${result.ticket_no || ""}.`;
     form.reset();
+    const support = await api("/api/v1/numbers/support");
+    renderSupportOptions(support);
+    renderSupportTickets(support);
   } catch (error) {
     message.textContent = error.message;
   } finally {

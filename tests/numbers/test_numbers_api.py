@@ -394,16 +394,53 @@ async def test_numbers_api_support_returns_read_only_contract(monkeypatch):
         calls["auth_scope"] = required_scope
         return api_auth_context(key_id="key-1", user_id=123, reseller_id=456, scopes=(required_scope,))
 
+    class FakeCursor:
+        def sort(self, field, direction):
+            calls["sort"] = (field, direction)
+            return self
+
+        def limit(self, value):
+            calls["limit"] = value
+            return self
+
+        async def to_list(self, length):
+            calls["length"] = length
+            return [
+                {
+                    "_id": "ticket-1",
+                    "ticket_no": 9,
+                    "category": "numbers",
+                    "status": "open",
+                    "opened_at": datetime(2026, 1, 1, tzinfo=UTC),
+                    "updated_at": datetime(2026, 1, 2, tzinfo=UTC),
+                    "payload_count": 1,
+                }
+            ]
+
+    class FakeSupportTickets:
+        def find(self, query):
+            calls["ticket_query"] = query
+            return FakeCursor()
+
     monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
     monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "db", type("Db", (), {"support_tickets": FakeSupportTickets()})())
 
-    request = make_mocked_request("GET", "/api/v1/numbers/support")
+    request = make_mocked_request("GET", "/api/v1/numbers/support?ticket_limit=12")
 
     response = await api.support_options(request)
     payload = json.loads(response.text)
 
     assert calls["auth_scope"] == "numbers:account:read"
+    assert calls["ticket_query"] == {"scope": "platform", "owner_id": None, "user_id": 123}
+    assert calls["sort"] == ("opened_at", -1)
+    assert calls["limit"] == 12
+    assert calls["length"] == 12
     assert [row["key"] for row in payload["categories"]] == ["numbers", "services", "user_balance"]
+    assert [row["label"] for row in payload["categories"]] == ["طلبات الأرقام", "الخدمات الرقمية", "الرصيد والمدفوعات"]
+    assert payload["tickets"][0]["ticket_no"] == 9
+    assert payload["tickets"][0]["category_label"] == "طلبات الأرقام"
+    assert payload["tickets"][0]["is_open"] is True
     assert payload["actions"]["submit_ticket"]["enabled"] is True
     assert payload["actions"]["submit_ticket"]["endpoint"] == "/api/v1/numbers/support/ticket"
     assert payload["capabilities"]["submit_ticket"] is True

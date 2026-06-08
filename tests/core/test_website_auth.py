@@ -124,11 +124,16 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'data-view="recharge"' in html
     assert 'data-panel="recharge"' in html
     assert 'id="support-ticket-form"' in html
+    assert 'id="support-ticket-list"' in html
     assert 'data-order-filter="numbers"' in html
     assert 'data-order-filter="digital"' in html
     assert 'recharge: "/app/recharge"' in js
     assert 'api("/api/v1/numbers/recharge/requests?limit=10")' in js
     assert 'api("/api/v1/numbers/support/ticket"' in js
+    assert "function renderSupportTickets" in js
+    assert "renderSupportTickets(support)" in js
+    assert "نعمل على صندوق تذاكر" not in js
+    assert "الدعم غير مفعّل حالياً" in js
     assert ".support-ticket-form" in css
     assert ".order-filter-bar" in css
 

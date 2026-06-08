@@ -7,6 +7,7 @@ from typing import Any
 from aiohttp import web
 
 from database.financial_ledger import get_user_wallet_balance, list_user_wallet_entries
+from database.mongo import db
 from database.owner_payment_settings_repo import get_owner_payment_methods
 from database.orders_repo import (
     get_user_number_order,
@@ -75,16 +76,53 @@ _SUPPORT_CATEGORY_LABELS = {
     "services": "Digital products and services",
     "user_balance": "Balance and payments",
 }
+_SUPPORT_CATEGORY_LABELS_AR = {
+    "numbers": "طلبات الأرقام",
+    "services": "الخدمات الرقمية",
+    "user_balance": "الرصيد والمدفوعات",
+}
 _CENTRAL_SUPPORT_CATEGORIES = ("numbers", "services", "user_balance")
 _SUPPORT_CATEGORIES = tuple(
     (key, _SUPPORT_CATEGORY_LABELS.get(key, key.replace("_", " ").title()))
     for key in _CENTRAL_SUPPORT_CATEGORIES
 )
 _MAX_RECHARGE_PROOF_BYTES = 6 * 1024 * 1024
+_SUPPORT_OPEN_STATUSES = {"open", "awaiting_user", "awaiting_admin", "replied"}
 
 
 def _text(lang: str, en: str, ar: str) -> str:
     return ar if str(lang or "").lower().startswith("ar") else en
+
+
+def _support_category_label(key: str, lang: str) -> str:
+    normalized = str(key or "")
+    labels = _SUPPORT_CATEGORY_LABELS_AR if str(lang or "").lower().startswith("ar") else _SUPPORT_CATEGORY_LABELS
+    return labels.get(normalized, normalized.replace("_", " ").title())
+
+
+def _support_ticket_payload(row: dict[str, Any], lang: str) -> dict[str, Any]:
+    status = str(row.get("status") or "open")
+    category = str(row.get("category") or "")
+    status_labels = {
+        "open": _text(lang, "Open", "مفتوحة"),
+        "awaiting_user": _text(lang, "Waiting for you", "بانتظارك"),
+        "awaiting_admin": _text(lang, "Waiting for support", "بانتظار الدعم"),
+        "replied": _text(lang, "Replied", "تم الرد"),
+        "solved": _text(lang, "Solved", "محلولة"),
+        "closed": _text(lang, "Closed", "مغلقة"),
+    }
+    return {
+        "id": str(row.get("_id") or ""),
+        "ticket_no": int(row.get("ticket_no") or 0),
+        "category": category,
+        "category_label": _support_category_label(category, lang),
+        "status": status,
+        "status_label": status_labels.get(status, status),
+        "is_open": status in _SUPPORT_OPEN_STATUSES,
+        "opened_at": _iso_datetime(row.get("opened_at")) or "",
+        "updated_at": _iso_datetime(row.get("updated_at")) or "",
+        "payload_count": int(row.get("payload_count") or 0),
+    }
 
 
 async def health(_request: web.Request) -> web.Response:
@@ -417,11 +455,21 @@ async def submit_recharge(request: web.Request) -> web.Response:
 async def support_options(request: web.Request) -> web.Response:
     auth = await require_api_auth(request, "numbers:account:read")
     rate_limit = await _check_rate_limit(auth, bucket="numbers:support", limit=60)
+    lang = str(request.query.get("language") or "ar")
+    raw_limit = request.query.get("ticket_limit") or request.query.get("limit") or "8"
+    try:
+        ticket_limit = min(20, max(1, int(str(raw_limit))))
+    except Exception:
+        ticket_limit = 8
+    ticket_rows = await db.support_tickets.find(
+        {"scope": "platform", "owner_id": None, "user_id": int(auth.user_id)}
+    ).sort("opened_at", -1).limit(ticket_limit).to_list(length=ticket_limit)
 
     return web.json_response(
         {
             "ok": True,
-            "categories": [{"key": key, "label": label} for key, label in _SUPPORT_CATEGORIES],
+            "categories": [{"key": key, "label": _support_category_label(key, lang)} for key, _label in _SUPPORT_CATEGORIES],
+            "tickets": [_support_ticket_payload(row, lang) for row in ticket_rows],
             "actions": {
                 "submit_ticket": _api_action(
                     "submit_ticket",
