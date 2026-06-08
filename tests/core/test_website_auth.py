@@ -137,6 +137,10 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "function persistAccountLanguage" in js
     assert 'api("/api/v1/auth/language"' in js
     assert "currentAccount.language === language" in js
+    assert 'api("/api/v1/numbers/account")' in js
+    assert "function combinedRecentActivity" in js
+    assert "function activityAmountLabel" in js
+    assert "digitalAccount.wallet?.balance_label || numbersAccount.wallet?.balance_label" in js
     assert "function settledValue" in js
     assert "function renderLoadError" in js
     assert "function friendlyApiMessage" in js

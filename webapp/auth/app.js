@@ -371,11 +371,36 @@ function renderLoadError(selector, message) {
   target.textContent = message;
 }
 
+function activityTitle(row) {
+  return row.reason || row.label || "حركة رصيد";
+}
+
+function activityAmountLabel(row) {
+  const label = String(row.amount_label || "").trim();
+  if (label.startsWith("+") || label.startsWith("-")) return label;
+  return `${row.direction === "debit" ? "-" : "+"}${label}`;
+}
+
+function combinedRecentActivity(...payloads) {
+  const seen = new Set();
+  const rows = [];
+  payloads.forEach((payload) => {
+    (payload?.recent_activity || []).forEach((row) => {
+      const key = [row.id, row.order_id, row.created_at, row.reason || row.label, row.amount_label, row.direction].join("|");
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push(row);
+    });
+  });
+  return rows.sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || ""))).slice(0, 10);
+}
+
 async function loadDashboard() {
   const activity = $("#activity-list");
   const lang = encodeURIComponent(appLanguage());
-  const [accountResult, digitalOrdersResult, numberOrdersResult, rechargeResult, rechargeRequestsResult, supportResult] = await Promise.allSettled([
+  const [accountResult, numbersAccountResult, digitalOrdersResult, numberOrdersResult, rechargeResult, rechargeRequestsResult, supportResult] = await Promise.allSettled([
     api("/api/v1/digital/account"),
+    api("/api/v1/numbers/account"),
     api("/api/v1/digital/orders?limit=20"),
     api("/api/v1/numbers/orders?limit=20"),
     api("/api/v1/numbers/recharge"),
@@ -384,6 +409,7 @@ async function loadDashboard() {
   ]);
 
   const digitalAccount = settledValue(accountResult, { wallet: {}, recent_activity: [] });
+  const numbersAccount = settledValue(numbersAccountResult, { wallet: {}, recent_activity: [] });
   const digitalOrders = settledValue(digitalOrdersResult, { orders: [], items: [] });
   const numberOrders = settledValue(numberOrdersResult, { orders: [], items: [] });
   const recharge = settledValue(rechargeResult, null);
@@ -391,20 +417,22 @@ async function loadDashboard() {
   const support = settledValue(supportResult, null);
 
   try {
-    setText("#wallet-balance", digitalAccount.wallet?.balance_label || "$0.00");
-    setText("#recharge-wallet-balance", digitalAccount.wallet?.balance_label || "$0.00");
+    const walletLabel = digitalAccount.wallet?.balance_label || numbersAccount.wallet?.balance_label || "$0.00";
+    setText("#wallet-balance", walletLabel);
+    setText("#recharge-wallet-balance", walletLabel);
 
     const digitalRows = digitalOrders.orders || digitalOrders.items || [];
     const numberRows = numberOrders.orders || numberOrders.items || [];
     setText("#digital-order-count", digitalRows.length);
     setText("#numbers-order-count", numberRows.length);
 
-    renderRows(activity, digitalAccount.recent_activity || [], (row) => `
+    const recentActivity = combinedRecentActivity(digitalAccount, numbersAccount);
+    renderRows(activity, recentActivity, (row) => `
       <div class="data-row">
-        <div><strong>${esc(row.reason || "حركة رصيد")}</strong><span>${esc(row.created_at || "")}</span></div>
-        <b>${row.direction === "debit" ? "-" : "+"}${esc(row.amount_label || "")}</b>
+        <div><strong>${esc(activityTitle(row))}</strong><span>${esc(row.created_at || "")}</span></div>
+        <b>${esc(activityAmountLabel(row))}</b>
       </div>`);
-    if (accountResult.status !== "fulfilled") renderLoadError("#activity-list", "تعذر تحميل نشاط الحساب حالياً.");
+    if (accountResult.status !== "fulfilled" && numbersAccountResult.status !== "fulfilled") renderLoadError("#activity-list", "تعذر تحميل نشاط الحساب حالياً.");
     customerOrderRows = [
       ...digitalRows.map((row) => ({ ...row, channel: "رقمي", channel_key: "digital" })),
       ...numberRows.map((row) => ({ ...row, channel: "أرقام", channel_key: "numbers" })),
