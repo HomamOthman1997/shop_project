@@ -144,6 +144,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "/api/v1/numbers/support/tickets/" in js
     assert "renderSupportTickets(support)" in js
     assert "نعمل على صندوق تذاكر" not in js
+    assert "إرسال إثبات الدفع من الموقع غير مفعّل بعد" not in js
     assert "الدعم غير مفعّل حالياً" in js
     assert '"تذاكري": "My tickets"' in i18n
     assert '"فتح تذكرة دعم": "Open support ticket"' in i18n
@@ -153,6 +154,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert '"تعذر تحميل طرق الشحن حالياً.": "Could not load recharge methods right now."' in i18n
     assert '"تعذر تحميل خيارات الدعم حالياً.": "Could not load support options right now."' in i18n
     assert '"تم تحميل الطلبات المتاحة فقط. تعذر تحميل أحد الأقسام مؤقتاً.": "Only available orders were loaded. One section could not be loaded temporarily."' in i18n
+    assert '"يمكنك نسخ بيانات الدفع من هنا. إذا لم يظهر نموذج رفع الإثبات، افتح تذكرة من مركز الدعم بعد التحويل.": "You can copy payment details here. If the proof upload form does not appear, open a support ticket after the transfer."' in i18n
     assert ".support-ticket-detail" in css
     assert ".support-reply-form" in css
     assert ".support-ticket-form" in css

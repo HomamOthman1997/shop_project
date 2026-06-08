@@ -423,7 +423,7 @@ function renderRechargeOptions(payload) {
     target.insertAdjacentHTML("afterbegin", form);
     $("#recharge-submit-form")?.addEventListener("submit", submitRechargeProof);
   } else {
-    target.insertAdjacentHTML("afterbegin", '<div class="notice">يمكنك نسخ بيانات الدفع من هنا. إرسال إثبات الدفع من الموقع غير مفعّل بعد، لذلك أرسل الإثبات عبر Telegram أو الدعم بعد التحويل.</div>');
+    target.insertAdjacentHTML("afterbegin", '<div class="notice">يمكنك نسخ بيانات الدفع من هنا. إذا لم يظهر نموذج رفع الإثبات، افتح تذكرة من مركز الدعم بعد التحويل.</div>');
   }
 }
 

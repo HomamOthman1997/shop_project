@@ -75,6 +75,7 @@
     "تعذر تحميل خيارات الدعم حالياً.": "Could not load support options right now.",
     "تعذر تحميل تذاكر الدعم حالياً.": "Could not load support tickets right now.",
     "تعذر تحميل بيانات الحساب حالياً.": "Could not load account data right now.",
+    "يمكنك نسخ بيانات الدفع من هنا. إذا لم يظهر نموذج رفع الإثبات، افتح تذكرة من مركز الدعم بعد التحويل.": "You can copy payment details here. If the proof upload form does not appear, open a support ticket after the transfer.",
     "مركز الدعم": "Support center",
     "اختر القسم المرتبط بطلبك حتى يصل للفريق المناسب.": "Choose the related support type so it reaches the right team.",
     "دعم مركزي لحساب Phantom": "Central support for your Phantom account",
