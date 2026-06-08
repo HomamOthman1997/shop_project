@@ -310,6 +310,29 @@ def _wallet_activity_payload(entries: list[dict]) -> list[dict]:
     return rows
 
 
+def _csv_cell(value: Any) -> str:
+    return f'"{str(value or "").replace(chr(34), chr(34) + chr(34))}"'
+
+
+def _wallet_activity_csv(rows: list[dict]) -> str:
+    lines = ["date,label,amount,balance,direction,order_id"]
+    for row in rows:
+        lines.append(
+            ",".join(
+                _csv_cell(value)
+                for value in (
+                    row.get("created_at") or "",
+                    row.get("label") or "",
+                    row.get("amount_label") or "",
+                    row.get("balance_label") or "",
+                    row.get("direction") or "",
+                    row.get("order_id") or "",
+                )
+            )
+        )
+    return "\n".join(lines) + "\n"
+
+
 async def account(request: web.Request) -> web.Response:
     auth = await require_api_auth(request, "numbers:account:read")
     rate_limit = await _check_rate_limit(auth, bucket="numbers:account:read", limit=60)
@@ -344,6 +367,26 @@ async def account(request: web.Request) -> web.Response:
             "recent_activity": recent_activity,
         },
         headers=_response_headers(rate_limit),
+    )
+
+
+async def account_activity_csv(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:account:read")
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:account:activity", limit=20)
+    try:
+        entries = await list_user_wallet_entries(auth.user_id, auth.reseller_id, limit=500)
+        rows = _wallet_activity_payload(entries)
+    except Exception:
+        logger.exception("numbers api account activity export failed user=%s", auth.user_id)
+        rows = []
+
+    return web.Response(
+        text=_wallet_activity_csv(rows),
+        content_type="text/csv",
+        headers={
+            **_response_headers(rate_limit),
+            "Content-Disposition": 'attachment; filename="phantom-wallet-activity.csv"',
+        },
     )
 
 
@@ -1152,6 +1195,7 @@ def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/numbers/catalog/bootstrap", catalog_bootstrap)
     app.router.add_get("/api/v1/numbers/country-suggestions", country_suggestions)
     app.router.add_get("/api/v1/numbers/account", account)
+    app.router.add_get("/api/v1/numbers/account/activity.csv", account_activity_csv)
     app.router.add_get("/api/v1/numbers/recharge", recharge_options)
     app.router.add_get("/api/v1/numbers/recharge/requests", recharge_requests)
     app.router.add_post("/api/v1/numbers/recharge/submit", submit_recharge)

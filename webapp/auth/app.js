@@ -395,6 +395,16 @@ function combinedRecentActivity(...payloads) {
   return rows.sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || ""))).slice(0, 10);
 }
 
+function downloadAccountActivity() {
+  const link = document.createElement("a");
+  link.href = `/api/v1/numbers/account/activity.csv?language=${encodeURIComponent(appLanguage())}`;
+  link.download = "phantom-wallet-activity.csv";
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 async function loadDashboard() {
   const activity = $("#activity-list");
   const lang = encodeURIComponent(appLanguage());
@@ -3014,6 +3024,7 @@ $("#cardex-link")?.addEventListener("click", (event) => {
 });
 
 $("#refresh-orders")?.addEventListener("click", loadDashboard);
+$("#download-activity")?.addEventListener("click", downloadAccountActivity);
 $("#support-ticket-form")?.addEventListener("submit", submitSupportTicket);
 $("#support-ticket-list")?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-support-ticket-id]");

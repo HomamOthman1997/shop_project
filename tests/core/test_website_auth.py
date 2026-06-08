@@ -128,6 +128,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'id="support-ticket-form"' in html
     assert 'id="support-ticket-list"' in html
     assert 'id="support-ticket-detail"' in html
+    assert 'id="download-activity"' in html
     assert 'id="identity-message"' in html
     assert 'id="auth-context-message"' in html
     assert 'data-order-filter="numbers"' in html
@@ -140,6 +141,8 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'api("/api/v1/numbers/account")' in js
     assert "function combinedRecentActivity" in js
     assert "function activityAmountLabel" in js
+    assert "function downloadAccountActivity" in js
+    assert "/api/v1/numbers/account/activity.csv?language=" in js
     assert "digitalAccount.wallet?.balance_label || numbersAccount.wallet?.balance_label" in js
     assert "function settledValue" in js
     assert "function renderLoadError" in js

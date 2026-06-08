@@ -32,6 +32,7 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     assert ("GET", "/api/v1/numbers/catalog/bootstrap") in routes
     assert ("GET", "/api/v1/numbers/country-suggestions") in routes
     assert ("GET", "/api/v1/numbers/account") in routes
+    assert ("GET", "/api/v1/numbers/account/activity.csv") in routes
     assert ("GET", "/api/v1/numbers/recharge") in routes
     assert ("GET", "/api/v1/numbers/recharge/requests") in routes
     assert ("POST", "/api/v1/numbers/recharge/submit") in routes
@@ -336,6 +337,44 @@ async def test_numbers_api_recharge_returns_read_only_options(monkeypatch):
     assert payload["methods"][0]["target"] == "T_WALLET"
     assert payload["actions"]["submit_recharge"]["enabled"] is True
     assert payload["capabilities"]["submit_recharge_proof"] is True
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_account_activity_csv_exports_wallet_rows(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="website:account-1", user_id=123, reseller_id=456, scopes=(required_scope,))
+
+    async def fake_list_user_wallet_entries(user_id, reseller_id, *, limit):
+        calls["activity"] = (user_id, reseller_id, limit)
+        return [
+            {
+                "_id": "tx-1",
+                "direction": "credit",
+                "amount": 10,
+                "reason": "recharge_request_accepted",
+                "category": "recharge_credit",
+                "balance_after": 10,
+                "created_at": datetime(2026, 5, 25, 12, 5, tzinfo=UTC),
+                "order_id": "recharge-1",
+            }
+        ]
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "list_user_wallet_entries", fake_list_user_wallet_entries)
+
+    response = await api.account_activity_csv(make_mocked_request("GET", "/api/v1/numbers/account/activity.csv"))
+
+    assert calls["auth_scope"] == "numbers:account:read"
+    assert calls["activity"] == (123, 456, 500)
+    assert response.content_type == "text/csv"
+    assert response.headers["Content-Disposition"] == 'attachment; filename="phantom-wallet-activity.csv"'
+    assert "date,label,amount,balance,direction,order_id" in response.text
+    assert '"Balance recharge","+$10.00","$10.00","credit","recharge-1"' in response.text
+    assert response.headers["X-RateLimit-Bucket"] == "numbers:account:activity"
 
 
 @pytest.mark.asyncio
