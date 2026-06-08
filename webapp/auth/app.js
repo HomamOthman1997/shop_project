@@ -29,10 +29,14 @@ let ownerPagedRows = {};
 let ownerIntegrationPayloads = {};
 let ownerSystemStatusPayload = {};
 let ownerProviderPayloads = {};
+let customerOrderRows = [];
+let customerOrderFilter = "all";
+let latestRechargePayload = null;
 
 const customerRoutes = {
   home: "/app",
   orders: "/app/orders",
+  recharge: "/app/recharge",
   support: "/app/support",
   account: "/app/account",
   identity: "/app/identity",
@@ -54,6 +58,7 @@ const adminRoutes = {
 const customerViewTitles = {
   home: "الخدمات",
   orders: "طلباتي",
+  recharge: "شحن الرصيد",
   support: "الدعم",
   account: "حسابي",
   identity: "تأكيد الهوية",
@@ -87,6 +92,7 @@ function viewForPath(pathname = window.location.pathname) {
   if (pathname.startsWith("/app/digital")) return "digital";
   if (pathname.startsWith("/app/numbers")) return "numbers";
   if (pathname.startsWith("/app/orders")) return "orders";
+  if (pathname.startsWith("/app/recharge")) return "recharge";
   if (pathname.startsWith("/app/support")) return "support";
   if (pathname.startsWith("/app/account")) return "account";
   if (pathname.startsWith("/app/identity")) return "identity";
@@ -308,12 +314,16 @@ function renderRows(target, rows, formatter) {
 async function loadDashboard() {
   const activity = $("#activity-list");
   try {
-    const [digitalAccount, digitalOrders, numberOrders] = await Promise.all([
+    const [digitalAccount, digitalOrders, numberOrders, recharge, rechargeRequests, support] = await Promise.all([
       api("/api/v1/digital/account"),
       api("/api/v1/digital/orders?limit=20"),
       api("/api/v1/numbers/orders?limit=20"),
+      api("/api/v1/numbers/recharge"),
+      api("/api/v1/numbers/recharge/requests?limit=10"),
+      api("/api/v1/numbers/support"),
     ]);
     setText("#wallet-balance", digitalAccount.wallet?.balance_label || "$0.00");
+    setText("#recharge-wallet-balance", digitalAccount.wallet?.balance_label || "$0.00");
 
     const digitalRows = digitalOrders.orders || digitalOrders.items || [];
     const numberRows = numberOrders.orders || numberOrders.items || [];
@@ -325,34 +335,23 @@ async function loadDashboard() {
         <div><strong>${esc(row.reason || "حركة رصيد")}</strong><span>${esc(row.created_at || "")}</span></div>
         <b>${row.direction === "debit" ? "-" : "+"}${esc(row.amount_label || "")}</b>
       </div>`);
-    renderOrders([
+    customerOrderRows = [
       ...digitalRows.map((row) => ({ ...row, channel: "رقمي", channel_key: "digital" })),
       ...numberRows.map((row) => ({ ...row, channel: "أرقام", channel_key: "numbers" })),
-    ]);
-    loadAccountExtras();
+    ];
+    renderOrders();
+    latestRechargePayload = recharge;
+    renderRechargeOptions(recharge);
+    renderRechargeRequests(rechargeRequests);
+    renderSupportOptions(support);
   } catch (error) {
     activity.textContent = "تعذر تحميل بيانات الحساب حاليا.";
   }
 }
 
-async function loadAccountExtras() {
-  const rechargeTarget = $("#recharge-list");
-  const supportTarget = $("#support-list");
-  try {
-    const [recharge, support] = await Promise.all([
-      api("/api/v1/numbers/recharge"),
-      api("/api/v1/numbers/support"),
-    ]);
-    renderRechargeOptions(recharge);
-    renderSupportOptions(support);
-  } catch (error) {
-    if (rechargeTarget) rechargeTarget.textContent = "تعذر تحميل طرق الشحن حاليا.";
-    if (supportTarget) supportTarget.textContent = "تعذر تحميل خيارات الدعم حاليا.";
-  }
-}
-
 function renderRechargeOptions(payload) {
   const target = $("#recharge-list");
+  if (!target) return;
   const methods = payload.methods || [];
   const canSubmitProof = Boolean(payload.capabilities?.submit_recharge_proof);
   const options = methods.map((method) => `<option value="${esc(method.code)}">${esc(method.title || method.code)}</option>`).join("");
@@ -387,6 +386,25 @@ function renderRechargeOptions(payload) {
   }
 }
 
+function renderRechargeRequests(payload) {
+  const target = $("#recharge-requests-list");
+  if (!target) return;
+  const rows = payload.requests || [];
+  setText("#recharge-request-count", rows.length);
+  renderRows(target, rows, (row) => `
+    <div class="data-row">
+      <div>
+        <strong>${esc(row.method || "طلب شحن")}</strong>
+        <span>${esc(row.created_at || "")}${row.updated_at ? ` · ${esc(row.updated_at)}` : ""}</span>
+      </div>
+      <div class="stacked-meta">
+        <b>${esc(row.status_label || row.status || "")}</b>
+        <span>${esc(row.paid_label || row.credits_label || "")}</span>
+      </div>
+      ${row.delivery_ok ? '<small class="status-pill">وصل للمراجعة</small>' : ""}
+    </div>`);
+}
+
 async function submitRechargeProof(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -403,7 +421,12 @@ async function submitRechargeProof(event) {
     });
     message.textContent = result.message || "تم إرسال طلب الشحن.";
     form.reset();
-    await loadDashboard();
+    if (result.wallet?.balance_label) {
+      setText("#wallet-balance", result.wallet.balance_label);
+      setText("#recharge-wallet-balance", result.wallet.balance_label);
+    }
+    const requests = await api("/api/v1/numbers/recharge/requests?limit=10");
+    renderRechargeRequests(requests);
   } catch (error) {
     message.textContent = error.message;
   } finally {
@@ -413,6 +436,7 @@ async function submitRechargeProof(event) {
 
 function renderSupportOptions(payload) {
   const target = $("#support-list");
+  const categorySelect = $("#support-category-select");
   const rows = payload.categories || [];
   const submitEnabled = Boolean(payload.actions?.submit_ticket?.enabled);
   const categoryMeta = {
@@ -420,6 +444,12 @@ function renderSupportOptions(payload) {
     services: { icon: "🎮", description: "طلبات المنتجات الرقمية، الشحن، والأسعار." },
     user_balance: { icon: "💳", description: "شحن الرصيد، الدفعات، والاستردادات." },
   };
+  if (categorySelect) {
+    categorySelect.innerHTML = rows.map((row) => `<option value="${esc(row.key)}">${esc(row.label || row.key)}</option>`).join("");
+    categorySelect.disabled = !submitEnabled || !rows.length;
+  }
+  const supportForm = $("#support-ticket-form");
+  if (supportForm) supportForm.hidden = !submitEnabled || !rows.length;
   renderRows(target, rows, (row) => `
     <div class="support-category">
       <span class="support-category-icon">${categoryMeta[row.key]?.icon || "💬"}</span>
@@ -432,6 +462,28 @@ function renderSupportOptions(payload) {
   if (!rows.length) target.textContent = "لا توجد قنوات دعم مفعّلة حالياً.";
   else if (!submitEnabled) {
     target.insertAdjacentHTML("beforeend", '<div class="notice support-roadmap">نعمل على صندوق تذاكر داخل الموقع ليستقبل ردود الدعم مباشرة، بدون اشتراط ربط Telegram.</div>');
+  }
+}
+
+async function submitSupportTicket(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = $("#support-ticket-message");
+  const button = form.querySelector("button[type='submit']");
+  message.textContent = "جاري فتح تذكرة الدعم...";
+  button.disabled = true;
+  try {
+    const values = Object.fromEntries(new FormData(form).entries());
+    const result = await api("/api/v1/numbers/support/ticket", {
+      method: "POST",
+      body: JSON.stringify({...values, language: "ar"}),
+    });
+    message.textContent = result.message || `تم فتح التذكرة #${result.ticket_no || ""}.`;
+    form.reset();
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -2181,8 +2233,26 @@ async function runOwnerDigitalAction(button) {
     card?.querySelectorAll("[data-owner-order]").forEach((item) => { item.disabled = false; });
   }
 }
-function renderOrders(rows) {
+function orderIsOpen(row) {
+  const status = String(orderStatus(row) || "").toLowerCase();
+  return !["done", "completed", "complete", "delivered", "paid", "cancelled", "canceled", "refunded", "rejected", "failed"].includes(status);
+}
+
+function filteredCustomerOrders() {
+  return customerOrderRows.filter((row) => {
+    if (customerOrderFilter === "numbers") return row.channel_key === "numbers";
+    if (customerOrderFilter === "digital") return row.channel_key === "digital";
+    if (customerOrderFilter === "open") return orderIsOpen(row);
+    if (customerOrderFilter === "done") return !orderIsOpen(row);
+    return true;
+  });
+}
+
+function renderOrders(rows = filteredCustomerOrders()) {
   const target = $("#orders-list");
+  document.querySelectorAll("[data-order-filter]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.orderFilter === customerOrderFilter);
+  });
   renderRows(target, rows, (row) => `
     <button class="data-row order-row-button" type="button" data-order-channel="${esc(row.channel_key || "")}" data-order-id="${esc(row.id || "")}">
       <div>
@@ -2695,6 +2765,13 @@ $("#cardex-link")?.addEventListener("click", (event) => {
 });
 
 $("#refresh-orders")?.addEventListener("click", loadDashboard);
+$("#support-ticket-form")?.addEventListener("submit", submitSupportTicket);
+document.querySelectorAll("[data-order-filter]").forEach((button) => {
+  button.addEventListener("click", () => {
+    customerOrderFilter = button.dataset.orderFilter || "all";
+    renderOrders();
+  });
+});
 $("#refresh-owner")?.addEventListener("click", loadOwnerDashboard);
 $("#owner-digital-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-preorder-filter")?.addEventListener("change", loadOwnerDashboard);

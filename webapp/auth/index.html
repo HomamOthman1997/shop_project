@@ -90,6 +90,7 @@
             <nav>
               <button class="nav-item active" data-view="home">الخدمات</button>
               <button class="nav-item" data-view="orders">طلباتي</button>
+              <button class="nav-item" data-view="recharge">شحن الرصيد</button>
               <button class="nav-item" data-view="support">الدعم</button>
               <button class="nav-item" data-view="account">حسابي</button>
               <button class="nav-item" data-view="identity">تأكيد الهوية</button>
@@ -159,7 +160,25 @@
 
             <section class="app-view" data-panel="orders">
               <div class="section-head"><div><h3>طلباتي</h3><p>كل الطلبات المرتبطة بحساب الموقع.</p></div><button id="refresh-orders" class="secondary compact">تحديث</button></div>
+              <div class="order-filter-bar" role="group" aria-label="Order filters">
+                <button class="filter-chip active" type="button" data-order-filter="all">الكل</button>
+                <button class="filter-chip" type="button" data-order-filter="numbers">الأرقام</button>
+                <button class="filter-chip" type="button" data-order-filter="digital">الديجيتال</button>
+                <button class="filter-chip" type="button" data-order-filter="open">المفتوحة</button>
+                <button class="filter-chip" type="button" data-order-filter="done">المكتملة</button>
+              </div>
               <div id="orders-list" class="data-list empty">لا توجد طلبات.</div>
+            </section>
+
+            <section class="app-view" data-panel="recharge">
+              <div class="section-head"><div><h3>شحن الرصيد</h3><p>طرق الدفع، رفع الإثبات، ومتابعة طلبات الشحن.</p></div></div>
+              <div class="recharge-overview">
+                <div><span>الرصيد الحالي</span><strong id="recharge-wallet-balance">$0.00</strong></div>
+                <div><span>طلبات الشحن</span><strong id="recharge-request-count">0</strong></div>
+              </div>
+              <div id="recharge-list" class="data-list empty">جاري تحميل طرق الشحن...</div>
+              <div class="section-head activity-head"><h3>طلبات الشحن السابقة</h3></div>
+              <div id="recharge-requests-list" class="data-list empty">لا توجد طلبات شحن حتى الآن.</div>
             </section>
 
             <section class="app-view" data-panel="account">
@@ -174,10 +193,9 @@
                 <button id="verify-email-code" class="primary compact" type="button">تأكيد</button>
               </div>
               <div class="settings-row"><div><strong>Telegram</strong><span id="telegram-status">غير مربوط</span></div><button id="telegram-action" class="secondary compact" type="button">ربط Telegram</button></div>
+              <div class="settings-row"><div><strong>استخدام البوتات</strong><span>ربط Telegram اختياري، لكنه يربط البوتات بنفس حساب الموقع.</span></div><b id="telegram-usage-status">اختياري</b></div>
               <div class="settings-row"><div><strong>معرّف العميل</strong><span id="customer-id"></span></div><b>داخلي</b></div>
               <p id="account-message" class="message" role="status"></p>
-              <div class="section-head activity-head"><h3>شحن الرصيد</h3></div>
-              <div id="recharge-list" class="data-list empty">جاري تحميل طرق الشحن...</div>
               <div class="section-head activity-head"><h3>آخر نشاط</h3></div>
               <div id="activity-list" class="data-list empty">لا يوجد نشاط حتى الآن.</div>
             </section>
@@ -193,6 +211,12 @@
                 <strong>دعم مركزي لحساب Phantom</strong>
                 <span>طلبات الأرقام، المنتجات الرقمية، والرصيد مجمعة في مكان واحد.</span>
               </div>
+              <form id="support-ticket-form" class="support-ticket-form">
+                <label><span>القسم</span><select name="category" id="support-category-select" required></select></label>
+                <label><span>الرسالة</span><textarea name="message" rows="4" minlength="3" maxlength="3500" required placeholder="اكتب المشكلة أو رقم الطلب إن وجد"></textarea></label>
+                <button class="primary compact" type="submit">فتح تذكرة دعم</button>
+                <p class="message" id="support-ticket-message"></p>
+              </form>
               <div id="support-list" class="support-category-grid empty">جاري تحميل خيارات الدعم...</div>
             </section>
 

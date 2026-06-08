@@ -495,6 +495,47 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   grid-column: 1 / -1;
   margin: 0;
 }
+.recharge-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.recharge-overview div,
+.stacked-meta {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 14px;
+  display: grid;
+  gap: 5px;
+}
+.recharge-overview span,
+.stacked-meta span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.order-filter-bar {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 0 0 14px;
+  scrollbar-width: none;
+}
+.order-filter-bar::-webkit-scrollbar { display: none; }
+.filter-chip {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+.filter-chip.active {
+  color: var(--ink);
+  border-color: rgba(52, 211, 153, .45);
+  background: rgba(52, 211, 153, .12);
+}
 .support-overview {
   border: 1px solid rgba(91, 141, 239, .34);
   background: rgba(91, 141, 239, .08);
@@ -536,6 +577,20 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 }
 .support-roadmap {
   grid-column: 1 / -1;
+}
+.support-ticket-form {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 18px;
+  display: grid;
+  grid-template-columns: minmax(180px, .8fr) minmax(0, 2fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 18px;
+}
+.support-ticket-form .message {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 .owner-metrics {
   display: grid;
@@ -1556,7 +1611,10 @@ button.owner-action-row {
   .order-meta-grid { grid-template-columns: 1fr; }
   .payment-method-row > div:first-child { align-items: flex-start; flex-direction: column; }
   .recharge-submit-form { grid-template-columns: 1fr; }
+  .recharge-overview { grid-template-columns: 1fr; }
   .support-category-grid { grid-template-columns: 1fr; }
+  .support-ticket-form { grid-template-columns: 1fr; }
+  .filter-chip { flex: 0 0 auto; }
   .owner-metrics, .owner-queues, .owner-sections, .owner-settings-grid { grid-template-columns: 1fr; }
   .owner-payment-fields { grid-template-columns: 1fr; }
   .owner-review-form { grid-template-columns: 1fr; }

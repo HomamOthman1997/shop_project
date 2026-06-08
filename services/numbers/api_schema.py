@@ -176,6 +176,14 @@ def numbers_openapi_schema() -> dict[str, Any]:
             },
             "/account": {"get": _operation(summary="Account and wallet snapshot", action_key="account", tags=["Account"])},
             "/recharge": {"get": _operation(summary="Recharge options", action_key="recharge", tags=["Account"])},
+            "/recharge/requests": {
+                "get": _operation(
+                    summary="Recent recharge requests",
+                    action_key="recharge_requests",
+                    tags=["Account"],
+                    parameters=[_query_param("limit", "Maximum number of rows.")],
+                )
+            },
             "/recharge/submit": {
                 "post": _operation(
                     summary="Submit recharge proof",
@@ -201,6 +209,29 @@ def numbers_openapi_schema() -> dict[str, Any]:
                 )
             },
             "/support": {"get": _operation(summary="Support options", action_key="support", tags=["Support"])},
+            "/support/ticket": {
+                "post": _operation(
+                    summary="Submit support ticket",
+                    action_key="submit_ticket",
+                    tags=["Support"],
+                    request_body={
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["category", "message"],
+                                    "properties": {
+                                        "category": {"type": "string", "enum": ["numbers", "services", "user_balance"]},
+                                        "message": {"type": "string", "minLength": 3, "maxLength": 3500},
+                                        "language": {"type": "string", "enum": ["en", "ar"], "default": "ar"},
+                                    },
+                                }
+                            }
+                        },
+                    },
+                )
+            },
             "/quotes": {
                 "get": _operation(
                     summary="Quote providers",

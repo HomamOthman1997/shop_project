@@ -113,6 +113,37 @@ async def test_website_auth_page_contains_owner_sidebar_navigation():
     assert 'data-view="owner"' not in text
 
 
+def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    html = (root / "webapp" / "auth" / "index.html").read_text(encoding="utf-8")
+    js = (root / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+    css = (root / "webapp" / "auth" / "styles.css").read_text(encoding="utf-8")
+
+    assert 'data-view="recharge"' in html
+    assert 'data-panel="recharge"' in html
+    assert 'id="support-ticket-form"' in html
+    assert 'data-order-filter="numbers"' in html
+    assert 'data-order-filter="digital"' in html
+    assert 'recharge: "/app/recharge"' in js
+    assert 'api("/api/v1/numbers/recharge/requests?limit=10")' in js
+    assert 'api("/api/v1/numbers/support/ticket"' in js
+    assert ".support-ticket-form" in css
+    assert ".order-filter-bar" in css
+
+
+def test_customer_dashboard_keeps_products_out_of_account_sections():
+    from pathlib import Path
+
+    html = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "index.html").read_text(encoding="utf-8")
+    account_block = html[html.index('data-panel="account"'): html.index('data-panel="support"')]
+
+    assert 'id="recharge-list"' not in account_block
+    assert "Telegram" in account_block
+    assert 'id="activity-list"' in account_block
+
+
 def test_owner_dashboard_tabs_have_routes_nav_and_content_groups():
     from pathlib import Path
 

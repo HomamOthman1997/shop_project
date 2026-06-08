@@ -31,8 +31,10 @@ from services.numbers.api_schema import numbers_openapi_schema
 from services.numbers.country_suggestions_service import country_suggestions_for_service
 from services.numbers.customer_flows import (
     SUPPORT_CATEGORIES,
+    recent_recharge_requests_payload as shared_recent_recharge_requests_payload,
     recharge_methods_payload as shared_recharge_methods_payload,
     submit_recharge_request as shared_submit_recharge_request,
+    submit_support_ticket as shared_submit_support_ticket,
 )
 from services.numbers.manager import get_all_prices, get_all_rental_prices, get_all_voice_prices
 from services.numbers.order_recording_service import download_voice_order_recording
@@ -316,6 +318,25 @@ async def recharge_options(request: web.Request) -> web.Response:
     )
 
 
+async def recharge_requests(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:account:read")
+    await require_website_purchase_ready(request)
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:recharge:requests", limit=60)
+    try:
+        limit = min(30, max(1, int(str(request.query.get("limit") or "10"))))
+    except Exception:
+        limit = 10
+    rows = await shared_recent_recharge_requests_payload(
+        auth.user_id,
+        str(request.query.get("language") or "ar"),
+        limit=limit,
+        money_fn=_format_money,
+        compact_datetime_fn=lambda value: _iso_datetime(value) or "",
+        text_fn=_text,
+    )
+    return web.json_response({"ok": True, "requests": rows}, headers=_response_headers(rate_limit))
+
+
 async def _parse_recharge_submit_form(request: web.Request) -> tuple[dict[str, str], bytes, str, str]:
     content_type = str(request.headers.get("Content-Type") or "").lower()
     if "multipart/form-data" not in content_type:
@@ -404,21 +425,56 @@ async def support_options(request: web.Request) -> web.Response:
             "actions": {
                 "submit_ticket": _api_action(
                     "submit_ticket",
-                    enabled=False,
+                    enabled=True,
                     endpoint="/api/v1/numbers/support/ticket",
                     method="POST",
                     label="Submit support ticket",
-                    reason="miniapp_only",
                 )
             },
             "capabilities": {
-                "submit_ticket": False,
+                "submit_ticket": True,
                 "central_support": True,
-                "reason": "Website support replies are being moved to a dedicated website inbox.",
             },
         },
         headers=_response_headers(rate_limit),
     )
+
+
+async def support_ticket(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:account:read")
+    await require_website_purchase_ready(request)
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:support:ticket", limit=10)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    lang = str((body or {}).get("language") or "ar").strip() or "ar"
+    user_doc = await get_user(auth.user_id) or {
+        "telegram_id": int(auth.user_id),
+        "reseller_id": int(auth.reseller_id),
+        "language": lang,
+    }
+    result = await shared_submit_support_ticket(
+        auth={"user_id": int(auth.user_id), "reseller_id": int(auth.reseller_id), "user": {}},
+        user_doc=user_doc,
+        lang=lang,
+        category=str((body or {}).get("category") or ""),
+        message=str((body or {}).get("message") or ""),
+        source_label="Phantom Website",
+        text_fn=_text,
+    )
+    if not result.get("ok"):
+        status = 409 if str(result.get("code")) == "open_ticket_exists" else 400
+        if str(result.get("code")) == "support_not_configured":
+            status = 503
+        return _json_error(
+            str(result.get("message") or "Support ticket failed."),
+            status=status,
+            code=str(result.get("code") or "support_failed"),
+            rate_limit=rate_limit,
+        )
+    return web.json_response(result, headers=_response_headers(rate_limit))
 
 
 async def quotes(request: web.Request) -> web.Response:
@@ -964,8 +1020,10 @@ def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/numbers/country-suggestions", country_suggestions)
     app.router.add_get("/api/v1/numbers/account", account)
     app.router.add_get("/api/v1/numbers/recharge", recharge_options)
+    app.router.add_get("/api/v1/numbers/recharge/requests", recharge_requests)
     app.router.add_post("/api/v1/numbers/recharge/submit", submit_recharge)
     app.router.add_get("/api/v1/numbers/support", support_options)
+    app.router.add_post("/api/v1/numbers/support/ticket", support_ticket)
     app.router.add_get("/api/v1/numbers/quotes", quotes)
     app.router.add_get("/api/v1/numbers/orders", list_orders)
     app.router.add_get("/api/v1/numbers/orders/{order_id}", get_order_detail)

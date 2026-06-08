@@ -32,8 +32,10 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     assert ("GET", "/api/v1/numbers/country-suggestions") in routes
     assert ("GET", "/api/v1/numbers/account") in routes
     assert ("GET", "/api/v1/numbers/recharge") in routes
+    assert ("GET", "/api/v1/numbers/recharge/requests") in routes
     assert ("POST", "/api/v1/numbers/recharge/submit") in routes
     assert ("GET", "/api/v1/numbers/support") in routes
+    assert ("POST", "/api/v1/numbers/support/ticket") in routes
     assert ("GET", "/api/v1/numbers/quotes") in routes
     assert ("GET", "/api/v1/numbers/orders") in routes
     assert ("GET", "/api/v1/numbers/orders/{order_id}") in routes
@@ -108,8 +110,9 @@ async def test_numbers_api_docs_renders_self_hosted_reference():
     assert "Action Catalog" in text
     assert "/api/v1/numbers/openapi.json" in text
     assert "/api/v1/numbers/orders/{order_id}/refresh" in text
+    assert "/api/v1/numbers/support/ticket" in text
     assert "numbers:orders:create" in text
-    assert "miniapp_only" in text
+    assert "numbers:account:read" in text
     assert "/mini/" not in text
 
 
@@ -401,10 +404,80 @@ async def test_numbers_api_support_returns_read_only_contract(monkeypatch):
 
     assert calls["auth_scope"] == "numbers:account:read"
     assert [row["key"] for row in payload["categories"]] == ["numbers", "services", "user_balance"]
-    assert payload["actions"]["submit_ticket"]["enabled"] is False
-    assert payload["actions"]["submit_ticket"]["reason"] == "miniapp_only"
-    assert payload["capabilities"]["submit_ticket"] is False
+    assert payload["actions"]["submit_ticket"]["enabled"] is True
+    assert payload["actions"]["submit_ticket"]["endpoint"] == "/api/v1/numbers/support/ticket"
+    assert payload["capabilities"]["submit_ticket"] is True
     assert payload["capabilities"]["central_support"] is True
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_recharge_requests_are_scoped_to_current_user(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="website:account-1", user_id=123, reseller_id=123, scopes=(required_scope,))
+
+    async def fake_purchase_ready(request):
+        calls["purchase_ready"] = True
+
+    async def fake_recent(user_id, lang, *, limit, money_fn, compact_datetime_fn, text_fn):
+        calls["recent"] = (user_id, lang, limit)
+        return [{"id": "req-1", "status": "pending"}]
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "require_website_purchase_ready", fake_purchase_ready)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "shared_recent_recharge_requests_payload", fake_recent)
+
+    response = await api.recharge_requests(make_mocked_request("GET", "/api/v1/numbers/recharge/requests?limit=50&language=ar"))
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["auth_scope"] == "numbers:account:read"
+    assert calls["purchase_ready"] is True
+    assert calls["recent"] == (123, "ar", 30)
+    assert payload["requests"] == [{"id": "req-1", "status": "pending"}]
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_support_ticket_uses_shared_flow(monkeypatch):
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="website:account-1", user_id=123, reseller_id=123, scopes=(required_scope,))
+
+    async def fake_purchase_ready(request):
+        calls["purchase_ready"] = True
+
+    async def fake_get_user(user_id):
+        calls["get_user"] = user_id
+        return {"telegram_id": user_id, "username": "site_user"}
+
+    async def fake_submit_support_ticket(**kwargs):
+        calls["submit"] = kwargs
+        return {"ok": True, "ticket_id": "ticket-1", "ticket_no": 7, "message": "sent"}
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "require_website_purchase_ready", fake_purchase_ready)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "get_user", fake_get_user)
+    monkeypatch.setattr(api, "shared_submit_support_ticket", fake_submit_support_ticket)
+
+    request = make_mocked_request("POST", "/api/v1/numbers/support/ticket", headers={"Content-Type": "application/json"})
+    request._read_bytes = json.dumps({"category": "numbers", "message": "Need help", "language": "ar"}).encode()
+
+    response = await api.support_ticket(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["auth_scope"] == "numbers:account:read"
+    assert calls["purchase_ready"] is True
+    assert calls["submit"]["category"] == "numbers"
+    assert calls["submit"]["message"] == "Need help"
+    assert calls["submit"]["source_label"] == "Phantom Website"
+    assert payload["ticket_no"] == 7
 
 
 @pytest.mark.asyncio
