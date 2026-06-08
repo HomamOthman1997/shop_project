@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import hashlib
 import hmac
+import logging
 import re
 import secrets
 from typing import Any
@@ -35,6 +36,8 @@ from database.website_auth_repo import (
     mark_website_email_verified,
     unlink_telegram_account,
 )
+
+logger = logging.getLogger(__name__)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SESSION_DAYS = 30
@@ -194,7 +197,12 @@ def _clear_auth_cookies(response: web.StreamResponse) -> None:
 async def _enforce_rate_limit(request: web.Request, *, bucket: str, discriminator: str = "", limit: int) -> None:
     remote = str(request.remote or request.headers.get("X-Forwarded-For") or "unknown").split(",", 1)[0].strip()
     subject_hash = _token_hash(f"{remote}:{discriminator}")
-    if not await consume_website_auth_rate_limit(subject_hash, bucket=bucket, limit=limit):
+    try:
+        allowed = await consume_website_auth_rate_limit(subject_hash, bucket=bucket, limit=limit)
+    except Exception:
+        logger.warning("website auth rate limit storage failed for bucket=%s", bucket, exc_info=True)
+        return
+    if not allowed:
         raise web.HTTPTooManyRequests(text="too many requests", headers={"Retry-After": "60"})
 
 

@@ -424,6 +424,21 @@ async def test_rate_limit_rejects_excess_attempts(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_rate_limit_storage_failure_does_not_break_auth(monkeypatch):
+    async def broken(*_args, **_kwargs):
+        raise RuntimeError("rate store down")
+
+    monkeypatch.setattr(website_auth, "consume_website_auth_rate_limit", broken)
+
+    await website_auth._enforce_rate_limit(
+        json_request("POST", "/api/v1/auth/login"),
+        bucket="login",
+        discriminator="user@example.com",
+        limit=10,
+    )
+
+
+@pytest.mark.asyncio
 async def test_login_issues_cookie_session_for_mongo_account(monkeypatch):
     password = "secure-password"
     salt, password_hash = website_auth._password_hash(password)
