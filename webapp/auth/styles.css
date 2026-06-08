@@ -1561,6 +1561,7 @@ button.owner-action-row {
   .owner-review-form { grid-template-columns: 1fr; }
   .owner-support-reply { grid-template-columns: 1fr; }
   .owner-routing-card { grid-template-columns: 1fr; }
+  .owner-routing-fields { grid-template-columns: 1fr; }
   .owner-action-row { align-items: flex-start; flex-direction: column; }
   .owner-review-details,
   .owner-digital-details { grid-template-columns: 1fr; }

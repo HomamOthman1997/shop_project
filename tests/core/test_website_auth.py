@@ -284,6 +284,8 @@ def test_owner_routing_cards_use_stable_field_group():
     assert 'class="owner-routing-fields"' in js
     assert ".owner-routing-fields" in css
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in css
+    mobile_block = css[css.index("@media (max-width: 820px)"): css.index("/* Desktop website polish */")]
+    assert ".owner-routing-fields { grid-template-columns: 1fr; }" in mobile_block
     assert ".owner-routing-fields input" in css
 
 
