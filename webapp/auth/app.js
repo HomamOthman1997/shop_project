@@ -11,6 +11,7 @@ const form = $("#auth-form");
 const emailInput = $("#email");
 const passwordInput = $("#password");
 const formError = $("#form-error");
+const authContextMessage = $("#auth-context-message");
 const submitButton = $("#submit-button");
 const telegramAction = $("#telegram-action");
 const accountMessage = $("#account-message");
@@ -177,6 +178,21 @@ function ownerApi(path, options = {}) {
 function setText(selector, value) {
   const node = $(selector);
   if (node) node.textContent = value;
+}
+
+function authContextForPath(pathname = window.location.pathname) {
+  if (pathname.startsWith("/admin")) {
+    return "سجّل دخولك بحساب المالك للوصول إلى لوحة الإدارة.";
+  }
+  if (pathname.startsWith("/app")) {
+    return "سجّل دخولك أو أنشئ حساباً للمتابعة إلى هذه الصفحة. بعد الدخول سنعيدك إلى نفس القسم.";
+  }
+  return "";
+}
+
+function applyAuthContextMessage() {
+  if (!authContextMessage) return;
+  authContextMessage.textContent = authContextForPath();
 }
 
 function showVerifyOnly(account) {
@@ -2992,6 +3008,7 @@ function setMode(nextMode) {
 document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => setMode(tab.dataset.mode)));
 
 setMode(window.location.pathname === "/register" ? "register" : "login");
+applyAuthContextMessage();
 
 $("#toggle-password").addEventListener("click", (event) => {
   const visible = passwordInput.type === "text";

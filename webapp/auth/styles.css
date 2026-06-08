@@ -218,6 +218,18 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 .link-button { display: grid; place-items: center; text-decoration: none; margin-top: 22px; }
 
 .message { min-height: 20px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.auth-context-message {
+  min-height: 0;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(139, 92, 246, .26);
+  border-radius: 8px;
+  background: rgba(139, 92, 246, .10);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.auth-context-message:empty { display: none; }
 #owner-message:not(:empty) {
   position: fixed;
   z-index: 30;

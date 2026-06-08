@@ -11,6 +11,8 @@
     "أهلاً بعودتك": "Welcome back",
     "أهلا بعودتك": "Welcome back",
     "أدخل بريدك وكلمة المرور للمتابعة.": "Enter your email and password to continue.",
+    "سجّل دخولك بحساب المالك للوصول إلى لوحة الإدارة.": "Sign in with the owner account to access the admin dashboard.",
+    "سجّل دخولك أو أنشئ حساباً للمتابعة إلى هذه الصفحة. بعد الدخول سنعيدك إلى نفس القسم.": "Sign in or create an account to continue to this page. After signing in, we will return you to the same section.",
     "استخدم بريدا تستطيع الوصول إليه وكلمة مرور قوية.": "Use an email you can access and a strong password.",
     "إنشاء حساب جديد": "Create a new account",
     "البريد الإلكتروني": "Email",
