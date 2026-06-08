@@ -133,6 +133,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "function appLanguage" in js
     assert "/api/v1/numbers/recharge/requests?limit=10&language=" in js
     assert "/api/v1/numbers/support?language=" in js
+    assert "/api/v1/digital/orders/${encodeURIComponent(orderId)}" in js
     assert 'api("/api/v1/numbers/support/ticket"' in js
     assert "function renderSupportTickets" in js
     assert "function renderSupportTicketDetail" in js

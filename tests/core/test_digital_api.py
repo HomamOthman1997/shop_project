@@ -87,6 +87,48 @@ async def test_digital_user_auth_rejects_admin_scope_for_telegram_user(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_digital_order_detail_is_scoped_to_current_customer(monkeypatch):
+    calls = {}
+    order = {
+        "_id": "order-1",
+        "user_id": 123,
+        "reseller_id": 123,
+        "service_type": "core_digital_products",
+        "digital_kind": "game",
+        "manual_item_name": "1800 UC",
+        "manual_game_name": "PUBG Mobile",
+        "status": "paid",
+        "retail_amount": 21.25,
+    }
+
+    async def fake_require_auth(request, required_scope):
+        calls["scope"] = required_scope
+        return ApiAuthContext(key_id="website:account-1", user_id=123, reseller_id=123, scopes=("digital:orders:read",))
+
+    class Orders:
+        async def find_one(self, query):
+            calls["query"] = query
+            return order
+
+    monkeypatch.setattr(api, "require_digital_user_auth", fake_require_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "db", type("Db", (), {"orders": Orders()})())
+
+    request = make_mocked_request("GET", "/api/v1/digital/orders/order-1", match_info={"order_id": "order-1"})
+    response = await api.order_detail(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["scope"] == "digital:orders:read"
+    assert calls["query"]["_id"] == "order-1"
+    assert calls["query"]["user_id"] == 123
+    assert calls["query"]["reseller_id"] == 123
+    assert payload["order"]["id"] == "order-1"
+    assert payload["order"]["api_actions"]["get"]["scope"] == "digital:orders:read"
+    assert payload["order"]["api_actions"]["get"]["endpoint"] == "/api/v1/digital/orders/order-1"
+
+
+@pytest.mark.asyncio
 async def test_digital_catalog_exposes_backend_product_watchlist(monkeypatch):
     async def fake_require_api_auth(request, required_scope):
         return auth_context(required_scope)
