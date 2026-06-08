@@ -4,6 +4,7 @@ import re
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
+from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from services import landing_page
@@ -420,6 +421,60 @@ async def test_rate_limit_rejects_excess_attempts(monkeypatch):
             discriminator="user@example.com",
             limit=10,
         )
+
+
+@pytest.mark.asyncio
+async def test_login_issues_cookie_session_for_mongo_account(monkeypatch):
+    password = "secure-password"
+    salt, password_hash = website_auth._password_hash(password)
+    account_id = ObjectId()
+    sessions = []
+
+    async def account(_email):
+        return {
+            "_id": account_id,
+            "customer_id": 900000000001,
+            "email": "user@example.com",
+            "email_normalized": "user@example.com",
+            "password_salt": salt,
+            "password_hash": password_hash,
+            "status": "active",
+            "email_verified_at": website_auth._now(),
+        }
+
+    async def create_session(doc):
+        sessions.append(doc)
+
+    monkeypatch.setattr(website_auth, "find_website_account_by_email", account)
+    monkeypatch.setattr(website_auth, "create_website_session", create_session)
+    monkeypatch.setattr(website_auth, "_enforce_rate_limit", lambda *_args, **_kwargs: __import__("asyncio").sleep(0))
+
+    response = await website_auth.login(
+        json_request("POST", "/api/v1/auth/login", {"email": "USER@example.com", "password": password})
+    )
+
+    assert response.status == 200
+    assert sessions and sessions[0]["account_id"] == str(account_id)
+    assert "phantom_session" in response.cookies
+    assert "phantom_csrf" in response.cookies
+
+
+@pytest.mark.asyncio
+async def test_issue_session_retries_token_hash_collision(monkeypatch):
+    calls = 0
+
+    async def create_session(_doc):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise DuplicateKeyError("duplicate token")
+
+    monkeypatch.setattr(website_auth, "create_website_session", create_session)
+
+    token = await website_auth._issue_session({"_id": ObjectId()})
+
+    assert token
+    assert calls == 2
 
 
 @pytest.mark.asyncio

@@ -133,18 +133,26 @@ def _is_owner_email(value: Any) -> bool:
 
 
 async def _issue_session(account: dict[str, Any]) -> str:
-    token = secrets.token_urlsafe(32)
     now = _now()
-    await create_website_session(
-        {
-            "_id": str(uuid4()),
-            "account_id": str(account["_id"]),
-            "token_hash": _token_hash(token),
-            "created_at": now,
-            "expires_at": now + timedelta(days=_SESSION_DAYS),
-        }
-    )
-    return token
+    account_id = str(account.get("_id") or "").strip()
+    if not account_id:
+        raise web.HTTPInternalServerError(text="account id is missing")
+    for _attempt in range(3):
+        token = secrets.token_urlsafe(32)
+        try:
+            await create_website_session(
+                {
+                    "_id": str(uuid4()),
+                    "account_id": account_id,
+                    "token_hash": _token_hash(token),
+                    "created_at": now,
+                    "expires_at": now + timedelta(days=_SESSION_DAYS),
+                }
+            )
+            return token
+        except DuplicateKeyError:
+            continue
+    raise web.HTTPInternalServerError(text="could not create session")
 
 
 def _extract_bearer(request: web.Request) -> str:
