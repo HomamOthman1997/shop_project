@@ -454,10 +454,9 @@ async def send_email_code(request: web.Request) -> web.Response:
 async def verify_email_code(request: web.Request) -> web.Response:
     auth = await require_website_auth(request)
     await _enforce_rate_limit(request, bucket="email_code_verify", discriminator=auth.account_id, limit=10)
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
+    body = await _read_json_body(request)
+    if isinstance(body, web.Response):
+        return body
     code = str((body or {}).get("code") or "").strip().replace(" ", "")
     if not re.fullmatch(r"\d{6}", code):
         raise web.HTTPBadRequest(text="invalid code")
@@ -487,7 +486,9 @@ async def submit_identity(request: web.Request) -> web.Response:
     account = await find_website_account_by_id(auth.account_id) or {}
     if str(account.get("identity_status") or "") in {"pending", "approved"}:
         raise web.HTTPConflict(text="identity request already active")
-    body = await request.json()
+    body = await _read_json_body(request)
+    if isinstance(body, web.Response):
+        return body
     full_name = " ".join(str(body.get("full_name") or "").strip().split())
     birth_date = str(body.get("birth_date") or "").strip()
     country = str(body.get("country") or "").strip()

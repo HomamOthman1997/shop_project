@@ -646,6 +646,37 @@ async def test_verify_email_code_marks_account_verified(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_email_and_identity_handlers_reject_bad_json_without_server_error(monkeypatch):
+    async def auth(_request):
+        return website_auth.WebsiteAuthContext(
+            account_id="account-1",
+            customer_id=900000000001,
+            email="user@example.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    async def account(_account_id):
+        return {"_id": "account-1", "email": "user@example.com", "status": "active", "identity_status": "not_submitted"}
+
+    monkeypatch.setattr(website_auth, "require_website_auth", auth)
+    monkeypatch.setattr(website_auth, "_enforce_rate_limit", lambda *_args, **_kwargs: __import__("asyncio").sleep(0))
+    monkeypatch.setattr(website_auth, "find_website_account_by_id", account)
+
+    verify_response = await website_auth.verify_email_code(
+        raw_request("POST", "/api/v1/auth/email/verify", "{bad-json")
+    )
+    identity_response = await website_auth.submit_identity(
+        raw_request("POST", "/api/v1/auth/identity", "{bad-json")
+    )
+
+    assert verify_response.status == 400
+    assert json.loads(verify_response.text)["message"] == "invalid json body"
+    assert identity_response.status == 400
+    assert json.loads(identity_response.text)["message"] == "invalid json body"
+
+
+@pytest.mark.asyncio
 async def test_require_website_purchase_ready_rejects_unverified_cookie_account(monkeypatch):
     async def auth(_request):
         return website_auth.WebsiteAuthContext(
