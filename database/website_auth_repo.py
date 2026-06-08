@@ -135,6 +135,21 @@ async def update_website_account_language(account_id: str, customer_id: int, lan
     return account
 
 
+async def update_website_account_password(account_id: str, *, salt: str, password_hash: str, now: datetime) -> dict[str, Any] | None:
+    return await db.website_accounts.find_one_and_update(
+        {"_id": account_id},
+        {
+            "$set": {
+                "password_salt": salt,
+                "password_hash": password_hash,
+                "password_updated_at": now,
+                "updated_at": now,
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
 async def create_email_verification_token(doc: dict[str, Any]) -> None:
     await db.email_verification_tokens.insert_one(doc)
 

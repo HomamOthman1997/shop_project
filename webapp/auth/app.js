@@ -3025,6 +3025,7 @@ $("#cardex-link")?.addEventListener("click", (event) => {
 
 $("#refresh-orders")?.addEventListener("click", loadDashboard);
 $("#download-activity")?.addEventListener("click", downloadAccountActivity);
+$("#password-change-form")?.addEventListener("submit", submitPasswordChange);
 $("#support-ticket-form")?.addEventListener("submit", submitSupportTicket);
 $("#support-ticket-list")?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-support-ticket-id]");
@@ -3053,6 +3054,37 @@ async function persistAccountLanguage() {
     languagePersistPromise = null;
   }
 }
+
+async function submitPasswordChange(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = $("#password-change-message");
+  const button = form.querySelector("button[type='submit']");
+  const values = Object.fromEntries(new FormData(form).entries());
+  if (message) message.textContent = "جاري تغيير كلمة المرور...";
+  if (button) button.disabled = true;
+  try {
+    await api("/api/v1/auth/password", {
+      method: "POST",
+      body: JSON.stringify({
+        current_password: values.current_password,
+        new_password: values.new_password,
+      }),
+    });
+    form.reset();
+    if (message) message.textContent = "تم تغيير كلمة المرور بنجاح.";
+  } catch (error) {
+    const text = String(error.message || "");
+    if (message) {
+      message.textContent = text === "invalid current password"
+        ? "كلمة المرور الحالية غير صحيحة."
+        : text;
+    }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 document.querySelectorAll("[data-order-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     customerOrderFilter = button.dataset.orderFilter || "all";

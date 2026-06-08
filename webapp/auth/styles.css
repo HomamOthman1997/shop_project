@@ -640,6 +640,19 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 .support-reply-form textarea {
   min-height: 72px;
 }
+.security-form {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+.security-form .message {
+  grid-column: 1 / -1;
+  margin: 0;
+}
 .owner-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1663,6 +1676,7 @@ button.owner-action-row {
   .support-category-grid { grid-template-columns: 1fr; }
   .support-ticket-form { grid-template-columns: 1fr; }
   .support-reply-form { grid-template-columns: 1fr; }
+  .security-form { grid-template-columns: 1fr; }
   .filter-chip { flex: 0 0 auto; }
   .owner-metrics, .owner-queues, .owner-sections, .owner-settings-grid { grid-template-columns: 1fr; }
   .owner-payment-fields { grid-template-columns: 1fr; }

@@ -36,6 +36,7 @@ from database.website_auth_repo import (
     mark_website_email_verified,
     unlink_telegram_account,
     update_website_account_language,
+    update_website_account_password,
 )
 
 logger = logging.getLogger(__name__)
@@ -427,6 +428,29 @@ async def update_language(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "account": _public_account(account or {})})
 
 
+async def change_password(request: web.Request) -> web.Response:
+    auth = await require_website_auth(request)
+    await _enforce_rate_limit(request, bucket="password_change", discriminator=auth.account_id, limit=6)
+    body = await _read_json_body(request)
+    if isinstance(body, web.Response):
+        return body
+    current_password = str((body or {}).get("current_password") or "")
+    try:
+        new_password = _validate_password((body or {}).get("new_password"))
+    except web.HTTPBadRequest:
+        return _auth_error("password must be between 10 and 256 characters", status=400)
+    if not current_password:
+        return _auth_error("current password required", status=400)
+    if hmac.compare_digest(current_password, new_password):
+        return _auth_error("new password must be different", status=400)
+    account = await find_website_account_by_id(auth.account_id)
+    if not account or not _password_matches(current_password, account):
+        raise web.HTTPUnauthorized(text="invalid current password")
+    salt, password_hash = _password_hash(new_password)
+    updated = await update_website_account_password(auth.account_id, salt=salt, password_hash=password_hash, now=_now())
+    return web.json_response({"ok": True, "account": _public_account(updated or account)})
+
+
 async def send_email_code(request: web.Request) -> web.Response:
     auth = await require_website_auth(request)
     account = await find_website_account_by_id(auth.account_id) or {}
@@ -581,6 +605,7 @@ def register_website_auth_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/auth/logout", logout)
     app.router.add_get("/api/v1/auth/me", me)
     app.router.add_post("/api/v1/auth/language", update_language)
+    app.router.add_post("/api/v1/auth/password", change_password)
     app.router.add_post("/api/v1/auth/telegram/link", create_link)
     app.router.add_delete("/api/v1/auth/telegram/link", unlink)
     app.router.add_post("/api/v1/auth/email/send-code", send_email_code)

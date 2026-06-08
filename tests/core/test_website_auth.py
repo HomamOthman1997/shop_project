@@ -36,6 +36,7 @@ def test_register_website_auth_routes():
     assert ("POST", "/api/v1/auth/login") in routes
     assert ("GET", "/api/v1/auth/me") in routes
     assert ("POST", "/api/v1/auth/language") in routes
+    assert ("POST", "/api/v1/auth/password") in routes
     assert ("POST", "/api/v1/auth/telegram/link") in routes
     assert ("DELETE", "/api/v1/auth/telegram/link") in routes
     assert ("POST", "/api/v1/auth/email/send-code") in routes
@@ -129,6 +130,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'id="support-ticket-list"' in html
     assert 'id="support-ticket-detail"' in html
     assert 'id="download-activity"' in html
+    assert 'id="password-change-form"' in html
     assert 'id="identity-message"' in html
     assert 'id="auth-context-message"' in html
     assert 'data-order-filter="numbers"' in html
@@ -142,6 +144,8 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "function combinedRecentActivity" in js
     assert "function activityAmountLabel" in js
     assert "function downloadAccountActivity" in js
+    assert "function submitPasswordChange" in js
+    assert 'api("/api/v1/auth/password"' in js
     assert "/api/v1/numbers/account/activity.csv?language=" in js
     assert "digitalAccount.wallet?.balance_label || numbersAccount.wallet?.balance_label" in js
     assert "function settledValue" in js
@@ -161,6 +165,8 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "/api/v1/digital/orders/${encodeURIComponent(orderId)}" in js
     assert 'api("/api/v1/numbers/support/ticket"' in js
     assert 'body: JSON.stringify({ quote_token: row.quote_token, language: appLanguage() })' in js
+    assert '"الأمان": "Security"' in i18n
+    assert '"تغيير كلمة المرور": "Change password"' in i18n
     assert 'const button = event.currentTarget.querySelector("button[type=\'submit\']");' in js
     assert "function numberClientActionsHtml" in js
     assert "function copyOrderValue" in js
@@ -201,6 +207,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert ".support-ticket-detail" in css
     assert ".support-reply-form" in css
     assert ".support-ticket-form" in css
+    assert ".security-form" in css
     assert ".auth-context-message" in css
     assert ".order-filter-bar" in css
 
@@ -470,6 +477,124 @@ def test_password_hash_round_trip():
         "wrong-password",
         {"password_salt": salt, "password_hash": password_hash},
     )
+
+
+@pytest.mark.asyncio
+async def test_change_password_updates_hash_after_current_password_check(monkeypatch):
+    old_salt, old_hash = website_auth._password_hash("old-secure-password")
+    saved = {}
+
+    async def auth(_request):
+        return website_auth.WebsiteAuthContext(
+            account_id="account-1",
+            customer_id=900000000001,
+            email="user@example.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    async def account(_account_id):
+        return {
+            "_id": "account-1",
+            "customer_id": 900000000001,
+            "email": "user@example.com",
+            "password_salt": old_salt,
+            "password_hash": old_hash,
+            "status": "active",
+        }
+
+    async def update(account_id, *, salt, password_hash, now):
+        saved.update({"account_id": account_id, "password_salt": salt, "password_hash": password_hash, "now": now})
+        return {
+            "_id": account_id,
+            "customer_id": 900000000001,
+            "email": "user@example.com",
+            "password_salt": salt,
+            "password_hash": password_hash,
+            "status": "active",
+        }
+
+    monkeypatch.setattr(website_auth, "require_website_auth", auth)
+    monkeypatch.setattr(website_auth, "find_website_account_by_id", account)
+    monkeypatch.setattr(website_auth, "update_website_account_password", update)
+    monkeypatch.setattr(website_auth, "_enforce_rate_limit", lambda *_args, **_kwargs: __import__("asyncio").sleep(0))
+
+    response = await website_auth.change_password(
+        json_request(
+            "POST",
+            "/api/v1/auth/password",
+            {"current_password": "old-secure-password", "new_password": "new-secure-password"},
+        )
+    )
+    body = json.loads(response.text)
+
+    assert response.status == 200
+    assert body["ok"] is True
+    assert saved["account_id"] == "account-1"
+    assert website_auth._password_matches("new-secure-password", saved)
+    assert not website_auth._password_matches("old-secure-password", saved)
+
+
+@pytest.mark.asyncio
+async def test_change_password_rejects_wrong_current_password(monkeypatch):
+    old_salt, old_hash = website_auth._password_hash("old-secure-password")
+
+    async def auth(_request):
+        return website_auth.WebsiteAuthContext(
+            account_id="account-1",
+            customer_id=900000000001,
+            email="user@example.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    async def account(_account_id):
+        return {
+            "_id": "account-1",
+            "password_salt": old_salt,
+            "password_hash": old_hash,
+            "status": "active",
+        }
+
+    monkeypatch.setattr(website_auth, "require_website_auth", auth)
+    monkeypatch.setattr(website_auth, "find_website_account_by_id", account)
+    monkeypatch.setattr(website_auth, "_enforce_rate_limit", lambda *_args, **_kwargs: __import__("asyncio").sleep(0))
+
+    with pytest.raises(web.HTTPUnauthorized):
+        await website_auth.change_password(
+            json_request(
+                "POST",
+                "/api/v1/auth/password",
+                {"current_password": "wrong-secure-password", "new_password": "new-secure-password"},
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_change_password_rejects_reused_password(monkeypatch):
+    async def auth(_request):
+        return website_auth.WebsiteAuthContext(
+            account_id="account-1",
+            customer_id=900000000001,
+            email="user@example.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    monkeypatch.setattr(website_auth, "require_website_auth", auth)
+    monkeypatch.setattr(website_auth, "_enforce_rate_limit", lambda *_args, **_kwargs: __import__("asyncio").sleep(0))
+
+    response = await website_auth.change_password(
+        json_request(
+            "POST",
+            "/api/v1/auth/password",
+            {"current_password": "same-secure-password", "new_password": "same-secure-password"},
+        )
+    )
+    body = json.loads(response.text)
+
+    assert response.status == 400
+    assert body["message"] == "new password must be different"
 
 
 def test_public_account_requires_verified_email_for_buying():

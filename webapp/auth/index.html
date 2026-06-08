@@ -197,6 +197,13 @@
               <div class="settings-row"><div><strong>استخدام البوتات</strong><span>ربط Telegram اختياري، لكنه يربط البوتات بنفس حساب الموقع.</span></div><b id="telegram-usage-status">اختياري</b></div>
               <div class="settings-row"><div><strong>معرّف العميل</strong><span id="customer-id"></span></div><b>داخلي</b></div>
               <p id="account-message" class="message" role="status"></p>
+              <div class="section-head activity-head"><div><h3>الأمان</h3><p>تغيير كلمة مرور حساب الموقع.</p></div></div>
+              <form id="password-change-form" class="security-form">
+                <label><span>كلمة المرور الحالية</span><input name="current_password" type="password" autocomplete="current-password" minlength="10" required></label>
+                <label><span>كلمة المرور الجديدة</span><input name="new_password" type="password" autocomplete="new-password" minlength="10" maxlength="256" required></label>
+                <button class="secondary compact" type="submit">تغيير كلمة المرور</button>
+                <p id="password-change-message" class="message" role="status"></p>
+              </form>
               <div class="section-head activity-head"><h3>آخر نشاط</h3><button id="download-activity" class="secondary compact" type="button">تنزيل النشاط</button></div>
               <div id="activity-list" class="data-list empty">لا يوجد نشاط حتى الآن.</div>
             </section>
