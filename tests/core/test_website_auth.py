@@ -149,6 +149,10 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert '"فتح تذكرة دعم": "Open support ticket"' in i18n
     assert '"الرصيد والمدفوعات": "Balance and payments"' in i18n
     assert '"ردك": "Your reply"' in i18n
+    assert '"تعذر تحميل نشاط الحساب حالياً.": "Could not load account activity right now."' in i18n
+    assert '"تعذر تحميل طرق الشحن حالياً.": "Could not load recharge methods right now."' in i18n
+    assert '"تعذر تحميل خيارات الدعم حالياً.": "Could not load support options right now."' in i18n
+    assert '"تم تحميل الطلبات المتاحة فقط. تعذر تحميل أحد الأقسام مؤقتاً.": "Only available orders were loaded. One section could not be loaded temporarily."' in i18n
     assert ".support-ticket-detail" in css
     assert ".support-reply-form" in css
     assert ".support-ticket-form" in css
