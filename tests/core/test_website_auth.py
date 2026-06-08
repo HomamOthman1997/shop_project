@@ -20,6 +20,12 @@ def json_request(method: str, path: str, body: dict | None = None, *, token: str
     return request
 
 
+def raw_request(method: str, path: str, body: str, *, content_type: str = "application/json"):
+    request = make_mocked_request(method, path, headers={"Content-Type": content_type})
+    request._read_bytes = body.encode("utf-8")
+    return request
+
+
 def test_register_website_auth_routes():
     app = web.Application()
 
@@ -405,6 +411,17 @@ async def test_register_rejects_duplicate_email(monkeypatch):
         await website_auth.register(
             json_request("POST", "/api/v1/auth/register", {"email": "USER@example.com", "password": "secure-password"})
         )
+
+
+@pytest.mark.asyncio
+async def test_auth_handlers_return_400_for_bad_json_and_email():
+    bad_json = await website_auth.login(raw_request("POST", "/api/v1/auth/login", "{bad-json"))
+    bad_email = await website_auth.register(
+        json_request("POST", "/api/v1/auth/register", {"email": "bad", "password": "secure-password"})
+    )
+
+    assert bad_json.status == 400
+    assert bad_email.status == 400
 
 
 @pytest.mark.asyncio

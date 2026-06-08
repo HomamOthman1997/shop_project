@@ -60,6 +60,18 @@ _SECURITY_HEADERS = {
 }
 
 
+def _auth_error(message: str, *, status: int) -> web.Response:
+    return web.json_response({"ok": False, "message": message}, status=status)
+
+
+async def _read_json_body(request: web.Request) -> dict[str, Any] | web.Response:
+    try:
+        body = await request.json()
+    except Exception:
+        return _auth_error("invalid json body", status=400)
+    return body if isinstance(body, dict) else _auth_error("json object required", status=400)
+
+
 @dataclass(frozen=True)
 class WebsiteAuthContext:
     account_id: str
@@ -299,10 +311,18 @@ async def _deliver_email_verification_code(*, email: str, code: str) -> dict[str
 
 
 async def register(request: web.Request) -> web.Response:
-    body = await request.json()
-    email = _normalize_email(body.get("email"))
+    body = await _read_json_body(request)
+    if isinstance(body, web.Response):
+        return body
+    try:
+        email = _normalize_email(body.get("email"))
+    except web.HTTPBadRequest:
+        return _auth_error("invalid email", status=400)
     await _enforce_rate_limit(request, bucket="register", discriminator=email, limit=5)
-    password = _validate_password(body.get("password"))
+    try:
+        password = _validate_password(body.get("password"))
+    except web.HTTPBadRequest:
+        return _auth_error("password must be between 10 and 256 characters", status=400)
     salt, password_hash = _password_hash(password)
     now = _now()
     customer_id = await allocate_website_customer_id()
@@ -330,10 +350,18 @@ async def register(request: web.Request) -> web.Response:
 
 
 async def login(request: web.Request) -> web.Response:
-    body = await request.json()
-    email = _normalize_email(body.get("email"))
+    body = await _read_json_body(request)
+    if isinstance(body, web.Response):
+        return body
+    try:
+        email = _normalize_email(body.get("email"))
+    except web.HTTPBadRequest:
+        return _auth_error("invalid email", status=400)
     await _enforce_rate_limit(request, bucket="login", discriminator=email, limit=10)
-    password = _validate_password(body.get("password"))
+    try:
+        password = _validate_password(body.get("password"))
+    except web.HTTPBadRequest:
+        return _auth_error("password must be between 10 and 256 characters", status=400)
     account = await find_website_account_by_email(email)
     if not account or not _password_matches(password, account) or str(account.get("status") or "active") != "active":
         raise web.HTTPUnauthorized(text="invalid credentials")
