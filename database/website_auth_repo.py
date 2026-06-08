@@ -121,6 +121,20 @@ async def unlink_telegram_account(account_id: str, *, now: datetime) -> None:
     )
 
 
+async def update_website_account_language(account_id: str, customer_id: int, language: str, *, now: datetime) -> dict[str, Any] | None:
+    account = await db.website_accounts.find_one_and_update(
+        {"_id": account_id},
+        {"$set": {"language": language, "updated_at": now}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if int(customer_id or 0) > 0:
+        await db.users.update_one(
+            {"telegram_id": int(customer_id), "identity_source": "website"},
+            {"$set": {"language": language, "updated_at": now}},
+        )
+    return account
+
+
 async def create_email_verification_token(doc: dict[str, Any]) -> None:
     await db.email_verification_tokens.insert_one(doc)
 

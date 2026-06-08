@@ -35,6 +35,7 @@ def test_register_website_auth_routes():
     assert ("POST", "/api/v1/auth/register") in routes
     assert ("POST", "/api/v1/auth/login") in routes
     assert ("GET", "/api/v1/auth/me") in routes
+    assert ("POST", "/api/v1/auth/language") in routes
     assert ("POST", "/api/v1/auth/telegram/link") in routes
     assert ("DELETE", "/api/v1/auth/telegram/link") in routes
     assert ("POST", "/api/v1/auth/email/send-code") in routes
@@ -133,6 +134,9 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'data-order-filter="digital"' in html
     assert 'recharge: "/app/recharge"' in js
     assert "function appLanguage" in js
+    assert "function persistAccountLanguage" in js
+    assert 'api("/api/v1/auth/language"' in js
+    assert "currentAccount.language === language" in js
     assert "function settledValue" in js
     assert "function renderLoadError" in js
     assert "function friendlyApiMessage" in js
@@ -479,6 +483,66 @@ def test_public_account_requires_verified_email_for_buying():
 
     linked = website_auth._public_account({**account, "_id": "account-1", "telegram_id": 123})
     assert linked["capabilities"]["buy_services"] is False
+
+
+@pytest.mark.asyncio
+async def test_update_language_persists_website_account_language(monkeypatch):
+    async def auth(_request):
+        return website_auth.WebsiteAuthContext(
+            account_id="account-1",
+            customer_id=900000000001,
+            email="user@example.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    saved = {}
+
+    async def update(account_id, customer_id, language, *, now):
+        saved.update({"account_id": account_id, "customer_id": customer_id, "language": language, "now": now})
+        return {
+            "_id": account_id,
+            "customer_id": customer_id,
+            "email": "user@example.com",
+            "status": "active",
+            "language": language,
+        }
+
+    monkeypatch.setattr(website_auth, "require_website_auth", auth)
+    monkeypatch.setattr(website_auth, "update_website_account_language", update)
+
+    response = await website_auth.update_language(
+        json_request("POST", "/api/v1/auth/language", {"language": "en"})
+    )
+    body = json.loads(response.text)
+
+    assert response.status == 200
+    assert saved["account_id"] == "account-1"
+    assert saved["customer_id"] == 900000000001
+    assert saved["language"] == "en"
+    assert body["account"]["language"] == "en"
+
+
+@pytest.mark.asyncio
+async def test_update_language_rejects_invalid_language(monkeypatch):
+    async def auth(_request):
+        return website_auth.WebsiteAuthContext(
+            account_id="account-1",
+            customer_id=900000000001,
+            email="user@example.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    monkeypatch.setattr(website_auth, "require_website_auth", auth)
+
+    response = await website_auth.update_language(
+        json_request("POST", "/api/v1/auth/language", {"language": "fr"})
+    )
+    body = json.loads(response.text)
+
+    assert response.status == 400
+    assert body["message"] == "invalid language"
 
 
 def test_public_account_marks_configured_owner(monkeypatch):

@@ -37,6 +37,7 @@ let ownerProviderPayloads = {};
 let customerOrderRows = [];
 let customerOrderFilter = "all";
 let latestRechargePayload = null;
+let languagePersistPromise = null;
 
 const customerRoutes = {
   home: "/app",
@@ -248,6 +249,9 @@ function showAccount(account) {
   setText("#customer-id", account.customer_id);
   setText("#telegram-status", account.telegram_linked ? "مربوط" : "غير مربوط");
   telegramAction.textContent = account.telegram_linked ? "فك الربط" : "ربط Telegram";
+  if (account.language && window.PhantomI18n?.currentLanguage?.() !== account.language) {
+    window.PhantomI18n?.setLanguage?.(account.language);
+  }
   document.querySelectorAll(".owner-nav").forEach((item) => { item.hidden = !account.is_owner; });
   applyEmailState(account);
   applyIdentityState(account.identity_status);
@@ -2990,7 +2994,26 @@ $("#support-ticket-list")?.addEventListener("click", (event) => {
 });
 window.addEventListener("phantom-language-change", () => {
   if (currentAccount && !currentAccount.is_owner) loadDashboard();
+  persistAccountLanguage();
 });
+
+async function persistAccountLanguage() {
+  if (!currentAccount) return;
+  const language = appLanguage();
+  if (currentAccount.language === language || languagePersistPromise) return;
+  languagePersistPromise = api("/api/v1/auth/language", {
+    method: "POST",
+    body: JSON.stringify({language}),
+  });
+  try {
+    const data = await languagePersistPromise;
+    if (data.account) currentAccount = data.account;
+  } catch (_error) {
+    // Language changes remain local if persistence fails; the next toggle can retry.
+  } finally {
+    languagePersistPromise = null;
+  }
+}
 document.querySelectorAll("[data-order-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     customerOrderFilter = button.dataset.orderFilter || "all";

@@ -35,6 +35,7 @@ from database.website_auth_repo import (
     link_telegram_account,
     mark_website_email_verified,
     unlink_telegram_account,
+    update_website_account_language,
 )
 
 logger = logging.getLogger(__name__)
@@ -131,6 +132,7 @@ def _public_account(account: dict[str, Any]) -> dict[str, Any]:
         "email_verified": email_verified,
         "email_verified_at": email_verified_at.isoformat() if isinstance(email_verified_at, datetime) else None,
         "status": str(account.get("status") or "active"),
+        "language": "ar" if str(account.get("language") or "ar").strip().lower().startswith("ar") else "en",
         "identity_status": str(account.get("identity_status") or "not_submitted"),
         "is_owner": is_owner,
         "capabilities": {
@@ -413,6 +415,18 @@ async def unlink(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def update_language(request: web.Request) -> web.Response:
+    auth = await require_website_auth(request)
+    body = await _read_json_body(request)
+    if isinstance(body, web.Response):
+        return body
+    language = str((body or {}).get("language") or "").strip().lower()
+    if language not in {"ar", "en"}:
+        return _auth_error("invalid language", status=400)
+    account = await update_website_account_language(auth.account_id, auth.customer_id, language, now=_now())
+    return web.json_response({"ok": True, "account": _public_account(account or {})})
+
+
 async def send_email_code(request: web.Request) -> web.Response:
     auth = await require_website_auth(request)
     account = await find_website_account_by_id(auth.account_id) or {}
@@ -566,6 +580,7 @@ def register_website_auth_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/auth/login", login)
     app.router.add_post("/api/v1/auth/logout", logout)
     app.router.add_get("/api/v1/auth/me", me)
+    app.router.add_post("/api/v1/auth/language", update_language)
     app.router.add_post("/api/v1/auth/telegram/link", create_link)
     app.router.add_delete("/api/v1/auth/telegram/link", unlink)
     app.router.add_post("/api/v1/auth/email/send-code", send_email_code)
