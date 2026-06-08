@@ -145,6 +145,23 @@ function csrfToken() {
   return item ? decodeURIComponent(item.split("=").slice(1).join("=")) : "";
 }
 
+function friendlyApiMessage(message, status) {
+  const text = String(message || "").trim();
+  if (status === 401 || text === "invalid session" || text === "missing session") {
+    return "انتهت الجلسة. سجّل دخولك مرة أخرى للمتابعة.";
+  }
+  if (text === "email verification required") {
+    return "يجب تأكيد البريد الإلكتروني قبل تنفيذ هذا الإجراء.";
+  }
+  if (text === "owner only") {
+    return "هذه الصفحة مخصصة لحساب المالك فقط.";
+  }
+  if (text === "missing api key") {
+    return "هذا الإجراء يحتاج صلاحية API أو جلسة موقع مفعّلة.";
+  }
+  return text || "تعذر إكمال الطلب";
+}
+
 async function api(path, options = {}) {
   const method = options.method || "GET";
   const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
@@ -165,7 +182,7 @@ async function api(path, options = {}) {
   }
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch { data = {}; }
-  if (!response.ok) throw new Error(data.message || text || "تعذر إكمال الطلب");
+  if (!response.ok) throw new Error(friendlyApiMessage(data.message || text, response.status));
   return data;
 }
 

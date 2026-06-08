@@ -135,6 +135,9 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "function appLanguage" in js
     assert "function settledValue" in js
     assert "function renderLoadError" in js
+    assert "function friendlyApiMessage" in js
+    assert "email verification required" in js
+    assert "يجب تأكيد البريد الإلكتروني قبل تنفيذ هذا الإجراء." in js
     assert "function authContextForPath" in js
     assert "applyAuthContextMessage();" in js
     assert "بعد الدخول سنعيدك إلى نفس القسم." in js
@@ -162,6 +165,9 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert '"فتح تذكرة دعم": "Open support ticket"' in i18n
     assert '"الرصيد والمدفوعات": "Balance and payments"' in i18n
     assert '"ردك": "Your reply"' in i18n
+    assert '"انتهت الجلسة. سجّل دخولك مرة أخرى للمتابعة.": "Your session expired. Sign in again to continue."' in i18n
+    assert '"يجب تأكيد البريد الإلكتروني قبل تنفيذ هذا الإجراء.": "You must verify your email before performing this action."' in i18n
+    assert '"هذه الصفحة مخصصة لحساب المالك فقط.": "This page is for the owner account only."' in i18n
     assert '"سجّل دخولك أو أنشئ حساباً للمتابعة إلى هذه الصفحة. بعد الدخول سنعيدك إلى نفس القسم.": "Sign in or create an account to continue to this page. After signing in, we will return you to the same section."' in i18n
     assert '"سجّل دخولك بحساب المالك للوصول إلى لوحة الإدارة.": "Sign in with the owner account to access the admin dashboard."' in i18n
     assert '"تتم المراجعة حالياً من بياناتك الأساسية، وقد يطلب الدعم وثائق إضافية عند الحاجة.": "Review currently uses your basic details, and support may request additional documents when needed."' in i18n
