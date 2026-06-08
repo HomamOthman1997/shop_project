@@ -131,6 +131,9 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'data-order-filter="digital"' in html
     assert 'recharge: "/app/recharge"' in js
     assert "function appLanguage" in js
+    assert "function settledValue" in js
+    assert "function renderLoadError" in js
+    assert "Promise.allSettled" in js
     assert "/api/v1/numbers/recharge/requests?limit=10&language=" in js
     assert "/api/v1/numbers/support?language=" in js
     assert "/api/v1/digital/orders/${encodeURIComponent(orderId)}" in js

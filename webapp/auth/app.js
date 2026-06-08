@@ -315,18 +315,37 @@ function renderRows(target, rows, formatter) {
     : "لا توجد بيانات حتى الآن.";
 }
 
+function settledValue(result, fallback) {
+  return result?.status === "fulfilled" ? result.value : fallback;
+}
+
+function renderLoadError(selector, message) {
+  const target = $(selector);
+  if (!target) return;
+  target.classList.add("empty");
+  target.textContent = message;
+}
+
 async function loadDashboard() {
   const activity = $("#activity-list");
   const lang = encodeURIComponent(appLanguage());
+  const [accountResult, digitalOrdersResult, numberOrdersResult, rechargeResult, rechargeRequestsResult, supportResult] = await Promise.allSettled([
+    api("/api/v1/digital/account"),
+    api("/api/v1/digital/orders?limit=20"),
+    api("/api/v1/numbers/orders?limit=20"),
+    api("/api/v1/numbers/recharge"),
+    api(`/api/v1/numbers/recharge/requests?limit=10&language=${lang}`),
+    api(`/api/v1/numbers/support?language=${lang}`),
+  ]);
+
+  const digitalAccount = settledValue(accountResult, { wallet: {}, recent_activity: [] });
+  const digitalOrders = settledValue(digitalOrdersResult, { orders: [], items: [] });
+  const numberOrders = settledValue(numberOrdersResult, { orders: [], items: [] });
+  const recharge = settledValue(rechargeResult, null);
+  const rechargeRequests = settledValue(rechargeRequestsResult, null);
+  const support = settledValue(supportResult, null);
+
   try {
-    const [digitalAccount, digitalOrders, numberOrders, recharge, rechargeRequests, support] = await Promise.all([
-      api("/api/v1/digital/account"),
-      api("/api/v1/digital/orders?limit=20"),
-      api("/api/v1/numbers/orders?limit=20"),
-      api("/api/v1/numbers/recharge"),
-      api(`/api/v1/numbers/recharge/requests?limit=10&language=${lang}`),
-      api(`/api/v1/numbers/support?language=${lang}`),
-    ]);
     setText("#wallet-balance", digitalAccount.wallet?.balance_label || "$0.00");
     setText("#recharge-wallet-balance", digitalAccount.wallet?.balance_label || "$0.00");
 
@@ -340,16 +359,32 @@ async function loadDashboard() {
         <div><strong>${esc(row.reason || "حركة رصيد")}</strong><span>${esc(row.created_at || "")}</span></div>
         <b>${row.direction === "debit" ? "-" : "+"}${esc(row.amount_label || "")}</b>
       </div>`);
+    if (accountResult.status !== "fulfilled") renderLoadError("#activity-list", "تعذر تحميل نشاط الحساب حالياً.");
     customerOrderRows = [
       ...digitalRows.map((row) => ({ ...row, channel: "رقمي", channel_key: "digital" })),
       ...numberRows.map((row) => ({ ...row, channel: "أرقام", channel_key: "numbers" })),
     ];
     renderOrders();
-    latestRechargePayload = recharge;
-    renderRechargeOptions(recharge);
-    renderRechargeRequests(rechargeRequests);
-    renderSupportOptions(support);
-    renderSupportTickets(support);
+    if (digitalOrdersResult.status !== "fulfilled" || numberOrdersResult.status !== "fulfilled") {
+      const note = document.createElement("div");
+      note.className = "notice";
+      note.textContent = "تم تحميل الطلبات المتاحة فقط. تعذر تحميل أحد الأقسام مؤقتاً.";
+      $("#orders-list")?.prepend(note);
+    }
+    latestRechargePayload = recharge || {};
+    if (recharge) renderRechargeOptions(recharge);
+    else renderLoadError("#recharge-list", "تعذر تحميل طرق الشحن حالياً.");
+    if (rechargeRequests) renderRechargeRequests(rechargeRequests);
+    else renderLoadError("#recharge-requests-list", "تعذر تحميل طلبات الشحن حالياً.");
+    if (support) {
+      renderSupportOptions(support);
+      renderSupportTickets(support);
+    } else {
+      const supportForm = $("#support-ticket-form");
+      if (supportForm) supportForm.hidden = true;
+      renderLoadError("#support-list", "تعذر تحميل خيارات الدعم حالياً.");
+      renderLoadError("#support-ticket-list", "تعذر تحميل تذاكر الدعم حالياً.");
+    }
   } catch (error) {
     activity.textContent = "تعذر تحميل بيانات الحساب حاليا.";
   }
