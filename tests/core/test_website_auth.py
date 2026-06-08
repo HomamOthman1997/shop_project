@@ -138,6 +138,9 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "function authContextForPath" in js
     assert "applyAuthContextMessage();" in js
     assert "بعد الدخول سنعيدك إلى نفس القسم." in js
+    assert "function setPostAuthMessage" in js
+    assert 'setPostAuthMessage(message, "تم تأكيد البريد.");' in js
+    assert 'setPostAuthMessage(message, "البريد مؤكد مسبقا.");' in js
     assert "Promise.allSettled" in js
     assert "/api/v1/numbers/recharge/requests?limit=10&language=" in js
     assert "/api/v1/numbers/support?language=" in js

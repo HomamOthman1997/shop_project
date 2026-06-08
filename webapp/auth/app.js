@@ -195,6 +195,14 @@ function applyAuthContextMessage() {
   authContextMessage.textContent = authContextForPath();
 }
 
+function setPostAuthMessage(messageNode, text) {
+  if (!accountView.hidden && accountMessage) {
+    accountMessage.textContent = text;
+    return;
+  }
+  if (messageNode) messageNode.textContent = text;
+}
+
 function showVerifyOnly(account) {
   currentAccount = account;
   authView.hidden = true;
@@ -265,7 +273,7 @@ async function sendEmailCode({ button, codeRow, message }) {
     if (data.status === "already_verified") {
       const fresh = await api("/api/v1/auth/me");
       showAccount(fresh.account);
-      message.textContent = "البريد مؤكد مسبقا.";
+      setPostAuthMessage(message, "البريد مؤكد مسبقا.");
       return;
     }
     codeRow.hidden = false;
@@ -289,7 +297,7 @@ async function verifyEmailCode({ button, input, message }) {
       body: JSON.stringify({ code: input.value.trim() }),
     });
     showAccount(data.account);
-    message.textContent = "تم تأكيد البريد.";
+    setPostAuthMessage(message, "تم تأكيد البريد.");
   } catch (error) {
     message.textContent = error.message === "invalid or expired code"
       ? "الكود غير صحيح أو منتهي."
