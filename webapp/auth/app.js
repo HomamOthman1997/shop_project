@@ -2492,13 +2492,23 @@ function renderOrderDetail(channel, order) {
       </div>
       <div class="order-meta-grid">${orderMetaRows(order, channel)}</div>
       ${messages.length ? `<div class="order-messages">${messages.map((message) => `<pre>${esc(message)}</pre>`).join("")}</div>` : ""}
-      <div class="order-actions">${channel === "numbers" ? numbersOrderActionsHtml(order) : ""}</div>
+      <div class="order-actions">${channel === "numbers" ? `${numberClientActionsHtml(order)}${numbersOrderActionsHtml(order)}` : ""}</div>
       <p class="message" id="order-action-message"></p>
     </div>`;
   target.querySelector("[data-back-orders]").addEventListener("click", loadDashboard);
+  target.querySelectorAll("[data-copy-order-value]").forEach((button) => {
+    button.addEventListener("click", () => copyOrderValue(button.dataset.copyOrderValue, button.textContent.trim()));
+  });
   target.querySelectorAll("[data-order-action]").forEach((button) => {
     button.addEventListener("click", () => runOrderAction(order, button.dataset.orderAction));
   });
+}
+
+function numberClientActionsHtml(order) {
+  const actions = [];
+  if (order.number) actions.push(`<button class="secondary compact" type="button" data-copy-order-value="${esc(order.number)}">نسخ الرقم</button>`);
+  if (order.code) actions.push(`<button class="secondary compact" type="button" data-copy-order-value="${esc(order.code)}">نسخ الكود</button>`);
+  return actions.join("");
 }
 
 function numbersOrderActionsHtml(order) {
@@ -2508,10 +2518,12 @@ function numbersOrderActionsHtml(order) {
     replace: "تبديل الرقم",
     alternate_provider: "مزود آخر",
     cancel: "إلغاء",
+    download_recording: "تحميل التسجيل",
     rental_sms: "جلب رسائل الإيجار",
     rental_finish: "إنهاء الإيجار",
     rental_renew: "تجديد الإيجار",
     rental_wake: "تنشيط الإيجار",
+    rental_notes: "ملاحظات الإيجار",
   };
   return Object.entries(order.api_actions || {})
     .filter(([key, action]) => labels[key] && action?.enabled && action?.endpoint)
@@ -2519,14 +2531,44 @@ function numbersOrderActionsHtml(order) {
     .join("");
 }
 
+async function copyOrderValue(value, label) {
+  const message = $("#order-action-message");
+  try {
+    await navigator.clipboard.writeText(String(value || ""));
+    if (message) message.textContent = `${label || "تم النسخ"}: تم النسخ.`;
+  } catch (_error) {
+    if (message) message.textContent = "تعذر النسخ تلقائياً. انسخ القيمة يدوياً من تفاصيل الطلب.";
+  }
+}
+
+function downloadOrderAction(action) {
+  const url = String(action?.endpoint || "").trim();
+  if (!url) return;
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "";
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 async function runOrderAction(order, actionKey) {
   const action = (order.api_actions || {})[actionKey] || {};
   const message = $("#order-action-message");
   if (!action.endpoint || !action.enabled) return;
+  if (actionKey === "download_recording" && String(action.method || "GET").toUpperCase() === "GET") {
+    downloadOrderAction(action);
+    if (message) message.textContent = "بدأ تحميل التسجيل.";
+    return;
+  }
   message.textContent = "جاري تنفيذ الإجراء...";
   try {
     const options = { method: action.method || "POST" };
     if (action.requires_idempotency_key) options.headers = { "Idempotency-Key": idempotencyKey(`order-${actionKey}`) };
+    if (String(options.method || "POST").toUpperCase() !== "GET") {
+      options.body = JSON.stringify({ language: appLanguage() });
+    }
     const payload = await api(action.endpoint, options);
     if (payload.order) {
       renderOrderDetail("numbers", payload.order);
@@ -2743,7 +2785,9 @@ function renderDigitalOrderForm(kind, offer, back) {
   $("#digital-order-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const message = $("#digital-order-message");
+    const button = event.currentTarget.querySelector("button[type='submit']");
     message.textContent = "";
+    if (button) button.disabled = true;
     const values = fieldData(event.currentTarget);
     const body = kind === "game"
       ? { quote_token: offer.quote_token, player_id: values.player_id, server_id: values.server_id, customer_data: values }
@@ -2758,6 +2802,8 @@ function renderDigitalOrderForm(kind, offer, back) {
       await loadDashboard();
     } catch (error) {
       message.textContent = error.message;
+    } finally {
+      if (button) button.disabled = false;
     }
   });
 }
@@ -2833,7 +2879,7 @@ function renderNumbersQuotes(payload) {
         const result = await api("/api/v1/numbers/orders", {
           method: "POST",
           headers: { "Idempotency-Key": idempotencyKey("numbers") },
-          body: JSON.stringify({ quote_token: row.quote_token, language: "ar" }),
+          body: JSON.stringify({ quote_token: row.quote_token, language: appLanguage() }),
         });
         target.insertAdjacentHTML("afterbegin", `<div class="notice">تم إنشاء الطلب: ${esc(result.order?.id || "")}</div>`);
         await loadDashboard();

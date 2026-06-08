@@ -149,6 +149,16 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "/api/v1/numbers/support?language=" in js
     assert "/api/v1/digital/orders/${encodeURIComponent(orderId)}" in js
     assert 'api("/api/v1/numbers/support/ticket"' in js
+    assert 'body: JSON.stringify({ quote_token: row.quote_token, language: appLanguage() })' in js
+    assert 'const button = event.currentTarget.querySelector("button[type=\'submit\']");' in js
+    assert "function numberClientActionsHtml" in js
+    assert "function copyOrderValue" in js
+    assert "function downloadOrderAction" in js
+    assert "download_recording: \"تحميل التسجيل\"" in js
+    assert "rental_notes: \"ملاحظات الإيجار\"" in js
+    assert "data-copy-order-value" in js
+    assert 'if (actionKey === "download_recording"' in js
+    assert "options.body = JSON.stringify({ language: appLanguage() });" in js
     assert "function renderSupportTickets" in js
     assert "function renderSupportTicketDetail" in js
     assert "function submitSupportTicketReply" in js
