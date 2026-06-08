@@ -592,6 +592,42 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   grid-column: 1 / -1;
   margin: 0;
 }
+.support-ticket-detail {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 18px;
+  margin-top: 16px;
+  display: grid;
+  gap: 14px;
+}
+.support-message-list {
+  display: grid;
+  gap: 10px;
+}
+.support-message {
+  border: 1px solid var(--line);
+  padding: 12px;
+  background: rgba(255,255,255,.04);
+}
+.support-message.is-support {
+  border-color: rgba(91, 141, 239, .34);
+  background: rgba(91, 141, 239, .08);
+}
+.support-message span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+.support-reply-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.support-reply-form textarea {
+  min-height: 72px;
+}
 .owner-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1614,6 +1650,7 @@ button.owner-action-row {
   .recharge-overview { grid-template-columns: 1fr; }
   .support-category-grid { grid-template-columns: 1fr; }
   .support-ticket-form { grid-template-columns: 1fr; }
+  .support-reply-form { grid-template-columns: 1fr; }
   .filter-chip { flex: 0 0 auto; }
   .owner-metrics, .owner-queues, .owner-sections, .owner-settings-grid { grid-template-columns: 1fr; }
   .owner-payment-fields { grid-template-columns: 1fr; }

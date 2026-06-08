@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
+from bson import ObjectId
 
 from services.numbers import api
 from services.numbers import api_payloads
@@ -36,6 +37,8 @@ def test_register_numbers_api_routes_adds_versioned_endpoints():
     assert ("POST", "/api/v1/numbers/recharge/submit") in routes
     assert ("GET", "/api/v1/numbers/support") in routes
     assert ("POST", "/api/v1/numbers/support/ticket") in routes
+    assert ("GET", "/api/v1/numbers/support/tickets/{ticket_id}") in routes
+    assert ("POST", "/api/v1/numbers/support/tickets/{ticket_id}/reply") in routes
     assert ("GET", "/api/v1/numbers/quotes") in routes
     assert ("GET", "/api/v1/numbers/orders") in routes
     assert ("GET", "/api/v1/numbers/orders/{order_id}") in routes
@@ -515,6 +518,117 @@ async def test_numbers_api_support_ticket_uses_shared_flow(monkeypatch):
     assert calls["submit"]["message"] == "Need help"
     assert calls["submit"]["source_label"] == "Phantom Website"
     assert payload["ticket_no"] == 7
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_support_ticket_detail_is_scoped_to_current_user(monkeypatch):
+    ticket_id = ObjectId()
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="website:account-1", user_id=123, reseller_id=123, scopes=(required_scope,))
+
+    async def fake_purchase_ready(request):
+        calls["purchase_ready"] = True
+
+    class MessageCursor:
+        def sort(self, field, direction):
+            calls["message_sort"] = (field, direction)
+            return self
+
+        def limit(self, value):
+            calls["message_limit"] = value
+            return self
+
+        async def to_list(self, length):
+            calls["message_length"] = length
+            return [{"_id": ObjectId(), "ticket_id": ticket_id, "direction": "owner_to_user", "text": "Reply", "created_at": datetime(2026, 1, 3, tzinfo=UTC)}]
+
+    class Tickets:
+        async def find_one(self, query):
+            calls["ticket_query"] = query
+            return {"_id": ticket_id, "ticket_no": 4, "category": "numbers", "status": "replied", "user_id": 123}
+
+    class Messages:
+        def find(self, query):
+            calls["message_query"] = query
+            return MessageCursor()
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "require_website_purchase_ready", fake_purchase_ready)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "db", type("Db", (), {"support_tickets": Tickets(), "support_ticket_messages": Messages()})())
+
+    request = make_mocked_request("GET", f"/api/v1/numbers/support/tickets/{ticket_id}", match_info={"ticket_id": str(ticket_id)})
+    response = await api.support_ticket_detail(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["ticket_query"] == {"_id": ticket_id, "scope": "platform", "owner_id": None, "user_id": 123}
+    assert calls["message_query"] == {"ticket_id": ticket_id}
+    assert payload["ticket"]["ticket_no"] == 4
+    assert payload["messages"][0]["actor"] == "support"
+    assert payload["messages"][0]["text"] == "Reply"
+
+
+@pytest.mark.asyncio
+async def test_numbers_api_support_ticket_reply_records_website_message(monkeypatch):
+    ticket_id = ObjectId()
+    calls = {}
+
+    async def fake_require_api_auth(request, required_scope):
+        calls["auth_scope"] = required_scope
+        return api_auth_context(key_id="website:account-1", user_id=123, reseller_id=123, scopes=(required_scope,))
+
+    async def fake_purchase_ready(request):
+        calls["purchase_ready"] = True
+
+    class Tickets:
+        async def find_one(self, query):
+            calls.setdefault("ticket_queries", []).append(query)
+            return {"_id": ticket_id, "ticket_no": 4, "category": "numbers", "status": "open", "user_id": 123}
+
+        async def update_one(self, query, update):
+            calls["ticket_update"] = (query, update)
+
+    class Messages:
+        async def insert_one(self, doc):
+            calls["inserted_message"] = doc
+
+        def find(self, query):
+            calls["message_query"] = query
+            return self
+
+        def sort(self, field, direction):
+            return self
+
+        def limit(self, value):
+            return self
+
+        async def to_list(self, length):
+            return [calls["inserted_message"]]
+
+    monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
+    monkeypatch.setattr(api, "require_website_purchase_ready", fake_purchase_ready)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "db", type("Db", (), {"support_tickets": Tickets(), "support_ticket_messages": Messages()})())
+
+    request = make_mocked_request("POST", f"/api/v1/numbers/support/tickets/{ticket_id}/reply", match_info={"ticket_id": str(ticket_id)}, headers={"Content-Type": "application/json"})
+    request._read_bytes = json.dumps({"message": "More details", "language": "en"}).encode()
+
+    response = await api.support_ticket_reply(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert calls["inserted_message"]["direction"] == "user_to_owner"
+    assert calls["inserted_message"]["actor_id"] == 123
+    assert calls["inserted_message"]["text"] == "More details"
+    assert calls["ticket_update"][0] == {"_id": ticket_id}
+    assert calls["ticket_update"][1]["$set"]["status"] == "awaiting_admin"
+    assert calls["ticket_update"][1]["$inc"] == {"payload_count": 1}
+    assert payload["message"] == "Reply sent."
+    assert payload["messages"][0]["actor"] == "customer"
 
 
 @pytest.mark.asyncio

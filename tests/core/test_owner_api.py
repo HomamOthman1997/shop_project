@@ -4,6 +4,7 @@ import inspect
 import json
 import textwrap
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import pytest
 from aiohttp import web
@@ -1317,6 +1318,49 @@ async def test_owner_support_action_uses_shared_ticket_state(monkeypatch):
     assert payload["ticket"]["bug_triage"]["marked_at"] == "2026-06-07T09:10:00+00:00"
     assert payload["ticket"]["bug_reward"]["paid_at"] == "2026-06-07T09:11:00+00:00"
     assert calls == {"ticket_id": "507f1f77bcf86cd799439011", "actor_id": 900000000001}
+
+
+@pytest.mark.asyncio
+async def test_owner_support_reply_records_when_bot_delivery_fails(monkeypatch):
+    calls = {}
+    ticket_id = "507f1f77bcf86cd799439011"
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def get_ticket(_ticket_id):
+        return {"_id": ticket_id, "ticket_no": 4, "status": "open", "category": "numbers"}
+
+    async def send(_ticket, _text):
+        calls["delivery_attempted"] = True
+        return False
+
+    class Messages:
+        async def insert_one(self, doc):
+            calls["message"] = doc
+
+    class Tickets:
+        async def update_one(self, query, update):
+            calls["update"] = (query, update)
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "get_support_ticket", get_ticket)
+    monkeypatch.setattr(owner_api, "send_ticket_message", send)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", AsyncMock())
+    monkeypatch.setattr(owner_api, "db", type("Db", (), {"support_ticket_messages": Messages(), "support_tickets": Tickets()})())
+    request = make_mocked_request("POST", f"/api/v1/owner/support-tickets/{ticket_id}/action", match_info={"ticket_id": ticket_id})
+    request._read_bytes = json.dumps({"action": "reply", "message": "Website-visible reply"}).encode()
+
+    response = await owner_api.owner_support_ticket_action(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["ok"] is True
+    assert calls["delivery_attempted"] is True
+    assert calls["message"]["text"] == "Website-visible reply"
+    assert calls["message"]["delivery_ok"] is False
+    assert calls["update"][1]["$set"]["status"] == "replied"
+    assert calls["update"][1]["$set"]["last_delivery_ok"] is False
 
 
 @pytest.mark.asyncio

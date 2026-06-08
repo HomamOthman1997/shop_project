@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from aiohttp import web
+from bson import ObjectId
 
 from database.financial_ledger import get_user_wallet_balance, list_user_wallet_entries
 from database.mongo import db
@@ -123,6 +124,29 @@ def _support_ticket_payload(row: dict[str, Any], lang: str) -> dict[str, Any]:
         "updated_at": _iso_datetime(row.get("updated_at")) or "",
         "payload_count": int(row.get("payload_count") or 0),
     }
+
+
+def _support_message_payload(row: dict[str, Any]) -> dict[str, Any]:
+    direction = str(row.get("direction") or "")
+    return {
+        "id": str(row.get("_id") or ""),
+        "direction": direction,
+        "actor": "support" if direction == "owner_to_user" else "customer",
+        "text": str(row.get("text") or row.get("caption") or ""),
+        "kind": str(row.get("kind") or "text"),
+        "filename": str(row.get("filename") or ""),
+        "created_at": _iso_datetime(row.get("created_at")) or "",
+    }
+
+
+async def _get_customer_support_ticket(ticket_id: str, user_id: int) -> dict[str, Any] | None:
+    try:
+        oid = ObjectId(str(ticket_id))
+    except Exception:
+        return None
+    return await db.support_tickets.find_one(
+        {"_id": oid, "scope": "platform", "owner_id": None, "user_id": int(user_id)}
+    )
 
 
 async def health(_request: web.Request) -> web.Response:
@@ -523,6 +547,67 @@ async def support_ticket(request: web.Request) -> web.Response:
             rate_limit=rate_limit,
         )
     return web.json_response(result, headers=_response_headers(rate_limit))
+
+
+async def support_ticket_detail(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:account:read")
+    await require_website_purchase_ready(request)
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:support:detail", limit=90)
+    lang = str(request.query.get("language") or "ar")
+    ticket = await _get_customer_support_ticket(str(request.match_info.get("ticket_id") or ""), auth.user_id)
+    if not ticket:
+        return _json_error("Support ticket was not found.", status=404, code="ticket_not_found", rate_limit=rate_limit)
+    rows = await db.support_ticket_messages.find({"ticket_id": ticket.get("_id")}).sort("created_at", 1).limit(200).to_list(length=200)
+    return web.json_response(
+        {
+            "ok": True,
+            "ticket": _support_ticket_payload(ticket, lang),
+            "messages": [_support_message_payload(row) for row in rows],
+        },
+        headers=_response_headers(rate_limit),
+    )
+
+
+async def support_ticket_reply(request: web.Request) -> web.Response:
+    auth = await require_api_auth(request, "numbers:account:read")
+    await require_website_purchase_ready(request)
+    rate_limit = await _check_rate_limit(auth, bucket="numbers:support:reply", limit=20)
+    ticket = await _get_customer_support_ticket(str(request.match_info.get("ticket_id") or ""), auth.user_id)
+    if not ticket:
+        return _json_error("Support ticket was not found.", status=404, code="ticket_not_found", rate_limit=rate_limit)
+    if str(ticket.get("status") or "").lower() in {"solved", "closed"}:
+        return _json_error("This support ticket is closed.", status=409, code="ticket_closed", rate_limit=rate_limit)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    message = " ".join(str((body or {}).get("message") or "").strip().split())
+    if len(message) < 2:
+        return _json_error("Write a support reply.", status=400, code="empty_message", rate_limit=rate_limit)
+    if len(message) > 3500:
+        message = message[:3500]
+    now = datetime.now(UTC)
+    await db.support_ticket_messages.insert_one(
+        {"ticket_id": ticket.get("_id"), "direction": "user_to_owner", "actor_id": int(auth.user_id), "text": message, "created_at": now}
+    )
+    await db.support_tickets.update_one(
+        {"_id": ticket.get("_id")},
+        {
+            "$set": {"status": "awaiting_admin", "last_reply_by": int(auth.user_id), "last_reply_at": now, "updated_at": now},
+            "$inc": {"payload_count": 1},
+        },
+    )
+    refreshed = await _get_customer_support_ticket(str(ticket.get("_id")), auth.user_id) or ticket
+    rows = await db.support_ticket_messages.find({"ticket_id": ticket.get("_id")}).sort("created_at", 1).limit(200).to_list(length=200)
+    return web.json_response(
+        {
+            "ok": True,
+            "ticket": _support_ticket_payload(refreshed, str((body or {}).get("language") or "ar")),
+            "messages": [_support_message_payload(row) for row in rows],
+            "message": _text(str((body or {}).get("language") or "ar"), "Reply sent.", "تم إرسال الرد."),
+        },
+        headers=_response_headers(rate_limit),
+    )
 
 
 async def quotes(request: web.Request) -> web.Response:
@@ -1072,6 +1157,8 @@ def register_numbers_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/numbers/recharge/submit", submit_recharge)
     app.router.add_get("/api/v1/numbers/support", support_options)
     app.router.add_post("/api/v1/numbers/support/ticket", support_ticket)
+    app.router.add_get("/api/v1/numbers/support/tickets/{ticket_id}", support_ticket_detail)
+    app.router.add_post("/api/v1/numbers/support/tickets/{ticket_id}/reply", support_ticket_reply)
     app.router.add_get("/api/v1/numbers/quotes", quotes)
     app.router.add_get("/api/v1/numbers/orders", list_orders)
     app.router.add_get("/api/v1/numbers/orders/{order_id}", get_order_detail)

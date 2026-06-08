@@ -477,7 +477,7 @@ function renderSupportTickets(payload) {
   if (!target) return;
   const rows = payload.tickets || [];
   renderRows(target, rows, (row) => `
-    <div class="data-row">
+    <button class="data-row order-row-button" type="button" data-support-ticket-id="${esc(row.id || "")}">
       <div>
         <strong>#${esc(row.ticket_no || row.id || "")} · ${esc(row.category_label || row.category || "Support")}</strong>
         <span>${esc(row.opened_at || "")}${row.updated_at ? ` · ${esc(row.updated_at)}` : ""}</span>
@@ -486,7 +486,75 @@ function renderSupportTickets(payload) {
         <b>${esc(row.status_label || row.status || "")}</b>
         <span>${row.is_open ? "مفتوحة" : "مغلقة"}</span>
       </div>
-    </div>`);
+    </button>`);
+}
+
+function renderSupportTicketDetail(payload) {
+  const target = $("#support-ticket-detail");
+  if (!target) return;
+  const ticket = payload.ticket || {};
+  const messages = payload.messages || [];
+  target.hidden = false;
+  target.innerHTML = `
+    <div class="section-head">
+      <div>
+        <h3>تذكرة #${esc(ticket.ticket_no || ticket.id || "")}</h3>
+        <p>${esc(ticket.category_label || ticket.category || "Support")} · ${esc(ticket.status_label || ticket.status || "")}</p>
+      </div>
+    </div>
+    <div class="support-message-list">
+      ${messages.length ? messages.map((row) => `
+        <div class="support-message ${row.actor === "support" ? "is-support" : ""}">
+          <span>${row.actor === "support" ? "الدعم" : "أنت"} · ${esc(row.created_at || "")}</span>
+          <strong>${esc(row.text || row.filename || "")}</strong>
+        </div>`).join("") : '<div class="notice">لا توجد رسائل بعد.</div>'}
+    </div>
+    ${ticket.is_open ? `<form class="support-reply-form" data-support-ticket-reply="${esc(ticket.id || "")}">
+      <label><span>ردك</span><textarea name="message" required minlength="2" maxlength="3500" placeholder="اكتب ردك أو أضف تفاصيل جديدة"></textarea></label>
+      <button class="secondary compact" type="submit">إرسال</button>
+      <p class="message" role="status"></p>
+    </form>` : '<div class="notice">هذه التذكرة مغلقة.</div>'}
+  `;
+  target.querySelector("[data-support-ticket-reply]")?.addEventListener("submit", submitSupportTicketReply);
+}
+
+async function loadSupportTicketDetail(ticketId) {
+  const target = $("#support-ticket-detail");
+  if (target) {
+    target.hidden = false;
+    target.textContent = "جاري تحميل التذكرة...";
+  }
+  try {
+    const payload = await api(`/api/v1/numbers/support/tickets/${encodeURIComponent(ticketId)}?language=${encodeURIComponent(appLanguage())}`);
+    renderSupportTicketDetail(payload);
+  } catch (error) {
+    if (target) target.textContent = error.message;
+  }
+}
+
+async function submitSupportTicketReply(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = form.querySelector(".message");
+  const button = form.querySelector("button[type='submit']");
+  const ticketId = form.dataset.supportTicketReply;
+  message.textContent = "جاري إرسال الرد...";
+  button.disabled = true;
+  try {
+    const values = Object.fromEntries(new FormData(form).entries());
+    const payload = await api(`/api/v1/numbers/support/tickets/${encodeURIComponent(ticketId)}/reply`, {
+      method: "POST",
+      body: JSON.stringify({...values, language: appLanguage()}),
+    });
+    form.reset();
+    renderSupportTicketDetail(payload);
+    const support = await api(`/api/v1/numbers/support?language=${encodeURIComponent(appLanguage())}`);
+    renderSupportTickets(support);
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function submitSupportTicket(event) {
@@ -2793,6 +2861,11 @@ $("#cardex-link")?.addEventListener("click", (event) => {
 
 $("#refresh-orders")?.addEventListener("click", loadDashboard);
 $("#support-ticket-form")?.addEventListener("submit", submitSupportTicket);
+$("#support-ticket-list")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-support-ticket-id]");
+  if (!button) return;
+  loadSupportTicketDetail(button.dataset.supportTicketId);
+});
 window.addEventListener("phantom-language-change", () => {
   if (currentAccount && !currentAccount.is_owner) loadDashboard();
 });

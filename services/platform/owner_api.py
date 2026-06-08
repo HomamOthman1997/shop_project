@@ -2385,15 +2385,29 @@ async def owner_support_ticket_action(request: web.Request) -> web.Response:
         if len(message) < 2 or len(message) > 3500:
             return web.json_response({"ok": False, "message": "Write a support reply between 2 and 3500 characters."}, status=400, headers=dict(_NO_STORE_HEADERS))
         delivered = await send_ticket_message(ticket, message)
-        if not delivered:
-            return web.json_response({"ok": False, "message": "Could not deliver the reply through the ticket source bot."}, status=502, headers=dict(_NO_STORE_HEADERS))
         now = datetime.now(UTC)
         await db.support_ticket_messages.insert_one(
-            {"ticket_id": ticket.get("_id"), "direction": "owner_to_user", "actor_id": owner.customer_id, "text": message, "created_at": now}
+            {
+                "ticket_id": ticket.get("_id"),
+                "direction": "owner_to_user",
+                "actor_id": owner.customer_id,
+                "text": message,
+                "delivery_ok": bool(delivered),
+                "created_at": now,
+            }
         )
         await db.support_tickets.update_one(
             {"_id": ticket.get("_id")},
-            {"$set": {"status": "replied", "last_reply_by": owner.customer_id, "last_reply_at": now, "updated_at": now}, "$inc": {"payload_count": 1}},
+            {
+                "$set": {
+                    "status": "replied",
+                    "last_reply_by": owner.customer_id,
+                    "last_reply_at": now,
+                    "last_delivery_ok": bool(delivered),
+                    "updated_at": now,
+                },
+                "$inc": {"payload_count": 1},
+            },
         )
     elif action in {"bug_confirmed", "not_bug"}:
         await mark_support_ticket_bug_triage(ticket_id, actor_id=owner.customer_id, status="confirmed" if action == "bug_confirmed" else "not_bug")

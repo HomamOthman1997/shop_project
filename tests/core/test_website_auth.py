@@ -126,6 +126,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'data-panel="recharge"' in html
     assert 'id="support-ticket-form"' in html
     assert 'id="support-ticket-list"' in html
+    assert 'id="support-ticket-detail"' in html
     assert 'data-order-filter="numbers"' in html
     assert 'data-order-filter="digital"' in html
     assert 'recharge: "/app/recharge"' in js
@@ -134,12 +135,18 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "/api/v1/numbers/support?language=" in js
     assert 'api("/api/v1/numbers/support/ticket"' in js
     assert "function renderSupportTickets" in js
+    assert "function renderSupportTicketDetail" in js
+    assert "function submitSupportTicketReply" in js
+    assert "/api/v1/numbers/support/tickets/" in js
     assert "renderSupportTickets(support)" in js
     assert "نعمل على صندوق تذاكر" not in js
     assert "الدعم غير مفعّل حالياً" in js
     assert '"تذاكري": "My tickets"' in i18n
     assert '"فتح تذكرة دعم": "Open support ticket"' in i18n
     assert '"الرصيد والمدفوعات": "Balance and payments"' in i18n
+    assert '"ردك": "Your reply"' in i18n
+    assert ".support-ticket-detail" in css
+    assert ".support-reply-form" in css
     assert ".support-ticket-form" in css
     assert ".order-filter-bar" in css
 
