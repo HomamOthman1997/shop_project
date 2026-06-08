@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import base64
 from datetime import UTC, datetime
 from typing import Any, Callable
 
@@ -243,6 +244,17 @@ def recharge_review_caption(
     )
 
 
+def _recharge_proof_storage(*, proof_bytes: bytes, proof_filename: str, proof_content_type: str) -> dict[str, Any]:
+    if not proof_bytes:
+        return {}
+    return {
+        "filename": str(proof_filename or "recharge-proof").strip() or "recharge-proof",
+        "content_type": str(proof_content_type or "application/octet-stream").strip() or "application/octet-stream",
+        "size_bytes": len(proof_bytes),
+        "content_base64": base64.b64encode(proof_bytes).decode("ascii"),
+    }
+
+
 async def notify_recharge_review(
     *,
     auth: dict[str, Any],
@@ -365,6 +377,11 @@ async def submit_recharge_request(
             "proof_filename": proof_filename,
             "proof_content_type": proof_content_type,
             "proof_size_bytes": len(proof_bytes),
+            "proof_storage": _recharge_proof_storage(
+                proof_bytes=proof_bytes,
+                proof_filename=proof_filename,
+                proof_content_type=proof_content_type,
+            ),
         },
         wallet_type="user",
     )

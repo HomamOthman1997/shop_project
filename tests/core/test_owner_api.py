@@ -1,4 +1,5 @@
 import ast
+import base64
 import inspect
 import json
 import textwrap
@@ -7,7 +8,9 @@ from datetime import UTC, datetime
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
+from bson import ObjectId
 
+from services.numbers import customer_flows
 from services.platform import owner_api
 from services.platform.website_auth import WebsiteAuthContext
 
@@ -49,6 +52,7 @@ def test_register_owner_api_routes():
     assert ("POST", "/api/v1/owner/routing-targets/{target_key}") in routes
     assert ("PATCH", "/api/v1/owner/payment-methods/{method_code}") in routes
     assert ("GET", "/api/v1/owner/recharge-reviews") in routes
+    assert ("GET", "/api/v1/owner/recharge-reviews/{request_id}/proof") in routes
     assert ("POST", "/api/v1/owner/recharge-reviews/{request_id}/action") in routes
     assert ("GET", "/api/v1/owner/identity-reviews") in routes
     assert ("POST", "/api/v1/owner/identity-reviews/{review_id}/action") in routes
@@ -1074,6 +1078,140 @@ async def test_owner_recharge_accept_uses_shared_financial_decision(monkeypatch)
     assert payload["review"]["status"] == "accepted"
     assert audit_calls[0]["action"] == "recharge_review.accept"
     assert audit_calls[0]["metadata"]["user_id"] == 7
+
+
+def test_recharge_proof_storage_keeps_uploaded_bytes_for_owner_dashboard():
+    stored = customer_flows._recharge_proof_storage(
+        proof_bytes=b"proof-bytes",
+        proof_filename="receipt.jpg",
+        proof_content_type="image/jpeg",
+    )
+
+    assert stored["filename"] == "receipt.jpg"
+    assert stored["content_type"] == "image/jpeg"
+    assert stored["size_bytes"] == len(b"proof-bytes")
+    assert base64.b64decode(stored["content_base64"].encode("ascii")) == b"proof-bytes"
+
+
+@pytest.mark.asyncio
+async def test_owner_recharge_reviews_expose_stored_proof_url(monkeypatch):
+    request_id = ObjectId()
+    row = {
+        "_id": request_id,
+        "user_id": 900000000123,
+        "reseller_id": 900000000123,
+        "wallet_type": "user",
+        "method": "USDT",
+        "amount": 10.0,
+        "status": "pending",
+        "details": {
+            "proof_storage": {
+                "filename": "receipt.jpg",
+                "content_type": "image/jpeg",
+                "content_base64": base64.b64encode(b"proof-bytes").decode("ascii"),
+            }
+        },
+    }
+
+    class Cursor:
+        def sort(self, *_args):
+            return self
+
+        def skip(self, *_args):
+            return self
+
+        def limit(self, *_args):
+            return self
+
+        async def to_list(self, length=None):
+            return [row]
+
+    class RechargeRequests:
+        def find(self, query):
+            assert query == {"status": "pending"}
+            return Cursor()
+
+    monkeypatch.setattr(owner_api, "require_website_owner", lambda _request: __import__("asyncio").sleep(0, result=True))
+    monkeypatch.setattr(owner_api, "db", type("Db", (), {"recharge_requests": RechargeRequests()})())
+
+    response = await owner_api.owner_recharge_reviews(make_mocked_request("GET", "/api/v1/owner/recharge-reviews?status=pending"))
+    payload = json.loads(response.text)
+
+    review = payload["reviews"][0]
+    assert review["has_proof"] is True
+    assert review["proof_url"] == f"/api/v1/owner/recharge-reviews/{request_id}/proof"
+    assert review["proof_filename"] == "receipt.jpg"
+
+
+@pytest.mark.asyncio
+async def test_owner_recharge_review_proof_downloads_stored_upload(monkeypatch):
+    request_id = ObjectId()
+    row = {
+        "_id": request_id,
+        "details": {
+            "proof_storage": {
+                "filename": "receipt.jpg",
+                "content_type": "image/jpeg",
+                "content_base64": base64.b64encode(b"proof-bytes").decode("ascii"),
+            }
+        },
+    }
+
+    monkeypatch.setattr(owner_api, "require_website_owner", lambda _request: __import__("asyncio").sleep(0, result=True))
+    monkeypatch.setattr(owner_api, "_recharge_request", lambda _request_id: __import__("asyncio").sleep(0, result=row))
+
+    response = await owner_api.owner_recharge_review_proof(
+        make_mocked_request(
+            "GET",
+            f"/api/v1/owner/recharge-reviews/{request_id}/proof",
+            match_info={"request_id": str(request_id)},
+        )
+    )
+
+    assert response.status == 200
+    assert response.body == b"proof-bytes"
+    assert response.content_type == "image/jpeg"
+    assert response.headers["Content-Disposition"] == 'inline; filename="receipt.jpg"'
+
+
+@pytest.mark.asyncio
+async def test_owner_recharge_need_more_proof_clears_stored_upload(monkeypatch):
+    request_id = ObjectId()
+    updates = []
+    audit_calls = []
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def recharge(_request_id):
+        return {"_id": request_id, "status": "pending", "amount": 10, "user_id": 7, "reseller_id": 8}
+
+    class RechargeRequests:
+        async def find_one_and_update(self, query, update, **_kwargs):
+            updates.append((query, update))
+            return {"_id": request_id, "status": "need_more_proof", "amount": 10, "user_id": 7, "reseller_id": 8}
+
+    async def audit(**kwargs):
+        audit_calls.append(kwargs)
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_recharge_request", recharge)
+    monkeypatch.setattr(owner_api, "db", type("Db", (), {"recharge_requests": RechargeRequests()})())
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+
+    request = make_mocked_request(
+        "POST",
+        f"/api/v1/owner/recharge-reviews/{request_id}/action",
+        match_info={"request_id": str(request_id)},
+    )
+    request._read_bytes = json.dumps({"action": "need_more_proof", "note": "send clearer receipt"}).encode()
+
+    response = await owner_api.owner_recharge_review_action(request)
+
+    assert response.status == 200
+    assert updates[0][1]["$set"]["proof_file_id"] is None
+    assert updates[0][1]["$unset"] == {"details.proof_storage": ""}
+    assert audit_calls[0]["action"] == "recharge_review.need_more_proof"
 
 
 @pytest.mark.asyncio

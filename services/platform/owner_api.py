@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import UTC, datetime
 import logging
 import re
@@ -1575,6 +1576,8 @@ def _date_text(value: Any) -> str | None:
 
 def _recharge_payload(row: dict[str, Any]) -> dict[str, Any]:
     details = row.get("details") if isinstance(row.get("details"), dict) else {}
+    proof_storage = details.get("proof_storage") if isinstance(details.get("proof_storage"), dict) else {}
+    has_stored_proof = bool(proof_storage.get("content_base64"))
     return {
         "id": _text(row.get("_id")),
         "status": _text(row.get("status")),
@@ -1586,7 +1589,10 @@ def _recharge_payload(row: dict[str, Any]) -> dict[str, Any]:
         "approved_amount": float(row.get("approved_amount") or 0),
         "decision_note": _text(row.get("decision_note")),
         "details": details,
-        "has_proof": bool(row.get("proof_file_id")),
+        "has_proof": bool(row.get("proof_file_id")) or has_stored_proof,
+        "proof_url": f"/api/v1/owner/recharge-reviews/{_text(row.get('_id'))}/proof" if has_stored_proof else "",
+        "proof_filename": _text(proof_storage.get("filename")),
+        "proof_content_type": _text(proof_storage.get("content_type")),
         "created_at": _date_text(row.get("created_at")),
     }
 
@@ -1599,6 +1605,38 @@ async def owner_recharge_reviews(request: web.Request) -> web.Response:
         query["status"] = status
     rows, pagination = await _paged_rows(db.recharge_requests.find(query).sort("created_at", -1), request)
     return web.json_response({"ok": True, "reviews": [_recharge_payload(row) for row in rows], "pagination": pagination}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_recharge_review_proof(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    try:
+        request_id = ObjectId(str(request.match_info.get("request_id") or ""))
+    except Exception:
+        return web.json_response({"ok": False, "message": "Invalid recharge request id."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    row = await _recharge_request(request_id)
+    if not row:
+        return web.json_response({"ok": False, "message": "Recharge request was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    details = row.get("details") if isinstance(row.get("details"), dict) else {}
+    proof_storage = details.get("proof_storage") if isinstance(details.get("proof_storage"), dict) else {}
+    encoded = str(proof_storage.get("content_base64") or "")
+    if not encoded:
+        return web.json_response({"ok": False, "message": "Recharge proof is not available."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    try:
+        proof_bytes = base64.b64decode(encoded.encode("ascii"), validate=True)
+    except Exception:
+        logger.exception("stored recharge proof decode failed request=%s", request_id)
+        return web.json_response({"ok": False, "message": "Stored recharge proof is corrupted."}, status=500, headers=dict(_NO_STORE_HEADERS))
+
+    content_type = str(proof_storage.get("content_type") or "application/octet-stream").strip().lower()
+    if not (content_type.startswith("image/") or content_type == "application/pdf"):
+        content_type = "application/octet-stream"
+    filename = re.sub(r"[^A-Za-z0-9._-]+", "_", str(proof_storage.get("filename") or "recharge-proof").strip()) or "recharge-proof"
+    headers = {
+        **dict(_NO_STORE_HEADERS),
+        "Content-Disposition": f'inline; filename="{filename}"',
+        "X-Content-Type-Options": "nosniff",
+    }
+    return web.Response(body=proof_bytes, content_type=content_type, headers=headers)
 
 
 async def owner_recharge_review_action(request: web.Request) -> web.Response:
@@ -1636,7 +1674,17 @@ async def owner_recharge_review_action(request: web.Request) -> web.Response:
             return web.json_response({"ok": False, "message": "Write a clear proof request note."}, status=400, headers=dict(_NO_STORE_HEADERS))
         updated = await db.recharge_requests.find_one_and_update(
             {"_id": request_id, "status": "pending"},
-            {"$set": {"status": "need_more_proof", "decision_note": f"need_more_proof: {note}", "reviewed_by": owner.customer_id, "proof_file_id": None, "proof_deleted_at": datetime.now(UTC), "updated_at": datetime.now(UTC)}},
+            {
+                "$set": {
+                    "status": "need_more_proof",
+                    "decision_note": f"need_more_proof: {note}",
+                    "reviewed_by": owner.customer_id,
+                    "proof_file_id": None,
+                    "proof_deleted_at": datetime.now(UTC),
+                    "updated_at": datetime.now(UTC),
+                },
+                "$unset": {"details.proof_storage": ""},
+            },
             return_document=ReturnDocument.AFTER,
         )
     else:
@@ -2400,6 +2448,7 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/owner/routing-targets/{target_key}", owner_update_routing_target)
     app.router.add_patch("/api/v1/owner/payment-methods/{method_code}", owner_update_payment_method)
     app.router.add_get("/api/v1/owner/recharge-reviews", owner_recharge_reviews)
+    app.router.add_get("/api/v1/owner/recharge-reviews/{request_id}/proof", owner_recharge_review_proof)
     app.router.add_post("/api/v1/owner/recharge-reviews/{request_id}/action", owner_recharge_review_action)
     app.router.add_get("/api/v1/owner/identity-reviews", owner_identity_reviews)
     app.router.add_post("/api/v1/owner/identity-reviews/{review_id}/action", owner_identity_review_action)

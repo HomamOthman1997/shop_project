@@ -1431,6 +1431,7 @@ function renderOwnerRechargeReviews(payload, append = false) {
     <article class="owner-review-card">
       <div class="owner-order-head"><div><strong>${esc(row.method || "طلب شحن")}</strong><span>${esc(row.id)}</span></div><b>${esc(row.status)}</b></div>
       <div class="owner-order-meta"><span>المستخدم: ${esc(row.user_id)}</span><span>المحفظة: ${esc(row.wallet_type)}</span><span>المبلغ: ${esc(row.amount)}</span><span>${row.has_proof ? "يوجد إثبات" : "بدون إثبات"}</span></div>
+      ${row.proof_url ? `<div class="owner-order-actions"><a class="secondary compact button-link" href="${esc(row.proof_url)}" target="_blank" rel="noopener">عرض الإثبات</a><span>${esc(row.proof_filename || row.proof_content_type || "")}</span></div>` : ""}
       ${row.decision_note ? `<div class="notice">${esc(row.decision_note)}</div>` : ""}
       ${row.status === "pending" ? `<form class="owner-review-form" data-owner-recharge="${esc(row.id)}">
         <label><span>المبلغ المقبول</span><input name="approved_amount" type="number" min="0.0001" step="0.0001" value="${esc(row.amount)}"></label>

@@ -213,6 +213,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 .primary:disabled { opacity: .55; cursor: wait; }
 .secondary { border: 1px solid var(--line); background: #fff; color: var(--ink); padding: 0 16px; }
 .secondary { background: rgba(255,255,255,.045); }
+.button-link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .text-button { border: 0; background: transparent; color: var(--muted); width: 100%; margin-top: 14px; }
 .link-button { display: grid; place-items: center; text-decoration: none; margin-top: 22px; }
 

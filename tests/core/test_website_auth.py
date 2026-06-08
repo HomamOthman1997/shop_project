@@ -149,6 +149,8 @@ def test_every_owner_api_route_has_a_dashboard_callsite():
         if route.method == "HEAD":
             continue
         canonical = route.resource.canonical
+        if canonical == "/api/v1/owner/recharge-reviews/{request_id}/proof" and "row.proof_url" in js:
+            continue
         parts = [part for part in re.split(r"\{[^}]+\}", canonical) if part]
         if not any(all(part in call for part in parts) for call in api_calls):
             missing.append(f"{route.method} {canonical}")
@@ -328,6 +330,19 @@ def test_sensitive_owner_actions_require_confirmation():
     assert "Approve this identity verification request" in js
     assert "Reject this recharge request?" in js
     assert "Reject this reseller bot creation request?" in js
+
+
+def test_owner_recharge_reviews_render_uploaded_proof_link():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    js = (root / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+    css = (root / "webapp" / "auth" / "styles.css").read_text(encoding="utf-8")
+
+    assert "row.proof_url" in js
+    assert 'href="${esc(row.proof_url)}"' in js
+    assert 'target="_blank"' in js
+    assert ".button-link" in css
 
 
 def test_sensitive_owner_forms_block_duplicate_submissions():
