@@ -120,6 +120,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     html = (root / "webapp" / "auth" / "index.html").read_text(encoding="utf-8")
     js = (root / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
     css = (root / "webapp" / "auth" / "styles.css").read_text(encoding="utf-8")
+    i18n = (root / "webapp" / "auth" / "i18n.js").read_text(encoding="utf-8")
 
     assert 'data-view="recharge"' in html
     assert 'data-panel="recharge"' in html
@@ -128,12 +129,17 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'data-order-filter="numbers"' in html
     assert 'data-order-filter="digital"' in html
     assert 'recharge: "/app/recharge"' in js
-    assert 'api("/api/v1/numbers/recharge/requests?limit=10")' in js
+    assert "function appLanguage" in js
+    assert "/api/v1/numbers/recharge/requests?limit=10&language=" in js
+    assert "/api/v1/numbers/support?language=" in js
     assert 'api("/api/v1/numbers/support/ticket"' in js
     assert "function renderSupportTickets" in js
     assert "renderSupportTickets(support)" in js
     assert "نعمل على صندوق تذاكر" not in js
     assert "الدعم غير مفعّل حالياً" in js
+    assert '"تذاكري": "My tickets"' in i18n
+    assert '"فتح تذكرة دعم": "Open support ticket"' in i18n
+    assert '"الرصيد والمدفوعات": "Balance and payments"' in i18n
     assert ".support-ticket-form" in css
     assert ".order-filter-bar" in css
 

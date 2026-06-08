@@ -1,5 +1,9 @@
 const $ = (selector) => document.querySelector(selector);
 
+function appLanguage() {
+  return window.PhantomI18n?.currentLanguage?.() || document.documentElement.lang || "ar";
+}
+
 const authView = $("#auth-view");
 const verifyView = $("#verify-view");
 const accountView = $("#account-view");
@@ -313,14 +317,15 @@ function renderRows(target, rows, formatter) {
 
 async function loadDashboard() {
   const activity = $("#activity-list");
+  const lang = encodeURIComponent(appLanguage());
   try {
     const [digitalAccount, digitalOrders, numberOrders, recharge, rechargeRequests, support] = await Promise.all([
       api("/api/v1/digital/account"),
       api("/api/v1/digital/orders?limit=20"),
       api("/api/v1/numbers/orders?limit=20"),
       api("/api/v1/numbers/recharge"),
-      api("/api/v1/numbers/recharge/requests?limit=10"),
-      api("/api/v1/numbers/support"),
+      api(`/api/v1/numbers/recharge/requests?limit=10&language=${lang}`),
+      api(`/api/v1/numbers/support?language=${lang}`),
     ]);
     setText("#wallet-balance", digitalAccount.wallet?.balance_label || "$0.00");
     setText("#recharge-wallet-balance", digitalAccount.wallet?.balance_label || "$0.00");
@@ -415,6 +420,7 @@ async function submitRechargeProof(event) {
   button.disabled = true;
   try {
     const data = new FormData(form);
+    data.set("language", appLanguage());
     const result = await api("/api/v1/numbers/recharge/submit", {
       method: "POST",
       body: data,
@@ -426,7 +432,7 @@ async function submitRechargeProof(event) {
       setText("#wallet-balance", result.wallet.balance_label);
       setText("#recharge-wallet-balance", result.wallet.balance_label);
     }
-    const requests = await api("/api/v1/numbers/recharge/requests?limit=10");
+    const requests = await api(`/api/v1/numbers/recharge/requests?limit=10&language=${encodeURIComponent(appLanguage())}`);
     renderRechargeRequests(requests);
   } catch (error) {
     message.textContent = error.message;
@@ -494,11 +500,11 @@ async function submitSupportTicket(event) {
     const values = Object.fromEntries(new FormData(form).entries());
     const result = await api("/api/v1/numbers/support/ticket", {
       method: "POST",
-      body: JSON.stringify({...values, language: "ar"}),
+      body: JSON.stringify({...values, language: appLanguage()}),
     });
     message.textContent = result.message || `تم فتح التذكرة #${result.ticket_no || ""}.`;
     form.reset();
-    const support = await api("/api/v1/numbers/support");
+    const support = await api(`/api/v1/numbers/support?language=${encodeURIComponent(appLanguage())}`);
     renderSupportOptions(support);
     renderSupportTickets(support);
   } catch (error) {
@@ -2787,6 +2793,9 @@ $("#cardex-link")?.addEventListener("click", (event) => {
 
 $("#refresh-orders")?.addEventListener("click", loadDashboard);
 $("#support-ticket-form")?.addEventListener("submit", submitSupportTicket);
+window.addEventListener("phantom-language-change", () => {
+  if (currentAccount && !currentAccount.is_owner) loadDashboard();
+});
 document.querySelectorAll("[data-order-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     customerOrderFilter = button.dataset.orderFilter || "all";
