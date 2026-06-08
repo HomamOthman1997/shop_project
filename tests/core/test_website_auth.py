@@ -142,7 +142,7 @@ def test_every_owner_api_route_has_a_dashboard_callsite():
     js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
     api_calls = [
         next(value for value in groups if value)
-        for groups in re.findall(r"""api\((?:`([^`]+)`|"([^"]+)"|'([^']+)')""", js)
+        for groups in re.findall(r"""(?:api|ownerApi)\((?:`([^`]+)`|"([^"]+)"|'([^']+)')""", js)
     ]
     missing = []
     for route in app.router.routes():
@@ -197,7 +197,19 @@ def test_owner_admin_tools_are_grouped_by_operational_area():
     assert '"owner-broadcast-tools"' in group_block
     assert '"owner-reseller-deposit-tools"' in group_block
     assert 'integrations: {' in request_block
-    assert 'bots: () => api("/api/v1/owner/bots?status=all&limit=30")' in request_block
+    assert 'bots: () => ownerApi("/api/v1/owner/bots?status=all&limit=30")' in request_block
+
+
+def test_owner_api_calls_use_extended_timeout_helper():
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "app.js").read_text(encoding="utf-8")
+
+    assert "const OWNER_API_TIMEOUT_MS = 45000;" in js
+    assert "function ownerApi(path, options = {})" in js
+    assert "return api(path, {timeoutMs: OWNER_API_TIMEOUT_MS, ...options});" in js
+    assert 'api("/api/v1/owner' not in js
+    assert "api(`/api/v1/owner" not in js
 
 
 def test_owner_numbers_markup_is_editable_from_dashboard():

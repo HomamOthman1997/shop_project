@@ -158,6 +158,12 @@ async function api(path, options = {}) {
   return data;
 }
 
+const OWNER_API_TIMEOUT_MS = 45000;
+
+function ownerApi(path, options = {}) {
+  return api(path, {timeoutMs: OWNER_API_TIMEOUT_MS, ...options});
+}
+
 function setText(selector, value) {
   const node = $(selector);
   if (node) node.textContent = value;
@@ -536,45 +542,45 @@ function ownerRequestMap() {
   });
   return {
     overview: {
-      dashboard: () => api("/api/v1/owner/dashboard"),
-      queues: () => api("/api/v1/owner/queues"),
+      dashboard: () => ownerApi("/api/v1/owner/dashboard"),
+      queues: () => ownerApi("/api/v1/owner/queues"),
     },
     finance: {
-      settings: () => api("/api/v1/owner/settings"),
-      recharge: () => api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
-      financeAudit: () => api(`/api/v1/owner/finance/audit?days=${encodeURIComponent(auditDays)}&limit=20`),
-      resellers: () => api(`/api/v1/owner/resellers?q=${encodeURIComponent(ownerResellerQuery)}&limit=30&offset=0`),
+      settings: () => ownerApi("/api/v1/owner/settings"),
+      recharge: () => ownerApi(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
+      financeAudit: () => ownerApi(`/api/v1/owner/finance/audit?days=${encodeURIComponent(auditDays)}&limit=20`),
+      resellers: () => ownerApi(`/api/v1/owner/resellers?q=${encodeURIComponent(ownerResellerQuery)}&limit=30&offset=0`),
     },
     users: {
-      users: () => api(`/api/v1/owner/users?q=${encodeURIComponent(ownerUserQuery)}&limit=20&offset=0`),
-      identity: () => api(`/api/v1/owner/identity-reviews?status=${encodeURIComponent(identityFilter)}&limit=30`),
+      users: () => ownerApi(`/api/v1/owner/users?q=${encodeURIComponent(ownerUserQuery)}&limit=20&offset=0`),
+      identity: () => ownerApi(`/api/v1/owner/identity-reviews?status=${encodeURIComponent(identityFilter)}&limit=30`),
     },
     support: {
-      support: () => api(`/api/v1/owner/support-tickets?status=${encodeURIComponent(supportFilter)}&limit=30`),
+      support: () => ownerApi(`/api/v1/owner/support-tickets?status=${encodeURIComponent(supportFilter)}&limit=30`),
     },
     integrations: {
-      apiKeys: () => api("/api/v1/owner/api-keys?status=all&limit=30"),
-      webhooks: () => api("/api/v1/owner/webhooks?status=all&limit=30"),
-      botCreationReviews: () => api(`/api/v1/owner/bot-creation-reviews?status=${encodeURIComponent(botReviewFilter)}&limit=30`),
-      bots: () => api("/api/v1/owner/bots?status=all&limit=30"),
+      apiKeys: () => ownerApi("/api/v1/owner/api-keys?status=all&limit=30"),
+      webhooks: () => ownerApi("/api/v1/owner/webhooks?status=all&limit=30"),
+      botCreationReviews: () => ownerApi(`/api/v1/owner/bot-creation-reviews?status=${encodeURIComponent(botReviewFilter)}&limit=30`),
+      bots: () => ownerApi("/api/v1/owner/bots?status=all&limit=30"),
     },
     providers: {
-      providers: () => api("/api/v1/owner/provider-readiness"),
-      providerEvents: () => api("/api/v1/owner/provider-webhook-events?limit=12"),
-      sources: () => api(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent(sourceFilter)}&limit=30`),
+      providers: () => ownerApi("/api/v1/owner/provider-readiness"),
+      providerEvents: () => ownerApi("/api/v1/owner/provider-webhook-events?limit=12"),
+      sources: () => ownerApi(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent(sourceFilter)}&limit=30`),
     },
     catalog: {
-      catalog: () => api(`/api/v1/owner/custom-catalog?catalog_type=${encodeURIComponent(catalogType)}${ownerCatalogParentId ? `&parent_id=${encodeURIComponent(ownerCatalogParentId)}` : ""}`),
+      catalog: () => ownerApi(`/api/v1/owner/custom-catalog?catalog_type=${encodeURIComponent(catalogType)}${ownerCatalogParentId ? `&parent_id=${encodeURIComponent(ownerCatalogParentId)}` : ""}`),
     },
     system: {
-      settings: () => api("/api/v1/owner/settings"),
-      systemStatus: () => api("/api/v1/owner/system/status"),
-      ownerAudit: () => api(`/api/v1/owner/audit?${ownerAuditQuery.toString()}`),
+      settings: () => ownerApi("/api/v1/owner/settings"),
+      systemStatus: () => ownerApi("/api/v1/owner/system/status"),
+      ownerAudit: () => ownerApi(`/api/v1/owner/audit?${ownerAuditQuery.toString()}`),
     },
     orders: {
-      digital: () => api(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
-      preorders: () => api(`/api/v1/owner/custom-preorders?status=${encodeURIComponent(preorderFilter)}&limit=30`),
-      refunds: () => api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
+      digital: () => ownerApi(`/api/v1/owner/digital/orders?status=${encodeURIComponent(digitalFilter)}&limit=30`),
+      preorders: () => ownerApi(`/api/v1/owner/custom-preorders?status=${encodeURIComponent(preorderFilter)}&limit=30`),
+      refunds: () => ownerApi(`/api/v1/owner/numbers/refund-reviews?include_resolved=${showResolvedReviews}&limit=30`),
     },
   };
 }
@@ -649,14 +655,14 @@ function setOwnerFormBusy(form, busy) {
 
 function ownerPagedRequest(key, offset) {
   const params = `limit=30&offset=${encodeURIComponent(offset)}`;
-  if (key === "digital") return api(`/api/v1/owner/digital/orders?status=${encodeURIComponent($("#owner-digital-filter")?.value || "pending")}&${params}`);
-  if (key === "preorders") return api(`/api/v1/owner/custom-preorders?status=${encodeURIComponent($("#owner-preorder-filter")?.value || "active")}&${params}`);
-  if (key === "refunds") return api(`/api/v1/owner/numbers/refund-reviews?include_resolved=${$("#owner-refunds-resolved")?.checked ? "1" : "0"}&${params}`);
-  if (key === "recharge") return api(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent($("#owner-recharge-filter")?.value || "pending")}&${params}`);
-  if (key === "identity") return api(`/api/v1/owner/identity-reviews?status=${encodeURIComponent($("#owner-identity-filter")?.value || "pending")}&${params}`);
-  if (key === "support") return api(`/api/v1/owner/support-tickets?status=${encodeURIComponent($("#owner-support-filter")?.value || "open")}&${params}`);
-  if (key === "botCreationReviews") return api(`/api/v1/owner/bot-creation-reviews?status=${encodeURIComponent($("#owner-bot-review-filter")?.value || "pending")}&${params}`);
-  if (key === "bots") return api(`/api/v1/owner/bots?status=all&${params}`);
+  if (key === "digital") return ownerApi(`/api/v1/owner/digital/orders?status=${encodeURIComponent($("#owner-digital-filter")?.value || "pending")}&${params}`);
+  if (key === "preorders") return ownerApi(`/api/v1/owner/custom-preorders?status=${encodeURIComponent($("#owner-preorder-filter")?.value || "active")}&${params}`);
+  if (key === "refunds") return ownerApi(`/api/v1/owner/numbers/refund-reviews?include_resolved=${$("#owner-refunds-resolved")?.checked ? "1" : "0"}&${params}`);
+  if (key === "recharge") return ownerApi(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent($("#owner-recharge-filter")?.value || "pending")}&${params}`);
+  if (key === "identity") return ownerApi(`/api/v1/owner/identity-reviews?status=${encodeURIComponent($("#owner-identity-filter")?.value || "pending")}&${params}`);
+  if (key === "support") return ownerApi(`/api/v1/owner/support-tickets?status=${encodeURIComponent($("#owner-support-filter")?.value || "open")}&${params}`);
+  if (key === "botCreationReviews") return ownerApi(`/api/v1/owner/bot-creation-reviews?status=${encodeURIComponent($("#owner-bot-review-filter")?.value || "pending")}&${params}`);
+  if (key === "bots") return ownerApi(`/api/v1/owner/bots?status=all&${params}`);
   throw new Error("Unsupported owner list.");
 }
 
@@ -883,7 +889,7 @@ async function createOwnerApiKey(event) {
   body.scopes = selectedValues(form.elements.scopes);
   setOwnerFormBusy(form, true);
   try {
-    const result = await api("/api/v1/owner/api-keys", {method: "POST", body: JSON.stringify(body)});
+    const result = await ownerApi("/api/v1/owner/api-keys", {method: "POST", body: JSON.stringify(body)});
     const box = $("#owner-api-secret");
     box.hidden = false;
     box.textContent = `API key يظهر مرة واحدة فقط: ${result.api_key}`;
@@ -899,7 +905,7 @@ async function createOwnerWebhook(event) {
   body.events = selectedValues(form.elements.events);
   setOwnerFormBusy(form, true);
   try {
-    const result = await api("/api/v1/owner/webhooks", {method: "POST", body: JSON.stringify(body)});
+    const result = await ownerApi("/api/v1/owner/webhooks", {method: "POST", body: JSON.stringify(body)});
     const box = $("#owner-webhook-secret");
     box.hidden = false;
     box.textContent = `Webhook secret يظهر مرة واحدة فقط: ${result.secret}`;
@@ -910,13 +916,13 @@ async function createOwnerWebhook(event) {
 
 async function revokeOwnerApiKey(button) {
   if (!window.confirm("إلغاء هذا المفتاح؟")) return;
-  await api(`/api/v1/owner/api-keys/${encodeURIComponent(button.dataset.ownerApiKey)}/revoke`, {method: "POST"});
+  await ownerApi(`/api/v1/owner/api-keys/${encodeURIComponent(button.dataset.ownerApiKey)}/revoke`, {method: "POST"});
   await loadOwnerDashboard();
 }
 
 async function revokeOwnerWebhook(button) {
   if (!window.confirm("إلغاء هذا webhook؟")) return;
-  await api(`/api/v1/owner/webhooks/${encodeURIComponent(button.dataset.ownerWebhook)}/revoke`, {method: "POST"});
+  await ownerApi(`/api/v1/owner/webhooks/${encodeURIComponent(button.dataset.ownerWebhook)}/revoke`, {method: "POST"});
   await loadOwnerDashboard();
 }
 
@@ -970,8 +976,8 @@ async function loadMoreOwnerProviderDiagnostics(button) {
     const key = button.dataset.ownerPage;
     const offset = Number(button.dataset.nextOffset || 0);
     const payload = key === "providerEvents"
-      ? await api(`/api/v1/owner/provider-webhook-events?limit=30&offset=${encodeURIComponent(offset)}`)
-      : await api(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent($("#owner-source-filter")?.value || "under_review")}&limit=30&offset=${encodeURIComponent(offset)}`);
+      ? await ownerApi(`/api/v1/owner/provider-webhook-events?limit=30&offset=${encodeURIComponent(offset)}`)
+      : await ownerApi(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent($("#owner-source-filter")?.value || "under_review")}&limit=30&offset=${encodeURIComponent(offset)}`);
     renderOwnerProviderDiagnostics(
       ownerProviderPayloads.providers,
       key === "providerEvents" ? payload : ownerProviderPayloads.events,
@@ -988,7 +994,7 @@ async function loadMoreOwnerProviderDiagnostics(button) {
 async function replayOwnerProviderEvent(button) {
   if (!window.confirm("إعادة تشغيل هذا الحدث قد يغير حالة الطلب المرتبط. متابعة؟")) return;
   try {
-    await api(`/api/v1/owner/provider-webhook-events/${encodeURIComponent(button.dataset.providerEvent)}/replay`, {method: "POST"});
+    await ownerApi(`/api/v1/owner/provider-webhook-events/${encodeURIComponent(button.dataset.providerEvent)}/replay`, {method: "POST"});
     setText("#owner-message", "تم تنفيذ replay للحدث.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -998,7 +1004,7 @@ async function runOwnerBittopupScan() {
   if (!window.confirm("تشغيل BitTopup scan قد يستغرق وقتا ويحدّث مصادر الأسعار. متابعة؟")) return;
   try {
     setText("#owner-message", "جاري تشغيل BitTopup scan...");
-    const result = await api("/api/v1/owner/digital-provider-sources/scan", {method: "POST", body: JSON.stringify({})});
+    const result = await ownerApi("/api/v1/owner/digital-provider-sources/scan", {method: "POST", body: JSON.stringify({})});
     setText("#owner-message", `انتهى scan: ${result.scan?.status || "done"}.`);
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1008,7 +1014,7 @@ async function runOwnerSourceAction(button) {
   const action = button.dataset.sourceAction || "";
   if (!window.confirm(`${action} لهذا المصدر؟`)) return;
   try {
-    await api(`/api/v1/owner/digital-provider-sources/${encodeURIComponent(button.dataset.ownerSource)}/action`, {
+    await ownerApi(`/api/v1/owner/digital-provider-sources/${encodeURIComponent(button.dataset.ownerSource)}/action`, {
       method: "POST",
       body: JSON.stringify({action}),
     });
@@ -1093,7 +1099,7 @@ async function sendOwnerBroadcastForm(event) {
   const body = Object.fromEntries(new FormData(form).entries());
   setOwnerFormBusy(form, true);
   try {
-    await api("/api/v1/owner/broadcast", {method: "POST", body: JSON.stringify(body)});
+    await ownerApi("/api/v1/owner/broadcast", {method: "POST", body: JSON.stringify(body)});
     setText("#owner-message", "تم إرسال البث.");
     form.reset();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1107,7 +1113,7 @@ async function createOwnerResellerDeposit(event) {
   if (!window.confirm(`سيتم إضافة ${body.amount || 0} إلى محفظة الوكيل ${body.reseller_id || ""}. متابعة؟`)) return;
   setOwnerFormBusy(form, true);
   try {
-    await api("/api/v1/owner/reseller-deposits", {method: "POST", body: JSON.stringify(body)});
+    await ownerApi("/api/v1/owner/reseller-deposits", {method: "POST", body: JSON.stringify(body)});
     setText("#owner-message", "تم إضافة رصيد الوكيل.");
     form.reset();
     await loadOwnerDashboard();
@@ -1123,7 +1129,7 @@ async function runOwnerBotSubscriptionAction(event) {
   body.action = action;
   if (action === "activate" && !window.confirm("سيتم تمديد اشتراك هذا البوت. متابعة؟")) return;
   try {
-    await api(`/api/v1/owner/bots/${encodeURIComponent(form.dataset.ownerBot)}/subscription/action`, {method: "POST", body: JSON.stringify(body)});
+    await ownerApi(`/api/v1/owner/bots/${encodeURIComponent(form.dataset.ownerBot)}/subscription/action`, {method: "POST", body: JSON.stringify(body)});
     setText("#owner-message", "تم تحديث اشتراك البوت.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1201,7 +1207,7 @@ async function loadMoreOwnerAudit(event) {
     Object.entries(ownerAuditFilters).forEach(([key, value]) => {
       if (value) query.set(key, value);
     });
-    const payload = await api(`/api/v1/owner/audit?${query.toString()}`);
+    const payload = await ownerApi(`/api/v1/owner/audit?${query.toString()}`);
     renderOwnerSystemOperations(ownerSystemStatusPayload, payload, true);
   } catch (error) {
     setText("#owner-message", error.message);
@@ -1228,7 +1234,7 @@ async function resetOwnerAuditFilters() {
 
 async function sendOwnerTestLog() {
   try {
-    await api("/api/v1/owner/system/test-log", {method: "POST", body: JSON.stringify({})});
+    await ownerApi("/api/v1/owner/system/test-log", {method: "POST", body: JSON.stringify({})});
     setText("#owner-message", "Test log was emitted to the configured logs target.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1265,7 +1271,7 @@ async function searchOwnerResellers(event) {
   event.preventDefault();
   ownerResellerQuery = String($("#owner-reseller-search-input")?.value || "").trim();
   try {
-    const payload = await api(`/api/v1/owner/resellers?q=${encodeURIComponent(ownerResellerQuery)}&limit=30&offset=0`);
+    const payload = await ownerApi(`/api/v1/owner/resellers?q=${encodeURIComponent(ownerResellerQuery)}&limit=30&offset=0`);
     renderOwnerResellerManagement(payload);
   } catch (error) { setText("#owner-message", error.message); }
 }
@@ -1275,7 +1281,7 @@ async function loadMoreOwnerResellers(event) {
   button.disabled = true;
   try {
     const offset = Number(button.dataset.nextOffset || 0);
-    const payload = await api(`/api/v1/owner/resellers?q=${encodeURIComponent(ownerResellerQuery)}&limit=30&offset=${encodeURIComponent(offset)}`);
+    const payload = await ownerApi(`/api/v1/owner/resellers?q=${encodeURIComponent(ownerResellerQuery)}&limit=30&offset=${encodeURIComponent(offset)}`);
     renderOwnerResellerManagement(payload, true);
   } catch (error) { setText("#owner-message", error.message); }
   finally { button.disabled = false; }
@@ -1283,7 +1289,7 @@ async function loadMoreOwnerResellers(event) {
 
 async function loadOwnerResellerDetail(resellerId) {
   try {
-    const payload = await api(`/api/v1/owner/resellers/${encodeURIComponent(resellerId)}`);
+    const payload = await ownerApi(`/api/v1/owner/resellers/${encodeURIComponent(resellerId)}`);
     const row = payload.reseller || {};
     const target = $("#owner-reseller-detail");
     target.hidden = false;
@@ -1337,7 +1343,7 @@ async function searchOwnerUsers(event) {
   event.preventDefault();
   ownerUserQuery = String($("#owner-user-search-input")?.value || "").trim();
   try {
-    const payload = await api(`/api/v1/owner/users?q=${encodeURIComponent(ownerUserQuery)}&limit=20&offset=0`);
+    const payload = await ownerApi(`/api/v1/owner/users?q=${encodeURIComponent(ownerUserQuery)}&limit=20&offset=0`);
     renderOwnerUserManagement(payload);
   } catch (error) { setText("#owner-message", error.message); }
 }
@@ -1347,7 +1353,7 @@ async function loadMoreOwnerUsers(event) {
   button.disabled = true;
   try {
     const offset = Number(button.dataset.nextOffset || 0);
-    const payload = await api(`/api/v1/owner/users?q=${encodeURIComponent(ownerUserQuery)}&limit=20&offset=${encodeURIComponent(offset)}`);
+    const payload = await ownerApi(`/api/v1/owner/users?q=${encodeURIComponent(ownerUserQuery)}&limit=20&offset=${encodeURIComponent(offset)}`);
     renderOwnerUserManagement(payload, true);
   } catch (error) { setText("#owner-message", error.message); }
   finally { button.disabled = false; }
@@ -1355,7 +1361,7 @@ async function loadMoreOwnerUsers(event) {
 
 async function loadOwnerUserDetail(customerId) {
   try {
-    const payload = await api(`/api/v1/owner/users/${encodeURIComponent(customerId)}`);
+    const payload = await ownerApi(`/api/v1/owner/users/${encodeURIComponent(customerId)}`);
     const target = $("#owner-user-detail");
     const user = payload.user || {};
     target.hidden = false;
@@ -1376,7 +1382,7 @@ async function runOwnerUserAction(button) {
   if (!window.confirm(`${action} user ${customerId}?`)) return;
   button.disabled = true;
   try {
-    await api(`/api/v1/owner/users/${encodeURIComponent(customerId)}/action`, {method: "POST", body: JSON.stringify({action})});
+    await ownerApi(`/api/v1/owner/users/${encodeURIComponent(customerId)}/action`, {method: "POST", body: JSON.stringify({action})});
     setText("#owner-message", "User account was updated.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1410,7 +1416,7 @@ async function runOwnerBotCreationReview(button) {
   if (!window.confirm(warning)) return;
   button.disabled = true;
   try {
-    await api(`/api/v1/owner/bot-creation-reviews/${encodeURIComponent(button.dataset.ownerBotReview)}/action`, {method: "POST", body: JSON.stringify({action})});
+    await ownerApi(`/api/v1/owner/bot-creation-reviews/${encodeURIComponent(button.dataset.ownerBotReview)}/action`, {method: "POST", body: JSON.stringify({action})});
     setText("#owner-message", "Bot creation review was updated.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1446,7 +1452,7 @@ async function runOwnerRechargeAction(event) {
   if (action === "reject" && !window.confirm("Reject this recharge request? This decision closes the request.")) return;
   setOwnerFormBusy(form, true);
   try {
-    await api(`/api/v1/owner/recharge-reviews/${encodeURIComponent(form.dataset.ownerRecharge)}/action`, {method: "POST", body: JSON.stringify({...values, action})});
+    await ownerApi(`/api/v1/owner/recharge-reviews/${encodeURIComponent(form.dataset.ownerRecharge)}/action`, {method: "POST", body: JSON.stringify({...values, action})});
     setText("#owner-message", "تم تنفيذ إجراء طلب الشحن.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1483,7 +1489,7 @@ async function runOwnerIdentityAction(event) {
   if (!window.confirm(warning)) return;
   setOwnerFormBusy(form, true);
   try {
-    await api(`/api/v1/owner/identity-reviews/${encodeURIComponent(form.dataset.ownerIdentity)}/action`, {method: "POST", body: JSON.stringify({...values, action})});
+    await ownerApi(`/api/v1/owner/identity-reviews/${encodeURIComponent(form.dataset.ownerIdentity)}/action`, {method: "POST", body: JSON.stringify({...values, action})});
     setText("#owner-message", "تم تنفيذ قرار الهوية.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1519,7 +1525,7 @@ function renderOwnerSupportTickets(payload, append = false) {
 async function loadOwnerSupportDetail(button) {
   button.disabled = true;
   try {
-    const payload = await api(`/api/v1/owner/support-tickets/${encodeURIComponent(button.dataset.ownerTicketDetail)}`);
+    const payload = await ownerApi(`/api/v1/owner/support-tickets/${encodeURIComponent(button.dataset.ownerTicketDetail)}`);
     const card = button.closest(".owner-review-card");
     let conversation = card.querySelector(".owner-support-conversation");
     if (!conversation) {
@@ -1546,7 +1552,7 @@ async function runOwnerSupportReply(event) {
   const button = form.querySelector("button");
   button.disabled = true;
   try {
-    await api(`/api/v1/owner/support-tickets/${encodeURIComponent(form.dataset.ownerSupportReply)}/action`, {method: "POST", body: JSON.stringify({action: "reply", message: form.elements.message.value})});
+    await ownerApi(`/api/v1/owner/support-tickets/${encodeURIComponent(form.dataset.ownerSupportReply)}/action`, {method: "POST", body: JSON.stringify({action: "reply", message: form.elements.message.value})});
     setText("#owner-message", "تم إرسال الرد للمستخدم.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1565,7 +1571,7 @@ async function runOwnerSupportAttachment(event) {
   body.append("caption", form.elements.caption.value || "");
   button.disabled = true;
   try {
-    await api(`/api/v1/owner/support-tickets/${encodeURIComponent(form.dataset.ownerSupportAttachment)}/attachment`, {method: "POST", body, timeoutMs: 45000});
+    await ownerApi(`/api/v1/owner/support-tickets/${encodeURIComponent(form.dataset.ownerSupportAttachment)}/attachment`, {method: "POST", body, timeoutMs: 45000});
     setText("#owner-message", "Attachment was sent to the customer.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1583,7 +1589,7 @@ async function runOwnerSupportAction(button) {
   if (warnings[action] && !window.confirm(warnings[action])) return;
   button.disabled = true;
   try {
-    await api(`/api/v1/owner/support-tickets/${encodeURIComponent(button.dataset.ownerTicket)}/action`, {method: "POST", body: JSON.stringify({action})});
+    await ownerApi(`/api/v1/owner/support-tickets/${encodeURIComponent(button.dataset.ownerTicket)}/action`, {method: "POST", body: JSON.stringify({action})});
     setText("#owner-message", "تم تحديث تذكرة الدعم.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1685,7 +1691,7 @@ async function saveOwnerSetting(event) {
   const button = form.querySelector("button");
   button.disabled = true;
   try {
-    await api("/api/v1/owner/settings", {
+    await ownerApi("/api/v1/owner/settings", {
       method: "PUT",
       body: JSON.stringify({ key: form.dataset.ownerSetting, value: Number(form.elements.value.value) }),
     });
@@ -1705,7 +1711,7 @@ async function saveOwnerRoutingTarget(event) {
   button.disabled = true;
   const body = Object.fromEntries(new FormData(form).entries());
   try {
-    await api(`/api/v1/owner/routing-targets/${encodeURIComponent(form.dataset.ownerRouting)}`, {
+    await ownerApi(`/api/v1/owner/routing-targets/${encodeURIComponent(form.dataset.ownerRouting)}`, {
       method: "POST",
       body: JSON.stringify(body),
     });
@@ -1720,7 +1726,7 @@ async function saveOwnerRoutingTarget(event) {
 
 async function saveOwnerAlertEnabled(event) {
   try {
-    await api("/api/v1/owner/settings", {
+    await ownerApi("/api/v1/owner/settings", {
       method: "PUT",
       body: JSON.stringify({ key: "provider_alert_enabled", value: event.currentTarget.checked }),
     });
@@ -1739,7 +1745,7 @@ async function saveOwnerPaymentMethod(event) {
   values.enabled = form.elements.enabled.checked;
   button.disabled = true;
   try {
-    await api(`/api/v1/owner/payment-methods/${encodeURIComponent(form.dataset.ownerPaymentMethod)}`, {
+    await ownerApi(`/api/v1/owner/payment-methods/${encodeURIComponent(form.dataset.ownerPaymentMethod)}`, {
       method: "PATCH",
       body: JSON.stringify(values),
     });
@@ -1819,7 +1825,7 @@ async function resolveOwnerRefundReview(event) {
   try {
     const values = Object.fromEntries(new FormData(form).entries());
     values.resolution = resolution;
-    await api(`/api/v1/owner/numbers/refund-reviews/${encodeURIComponent(orderId)}/resolve`, {
+    await ownerApi(`/api/v1/owner/numbers/refund-reviews/${encodeURIComponent(orderId)}/resolve`, {
       method: "POST",
       body: JSON.stringify(values),
     });
@@ -1890,7 +1896,7 @@ async function createOwnerCatalogNode(event) {
   values.available_qty = Number(values.available_qty || 0);
   values.min_qty = Number(values.min_qty || 1);
   try {
-    await api("/api/v1/owner/custom-catalog/nodes", {method: "POST", body: JSON.stringify(values)});
+    await ownerApi("/api/v1/owner/custom-catalog/nodes", {method: "POST", body: JSON.stringify(values)});
     setText("#owner-message", "Catalog node was created.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1899,7 +1905,7 @@ async function createOwnerCatalogNode(event) {
 async function loadOwnerCatalogNode(nodeId) {
   try {
     const catalogType = $("#owner-catalog-type")?.value || "custom";
-    const payload = await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}`);
+    const payload = await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}`);
     const node = payload.node || {};
     const target = $("#owner-catalog-detail");
     target.innerHTML = `
@@ -1944,7 +1950,7 @@ async function updateOwnerCatalogNode(event) {
   if (form.elements.preorder_enabled) values.preorder_enabled = form.elements.preorder_enabled.checked;
   if (!String(values.delivery_text || "").trim()) delete values.delivery_text;
   try {
-    await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(form.dataset.ownerCatalogUpdate)}`, {method: "PATCH", body: JSON.stringify(values)});
+    await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(form.dataset.ownerCatalogUpdate)}`, {method: "PATCH", body: JSON.stringify(values)});
     setText("#owner-message", "Catalog product was updated.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1956,7 +1962,7 @@ async function updateOwnerCatalogInventory(event) {
   const values = Object.fromEntries(new FormData(form).entries());
   values.catalog_type = $("#owner-catalog-type")?.value || "custom";
   try {
-    await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(form.dataset.ownerCatalogInventory)}/inventory`, {method: "POST", body: JSON.stringify(values)});
+    await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(form.dataset.ownerCatalogInventory)}/inventory`, {method: "POST", body: JSON.stringify(values)});
     setText("#owner-message", "Product stock was updated.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1966,7 +1972,7 @@ async function deleteOwnerCatalogNode(nodeId) {
   if (!window.confirm("Disable this catalog node and its children?")) return;
   try {
     const catalogType = $("#owner-catalog-type")?.value || "custom";
-    await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}`, {method: "DELETE"});
+    await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}`, {method: "DELETE"});
     setText("#owner-message", "Catalog node was disabled.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -1974,7 +1980,7 @@ async function deleteOwnerCatalogNode(nodeId) {
 
 async function moveOwnerCatalogNode(nodeId, direction) {
   try {
-    await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}/action`, {
+    await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}/action`, {
       method: "POST",
       body: JSON.stringify({action: "move", direction, catalog_type: $("#owner-catalog-type")?.value || "custom"}),
     });
@@ -1985,7 +1991,7 @@ async function moveOwnerCatalogNode(nodeId, direction) {
 async function loadOwnerCatalogStockLog(nodeId) {
   try {
     const catalogType = $("#owner-catalog-type")?.value || "custom";
-    const payload = await api(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}/stock-events?catalog_type=${encodeURIComponent(catalogType)}&limit=30`);
+    const payload = await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}/stock-events?catalog_type=${encodeURIComponent(catalogType)}&limit=30`);
     const target = $("#owner-catalog-stock-log");
     target.innerHTML = (payload.events || []).length ? payload.events.map((event) => `
       <div class="owner-queue-row"><div><strong>${esc(event.event_type)}</strong><span>${esc(event.created_at)} · ${esc(event.note)}</span></div><b>${esc(event.qty_delta)}</b></div>`).join("") : '<div class="notice">No stock events recorded.</div>';
@@ -2042,7 +2048,7 @@ async function runOwnerPreorderAction(button) {
   if (!window.confirm(action === "reject" ? "Reject this preorder and refund the customer?" : `Run ${action} on this preorder?`)) return;
   form.querySelectorAll("button").forEach((item) => { item.disabled = true; });
   try {
-    await api(`/api/v1/owner/custom-preorders/${encodeURIComponent(form.dataset.ownerPreorder)}/action`, {
+    await ownerApi(`/api/v1/owner/custom-preorders/${encodeURIComponent(form.dataset.ownerPreorder)}/action`, {
       method: "POST",
       body: JSON.stringify(body),
       timeoutMs: 45000,
@@ -2067,7 +2073,7 @@ async function runOwnerPreorderAttachment(button) {
   body.append("caption", form.elements.delivery_caption.value || "");
   form.querySelectorAll("button").forEach((item) => { item.disabled = true; });
   try {
-    await api(`/api/v1/owner/custom-preorders/${encodeURIComponent(form.dataset.ownerPreorder)}/attachment`, {method: "POST", body, timeoutMs: 45000});
+    await ownerApi(`/api/v1/owner/custom-preorders/${encodeURIComponent(form.dataset.ownerPreorder)}/attachment`, {method: "POST", body, timeoutMs: 45000});
     setText("#owner-message", "Preorder attachment was delivered and the order was completed.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -2161,7 +2167,7 @@ async function runOwnerDigitalAction(button) {
   card?.querySelectorAll("[data-owner-order]").forEach((item) => { item.disabled = true; });
   setText("#owner-message", `جاري تنفيذ ${actionLabel}...`);
   try {
-    const result = await api(`/api/v1/owner/digital/orders/${encodeURIComponent(orderId)}/action`, {
+    const result = await ownerApi(`/api/v1/owner/digital/orders/${encodeURIComponent(orderId)}/action`, {
       method: "POST",
       body: JSON.stringify({ action, notify_user: true }),
       timeoutMs: 45000,
