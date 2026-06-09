@@ -380,7 +380,11 @@
       html[dir="ltr"] .quick-row,
       html[dir="ltr"] .nav { direction: ltr; }
       @media (max-width: 640px) {
-        .language-toggle { top: auto; bottom: max(12px, env(safe-area-inset-bottom)); }
+        .language-toggle {
+          top: calc(max(12px, env(safe-area-inset-top)) + 48px);
+          bottom: auto;
+          inset-inline-end: 12px;
+        }
       }
     `;
     document.head.appendChild(style);

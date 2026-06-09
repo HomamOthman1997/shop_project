@@ -20,6 +20,9 @@ _LANDING_HTML = """\
       --text: #eef2ff;
       --muted: #a5b4fc;
       --soft: #8b95b8;
+      --deep: #07131f;
+      --navy: #0b1020;
+      --steel: #1f3143;
       --blue: #38bdf8;
       --green: #34d399;
       --amber: #f59e0b;
@@ -28,9 +31,10 @@ _LANDING_HTML = """\
     body {
       min-height: 100vh;
       background:
-        radial-gradient(ellipse at 18% 12%, rgba(56, 189, 248, 0.16), transparent 42%),
-        radial-gradient(ellipse at 86% 22%, rgba(52, 211, 153, 0.12), transparent 38%),
-        linear-gradient(135deg, #111029 0%, #0b1020 48%, #071629 100%);
+        linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px),
+        linear-gradient(135deg, #111827 0%, #0b1020 45%, #07131f 100%);
+      background-size: 44px 44px, 44px 44px, auto;
       font-family: "Segoe UI", "Tahoma", Arial, sans-serif;
       color: var(--text);
     }
@@ -64,6 +68,16 @@ _LANDING_HTML = """\
       border: 1px solid var(--line);
       box-shadow: 0 0 28px rgba(56, 189, 248, 0.16);
     }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      color: #c7d2fe;
+      font-size: .9rem;
+      font-weight: 700;
+    }
+    .nav-links a { color: inherit; opacity: .86; }
+    .nav-links a:hover { opacity: 1; color: var(--green); }
     .actions { display: flex; align-items: center; gap: 10px; }
     .button {
       min-height: 40px;
@@ -80,35 +94,29 @@ _LANDING_HTML = """\
     }
     .button.primary {
       border-color: rgba(56, 189, 248, 0.48);
-      background: linear-gradient(135deg, rgba(56, 189, 248, 0.24), rgba(167, 139, 250, 0.24));
+      background: linear-gradient(135deg, rgba(52, 211, 153, 0.22), rgba(56, 189, 248, 0.22));
     }
     .hero {
-      min-height: 380px;
+      min-height: 390px;
       display: grid;
-      grid-template-columns: minmax(0, 1.08fr) minmax(310px, 0.92fr);
-      gap: 36px;
+      grid-template-columns: minmax(0, 1fr) minmax(340px, 0.78fr);
+      gap: clamp(28px, 4vw, 54px);
       align-items: center;
-      padding: 54px 0 34px;
-    }
-    .eyebrow {
-      color: var(--green);
-      font-size: 0.86rem;
-      font-weight: 800;
-      margin-bottom: 12px;
+      padding: 38px 0 16px;
     }
     h1 {
-      max-width: 720px;
-      font-size: clamp(2.25rem, 6vw, 4.7rem);
-      line-height: 1.05;
+      max-width: 680px;
+      font-size: clamp(2rem, 4.2vw, 3.25rem);
+      line-height: 1.1;
       letter-spacing: 0;
       margin-bottom: 18px;
     }
     .lead {
       max-width: 640px;
       color: #c7d2fe;
-      font-size: 1.06rem;
-      line-height: 1.9;
-      margin-bottom: 24px;
+      font-size: 1rem;
+      line-height: 1.76;
+      margin-bottom: 20px;
     }
     .hero-actions {
       display: flex;
@@ -120,13 +128,16 @@ _LANDING_HTML = """\
       max-width: 620px;
       color: var(--soft);
       font-size: 0.9rem;
-      line-height: 1.8;
+      line-height: 1.65;
     }
     .quick-panel {
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035));
-      padding: 18px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035)),
+        linear-gradient(135deg, rgba(52,211,153,.08), transparent 42%);
+      padding: 20px;
+      box-shadow: 0 20px 70px rgba(0,0,0,.24);
     }
     .quick-title {
       font-weight: 800;
@@ -136,13 +147,13 @@ _LANDING_HTML = """\
       min-height: 58px;
       border-radius: 8px;
       border: 1px solid rgba(255,255,255,0.09);
-      background: rgba(0,0,0,0.16);
+      background: rgba(0,0,0,0.18);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 12px;
-      margin-top: 10px;
+      padding: 10px 12px;
+      margin-top: 8px;
     }
     .quick-row span:first-child { color: #e0e7ff; font-weight: 700; }
     .quick-row span:last-child { color: var(--soft); font-size: 0.82rem; }
@@ -151,7 +162,7 @@ _LANDING_HTML = """\
       justify-content: space-between;
       align-items: end;
       gap: 20px;
-      margin: 18px 0 16px;
+      margin: 28px 0 16px;
     }
     .section-head h2 { font-size: 1.55rem; letter-spacing: 0; }
     .section-head p { color: var(--soft); max-width: 520px; line-height: 1.7; }
@@ -214,6 +225,11 @@ _LANDING_HTML = """\
       color: #cbd5e1;
       line-height: 1.7;
     }
+    .public-item strong {
+      display: block;
+      color: var(--text);
+      margin-bottom: 5px;
+    }
     .footer {
       margin-top: 34px;
       padding-top: 20px;
@@ -226,11 +242,11 @@ _LANDING_HTML = """\
     }
     @media (max-width: 820px) {
       .shell { width: min(100% - 24px, 680px); padding-top: 14px; }
-      .nav { align-items: flex-start; }
+      .nav { align-items: flex-start; flex-wrap: wrap; }
+      .nav-links { order: 3; width: 100%; justify-content: center; overflow-x: auto; padding: 4px 0; }
       .actions { flex-wrap: wrap; justify-content: flex-end; }
       .button { min-height: 38px; padding: 0 12px; }
-      .hero { grid-template-columns: 1fr; min-height: auto; padding: 40px 0 24px; gap: 22px; }
-      .quick-panel { order: -1; }
+      .hero { grid-template-columns: 1fr; min-height: auto; padding: 26px 0 14px; gap: 18px; }
       .services, .public-grid { grid-template-columns: 1fr; }
       .section-head { display: block; }
       .section-head h2 { margin-bottom: 8px; }
@@ -240,6 +256,11 @@ _LANDING_HTML = """\
       .brand span:last-child { display: none; }
       .actions { gap: 8px; }
       .button { font-size: 0.84rem; }
+      h1 { font-size: 1.9rem; line-height: 1.14; }
+      .lead { font-size: .98rem; line-height: 1.75; }
+      .hero-actions .button { flex: 1 1 100%; }
+      .notice { display: none; }
+      .quick-panel { display: none; }
       .service-card { min-height: 0; }
     }
   </style>
@@ -252,6 +273,11 @@ _LANDING_HTML = """\
         <span class="mark">👻</span>
         <span>Phantom Services</span>
       </a>
+      <div class="nav-links" aria-label="روابط الموقع">
+        <a href="#services">الخدمات</a>
+        <a href="#account">الحساب</a>
+        <a href="/login">الدخول</a>
+      </div>
       <div class="actions">
         <a class="button" href="/login">تسجيل الدخول</a>
         <a class="button primary" href="/register">إنشاء حساب</a>
@@ -260,7 +286,6 @@ _LANDING_HTML = """\
 
     <section class="hero">
       <div>
-        <p class="eyebrow">منصة واحدة لخدمات Phantom</p>
         <h1>استعرض الخدمات والأسعار قبل التسجيل، واشتر بعد تفعيل حسابك.</h1>
         <p class="lead">
           الموقع يجمع خدمات الأرقام والمنتجات الرقمية ضمن تجربة ويب واضحة. يمكنك تصفح الأقسام العامة والأسعار الآن،
@@ -310,15 +335,15 @@ _LANDING_HTML = """\
       </div>
     </section>
 
-    <section aria-labelledby="account-title">
+    <section id="account" aria-labelledby="account-title">
       <div class="section-head">
         <h2 id="account-title">بعد التسجيل</h2>
         <p>الحساب الداخلي يحتوي على المحفظة، الطلبات، الدعم، ربط Telegram الاختياري، وتأكيد الهوية عند الحاجة.</p>
       </div>
       <div class="public-grid">
-        <div class="public-item">محفظة موحدة لشحن الرصيد ومتابعة الحركات.</div>
-        <div class="public-item">طلبات رقمية وأرقام ضمن تبويبات منفصلة وواضحة.</div>
-        <div class="public-item">دعم مركزي يفرز الطلب حسب نوع المشكلة.</div>
+        <div class="public-item"><strong>المحفظة</strong>شحن الرصيد ومتابعة الحركات من مكان واحد.</div>
+        <div class="public-item"><strong>الطلبات</strong>طلبات رقمية وأرقام ضمن تبويبات منفصلة وواضحة.</div>
+        <div class="public-item"><strong>الدعم</strong>مركز دعم يفرز الطلب حسب نوع المشكلة.</div>
       </div>
     </section>
 

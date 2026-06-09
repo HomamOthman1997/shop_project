@@ -20,10 +20,12 @@ body {
   min-height: 100vh;
   font-family: Inter, Tajawal, "Segoe UI", Tahoma, Arial, sans-serif;
   color: var(--ink);
-  background: #0d0d1a;
+  background: #0b1020;
   background-image:
-    radial-gradient(ellipse at 20% 20%, rgba(99, 60, 180, 0.18) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 80%, rgba(30, 120, 200, 0.14) 0%, transparent 60%);
+    linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px),
+    linear-gradient(135deg, #111827 0%, #0b1020 46%, #07131f 100%);
+  background-size: 44px 44px, 44px 44px, auto;
 }
 
 button, input { font: inherit; letter-spacing: 0; }
@@ -123,9 +125,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .form-wrap { width: 100%; max-width: 460px; min-width: 0; }
 #auth-view, .verify-panel {
-  background: rgba(255, 255, 255, .045);
-  border: 1px solid var(--line);
-  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .064), rgba(255, 255, 255, .035));
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 12px;
   padding: 28px;
   box-shadow: 0 20px 60px rgba(0,0,0,.26);
 }
@@ -170,7 +172,7 @@ input {
   border-radius: 6px;
   padding: 0 13px;
   color: var(--ink);
-  background: rgba(255,255,255,.045);
+  background: rgba(0,0,0,.18);
   outline: none;
 }
 select {
@@ -179,7 +181,7 @@ select {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0 13px;
-  background: rgba(255,255,255,.045);
+  background: rgba(0,0,0,.18);
   color: var(--ink);
 }
 input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,.12); }
@@ -211,8 +213,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 }
 .primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .primary:disabled { opacity: .55; cursor: wait; }
-.secondary { border: 1px solid var(--line); background: #fff; color: var(--ink); padding: 0 16px; }
-.secondary { background: rgba(255,255,255,.045); }
+.secondary { border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.055); color: var(--ink); padding: 0 16px; }
 .button-link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .text-button { border: 0; background: transparent; color: var(--muted); width: 100%; margin-top: 14px; }
 .link-button { display: grid; place-items: center; text-decoration: none; margin-top: 22px; }

@@ -167,6 +167,8 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'body: JSON.stringify({ quote_token: row.quote_token, language: appLanguage() })' in js
     assert '"الأمان": "Security"' in i18n
     assert '"تغيير كلمة المرور": "Change password"' in i18n
+    assert ".language-toggle {" in i18n
+    assert "bottom: auto;" in i18n
     assert 'const button = event.currentTarget.querySelector("button[type=\'submit\']");' in js
     assert "function numberClientActionsHtml" in js
     assert "function copyOrderValue" in js
