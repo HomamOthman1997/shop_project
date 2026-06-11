@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+
 from aiohttp import web
 
 _LANDING_HTML = """\
@@ -274,6 +276,7 @@ _LANDING_HTML = """\
         <span>Phantom Services</span>
       </a>
       <div class="nav-links" aria-label="روابط الموقع">
+        <a href="/catalog">الكتالوغ</a>
         <a href="#services">الخدمات</a>
         <a href="#account">الحساب</a>
         <a href="/login">الدخول</a>
@@ -293,7 +296,7 @@ _LANDING_HTML = """\
         </p>
         <div class="hero-actions">
           <a class="button primary" href="/register">ابدأ بحساب جديد</a>
-          <a class="button" href="#services">استعراض الخدمات</a>
+          <a class="button" href="/catalog">استعراض الكتالوغ</a>
         </div>
         <p class="notice">
           عند فتح أي صفحة تحتاج حسابا، سننقلك لتسجيل الدخول أو إنشاء حساب بدل عرض بيانات داخلية للزائر.
@@ -314,17 +317,17 @@ _LANDING_HTML = """\
         <p>الزائر يستطيع معرفة طبيعة الخدمة ورؤية الأسعار عند توفرها، أما تنفيذ الطلبات فيبقى داخل الحساب.</p>
       </div>
       <div class="services">
-        <a class="service-card numbers" href="/app/numbers">
+        <a class="service-card numbers" href="/catalog/numbers">
           <span class="icon">📱</span>
           <h3>الأرقام</h3>
           <p>أرقام مؤقتة أو للإيجار، متابعة الطلبات، واستلام الأكواد من واجهة الحساب بعد تسجيل الدخول.</p>
-          <span class="card-link">الدخول إلى قسم الأرقام ←</span>
+          <span class="card-link">استعراض قسم الأرقام ←</span>
         </a>
-        <a class="service-card digital" href="/app/digital">
+        <a class="service-card digital" href="/catalog/digital">
           <span class="icon">🎮</span>
           <h3>Digital Services</h3>
           <p>بطاقات ألعاب، توب أب، وباقات رقمية منظمة حسب التصنيفات، مع طلبات ومحفظة ضمن الحساب.</p>
-          <span class="card-link">الدخول إلى المنتجات الرقمية ←</span>
+          <span class="card-link">استعراض المنتجات الرقمية ←</span>
         </a>
         <a class="service-card cards" href="/register">
           <span class="icon">💳</span>
@@ -362,9 +365,384 @@ _NO_STORE_HEADERS = {
     "Expires": "0",
 }
 
+_CATALOG_SECTIONS: tuple[dict[str, object], ...] = (
+    {
+        "slug": "numbers",
+        "title": "الأرقام",
+        "subtitle": "أرقام مؤقتة وإيجار لاستلام الأكواد من خدمات عالمية.",
+        "accent": "violet",
+        "items": (
+            ("أرقام مؤقتة", "شراء رقم لمدة قصيرة واستلام الكود داخل لوحة الحساب."),
+            ("أرقام للإيجار", "إيجارات أطول للخدمات التي تحتاج متابعة متكررة."),
+            ("تأكيد SMS أو Voice", "اختيار نوع الاستلام حسب توفر المزود والخدمة."),
+            ("دول وخدمات عالمية", "تصفح حسب الدولة والخدمة قبل تنفيذ الطلب."),
+        ),
+    },
+    {
+        "slug": "digital",
+        "aliases": ("games",),
+        "title": "المنتجات الرقمية",
+        "subtitle": "شدات، نقاط، بطاقات ألعاب، وباقات تطبيقات ضمن قسم المنتجات الرقمية.",
+        "accent": "green",
+        "items": (
+            ("PUBG و BGMI", "باقات UC وخيارات تسليم حسب معرف اللاعب أو الكود."),
+            ("بطاقات الألعاب", "منتجات رقمية جاهزة أو تنفيذ يدوي حسب المصدر."),
+            ("تطبيقات واشتراكات", "خدمات رقمية وباقات اشتراك قابلة للإضافة للكتالوغ."),
+            ("كوتات وباقات", "عرض الباقات والأسعار قبل تأكيد الطلب."),
+        ),
+    },
+    {
+        "slug": "mobile-recharge",
+        "title": "شحن خطوط وباقات",
+        "subtitle": "شحن أرصدة وباقات اتصالات، مع قابلية التوسع لدول ومزودين مختلفين.",
+        "accent": "blue",
+        "items": (
+            ("أوكرانيا", "قسم مخصص لشحن الأرصدة والباقات الأوكرانية عند تفعيل المصدر."),
+            ("باقات عالمية", "تقسيم حسب الدولة والمشغل ونوع الباقة."),
+            ("eSIM وبيانات", "منتجات اتصال وسفر قابلة للربط مع مزودي الديجيتال."),
+            ("تحقق قبل الشراء", "المستخدم يرى تفاصيل الخدمة، والشراء يتطلب حساباً ورصيداً."),
+        ),
+    },
+    {
+        "slug": "wallet",
+        "title": "المحفظة والطلبات",
+        "subtitle": "الشحن، الطلبات، الدعم، وربط Telegram بعد التسجيل.",
+        "accent": "amber",
+        "items": (
+            ("شحن الرصيد", "رفع إثبات الدفع ومتابعة حالة طلب الشحن."),
+            ("طلباتي", "أرقام وديجيتال ضمن سجل موحد وفلاتر واضحة."),
+            ("الدعم المركزي", "فتح تذكرة حسب نوع المشكلة: أرقام، ديجيتال، أو رصيد."),
+            ("ربط Telegram", "اختياري، ويفعل استخدام البوتات بعد إنشاء الحساب."),
+        ),
+    },
+)
+
+_SHOWCASE_TILES: tuple[dict[str, str], ...] = (
+    {
+        "title": "الألعاب",
+        "subtitle": "شدات وباقات ألعاب",
+        "href": "/catalog/digital?category=games",
+        "image": "/mini/digital/static/games-rtl.png",
+        "accent": "green",
+    },
+    {
+        "title": "التطبيقات",
+        "subtitle": "اشتراكات وخدمات تطبيقات",
+        "href": "/catalog/digital?category=apps",
+        "image": "/mini/digital/static/communications-rtl.png",
+        "accent": "blue",
+    },
+    {
+        "title": "الرصيد والمعاملات",
+        "subtitle": "شحن خطوط وباقات",
+        "href": "/catalog/mobile-recharge",
+        "image": "/mini/digital/static/section-communications.jpg",
+        "accent": "amber",
+    },
+    {
+        "title": "السوشيال ميديا",
+        "subtitle": "خدمات حسابات ومنصات",
+        "href": "/catalog/digital?category=social",
+        "image": "/mini/digital/static/store-cards-rtl.png",
+        "accent": "violet",
+    },
+    {
+        "title": "حسابات جاهزة",
+        "subtitle": "حسابات ومنتجات رقمية",
+        "href": "/catalog/digital?category=accounts",
+        "image": "/mini/digital/static/section-store-cards.jpg",
+        "accent": "green",
+    },
+    {
+        "title": "بروكسي و VPN",
+        "subtitle": "اتصال وحماية وبيانات",
+        "href": "/catalog/digital?category=proxy",
+        "image": "/mini/digital/static/numbers-rtl.png",
+        "accent": "blue",
+    },
+    {
+        "title": "الأرقام",
+        "subtitle": "مؤقتة وإيجار",
+        "href": "/catalog/numbers",
+        "image": "/mini/digital/static/section-numbers.jpg",
+        "accent": "violet",
+    },
+    {
+        "title": "توثيق الحسابات",
+        "subtitle": "أرقام وخيارات تحقق",
+        "href": "/catalog/numbers",
+        "image": "/mini/digital/static/section-games.jpg",
+        "accent": "amber",
+    },
+)
+
+
+def _section_by_slug(slug: str) -> dict[str, object] | None:
+    normalized = str(slug or "").strip().lower()
+    return next(
+        (
+            section
+            for section in _CATALOG_SECTIONS
+            if section["slug"] == normalized or normalized in set(section.get("aliases", ()))  # type: ignore[arg-type]
+        ),
+        None,
+    )
+
+
+def _catalog_cards(*, active_slug: str = "") -> str:
+    cards: list[str] = []
+    for section in _CATALOG_SECTIONS:
+        slug = str(section["slug"])
+        title = escape(str(section["title"]))
+        subtitle = escape(str(section["subtitle"]))
+        accent = escape(str(section["accent"]))
+        active = " active" if slug == active_slug else ""
+        cards.append(
+            f"""
+            <a class="catalog-card {accent}{active}" href="/catalog/{escape(slug)}">
+              <span class="catalog-mark" aria-hidden="true"></span>
+              <strong>{title}</strong>
+              <span>{subtitle}</span>
+            </a>
+            """
+        )
+    return "\n".join(cards)
+
+
+def _catalog_items(section: dict[str, object] | None) -> str:
+    sections = (section,) if section else _CATALOG_SECTIONS
+    rows: list[str] = []
+    for group in sections:
+        title = escape(str(group["title"]))
+        slug = escape(str(group["slug"]))
+        accent = escape(str(group["accent"]))
+        rows.append(f'<div class="product-group {accent}"><div class="group-head"><h2>{title}</h2><a href="/register?next=/app/services">شراء بعد التسجيل</a></div><div class="product-grid">')
+        for name, description in group["items"]:  # type: ignore[index]
+            rows.append(
+                f"""
+                <article class="product-tile">
+                  <div>
+                    <h3>{escape(str(name))}</h3>
+                    <p>{escape(str(description))}</p>
+                  </div>
+                  <div class="tile-actions">
+                    <a href="/login?next=/app/services">تسجيل الدخول</a>
+                    <a class="primary" href="/register?next=/catalog/{slug}">إنشاء حساب للشراء</a>
+                  </div>
+                </article>
+                """
+            )
+        rows.append("</div></div>")
+    return "\n".join(rows)
+
+
+def _showcase_tiles() -> str:
+    tiles: list[str] = []
+    for tile in _SHOWCASE_TILES:
+        title = escape(tile["title"])
+        subtitle = escape(tile["subtitle"])
+        href = escape(tile["href"])
+        image = escape(tile["image"])
+        accent = escape(tile["accent"])
+        tiles.append(
+            f"""
+            <a class="showcase-tile {accent}" href="{href}">
+              <span class="tile-image" style="background-image: url('{image}')"></span>
+              <strong>{title}</strong>
+              <small>{subtitle}</small>
+            </a>
+            """
+        )
+    return "\n".join(tiles)
+
+
+def catalog_page_html(slug: str = "") -> str:
+    section = _section_by_slug(slug)
+    if slug and not section:
+        section = None
+    active_slug = str(section["slug"]) if section else ""
+    title = str(section["title"]) if section else "كتالوغ Phantom"
+    subtitle = (
+        str(section["subtitle"])
+        if section
+        else "استعرض أقسام الخدمات والأسعار المتاحة قبل التسجيل. الشراء وتنفيذ الطلبات يحتاجان حساباً مؤكداً ورصيداً في المحفظة."
+    )
+    items_html = _catalog_items(section)
+    cards_html = _catalog_cards(active_slug=active_slug)
+    showcase_html = _showcase_tiles()
+    return f"""\
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{escape(title)} - Phantom Services</title>
+  <style>
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    :root {{
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: rgba(255, 255, 255, 0.058);
+      --panel-strong: rgba(255, 255, 255, 0.095);
+      --line: rgba(255, 255, 255, 0.12);
+      --text: #eef2ff;
+      --soft: #95a1c5;
+      --muted: #a5b4fc;
+      --green: #34d399;
+      --blue: #38bdf8;
+      --violet: #a78bfa;
+      --amber: #f59e0b;
+    }}
+    body {{
+      min-height: 100vh;
+      background:
+        linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px),
+        linear-gradient(135deg, #111827 0%, #0b1020 45%, #07131f 100%);
+      background-size: 44px 44px, 44px 44px, auto;
+      font-family: "Segoe UI", "Tahoma", Arial, sans-serif;
+      color: var(--text);
+    }}
+    a {{ color: inherit; text-decoration: none; }}
+    .shell {{ width: min(1160px, calc(100% - 32px)); margin: 0 auto; padding: 22px 0 40px; }}
+    .nav {{ min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }}
+    .brand {{ display: flex; align-items: center; gap: 10px; font-weight: 800; }}
+    .mark {{ width: 38px; height: 38px; border-radius: 8px; display: grid; place-items: center; background: linear-gradient(145deg, rgba(167,139,250,.26), rgba(56,189,248,.18)); border: 1px solid var(--line); }}
+    .nav-links, .actions {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }}
+    .nav-links {{ color: #c7d2fe; font-weight: 700; font-size: .9rem; gap: 18px; }}
+    .button {{ min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; background: rgba(255,255,255,.045); }}
+    .button.primary {{ border-color: rgba(56,189,248,.48); background: linear-gradient(135deg, rgba(52,211,153,.22), rgba(56,189,248,.22)); }}
+    .hero {{ padding: 34px 0 18px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .45fr); gap: 28px; align-items: end; }}
+    .hero h1 {{ font-size: clamp(2rem, 4vw, 3.3rem); line-height: 1.1; margin-bottom: 16px; letter-spacing: 0; }}
+    .hero p {{ color: #c7d2fe; line-height: 1.8; max-width: 760px; }}
+    .buy-note {{ border: 1px solid rgba(52,211,153,.22); background: rgba(52,211,153,.075); border-radius: 8px; padding: 16px; color: #d1fae5; line-height: 1.7; }}
+    .search-band {{ display: grid; justify-items: center; gap: 12px; margin: 8px 0 26px; }}
+    .rate-strip {{ width: min(660px, 100%); min-height: 34px; border-radius: 8px; border: 1px solid rgba(255,255,255,.07); background: rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; color: #e0e7ff; font-weight: 800; font-size: .86rem; text-align: center; padding: 0 12px; }}
+    .search-box {{ width: min(760px, 100%); min-height: 48px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.07); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 18px; color: #cbd5e1; }}
+    .search-box span:first-child {{ color: #8b95b8; }}
+    .showcase-head {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 18px 0 14px; }}
+    .showcase-head h2 {{ font-size: 1.35rem; }}
+    .showcase-head p {{ color: var(--soft); line-height: 1.65; }}
+    .showcase-grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin-bottom: 28px; }}
+    .showcase-tile {{ min-height: 208px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 8px; text-align: center; color: var(--text); }}
+    .tile-image {{ width: 100%; aspect-ratio: 1 / .86; border-radius: 8px; border: 1px solid rgba(255,255,255,.14); background-size: cover; background-position: center; display: block; box-shadow: 0 18px 38px rgba(0,0,0,.26); transition: transform .18s ease, box-shadow .18s ease; }}
+    .showcase-tile:hover .tile-image {{ transform: translateY(-4px); box-shadow: 0 22px 48px rgba(0,0,0,.34), 0 0 26px currentColor; }}
+    .showcase-tile strong {{ font-size: .98rem; }}
+    .showcase-tile small {{ color: #a7b0d0; font-size: .78rem; }}
+    .catalog-nav {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 12px 0 26px; }}
+    .catalog-card {{ min-height: 150px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: transform .18s ease, border-color .18s ease, background .18s ease; }}
+    .catalog-card:hover, .catalog-card.active {{ transform: translateY(-2px); border-color: rgba(255,255,255,.28); background: var(--panel-strong); }}
+    .catalog-mark {{ width: 42px; height: 8px; border-radius: 999px; background: currentColor; box-shadow: 0 0 24px currentColor; opacity: .84; }}
+    .catalog-card strong {{ font-size: 1.05rem; }}
+    .catalog-card span:last-child {{ color: var(--soft); line-height: 1.65; font-size: .9rem; }}
+    .violet {{ color: var(--violet); }} .green {{ color: var(--green); }} .blue {{ color: var(--blue); }} .amber {{ color: var(--amber); }}
+    .product-group {{ margin-top: 20px; }}
+    .group-head {{ display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }}
+    .group-head h2 {{ color: var(--text); font-size: 1.35rem; }}
+    .group-head a {{ color: currentColor; font-weight: 900; font-size: .9rem; }}
+    .product-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
+    .product-tile {{ min-height: 178px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.045); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; gap: 16px; }}
+    .product-tile h3 {{ color: var(--text); font-size: 1.04rem; margin-bottom: 7px; }}
+    .product-tile p {{ color: var(--soft); line-height: 1.75; font-size: .92rem; }}
+    .tile-actions {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .tile-actions a {{ min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; display: inline-flex; align-items: center; font-weight: 800; font-size: .86rem; }}
+    .tile-actions a.primary {{ border-color: rgba(56,189,248,.36); background: rgba(56,189,248,.11); color: #dff6ff; }}
+    .footer {{ margin-top: 34px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,.08); color: #6f7898; display: flex; justify-content: space-between; gap: 14px; font-size: .86rem; }}
+    @media (max-width: 900px) {{
+      .hero {{ grid-template-columns: 1fr; padding-top: 30px; }}
+      .catalog-nav, .product-grid, .showcase-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    }}
+    @media (max-width: 560px) {{
+      .shell {{ width: min(100% - 24px, 680px); padding-top: 14px; }}
+      .nav {{ align-items: flex-start; flex-wrap: wrap; }}
+      .nav-links {{ order: 3; width: 100%; justify-content: center; overflow-x: auto; padding: 4px 0; gap: 14px; }}
+      .actions {{ justify-content: flex-end; }}
+      .button {{ min-height: 38px; padding: 0 12px; font-size: .84rem; }}
+      .hero h1 {{ font-size: 1.9rem; line-height: 1.14; }}
+      .search-band {{ margin-top: 4px; }}
+      .rate-strip {{ font-size: .78rem; }}
+      .search-box {{ min-height: 44px; border-radius: 8px; }}
+      .showcase-head {{ display: block; }}
+      .showcase-head h2 {{ margin-bottom: 6px; }}
+      .catalog-nav, .product-grid, .showcase-grid {{ grid-template-columns: 1fr; }}
+      .showcase-tile {{ min-height: 0; }}
+      .tile-image {{ aspect-ratio: 1 / .72; }}
+      .product-tile {{ min-height: 0; }}
+      .tile-actions a {{ flex: 1 1 100%; justify-content: center; }}
+      .footer {{ flex-direction: column; }}
+    }}
+  </style>
+  <script src="/auth/static/i18n.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <nav class="nav" aria-label="التنقل الرئيسي">
+      <a class="brand" href="/">
+        <span class="mark">👻</span>
+        <span>Phantom Services</span>
+      </a>
+      <div class="nav-links" aria-label="روابط الموقع">
+        <a href="/">الرئيسية</a>
+        <a href="/catalog">الكتالوغ</a>
+        <a href="/login">الدخول</a>
+      </div>
+      <div class="actions">
+        <a class="button" href="/login">تسجيل الدخول</a>
+        <a class="button primary" href="/register">إنشاء حساب</a>
+      </div>
+    </nav>
+    <section class="hero">
+      <div>
+        <h1>{escape(title)}</h1>
+        <p>{escape(subtitle)}</p>
+      </div>
+      <aside class="buy-note">
+        يمكنك تصفح التصنيفات والأسعار العامة بدون حساب. عند محاولة الشراء أو فتح المحفظة والطلبات سيطلب الموقع تسجيل الدخول وتأكيد البريد.
+      </aside>
+    </section>
+    <section class="search-band" aria-label="بحث الكتالوغ">
+      <div class="rate-strip">سعر صرف تقريبي: يتم تحديث الأسعار حسب المزود والتوفر قبل تنفيذ الطلب.</div>
+      <div class="search-box"><span>ابحث عن خدمة أو منتج...</span><span aria-hidden="true">⌕</span></div>
+    </section>
+    <section aria-labelledby="showcase-title">
+      <div class="showcase-head">
+        <h2 id="showcase-title">اختر القسم الذي تريده</h2>
+        <p>هذه الأقسام متاحة للتصفح قبل تسجيل الدخول. تنفيذ الطلب يتم من داخل الحساب.</p>
+      </div>
+      <div class="showcase-grid">
+        {showcase_html}
+      </div>
+    </section>
+    <section class="catalog-nav" aria-label="أقسام الكتالوغ">
+      {cards_html}
+    </section>
+    <section aria-label="خدمات الكتالوغ">
+      {items_html}
+    </section>
+    <footer class="footer">
+      <span>phantom-app.net</span>
+      <span>Public catalog, protected checkout</span>
+    </footer>
+  </main>
+</body>
+</html>
+"""
+
 
 def landing_page_html() -> str:
     return _LANDING_HTML
+
+
+async def catalog_page(request: web.Request) -> web.Response:
+    """Public browseable catalog. Checkout remains inside authenticated website account."""
+    slug = str(request.match_info.get("slug") or "")
+    if slug and _section_by_slug(slug) is None:
+        raise web.HTTPNotFound(text="catalog section not found")
+    return web.Response(
+        text=catalog_page_html(slug),
+        content_type="text/html",
+        headers=dict(_NO_STORE_HEADERS),
+    )
 
 
 async def landing_page(_request: web.Request) -> web.Response:

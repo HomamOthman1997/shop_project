@@ -57,6 +57,8 @@ def test_shop_root_serves_public_landing_page():
     routes = {(route.method, route.resource.canonical, route.handler.__name__) for route in app.router.routes()}
 
     assert ("GET", "/", "landing_page") in routes
+    assert ("GET", "/catalog", "catalog_page") in routes
+    assert ("GET", "/catalog/{slug}", "catalog_page") in routes
 
 
 def test_auth_page_loads_site_translator():
@@ -87,9 +89,45 @@ async def test_public_landing_page_links_to_auth_and_service_routes():
     text = response.text
     assert 'href="/login"' in text
     assert 'href="/register"' in text
-    assert 'href="/app/digital"' in text
-    assert 'href="/app/numbers"' in text
+    assert 'href="/catalog"' in text
+    assert 'href="/catalog/digital"' in text
+    assert 'href="/catalog/numbers"' in text
     assert "الشراء" in text
+
+
+@pytest.mark.asyncio
+async def test_public_catalog_page_exposes_sections_without_checkout():
+    response = await landing_page.catalog_page(make_mocked_request("GET", "/catalog"))
+
+    assert response.status == 200
+    text = response.text
+    assert "كتالوغ Phantom" in text
+    assert 'href="/catalog/numbers"' in text
+    assert 'href="/catalog/digital"' in text
+    assert 'href="/catalog/mobile-recharge"' in text
+    assert 'href="/register?next=/app/services"' in text
+    assert 'href="/login?next=/app/services"' in text
+
+
+@pytest.mark.asyncio
+async def test_public_catalog_section_limits_to_selected_group():
+    request = make_mocked_request("GET", "/catalog/numbers", match_info={"slug": "numbers"})
+    response = await landing_page.catalog_page(request)
+
+    assert response.status == 200
+    text = response.text
+    assert "<h1>الأرقام</h1>" in text
+    assert "أرقام مؤقتة" in text
+    assert "PUBG و BGMI" not in text
+
+
+@pytest.mark.asyncio
+async def test_public_catalog_keeps_games_alias_for_digital_section():
+    request = make_mocked_request("GET", "/catalog/games", match_info={"slug": "games"})
+    response = await landing_page.catalog_page(request)
+
+    assert response.status == 200
+    assert "<h1>المنتجات الرقمية</h1>" in response.text
 
 
 @pytest.mark.asyncio
