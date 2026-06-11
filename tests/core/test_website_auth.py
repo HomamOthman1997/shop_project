@@ -95,7 +95,8 @@ async def test_public_landing_page_links_to_auth_and_service_routes():
     assert 'href="/catalog/chat-apps"' in text
     assert 'href="/catalog/subscriptions"' in text
     assert 'href="/catalog/verification-numbers"' in text
-    assert "الشراء" in text
+    assert "الشراء" not in text
+    assert "طلباتي" not in text
 
 
 @pytest.mark.asyncio

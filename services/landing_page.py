@@ -647,6 +647,260 @@ _LANDING_HTML_V2 = """\
 </html>
 """
 
+_LANDING_HTML_V3 = """\
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Phantom Services</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --surface: rgba(15, 23, 42, .78);
+      --surface-strong: rgba(30, 41, 59, .82);
+      --line: rgba(148, 163, 184, .18);
+      --text: #f8fafc;
+      --muted: #a5b4fc;
+      --soft: #94a3b8;
+      --cyan: #22d3ee;
+      --green: #34d399;
+      --violet: #a78bfa;
+      --amber: #f59e0b;
+    }
+    body {
+      min-height: 100vh;
+      background:
+        linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px),
+        radial-gradient(circle at 82% 8%, rgba(34, 211, 238, .13), transparent 32%),
+        linear-gradient(135deg, #111827 0%, #0b1020 52%, #07131f 100%);
+      background-size: 44px 44px, 44px 44px, auto, auto;
+      font-family: "Segoe UI", "Tahoma", Arial, sans-serif;
+      color: var(--text);
+    }
+    a { color: inherit; text-decoration: none; }
+    .page {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 20px 0 42px;
+    }
+    .topbar {
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 34px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 1.32rem;
+      font-weight: 900;
+    }
+    .mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: rgba(255,255,255,.075);
+      border: 1px solid var(--line);
+    }
+    .auth-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .button {
+      min-height: 42px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 0 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .92rem;
+      font-weight: 900;
+      background: rgba(255,255,255,.055);
+      white-space: nowrap;
+    }
+    .button.primary {
+      border-color: rgba(52, 211, 153, .38);
+      background: rgba(52, 211, 153, .14);
+      color: #d1fae5;
+    }
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+    .section-head h1 {
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+    .catalog-link {
+      color: var(--muted);
+      font-weight: 900;
+      font-size: .93rem;
+    }
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+    .service-card {
+      min-height: 238px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)),
+        var(--surface);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: space-between;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease;
+    }
+    .service-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(52, 211, 153, .32);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.085), rgba(255,255,255,.04)),
+        var(--surface-strong);
+    }
+    .icon {
+      width: 62px;
+      height: 62px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: rgba(255,255,255,.075);
+      border: 1px solid rgba(255,255,255,.08);
+      font-size: 1.8rem;
+      margin-bottom: 24px;
+    }
+    .service-card h2 {
+      color: var(--green);
+      font-size: 1.55rem;
+      line-height: 1.2;
+      margin-bottom: 8px;
+      letter-spacing: 0;
+    }
+    .service-card small {
+      display: block;
+      color: #818cf8;
+      font-weight: 900;
+      letter-spacing: 1.6px;
+      margin-bottom: 18px;
+    }
+    .service-card p {
+      color: #b7c0ff;
+      line-height: 1.72;
+      font-size: .95rem;
+    }
+    .arrow { color: var(--green); font-size: 1.28rem; margin-top: 22px; }
+    .service-card.cyan h2, .service-card.cyan .arrow { color: var(--cyan); }
+    .service-card.violet h2, .service-card.violet .arrow { color: var(--violet); }
+    .service-card.amber h2, .service-card.amber .arrow { color: var(--amber); }
+    @media (max-width: 900px) {
+      .service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      .page { width: min(100% - 20px, 560px); padding-top: 12px; }
+      .topbar { display: grid; gap: 14px; margin-bottom: 24px; }
+      .brand { justify-content: center; }
+      .auth-actions { justify-content: stretch; }
+      .button { flex: 1 1 150px; }
+      .section-head { display: block; margin-bottom: 16px; }
+      .section-head h1 { margin-bottom: 10px; font-size: 1.82rem; }
+      .service-grid { grid-template-columns: 1fr; gap: 14px; }
+      .service-card { min-height: 205px; padding: 20px; }
+    }
+  </style>
+  <script src="/auth/static/i18n.js" defer></script>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="mark">👻</span>
+        <span>Phantom</span>
+      </a>
+      <nav class="auth-actions" aria-label="روابط الحساب">
+        <a class="button primary" href="/register">تسجيل حساب جديد</a>
+        <a class="button" href="/login">تسجيل الدخول</a>
+      </nav>
+    </header>
+
+    <section aria-labelledby="services-title">
+      <div class="section-head">
+        <h1 id="services-title">الخدمات</h1>
+        <a class="catalog-link" href="/catalog">عرض الكتالوغ الكامل ←</a>
+      </div>
+      <div class="service-grid">
+        <a class="service-card" href="/catalog/games">
+          <div>
+            <span class="icon">🎮</span>
+            <h2>الألعاب</h2>
+            <small>GAME TOP-UPS</small>
+            <p>شدات، بطاقات ألعاب، وتوب أب للألعاب.</p>
+          </div>
+          <span class="arrow">←</span>
+        </a>
+        <a class="service-card cyan" href="/catalog/chat-apps">
+          <div>
+            <span class="icon">💬</span>
+            <h2>تطبيقات دردشة</h2>
+            <small>CHAT APPS</small>
+            <p>خدمات Telegram وWhatsApp ومنصات التواصل.</p>
+          </div>
+          <span class="arrow">←</span>
+        </a>
+        <a class="service-card violet" href="/catalog/subscriptions">
+          <div>
+            <span class="icon">💎</span>
+            <h2>اشتراكات برامج</h2>
+            <small>SUBSCRIPTIONS</small>
+            <p>Adobe، Telegram Premium، وخدمات البرامج.</p>
+          </div>
+          <span class="arrow">←</span>
+        </a>
+        <a class="service-card amber" href="/catalog/verification-numbers">
+          <div>
+            <span class="icon">📱</span>
+            <h2>أرقام تأكيد</h2>
+            <small>VERIFY NUMBERS</small>
+            <p>أرقام مؤقتة وإيجار لاستلام الأكواد.</p>
+          </div>
+          <span class="arrow">←</span>
+        </a>
+        <a class="service-card cyan" href="/catalog/mobile-recharge">
+          <div>
+            <span class="icon">🌍</span>
+            <h2>شحن أرصدة وباقات</h2>
+            <small>MOBILE RECHARGE</small>
+            <p>شحن دولي، أوكرانيا، و eSIM وباقات بيانات.</p>
+          </div>
+          <span class="arrow">←</span>
+        </a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
 _CATALOG_SECTIONS: tuple[dict[str, object], ...] = (
     {
         "slug": "numbers",
@@ -1483,7 +1737,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
 
 
 def landing_page_html() -> str:
-    return _LANDING_HTML_V2
+    return _LANDING_HTML_V3
 
 
 async def catalog_page(request: web.Request) -> web.Response:
