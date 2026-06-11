@@ -365,6 +365,288 @@ _NO_STORE_HEADERS = {
     "Expires": "0",
 }
 
+_LANDING_HTML_V2 = """\
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Phantom Services</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: rgba(255, 255, 255, 0.055);
+      --panel-strong: rgba(255, 255, 255, 0.09);
+      --line: rgba(255, 255, 255, 0.12);
+      --text: #eef2ff;
+      --soft: #96a0c3;
+      --blue: #38bdf8;
+      --green: #34d399;
+      --violet: #a78bfa;
+      --amber: #f59e0b;
+    }
+    body {
+      min-height: 100vh;
+      background:
+        linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px),
+        linear-gradient(135deg, #111827 0%, #0b1020 48%, #07131f 100%);
+      background-size: 44px 44px, 44px 44px, auto;
+      font-family: "Segoe UI", "Tahoma", Arial, sans-serif;
+      color: var(--text);
+    }
+    a { color: inherit; text-decoration: none; }
+    .app-shell {
+      width: min(1860px, calc(100% - 40px));
+      min-height: calc(100vh - 40px);
+      margin: 20px auto;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px;
+      display: grid;
+      grid-template-columns: 330px minmax(0, 1fr);
+      overflow: hidden;
+      background: rgba(7, 13, 28, .78);
+    }
+    .sidebar {
+      border-left: 1px solid rgba(255,255,255,.08);
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.025));
+      padding: 34px 18px;
+    }
+    .brand {
+      min-height: 66px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 12px;
+      padding: 0 14px 24px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      font-size: 1.5rem;
+      font-weight: 900;
+    }
+    .mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: rgba(255,255,255,.07);
+    }
+    .side-nav { display: grid; gap: 10px; margin-top: 32px; }
+    .side-nav a {
+      min-height: 52px;
+      border-radius: 8px;
+      padding: 0 18px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      color: #c7d2fe;
+      font-weight: 900;
+      font-size: 1.05rem;
+    }
+    .side-nav a.active { background: rgba(56, 189, 248, .15); color: white; }
+    .main {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+    .topbar {
+      min-height: 166px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 32px 60px;
+      background: rgba(7, 10, 24, .62);
+    }
+    .top-title strong {
+      display: block;
+      color: var(--green);
+      font-size: 1.1rem;
+      margin-bottom: 12px;
+    }
+    .top-title h1 {
+      font-size: clamp(2rem, 4vw, 3rem);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+    .auth-panel {
+      min-width: 260px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      background: rgba(255,255,255,.045);
+      display: grid;
+      gap: 10px;
+    }
+    .auth-panel span { color: var(--soft); font-weight: 800; }
+    .auth-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .button {
+      min-height: 42px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      background: rgba(255,255,255,.045);
+    }
+    .button.primary {
+      border-color: rgba(52, 211, 153, .38);
+      background: rgba(52, 211, 153, .14);
+      color: #d1fae5;
+    }
+    .content { padding: 36px 60px 56px; }
+    .hero-card {
+      min-height: 186px;
+      border: 1px solid rgba(56, 189, 248, .18);
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(167,139,250,.14), rgba(56,189,248,.08));
+      display: grid;
+      place-items: center;
+      text-align: center;
+      margin-bottom: 34px;
+      padding: 22px;
+    }
+    .hero-card .ghost { font-size: 3rem; margin-bottom: 12px; }
+    .hero-card h2 {
+      font-size: clamp(2.2rem, 5vw, 3.7rem);
+      line-height: 1;
+      color: transparent;
+      background: linear-gradient(90deg, var(--violet), var(--blue));
+      -webkit-background-clip: text;
+      background-clip: text;
+      margin-bottom: 12px;
+    }
+    .hero-card p { color: #b7c0ff; font-size: 1.05rem; }
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 22px;
+    }
+    .service-card {
+      min-height: 250px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.035);
+      padding: 26px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: space-between;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease;
+    }
+    .service-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(52, 211, 153, .34);
+      background: rgba(255,255,255,.06);
+    }
+    .icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: rgba(255,255,255,.075);
+      font-size: 1.9rem;
+      margin-bottom: 24px;
+    }
+    .service-card h3 { font-size: 1.65rem; margin-bottom: 8px; color: var(--green); }
+    .service-card small { display: block; color: #818cf8; font-weight: 900; letter-spacing: 1.8px; margin-bottom: 24px; }
+    .service-card p { color: #b7c0ff; line-height: 1.75; }
+    .arrow { color: var(--green); font-size: 1.3rem; }
+    .service-card.blue h3, .service-card.blue .arrow { color: var(--blue); }
+    .service-card.violet h3, .service-card.violet .arrow { color: var(--violet); }
+    .service-card.amber h3, .service-card.amber .arrow { color: var(--amber); }
+    @media (max-width: 1020px) {
+      .app-shell { grid-template-columns: 1fr; }
+      .sidebar { order: 2; border-left: 0; border-top: 1px solid rgba(255,255,255,.08); }
+      .side-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .topbar, .content { padding-left: 24px; padding-right: 24px; }
+      .service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      .app-shell { width: min(100% - 20px, 560px); margin: 10px auto; }
+      .topbar { display: grid; min-height: 0; padding: 22px 16px; }
+      .auth-panel { min-width: 0; }
+      .content { padding: 20px 16px 28px; }
+      .hero-card { min-height: 150px; }
+      .service-grid, .side-nav { grid-template-columns: 1fr; }
+      .service-card { min-height: 210px; }
+      .auth-actions { grid-template-columns: 1fr; }
+    }
+  </style>
+  <script src="/auth/static/i18n.js" defer></script>
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="sidebar" aria-label="التنقل">
+      <a class="brand" href="/">
+        <span>Phantom</span>
+        <span class="mark">👻</span>
+      </a>
+      <nav class="side-nav">
+        <a class="active" href="/catalog">الخدمات</a>
+        <a href="/login">طلباتي</a>
+        <a href="/login">شحن الرصيد</a>
+        <a href="/login">الدعم</a>
+        <a href="/login">حسابي</a>
+        <a href="/login">تأكيد الهوية</a>
+      </nav>
+    </aside>
+    <section class="main">
+      <header class="topbar">
+        <div class="auth-panel" aria-label="الدخول إلى الحساب">
+          <span>ابدأ الآن</span>
+          <div class="auth-actions">
+            <a class="button primary" href="/register">تسجيل حساب جديد</a>
+            <a class="button" href="/login">تسجيل الدخول</a>
+          </div>
+        </div>
+        <div class="top-title">
+          <strong>Phantom Services</strong>
+          <h1>الخدمات</h1>
+        </div>
+      </header>
+      <div class="content">
+        <section class="hero-card">
+          <div>
+            <div class="ghost">👻</div>
+            <h2>Phantom Services</h2>
+            <p>اختر القسم الذي تريده، التصفح متاح بدون حساب والشراء بعد التسجيل وشحن الرصيد.</p>
+          </div>
+        </section>
+        <section class="service-grid" aria-label="الأقسام الرئيسية">
+          <a class="service-card" href="/catalog/games">
+            <div><span class="icon">🎮</span><h3>الألعاب</h3><small>GAME TOP-UPS</small><p>شدات، بطاقات ألعاب، وتوب أب للألعاب.</p></div>
+            <span class="arrow">←</span>
+          </a>
+          <a class="service-card blue" href="/catalog/chat-apps">
+            <div><span class="icon">💬</span><h3>تطبيقات دردشة</h3><small>CHAT APPS</small><p>خدمات Telegram وWhatsApp ومنصات التواصل.</p></div>
+            <span class="arrow">←</span>
+          </a>
+          <a class="service-card violet" href="/catalog/subscriptions">
+            <div><span class="icon">💎</span><h3>اشتراكات برامج</h3><small>SUBSCRIPTIONS</small><p>Adobe، Telegram Premium، وخدمات البرامج.</p></div>
+            <span class="arrow">←</span>
+          </a>
+          <a class="service-card amber" href="/catalog/verification-numbers">
+            <div><span class="icon">📱</span><h3>أرقام تأكيد</h3><small>VERIFY NUMBERS</small><p>أرقام مؤقتة وإيجار لاستلام الأكواد.</p></div>
+            <span class="arrow">←</span>
+          </a>
+          <a class="service-card blue" href="/catalog/mobile-recharge">
+            <div><span class="icon">🌍</span><h3>شحن أرصدة وباقات</h3><small>MOBILE RECHARGE</small><p>شحن دولي، أوكرانيا، و eSIM وباقات بيانات.</p></div>
+            <span class="arrow">←</span>
+          </a>
+        </section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
 _CATALOG_SECTIONS: tuple[dict[str, object], ...] = (
     {
         "slug": "numbers",
@@ -529,6 +811,212 @@ _CATALOG_SECTIONS: tuple[dict[str, object], ...] = (
             ("طلباتي", "أرقام وديجيتال ضمن سجل موحد وفلاتر واضحة."),
             ("الدعم المركزي", "فتح تذكرة حسب نوع المشكلة: أرقام، ديجيتال، أو رصيد."),
             ("ربط Telegram", "اختياري، ويفعل استخدام البوتات بعد إنشاء الحساب."),
+        ),
+    },
+)
+
+_CATALOG_SECTIONS = (
+    {
+        "slug": "games",
+        "aliases": ("digital",),
+        "title": "الألعاب",
+        "subtitle": "شحن ألعاب، بطاقات، وتوب أب حسب اللعبة أو الباقة.",
+        "accent": "green",
+        "items": (
+            ("شحن ألعاب", "منتجات ألعاب عامة قابلة للتوسع حسب المزود."),
+            ("بطاقات ألعاب", "أكواد ومنتجات رقمية جاهزة أو تنفيذ يدوي."),
+        ),
+        "categories": (
+            {
+                "slug": "games",
+                "title": "شحن ألعاب الموبايل",
+                "subtitle": "شدات وأرصدة ألعاب موبايل حسب معرف اللاعب أو الباقة.",
+                "items": (
+                    ("PUBG Mobile UC", "باقات UC مع تحقق اسم اللاعب عند توفر المزود."),
+                    ("BGMI", "باقات وشدات حسب المنطقة والمصدر."),
+                    ("ألعاب موبايل أخرى", "تصنيفات قابلة للإضافة حسب مصادر المنتجات."),
+                ),
+            },
+            {
+                "slug": "cards",
+                "title": "بطاقات الألعاب",
+                "subtitle": "أكواد ومنتجات رقمية جاهزة للألعاب والمتاجر.",
+                "items": (
+                    ("PlayStation", "بطاقات ومتاجر حسب الدولة والتوفر."),
+                    ("Xbox و Nintendo", "أكواد رقمية عند توفر المخزون."),
+                    ("Steam و PC", "بطاقات ومنتجات ألعاب للكمبيوتر."),
+                ),
+            },
+        ),
+    },
+    {
+        "slug": "chat-apps",
+        "title": "تطبيقات دردشة",
+        "subtitle": "خدمات ومنتجات مرتبطة بتطبيقات المحادثة والتواصل.",
+        "accent": "blue",
+        "items": (
+            ("Telegram", "خدمات ومنتجات مرتبطة بتطبيق تيليغرام."),
+            ("WhatsApp", "خيارات مرتبطة بالتحقق والخدمات الرقمية."),
+        ),
+        "categories": (
+            {
+                "slug": "telegram",
+                "title": "Telegram",
+                "subtitle": "خدمات تيليغرام، حسابات، وربط حسب التوفر.",
+                "items": (
+                    ("Telegram Premium", "اشتراكات وميزات مدفوعة حسب المصدر."),
+                    ("Telegram accounts", "حسابات أو خدمات تحتاج سياسة تسليم واضحة."),
+                    ("Telegram verification", "خيارات تحقق مرتبطة بالأرقام عند الحاجة."),
+                ),
+            },
+            {
+                "slug": "whatsapp",
+                "title": "WhatsApp",
+                "subtitle": "خدمات تحقق ومنتجات مرتبطة بواتساب.",
+                "items": (
+                    ("WhatsApp verification", "استلام كود عبر رقم مؤقت أو مزود مناسب."),
+                    ("WhatsApp business", "تصنيفات قابلة للإضافة لاحقاً."),
+                    ("دعم حسابات", "خدمات تحتاج بيانات واضحة قبل التنفيذ."),
+                ),
+            },
+            {
+                "slug": "social",
+                "title": "منصات تواصل",
+                "subtitle": "خدمات مرتبطة بمنصات التواصل والحسابات.",
+                "items": (
+                    ("Instagram", "منتجات وخدمات مرتبطة بالحساب."),
+                    ("X و Discord", "تصنيفات تواصل قابلة للتوسع."),
+                    ("YouTube", "خدمات رقمية حسب المصادر المتاحة."),
+                ),
+            },
+        ),
+    },
+    {
+        "slug": "subscriptions",
+        "aliases": ("apps",),
+        "title": "اشتراكات برامج",
+        "subtitle": "اشتراكات وخدمات برامج مثل Adobe وTelegram وخدمات رقمية أخرى.",
+        "accent": "violet",
+        "items": (
+            ("Adobe", "اشتراكات وأدوات تصميم حسب التوفر."),
+            ("Telegram Premium", "اشتراكات رقمية قابلة للشراء بعد التسجيل."),
+        ),
+        "categories": (
+            {
+                "slug": "adobe",
+                "title": "Adobe",
+                "subtitle": "اشتراكات وأدوات تصميم وإنتاجية.",
+                "items": (
+                    ("Adobe Creative Cloud", "اشتراكات حسب المدة والمصدر."),
+                    ("Photoshop و Illustrator", "خيارات برامج مفردة عند توفرها."),
+                    ("Design tools", "أدوات تصميم رقمية قابلة للإضافة."),
+                ),
+            },
+            {
+                "slug": "telegram-premium",
+                "title": "Telegram Premium",
+                "subtitle": "اشتراك تيليغرام بريميوم وخيارات مدة مختلفة.",
+                "items": (
+                    ("Premium شهري", "خيار قابل للتسعير حسب المصدر."),
+                    ("Premium سنوي", "عروض أطول عند توفرها."),
+                    ("Gift Premium", "هدايا رقمية عند توفر المنتج."),
+                ),
+            },
+            {
+                "slug": "streaming",
+                "title": "اشتراكات مشاهدة",
+                "subtitle": "Streaming وخدمات محتوى رقمية عند توفرها.",
+                "items": (
+                    ("Netflix", "اشتراكات حسب السياسة والمصدر."),
+                    ("Prime Video", "خيارات مشاهدة عند توفرها."),
+                    ("خدمات أخرى", "تصنيفات قابلة للتوسع."),
+                ),
+            },
+        ),
+    },
+    {
+        "slug": "verification-numbers",
+        "aliases": ("numbers",),
+        "title": "أرقام تأكيد",
+        "subtitle": "أرقام مؤقتة وإيجار لاستلام أكواد التحقق.",
+        "accent": "amber",
+        "items": (
+            ("أرقام مؤقتة", "استلام كود واحد أو جلسة تحقق قصيرة."),
+            ("أرقام للإيجار", "مدة أطول للحسابات التي تحتاج متابعة."),
+        ),
+        "categories": (
+            {
+                "slug": "temporary",
+                "title": "أرقام مؤقتة",
+                "subtitle": "أرقام قصيرة المدة لاستلام كود واحد أو جلسة تحقق.",
+                "items": (
+                    ("أرقام لتطبيقات التواصل", "واتساب، تيليغرام، ومنصات تواصل حسب التوفر."),
+                    ("أرقام للخدمات المالية", "اختيار الدولة والخدمة قبل الطلب."),
+                    ("أرقام حسب الدولة", "تصفح الدولة والخدمة ثم نفذ بعد التسجيل."),
+                ),
+            },
+            {
+                "slug": "rental",
+                "title": "أرقام للإيجار",
+                "subtitle": "خيارات أطول مدة للخدمات التي تحتاج أكثر من كود.",
+                "items": (
+                    ("إيجار يومي", "متابعة قصيرة وتأكيدات متعددة خلال اليوم."),
+                    ("إيجار أسبوعي", "استقرار أطول وسجل رسائل."),
+                    ("إيجار حسب الدولة", "يعرض حسب المزود والدولة داخل الحساب."),
+                ),
+            },
+            {
+                "slug": "voice",
+                "title": "SMS أو Voice",
+                "subtitle": "استلام عبر رسالة أو مكالمة حسب توفر المزود.",
+                "items": (
+                    ("SMS", "استلام الأكواد النصية من لوحة الطلبات."),
+                    ("Voice", "خيارات مكالمة عند توفرها."),
+                    ("مزود آخر", "تبديل المزود عند فشل الطلب."),
+                ),
+            },
+        ),
+    },
+    {
+        "slug": "mobile-recharge",
+        "title": "شحن أرصدة وباقات",
+        "subtitle": "شحن دولي، أوكرانيا، وباقات اتصال و eSIM.",
+        "accent": "blue",
+        "items": (
+            ("أوكرانيا", "شحن أرصدة وباقات أوكرانية عند توفر المصدر."),
+            ("باقات عالمية", "تقسيم حسب الدولة والمشغل."),
+        ),
+        "categories": (
+            {
+                "slug": "ukraine",
+                "title": "شحن أوكرانيا",
+                "subtitle": "أرصدة وباقات أوكرانية حسب المشغل والتوفر.",
+                "items": (
+                    ("Kyivstar", "شحن رصيد أو باقات حسب الرقم."),
+                    ("Vodafone Ukraine", "باقات ومبالغ قابلة للتوسع."),
+                    ("lifecell", "خيارات شحن حسب سياسة المزود."),
+                ),
+            },
+            {
+                "slug": "global",
+                "title": "شحن عالمي",
+                "subtitle": "شحن وباقات للدول الأخرى حسب المشغل.",
+                "items": (
+                    ("حسب الدولة", "اختيار الدولة ثم المشغل."),
+                    ("حسب المشغل", "عروض متغيرة حسب المصدر."),
+                    ("باقات بيانات", "تصنيفات بيانات واتصال."),
+                ),
+            },
+            {
+                "slug": "esim",
+                "title": "eSIM وبيانات",
+                "subtitle": "منتجات سفر وبيانات رقمية.",
+                "items": (
+                    ("باقات سفر", "حسب الدولة والمدة وحجم البيانات."),
+                    ("بيانات عالمية", "خطط متعددة الدول عند توفرها."),
+                    ("تسليم رقمي", "التنفيذ والتسليم من داخل الحساب."),
+                ),
+            },
         ),
     },
 )
@@ -995,7 +1483,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
 
 
 def landing_page_html() -> str:
-    return _LANDING_HTML
+    return _LANDING_HTML_V2
 
 
 async def catalog_page(request: web.Request) -> web.Response:

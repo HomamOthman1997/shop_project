@@ -91,8 +91,10 @@ async def test_public_landing_page_links_to_auth_and_service_routes():
     assert 'href="/login"' in text
     assert 'href="/register"' in text
     assert 'href="/catalog"' in text
-    assert 'href="/catalog/digital"' in text
-    assert 'href="/catalog/numbers"' in text
+    assert 'href="/catalog/games"' in text
+    assert 'href="/catalog/chat-apps"' in text
+    assert 'href="/catalog/subscriptions"' in text
+    assert 'href="/catalog/verification-numbers"' in text
     assert "الشراء" in text
 
 
@@ -103,8 +105,10 @@ async def test_public_catalog_page_exposes_sections_without_checkout():
     assert response.status == 200
     text = response.text
     assert "كتالوغ Phantom" in text
-    assert 'href="/catalog/numbers"' in text
-    assert 'href="/catalog/digital"' in text
+    assert 'href="/catalog/games"' in text
+    assert 'href="/catalog/chat-apps"' in text
+    assert 'href="/catalog/subscriptions"' in text
+    assert 'href="/catalog/verification-numbers"' in text
     assert 'href="/catalog/mobile-recharge"' in text
     assert 'href="/register"' in text
     assert 'href="/login"' in text
@@ -118,7 +122,7 @@ async def test_public_catalog_section_limits_to_selected_group():
 
     assert response.status == 200
     text = response.text
-    assert "<h1>الأرقام</h1>" in text
+    assert "<h1>أرقام تأكيد</h1>" in text
     assert "اختر الصنف الفرعي" in text
     assert "أرقام مؤقتة" in text
     assert "شراء رقم لمدة قصيرة" not in text
@@ -126,12 +130,12 @@ async def test_public_catalog_section_limits_to_selected_group():
 
 
 @pytest.mark.asyncio
-async def test_public_catalog_keeps_games_alias_for_digital_section():
-    request = make_mocked_request("GET", "/catalog/games", match_info={"slug": "games"})
+async def test_public_catalog_keeps_digital_alias_for_games_section():
+    request = make_mocked_request("GET", "/catalog/digital", match_info={"slug": "digital"})
     response = await landing_page.catalog_page(request)
 
     assert response.status == 200
-    assert "<h1>المنتجات الرقمية</h1>" in response.text
+    assert "<h1>الألعاب</h1>" in response.text
 
 
 @pytest.mark.asyncio
@@ -140,9 +144,9 @@ async def test_public_catalog_query_category_filters_section_items():
     response = await landing_page.catalog_page(request)
 
     assert response.status == 200
-    assert "<h1>شحن الألعاب</h1>" in response.text
+    assert "<h1>شحن ألعاب الموبايل</h1>" in response.text
     assert "PUBG Mobile UC" in response.text
-    assert "Streaming" not in response.text
+    assert "Adobe" not in response.text
 
 
 @pytest.mark.asyncio
@@ -155,9 +159,9 @@ async def test_public_catalog_nested_category_filters_section_items():
     response = await landing_page.catalog_page(request)
 
     assert response.status == 200
-    assert "<h1>شحن الألعاب</h1>" in response.text
+    assert "<h1>شحن ألعاب الموبايل</h1>" in response.text
     assert "PUBG Mobile UC" in response.text
-    assert "Streaming" not in response.text
+    assert "Adobe" not in response.text
 
 
 @pytest.mark.asyncio
