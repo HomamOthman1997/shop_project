@@ -106,8 +106,9 @@ async def test_public_catalog_page_exposes_sections_without_checkout():
     assert 'href="/catalog/numbers"' in text
     assert 'href="/catalog/digital"' in text
     assert 'href="/catalog/mobile-recharge"' in text
-    assert 'href="/register?next=/app/services"' in text
-    assert 'href="/login?next=/app/services"' in text
+    assert 'href="/register"' in text
+    assert 'href="/login"' in text
+    assert "PUBG Mobile UC" not in text
 
 
 @pytest.mark.asyncio
@@ -118,7 +119,9 @@ async def test_public_catalog_section_limits_to_selected_group():
     assert response.status == 200
     text = response.text
     assert "<h1>الأرقام</h1>" in text
+    assert "اختر الصنف الفرعي" in text
     assert "أرقام مؤقتة" in text
+    assert "شراء رقم لمدة قصيرة" not in text
     assert "PUBG و BGMI" not in text
 
 

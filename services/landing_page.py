@@ -658,6 +658,26 @@ def _catalog_cards(*, active_slug: str = "") -> str:
     return "\n".join(cards)
 
 
+def _category_cards(section: dict[str, object]) -> str:
+    section_slug = escape(str(section["slug"]))
+    cards: list[str] = []
+    for category in section.get("categories", ()):  # type: ignore[union-attr]
+        slug = escape(str(category.get("slug") or ""))
+        title = escape(str(category.get("title") or slug))
+        subtitle = escape(str(category.get("subtitle") or ""))
+        search_text = escape(f"{title} {subtitle}")
+        cards.append(
+            f"""
+            <a class="catalog-card {escape(str(section["accent"]))}" href="/catalog/{section_slug}/{slug}" data-catalog-search="{search_text}">
+              <span class="catalog-mark" aria-hidden="true"></span>
+              <strong>{title}</strong>
+              <span>{subtitle}</span>
+            </a>
+            """
+        )
+    return "\n".join(cards)
+
+
 def _catalog_items(section: dict[str, object] | None, category: dict[str, object] | None = None) -> str:
     sections = (section,) if section else _CATALOG_SECTIONS
     rows: list[str] = []
@@ -719,12 +739,26 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     subtitle = (
         str((category or section)["subtitle"])
         if (category or section)
-        else "استعرض أقسام الخدمات والأسعار المتاحة قبل التسجيل. الشراء وتنفيذ الطلبات يحتاجان حساباً مؤكداً ورصيداً في المحفظة."
+        else "اختر قسماً، ثم الصنف الفرعي، ثم المنتج. التصفح متاح للجميع والشراء يحتاج حساباً ورصيداً."
     )
-    items_html = _catalog_items(section, category)
-    cards_html = _catalog_cards(active_slug=active_slug)
-    category_tabs_html = _category_tabs(section, active_category=str(category["slug"]) if category else "")
-    showcase_html = _showcase_tiles()
+    if category:
+        stage_title = "اختر المنتج أو الخدمة"
+        stage_hint = "هذه المنتجات متاحة للاستعراض. تنفيذ الطلب يتم بعد تسجيل الدخول وشحن الرصيد."
+        stage_html = _catalog_items(section, category)
+        stage_class = "product-stage"
+        category_tabs_html = _category_tabs(section, active_category=str(category["slug"]))
+    elif section and tuple(section.get("categories", ())) :  # type: ignore[union-attr]
+        stage_title = "اختر الصنف الفرعي"
+        stage_hint = "ادخل إلى الصنف المناسب حتى تصل إلى المنتجات المتاحة."
+        stage_html = _category_cards(section)
+        stage_class = "catalog-nav"
+        category_tabs_html = ""
+    else:
+        stage_title = "اختر القسم"
+        stage_hint = "ابدأ من قسم رئيسي، ثم تابع إلى الأصناف الفرعية والمنتجات."
+        stage_html = _catalog_cards(active_slug=active_slug)
+        stage_class = "catalog-nav"
+        category_tabs_html = ""
     return f"""\
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -780,9 +814,9 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     .catalog-empty {{ display: none; border: 1px solid rgba(245,158,11,.24); border-radius: 8px; background: rgba(245,158,11,.07); color: #fde68a; padding: 14px; line-height: 1.7; margin: 12px 0 22px; text-align: center; }}
     .catalog-empty.visible {{ display: block; }}
     [data-catalog-search][hidden] {{ display: none !important; }}
-    .showcase-head {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 18px 0 14px; }}
-    .showcase-head h2 {{ font-size: 1.35rem; }}
-    .showcase-head p {{ color: var(--soft); line-height: 1.65; }}
+    .stage-head {{ display: flex; align-items: end; justify-content: space-between; gap: 16px; margin: 18px 0 14px; }}
+    .stage-head h2 {{ font-size: 1.35rem; }}
+    .stage-head p {{ color: var(--soft); line-height: 1.65; max-width: 560px; }}
     .showcase-grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin-bottom: 28px; }}
     .showcase-tile {{ min-height: 208px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 8px; text-align: center; color: var(--text); }}
     .tile-image {{ width: 100%; aspect-ratio: 1 / .86; border-radius: 8px; border: 1px solid rgba(255,255,255,.14); background-size: cover; background-position: center; display: block; box-shadow: 0 18px 38px rgba(0,0,0,.26); transition: transform .18s ease, box-shadow .18s ease; }}
@@ -790,6 +824,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     .showcase-tile strong {{ font-size: .98rem; }}
     .showcase-tile small {{ color: #a7b0d0; font-size: .78rem; }}
     .catalog-nav {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 12px 0 26px; }}
+    .product-stage {{ margin: 12px 0 26px; }}
     .catalog-card {{ min-height: 150px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: transform .18s ease, border-color .18s ease, background .18s ease; }}
     .catalog-card:hover, .catalog-card.active {{ transform: translateY(-2px); border-color: rgba(255,255,255,.28); background: var(--panel-strong); }}
     .catalog-mark {{ width: 42px; height: 8px; border-radius: 999px; background: currentColor; box-shadow: 0 0 24px currentColor; opacity: .84; }}
@@ -825,8 +860,8 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
       .search-band {{ margin-top: 4px; }}
       .rate-strip {{ font-size: .78rem; }}
       .search-box {{ min-height: 44px; border-radius: 8px; }}
-      .showcase-head {{ display: block; }}
-      .showcase-head h2 {{ margin-bottom: 6px; }}
+      .stage-head {{ display: block; }}
+      .stage-head h2 {{ margin-bottom: 6px; }}
       .catalog-nav, .product-grid, .showcase-grid {{ grid-template-columns: 1fr; }}
       .category-tab {{ flex: 1 1 auto; justify-content: center; }}
       .showcase-tile {{ min-height: 0; }}
@@ -871,23 +906,17 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
         <span aria-hidden="true">⌕</span>
       </label>
     </section>
-    <section aria-labelledby="showcase-title">
-      <div class="showcase-head">
-        <h2 id="showcase-title">اختر القسم الذي تريده</h2>
-        <p>هذه الأقسام متاحة للتصفح قبل تسجيل الدخول. تنفيذ الطلب يتم من داخل الحساب.</p>
+    <section aria-labelledby="catalog-stage-title">
+      <div class="stage-head">
+        <h2 id="catalog-stage-title">{escape(stage_title)}</h2>
+        <p>{escape(stage_hint)}</p>
       </div>
-      <div class="showcase-grid">
-        {showcase_html}
-      </div>
-    </section>
-    <section class="catalog-nav" aria-label="أقسام الكتالوغ">
-      {cards_html}
-    </section>
-    {category_tabs_html}
-    <p class="catalog-empty" id="catalog-empty">لا توجد نتائج مطابقة. جرّب كلمة مثل ألعاب، أوكرانيا، أرقام، PUBG، أو VPN.</p>
-    <section aria-label="خدمات الكتالوغ">
-      {items_html}
-    </section>
+          <div class="{stage_class}" aria-label="مرحلة الكتالوغ">
+            {stage_html}
+          </div>
+        </section>
+        {category_tabs_html}
+        <p class="catalog-empty" id="catalog-empty">لا توجد نتائج مطابقة. جرّب كلمة مثل ألعاب، أوكرانيا، أرقام، PUBG، أو VPN.</p>
     <footer class="footer">
       <span>phantom-app.net</span>
       <span>Public catalog, protected checkout</span>
