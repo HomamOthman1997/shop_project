@@ -377,6 +377,38 @@ _CATALOG_SECTIONS: tuple[dict[str, object], ...] = (
             ("تأكيد SMS أو Voice", "اختيار نوع الاستلام حسب توفر المزود والخدمة."),
             ("دول وخدمات عالمية", "تصفح حسب الدولة والخدمة قبل تنفيذ الطلب."),
         ),
+        "categories": (
+            {
+                "slug": "temporary",
+                "title": "أرقام مؤقتة",
+                "subtitle": "أرقام قصيرة المدة لاستلام كود واحد أو جلسة تحقق واحدة.",
+                "items": (
+                    ("أرقام لتطبيقات التواصل", "واتساب، تيليغرام، سوشيال وخدمات تحقق حسب التوفر."),
+                    ("أرقام لخدمات مالية", "استخدام مسؤول مع مزودين موثوقين وخيارات دولة واضحة."),
+                    ("أرقام حسب الدولة", "اختيار الدولة والخدمة قبل إنشاء الطلب داخل الحساب."),
+                ),
+            },
+            {
+                "slug": "rental",
+                "title": "أرقام للإيجار",
+                "subtitle": "خيارات أطول مدة للخدمات التي تحتاج أكثر من كود.",
+                "items": (
+                    ("إيجار يومي", "مناسب للمتابعة القصيرة وتأكيدات متعددة خلال اليوم."),
+                    ("إيجار أسبوعي", "للخدمات التي تحتاج استقراراً أطول وسجل رسائل."),
+                    ("إيجار حسب الدولة", "يعرض حسب المزود والدولة بعد الدخول للحساب."),
+                ),
+            },
+            {
+                "slug": "verification",
+                "title": "توثيق الحسابات",
+                "subtitle": "تصنيفات تحقق SMS أو Voice حسب الخدمة والمزود.",
+                "items": (
+                    ("SMS", "استلام الأكواد النصية ومتابعتها من لوحة الطلبات."),
+                    ("Voice", "خيارات مكالمة عند توفرها من المزود."),
+                    ("مزود آخر", "إمكانية تبديل المزود من إجراءات الطلب عند الفشل."),
+                ),
+            },
+        ),
     },
     {
         "slug": "digital",
@@ -390,6 +422,58 @@ _CATALOG_SECTIONS: tuple[dict[str, object], ...] = (
             ("تطبيقات واشتراكات", "خدمات رقمية وباقات اشتراك قابلة للإضافة للكتالوغ."),
             ("كوتات وباقات", "عرض الباقات والأسعار قبل تأكيد الطلب."),
         ),
+        "categories": (
+            {
+                "slug": "games",
+                "title": "شحن الألعاب",
+                "subtitle": "شدات وأرصدة ألعاب وتوب أب حسب معرف اللاعب أو الباقة.",
+                "items": (
+                    ("PUBG Mobile UC", "باقات UC مع تحقق اسم اللاعب عند توفر المزود."),
+                    ("BGMI و ألعاب مشابهة", "تصنيفات قابلة للتوسيع حسب مصادر المنتجات."),
+                    ("بطاقات ألعاب", "أكواد أو تنفيذ يدوي حسب المخزون والمصدر."),
+                ),
+            },
+            {
+                "slug": "apps",
+                "title": "التطبيقات والاشتراكات",
+                "subtitle": "اشتراكات وباقات تطبيقات رقمية ضمن الكتالوغ.",
+                "items": (
+                    ("Streaming", "اشتراكات مشاهدة وخدمات محتوى عند توفرها."),
+                    ("Productivity", "أدوات وتصميم وتطبيقات إنتاجية."),
+                    ("Mobile apps", "باقات داخل تطبيقات وخدمات موبايل."),
+                ),
+            },
+            {
+                "slug": "social",
+                "title": "السوشيال ميديا",
+                "subtitle": "خدمات ومنتجات مرتبطة بحسابات ومنصات التواصل.",
+                "items": (
+                    ("Instagram", "خدمات حسابات ومنتجات رقمية مرتبطة بالحساب."),
+                    ("X و YouTube", "تصنيفات قابلة للإضافة حسب المصادر المتاحة."),
+                    ("توثيق وربط", "خدمات تحتاج بيانات حساب واضحة قبل التنفيذ."),
+                ),
+            },
+            {
+                "slug": "accounts",
+                "title": "حسابات جاهزة",
+                "subtitle": "حسابات ومنتجات رقمية تحتاج سياسة تسليم واضحة.",
+                "items": (
+                    ("حسابات تطبيقات", "منتجات جاهزة أو تسليم يدوي حسب المصدر."),
+                    ("حسابات ألعاب", "خيارات تتطلب وصفاً وشروط استخدام قبل الشراء."),
+                    ("مخزون محدود", "يعرض فقط عند توفر stock قابل للبيع."),
+                ),
+            },
+            {
+                "slug": "proxy",
+                "title": "بروكسي و VPN",
+                "subtitle": "منتجات اتصال وحماية وبيانات قابلة للربط لاحقاً بالمزودين.",
+                "items": (
+                    ("VPN", "اشتراكات وخيارات اتصال حسب المدة."),
+                    ("Proxy", "بروكسيات حسب الدولة أو الاستخدام."),
+                    ("بيانات و eSIM", "ربط لاحق مع منتجات السفر والبيانات."),
+                ),
+            },
+        ),
     },
     {
         "slug": "mobile-recharge",
@@ -401,6 +485,38 @@ _CATALOG_SECTIONS: tuple[dict[str, object], ...] = (
             ("باقات عالمية", "تقسيم حسب الدولة والمشغل ونوع الباقة."),
             ("eSIM وبيانات", "منتجات اتصال وسفر قابلة للربط مع مزودي الديجيتال."),
             ("تحقق قبل الشراء", "المستخدم يرى تفاصيل الخدمة، والشراء يتطلب حساباً ورصيداً."),
+        ),
+        "categories": (
+            {
+                "slug": "ukraine",
+                "title": "شحن أوكرانيا",
+                "subtitle": "قسم مخصص للأرصدة والباقات الأوكرانية عند توفر المصدر.",
+                "items": (
+                    ("Kyivstar", "شحن رصيد أو باقات حسب الرقم والتوفر."),
+                    ("Vodafone Ukraine", "باقات ومبالغ قابلة للتوسيع داخل الكتالوغ."),
+                    ("lifecell", "خيارات شحن حسب سياسة المزود."),
+                ),
+            },
+            {
+                "slug": "global",
+                "title": "شحن عالمي",
+                "subtitle": "تقسيم حسب الدولة والمشغل ونوع الباقة.",
+                "items": (
+                    ("حسب الدولة", "اختيار دولة ثم مشغل قبل الشراء."),
+                    ("حسب المشغل", "عروض متغيرة حسب المصدر والتوفر."),
+                    ("باقات بيانات", "تصنيفات بيانات واتصالات عند توفرها."),
+                ),
+            },
+            {
+                "slug": "esim",
+                "title": "eSIM وبيانات",
+                "subtitle": "منتجات سفر وبيانات رقمية قابلة للتفعيل لاحقاً.",
+                "items": (
+                    ("باقات سفر", "حسب الدولة والمدة وحجم البيانات."),
+                    ("بيانات عالمية", "خطط متعددة الدول عند توفرها."),
+                    ("تسليم رقمي", "التنفيذ والتسليم يتمان من داخل الحساب."),
+                ),
+            },
         ),
     },
     {
@@ -489,6 +605,38 @@ def _section_by_slug(slug: str) -> dict[str, object] | None:
     )
 
 
+def _category_by_slug(section: dict[str, object] | None, slug: str) -> dict[str, object] | None:
+    normalized = str(slug or "").strip().lower()
+    if not section or not normalized:
+        return None
+    return next(
+        (
+            category
+            for category in section.get("categories", ())  # type: ignore[union-attr]
+            if str(category.get("slug") or "").strip().lower() == normalized
+        ),
+        None,
+    )
+
+
+def _category_tabs(section: dict[str, object] | None, *, active_category: str = "") -> str:
+    if not section:
+        return ""
+    categories = tuple(section.get("categories", ()))  # type: ignore[union-attr]
+    if not categories:
+        return ""
+    section_slug = escape(str(section["slug"]))
+    links = [
+        f'<a class="category-tab {"active" if not active_category else ""}" href="/catalog/{section_slug}">الكل</a>'
+    ]
+    for category in categories:
+        slug = str(category.get("slug") or "")
+        title = escape(str(category.get("title") or slug))
+        active = " active" if slug == active_category else ""
+        links.append(f'<a class="category-tab{active}" href="/catalog/{section_slug}?category={escape(slug)}">{title}</a>')
+    return f'<nav class="category-tabs" aria-label="تصنيفات {escape(str(section["title"]))}">{"".join(links)}</nav>'
+
+
 def _catalog_cards(*, active_slug: str = "") -> str:
     cards: list[str] = []
     for section in _CATALOG_SECTIONS:
@@ -509,15 +657,16 @@ def _catalog_cards(*, active_slug: str = "") -> str:
     return "\n".join(cards)
 
 
-def _catalog_items(section: dict[str, object] | None) -> str:
+def _catalog_items(section: dict[str, object] | None, category: dict[str, object] | None = None) -> str:
     sections = (section,) if section else _CATALOG_SECTIONS
     rows: list[str] = []
     for group in sections:
-        title = escape(str(group["title"]))
+        current = category if category and group is section else group
+        title = escape(str(current["title"]))
         slug = escape(str(group["slug"]))
         accent = escape(str(group["accent"]))
         rows.append(f'<div class="product-group {accent}"><div class="group-head"><h2>{title}</h2><a href="/register?next=/app/services">شراء بعد التسجيل</a></div><div class="product-grid">')
-        for name, description in group["items"]:  # type: ignore[index]
+        for name, description in current["items"]:  # type: ignore[index]
             rows.append(
                 f"""
                 <article class="product-tile">
@@ -556,19 +705,21 @@ def _showcase_tiles() -> str:
     return "\n".join(tiles)
 
 
-def catalog_page_html(slug: str = "") -> str:
+def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     section = _section_by_slug(slug)
     if slug and not section:
         section = None
+    category = _category_by_slug(section, category_slug)
     active_slug = str(section["slug"]) if section else ""
-    title = str(section["title"]) if section else "كتالوغ Phantom"
+    title = str((category or section)["title"]) if (category or section) else "كتالوغ Phantom"
     subtitle = (
-        str(section["subtitle"])
-        if section
+        str((category or section)["subtitle"])
+        if (category or section)
         else "استعرض أقسام الخدمات والأسعار المتاحة قبل التسجيل. الشراء وتنفيذ الطلبات يحتاجان حساباً مؤكداً ورصيداً في المحفظة."
     )
-    items_html = _catalog_items(section)
+    items_html = _catalog_items(section, category)
     cards_html = _catalog_cards(active_slug=active_slug)
+    category_tabs_html = _category_tabs(section, active_category=str(category["slug"]) if category else "")
     showcase_html = _showcase_tiles()
     return f"""\
 <!DOCTYPE html>
@@ -636,6 +787,9 @@ def catalog_page_html(slug: str = "") -> str:
     .catalog-card strong {{ font-size: 1.05rem; }}
     .catalog-card span:last-child {{ color: var(--soft); line-height: 1.65; font-size: .9rem; }}
     .violet {{ color: var(--violet); }} .green {{ color: var(--green); }} .blue {{ color: var(--blue); }} .amber {{ color: var(--amber); }}
+    .category-tabs {{ display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0 24px; }}
+    .category-tab {{ min-height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 13px; display: inline-flex; align-items: center; color: #c7d2fe; background: rgba(255,255,255,.045); font-size: .9rem; font-weight: 800; }}
+    .category-tab.active {{ border-color: rgba(52,211,153,.38); background: rgba(52,211,153,.11); color: #d1fae5; }}
     .product-group {{ margin-top: 20px; }}
     .group-head {{ display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }}
     .group-head h2 {{ color: var(--text); font-size: 1.35rem; }}
@@ -665,6 +819,7 @@ def catalog_page_html(slug: str = "") -> str:
       .showcase-head {{ display: block; }}
       .showcase-head h2 {{ margin-bottom: 6px; }}
       .catalog-nav, .product-grid, .showcase-grid {{ grid-template-columns: 1fr; }}
+      .category-tab {{ flex: 1 1 auto; justify-content: center; }}
       .showcase-tile {{ min-height: 0; }}
       .tile-image {{ aspect-ratio: 1 / .72; }}
       .product-tile {{ min-height: 0; }}
@@ -716,6 +871,7 @@ def catalog_page_html(slug: str = "") -> str:
     <section class="catalog-nav" aria-label="أقسام الكتالوغ">
       {cards_html}
     </section>
+    {category_tabs_html}
     <section aria-label="خدمات الكتالوغ">
       {items_html}
     </section>
@@ -738,8 +894,9 @@ async def catalog_page(request: web.Request) -> web.Response:
     slug = str(request.match_info.get("slug") or "")
     if slug and _section_by_slug(slug) is None:
         raise web.HTTPNotFound(text="catalog section not found")
+    category_slug = str(request.query.get("category") or "")
     return web.Response(
-        text=catalog_page_html(slug),
+        text=catalog_page_html(slug, category_slug=category_slug),
         content_type="text/html",
         headers=dict(_NO_STORE_HEADERS),
     )

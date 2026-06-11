@@ -131,6 +131,17 @@ async def test_public_catalog_keeps_games_alias_for_digital_section():
 
 
 @pytest.mark.asyncio
+async def test_public_catalog_query_category_filters_section_items():
+    request = make_mocked_request("GET", "/catalog/digital?category=games", match_info={"slug": "digital"})
+    response = await landing_page.catalog_page(request)
+
+    assert response.status == 200
+    assert "<h1>شحن الألعاب</h1>" in response.text
+    assert "PUBG Mobile UC" in response.text
+    assert "Streaming" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_website_auth_page_contains_admin_dashboard_tabs():
     response = await website_auth.auth_page(make_mocked_request("GET", "/admin"))
 
