@@ -645,9 +645,10 @@ def _catalog_cards(*, active_slug: str = "") -> str:
         subtitle = escape(str(section["subtitle"]))
         accent = escape(str(section["accent"]))
         active = " active" if slug == active_slug else ""
+        search_text = escape(f"{title} {subtitle}")
         cards.append(
             f"""
-            <a class="catalog-card {accent}{active}" href="/catalog/{escape(slug)}">
+            <a class="catalog-card {accent}{active}" href="/catalog/{escape(slug)}" data-catalog-search="{search_text}">
               <span class="catalog-mark" aria-hidden="true"></span>
               <strong>{title}</strong>
               <span>{subtitle}</span>
@@ -665,11 +666,13 @@ def _catalog_items(section: dict[str, object] | None, category: dict[str, object
         title = escape(str(current["title"]))
         slug = escape(str(group["slug"]))
         accent = escape(str(group["accent"]))
-        rows.append(f'<div class="product-group {accent}"><div class="group-head"><h2>{title}</h2><a href="/register?next=/app/services">شراء بعد التسجيل</a></div><div class="product-grid">')
+        group_search = escape(f'{current["title"]} {current.get("subtitle", "")}')
+        rows.append(f'<div class="product-group {accent}" data-catalog-search="{group_search}"><div class="group-head"><h2>{title}</h2><a href="/register?next=/app/services">شراء بعد التسجيل</a></div><div class="product-grid">')
         for name, description in current["items"]:  # type: ignore[index]
+            item_search = escape(f"{name} {description} {current['title']}")
             rows.append(
                 f"""
-                <article class="product-tile">
+                <article class="product-tile" data-catalog-search="{item_search}">
                   <div>
                     <h3>{escape(str(name))}</h3>
                     <p>{escape(str(description))}</p>
@@ -693,9 +696,10 @@ def _showcase_tiles() -> str:
         href = escape(tile["href"])
         image = escape(tile["image"])
         accent = escape(tile["accent"])
+        search_text = escape(f"{title} {subtitle}")
         tiles.append(
             f"""
-            <a class="showcase-tile {accent}" href="{href}">
+            <a class="showcase-tile {accent}" href="{href}" data-catalog-search="{search_text}">
               <span class="tile-image" style="background-image: url('{image}')"></span>
               <strong>{title}</strong>
               <small>{subtitle}</small>
@@ -770,7 +774,12 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     .search-band {{ display: grid; justify-items: center; gap: 12px; margin: 8px 0 26px; }}
     .rate-strip {{ width: min(660px, 100%); min-height: 34px; border-radius: 8px; border: 1px solid rgba(255,255,255,.07); background: rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; color: #e0e7ff; font-weight: 800; font-size: .86rem; text-align: center; padding: 0 12px; }}
     .search-box {{ width: min(760px, 100%); min-height: 48px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.07); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 18px; color: #cbd5e1; }}
-    .search-box span:first-child {{ color: #8b95b8; }}
+    .search-box input {{ width: 100%; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; direction: rtl; }}
+    .search-box input::placeholder {{ color: #8b95b8; opacity: 1; }}
+    .search-box span {{ color: #8b95b8; }}
+    .catalog-empty {{ display: none; border: 1px solid rgba(245,158,11,.24); border-radius: 8px; background: rgba(245,158,11,.07); color: #fde68a; padding: 14px; line-height: 1.7; margin: 12px 0 22px; text-align: center; }}
+    .catalog-empty.visible {{ display: block; }}
+    [data-catalog-search][hidden] {{ display: none !important; }}
     .showcase-head {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 18px 0 14px; }}
     .showcase-head h2 {{ font-size: 1.35rem; }}
     .showcase-head p {{ color: var(--soft); line-height: 1.65; }}
@@ -857,7 +866,10 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     </section>
     <section class="search-band" aria-label="بحث الكتالوغ">
       <div class="rate-strip">سعر صرف تقريبي: يتم تحديث الأسعار حسب المزود والتوفر قبل تنفيذ الطلب.</div>
-      <div class="search-box"><span>ابحث عن خدمة أو منتج...</span><span aria-hidden="true">⌕</span></div>
+      <label class="search-box" for="catalog-search">
+        <input id="catalog-search" type="search" autocomplete="off" placeholder="ابحث عن خدمة أو منتج..." aria-label="بحث في الكتالوغ" />
+        <span aria-hidden="true">⌕</span>
+      </label>
     </section>
     <section aria-labelledby="showcase-title">
       <div class="showcase-head">
@@ -872,6 +884,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
       {cards_html}
     </section>
     {category_tabs_html}
+    <p class="catalog-empty" id="catalog-empty">لا توجد نتائج مطابقة. جرّب كلمة مثل ألعاب، أوكرانيا، أرقام، PUBG، أو VPN.</p>
     <section aria-label="خدمات الكتالوغ">
       {items_html}
     </section>
@@ -880,6 +893,41 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
       <span>Public catalog, protected checkout</span>
     </footer>
   </main>
+  <script>
+    (() => {{
+      const input = document.getElementById("catalog-search");
+      const empty = document.getElementById("catalog-empty");
+      const searchable = Array.from(document.querySelectorAll("[data-catalog-search]"));
+      if (!input || !empty || !searchable.length) return;
+      const normalize = (value) => String(value || "").trim().toLowerCase();
+      const applySearch = () => {{
+        const query = normalize(input.value);
+        let visibleProducts = 0;
+        searchable.forEach((node) => {{
+          const haystack = normalize(node.getAttribute("data-catalog-search") + " " + node.textContent);
+          const isVisible = !query || haystack.includes(query);
+          node.hidden = !isVisible;
+          if (isVisible && node.classList.contains("product-tile")) visibleProducts += 1;
+        }});
+        document.querySelectorAll(".product-group").forEach((group) => {{
+          const groupTiles = Array.from(group.querySelectorAll(".product-tile"));
+          if (groupTiles.length) {{
+            group.hidden = query ? !groupTiles.some((tile) => !tile.hidden) : false;
+          }}
+        }});
+        const visibleShowcase = document.querySelectorAll(".showcase-tile:not([hidden])").length;
+        const visibleCatalogCards = document.querySelectorAll(".catalog-card:not([hidden])").length;
+        empty.classList.toggle("visible", Boolean(query) && visibleProducts === 0 && visibleShowcase === 0 && visibleCatalogCards === 0);
+      }};
+      input.addEventListener("input", applySearch);
+      const params = new URLSearchParams(window.location.search);
+      const initialQuery = params.get("q");
+      if (initialQuery) {{
+        input.value = initialQuery;
+        applySearch();
+      }}
+    }})();
+  </script>
 </body>
 </html>
 """

@@ -32,11 +32,23 @@ def test_catalog_page_uses_public_showcase_before_login():
 
     assert "اختر القسم الذي تريده" in html
     assert 'class="showcase-grid"' in html
+    assert 'id="catalog-search"' in html
+    assert "data-catalog-search" in html
+    assert 'id="catalog-empty"' in html
     assert 'class="category-tabs"' not in html
     assert 'href="/catalog/digital?category=games"' in html
     assert 'href="/catalog/numbers"' in html
     assert 'href="/login?next=/app/services"' in html
     assert 'href="/register?next=/catalog/digital"' in html
+
+
+def test_catalog_search_script_filters_public_content():
+    html = landing_page.catalog_page_html()
+
+    assert 'input.addEventListener("input", applySearch)' in html
+    assert 'params.get("q")' in html
+    assert 'node.hidden = !isVisible' in html
+    assert 'لا توجد نتائج مطابقة' in html
 
 
 def test_catalog_section_shows_subcategory_tabs():
