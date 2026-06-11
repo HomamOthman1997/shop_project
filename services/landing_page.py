@@ -637,6 +637,29 @@ def _category_tabs(section: dict[str, object] | None, *, active_category: str = 
     return f'<nav class="category-tabs" aria-label="تصنيفات {escape(str(section["title"]))}">{"".join(links)}</nav>'
 
 
+def _catalog_breadcrumbs(section: dict[str, object] | None, category: dict[str, object] | None) -> str:
+    parts = ['<a href="/catalog">الكتالوغ</a>']
+    back_href = "/catalog"
+    back_label = "رجوع إلى الأقسام"
+    if section:
+        section_slug = escape(str(section["slug"]))
+        section_title = escape(str(section["title"]))
+        if category:
+            parts.append(f'<a href="/catalog/{section_slug}">{section_title}</a>')
+            parts.append(f'<span>{escape(str(category["title"]))}</span>')
+            back_href = f"/catalog/{section_slug}"
+            back_label = "رجوع إلى الأصناف"
+        else:
+            parts.append(f"<span>{section_title}</span>")
+    crumb_html = '<span aria-hidden="true">/</span>'.join(parts)
+    return (
+        '<div class="catalog-path">'
+        f'<nav class="breadcrumbs" aria-label="مسار الكتالوغ">{crumb_html}</nav>'
+        f'<a class="back-link" href="{back_href}">{back_label}</a>'
+        "</div>"
+    )
+
+
 def _catalog_cards(*, active_slug: str = "") -> str:
     cards: list[str] = []
     for section in _CATALOG_SECTIONS:
@@ -741,6 +764,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
         if (category or section)
         else "اختر قسماً، ثم الصنف الفرعي، ثم المنتج. التصفح متاح للجميع والشراء يحتاج حساباً ورصيداً."
     )
+    breadcrumbs_html = _catalog_breadcrumbs(section, category)
     if category:
         stage_title = "اختر المنتج أو الخدمة"
         stage_hint = "هذه المنتجات متاحة للاستعراض. تنفيذ الطلب يتم بعد تسجيل الدخول وشحن الرصيد."
@@ -814,6 +838,11 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     .catalog-empty {{ display: none; border: 1px solid rgba(245,158,11,.24); border-radius: 8px; background: rgba(245,158,11,.07); color: #fde68a; padding: 14px; line-height: 1.7; margin: 12px 0 22px; text-align: center; }}
     .catalog-empty.visible {{ display: block; }}
     [data-catalog-search][hidden] {{ display: none !important; }}
+    .catalog-path {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 12px; color: #a7b0d0; font-size: .9rem; }}
+    .breadcrumbs {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
+    .breadcrumbs a {{ color: #c7d2fe; font-weight: 800; }}
+    .breadcrumbs span:last-child {{ color: var(--text); font-weight: 900; }}
+    .back-link {{ min-height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,.045); color: #dbeafe; font-weight: 800; white-space: nowrap; }}
     .stage-head {{ display: flex; align-items: end; justify-content: space-between; gap: 16px; margin: 18px 0 14px; }}
     .stage-head h2 {{ font-size: 1.35rem; }}
     .stage-head p {{ color: var(--soft); line-height: 1.65; max-width: 560px; }}
@@ -860,6 +889,8 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
       .search-band {{ margin-top: 4px; }}
       .rate-strip {{ font-size: .78rem; }}
       .search-box {{ min-height: 44px; border-radius: 8px; }}
+      .catalog-path {{ align-items: stretch; flex-direction: column; }}
+      .back-link {{ width: 100%; }}
       .stage-head {{ display: block; }}
       .stage-head h2 {{ margin-bottom: 6px; }}
       .catalog-nav, .product-grid, .showcase-grid {{ grid-template-columns: 1fr; }}
@@ -905,8 +936,9 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
         <input id="catalog-search" type="search" autocomplete="off" placeholder="ابحث عن خدمة أو منتج..." aria-label="بحث في الكتالوغ" />
         <span aria-hidden="true">⌕</span>
       </label>
-    </section>
-    <section aria-labelledby="catalog-stage-title">
+        </section>
+        {breadcrumbs_html}
+        <section aria-labelledby="catalog-stage-title">
       <div class="stage-head">
         <h2 id="catalog-stage-title">{escape(stage_title)}</h2>
         <p>{escape(stage_hint)}</p>

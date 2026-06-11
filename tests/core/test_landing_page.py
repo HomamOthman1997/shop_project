@@ -35,6 +35,8 @@ def test_catalog_page_uses_public_showcase_before_login():
     assert "data-catalog-search" in html
     assert 'id="catalog-empty"' in html
     assert 'class="category-tabs"' not in html
+    assert 'class="breadcrumbs"' in html
+    assert "رجوع إلى الأقسام" in html
     assert 'href="/catalog/digital"' in html
     assert 'href="/catalog/numbers"' in html
     assert "PUBG Mobile UC" not in html
@@ -56,6 +58,9 @@ def test_catalog_section_shows_subcategory_tabs():
 
     assert "اختر الصنف الفرعي" in html
     assert 'class="category-tabs"' not in html
+    assert 'class="breadcrumbs"' in html
+    assert "<span>المنتجات الرقمية</span>" in html
+    assert "رجوع إلى الأقسام" in html
     assert 'href="/catalog/digital/games"' in html
     assert 'href="/catalog/digital/apps"' in html
     assert "شحن الألعاب" in html
@@ -68,6 +73,9 @@ def test_catalog_category_filters_items():
     assert "<h1>شحن الألعاب</h1>" in html
     assert "اختر المنتج أو الخدمة" in html
     assert 'class="category-tabs"' in html
+    assert 'href="/catalog/digital">المنتجات الرقمية</a>' in html
+    assert "<span>شحن الألعاب</span>" in html
+    assert "رجوع إلى الأصناف" in html
     assert "PUBG Mobile UC" in html
     assert "Streaming" not in html
     assert 'class="category-tab active" href="/catalog/digital/games"' in html
