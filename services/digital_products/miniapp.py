@@ -2011,6 +2011,7 @@ def create_app(_argv: list[str] | None = None) -> web.Application:
     app.on_cleanup.append(_cleanup_app)
     app.router.add_get("/", landing_page)
     app.router.add_get("/catalog", catalog_page)
+    app.router.add_get("/catalog/{slug}/{category}", catalog_page)
     app.router.add_get("/catalog/{slug}", catalog_page)
     app.router.add_get("/health", health)
     app.router.add_get("/healthz", health)

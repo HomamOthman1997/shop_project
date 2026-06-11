@@ -537,14 +537,14 @@ _SHOWCASE_TILES: tuple[dict[str, str], ...] = (
     {
         "title": "الألعاب",
         "subtitle": "شدات وباقات ألعاب",
-        "href": "/catalog/digital?category=games",
+        "href": "/catalog/digital/games",
         "image": "/mini/digital/static/games-rtl.png",
         "accent": "green",
     },
     {
         "title": "التطبيقات",
         "subtitle": "اشتراكات وخدمات تطبيقات",
-        "href": "/catalog/digital?category=apps",
+        "href": "/catalog/digital/apps",
         "image": "/mini/digital/static/communications-rtl.png",
         "accent": "blue",
     },
@@ -558,21 +558,21 @@ _SHOWCASE_TILES: tuple[dict[str, str], ...] = (
     {
         "title": "السوشيال ميديا",
         "subtitle": "خدمات حسابات ومنصات",
-        "href": "/catalog/digital?category=social",
+        "href": "/catalog/digital/social",
         "image": "/mini/digital/static/store-cards-rtl.png",
         "accent": "violet",
     },
     {
         "title": "حسابات جاهزة",
         "subtitle": "حسابات ومنتجات رقمية",
-        "href": "/catalog/digital?category=accounts",
+        "href": "/catalog/digital/accounts",
         "image": "/mini/digital/static/section-store-cards.jpg",
         "accent": "green",
     },
     {
         "title": "بروكسي و VPN",
         "subtitle": "اتصال وحماية وبيانات",
-        "href": "/catalog/digital?category=proxy",
+        "href": "/catalog/digital/proxy",
         "image": "/mini/digital/static/numbers-rtl.png",
         "accent": "blue",
     },
@@ -633,7 +633,7 @@ def _category_tabs(section: dict[str, object] | None, *, active_category: str = 
         slug = str(category.get("slug") or "")
         title = escape(str(category.get("title") or slug))
         active = " active" if slug == active_category else ""
-        links.append(f'<a class="category-tab{active}" href="/catalog/{section_slug}?category={escape(slug)}">{title}</a>')
+        links.append(f'<a class="category-tab{active}" href="/catalog/{section_slug}/{escape(slug)}">{title}</a>')
     return f'<nav class="category-tabs" aria-label="تصنيفات {escape(str(section["title"]))}">{"".join(links)}</nav>'
 
 
@@ -942,7 +942,7 @@ async def catalog_page(request: web.Request) -> web.Response:
     slug = str(request.match_info.get("slug") or "")
     if slug and _section_by_slug(slug) is None:
         raise web.HTTPNotFound(text="catalog section not found")
-    category_slug = str(request.query.get("category") or "")
+    category_slug = str(request.match_info.get("category") or request.query.get("category") or "")
     return web.Response(
         text=catalog_page_html(slug, category_slug=category_slug),
         content_type="text/html",
