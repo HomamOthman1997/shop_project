@@ -1744,6 +1744,7 @@ def _root_family_search_cards() -> str:
         section_slug = escape(str(section["slug"]))
         accent = escape(str(section["accent"]))
         section_title = str(section["title"])
+        section_label = escape(section_title)
         for category in _family_categories(section):
             slug = escape(str(category.get("slug") or ""))
             title = escape(str(category.get("title") or slug))
@@ -1753,6 +1754,7 @@ def _root_family_search_cards() -> str:
                 f"""
                 <a class="catalog-card {accent} root-search-card" href="/catalog/{section_slug}/{slug}" data-catalog-search="{search_text}" data-root-search-result hidden>
                   <span class="catalog-mark" aria-hidden="true"></span>
+                  <small class="catalog-section-kicker">ضمن {section_label}</small>
                   <strong>{title}</strong>
                   <span>{subtitle}</span>
                 </a>
@@ -1929,6 +1931,8 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     .catalog-card:hover, .catalog-card.active {{ transform: translateY(-2px); border-color: rgba(255,255,255,.28); background: var(--panel-strong); }}
     .catalog-mark {{ width: 42px; height: 8px; border-radius: 999px; background: currentColor; box-shadow: 0 0 24px currentColor; opacity: .84; }}
     .catalog-card strong {{ font-size: 1.05rem; }}
+    .catalog-section-kicker {{ color: #c7d2fe; font-size: .78rem; font-weight: 900; line-height: 1.35; }}
+    .root-search-card .catalog-section-kicker {{ color: currentColor; opacity: .82; }}
     .catalog-card span:last-child {{ color: var(--soft); line-height: 1.65; font-size: .9rem; }}
     .violet {{ color: var(--violet); }} .green {{ color: var(--green); }} .blue {{ color: var(--blue); }} .amber {{ color: var(--amber); }}
     .category-tabs {{ display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0 24px; }}
