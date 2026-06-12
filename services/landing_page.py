@@ -1638,6 +1638,10 @@ def _category_by_slug(section: dict[str, object] | None, slug: str) -> dict[str,
     )
 
 
+def _catalog_link_attrs() -> str:
+    return 'data-preserve-catalog-query'
+
+
 def _category_tabs(section: dict[str, object] | None, *, active_category: str = "") -> str:
     if not section:
         return ""
@@ -1654,27 +1658,27 @@ def _category_tabs(section: dict[str, object] | None, *, active_category: str = 
             visible_categories.append(active)
         hidden_count = max(0, len(categories) - len(visible_categories))
     links = [
-        f'<a class="category-tab {"active" if not active_category else ""}" href="/catalog/{section_slug}">الكل</a>'
+        f'<a class="category-tab {"active" if not active_category else ""}" href="/catalog/{section_slug}" {_catalog_link_attrs()}>الكل</a>'
     ]
     for category in visible_categories:
         slug = str(category.get("slug") or "")
         title = escape(str(category.get("title") or slug))
         active = " active" if slug == active_category else ""
-        links.append(f'<a class="category-tab{active}" href="/catalog/{section_slug}/{escape(slug)}">{title}</a>')
+        links.append(f'<a class="category-tab{active}" href="/catalog/{section_slug}/{escape(slug)}" {_catalog_link_attrs()}>{title}</a>')
     if hidden_count:
-        links.append(f'<a class="category-tab more" href="/catalog/{section_slug}">+{hidden_count} أصناف</a>')
+        links.append(f'<a class="category-tab more" href="/catalog/{section_slug}" {_catalog_link_attrs()}>+{hidden_count} أصناف</a>')
     return f'<nav class="category-tabs" aria-label="تصنيفات {escape(str(section["title"]))}">{"".join(links)}</nav>'
 
 
 def _catalog_breadcrumbs(section: dict[str, object] | None, category: dict[str, object] | None) -> str:
-    parts = ['<a href="/catalog">الكتالوغ</a>']
+    parts = [f'<a href="/catalog" {_catalog_link_attrs()}>الكتالوغ</a>']
     back_href = "/catalog"
     back_label = "رجوع إلى الأقسام"
     if section:
         section_slug = escape(str(section["slug"]))
         section_title = escape(str(section["title"]))
         if category:
-            parts.append(f'<a href="/catalog/{section_slug}">{section_title}</a>')
+            parts.append(f'<a href="/catalog/{section_slug}" {_catalog_link_attrs()}>{section_title}</a>')
             parts.append(f'<span>{escape(str(category["title"]))}</span>')
             back_href = f"/catalog/{section_slug}"
             back_label = "رجوع إلى الأصناف"
@@ -1708,7 +1712,7 @@ def _catalog_cards(*, active_slug: str = "") -> str:
         search_text = escape(f"{title} {subtitle}")
         cards.append(
             f"""
-            <a class="catalog-card {accent}{active}" href="/catalog/{escape(slug)}" data-catalog-search="{search_text}">
+            <a class="catalog-card {accent}{active}" href="/catalog/{escape(slug)}" data-catalog-search="{search_text}" {_catalog_link_attrs()}>
               <span class="catalog-mark" aria-hidden="true"></span>
               <strong>{title}</strong>
               <span>{subtitle}</span>
@@ -1728,7 +1732,7 @@ def _category_cards(section: dict[str, object]) -> str:
         search_text = escape(f"{title} {subtitle} {category.get('search_terms', '')}")
         cards.append(
             f"""
-            <a class="catalog-card {escape(str(section["accent"]))}" href="/catalog/{section_slug}/{slug}" data-catalog-search="{search_text}">
+            <a class="catalog-card {escape(str(section["accent"]))}" href="/catalog/{section_slug}/{slug}" data-catalog-search="{search_text}" {_catalog_link_attrs()}>
               <span class="catalog-mark" aria-hidden="true"></span>
               <strong>{title}</strong>
               <span>{subtitle}</span>
@@ -1813,7 +1817,7 @@ def _showcase_tiles() -> str:
         search_text = escape(f"{title} {subtitle}")
         tiles.append(
             f"""
-            <a class="showcase-tile {accent}" href="{href}" data-catalog-search="{search_text}">
+            <a class="showcase-tile {accent}" href="{href}" data-catalog-search="{search_text}" {_catalog_link_attrs()}>
               <span class="tile-image" style="background-image: url('{image}')"></span>
               <strong>{title}</strong>
               <small>{subtitle}</small>

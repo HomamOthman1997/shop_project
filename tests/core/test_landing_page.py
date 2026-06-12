@@ -59,6 +59,8 @@ def test_catalog_page_uses_public_showcase_before_login():
     assert 'href="/catalog/paid-apps"' in html
     assert 'href="/catalog/numbers"' not in html
     assert 'href="/catalog/digital/' not in html
+    assert 'class="catalog-card green" href="/catalog/games" data-catalog-search=' in html
+    assert html.count("data-preserve-catalog-query") >= 10
     assert "PUBG Mobile UC" not in html
     assert 'href="/login"' in html
     assert 'href="/register"' in html
@@ -181,12 +183,12 @@ def test_catalog_category_filters_items():
     assert "<h1>شحن ألعاب الموبايل</h1>" in html
     assert "اختر المنتج أو الخدمة" in html
     assert 'class="category-tabs"' in html
-    assert 'href="/catalog/games">الألعاب</a>' in html
+    assert 'href="/catalog/games" data-preserve-catalog-query>الألعاب</a>' in html
     assert "<span>شحن ألعاب الموبايل</span>" in html
     assert "رجوع إلى الأصناف" in html
     assert "PUBG Mobile UC" in html
     assert "Adobe" not in html
-    assert 'class="category-tab active" href="/catalog/games/games"' in html
+    assert 'class="category-tab active" href="/catalog/games/games" data-preserve-catalog-query' in html
 
 
 def test_catalog_checkout_links_open_the_right_authenticated_workspace():
