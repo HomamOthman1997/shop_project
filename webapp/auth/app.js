@@ -3092,6 +3092,22 @@ function numbersOfferCountry(row) {
   return row.location_tag || row.country_label || row.country_iso || row.provider_country_iso || "";
 }
 
+function numbersPurchaseAction(row) {
+  const action = row && typeof row.purchase_action === "object" && row.purchase_action ? row.purchase_action : {};
+  const fallbackToken = String(row?.quote_token || "").trim();
+  const body = action.body && typeof action.body === "object" ? {...action.body} : {};
+  if (!body.quote_token && fallbackToken) body.quote_token = fallbackToken;
+  const endpoint = String(action.endpoint || numbersApiEndpoint("create_order", "/api/v1/numbers/orders") || "").trim();
+  const explicitlyDisabled = Object.prototype.hasOwnProperty.call(action, "enabled") && !action.enabled;
+  return {
+    enabled: !explicitlyDisabled && Boolean(endpoint && body.quote_token),
+    endpoint,
+    method: String(action.method || "POST").toUpperCase(),
+    body,
+    requires_idempotency_key: action.requires_idempotency_key !== false,
+  };
+}
+
 function renderNumbersQuotes() {
   const target = $("#numbers-quotes");
   if (!target) return;
@@ -3110,7 +3126,7 @@ function renderNumbersQuotes() {
   }
   target.innerHTML = rows.map((row, index) => `
     <article class="numbers-offer-card${row.recommended || index === 0 ? " recommended" : ""}">
-      <button class="numbers-offer-buy" type="button" data-number-offer="${index}" ${row.available === false || row.purchase_action?.enabled === false ? "disabled" : ""}>شراء</button>
+      <button class="numbers-offer-buy" type="button" data-number-offer="${index}" ${row.available === false || !numbersPurchaseAction(row).enabled ? "disabled" : ""}>شراء</button>
       <div class="numbers-offer-rate">${esc(row.success_rate || row.successRate || "98%")}<span>نجاح</span></div>
       <strong class="numbers-offer-price">${esc(row.price_label || (row.price ? `$${Number(row.price).toFixed(2)}` : "-"))}</strong>
       <div class="numbers-offer-provider">
@@ -3122,15 +3138,16 @@ function renderNumbersQuotes() {
   target.querySelectorAll("[data-number-offer]").forEach((button) => {
     button.addEventListener("click", async () => {
       const row = rows[Number(button.dataset.numberOffer)];
-      const quoteToken = row.quote_token || row.purchase_action?.body?.quote_token;
-      if (!quoteToken) return;
+      const action = numbersPurchaseAction(row);
+      if (!action.enabled || !action.endpoint) return;
       button.disabled = true;
       try {
-        const result = await api(numbersApiEndpoint("create_order", "/api/v1/numbers/orders"), {
-          method: "POST",
-          headers: { "Idempotency-Key": idempotencyKey("numbers") },
-          body: JSON.stringify({ quote_token: quoteToken, language: appLanguage() }),
-        });
+        const options = {method: action.method || "POST", headers: {}};
+        if (action.requires_idempotency_key) options.headers["Idempotency-Key"] = idempotencyKey("numbers");
+        if (String(options.method || "POST").toUpperCase() !== "GET") {
+          options.body = JSON.stringify({...action.body, language: appLanguage()});
+        }
+        const result = await api(action.endpoint, options);
         target.insertAdjacentHTML("afterbegin", `<div class="notice">تم إنشاء الطلب: ${esc(result.order?.id || "")}</div>`);
         await loadDashboard();
       } catch (error) {

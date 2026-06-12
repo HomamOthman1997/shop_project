@@ -239,8 +239,10 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'api("/api/v1/numbers/support/ticket"' in js
     assert 'numbersApiEndpoint("quotes", "/api/v1/numbers/quotes")' in js
     assert 'numbersApiEndpoint("create_order", "/api/v1/numbers/orders")' in js
-    assert "const quoteToken = row.quote_token || row.purchase_action?.body?.quote_token" in js
-    assert 'body: JSON.stringify({ quote_token: quoteToken, language: appLanguage() })' in js
+    assert "function numbersPurchaseAction" in js
+    assert 'const action = row && typeof row.purchase_action === "object"' in js
+    assert "const result = await api(action.endpoint, options);" in js
+    assert "options.body = JSON.stringify({...action.body, language: appLanguage()});" in js
     assert "const productCategories = payload.product_categories || [];" in js
     assert 'class="digital-category-tabs"' in js
     assert 'data-digital-filter="category:${esc(row.id)}"' in js
