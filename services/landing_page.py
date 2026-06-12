@@ -1833,12 +1833,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
         section = None
     category = _category_by_slug(section, category_slug)
     active_slug = str(section["slug"]) if section else ""
-    title = str((category or section)["title"]) if (category or section) else "كتالوغ Phantom"
-    subtitle = (
-        str((category or section)["subtitle"])
-        if (category or section)
-        else "اختر قسماً، ثم الصنف الفرعي، ثم المنتج. التصفح متاح للجميع والشراء يحتاج حساباً ورصيداً."
-    )
+    title = str((category or section)["title"]) if (category or section) else "Phantom Services"
     breadcrumbs_html = _catalog_breadcrumbs(section, category)
     broader_search_path = _broader_catalog_search_path(section, category)
     if category:
@@ -1901,12 +1896,9 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     .nav-links {{ color: #c7d2fe; font-weight: 700; font-size: .9rem; gap: 18px; }}
     .button {{ min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; background: rgba(255,255,255,.045); }}
     .button.primary {{ border-color: rgba(56,189,248,.48); background: linear-gradient(135deg, rgba(52,211,153,.22), rgba(56,189,248,.22)); }}
-    .hero {{ padding: 34px 0 18px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .45fr); gap: 28px; align-items: end; }}
+    .hero {{ padding: 34px 0 18px; display: grid; justify-items: end; }}
     .hero h1 {{ font-size: clamp(2rem, 4vw, 3.3rem); line-height: 1.1; margin-bottom: 16px; letter-spacing: 0; }}
-    .hero p {{ color: #c7d2fe; line-height: 1.8; max-width: 760px; }}
-    .buy-note {{ border: 1px solid rgba(52,211,153,.22); background: rgba(52,211,153,.075); border-radius: 8px; padding: 16px; color: #d1fae5; line-height: 1.7; }}
     .search-band {{ display: grid; justify-items: center; gap: 12px; margin: 8px 0 26px; }}
-    .rate-strip {{ width: min(660px, 100%); min-height: 34px; border-radius: 8px; border: 1px solid rgba(255,255,255,.07); background: rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; color: #e0e7ff; font-weight: 800; font-size: .86rem; text-align: center; padding: 0 12px; }}
     .search-box {{ width: min(760px, 100%); min-height: 48px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.07); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 18px; color: #cbd5e1; }}
     .search-box input {{ width: 100%; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; direction: rtl; }}
     .search-box input::placeholder {{ color: #8b95b8; opacity: 1; }}
@@ -1956,7 +1948,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     .tile-actions a.primary {{ border-color: rgba(56,189,248,.36); background: rgba(56,189,248,.11); color: #dff6ff; }}
     .footer {{ margin-top: 34px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,.08); color: #6f7898; display: flex; justify-content: space-between; gap: 14px; font-size: .86rem; }}
     @media (max-width: 900px) {{
-      .hero {{ grid-template-columns: 1fr; padding-top: 30px; }}
+      .hero {{ padding-top: 30px; }}
       .catalog-nav, .product-grid, .showcase-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
     }}
     @media (max-width: 560px) {{
@@ -1967,7 +1959,6 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
       .button {{ min-height: 38px; padding: 0 12px; font-size: .84rem; }}
       .hero h1 {{ font-size: 1.9rem; line-height: 1.14; }}
       .search-band {{ margin-top: 4px; }}
-      .rate-strip {{ font-size: .78rem; }}
       .search-box {{ min-height: 44px; border-radius: 8px; }}
       .catalog-path {{ align-items: stretch; flex-direction: column; }}
       .back-link {{ width: 100%; }}
@@ -1993,7 +1984,6 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
       </a>
       <div class="nav-links" aria-label="روابط الموقع">
         <a href="/">الرئيسية</a>
-        <a href="/catalog">الكتالوغ</a>
         <a href="/login">الدخول</a>
       </div>
       <div class="actions">
@@ -2004,14 +1994,9 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     <section class="hero">
       <div>
         <h1>{escape(title)}</h1>
-        <p>{escape(subtitle)}</p>
       </div>
-      <aside class="buy-note">
-        يمكنك تصفح التصنيفات والأسعار العامة بدون حساب. عند محاولة الشراء أو فتح المحفظة والطلبات سيطلب الموقع تسجيل الدخول وتأكيد البريد.
-      </aside>
     </section>
     <section class="search-band" aria-label="بحث الكتالوغ">
-      <div class="rate-strip">سعر صرف تقريبي: يتم تحديث الأسعار حسب المزود والتوفر قبل تنفيذ الطلب.</div>
       <label class="search-box" for="catalog-search">
         <input id="catalog-search" type="search" autocomplete="off" placeholder="ابحث عن خدمة أو منتج..." aria-label="بحث في الكتالوغ" />
         <span aria-hidden="true">⌕</span>
@@ -2099,7 +2084,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
 
 
 def landing_page_html() -> str:
-    return _LANDING_HTML_V3
+    return catalog_page_html()
 
 
 async def catalog_page(request: web.Request) -> web.Response:

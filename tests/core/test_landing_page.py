@@ -7,7 +7,8 @@ def test_landing_page_exposes_public_website_navigation():
     assert 'src="/auth/static/i18n.js"' in html
     assert 'href="/login"' in html
     assert 'href="/register"' in html
-    assert 'href="/catalog"' in html
+    assert 'id="catalog-search"' in html
+    assert "<h1>Phantom Services</h1>" in html
     assert 'href="/catalog/games"' in html
     assert 'href="/catalog/chat-apps"' in html
     assert 'href="/catalog/social-services"' in html
@@ -17,19 +18,28 @@ def test_landing_page_exposes_public_website_navigation():
     assert 'href="/catalog/internet-providers"' in html
     assert 'href="/catalog/paid-apps"' in html
     assert 'href="/catalog/mobile-recharge"' in html
-    assert 'class="service-grid"' in html
+    assert 'class="catalog-nav"' in html
+    assert 'class="service-grid"' not in html
     assert 'class="side-nav"' not in html
     assert 'class="sidebar"' not in html
     assert 'class="hero-card"' not in html
+    assert 'class="buy-note"' not in html
+    assert 'class="rate-strip"' not in html
+    assert "سعر صرف تقريبي" not in html
+    assert "يمكنك تصفح التصنيفات" not in html
+    assert "<h1>كتالوغ Phantom</h1>" not in html
+    assert '<a href="/catalog">الكتالوغ</a>' not in html
     assert 'href="/mini/numbers"' not in html
     assert 'href="/mini/digital"' not in html
     assert 'class="eyebrow"' not in html
-    assert "تسجيل حساب جديد" in html
+    assert "إنشاء حساب" in html
 
 
 def test_landing_page_keeps_public_entry_focused_on_services():
     html = landing_page.landing_page_html()
+    catalog_html = landing_page.catalog_page_html()
 
+    assert html == catalog_html
     assert "<h2>Phantom Services</h2>" not in html
     assert "اختر القسم الذي تريده" not in html
     assert "طلباتي" not in html

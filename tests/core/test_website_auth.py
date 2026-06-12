@@ -109,7 +109,8 @@ async def test_public_catalog_page_exposes_sections_without_checkout():
 
     assert response.status == 200
     text = response.text
-    assert "كتالوغ Phantom" in text
+    assert "<h1>Phantom Services</h1>" in text
+    assert "كتالوغ Phantom" not in text
     assert 'href="/catalog/games"' in text
     assert 'href="/catalog/chat-apps"' in text
     assert 'href="/catalog/social-services"' in text
