@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from aiohttp import web
 
 from services.digital_products.custom_catalog import FAMILY_TABLE
+from services.platform.website_auth import require_website_auth
 
 _LANDING_HTML = """\
 <!DOCTYPE html>
@@ -2142,8 +2143,14 @@ async def public_catalog_api(_request: web.Request) -> web.Response:
     return web.json_response(public_catalog_payload(), headers=dict(_NO_STORE_HEADERS))
 
 
-async def landing_page(_request: web.Request) -> web.Response:
+async def landing_page(request: web.Request) -> web.Response:
     """Public website homepage for anonymous visitors."""
+    try:
+        await require_website_auth(request)
+    except web.HTTPUnauthorized:
+        pass
+    else:
+        raise web.HTTPFound(location="/app")
     return web.Response(
         text=landing_page_html(),
         content_type="text/html",

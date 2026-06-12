@@ -1,4 +1,34 @@
+import pytest
+from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
+
 from services import landing_page
+
+
+@pytest.mark.asyncio
+async def test_landing_page_redirects_authenticated_user_to_account_home(monkeypatch):
+    async def authenticated(_request):
+        return object()
+
+    monkeypatch.setattr(landing_page, "require_website_auth", authenticated)
+
+    with pytest.raises(web.HTTPFound) as exc:
+        await landing_page.landing_page(make_mocked_request("GET", "/"))
+
+    assert exc.value.location == "/app"
+
+
+@pytest.mark.asyncio
+async def test_landing_page_stays_public_without_valid_session(monkeypatch):
+    async def anonymous(_request):
+        raise web.HTTPUnauthorized(text="missing session")
+
+    monkeypatch.setattr(landing_page, "require_website_auth", anonymous)
+
+    response = await landing_page.landing_page(make_mocked_request("GET", "/"))
+
+    assert response.status == 200
+    assert "Phantom Services" in response.text
 
 
 def test_landing_page_exposes_public_website_navigation():
