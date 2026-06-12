@@ -113,7 +113,7 @@ function viewForPath(pathname = window.location.pathname) {
   if (pathname.startsWith("/app/support")) return "support";
   if (pathname.startsWith("/app/account")) return "account";
   if (pathname.startsWith("/app/identity")) return "identity";
-  if (pathname.startsWith("/app/services")) return "workspace";
+  if (pathname.startsWith("/app/services")) return "home";
   return "home";
 }
 

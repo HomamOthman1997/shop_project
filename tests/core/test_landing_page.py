@@ -121,3 +121,15 @@ def test_catalog_category_filters_items():
     assert "PUBG Mobile UC" in html
     assert "Adobe" not in html
     assert 'class="category-tab active" href="/catalog/games/games"' in html
+
+
+def test_catalog_checkout_links_open_the_right_authenticated_workspace():
+    games = landing_page.catalog_page_html("games", category_slug="games")
+    numbers = landing_page.catalog_page_html("verification-numbers", category_slug="temporary")
+
+    assert "/app/services" not in games
+    assert "/app/services" not in numbers
+    assert 'href="/login?next=/app/digital"' in games
+    assert 'href="/register?next=/app/digital"' in games
+    assert 'href="/login?next=/app/numbers"' in numbers
+    assert 'href="/register?next=/app/numbers"' in numbers

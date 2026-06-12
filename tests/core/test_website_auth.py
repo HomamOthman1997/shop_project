@@ -237,6 +237,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "function authContextForPath" in js
     assert "applyAuthContextMessage();" in js
     assert "بعد الدخول سنعيدك إلى نفس القسم." in js
+    assert 'if (pathname.startsWith("/app/services")) return "home";' in js
     assert "function setPostAuthMessage" in js
     assert 'setPostAuthMessage(message, "تم تأكيد البريد.");' in js
     assert 'setPostAuthMessage(message, "البريد مؤكد مسبقا.");' in js

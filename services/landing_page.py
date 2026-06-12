@@ -1645,6 +1645,14 @@ def _category_cards(section: dict[str, object]) -> str:
     return "\n".join(cards)
 
 
+def _section_checkout_path(section: dict[str, object] | None) -> str:
+    slug = str((section or {}).get("slug") or "")
+    aliases = {str(alias) for alias in (section or {}).get("aliases", ())}  # type: ignore[union-attr]
+    if slug == "verification-numbers" or "numbers" in aliases:
+        return "/app/numbers"
+    return "/app/digital"
+
+
 def _catalog_items(section: dict[str, object] | None, category: dict[str, object] | None = None) -> str:
     sections = (section,) if section else _CATALOG_SECTIONS
     rows: list[str] = []
@@ -1653,8 +1661,9 @@ def _catalog_items(section: dict[str, object] | None, category: dict[str, object
         title = escape(str(current["title"]))
         slug = escape(str(group["slug"]))
         accent = escape(str(group["accent"]))
+        checkout_path = escape(_section_checkout_path(group))
         group_search = escape(f'{current["title"]} {current.get("subtitle", "")}')
-        rows.append(f'<div class="product-group {accent}" data-catalog-search="{group_search}"><div class="group-head"><h2>{title}</h2><a href="/register?next=/app/services">شراء بعد التسجيل</a></div><div class="product-grid">')
+        rows.append(f'<div class="product-group {accent}" data-catalog-search="{group_search}"><div class="group-head"><h2>{title}</h2><a href="/register?next={checkout_path}">شراء بعد التسجيل</a></div><div class="product-grid">')
         for name, description in current["items"]:  # type: ignore[index]
             item_search = escape(f"{name} {description} {current['title']}")
             rows.append(
@@ -1665,8 +1674,8 @@ def _catalog_items(section: dict[str, object] | None, category: dict[str, object
                     <p>{escape(str(description))}</p>
                   </div>
                   <div class="tile-actions">
-                    <a href="/login?next=/app/services">تسجيل الدخول</a>
-                    <a class="primary" href="/register?next=/catalog/{slug}">إنشاء حساب للشراء</a>
+                    <a href="/login?next={checkout_path}">تسجيل الدخول</a>
+                    <a class="primary" href="/register?next={checkout_path}">إنشاء حساب للشراء</a>
                   </div>
                 </article>
                 """
