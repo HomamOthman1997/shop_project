@@ -279,6 +279,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "function openAccountCatalogRow" in js
     assert 'section.service === "numbers"' in js
     assert "pendingDigitalCatalogSelection" in js
+    assert 'else if (initialView === "home") {\n    openPanel("home", "الخدمات", { updateRoute: false });\n  }' in js
     assert "function resolveNumbersCatalogSelection" in js
     assert 'temporary: "temp", temp: "temp", rental: "rental", voice: "voice"' in js
     assert 'replace(/_numbers$/, "")' in js
@@ -301,8 +302,10 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert ".account-catalog-card" in css
     assert '"الأمان": "Security"' in i18n
     assert '"تغيير كلمة المرور": "Change password"' in i18n
-    assert ".language-toggle {" in i18n
-    assert "bottom: auto;" in i18n
+    assert ".language-toggle {" in css
+    assert "bottom: auto;" in css
+    assert "fonts.googleapis.com" not in html
+    assert 'createElement("style")' not in i18n
     assert 'const button = event.currentTarget.querySelector("button[type=\'submit\']");' in js
     assert "function numberClientActionsHtml" in js
     assert "function copyOrderValue" in js

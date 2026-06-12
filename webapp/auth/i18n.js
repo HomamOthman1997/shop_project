@@ -341,55 +341,6 @@
     document.body.appendChild(button);
   }
 
-  function installStyle() {
-    if (document.querySelector("#phantom-i18n-style")) return;
-    const style = document.createElement("style");
-    style.id = "phantom-i18n-style";
-    style.textContent = `
-      .language-toggle {
-        position: fixed;
-        top: max(12px, env(safe-area-inset-top));
-        inset-inline-end: 12px;
-        z-index: 9999;
-        min-height: 36px;
-        border: 1px solid rgba(255,255,255,.14);
-        border-radius: 8px;
-        padding: 0 12px;
-        background: rgba(9,13,27,.84);
-        color: #e5edff;
-        font: 800 12px/1 Inter, Tajawal, system-ui, sans-serif;
-        box-shadow: 0 14px 40px rgba(0,0,0,.26);
-        backdrop-filter: blur(14px);
-      }
-      .language-toggle:hover { border-color: rgba(56,189,248,.42); color: #fff; }
-      html[dir="ltr"] body { direction: ltr; }
-      html[dir="ltr"] .sidebar nav,
-      html[dir="ltr"] .form-panel,
-      html[dir="ltr"] .app-main,
-      html[dir="ltr"] .service-card,
-      html[dir="ltr"] .service-detail,
-      html[dir="ltr"] .owner-review-list,
-      html[dir="ltr"] .data-list { text-align: left; }
-      html[dir="ltr"] .brand,
-      html[dir="ltr"] .app-header,
-      html[dir="ltr"] .section-head,
-      html[dir="ltr"] .workspace-head,
-      html[dir="ltr"] .settings-row,
-      html[dir="ltr"] .owner-order-head,
-      html[dir="ltr"] .owner-action-row,
-      html[dir="ltr"] .quick-row,
-      html[dir="ltr"] .nav { direction: ltr; }
-      @media (max-width: 640px) {
-        .language-toggle {
-          top: calc(max(12px, env(safe-area-inset-top)) + 48px);
-          bottom: auto;
-          inset-inline-end: 12px;
-        }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
   let scheduled = false;
   function scheduleTranslate() {
     if (scheduled) return;
@@ -410,7 +361,6 @@
   };
 
   document.addEventListener("DOMContentLoaded", () => {
-    installStyle();
     installToggle();
     translatePage();
     new MutationObserver(scheduleTranslate).observe(document.body, {

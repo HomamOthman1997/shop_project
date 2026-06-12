@@ -285,7 +285,6 @@ function showAccount(account) {
     openService(initialView);
   } else if (initialView === "home") {
     openPanel("home", "الخدمات", { updateRoute: false });
-    openService("digital");
   } else {
     openPanel(initialView, "", { updateRoute: false });
   }
