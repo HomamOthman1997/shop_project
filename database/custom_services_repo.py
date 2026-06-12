@@ -27,6 +27,8 @@ def _norm_catalog_type(catalog_type: str | None) -> str:
     raw = str(catalog_type or "").strip().lower()
     if raw in {"idinfo", "id_info", "id-info", "id info"}:
         return "id_info"
+    if raw in {"website_manual", "website-manual", "website manual", "manual_catalog", "manual-catalog"}:
+        return "website_manual"
     return "custom"
 
 
@@ -43,7 +45,11 @@ def _default_custom_root_folders() -> list[str]:
 
 
 def _root_name_for_catalog(catalog: str) -> str:
-    return "ID INFO" if catalog == "id_info" else "Services"
+    if catalog == "id_info":
+        return "ID INFO"
+    if catalog == "website_manual":
+        return "Website manual catalog"
+    return "Services"
 
 
 async def _seed_default_custom_root_folders(reseller_id: int, root_id, *, now: datetime | None = None) -> None:
@@ -149,6 +155,16 @@ async def list_children(reseller_id: int, parent_id=None, *, catalog_type: str =
             "is_active": True,
         }
     ).sort("position", 1).to_list(None)
+
+
+async def list_catalog_nodes(reseller_id: int, *, catalog_type: str = "custom") -> list[dict]:
+    return await db.custom_services.find(
+        {
+            "reseller_id": int(reseller_id),
+            "catalog_type": _norm_catalog_type(catalog_type),
+            "is_active": True,
+        }
+    ).sort([("position", 1), ("created_at", 1)]).to_list(None)
 
 
 async def _next_position(reseller_id: int, parent_id=None, *, catalog_type: str = "custom") -> int:
@@ -587,6 +603,41 @@ async def update_node_display_text(
     return await db.custom_services.find_one_and_update(
         query,
         update_payload,
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def update_node_website_metadata(
+    node_id,
+    reseller_id: int,
+    *,
+    website_level: str | None = None,
+    website_slug: str | None = None,
+    website_accent: str | None = None,
+    input_fields: list[dict] | None = None,
+    catalog_type: Optional[str] = None,
+) -> Optional[dict]:
+    query = {
+        "_id": _to_oid(node_id),
+        "reseller_id": int(reseller_id),
+        "is_active": True,
+    }
+    if catalog_type is not None:
+        query["catalog_type"] = _norm_catalog_type(catalog_type)
+
+    payload: dict = {"updated_at": datetime.now(UTC)}
+    if website_level is not None:
+        payload["website_level"] = str(website_level or "").strip().lower()
+    if website_slug is not None:
+        payload["website_slug"] = str(website_slug or "").strip().lower()
+    if website_accent is not None:
+        payload["website_accent"] = str(website_accent or "").strip().lower()
+    if input_fields is not None:
+        payload["input_fields"] = [dict(field) for field in input_fields if isinstance(field, dict)]
+
+    return await db.custom_services.find_one_and_update(
+        query,
+        {"$set": payload},
         return_document=ReturnDocument.AFTER,
     )
 

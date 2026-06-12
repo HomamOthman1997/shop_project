@@ -36,6 +36,7 @@ from database.custom_services_repo import (
     update_endpoint_product_info,
     update_endpoint_usage_policy,
     update_node_display_text,
+    update_node_website_metadata,
 )
 from database.digital_products_config_repo import (
     get_digital_products_markup_percent,
@@ -78,6 +79,16 @@ from database.support_tickets_repo import (
 from database.support_topics_repo import bind_support_target, get_all_support_targets
 from database.webhooks_repo import create_webhook, revoke_webhook, serialize_webhook_doc
 from services.digital_products.api import _order_payload, execute_manual_order_action
+from services.digital_products.manual_catalog import (
+    CATALOG_TYPE as WEBSITE_MANUAL_CATALOG_TYPE,
+    clean_accent,
+    clean_input_fields,
+    clean_slug,
+    expected_child,
+    input_fields_text,
+    node_level,
+    parse_input_fields_text,
+)
 from services.numbers.api import _refund_review_payload
 from services.numbers.provider_readiness import provider_readiness_rows
 from services.numbers.provider_webhook_service import replay_provider_webhook_event
@@ -1027,7 +1038,12 @@ def _owner_catalog_id() -> int:
 
 
 def _catalog_type(value: Any) -> str:
-    return "id_info" if str(value or "").strip().lower() in {"id_info", "idinfo", "id-info"} else "custom"
+    raw = str(value or "").strip().lower()
+    if raw in {"id_info", "idinfo", "id-info"}:
+        return "id_info"
+    if raw in {"website_manual", "website-manual", "website manual", "manual_catalog", "manual-catalog"}:
+        return WEBSITE_MANUAL_CATALOG_TYPE
+    return "custom"
 
 
 def _custom_catalog_node_payload(row: dict[str, Any], *, include_inventory: bool = True) -> dict[str, Any]:
@@ -1050,8 +1066,15 @@ def _custom_catalog_node_payload(row: dict[str, Any], *, include_inventory: bool
         "delivery_type": _text(row.get("delivery_type")),
         "delivery_text": _text(row.get("delivery_text")),
         "inventory_count": len(list(row.get("inventory_items") or [])),
+        "website_level": node_level(row),
+        "website_slug": _text(row.get("website_slug")),
+        "website_accent": clean_accent(row.get("website_accent")),
+        "input_fields": clean_input_fields(row.get("input_fields")),
+        "input_fields_text": input_fields_text(row.get("input_fields")),
         "updated_at": _iso_value(row.get("updated_at")),
     }
+    child = expected_child(payload["website_level"])
+    payload["next_level"] = child[0] if child else ""
     if include_inventory:
         payload["inventory_items"] = [_text(item) for item in list(row.get("inventory_items") or [])]
     return payload
@@ -1107,6 +1130,38 @@ async def owner_create_custom_catalog_node(request: web.Request) -> web.Response
     if not parent or str(parent.get("node_type") or "") != "folder":
         return web.json_response({"ok": False, "message": "Parent folder was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
     node_type = str((body or {}).get("node_type") or "folder").strip().lower()
+    website_level = ""
+    website_slug = ""
+    website_accent = "green"
+    input_fields: list[dict[str, Any]] = []
+    if catalog_type == WEBSITE_MANUAL_CATALOG_TYPE:
+        next_node = expected_child(node_level(parent))
+        if not next_node:
+            return web.json_response({"ok": False, "message": "Products cannot contain child nodes."}, status=409, headers=dict(_NO_STORE_HEADERS))
+        website_level, expected_node_type = next_node
+        if node_type != expected_node_type:
+            return web.json_response(
+                {"ok": False, "message": f"The next catalog level must be {website_level}."},
+                status=400,
+                headers=dict(_NO_STORE_HEADERS),
+            )
+        if website_level == "section":
+            website_slug = clean_slug((body or {}).get("website_slug"))
+            if not website_slug:
+                return web.json_response(
+                    {"ok": False, "message": "Section key must use lowercase English letters, numbers, and hyphens."},
+                    status=400,
+                    headers=dict(_NO_STORE_HEADERS),
+                )
+            website_accent = clean_accent((body or {}).get("website_accent"))
+        if website_level == "product":
+            input_fields = clean_input_fields((body or {}).get("input_fields")) or parse_input_fields_text((body or {}).get("input_fields_text"))
+            if not input_fields:
+                return web.json_response(
+                    {"ok": False, "message": "Add at least one order field using field_id|Label."},
+                    status=400,
+                    headers=dict(_NO_STORE_HEADERS),
+                )
     if node_type == "folder":
         node = await create_folder(owner_id, parent["_id"], name, catalog_type=catalog_type)
     elif node_type == "endpoint":
@@ -1116,9 +1171,25 @@ async def owner_create_custom_catalog_node(request: web.Request) -> web.Response
             min_qty = max(1, int((body or {}).get("min_qty") or 1))
         except Exception:
             return web.json_response({"ok": False, "message": "Invalid endpoint values."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        if catalog_type == WEBSITE_MANUAL_CATALOG_TYPE and price <= 0:
+            return web.json_response({"ok": False, "message": "Manual website products require a price above zero."}, status=400, headers=dict(_NO_STORE_HEADERS))
         node = await create_endpoint(owner_id, parent["_id"], name, price, available_qty, min_qty, catalog_type=catalog_type)
     else:
         return web.json_response({"ok": False, "message": "Unsupported node type."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if catalog_type == WEBSITE_MANUAL_CATALOG_TYPE:
+        node = await update_node_website_metadata(
+            node["_id"],
+            owner_id,
+            website_level=website_level,
+            website_slug=website_slug if website_level == "section" else None,
+            website_accent=website_accent if website_level == "section" else None,
+            input_fields=input_fields if website_level == "product" else None,
+            catalog_type=catalog_type,
+        ) or node
+        if "display_text" in body:
+            node = await update_node_display_text(node["_id"], owner_id, body.get("display_text"), catalog_type=catalog_type) or node
+        if website_level == "product" and "product_info_text" in body:
+            node = await update_endpoint_product_info(node["_id"], owner_id, body.get("product_info_text"), catalog_type=catalog_type) or node
     await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action="custom_catalog_create", target_type=node_type, target_id=node["_id"])
     return web.json_response({"ok": True, "node": _custom_catalog_node_payload(node)}, headers=dict(_NO_STORE_HEADERS))
 
@@ -1142,8 +1213,41 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
         node = await rename_node(node_id, owner_id, name, catalog_type=catalog_type) or node
     if "display_text" in body:
         node = await update_node_display_text(node_id, owner_id, body.get("display_text"), catalog_type=catalog_type) or node
+    if catalog_type == WEBSITE_MANUAL_CATALOG_TYPE:
+        website_slug = None
+        website_accent = None
+        input_fields = None
+        if node_level(node) == "section" and "website_slug" in body:
+            website_slug = clean_slug(body.get("website_slug"))
+            if not website_slug:
+                return web.json_response(
+                    {"ok": False, "message": "Section key must use lowercase English letters, numbers, and hyphens."},
+                    status=400,
+                    headers=dict(_NO_STORE_HEADERS),
+                )
+        if node_level(node) == "section" and "website_accent" in body:
+            website_accent = clean_accent(body.get("website_accent"))
+        if node_level(node) == "product" and ("input_fields" in body or "input_fields_text" in body):
+            input_fields = clean_input_fields(body.get("input_fields")) or parse_input_fields_text(body.get("input_fields_text"))
+            if not input_fields:
+                return web.json_response(
+                    {"ok": False, "message": "Add at least one order field using field_id|Label."},
+                    status=400,
+                    headers=dict(_NO_STORE_HEADERS),
+                )
+        if website_slug is not None or website_accent is not None or input_fields is not None:
+            node = await update_node_website_metadata(
+                node_id,
+                owner_id,
+                website_slug=website_slug,
+                website_accent=website_accent,
+                input_fields=input_fields,
+                catalog_type=catalog_type,
+            ) or node
     if str(node.get("node_type") or "") == "endpoint":
         try:
+            if catalog_type == WEBSITE_MANUAL_CATALOG_TYPE and float(body.get("price", node.get("price") or 0)) <= 0:
+                return web.json_response({"ok": False, "message": "Manual website products require a price above zero."}, status=400, headers=dict(_NO_STORE_HEADERS))
             node = await update_endpoint(
                 node_id,
                 owner_id,

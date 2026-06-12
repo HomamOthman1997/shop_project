@@ -1528,6 +1528,56 @@ async def test_owner_create_custom_catalog_folder(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_owner_create_website_manual_section_sets_hierarchy_metadata(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def root(owner_id, *, catalog_type):
+        return {"_id": "root-1", "reseller_id": owner_id, "catalog_type": catalog_type, "node_type": "folder", "is_root": True}
+
+    async def node(_node_id, *, reseller_id, catalog_type):
+        return {"_id": "root-1", "reseller_id": reseller_id, "catalog_type": catalog_type, "node_type": "folder", "is_root": True}
+
+    async def create(reseller_id, parent_id, name, *, catalog_type):
+        return {"_id": "section-1", "parent_id": parent_id, "name": name, "catalog_type": catalog_type, "node_type": "folder"}
+
+    async def metadata(node_id, reseller_id, **kwargs):
+        calls.update({"node_id": node_id, "reseller_id": reseller_id, **kwargs})
+        return {"_id": node_id, "name": "شحن الرصيد", "node_type": "folder", "catalog_type": "website_manual", **kwargs}
+
+    async def audit(**_kwargs):
+        return None
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_owner_catalog_id", lambda: 77)
+    monkeypatch.setattr(owner_api, "ensure_root_node", root)
+    monkeypatch.setattr(owner_api, "get_node", node)
+    monkeypatch.setattr(owner_api, "create_folder", create)
+    monkeypatch.setattr(owner_api, "update_node_website_metadata", metadata)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    request = make_mocked_request("POST", "/api/v1/owner/custom-catalog/nodes")
+    request._read_bytes = json.dumps(
+        {
+            "catalog_type": "website_manual",
+            "node_type": "folder",
+            "name": "شحن الرصيد",
+            "website_slug": "mobile-recharge",
+            "website_accent": "blue",
+        }
+    ).encode()
+
+    response = await owner_api.owner_create_custom_catalog_node(request)
+
+    assert response.status == 200
+    assert calls["website_level"] == "section"
+    assert calls["website_slug"] == "mobile-recharge"
+    assert calls["website_accent"] == "blue"
+    assert calls["catalog_type"] == "website_manual"
+
+
+@pytest.mark.asyncio
 async def test_owner_custom_catalog_move_delegates(monkeypatch):
     calls = {}
 

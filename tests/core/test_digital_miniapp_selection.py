@@ -393,6 +393,41 @@ async def test_website_family_packages_rejects_variant_outside_family(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_website_family_packages_serves_manual_admin_catalog(monkeypatch):
+    from services.digital_products import miniapp
+
+    async def _fake_auth(_request, scope):
+        assert scope == "digital:catalog"
+
+    async def _fake_packages(family_id, *, variant_id):
+        assert family_id == "family-1"
+        assert variant_id == "variant-1"
+        return {
+            "ok": True,
+            "packages": [{"kind": "manual", "id": "product-1", "name": "100 UAH", "price_label": "$3.50"}],
+        }
+
+    async def _fake_quote(endpoint_id):
+        assert endpoint_id == "product-1"
+        return {"kind": "manual", "item_id": endpoint_id, "sale_price": 3.5}
+
+    monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
+    monkeypatch.setattr(miniapp, "manual_family_packages", _fake_packages)
+    monkeypatch.setattr(miniapp, "fresh_manual_quote_payload", _fake_quote)
+    monkeypatch.setattr(miniapp, "make_digital_quote_token", lambda payload: f"quote:{payload['item_id']}")
+
+    response = await miniapp.website_family_packages(
+        _DummyMatchRequest(
+            {"service_key": "website_manual", "family_key": "family-1"},
+            {"variant_id": "variant-1"},
+        )
+    )
+    payload = json.loads(response.text)
+
+    assert payload["packages"][0]["quote_token"] == "quote:product-1"
+
+
+@pytest.mark.asyncio
 async def test_game_items_uses_cached_catalog_topups(monkeypatch):
     from services.digital_products import miniapp
 

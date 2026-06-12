@@ -909,7 +909,7 @@ function ownerRequestMap() {
   const auditDays = $("#owner-audit-days")?.value || "30";
   const botReviewFilter = $("#owner-bot-review-filter")?.value || "pending";
   const preorderFilter = $("#owner-preorder-filter")?.value || "active";
-  const catalogType = $("#owner-catalog-type")?.value || "custom";
+  const catalogType = $("#owner-catalog-type")?.value || "website_manual";
   const ownerAuditQuery = new URLSearchParams({limit: "50"});
   Object.entries(ownerAuditFilters).forEach(([key, value]) => {
     if (value) ownerAuditQuery.set(key, value);
@@ -2213,41 +2213,75 @@ async function resolveOwnerRefundReview(event) {
   }
 }
 
+function websiteManualCatalogActive() {
+  return ($("#owner-catalog-type")?.value || "website_manual") === "website_manual";
+}
+
+function manualCatalogLevelLabel(level) {
+  return {
+    root: "الكاتالوغ",
+    section: "قسم رئيسي",
+    family: "صنف",
+    variant: "دولة / Global",
+    product: "منتج",
+  }[level] || level || "عنصر";
+}
+
+function manualCatalogCreateFields(parent) {
+  const level = parent.next_level || "";
+  if (!level) return '<div class="notice">هذا المستوى يحتوي المنتجات النهائية ولا يمكن إضافة عناصر داخله.</div>';
+  const nodeType = level === "product" ? "endpoint" : "folder";
+  return `
+    <form class="owner-review-form owner-manual-catalog-form" id="owner-catalog-create-form">
+      <input type="hidden" name="node_type" value="${nodeType}">
+      <label><span>${manualCatalogLevelLabel(level)}</span><input name="name" required minlength="2" maxlength="100" placeholder="الاسم الظاهر للزبون"></label>
+      ${level === "section" ? `
+        <label><span>مفتاح القسم</span><input name="website_slug" required pattern="[a-z0-9][a-z0-9-]{1,59}" placeholder="games أو mobile-recharge"></label>
+        <label><span>لون القسم</span><select name="website_accent"><option value="green">أخضر</option><option value="blue">أزرق</option><option value="amber">برتقالي</option><option value="violet">بنفسجي</option></select></label>` : ""}
+      <label><span>الوصف</span><textarea name="${level === "product" ? "product_info_text" : "display_text"}" rows="3" placeholder="وصف واضح للزبون"></textarea></label>
+      ${level === "product" ? `
+        <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" required></label>
+        <label class="owner-catalog-fields"><span>حقول الطلب، سطر لكل حقل</span><textarea name="input_fields_text" rows="5" required placeholder="phone_number|رقم الهاتف|required|text&#10;notes|ملاحظات|optional|text"></textarea></label>` : ""}
+      <button class="primary compact" type="submit">إضافة ${manualCatalogLevelLabel(level)}</button>
+    </form>`;
+}
+
 function renderOwnerCustomCatalog(payload) {
   const target = $("#owner-custom-catalog");
   const parent = payload.parent || {};
   const root = payload.root || {};
   const nodes = payload.nodes || [];
+  const isManual = websiteManualCatalogActive();
   target.classList.remove("empty");
   target.innerHTML = `
     <div class="owner-order-head">
-      <div><strong>${esc(parent.name || "Catalog")}</strong><span>${esc(parent.id || "")}</span></div>
+      <div><strong>${esc(parent.name || "Catalog")}</strong><span>${isManual ? esc(manualCatalogLevelLabel(parent.website_level)) : esc(parent.id || "")}</span></div>
       <div class="owner-order-actions">
-        ${parent.id && parent.id !== root.id ? `<button class="secondary compact" data-owner-catalog-folder="${esc(parent.parent_id || root.id)}">Back</button>` : ""}
-        ${parent.id && parent.id !== root.id ? `<button class="secondary compact" data-owner-catalog-folder="${esc(root.id)}">Root</button>` : ""}
+        ${parent.id && parent.id !== root.id ? `<button class="secondary compact" data-owner-catalog-folder="${esc(parent.parent_id || root.id)}">رجوع</button>` : ""}
+        ${parent.id && parent.id !== root.id ? `<button class="secondary compact" data-owner-catalog-folder="${esc(root.id)}">بداية الكاتالوغ</button>` : ""}
       </div>
     </div>
-    <form class="owner-review-form" id="owner-catalog-create-form">
+    ${isManual ? manualCatalogCreateFields(parent) : `<form class="owner-review-form" id="owner-catalog-create-form">
       <label><span>Type</span><select name="node_type"><option value="folder">Folder</option><option value="endpoint">Product</option></select></label>
       <label><span>Name</span><input name="name" required minlength="2" maxlength="100" placeholder="Folder or product name"></label>
       <label><span>Price USD</span><input name="price" type="number" min="0" step="0.01" value="0"></label>
       <label><span>Initial quantity</span><input name="available_qty" type="number" min="0" step="1" value="0"></label>
       <label><span>Minimum purchase</span><input name="min_qty" type="number" min="1" step="1" value="1"></label>
       <button class="primary compact" type="submit">Create</button>
-    </form>
+    </form>`}
     <div id="owner-catalog-detail"></div>
     <div class="owner-action-list">
       ${nodes.length ? nodes.map((node) => `
         <div class="owner-action-row">
-          <div><strong>${esc(node.name)}</strong><span>${esc(node.node_type)}${node.node_type === "endpoint" ? ` · ${esc(node.price)} USD · stock ${esc(node.available_qty)} · min ${esc(node.min_qty)}` : ""}</span></div>
+          <div><strong>${esc(node.name)}</strong><span>${isManual ? esc(manualCatalogLevelLabel(node.website_level)) : esc(node.node_type)}${node.node_type === "endpoint" ? ` · ${esc(node.price)} USD${isManual ? "" : ` · stock ${esc(node.available_qty)} · min ${esc(node.min_qty)}`}` : ""}</span></div>
           <div class="owner-order-actions">
-            ${node.node_type === "folder" ? `<button class="secondary compact" data-owner-catalog-folder="${esc(node.id)}">Open</button>` : ""}
-            <button class="secondary compact" data-owner-catalog-detail="${esc(node.id)}">Manage</button>
+            ${node.node_type === "folder" ? `<button class="secondary compact" data-owner-catalog-folder="${esc(node.id)}">فتح</button>` : ""}
+            <button class="secondary compact" data-owner-catalog-detail="${esc(node.id)}">تعديل</button>
             <button class="secondary compact" data-owner-catalog-move="${esc(node.id)}" data-direction="up" title="Move up">↑</button>
             <button class="secondary compact" data-owner-catalog-move="${esc(node.id)}" data-direction="down" title="Move down">↓</button>
-            <button class="danger compact" data-owner-catalog-delete="${esc(node.id)}">Disable</button>
+            <button class="danger compact" data-owner-catalog-delete="${esc(node.id)}">تعطيل</button>
           </div>
-        </div>`).join("") : '<div class="notice">This folder is empty.</div>'}
+        </div>`).join("") : '<div class="notice">هذا المستوى فارغ.</div>'}
     </div>`;
   $("#owner-catalog-create-form")?.addEventListener("submit", createOwnerCatalogNode);
   target.querySelectorAll("[data-owner-catalog-folder]").forEach((button) => button.addEventListener("click", () => openOwnerCatalogFolder(button.dataset.ownerCatalogFolder)));
@@ -2266,7 +2300,7 @@ async function createOwnerCatalogNode(event) {
   const form = event.currentTarget;
   const values = Object.fromEntries(new FormData(form).entries());
   values.parent_id = ownerCatalogParentId;
-  values.catalog_type = $("#owner-catalog-type")?.value || "custom";
+  values.catalog_type = $("#owner-catalog-type")?.value || "website_manual";
   values.price = Number(values.price || 0);
   values.available_qty = Number(values.available_qty || 0);
   values.min_qty = Number(values.min_qty || 1);
@@ -2279,10 +2313,29 @@ async function createOwnerCatalogNode(event) {
 
 async function loadOwnerCatalogNode(nodeId) {
   try {
-    const catalogType = $("#owner-catalog-type")?.value || "custom";
+    const catalogType = $("#owner-catalog-type")?.value || "website_manual";
     const payload = await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}`);
     const node = payload.node || {};
     const target = $("#owner-catalog-detail");
+    if (catalogType === "website_manual") {
+      target.innerHTML = `
+        <article class="owner-review-card">
+          <div class="owner-order-head"><div><strong>تعديل ${esc(node.name)}</strong><span>${esc(manualCatalogLevelLabel(node.website_level))}</span></div>${node.node_type === "endpoint" ? `<b>${esc(node.price)} USD</b>` : ""}</div>
+          <form class="owner-review-form" data-owner-catalog-update="${esc(node.id)}">
+            <label><span>الاسم</span><input name="name" value="${esc(node.name)}" required minlength="2" maxlength="100"></label>
+            ${node.website_level === "section" ? `
+              <label><span>مفتاح القسم</span><input name="website_slug" value="${esc(node.website_slug || "")}" required pattern="[a-z0-9][a-z0-9-]{1,59}"></label>
+              <label><span>لون القسم</span><select name="website_accent">${["green", "blue", "amber", "violet"].map((accent) => `<option value="${accent}" ${node.website_accent === accent ? "selected" : ""}>${accent}</option>`).join("")}</select></label>` : ""}
+            ${node.node_type === "folder" ? `<label><span>الوصف</span><textarea name="display_text" rows="3">${esc(node.display_text || "")}</textarea></label>` : `
+              <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" value="${esc(node.price)}" required></label>
+              <label><span>وصف المنتج</span><textarea name="product_info_text" rows="3">${esc(node.product_info_text || "")}</textarea></label>
+              <label class="owner-catalog-fields"><span>حقول الطلب</span><textarea name="input_fields_text" rows="6" required>${esc(node.input_fields_text || "")}</textarea></label>`}
+            <button class="primary compact" type="submit">حفظ التعديل</button>
+          </form>
+        </article>`;
+      target.querySelector("[data-owner-catalog-update]")?.addEventListener("submit", updateOwnerCatalogNode);
+      return;
+    }
     target.innerHTML = `
       <article class="owner-review-card">
         <div class="owner-order-head"><div><strong>Manage ${esc(node.name)}</strong><span>${esc(node.id)}</span></div><b>${esc(node.available_qty)} in stock</b></div>
@@ -2318,7 +2371,7 @@ async function updateOwnerCatalogNode(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const values = Object.fromEntries(new FormData(form).entries());
-  values.catalog_type = $("#owner-catalog-type")?.value || "custom";
+  values.catalog_type = $("#owner-catalog-type")?.value || "website_manual";
   if (form.elements.price) values.price = Number(values.price || 0);
   if (form.elements.min_qty) values.min_qty = Number(values.min_qty || 1);
   if (form.elements.low_stock_threshold) values.low_stock_threshold = Number(values.low_stock_threshold || 0);
@@ -2335,7 +2388,7 @@ async function updateOwnerCatalogInventory(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const values = Object.fromEntries(new FormData(form).entries());
-  values.catalog_type = $("#owner-catalog-type")?.value || "custom";
+  values.catalog_type = $("#owner-catalog-type")?.value || "website_manual";
   try {
     await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(form.dataset.ownerCatalogInventory)}/inventory`, {method: "POST", body: JSON.stringify(values)});
     setText("#owner-message", "Product stock was updated.");
@@ -2346,7 +2399,7 @@ async function updateOwnerCatalogInventory(event) {
 async function deleteOwnerCatalogNode(nodeId) {
   if (!window.confirm("Disable this catalog node and its children?")) return;
   try {
-    const catalogType = $("#owner-catalog-type")?.value || "custom";
+    const catalogType = $("#owner-catalog-type")?.value || "website_manual";
     await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}`, {method: "DELETE"});
     setText("#owner-message", "Catalog node was disabled.");
     await loadOwnerDashboard();
@@ -2357,7 +2410,7 @@ async function moveOwnerCatalogNode(nodeId, direction) {
   try {
     await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}/action`, {
       method: "POST",
-      body: JSON.stringify({action: "move", direction, catalog_type: $("#owner-catalog-type")?.value || "custom"}),
+      body: JSON.stringify({action: "move", direction, catalog_type: $("#owner-catalog-type")?.value || "website_manual"}),
     });
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
@@ -2365,7 +2418,7 @@ async function moveOwnerCatalogNode(nodeId, direction) {
 
 async function loadOwnerCatalogStockLog(nodeId) {
   try {
-    const catalogType = $("#owner-catalog-type")?.value || "custom";
+    const catalogType = $("#owner-catalog-type")?.value || "website_manual";
     const payload = await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}/stock-events?catalog_type=${encodeURIComponent(catalogType)}&limit=30`);
     const target = $("#owner-catalog-stock-log");
     target.innerHTML = (payload.events || []).length ? payload.events.map((event) => `
@@ -2787,10 +2840,11 @@ function fieldsFormHtml(fields, fallback = []) {
     if (!id) return "";
     const label = localized(field.label, id);
     const required = field.required === false ? "" : "required";
+    const type = field.type === "number" ? "number" : "text";
     return `
       <label>
         <span>${esc(label)}${required ? " *" : ""}</span>
-        <input name="${esc(id)}" ${required} autocomplete="off">
+        <input name="${esc(id)}" type="${type}" ${required} autocomplete="off">
       </label>`;
   });
   return rows.join("");

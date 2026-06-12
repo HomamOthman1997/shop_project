@@ -34,6 +34,11 @@ from services.digital_products.fulfillment_rules import (
     manual_feature_info,
     offer_compare_key,
 )
+from services.digital_products.manual_catalog import (
+    CATALOG_TYPE as WEBSITE_MANUAL_CATALOG_TYPE,
+    family_packages as manual_family_packages,
+    fresh_quote_payload as fresh_manual_quote_payload,
+)
 from services.digital_products.zendit_client import ZenditClient
 from services.digital_products.api import make_digital_quote_token, register_digital_api_routes, require_digital_user_auth
 from services.digital_products.esim_route_service import (
@@ -1796,6 +1801,20 @@ async def website_family_packages(request: web.Request) -> web.Response:
     await require_digital_user_auth(request, "digital:catalog")
     service_key = str(request.match_info.get("service_key") or "").strip()
     family_key = str(request.match_info.get("family_key") or "").strip()
+    if service_key == WEBSITE_MANUAL_CATALOG_TYPE:
+        requested_variant_id = str(getattr(request, "query", {}).get("variant_id") or "").strip()
+        manual_payload = await manual_family_packages(family_key, variant_id=requested_variant_id)
+        if not manual_payload:
+            raise web.HTTPNotFound(text="family not found")
+        if manual_payload.pop("variant_not_found", False):
+            raise web.HTTPNotFound(text="variant not found")
+        packages = []
+        for package in list(manual_payload.get("packages") or []):
+            quote = await fresh_manual_quote_payload(str(package.get("id") or ""))
+            if quote:
+                packages.append({**package, "quote_token": make_digital_quote_token(quote)})
+        manual_payload["packages"] = packages
+        return web.json_response(manual_payload, headers=dict(_NO_STORE_HEADERS))
     payload = await _catalog_payload()
     service = next((row for row in payload.get("service_tree", []) if str(row.get("key") or "") == service_key), None)
     family = next((row for row in (service or {}).get("families", []) if str(row.get("family_key") or "") == family_key), None)

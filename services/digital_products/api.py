@@ -23,6 +23,7 @@ from database.orders_repo import extract_order_amounts, update_order_details, up
 from database.user_repo import get_user
 from services.digital_products.catalog_service import digital_provider_enabled, extract_provider_offers, get_catalog_snapshot, get_game_topups
 from services.digital_products.manual_fulfillment import submit_manual_auto_api, submit_manual_future
+from services.digital_products.manual_catalog import fresh_quote_payload as fresh_manual_quote_payload
 from services.digital_products.product_watchlist import (
     ProductProviderSource,
     ProductWatchlistItem,
@@ -1142,7 +1143,7 @@ async def create_order(request: web.Request) -> web.Response:
     except DigitalQuoteError as exc:
         return _json_error(str(exc), status=400, code=str(exc), rate_limit=rate_limit)
     quote_kind = str(quote.get("kind") or "").strip().lower()
-    if quote_kind not in {"game", "gift", "product"}:
+    if quote_kind not in {"game", "gift", "product", "manual"}:
         return _json_error("Unsupported quote kind.", status=400, code="unsupported_quote", rate_limit=rate_limit)
     player_id = str((body or {}).get("player_id") or "").strip()
     server_id = str((body or {}).get("server_id") or "").strip()
@@ -1151,11 +1152,15 @@ async def create_order(request: web.Request) -> web.Response:
         for key, value in dict((body or {}).get("customer_data") or {}).items()
         if str(key).strip() and str(value).strip()
     }
-    if quote_kind == "product":
+    if quote_kind in {"product", "manual"}:
         quoted_sale_price = float(_money(quote.get("sale_price") or 0))
-        fresh_quote = _fresh_product_quote_payload(
-            str(quote.get("product_id") or ""),
-            str(quote.get("item_id") or ""),
+        fresh_quote = (
+            _fresh_product_quote_payload(
+                str(quote.get("product_id") or ""),
+                str(quote.get("item_id") or ""),
+            )
+            if quote_kind == "product"
+            else await fresh_manual_quote_payload(str(quote.get("item_id") or ""))
         )
         if not fresh_quote:
             return _json_error(
@@ -1232,6 +1237,8 @@ async def create_order(request: web.Request) -> web.Response:
         "manual_item_name": str(quote.get("item_name") or quote.get("item_id") or "Digital product"),
         "manual_game_name": str(quote.get("game_name") or quote.get("game_id") or "Digital product"),
         "manual_product_name": str(quote.get("product_name") or quote.get("product_id") or ""),
+        "manual_variant_id": str(quote.get("manual_variant_id") or ""),
+        "manual_variant_name": str(quote.get("manual_variant_name") or ""),
         "product_id": str(quote.get("product_id") or ""),
         "game_id": str(quote.get("game_id") or ""),
         "player_id": player_id,

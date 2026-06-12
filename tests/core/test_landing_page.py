@@ -249,6 +249,31 @@ def test_public_catalog_payload_exposes_nested_sections_for_customer_app():
     assert not {"mobile-stores", "platform-stores", "payment-cards"} & store_slugs
 
 
+def test_manual_catalog_categories_merge_into_existing_section():
+    payload = landing_page.merge_manual_catalog(
+        landing_page.public_catalog_payload(),
+        [
+            {
+                "slug": "mobile-recharge",
+                "title": "شحن الرصيد",
+                "categories": [
+                    {
+                        "slug": "manual-family-1",
+                        "title": "شحن أوكرانيا",
+                        "service_key": "website_manual",
+                        "family_key": "family-1",
+                    }
+                ],
+            }
+        ],
+    )
+    sections = {row["slug"]: row for row in payload["sections"]}
+
+    manual = next(row for row in sections["mobile-recharge"]["categories"] if row["slug"] == "manual-family-1")
+    assert manual["service_key"] == "website_manual"
+    assert sections["mobile-recharge"]["categories_count"] == len(sections["mobile-recharge"]["categories"])
+
+
 def test_family_backed_catalog_sections_only_expose_direct_product_families():
     sections = {row["slug"]: row for row in landing_page.public_catalog_payload()["sections"]}
 

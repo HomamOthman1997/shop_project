@@ -928,6 +928,9 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
   min-height: 92px;
   resize: vertical;
 }
+.owner-review-form .owner-catalog-fields {
+  grid-column: 1 / -1;
+}
 .owner-review-form .owner-order-actions {
   grid-column: 1 / -1;
 }

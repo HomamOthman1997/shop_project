@@ -126,6 +126,34 @@ async def test_ensure_root_node_repairs_custom_root_name(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_website_manual_root_does_not_seed_bot_folders(monkeypatch):
+    inserted_docs = []
+    root_id = ObjectId()
+
+    class _InsertOneResult:
+        inserted_id = root_id
+
+    class _Collection:
+        async def find_one(self, query):
+            return None
+
+        async def insert_one(self, doc):
+            inserted_docs.append(doc)
+            return _InsertOneResult()
+
+        async def insert_many(self, docs):
+            raise AssertionError("website manual catalog must start empty")
+
+    monkeypatch.setattr(repo, "db", SimpleNamespace(custom_services=_Collection()))
+
+    root = await repo.ensure_root_node(77, catalog_type="website_manual")
+
+    assert root["name"] == "Website manual catalog"
+    assert root["catalog_type"] == "website_manual"
+    assert len(inserted_docs) == 1
+
+
+@pytest.mark.asyncio
 async def test_set_endpoint_inventory_persists_raw_payload_and_warnings(monkeypatch):
     captured = {}
 

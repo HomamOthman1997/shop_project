@@ -281,6 +281,8 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'api("/api/v1/catalog")' in js
     assert "function renderAccountCatalog" in js
     assert "function openAccountCatalogRow" in js
+    assert "function manualCatalogCreateFields" in js
+    assert 'value="website_manual"' in html
     assert "selected?.enabled === false" in js
     assert 'data-account-catalog-disabled="1"' in js
     assert 'section.service === "numbers"' in js

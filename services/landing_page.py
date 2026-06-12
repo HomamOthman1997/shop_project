@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from aiohttp import web
 
 from services.digital_products.custom_catalog import FAMILY_TABLE
+from services.digital_products.manual_catalog import public_sections as manual_public_sections
 from services.platform.website_auth import require_website_auth
 
 _LANDING_HTML = """\
@@ -1634,6 +1635,35 @@ def public_catalog_payload() -> dict[str, object]:
     return {"ok": True, "sections": sections}
 
 
+def merge_manual_catalog(payload: dict[str, object], manual_sections: list[dict[str, object]]) -> dict[str, object]:
+    merged = [dict(row) for row in payload.get("sections", [])]  # type: ignore[arg-type]
+    by_slug = {str(row.get("slug") or ""): row for row in merged}
+    for manual in manual_sections:
+        slug = str(manual.get("slug") or "")
+        if not slug:
+            continue
+        existing = by_slug.get(slug)
+        if not existing:
+            clone = dict(manual)
+            clone["categories"] = list(manual.get("categories") or [])
+            clone["categories_count"] = len(clone["categories"])
+            merged.append(clone)
+            by_slug[slug] = clone
+            continue
+        categories = list(existing.get("categories") or [])
+        known = {str(row.get("slug") or "") for row in categories if isinstance(row, dict)}
+        categories.extend(
+            dict(row)
+            for row in list(manual.get("categories") or [])
+            if isinstance(row, dict) and str(row.get("slug") or "") not in known
+        )
+        existing["categories"] = categories
+        existing["categories_count"] = len(categories)
+        existing["enabled"] = True
+        existing["status"] = ""
+    return {"ok": True, "sections": merged}
+
+
 def _category_by_slug(section: dict[str, object] | None, slug: str) -> dict[str, object] | None:
     normalized = str(slug or "").strip().lower()
     if not section or not normalized:
@@ -2137,7 +2167,12 @@ async def catalog_page(request: web.Request) -> web.Response:
 
 
 async def public_catalog_api(_request: web.Request) -> web.Response:
-    return web.json_response(public_catalog_payload(), headers=dict(_NO_STORE_HEADERS))
+    payload = public_catalog_payload()
+    try:
+        payload = merge_manual_catalog(payload, await manual_public_sections())
+    except Exception:
+        pass
+    return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
 
 
 async def landing_page(request: web.Request) -> web.Response:
