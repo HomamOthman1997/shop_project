@@ -118,28 +118,21 @@
             </header>
 
             <section class="app-view active" data-panel="home">
-              <div class="service-hero">
-                <span class="brand-ghost hero-ghost">👻</span>
-                <h3>Phantom Services</h3>
-                <p>Choose your service · اختر الخدمة التي تريدها</p>
-              </div>
-              <div class="service-cards" id="service-cards">
-                <button class="service-card card-digital" type="button" data-open-service="digital">
-                  <span class="service-icon">🎮</span>
-                  <strong>منتجات رقمية</strong>
-                  <em>DIGITAL PRODUCTS</em>
-                  <span>بطاقات الألعاب، شحن الرصيد والمزيد</span>
-                  <small>Game cards, top-ups & more</small>
-                  <b>←</b>
-                </button>
-                <button class="service-card card-numbers" type="button" data-open-service="numbers">
-                  <span class="service-icon">📱</span>
-                  <strong>أرقام</strong>
-                  <em>NUMBERS SERVICE</em>
-                  <span>أرقام مؤقتة وأرقام للإيجار</span>
-                  <small>Temporary & rental numbers</small>
-                  <b>←</b>
-                </button>
+              <div class="account-catalog" id="account-catalog">
+                <label class="account-catalog-search" for="account-catalog-search">
+                  <input id="account-catalog-search" type="search" autocomplete="off" placeholder="ابحث عن خدمة أو منتج...">
+                  <span aria-hidden="true">⌕</span>
+                </label>
+                <div class="account-catalog-path">
+                  <button class="account-catalog-back" id="account-catalog-back" type="button" hidden>رجوع إلى الأقسام</button>
+                  <div>
+                    <strong id="account-catalog-title">اختر القسم</strong>
+                    <span id="account-catalog-hint">اختر قسماً رئيسياً، ثم تابع إلى الأصناف والمنتجات.</span>
+                  </div>
+                </div>
+                <div class="account-catalog-grid" id="account-catalog-grid">
+                  <div class="account-catalog-empty">جاري تحميل الخدمات...</div>
+                </div>
               </div>
               <div class="summary-grid">
                 <div><span>الطلبات الرقمية</span><strong id="digital-order-count">0</strong></div>

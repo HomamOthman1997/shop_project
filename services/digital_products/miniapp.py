@@ -56,7 +56,7 @@ from services.numbers.provider_webhooks import register_provider_webhook_routes
 from services.platform.api_keys_api import register_api_key_routes
 from services.platform.webhooks_api import register_webhook_routes
 from services.platform.telegram_webapp_auth import configured_bot_tokens, verify_telegram_init_data
-from services.landing_page import catalog_page, landing_page
+from services.landing_page import catalog_page, landing_page, public_catalog_api
 from services.platform.website_auth import register_website_auth_routes
 from services.platform.owner_api import register_owner_api_routes
 from database.website_auth_repo import bootstrap_website_auth_indexes
@@ -2013,6 +2013,7 @@ def create_app(_argv: list[str] | None = None) -> web.Application:
     app.router.add_get("/catalog", catalog_page)
     app.router.add_get("/catalog/{slug}/{category}", catalog_page)
     app.router.add_get("/catalog/{slug}", catalog_page)
+    app.router.add_get("/api/v1/catalog", public_catalog_api)
     app.router.add_get("/health", health)
     app.router.add_get("/healthz", health)
     app.router.add_get("/ready", health)

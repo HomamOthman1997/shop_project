@@ -54,6 +54,10 @@ _NO_STORE_HEADERS = {
 }
 _QUOTE_TTL_SEC = 1800
 _TWOPLACES = Decimal("0.01")
+_MANUAL_FULFILLMENT_MIN_MINUTES = 1
+_MANUAL_FULFILLMENT_MAX_MINUTES = 60
+_MANUAL_FULFILLMENT_LABEL_AR = "تنفيذ يدوي خلال دقيقة إلى ساعة"
+_MANUAL_FULFILLMENT_LABEL_EN = "Manual fulfillment within 1 minute to 1 hour"
 _PRODUCT_CATEGORY_LABELS = {
     "games": {"en": "Games", "ar": "الألعاب"},
     "chat_apps": {"en": "Chat Apps", "ar": "تطبيقات الدردشة"},
@@ -120,6 +124,16 @@ def _response_headers(rate_limit: ApiRateLimitDecision | None = None) -> dict[st
     if rate_limit is not None:
         headers.update(rate_limit_headers(rate_limit))
     return headers
+
+
+def _manual_fulfillment_payload() -> dict[str, Any]:
+    return {
+        "mode": "manual_topup",
+        "manual": True,
+        "min_minutes": _MANUAL_FULFILLMENT_MIN_MINUTES,
+        "max_minutes": _MANUAL_FULFILLMENT_MAX_MINUTES,
+        "label": {"ar": _MANUAL_FULFILLMENT_LABEL_AR, "en": _MANUAL_FULFILLMENT_LABEL_EN},
+    }
 
 
 def _input_field(field_id: str, label_en: str, label_ar: str, *, kind: str = "text", required: bool = True) -> dict[str, Any]:
@@ -413,6 +427,7 @@ def _public_offer(row: dict[str, Any], *, game_id: str, game_name: str) -> dict[
         "requires_server": bool(row.get("requires_server")),
         "quote_token": token,
         "quote_ttl_sec": _QUOTE_TTL_SEC,
+        "fulfillment": _manual_fulfillment_payload(),
     }
 
 
@@ -467,6 +482,7 @@ def _public_product_offer(item: ProductWatchlistItem, sources: list[ProductProvi
         "provider_offers": offers,
         "quote_token": make_digital_quote_token(quote),
         "public_note": best.public_note or item.public_note,
+        "fulfillment": _manual_fulfillment_payload(),
     }
 
 
@@ -518,6 +534,11 @@ def _order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
         "provider": str(order.get("provider_code") or ""),
         "provider_order_id": str(order.get("provider_order_id") or ""),
         "manual_fulfillment_status": manual_status,
+        "fulfillment_mode": str(order.get("fulfillment_mode") or "manual_topup"),
+        "manual_fulfillment_required": bool(order.get("manual_fulfillment_required", True)),
+        "fulfillment_min_minutes": int(order.get("fulfillment_min_minutes") or _MANUAL_FULFILLMENT_MIN_MINUTES),
+        "fulfillment_max_minutes": int(order.get("fulfillment_max_minutes") or _MANUAL_FULFILLMENT_MAX_MINUTES),
+        "fulfillment_label": str(order.get("fulfillment_label") or _MANUAL_FULFILLMENT_LABEL_AR),
         "owner_notification_sent": bool(order.get("owner_notification_sent")),
         "source": str(order.get("api_order_source") or order.get("number_mode") or ""),
         "created_at": _iso(order.get("created_at")),
@@ -774,6 +795,7 @@ async def catalog(request: web.Request) -> web.Response:
             "source_diagnostics": _provider_source_diagnostics(watchlist, all_sources),
             "catalog_snapshot_status": snapshot_status,
             "providers": dict(snapshot.get("providers") or {}),
+            "fulfillment": _manual_fulfillment_payload(),
             "actions": {"quotes": {"endpoint": "/api/v1/digital/quotes", "method": "GET", "scope": "digital:catalog"}},
         },
         headers=_response_headers(rate_limit),
@@ -818,6 +840,7 @@ async def quotes(request: web.Request) -> web.Response:
                 "kind": "product",
                 "product": _public_watchlist_item(item),
                 "quote_ttl_sec": _QUOTE_TTL_SEC,
+                "fulfillment": _manual_fulfillment_payload(),
                 "offers": offers[:100],
             },
             headers=_response_headers(rate_limit),
@@ -839,7 +862,14 @@ async def quotes(request: web.Request) -> web.Response:
         if public:
             offers.append(public)
     return web.json_response(
-        {"ok": True, "kind": "game", "game": {"id": game_id, "name": game_name}, "quote_ttl_sec": _QUOTE_TTL_SEC, "offers": offers[:100]},
+        {
+            "ok": True,
+            "kind": "game",
+            "game": {"id": game_id, "name": game_name},
+            "quote_ttl_sec": _QUOTE_TTL_SEC,
+            "fulfillment": _manual_fulfillment_payload(),
+            "offers": offers[:100],
+        },
         headers=_response_headers(rate_limit),
     )
 
@@ -1197,6 +1227,9 @@ async def create_order(request: web.Request) -> web.Response:
         "fulfillment_mode": "manual_topup",
         "manual_fulfillment_required": True,
         "manual_fulfillment_status": "pending",
+        "fulfillment_min_minutes": _MANUAL_FULFILLMENT_MIN_MINUTES,
+        "fulfillment_max_minutes": _MANUAL_FULFILLMENT_MAX_MINUTES,
+        "fulfillment_label": _MANUAL_FULFILLMENT_LABEL_AR,
         "manual_item_name": str(quote.get("item_name") or quote.get("item_id") or "Digital product"),
         "manual_game_name": str(quote.get("game_name") or quote.get("game_id") or "Digital product"),
         "manual_product_name": str(quote.get("product_name") or quote.get("product_id") or ""),

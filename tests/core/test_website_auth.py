@@ -60,6 +60,7 @@ def test_shop_root_serves_public_landing_page():
     assert ("GET", "/catalog", "catalog_page") in routes
     assert ("GET", "/catalog/{slug}/{category}", "catalog_page") in routes
     assert ("GET", "/catalog/{slug}", "catalog_page") in routes
+    assert ("GET", "/api/v1/catalog", "public_catalog_api") in routes
 
 
 def test_auth_page_loads_site_translator():
@@ -166,6 +167,34 @@ async def test_public_catalog_nested_category_filters_section_items():
 
 
 @pytest.mark.asyncio
+async def test_public_catalog_game_category_requires_login_before_showing_products():
+    request = make_mocked_request(
+        "GET",
+        "/catalog/games/pubg",
+        match_info={"slug": "games", "category": "pubg"},
+    )
+
+    with pytest.raises(web.HTTPFound) as exc:
+        await landing_page.catalog_page(request)
+
+    assert exc.value.location == "/app/digital"
+
+
+@pytest.mark.asyncio
+async def test_public_catalog_numbers_category_requires_login_before_showing_products():
+    request = make_mocked_request(
+        "GET",
+        "/catalog/verification-numbers/temporary",
+        match_info={"slug": "verification-numbers", "category": "temporary"},
+    )
+
+    with pytest.raises(web.HTTPFound) as exc:
+        await landing_page.catalog_page(request)
+
+    assert exc.value.location == "/app/numbers"
+
+
+@pytest.mark.asyncio
 async def test_website_auth_page_contains_admin_dashboard_tabs():
     response = await website_auth.auth_page(make_mocked_request("GET", "/admin"))
 
@@ -208,6 +237,10 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'id="auth-context-message"' in html
     assert 'data-order-filter="numbers"' in html
     assert 'data-order-filter="digital"' in html
+    assert 'id="account-catalog"' in html
+    assert 'id="account-catalog-grid"' in html
+    assert 'data-open-service="digital"' not in html
+    assert 'data-open-service="numbers"' not in html
     assert 'recharge: "/app/recharge"' in js
     assert "function appLanguage" in js
     assert "function persistAccountLanguage" in js
@@ -241,6 +274,14 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'numbersApiEndpoint("quotes", "/api/v1/numbers/quotes")' in js
     assert 'numbersApiEndpoint("create_order", "/api/v1/numbers/orders")' in js
     assert "function numbersPurchaseAction" in js
+    assert 'api("/api/v1/catalog")' in js
+    assert "function renderAccountCatalog" in js
+    assert "function openAccountCatalogRow" in js
+    assert 'section.service === "numbers"' in js
+    assert "pendingDigitalCatalogSelection" in js
+    assert "function resolveNumbersCatalogSelection" in js
+    assert 'temporary: "temp", temp: "temp", rental: "rental", voice: "voice"' in js
+    assert 'replace(/_numbers$/, "")' in js
     assert 'const action = row && typeof row.purchase_action === "object"' in js
     assert "const result = await api(action.endpoint, options);" in js
     assert "options.body = JSON.stringify({...action.body, language: appLanguage()});" in js
@@ -248,9 +289,16 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'class="digital-category-tabs"' in js
     assert 'data-digital-filter="category:${esc(row.id)}"' in js
     assert 'row.category === selectedCategory' in js
+    assert 'openService("digital");' in js
+    assert "جميع الطلبات تنفيذ يدوي" in js
+    assert "مدة التنفيذ المتوقعة من دقيقة إلى ساعة." in js
+    assert "التنفيذ يدوي خلال دقيقة إلى ساعة." in js
     assert ".numbers-app-shell" in css
     assert ".numbers-picker-drawer" in css
     assert ".digital-category-tabs" in css
+    assert ".manual-fulfillment-notice" in css
+    assert ".account-catalog-grid" in css
+    assert ".account-catalog-card" in css
     assert '"الأمان": "Security"' in i18n
     assert '"تغيير كلمة المرور": "Change password"' in i18n
     assert ".language-toggle {" in i18n

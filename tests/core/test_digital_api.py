@@ -402,6 +402,9 @@ async def test_digital_quotes_returns_signed_game_offers(monkeypatch):
     assert calls["scope"] == "digital:catalog"
     assert calls["topups"] == ("pubgm", False)
     assert payload["offers"][0]["id"] == "1800_uc"
+    assert payload["fulfillment"]["mode"] == "manual_topup"
+    assert payload["fulfillment"]["min_minutes"] == 1
+    assert payload["fulfillment"]["max_minutes"] == 60
     quote = api.verify_digital_quote_token(payload["offers"][0]["quote_token"])
     assert quote["game_id"] == "pubgm"
     assert quote["provider_offers"][0]["ref_id"] == "2968"
@@ -482,10 +485,16 @@ async def test_digital_create_order_charges_and_marks_manual_topup(monkeypatch):
     first_update = calls["updates"][0][1]
     assert first_update["manual_fulfillment_required"] is True
     assert first_update["manual_fulfillment_status"] == "pending"
+    assert first_update["fulfillment_min_minutes"] == 1
+    assert first_update["fulfillment_max_minutes"] == 60
+    assert first_update["fulfillment_label"] == "تنفيذ يدوي خلال دقيقة إلى ساعة"
     assert first_update["api_idempotency_key"] == "digital-order-1"
     assert calls["notify"]["player_data"]["Player Id"] == "51293484551"
     assert payload["order"]["id"] == "order-1"
     assert payload["order"]["public_status"] == "pending"
+    assert payload["order"]["fulfillment_mode"] == "manual_topup"
+    assert payload["order"]["fulfillment_min_minutes"] == 1
+    assert payload["order"]["fulfillment_max_minutes"] == 60
 
 
 @pytest.mark.asyncio

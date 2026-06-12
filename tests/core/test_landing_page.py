@@ -170,6 +170,17 @@ def test_catalog_sections_include_miniapp_family_categories():
     assert 'href="/catalog/mobile-recharge/syriatel"' in recharge
 
 
+def test_public_catalog_payload_exposes_nested_sections_for_customer_app():
+    payload = landing_page.public_catalog_payload()
+    sections = {row["slug"]: row for row in payload["sections"]}
+
+    assert sections["games"]["service"] == "digital"
+    assert sections["verification-numbers"]["service"] == "numbers"
+    assert sections["games"]["categories_count"] > 100
+    assert any(row["slug"] == "jawaker" for row in sections["games"]["categories"])
+    assert any(row["slug"] == "telegram_numbers" for row in sections["verification-numbers"]["categories"])
+
+
 def test_catalog_generated_family_category_renders_as_product_stage():
     html = landing_page.catalog_page_html("games", category_slug="free_fire")
 

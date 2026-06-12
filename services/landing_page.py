@@ -1624,6 +1624,34 @@ def _section_categories(section: dict[str, object] | None) -> tuple[dict[str, ob
     return manual + generated
 
 
+def public_catalog_payload() -> dict[str, object]:
+    sections: list[dict[str, object]] = []
+    for section in _CATALOG_SECTIONS:
+        slug = str(section.get("slug") or "")
+        categories = [
+            {
+                "slug": str(category.get("slug") or ""),
+                "title": str(category.get("title") or ""),
+                "subtitle": str(category.get("subtitle") or ""),
+                "search_terms": str(category.get("search_terms") or ""),
+                "generated": bool(category.get("generated")),
+            }
+            for category in _section_categories(section)
+        ]
+        sections.append(
+            {
+                "slug": slug,
+                "title": str(section.get("title") or ""),
+                "subtitle": str(section.get("subtitle") or ""),
+                "accent": str(section.get("accent") or "green"),
+                "service": "numbers" if slug == "verification-numbers" else "digital",
+                "categories": categories,
+                "categories_count": len(categories),
+            }
+        )
+    return {"ok": True, "sections": sections}
+
+
 def _category_by_slug(section: dict[str, object] | None, slug: str) -> dict[str, object] | None:
     normalized = str(slug or "").strip().lower()
     if not section or not normalized:
@@ -2088,7 +2116,7 @@ def landing_page_html() -> str:
 
 
 async def catalog_page(request: web.Request) -> web.Response:
-    """Public browseable catalog. Checkout remains inside authenticated website account."""
+    """Public section browser. Final category selection continues inside the account."""
     slug = str(request.match_info.get("slug") or "")
     section = _section_by_slug(slug)
     if slug and section is None:
@@ -2102,11 +2130,17 @@ async def catalog_page(request: web.Request) -> web.Response:
         if query:
             canonical = f"{canonical}?{urlencode(query)}"
         raise web.HTTPFound(location=canonical)
+    if category_slug and _category_by_slug(section, category_slug):
+        raise web.HTTPFound(location=_section_checkout_path(section))
     return web.Response(
         text=catalog_page_html(slug, category_slug=category_slug),
         content_type="text/html",
         headers=dict(_NO_STORE_HEADERS),
     )
+
+
+async def public_catalog_api(_request: web.Request) -> web.Response:
+    return web.json_response(public_catalog_payload(), headers=dict(_NO_STORE_HEADERS))
 
 
 async def landing_page(_request: web.Request) -> web.Response:

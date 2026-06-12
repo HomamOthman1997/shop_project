@@ -38,6 +38,9 @@ let customerOrderRows = [];
 let customerOrderFilter = "all";
 let latestRechargePayload = null;
 let languagePersistPromise = null;
+let accountCatalogState = { sections: [], activeSection: null, query: "" };
+let pendingDigitalCatalogSelection = null;
+let pendingNumbersCatalogSelection = null;
 let numbersWorkspaceState = {
   bootstrap: null,
   mode: "temp",
@@ -280,9 +283,13 @@ function showAccount(account) {
   if (initialView === "digital" || initialView === "numbers") {
     openPanel("home", "الخدمات", { updateRoute: false });
     openService(initialView);
+  } else if (initialView === "home") {
+    openPanel("home", "الخدمات", { updateRoute: false });
+    openService("digital");
   } else {
     openPanel(initialView, "", { updateRoute: false });
   }
+  loadAccountCatalog();
   loadDashboard();
 }
 
@@ -404,6 +411,73 @@ function combinedRecentActivity(...payloads) {
     });
   });
   return rows.sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || ""))).slice(0, 10);
+}
+
+async function loadAccountCatalog() {
+  const target = $("#account-catalog-grid");
+  if (!target) return;
+  try {
+    const payload = await api("/api/v1/catalog");
+    accountCatalogState = { sections: payload.sections || [], activeSection: null, query: "" };
+    renderAccountCatalog();
+  } catch (error) {
+    target.innerHTML = `<div class="account-catalog-empty">${esc(error.message)}</div>`;
+  }
+}
+
+function accountCatalogRows() {
+  const section = accountCatalogState.activeSection;
+  return section ? (section.categories || []) : accountCatalogState.sections;
+}
+
+function renderAccountCatalog() {
+  const target = $("#account-catalog-grid");
+  const input = $("#account-catalog-search");
+  const back = $("#account-catalog-back");
+  if (!target || !input || !back) return;
+  const section = accountCatalogState.activeSection;
+  const query = String(accountCatalogState.query || "").trim().toLowerCase();
+  const rows = accountCatalogRows().filter((row) => {
+    if (!query) return true;
+    return `${row.title || ""} ${row.subtitle || ""} ${row.search_terms || ""}`.toLowerCase().includes(query);
+  });
+  back.hidden = !section;
+  setText("#account-catalog-title", section ? section.title : "اختر القسم");
+  setText("#account-catalog-hint", section ? "اختر الصنف الذي تريد فتحه." : "اختر قسماً رئيسياً، ثم تابع إلى الأصناف والمنتجات.");
+  target.innerHTML = rows.length ? rows.map((row) => {
+    const accent = section?.accent || row.accent || "green";
+    const count = section ? "" : `${Number(row.categories_count || 0)} صنف`;
+    return `
+      <button class="account-catalog-card ${esc(accent)}" type="button" data-account-catalog-slug="${esc(row.slug || "")}">
+        <span class="account-catalog-mark" aria-hidden="true"></span>
+        <strong>${esc(row.title || row.slug || "")}</strong>
+        <span>${esc(row.subtitle || count)}</span>
+      </button>`;
+  }).join("") : '<div class="account-catalog-empty">لا توجد نتائج مطابقة.</div>';
+  target.querySelectorAll("[data-account-catalog-slug]").forEach((button) => {
+    button.addEventListener("click", () => openAccountCatalogRow(button.dataset.accountCatalogSlug));
+  });
+}
+
+function openAccountCatalogRow(slug) {
+  const section = accountCatalogState.activeSection;
+  if (!section) {
+    accountCatalogState.activeSection = accountCatalogState.sections.find((row) => row.slug === slug) || null;
+    accountCatalogState.query = "";
+    const input = $("#account-catalog-search");
+    if (input) input.value = "";
+    renderAccountCatalog();
+    return;
+  }
+  const category = (section.categories || []).find((row) => row.slug === slug);
+  if (!category) return;
+  if (section.service === "numbers") {
+    pendingNumbersCatalogSelection = { slug: category.slug || "", title: category.title || "", generated: Boolean(category.generated) };
+    openService("numbers");
+    return;
+  }
+  pendingDigitalCatalogSelection = { slug: category.slug || "", title: category.title || "" };
+  openService("digital");
 }
 
 function downloadAccountActivity() {
@@ -2513,6 +2587,7 @@ function orderMetaRows(order, channel) {
     rows.push(["الوقت المتبقي", order.seconds_left ? `${order.seconds_left}s` : ""]);
   } else {
     rows.push(["المنتج", order.product_name || order.game_name || ""]);
+    rows.push(["التنفيذ", order.fulfillment_label || "تنفيذ يدوي خلال دقيقة إلى ساعة"]);
     rows.push(["بيانات العميل", Object.entries(order.customer_data || {}).map(([key, value]) => `${key}: ${value}`).join(" · ")]);
   }
   return rows.filter(([, value]) => value !== undefined && value !== null && String(value).trim()).map(([label, value]) => `
@@ -2709,16 +2784,24 @@ function renderDigitalCatalog(payload) {
   const products = payload.products || [];
   const games = payload.games || [];
   const productCategories = payload.product_categories || [];
-  let activeDigitalFilter = "all";
+  const selection = pendingDigitalCatalogSelection;
+  pendingDigitalCatalogSelection = null;
+  const matchedCategory = selection && productCategories.some((row) => String(row.id) === String(selection.slug));
+  let activeDigitalFilter = selection?.slug === "games" ? "games" : matchedCategory ? `category:${selection.slug}` : "all";
+  const initialSearch = selection && activeDigitalFilter === "all" ? String(selection.title || selection.slug || "") : "";
   root.innerHTML = `
+    <div class="manual-fulfillment-notice">
+      <strong>جميع الطلبات تنفيذ يدوي</strong>
+      <span>${esc(localized(payload.fulfillment?.label, "مدة التنفيذ من دقيقة إلى ساعة."))}</span>
+    </div>
     <div class="service-toolbar">
-      <input id="digital-search" type="search" placeholder="ابحث عن لعبة أو خدمة">
+      <input id="digital-search" type="search" value="${esc(initialSearch)}" placeholder="ابحث عن لعبة أو خدمة">
       <button class="secondary compact" type="button" data-digital-refresh>تحديث</button>
     </div>
     <div class="digital-category-tabs" aria-label="تصنيفات المنتجات الرقمية">
-      <button type="button" class="active" data-digital-filter="all">الكل <span>${products.length + games.length}</span></button>
-      <button type="button" data-digital-filter="games">الألعاب <span>${games.length}</span></button>
-      ${productCategories.map((row) => `<button type="button" data-digital-filter="category:${esc(row.id)}">${esc(localized(row.label, row.id))} <span>${esc(row.count || 0)}</span></button>`).join("")}
+      <button type="button" class="${activeDigitalFilter === "all" ? "active" : ""}" data-digital-filter="all">الكل <span>${products.length + games.length}</span></button>
+      <button type="button" class="${activeDigitalFilter === "games" ? "active" : ""}" data-digital-filter="games">الألعاب <span>${games.length}</span></button>
+      ${productCategories.map((row) => `<button type="button" class="${activeDigitalFilter === `category:${row.id}` ? "active" : ""}" data-digital-filter="category:${esc(row.id)}">${esc(localized(row.label, row.id))} <span>${esc(row.count || 0)}</span></button>`).join("")}
     </div>
     <div class="service-split">
       <div class="service-list-panel">
@@ -2826,6 +2909,10 @@ function renderDigitalQuotes(kind, id, payload) {
     <div class="service-detail-head">
       <div><h4>${esc(title)}</h4><span>${kind === "game" ? "Game top-up" : "Digital product"}</span></div>
     </div>
+    <div class="manual-fulfillment-notice compact">
+      <strong>تنفيذ يدوي</strong>
+      <span>${esc(localized(payload.fulfillment?.label, "مدة التنفيذ من دقيقة إلى ساعة."))}</span>
+    </div>
     <div class="quote-list">
       ${offers.length ? offers.map((offer, index) => digitalOfferHtml(kind, offer, index)).join("") : '<div class="service-empty">لا توجد باقات متاحة حالياً.</div>'}
     </div>`;
@@ -2856,6 +2943,10 @@ function renderDigitalOrderForm(kind, offer, back) {
         <button class="secondary compact" type="button" data-back-quotes>رجوع</button>
       </div>
       ${fieldsFormHtml(offer.input_fields, fallback)}
+      <div class="manual-fulfillment-notice compact">
+        <strong>الطلب يُنفذ يدوياً</strong>
+        <span>مدة التنفيذ المتوقعة من دقيقة إلى ساعة.</span>
+      </div>
       <p class="message">سيتم خصم قيمة الطلب من محفظتك بعد التأكيد.</p>
       <button class="primary" type="submit">تأكيد الطلب</button>
       <p class="message" id="digital-order-message"></p>
@@ -2877,7 +2968,7 @@ function renderDigitalOrderForm(kind, offer, back) {
         headers: { "Idempotency-Key": idempotencyKey("digital") },
         body: JSON.stringify(body),
       });
-      message.textContent = `تم إنشاء الطلب: ${result.order?.id || ""}`;
+      message.textContent = `تم إنشاء الطلب: ${result.order?.id || ""}. التنفيذ يدوي خلال دقيقة إلى ساعة.`;
       await loadDashboard();
     } catch (error) {
       message.textContent = error.message;
@@ -2891,11 +2982,13 @@ async function loadNumbersWorkspace() {
   serviceLoading("جاري تحميل خدمات الأرقام...");
   try {
     const payload = await api(numbersApiEndpoint("bootstrap", "/api/v1/numbers/catalog/bootstrap"));
+    const selection = resolveNumbersCatalogSelection(payload, pendingNumbersCatalogSelection);
+    pendingNumbersCatalogSelection = null;
     numbersWorkspaceState = {
       ...numbersWorkspaceState,
       bootstrap: payload,
-      mode: payload.defaults?.mode && payload.defaults.mode !== "none" ? payload.defaults.mode : "temp",
-      service: preferredNumbersService(payload.services || []),
+      mode: selection.mode,
+      service: selection.service,
       country: "none",
       state: "none",
       offers: [],
@@ -2908,6 +3001,25 @@ async function loadNumbersWorkspace() {
   } catch (error) {
     serviceError(error.message, loadNumbersWorkspace);
   }
+}
+
+function normalizeCatalogKey(value) {
+  return String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_").replace(/_numbers$/, "");
+}
+
+function resolveNumbersCatalogSelection(payload, selection) {
+  const services = payload.services || [];
+  const defaultMode = payload.defaults?.mode && payload.defaults.mode !== "none" ? payload.defaults.mode : "temp";
+  const slug = normalizeCatalogKey(selection?.slug);
+  const mode = ({ temporary: "temp", temp: "temp", rental: "rental", voice: "voice" })[slug] || defaultMode;
+  const selectedService = services.find((row) => {
+    const candidates = [row.key, row.code, row.label, ...(row.aliases || [])].map(normalizeCatalogKey);
+    return slug && candidates.includes(slug);
+  });
+  return {
+    mode,
+    service: selectedService?.key || selectedService?.code || preferredNumbersService(services),
+  };
 }
 
 function numbersApiEndpoint(actionKey, fallback) {
@@ -3280,6 +3392,19 @@ document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
 
 document.querySelectorAll("[data-open-service]").forEach((button) => {
   button.addEventListener("click", () => openService(button.dataset.openService));
+});
+
+$("#account-catalog-search")?.addEventListener("input", (event) => {
+  accountCatalogState.query = event.currentTarget.value || "";
+  renderAccountCatalog();
+});
+
+$("#account-catalog-back")?.addEventListener("click", () => {
+  accountCatalogState.activeSection = null;
+  accountCatalogState.query = "";
+  const input = $("#account-catalog-search");
+  if (input) input.value = "";
+  renderAccountCatalog();
 });
 
 document.querySelectorAll("[data-owner-tab]").forEach((button) => {
