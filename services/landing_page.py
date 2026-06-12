@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import escape
+from urllib.parse import urlencode
 
 from aiohttp import web
 
@@ -1525,14 +1526,14 @@ _SHOWCASE_TILES: tuple[dict[str, str], ...] = (
     {
         "title": "الأرقام",
         "subtitle": "مؤقتة وإيجار",
-        "href": "/catalog/numbers",
+        "href": "/catalog/verification-numbers",
         "image": "/mini/digital/static/section-numbers.jpg",
         "accent": "violet",
     },
     {
         "title": "توثيق الحسابات",
         "subtitle": "أرقام وخيارات تحقق",
-        "href": "/catalog/numbers",
+        "href": "/catalog/verification-numbers",
         "image": "/mini/digital/static/section-games.jpg",
         "accent": "amber",
     },
@@ -2055,9 +2056,18 @@ def landing_page_html() -> str:
 async def catalog_page(request: web.Request) -> web.Response:
     """Public browseable catalog. Checkout remains inside authenticated website account."""
     slug = str(request.match_info.get("slug") or "")
-    if slug and _section_by_slug(slug) is None:
+    section = _section_by_slug(slug)
+    if slug and section is None:
         raise web.HTTPNotFound(text="catalog section not found")
     category_slug = str(request.match_info.get("category") or request.query.get("category") or "")
+    if slug and section and slug != str(section["slug"]):
+        query = {key: value for key, value in request.query.items() if key != "category"}
+        canonical = f"/catalog/{section['slug']}"
+        if category_slug:
+            canonical = f"{canonical}/{category_slug}"
+        if query:
+            canonical = f"{canonical}?{urlencode(query)}"
+        raise web.HTTPFound(location=canonical)
     return web.Response(
         text=catalog_page_html(slug, category_slug=category_slug),
         content_type="text/html",

@@ -57,6 +57,8 @@ def test_catalog_page_uses_public_showcase_before_login():
     assert 'href="/catalog/verification-numbers"' in html
     assert 'href="/catalog/internet-providers"' in html
     assert 'href="/catalog/paid-apps"' in html
+    assert 'href="/catalog/numbers"' not in html
+    assert 'href="/catalog/digital/' not in html
     assert "PUBG Mobile UC" not in html
     assert 'href="/login"' in html
     assert 'href="/register"' in html

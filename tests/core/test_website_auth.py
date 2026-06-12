@@ -127,35 +127,28 @@ async def test_public_catalog_page_exposes_sections_without_checkout():
 @pytest.mark.asyncio
 async def test_public_catalog_section_limits_to_selected_group():
     request = make_mocked_request("GET", "/catalog/numbers", match_info={"slug": "numbers"})
-    response = await landing_page.catalog_page(request)
+    with pytest.raises(web.HTTPFound) as exc:
+        await landing_page.catalog_page(request)
 
-    assert response.status == 200
-    text = response.text
-    assert "<h1>أرقام تأكيد</h1>" in text
-    assert "اختر الصنف الفرعي" in text
-    assert "أرقام مؤقتة" in text
-    assert "شراء رقم لمدة قصيرة" not in text
-    assert "PUBG و BGMI" not in text
+    assert exc.value.location == "/catalog/verification-numbers"
 
 
 @pytest.mark.asyncio
 async def test_public_catalog_keeps_digital_alias_for_games_section():
     request = make_mocked_request("GET", "/catalog/digital", match_info={"slug": "digital"})
-    response = await landing_page.catalog_page(request)
+    with pytest.raises(web.HTTPFound) as exc:
+        await landing_page.catalog_page(request)
 
-    assert response.status == 200
-    assert "<h1>الألعاب</h1>" in response.text
+    assert exc.value.location == "/catalog/games"
 
 
 @pytest.mark.asyncio
 async def test_public_catalog_query_category_filters_section_items():
     request = make_mocked_request("GET", "/catalog/digital?category=games", match_info={"slug": "digital"})
-    response = await landing_page.catalog_page(request)
+    with pytest.raises(web.HTTPFound) as exc:
+        await landing_page.catalog_page(request)
 
-    assert response.status == 200
-    assert "<h1>شحن ألعاب الموبايل</h1>" in response.text
-    assert "PUBG Mobile UC" in response.text
-    assert "Adobe" not in response.text
+    assert exc.value.location == "/catalog/games/games"
 
 
 @pytest.mark.asyncio
@@ -165,12 +158,10 @@ async def test_public_catalog_nested_category_filters_section_items():
         "/catalog/digital/games",
         match_info={"slug": "digital", "category": "games"},
     )
-    response = await landing_page.catalog_page(request)
+    with pytest.raises(web.HTTPFound) as exc:
+        await landing_page.catalog_page(request)
 
-    assert response.status == 200
-    assert "<h1>شحن ألعاب الموبايل</h1>" in response.text
-    assert "PUBG Mobile UC" in response.text
-    assert "Adobe" not in response.text
+    assert exc.value.location == "/catalog/games/games"
 
 
 @pytest.mark.asyncio
