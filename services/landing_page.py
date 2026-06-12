@@ -867,12 +867,30 @@ _LANDING_HTML_V3 = """\
           </div>
           <span class="arrow">←</span>
         </a>
+        <a class="service-card violet" href="/catalog/social-services">
+          <div>
+            <span class="icon">📣</span>
+            <h2>خدمات المتابعين</h2>
+            <small>SOCIAL SERVICES</small>
+            <p>خدمات تيك توك، إنستغرام، يوتيوب ومنصات التواصل.</p>
+          </div>
+          <span class="arrow">←</span>
+        </a>
         <a class="service-card violet" href="/catalog/subscriptions">
           <div>
             <span class="icon">💎</span>
             <h2>اشتراكات برامج</h2>
             <small>SUBSCRIPTIONS</small>
             <p>Adobe، Telegram Premium، وخدمات البرامج.</p>
+          </div>
+          <span class="arrow">←</span>
+        </a>
+        <a class="service-card amber" href="/catalog/store-cards">
+          <div>
+            <span class="icon">🎟️</span>
+            <h2>بطاقات المتاجر</h2>
+            <small>STORE CARDS</small>
+            <p>Apple، Steam، Google Play، PlayStation وبطاقات متاجر.</p>
           </div>
           <span class="arrow">←</span>
         </a>
@@ -891,6 +909,24 @@ _LANDING_HTML_V3 = """\
             <h2>شحن أرصدة وباقات</h2>
             <small>MOBILE RECHARGE</small>
             <p>شحن دولي، أوكرانيا، و eSIM وباقات بيانات.</p>
+          </div>
+          <span class="arrow">←</span>
+        </a>
+        <a class="service-card" href="/catalog/internet-providers">
+          <div>
+            <span class="icon">📡</span>
+            <h2>مزودات الإنترنت</h2>
+            <small>INTERNET PROVIDERS</small>
+            <p>باقات ومزودات إنترنت محلية حسب التوفر.</p>
+          </div>
+          <span class="arrow">←</span>
+        </a>
+        <a class="service-card violet" href="/catalog/paid-apps">
+          <div>
+            <span class="icon">🧩</span>
+            <h2>تطبيقات مدفوعة</h2>
+            <small>PAID APPS</small>
+            <p>تفعيلات وأدوات مدفوعة مثل Unlock Tool و DFT.</p>
           </div>
           <span class="arrow">←</span>
         </a>
@@ -1146,6 +1182,60 @@ _CATALOG_SECTIONS = (
         ),
     },
     {
+        "slug": "social-services",
+        "aliases": ("social_services", "followers-services"),
+        "title": "خدمات المتابعين",
+        "subtitle": "خدمات نمو وإدارة لمنصات التواصل حسب المصدر والتوفر.",
+        "accent": "violet",
+        "items": (
+            ("TikTok Services", "خدمات تيك توك مثل التفاعل والنمو حسب السياسات والتوفر."),
+            ("Instagram Services", "خدمات إنستغرام ومنتجات مرتبطة بالحساب."),
+            ("YouTube Services", "خدمات يوتيوب ومنصات فيديو حسب المصدر."),
+        ),
+        "categories": (
+            {
+                "slug": "tiktok",
+                "title": "TikTok",
+                "subtitle": "خدمات تيك توك المتاحة ضمن كتالوغ الخدمات.",
+                "items": (
+                    ("TikTok followers", "طلبات نمو وتفاعل حسب الباقات المتاحة."),
+                    ("TikTok likes", "باقات تفاعل حسب المصدر وسياسة التنفيذ."),
+                    ("TikTok views", "خيارات مشاهدة وتفاعل عند توفرها."),
+                ),
+            },
+            {
+                "slug": "instagram",
+                "title": "Instagram",
+                "subtitle": "خدمات إنستغرام وحسابات التواصل.",
+                "items": (
+                    ("Instagram followers", "باقات متابعين حسب المصدر والتوفر."),
+                    ("Instagram likes", "تفاعل للمنشورات عند توفر الباقات."),
+                    ("Instagram services", "خدمات إضافية مرتبطة بالحساب."),
+                ),
+            },
+            {
+                "slug": "youtube",
+                "title": "YouTube",
+                "subtitle": "خدمات يوتيوب ومنصات الفيديو.",
+                "items": (
+                    ("YouTube views", "باقات مشاهدة حسب المصدر."),
+                    ("YouTube subscribers", "باقات اشتراك عند توفرها."),
+                    ("Video engagement", "خدمات تفاعل للفيديوهات."),
+                ),
+            },
+            {
+                "slug": "messaging",
+                "title": "WhatsApp و Telegram",
+                "subtitle": "خدمات مرتبطة بتطبيقات التواصل والرسائل.",
+                "items": (
+                    ("WhatsApp Services", "خدمات واتساب حسب المصدر والتوفر."),
+                    ("Telegram Services", "خدمات تيليغرام وقنوات ومجموعات."),
+                    ("Facebook و Kik", "خدمات إضافية لمنصات تواصل أخرى."),
+                ),
+            },
+        ),
+    },
+    {
         "slug": "subscriptions",
         "aliases": ("apps",),
         "title": "اشتراكات برامج",
@@ -1189,6 +1279,50 @@ _CATALOG_SECTIONS = (
         ),
     },
     {
+        "slug": "store-cards",
+        "aliases": ("store_cards", "gift-cards", "cards"),
+        "title": "بطاقات المتاجر",
+        "subtitle": "بطاقات رقمية ومتاجر إلكترونية مثل Apple، Steam، Google Play وPlayStation.",
+        "accent": "amber",
+        "items": (
+            ("Apple / iTunes", "بطاقات Apple و iTunes حسب الدولة والقيمة."),
+            ("Steam و Google Play", "بطاقات متاجر رقمية للألعاب والتطبيقات."),
+            ("PlayStation و Xbox", "بطاقات منصات ألعاب حسب المنطقة."),
+        ),
+        "categories": (
+            {
+                "slug": "mobile-stores",
+                "title": "متاجر الموبايل",
+                "subtitle": "بطاقات تطبيقات وموبايل حسب الدولة.",
+                "items": (
+                    ("Apple / iTunes", "بطاقات Apple و iTunes حسب المنطقة."),
+                    ("Google Play", "بطاقات Google Play وقيم مختلفة."),
+                    ("Razer Gold", "بطاقات Razer Gold عند توفرها."),
+                ),
+            },
+            {
+                "slug": "gaming-stores",
+                "title": "متاجر الألعاب",
+                "subtitle": "بطاقات منصات الألعاب والمتاجر الرقمية.",
+                "items": (
+                    ("Steam", "بطاقات Steam حسب العملة والمنطقة."),
+                    ("PlayStation", "بطاقات PSN حسب الدولة."),
+                    ("Xbox و Nintendo", "بطاقات منصات حسب التوفر."),
+                ),
+            },
+            {
+                "slug": "payment-cards",
+                "title": "بطاقات دفع وخدمات",
+                "subtitle": "بطاقات رقمية عامة وخدمات مرتبطة بالمتاجر.",
+                "items": (
+                    ("Visa", "منتجات Visa رقمية عند توفرها."),
+                    ("Roblox", "بطاقات Roblox ومنتجات ألعاب."),
+                    ("Discord و IMO", "بطاقات وخدمات رقمية مرتبطة بالتطبيقات."),
+                ),
+            },
+        ),
+    },
+    {
         "slug": "verification-numbers",
         "aliases": ("numbers",),
         "title": "أرقام تأكيد",
@@ -1227,6 +1361,74 @@ _CATALOG_SECTIONS = (
                     ("SMS", "استلام الأكواد النصية من لوحة الطلبات."),
                     ("Voice", "خيارات مكالمة عند توفرها."),
                     ("مزود آخر", "تبديل المزود عند فشل الطلب."),
+                ),
+            },
+        ),
+    },
+    {
+        "slug": "internet-providers",
+        "aliases": ("internet_providers", "internet", "wifi"),
+        "title": "مزودات الإنترنت",
+        "subtitle": "باقات ومزودات إنترنت محلية حسب التوفر.",
+        "accent": "green",
+        "items": (
+            ("Pro Net و Sama Net", "مزودات إنترنت محلية عند توفر الباقات."),
+            ("View Net و Hifi Net", "باقات ومزودات حسب المنطقة."),
+            ("MTS و Linet", "منتجات اتصال وإنترنت قابلة للإضافة."),
+        ),
+        "categories": (
+            {
+                "slug": "local-providers",
+                "title": "مزودات محلية",
+                "subtitle": "مزودات إنترنت محلية ضمن كتالوغ الخدمات.",
+                "items": (
+                    ("Pro Net", "باقات Pro Net حسب التوفر."),
+                    ("Sama Net", "باقات Sama Net حسب التوفر."),
+                    ("View Net و Hifi Net", "مزودات إضافية قابلة للتوسع."),
+                ),
+            },
+            {
+                "slug": "network-cards",
+                "title": "بطاقات وباقات شبكة",
+                "subtitle": "بطاقات ومزودات اتصال حسب المصدر.",
+                "items": (
+                    ("Lazer Net", "منتجات Lazer Net عند توفرها."),
+                    ("MTS", "باقات MTS حسب المصدر."),
+                    ("Cards M و Linet", "بطاقات وخدمات إنترنت إضافية."),
+                ),
+            },
+        ),
+    },
+    {
+        "slug": "paid-apps",
+        "aliases": ("paid_apps", "tools", "activations"),
+        "title": "تطبيقات مدفوعة",
+        "subtitle": "تفعيلات وأدوات مدفوعة مثل Unlock Tool و DFT Pro.",
+        "accent": "violet",
+        "items": (
+            ("Unlock Tool", "تفعيل أدوات وخدمات مدفوعة حسب المدة."),
+            ("DFT Pro و EFT Pro", "أدوات صيانة وتفعيل حسب المصدر."),
+            ("Direct Activation", "تفعيل مباشر لمنتجات مدفوعة عند توفرها."),
+        ),
+        "categories": (
+            {
+                "slug": "mobile-tools",
+                "title": "أدوات موبايل",
+                "subtitle": "أدوات وتفعيلات مرتبطة بصيانة الموبايل.",
+                "items": (
+                    ("Android AMT", "تفعيل Android AMT حسب المصدر."),
+                    ("DFT Pro", "اشتراك أو تفعيل DFT Pro."),
+                    ("EFT Pro", "اشتراك أو تفعيل EFT Pro."),
+                ),
+            },
+            {
+                "slug": "activations",
+                "title": "تفعيلات مباشرة",
+                "subtitle": "منتجات تحتاج تنفيذ أو تفعيل مباشر.",
+                "items": (
+                    ("Unlock Tool", "تفعيل Unlock Tool حسب المدة."),
+                    ("Direct Activation", "تفعيل مباشر للخدمات المدفوعة."),
+                    ("Software tools", "أدوات برامج قابلة للإضافة."),
                 ),
             },
         ),
@@ -1286,7 +1488,7 @@ _SHOWCASE_TILES: tuple[dict[str, str], ...] = (
     {
         "title": "التطبيقات",
         "subtitle": "اشتراكات وخدمات تطبيقات",
-        "href": "/catalog/digital/apps",
+        "href": "/catalog/subscriptions",
         "image": "/mini/digital/static/communications-rtl.png",
         "accent": "blue",
     },
@@ -1300,21 +1502,21 @@ _SHOWCASE_TILES: tuple[dict[str, str], ...] = (
     {
         "title": "السوشيال ميديا",
         "subtitle": "خدمات حسابات ومنصات",
-        "href": "/catalog/digital/social",
+        "href": "/catalog/social-services",
         "image": "/mini/digital/static/store-cards-rtl.png",
         "accent": "violet",
     },
     {
-        "title": "حسابات جاهزة",
-        "subtitle": "حسابات ومنتجات رقمية",
-        "href": "/catalog/digital/accounts",
+        "title": "بطاقات المتاجر",
+        "subtitle": "بطاقات ومنتجات رقمية",
+        "href": "/catalog/store-cards",
         "image": "/mini/digital/static/section-store-cards.jpg",
         "accent": "green",
     },
     {
-        "title": "بروكسي و VPN",
-        "subtitle": "اتصال وحماية وبيانات",
-        "href": "/catalog/digital/proxy",
+        "title": "مزودات الإنترنت",
+        "subtitle": "اتصال وباقات محلية",
+        "href": "/catalog/internet-providers",
         "image": "/mini/digital/static/numbers-rtl.png",
         "accent": "blue",
     },

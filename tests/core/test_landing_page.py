@@ -10,8 +10,12 @@ def test_landing_page_exposes_public_website_navigation():
     assert 'href="/catalog"' in html
     assert 'href="/catalog/games"' in html
     assert 'href="/catalog/chat-apps"' in html
+    assert 'href="/catalog/social-services"' in html
     assert 'href="/catalog/subscriptions"' in html
+    assert 'href="/catalog/store-cards"' in html
     assert 'href="/catalog/verification-numbers"' in html
+    assert 'href="/catalog/internet-providers"' in html
+    assert 'href="/catalog/paid-apps"' in html
     assert 'href="/catalog/mobile-recharge"' in html
     assert 'class="service-grid"' in html
     assert 'class="side-nav"' not in html
@@ -47,8 +51,12 @@ def test_catalog_page_uses_public_showcase_before_login():
     assert "رجوع إلى الأقسام" in html
     assert 'href="/catalog/games"' in html
     assert 'href="/catalog/chat-apps"' in html
+    assert 'href="/catalog/social-services"' in html
     assert 'href="/catalog/subscriptions"' in html
+    assert 'href="/catalog/store-cards"' in html
     assert 'href="/catalog/verification-numbers"' in html
+    assert 'href="/catalog/internet-providers"' in html
+    assert 'href="/catalog/paid-apps"' in html
     assert "PUBG Mobile UC" not in html
     assert 'href="/login"' in html
     assert 'href="/register"' in html
@@ -75,6 +83,30 @@ def test_catalog_section_shows_subcategory_tabs():
     assert 'href="/catalog/games/cards"' in html
     assert "شحن ألعاب الموبايل" in html
     assert "PUBG Mobile UC" not in html
+
+
+def test_catalog_exposes_custom_miniapp_sections_as_first_level_routes():
+    html = landing_page.catalog_page_html()
+
+    for href in (
+        "/catalog/social-services",
+        "/catalog/store-cards",
+        "/catalog/internet-providers",
+        "/catalog/paid-apps",
+    ):
+        assert f'href="{href}"' in html
+
+    social = landing_page.catalog_page_html("social-services")
+    assert 'href="/catalog/social-services/tiktok"' in social
+    assert 'href="/catalog/social-services/instagram"' in social
+
+    cards = landing_page.catalog_page_html("store-cards")
+    assert 'href="/catalog/store-cards/mobile-stores"' in cards
+    assert 'href="/catalog/store-cards/gaming-stores"' in cards
+
+    apps = landing_page.catalog_page_html("paid-apps", category_slug="mobile-tools")
+    assert "Android AMT" in apps
+    assert "DFT Pro" in apps
 
 
 def test_catalog_category_filters_items():
