@@ -18,6 +18,7 @@ def test_landing_page_exposes_public_website_navigation():
     assert 'href="/catalog/internet-providers"' in html
     assert 'href="/catalog/paid-apps"' in html
     assert 'href="/catalog/mobile-recharge"' in html
+    assert 'href="/catalog/esim"' in html
     assert 'class="catalog-nav"' in html
     assert 'class="service-grid"' not in html
     assert 'class="side-nav"' not in html
@@ -58,7 +59,7 @@ def test_catalog_page_uses_public_showcase_before_login():
     assert 'id="catalog-empty"' in html
     assert 'class="category-tabs"' not in html
     assert 'class="breadcrumbs"' in html
-    assert "رجوع إلى الأقسام" in html
+    assert "رجوع إلى الأقسام" not in html
     assert 'href="/catalog/games"' in html
     assert 'href="/catalog/chat-apps"' in html
     assert 'href="/catalog/social-services"' in html
@@ -126,9 +127,12 @@ def test_catalog_section_shows_subcategory_tabs():
     assert 'class="breadcrumbs"' in html
     assert "<span>الألعاب</span>" in html
     assert "رجوع إلى الأقسام" in html
-    assert 'href="/catalog/games/games"' in html
-    assert 'href="/catalog/games/cards"' in html
-    assert "شحن ألعاب الموبايل" in html
+    assert 'href="/catalog/games/pubg"' in html
+    assert 'href="/catalog/games/free_fire"' in html
+    assert 'href="/catalog/games/games"' not in html
+    assert 'href="/catalog/games/cards"' not in html
+    assert "بطاقات الألعاب" not in html
+    assert "شحن ألعاب الموبايل" not in html
     assert "PUBG Mobile UC" not in html
 
 
@@ -149,7 +153,10 @@ def test_catalog_exposes_custom_miniapp_sections_as_first_level_routes():
 
     cards = landing_page.catalog_page_html("store-cards")
     assert 'href="/catalog/store-cards/mobile-stores"' in cards
-    assert 'href="/catalog/store-cards/gaming-stores"' in cards
+    assert 'href="/catalog/store-cards/platform-stores"' in cards
+    assert 'href="/catalog/store-cards/gaming-stores"' not in cards
+    assert "Roblox" not in cards
+    assert "Discord و IMO" not in cards
 
     apps = landing_page.catalog_page_html("paid-apps", category_slug="mobile-tools")
     assert "Android AMT" in apps
@@ -168,6 +175,25 @@ def test_catalog_sections_include_miniapp_family_categories():
     assert 'href="/catalog/verification-numbers/chatgpt_numbers"' in numbers
     assert 'href="/catalog/subscriptions/chatgpt"' in subscriptions
     assert 'href="/catalog/mobile-recharge/syriatel"' in recharge
+    assert 'href="/catalog/mobile-recharge/esim"' not in recharge
+
+
+def test_esim_is_a_separate_disabled_section_until_api_is_enabled():
+    root = landing_page.catalog_page_html()
+    esim = landing_page.catalog_page_html("esim")
+    payload = landing_page.public_catalog_payload()
+    sections = {row["slug"]: row for row in payload["sections"]}
+
+    assert 'href="/catalog/esim"' in root
+    assert "قريباً - API غير مفعّل" in root
+    assert "<h1>eSIM</h1>" in esim
+    assert "الخدمة غير مفعّلة حالياً" in esim
+    assert "سيتم فتح الباقات والشراء بعد تفعيل وربط الـ API." in esim
+    assert "/login?next=/app/digital" not in esim
+    assert sections["esim"]["enabled"] is False
+    assert sections["esim"]["categories_count"] == 0
+    assert sections["mobile-recharge"]["enabled"] is True
+    assert all(row["slug"] != "esim" for row in sections["mobile-recharge"]["categories"])
 
 
 def test_public_catalog_payload_exposes_nested_sections_for_customer_app():
@@ -199,21 +225,21 @@ def test_catalog_large_category_tabs_are_compact_but_keep_active_category():
 
 
 def test_catalog_category_filters_items():
-    html = landing_page.catalog_page_html("games", category_slug="games")
+    html = landing_page.catalog_page_html("games", category_slug="pubg")
 
-    assert "<h1>شحن ألعاب الموبايل</h1>" in html
+    assert "<h1>PUBG</h1>" in html
     assert "اختر المنتج أو الخدمة" in html
     assert 'class="category-tabs"' in html
     assert 'href="/catalog/games" data-preserve-catalog-query>الألعاب</a>' in html
-    assert "<span>شحن ألعاب الموبايل</span>" in html
+    assert "<span>PUBG</span>" in html
     assert "رجوع إلى الأصناف" in html
-    assert "PUBG Mobile UC" in html
+    assert "باقات وخدمات PUBG" in html
     assert "Adobe" not in html
-    assert 'class="category-tab active" href="/catalog/games/games" data-preserve-catalog-query' in html
+    assert 'class="category-tab active" href="/catalog/games/pubg" data-preserve-catalog-query' in html
 
 
 def test_catalog_checkout_links_open_the_right_authenticated_workspace():
-    games = landing_page.catalog_page_html("games", category_slug="games")
+    games = landing_page.catalog_page_html("games", category_slug="pubg")
     numbers = landing_page.catalog_page_html("verification-numbers", category_slug="temporary")
 
     assert "/app/services" not in games

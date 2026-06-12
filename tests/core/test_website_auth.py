@@ -150,7 +150,7 @@ async def test_public_catalog_query_category_filters_section_items():
     with pytest.raises(web.HTTPFound) as exc:
         await landing_page.catalog_page(request)
 
-    assert exc.value.location == "/catalog/games/games"
+    assert exc.value.location == "/catalog/games"
 
 
 @pytest.mark.asyncio
@@ -163,7 +163,7 @@ async def test_public_catalog_nested_category_filters_section_items():
     with pytest.raises(web.HTTPFound) as exc:
         await landing_page.catalog_page(request)
 
-    assert exc.value.location == "/catalog/games/games"
+    assert exc.value.location == "/catalog/games"
 
 
 @pytest.mark.asyncio
@@ -260,6 +260,10 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "email verification required" in js
     assert "يجب تأكيد البريد الإلكتروني قبل تنفيذ هذا الإجراء." in js
     assert "function authContextForPath" in js
+    assert "function postAuthCustomerPath" in js
+    assert 'if (next === "/app" || next?.startsWith("/app/")) return next;' in js
+    assert 'if (pathname === "/account") return "/app/account";' in js
+    assert "pushRoute(postAuthCustomerPath());" in js
     assert "applyAuthContextMessage();" in js
     assert "بعد الدخول سنعيدك إلى نفس القسم." in js
     assert 'if (pathname.startsWith("/app/services")) return "home";' in js
@@ -277,6 +281,8 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'api("/api/v1/catalog")' in js
     assert "function renderAccountCatalog" in js
     assert "function openAccountCatalogRow" in js
+    assert "selected?.enabled === false" in js
+    assert 'data-account-catalog-disabled="1"' in js
     assert 'section.service === "numbers"' in js
     assert "pendingDigitalCatalogSelection" in js
     assert 'else if (initialView === "home") {\n    openPanel("home", "الخدمات", { updateRoute: false });\n  }' in js
@@ -300,6 +306,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert ".manual-fulfillment-notice" in css
     assert ".account-catalog-grid" in css
     assert ".account-catalog-card" in css
+    assert ".account-catalog-card.is-unavailable" in css
     assert '"الأمان": "Security"' in i18n
     assert '"تغيير كلمة المرور": "Change password"' in i18n
     assert ".language-toggle {" in css

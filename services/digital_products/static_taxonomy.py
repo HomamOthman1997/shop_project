@@ -464,7 +464,17 @@ def detect_service_key_strict(text: str | None) -> str | None:
         return "numbers_services"
     if _contains_taxonomy_token(n, "telegram"):
         return "chat_apps"
+    # A named game always belongs under Games, even when the product is sold as a card or voucher.
+    for row in CUSTOM_FAMILY_TABLE.get("games", ()):
+        aliases = [str(alias or "").strip().lower() for alias in tuple(row.get("aliases") or ()) if str(alias or "").strip()]
+        if any(_contains_taxonomy_token(n, alias) for alias in aliases):
+            return "games"
+    for _family_key, _label, aliases in FAMILY_RULES.get("games", ()):
+        if any(_contains_taxonomy_token(n, alias) for alias in aliases):
+            return "games"
     for service_key, rows in CUSTOM_FAMILY_TABLE.items():
+        if service_key == "games":
+            continue
         for row in rows:
             aliases = [str(alias or "").strip().lower() for alias in tuple(row.get("aliases") or ()) if str(alias or "").strip()]
             if any(n == alias for alias in aliases):

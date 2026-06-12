@@ -207,9 +207,6 @@ FAMILY_TABLE: dict[str, tuple[dict[str, object], ...]] = {
         {"key": "visa", "label": "Visa", "aliases": ("visa",)},
         {"key": "xbox", "label": "Xbox", "aliases": ("xbox",)},
         {"key": "nintendo", "label": "Nintendo", "aliases": ("nintendo",)},
-        {"key": "roblox", "label": "Roblox", "aliases": ("roblox", "روبلوكس")},
-        {"key": "discord", "label": "Discord", "aliases": ("discord",)},
-        {"key": "imo", "label": "IMO", "aliases": ("imo",)},
     ),
     "paid_subscriptions": (
         {"key": "netflix", "label": "Netflix", "aliases": ("netflix",)},

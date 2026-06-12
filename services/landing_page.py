@@ -993,7 +993,6 @@ _CATALOG_SECTIONS: tuple[dict[str, object], ...] = (
         "accent": "green",
         "items": (
             ("PUBG و BGMI", "باقات UC وخيارات تسليم حسب معرف اللاعب أو الكود."),
-            ("بطاقات الألعاب", "منتجات رقمية جاهزة أو تنفيذ يدوي حسب المصدر."),
             ("تطبيقات واشتراكات", "خدمات رقمية وباقات اشتراك قابلة للإضافة للكتالوغ."),
             ("كوتات وباقات", "عرض الباقات والأسعار قبل تأكيد الطلب."),
         ),
@@ -1117,29 +1116,6 @@ _CATALOG_SECTIONS = (
         "accent": "green",
         "items": (
             ("شحن ألعاب", "منتجات ألعاب عامة قابلة للتوسع حسب المزود."),
-            ("بطاقات ألعاب", "أكواد ومنتجات رقمية جاهزة أو تنفيذ يدوي."),
-        ),
-        "categories": (
-            {
-                "slug": "games",
-                "title": "شحن ألعاب الموبايل",
-                "subtitle": "شدات وأرصدة ألعاب موبايل حسب معرف اللاعب أو الباقة.",
-                "items": (
-                    ("PUBG Mobile UC", "باقات UC مع تحقق اسم اللاعب عند توفر المزود."),
-                    ("BGMI", "باقات وشدات حسب المنطقة والمصدر."),
-                    ("ألعاب موبايل أخرى", "تصنيفات قابلة للإضافة حسب مصادر المنتجات."),
-                ),
-            },
-            {
-                "slug": "cards",
-                "title": "بطاقات الألعاب",
-                "subtitle": "أكواد ومنتجات رقمية جاهزة للألعاب والمتاجر.",
-                "items": (
-                    ("PlayStation", "بطاقات ومتاجر حسب الدولة والتوفر."),
-                    ("Xbox و Nintendo", "أكواد رقمية عند توفر المخزون."),
-                    ("Steam و PC", "بطاقات ومنتجات ألعاب للكمبيوتر."),
-                ),
-            },
         ),
     },
     {
@@ -1304,9 +1280,9 @@ _CATALOG_SECTIONS = (
                 ),
             },
             {
-                "slug": "gaming-stores",
-                "title": "متاجر الألعاب",
-                "subtitle": "بطاقات منصات الألعاب والمتاجر الرقمية.",
+                "slug": "platform-stores",
+                "title": "متاجر ومنصات",
+                "subtitle": "بطاقات متاجر ومنصات رقمية عامة.",
                 "items": (
                     ("Steam", "بطاقات Steam حسب العملة والمنطقة."),
                     ("PlayStation", "بطاقات PSN حسب الدولة."),
@@ -1319,8 +1295,8 @@ _CATALOG_SECTIONS = (
                 "subtitle": "بطاقات رقمية عامة وخدمات مرتبطة بالمتاجر.",
                 "items": (
                     ("Visa", "منتجات Visa رقمية عند توفرها."),
-                    ("Roblox", "بطاقات Roblox ومنتجات ألعاب."),
-                    ("Discord و IMO", "بطاقات وخدمات رقمية مرتبطة بالتطبيقات."),
+                    ("بطاقات دفع رقمية", "بطاقات وخدمات دفع عامة عند توفرها."),
+                    ("قسائم متاجر", "قسائم شراء عامة غير مرتبطة بلعبة محددة."),
                 ),
             },
         ),
@@ -1439,7 +1415,7 @@ _CATALOG_SECTIONS = (
     {
         "slug": "mobile-recharge",
         "title": "شحن أرصدة وباقات",
-        "subtitle": "شحن دولي، أوكرانيا، وباقات اتصال و eSIM.",
+        "subtitle": "شحن دولي، أوكرانيا، وأرصدة وباقات اتصال.",
         "accent": "blue",
         "items": (
             ("أوكرانيا", "شحن أرصدة وباقات أوكرانية عند توفر المصدر."),
@@ -1466,16 +1442,18 @@ _CATALOG_SECTIONS = (
                     ("باقات بيانات", "تصنيفات بيانات واتصال."),
                 ),
             },
-            {
-                "slug": "esim",
-                "title": "eSIM وبيانات",
-                "subtitle": "منتجات سفر وبيانات رقمية.",
-                "items": (
-                    ("باقات سفر", "حسب الدولة والمدة وحجم البيانات."),
-                    ("بيانات عالمية", "خطط متعددة الدول عند توفرها."),
-                    ("تسليم رقمي", "التنفيذ والتسليم من داخل الحساب."),
-                ),
-            },
+        ),
+    },
+    {
+        "slug": "esim",
+        "title": "eSIM",
+        "subtitle": "شرائح إلكترونية وباقات بيانات للسفر. الـ API غير مفعّل حالياً.",
+        "accent": "amber",
+        "enabled": False,
+        "status": "قريباً - API غير مفعّل",
+        "items": (
+            ("باقات حسب الدولة", "اختيار الدولة والمدة وحجم البيانات بعد تفعيل الـ API."),
+            ("باقات متعددة الدول", "خطط سفر إقليمية وعالمية بعد تفعيل المصدر."),
         ),
     },
 )
@@ -1484,7 +1462,7 @@ _SHOWCASE_TILES: tuple[dict[str, str], ...] = (
     {
         "title": "الألعاب",
         "subtitle": "شدات وباقات ألعاب",
-        "href": "/catalog/digital/games",
+        "href": "/catalog/games",
         "image": "/mini/digital/static/games-rtl.png",
         "accent": "green",
     },
@@ -1645,6 +1623,8 @@ def public_catalog_payload() -> dict[str, object]:
                 "subtitle": str(section.get("subtitle") or ""),
                 "accent": str(section.get("accent") or "green"),
                 "service": "numbers" if slug == "verification-numbers" else "digital",
+                "enabled": bool(section.get("enabled", True)),
+                "status": str(section.get("status") or ""),
                 "categories": categories,
                 "categories_count": len(categories),
             }
@@ -1713,10 +1693,11 @@ def _catalog_breadcrumbs(section: dict[str, object] | None, category: dict[str, 
         else:
             parts.append(f"<span>{section_title}</span>")
     crumb_html = '<span aria-hidden="true">/</span>'.join(parts)
+    back_link = f'<a class="back-link" href="{back_href}" data-preserve-catalog-query>{back_label}</a>' if section else ""
     return (
         '<div class="catalog-path">'
         f'<nav class="breadcrumbs" aria-label="مسار الكتالوغ">{crumb_html}</nav>'
-        f'<a class="back-link" href="{back_href}" data-preserve-catalog-query>{back_label}</a>'
+        f"{back_link}"
         "</div>"
     )
 
@@ -1738,12 +1719,16 @@ def _catalog_cards(*, active_slug: str = "") -> str:
         accent = escape(str(section["accent"]))
         active = " active" if slug == active_slug else ""
         search_text = escape(f"{title} {subtitle}")
+        enabled = bool(section.get("enabled", True))
+        status = escape(str(section.get("status") or ""))
+        state_class = "" if enabled else " unavailable"
         cards.append(
             f"""
-            <a class="catalog-card {accent}{active}" href="/catalog/{escape(slug)}" data-catalog-search="{search_text}" {_catalog_link_attrs()}>
+            <a class="catalog-card {accent}{active}{state_class}" href="/catalog/{escape(slug)}" data-catalog-search="{search_text}" {_catalog_link_attrs()}>
               <span class="catalog-mark" aria-hidden="true"></span>
               <strong>{title}</strong>
               <span>{subtitle}</span>
+              {f'<small class="catalog-status">{status}</small>' if status else ''}
             </a>
             """
         )
@@ -1864,7 +1849,13 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     title = str((category or section)["title"]) if (category or section) else "Phantom Services"
     breadcrumbs_html = _catalog_breadcrumbs(section, category)
     broader_search_path = _broader_catalog_search_path(section, category)
-    if category:
+    if section and not bool(section.get("enabled", True)):
+        stage_title = "الخدمة غير مفعّلة حالياً"
+        stage_hint = str(section.get("status") or "قريباً")
+        stage_html = '<div class="catalog-unavailable"><strong>eSIM قريباً</strong><span>سيتم فتح الباقات والشراء بعد تفعيل وربط الـ API.</span></div>'
+        stage_class = "product-stage"
+        category_tabs_html = ""
+    elif category:
         stage_title = "اختر المنتج أو الخدمة"
         stage_hint = "هذه المنتجات متاحة للاستعراض. تنفيذ الطلب يتم بعد تسجيل الدخول وشحن الرصيد."
         stage_html = _catalog_items(section, category)
@@ -1953,6 +1944,10 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     .product-stage {{ margin: 12px 0 26px; }}
     .catalog-card {{ min-height: 150px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: transform .18s ease, border-color .18s ease, background .18s ease; }}
     .catalog-card:hover, .catalog-card.active {{ transform: translateY(-2px); border-color: rgba(255,255,255,.28); background: var(--panel-strong); }}
+    .catalog-card.unavailable {{ border-color: rgba(245,158,11,.28); opacity: .82; }}
+    .catalog-status {{ margin-top: auto; color: #fde68a; font-weight: 900; }}
+    .catalog-unavailable {{ min-height: 190px; border: 1px solid rgba(245,158,11,.3); border-radius: 8px; background: rgba(245,158,11,.08); display: grid; place-items: center; align-content: center; gap: 10px; text-align: center; color: #fde68a; padding: 24px; }}
+    .catalog-unavailable strong {{ color: #fff7ed; font-size: 1.25rem; }}
     .catalog-mark {{ width: 42px; height: 8px; border-radius: 999px; background: currentColor; box-shadow: 0 0 24px currentColor; opacity: .84; }}
     .catalog-card strong {{ font-size: 1.05rem; }}
     .catalog-section-kicker {{ color: #c7d2fe; font-size: .78rem; font-weight: 900; line-height: 1.35; }}
@@ -2125,7 +2120,7 @@ async def catalog_page(request: web.Request) -> web.Response:
     if slug and section and slug != str(section["slug"]):
         query = {key: value for key, value in request.query.items() if key != "category"}
         canonical = f"/catalog/{section['slug']}"
-        if category_slug:
+        if category_slug and category_slug != "games":
             canonical = f"{canonical}/{category_slug}"
         if query:
             canonical = f"{canonical}?{urlencode(query)}"

@@ -1180,6 +1180,8 @@ button.owner-action-row {
 .account-catalog-card.violet { color: #a78bfa; }
 .account-catalog-card.amber { color: #f59e0b; }
 .account-catalog-card span:last-child { color: var(--ink); }
+.account-catalog-card b { margin-top: auto; color: #fde68a; font-size: 12px; }
+.account-catalog-card.is-unavailable { border-color: rgba(245,158,11,.28); opacity: .78; }
 .account-catalog-empty {
   grid-column: 1 / -1;
   min-height: 160px;
@@ -1188,6 +1190,8 @@ button.owner-action-row {
   place-items: center;
   color: var(--muted);
   padding: 24px;
+  gap: 8px;
+  text-align: center;
 }
 .service-workspace.active {
   display: grid;

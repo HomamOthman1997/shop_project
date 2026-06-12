@@ -18,6 +18,30 @@ def test_create_app_registers_health_routes():
     assert ("GET", "/ready") in routes
 
 
+def test_named_game_gift_products_are_grouped_under_games_not_store_cards():
+    from services.digital_products import miniapp
+
+    snapshot = {
+        "gift_categories": [{"id": "cards", "name": "Gift Cards"}],
+        "products_by_category": {
+            "cards": [
+                {"id": "pubg-card", "name": "PUBG Mobile Gift Card", "price": 10, "stock": 1},
+                {"id": "valorant-card", "name": "Valorant Gift Card 10 USD", "price": 10, "stock": 1},
+                {"id": "steam-card", "name": "Steam Gift Card", "price": 10, "stock": 1},
+            ]
+        },
+    }
+
+    groups, _source_map = miniapp._grouped_gift_categories(snapshot)
+    grouped = {(row["service_key"], row["name"]) for row in groups}
+
+    assert ("games", "PUBG") in grouped
+    assert ("games", "Valorant") in grouped
+    assert ("store_cards", "Steam") in grouped
+    assert ("store_cards", "PUBG") not in grouped
+    assert ("store_cards", "Valorant") not in grouped
+
+
 @pytest.mark.asyncio
 async def test_website_enabled_starts_http_server_without_miniapps(monkeypatch):
     from services.digital_products import miniapp

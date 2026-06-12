@@ -136,6 +136,14 @@ function pushRoute(path) {
   if (window.location.pathname !== path) window.history.pushState({}, "", path);
 }
 
+function postAuthCustomerPath(pathname = window.location.pathname, search = window.location.search) {
+  const next = new URLSearchParams(search).get("next");
+  if (next === "/app" || next?.startsWith("/app/")) return next;
+  if (pathname === "/account") return "/app/account";
+  if (pathname === "/app" || pathname.startsWith("/app/")) return pathname;
+  return "/app";
+}
+
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
@@ -279,6 +287,7 @@ function showAccount(account) {
     return;
   }
   if (window.location.pathname.startsWith("/admin")) pushRoute("/app");
+  pushRoute(postAuthCustomerPath());
   const initialView = viewForPath();
   if (initialView === "digital" || initialView === "numbers") {
     openPanel("home", "الخدمات", { updateRoute: false });
@@ -446,11 +455,13 @@ function renderAccountCatalog() {
   target.innerHTML = rows.length ? rows.map((row) => {
     const accent = section?.accent || row.accent || "green";
     const count = section ? "" : `${Number(row.categories_count || 0)} صنف`;
+    const unavailable = row.enabled === false;
     return `
-      <button class="account-catalog-card ${esc(accent)}" type="button" data-account-catalog-slug="${esc(row.slug || "")}">
+      <button class="account-catalog-card ${esc(accent)}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
         <span class="account-catalog-mark" aria-hidden="true"></span>
         <strong>${esc(row.title || row.slug || "")}</strong>
         <span>${esc(row.subtitle || count)}</span>
+        ${row.status ? `<b>${esc(row.status)}</b>` : ""}
       </button>`;
   }).join("") : '<div class="account-catalog-empty">لا توجد نتائج مطابقة.</div>';
   target.querySelectorAll("[data-account-catalog-slug]").forEach((button) => {
@@ -461,7 +472,16 @@ function renderAccountCatalog() {
 function openAccountCatalogRow(slug) {
   const section = accountCatalogState.activeSection;
   if (!section) {
-    accountCatalogState.activeSection = accountCatalogState.sections.find((row) => row.slug === slug) || null;
+    const selected = accountCatalogState.sections.find((row) => row.slug === slug) || null;
+    if (selected?.enabled === false) {
+      $("#account-catalog-grid").innerHTML = `
+        <div class="account-catalog-empty">
+          <strong>${esc(selected.title || "الخدمة")}</strong>
+          <span>${esc(selected.status || "الخدمة غير مفعّلة حالياً.")}</span>
+        </div>`;
+      return;
+    }
+    accountCatalogState.activeSection = selected;
     accountCatalogState.query = "";
     const input = $("#account-catalog-search");
     if (input) input.value = "";

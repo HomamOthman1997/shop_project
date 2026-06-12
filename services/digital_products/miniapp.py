@@ -1039,8 +1039,6 @@ def _family_rules_for_service(service_key: str) -> list[tuple[str, str, tuple[st
             ("xbox", "Xbox", ("xbox",)),
             ("nintendo", "Nintendo", ("nintendo",)),
             ("razer", "Razer Gold", ("razer",)),
-            ("roblox", "Roblox", ("roblox", "روبلوكس")),
-            ("league_of_legends", "League of Legends", ("league of legends", "lol", "riot", "riot points", "league")),
             ("gift_cards", "Gift Cards", ("gift", "voucher", "card", "بطاقة", "قسيمة")),
         ]
     if service_key == "communications_data":
