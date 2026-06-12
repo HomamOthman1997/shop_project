@@ -132,6 +132,14 @@ def test_catalog_generated_family_category_renders_as_product_stage():
     assert 'href="/catalog/games/free_fire"' in html
 
 
+def test_catalog_large_category_tabs_are_compact_but_keep_active_category():
+    html = landing_page.catalog_page_html("games", category_slug="jawaker")
+
+    assert html.count('class="category-tab') < 30
+    assert 'class="category-tab active" href="/catalog/games/jawaker"' in html
+    assert 'class="category-tab more" href="/catalog/games"' in html
+
+
 def test_catalog_category_filters_items():
     html = landing_page.catalog_page_html("games", category_slug="games")
 

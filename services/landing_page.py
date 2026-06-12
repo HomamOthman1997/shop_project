@@ -1643,14 +1643,24 @@ def _category_tabs(section: dict[str, object] | None, *, active_category: str = 
     if not categories:
         return ""
     section_slug = escape(str(section["slug"]))
+    visible_categories = list(categories)
+    hidden_count = 0
+    if len(visible_categories) > 24:
+        active = next((category for category in visible_categories if str(category.get("slug") or "") == active_category), None)
+        visible_categories = visible_categories[:18]
+        if active and all(str(category.get("slug") or "") != active_category for category in visible_categories):
+            visible_categories.append(active)
+        hidden_count = max(0, len(categories) - len(visible_categories))
     links = [
         f'<a class="category-tab {"active" if not active_category else ""}" href="/catalog/{section_slug}">الكل</a>'
     ]
-    for category in categories:
+    for category in visible_categories:
         slug = str(category.get("slug") or "")
         title = escape(str(category.get("title") or slug))
         active = " active" if slug == active_category else ""
         links.append(f'<a class="category-tab{active}" href="/catalog/{section_slug}/{escape(slug)}">{title}</a>')
+    if hidden_count:
+        links.append(f'<a class="category-tab more" href="/catalog/{section_slug}">+{hidden_count} أصناف</a>')
     return f'<nav class="category-tabs" aria-label="تصنيفات {escape(str(section["title"]))}">{"".join(links)}</nav>'
 
 
@@ -1889,6 +1899,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     .category-tabs {{ display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0 24px; }}
     .category-tab {{ min-height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 13px; display: inline-flex; align-items: center; color: #c7d2fe; background: rgba(255,255,255,.045); font-size: .9rem; font-weight: 800; }}
     .category-tab.active {{ border-color: rgba(52,211,153,.38); background: rgba(52,211,153,.11); color: #d1fae5; }}
+    .category-tab.more {{ color: #fef3c7; border-color: rgba(245,158,11,.22); background: rgba(245,158,11,.08); }}
     .product-group {{ margin-top: 20px; }}
     .group-head {{ display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }}
     .group-head h2 {{ color: var(--text); font-size: 1.35rem; }}
