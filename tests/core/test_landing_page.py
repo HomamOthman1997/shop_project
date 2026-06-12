@@ -72,15 +72,20 @@ def test_catalog_search_script_filters_public_content():
     assert 'node.hidden = !isVisible' in html
     assert 'node.hasAttribute("data-root-search-result")' in html
     assert 'encodeURIComponent(input.value.trim())' in html
+    assert 'data-preserve-catalog-query' in html
+    assert 'const syncQueryLinks = (query) =>' in html
+    assert 'params.set("q", query)' in html
     assert 'لا توجد نتائج مطابقة' in html
 
 
 def test_catalog_root_search_indexes_miniapp_families_without_showing_them_by_default():
     html = landing_page.catalog_page_html()
 
-    assert 'data-root-search-result hidden' in html
+    assert 'data-root-search-result data-preserve-catalog-query hidden' in html
     assert 'class="catalog-card green root-search-card" href="/catalog/games/jawaker"' in html
-    assert 'class="catalog-card amber root-search-card" href="/catalog/verification-numbers/telegram_numbers"' in html
+    assert 'href="/catalog/games/jawaker" data-catalog-search=' in html
+    assert 'href="/catalog/verification-numbers/telegram_numbers" data-catalog-search=' in html
+    assert 'data-root-search-result data-preserve-catalog-query hidden' in html
     assert '<small class="catalog-section-kicker">ضمن الألعاب</small>' in html
     assert '<small class="catalog-section-kicker">ضمن أرقام تأكيد</small>' in html
     assert "جواكر" in html

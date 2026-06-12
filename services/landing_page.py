@@ -1684,7 +1684,7 @@ def _catalog_breadcrumbs(section: dict[str, object] | None, category: dict[str, 
     return (
         '<div class="catalog-path">'
         f'<nav class="breadcrumbs" aria-label="مسار الكتالوغ">{crumb_html}</nav>'
-        f'<a class="back-link" href="{back_href}">{back_label}</a>'
+        f'<a class="back-link" href="{back_href}" data-preserve-catalog-query>{back_label}</a>'
         "</div>"
     )
 
@@ -1752,7 +1752,7 @@ def _root_family_search_cards() -> str:
             search_text = escape(f"{section_title} {category.get('title', '')} {category.get('subtitle', '')} {category.get('search_terms', '')}")
             cards.append(
                 f"""
-                <a class="catalog-card {accent} root-search-card" href="/catalog/{section_slug}/{slug}" data-catalog-search="{search_text}" data-root-search-result hidden>
+                <a class="catalog-card {accent} root-search-card" href="/catalog/{section_slug}/{slug}" data-catalog-search="{search_text}" data-root-search-result data-preserve-catalog-query hidden>
                   <span class="catalog-mark" aria-hidden="true"></span>
                   <small class="catalog-section-kicker">ضمن {section_label}</small>
                   <strong>{title}</strong>
@@ -2037,8 +2037,24 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
       const searchable = Array.from(document.querySelectorAll("[data-catalog-search]"));
       if (!input || !empty || !searchable.length) return;
       const normalize = (value) => String(value || "").trim().toLowerCase();
+      const queryLinks = Array.from(document.querySelectorAll("[data-preserve-catalog-query]"));
+      const hrefWithQuery = (href, query) => {{
+        if (!href || !query) return href;
+        const [baseAndSearch, hash = ""] = String(href).split("#");
+        const [path, search = ""] = baseAndSearch.split("?");
+        const params = new URLSearchParams(search);
+        params.set("q", query);
+        return `${{path}}?${{params.toString()}}${{hash ? `#${{hash}}` : ""}}`;
+      }};
+      const syncQueryLinks = (query) => {{
+        queryLinks.forEach((link) => {{
+          if (!link.dataset.baseHref) link.dataset.baseHref = link.getAttribute("href") || "";
+          link.setAttribute("href", query ? hrefWithQuery(link.dataset.baseHref, query) : link.dataset.baseHref);
+        }});
+      }};
       const applySearch = () => {{
         const query = normalize(input.value);
+        syncQueryLinks(input.value.trim());
         let visibleProducts = 0;
         searchable.forEach((node) => {{
           const haystack = normalize(node.getAttribute("data-catalog-search") + " " + node.textContent);
