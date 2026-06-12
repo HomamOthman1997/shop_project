@@ -1737,6 +1737,29 @@ def _category_cards(section: dict[str, object]) -> str:
     return "\n".join(cards)
 
 
+def _root_family_search_cards() -> str:
+    cards: list[str] = []
+    for section in _CATALOG_SECTIONS:
+        section_slug = escape(str(section["slug"]))
+        accent = escape(str(section["accent"]))
+        section_title = str(section["title"])
+        for category in _family_categories(section):
+            slug = escape(str(category.get("slug") or ""))
+            title = escape(str(category.get("title") or slug))
+            subtitle = escape(str(category.get("subtitle") or ""))
+            search_text = escape(f"{section_title} {category.get('title', '')} {category.get('subtitle', '')}")
+            cards.append(
+                f"""
+                <a class="catalog-card {accent} root-search-card" href="/catalog/{section_slug}/{slug}" data-catalog-search="{search_text}" data-root-search-result hidden>
+                  <span class="catalog-mark" aria-hidden="true"></span>
+                  <strong>{title}</strong>
+                  <span>{subtitle}</span>
+                </a>
+                """
+            )
+    return "\n".join(cards)
+
+
 def _section_checkout_path(section: dict[str, object] | None) -> str:
     slug = str((section or {}).get("slug") or "")
     aliases = {str(alias) for alias in (section or {}).get("aliases", ())}  # type: ignore[union-attr]
@@ -1826,7 +1849,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     else:
         stage_title = "اختر القسم"
         stage_hint = "ابدأ من قسم رئيسي، ثم تابع إلى الأصناف الفرعية والمنتجات."
-        stage_html = _catalog_cards(active_slug=active_slug)
+        stage_html = f"{_catalog_cards(active_slug=active_slug)}{_root_family_search_cards()}"
         stage_class = "catalog-nav"
         category_tabs_html = ""
     return f"""\
@@ -2014,7 +2037,8 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
         let visibleProducts = 0;
         searchable.forEach((node) => {{
           const haystack = normalize(node.getAttribute("data-catalog-search") + " " + node.textContent);
-          const isVisible = !query || haystack.includes(query);
+          const rootOnly = node.hasAttribute("data-root-search-result");
+          const isVisible = rootOnly ? Boolean(query) && haystack.includes(query) : (!query || haystack.includes(query));
           node.hidden = !isVisible;
           if (isVisible && node.classList.contains("product-tile")) visibleProducts += 1;
         }});

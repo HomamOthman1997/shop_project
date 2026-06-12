@@ -70,8 +70,19 @@ def test_catalog_search_script_filters_public_content():
     assert 'input.addEventListener("input", applySearch)' in html
     assert 'params.get("q")' in html
     assert 'node.hidden = !isVisible' in html
+    assert 'node.hasAttribute("data-root-search-result")' in html
     assert 'encodeURIComponent(input.value.trim())' in html
     assert 'لا توجد نتائج مطابقة' in html
+
+
+def test_catalog_root_search_indexes_miniapp_families_without_showing_them_by_default():
+    html = landing_page.catalog_page_html()
+
+    assert 'data-root-search-result hidden' in html
+    assert 'class="catalog-card green root-search-card" href="/catalog/games/jawaker"' in html
+    assert 'class="catalog-card amber root-search-card" href="/catalog/verification-numbers/telegram_numbers"' in html
+    assert 'const rootOnly = node.hasAttribute("data-root-search-result");' in html
+    assert 'rootOnly ? Boolean(query) && haystack.includes(query)' in html
 
 
 def test_catalog_empty_search_links_to_broader_scope():
