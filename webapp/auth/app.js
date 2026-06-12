@@ -2805,6 +2805,7 @@ async function loadDigitalWorkspace() {
 
 function renderDigitalCatalog(payload) {
   const root = serviceRoot();
+  root.classList.remove("is-catalog-packages");
   const products = payload.products || [];
   const games = payload.games || [];
   const productCategories = payload.product_categories || [];
@@ -2895,19 +2896,20 @@ function renderDigitalCatalog(payload) {
 function renderDigitalSelectedFamily(payload, selection) {
   const root = serviceRoot();
   const title = selection.title || selection.familyKey;
+  root.classList.add("is-catalog-packages");
   root.innerHTML = `
-    <div class="digital-direct-head">
+    <div class="account-catalog-path digital-direct-head">
       <div>
-        <span>الألعاب</span>
-        <h3>${esc(title)}</h3>
+        <strong>${esc(title)}</strong>
+        <span>اختر الحزمة المطلوبة.</span>
       </div>
-      <button class="secondary compact" type="button" data-digital-catalog-back>رجوع للألعاب</button>
+      <button class="account-catalog-back" type="button" data-digital-catalog-back>رجوع</button>
     </div>
     <div class="manual-fulfillment-notice">
       <strong>جميع الطلبات تنفيذ يدوي</strong>
       <span>${esc(localized(payload.fulfillment?.label, "مدة التنفيذ من دقيقة إلى ساعة."))}</span>
     </div>
-    <div class="service-detail digital-direct-detail" id="digital-detail">
+    <div class="digital-direct-detail" id="digital-detail">
       <div class="service-loader">جاري تحميل الحزم والأسعار...</div>
     </div>`;
   root.querySelector("[data-digital-catalog-back]").addEventListener("click", () => renderDigitalCatalog(payload));
@@ -2972,10 +2974,7 @@ async function loadDigitalFamilyPackages(selection, title) {
 function renderDigitalFamilyQuotes(title, offers, selection) {
   const detail = $("#digital-detail");
   detail.innerHTML = `
-    <div class="service-detail-head">
-      <div><h4>${esc(title)}</h4><span>اختر الحزمة المطلوبة</span></div>
-    </div>
-    <div class="quote-list digital-package-grid">
+    <div class="account-catalog-grid digital-package-grid">
       ${offers.length ? offers.map((offer, index) => digitalOfferHtml(offer.kind, offer, index)).join("") : '<div class="service-empty">لا توجد حزم مربوطة ومتاحة حالياً.</div>'}
     </div>`;
   detail.querySelectorAll("[data-digital-offer]").forEach((button) => {
@@ -3010,8 +3009,10 @@ function digitalOfferHtml(kind, offer, index) {
   const name = offer.item_name || offer.name || offer.title || offer.package_name || "Package";
   const price = offer.sale_price_label || offer.price_label || (offer.sale_price ? `$${Number(offer.sale_price).toFixed(2)}` : "-");
   return `
-    <button class="quote-row digital-package-card" type="button" data-digital-offer="${index}">
-      <div><strong>${esc(name)}</strong><span>${esc(offer.duration || offer.provider || kind)}</span></div>
+    <button class="account-catalog-card green digital-package-card" type="button" data-digital-offer="${index}">
+      <span class="account-catalog-mark" aria-hidden="true"></span>
+      <strong>${esc(name)}</strong>
+      <span>${esc(offer.duration || offer.provider || (kind === "game" ? "شحن لعبة" : "منتج رقمي"))}</span>
       <b>${esc(price)}</b>
     </button>`;
 }

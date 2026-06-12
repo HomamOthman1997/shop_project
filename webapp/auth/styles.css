@@ -1605,9 +1605,32 @@ button.owner-action-row {
 .service-root-digital .digital-direct-detail {
   width: 100%;
 }
+.service-workspace:has(.service-root-digital.is-catalog-packages) .workspace-head {
+  display: none;
+}
+.service-root-digital.is-catalog-packages {
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.service-root-digital.is-catalog-packages .digital-direct-head {
+  margin-bottom: 0;
+}
+.service-root-digital.is-catalog-packages .manual-fulfillment-notice {
+  margin: 0;
+}
+.service-root-digital.is-catalog-packages .digital-direct-detail {
+  min-width: 0;
+}
 .service-root-digital .digital-package-grid {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px;
+}
+.service-root-digital.is-catalog-packages .digital-package-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 .service-root-digital .digital-package-card {
   min-height: 132px;
@@ -1617,6 +1640,18 @@ button.owner-action-row {
   align-items: stretch;
   gap: 14px;
   text-align: center;
+}
+.service-root-digital.is-catalog-packages .digital-package-card {
+  min-height: 150px;
+  display: flex;
+  align-items: flex-start;
+  text-align: start;
+}
+.service-root-digital.is-catalog-packages .digital-package-card b {
+  width: 100%;
+  margin-top: auto;
+  border-top: 1px solid var(--line);
+  color: #34d399;
 }
 .service-root-digital .digital-package-card div {
   place-content: center;
