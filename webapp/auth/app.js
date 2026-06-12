@@ -2769,6 +2769,13 @@ function serviceError(message, retry) {
   root.querySelector("[data-service-retry]")?.addEventListener("click", retry);
 }
 
+function returnToAccountCatalog() {
+  if (serviceRoot()) serviceRoot().innerHTML = "";
+  setWorkspaceTheme("");
+  renderAccountCatalog();
+  openPanel("home", "الخدمات");
+}
+
 function idempotencyKey(prefix) {
   if (window.crypto?.randomUUID) return `${prefix}-${window.crypto.randomUUID()}`;
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -2912,7 +2919,7 @@ function renderDigitalSelectedFamily(payload, selection) {
     <div class="digital-direct-detail" id="digital-detail">
       <div class="service-loader">جاري تحميل الحزم والأسعار...</div>
     </div>`;
-  root.querySelector("[data-digital-catalog-back]").addEventListener("click", () => renderDigitalCatalog(payload));
+  root.querySelector("[data-digital-catalog-back]").addEventListener("click", returnToAccountCatalog);
   loadDigitalFamilyPackages(selection, title);
 }
 
@@ -3517,9 +3524,7 @@ window.addEventListener("popstate", () => {
 });
 
 $("#workspace-close")?.addEventListener("click", () => {
-  if (serviceRoot()) serviceRoot().innerHTML = "";
-  setWorkspaceTheme("");
-  openPanel("home", "الخدمات");
+  returnToAccountCatalog();
 });
 
 $("#cardex-link")?.addEventListener("click", (event) => {
