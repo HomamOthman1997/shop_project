@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import UTC, datetime, timedelta
@@ -1556,11 +1557,15 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
     else:
         game_name = _find_game_name(snapshot, str(game_id))
     rows_with_game: list[tuple[str, dict[str, Any]]] = []
-    for source_game_id in source_game_ids:
+    async def load_source_game(source_game_id: str) -> tuple[str, list[dict[str, Any]]]:
         try:
-            source_rows = await get_game_topups(str(source_game_id), force=True)
+            source_rows = await get_game_topups(str(source_game_id), force=False)
         except Exception:
             source_rows = []
+        return str(source_game_id), list(source_rows or [])
+
+    source_results = await asyncio.gather(*(load_source_game(str(source_game_id)) for source_game_id in source_game_ids))
+    for source_game_id, source_rows in source_results:
         for row in source_rows:
             rows_with_game.append((str(source_game_id), row))
     q = _norm(query)
@@ -1780,8 +1785,8 @@ async def website_family_packages(request: web.Request) -> web.Response:
         if str(category_id or "").strip()
     })
     packages: list[dict[str, Any]] = []
-    for game_id in game_ids:
-        game_payload = await _game_items(game_id)
+    game_payloads = await asyncio.gather(*(_game_items(game_id) for game_id in game_ids))
+    for game_id, game_payload in zip(game_ids, game_payloads):
         for item in list(game_payload.get("items") or []):
             price = float(item.get("price_usd") or 0.0)
             quote = {
@@ -1796,8 +1801,9 @@ async def website_family_packages(request: web.Request) -> web.Response:
                 "provider": str(item.get("best_provider_code") or "manual"),
             }
             packages.append({**item, "quote_token": make_digital_quote_token(quote), "price_label": f"${price:.2f}"})
-    for category_id in gift_category_ids:
-        for item in await _gift_products(category_id):
+    gift_payloads = await asyncio.gather(*(_gift_products(category_id) for category_id in gift_category_ids))
+    for category_id, gift_items in zip(gift_category_ids, gift_payloads):
+        for item in gift_items:
             price = float(item.get("price_usd") or 0.0)
             params = [str(value) for value in list(item.get("za3em_params") or []) if str(value).strip()]
             fields = [{"id": value, "label": value.replace("_", " ").title(), "required": True} for value in params]

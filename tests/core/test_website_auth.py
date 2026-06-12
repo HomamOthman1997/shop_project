@@ -287,6 +287,9 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "pendingDigitalCatalogSelection" in js
     assert "function renderDigitalSelectedFamily" in js
     assert "function loadDigitalFamilyPackages" in js
+    assert "function openDigitalCatalogSelection" in js
+    assert "openDigitalCatalogSelection(pendingDigitalCatalogSelection);" in js
+    assert "Array.from({ length: 8 }" in js
     assert "function returnToAccountCatalog" in js
     assert 'root.querySelector("[data-digital-catalog-back]").addEventListener("click", returnToAccountCatalog);' in js
     assert "/api/v1/digital/families/${encodeURIComponent(selection.serviceKey)}/${encodeURIComponent(selection.familyKey)}/packages" in js
@@ -304,7 +307,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'class="digital-category-tabs"' in js
     assert 'data-digital-filter="category:${esc(row.id)}"' in js
     assert 'row.category === selectedCategory' in js
-    assert 'openService("digital");' in js
+    assert 'openService("digital");' not in js
     assert "جميع الطلبات تنفيذ يدوي" in js
     assert "مدة التنفيذ المتوقعة من دقيقة إلى ساعة." in js
     assert "التنفيذ يدوي خلال دقيقة إلى ساعة." in js
@@ -314,6 +317,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert ".digital-package-grid" in css
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in css
     assert ".digital-package-card" in css
+    assert ".digital-package-skeleton" in css
     assert ".service-root-digital.is-catalog-packages" in css
     assert ".service-workspace:has(.service-root-digital.is-catalog-packages) .workspace-head" in css
     assert ".manual-fulfillment-notice" in css

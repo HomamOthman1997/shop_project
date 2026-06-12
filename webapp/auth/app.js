@@ -501,7 +501,7 @@ function openAccountCatalogRow(slug) {
     serviceKey: category.service_key || "",
     familyKey: category.family_key || "",
   };
-  openService("digital");
+  openDigitalCatalogSelection(pendingDigitalCatalogSelection);
 }
 
 function downloadAccountActivity() {
@@ -2810,6 +2810,14 @@ async function loadDigitalWorkspace() {
   }
 }
 
+function openDigitalCatalogSelection(selection) {
+  pendingDigitalCatalogSelection = null;
+  setWorkspaceTheme("digital");
+  pushRoute("/app/digital");
+  openPanel("workspace", selection.title || "منتجات رقمية", { updateRoute: false });
+  renderDigitalSelectedFamily({ fulfillment: { label: "تنفيذ يدوي خلال دقيقة إلى ساعة" } }, selection);
+}
+
 function renderDigitalCatalog(payload) {
   const root = serviceRoot();
   root.classList.remove("is-catalog-packages");
@@ -2917,7 +2925,9 @@ function renderDigitalSelectedFamily(payload, selection) {
       <span>${esc(localized(payload.fulfillment?.label, "مدة التنفيذ من دقيقة إلى ساعة."))}</span>
     </div>
     <div class="digital-direct-detail" id="digital-detail">
-      <div class="service-loader">جاري تحميل الحزم والأسعار...</div>
+      <div class="account-catalog-grid digital-package-grid" aria-label="جاري تحميل الحزم">
+        ${Array.from({ length: 8 }, () => '<div class="account-catalog-card digital-package-skeleton"><span></span><strong></strong><b></b></div>').join("")}
+      </div>
     </div>`;
   root.querySelector("[data-digital-catalog-back]").addEventListener("click", returnToAccountCatalog);
   loadDigitalFamilyPackages(selection, title);

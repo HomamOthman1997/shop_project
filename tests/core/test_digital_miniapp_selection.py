@@ -185,6 +185,28 @@ async def test_website_game_family_packages_uses_explicit_game_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_game_items_uses_cached_catalog_topups(monkeypatch):
+    from services.digital_products import miniapp
+
+    async def _fake_snapshot(force=False):
+        assert force is False
+        return {"games": [{"id": "pubgm", "name": "PUBG Mobile"}]}
+
+    async def _fake_topups(game_id, force=False):
+        assert game_id == "pubgm"
+        assert force is False
+        return []
+
+    monkeypatch.setattr(miniapp, "get_catalog_snapshot", _fake_snapshot)
+    monkeypatch.setattr(miniapp, "get_game_topups", _fake_topups)
+    monkeypatch.setattr(miniapp, "_markup_percent", lambda: __import__("asyncio").sleep(0, result=0.0))
+
+    payload = await miniapp._game_items("pubgm")
+
+    assert payload["items"] == []
+
+
+@pytest.mark.asyncio
 async def test_esim_offers_recommends_without_route_signature_mismatch(monkeypatch):
     from services.digital_products import miniapp
 

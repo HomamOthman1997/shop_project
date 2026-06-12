@@ -1653,6 +1653,27 @@ button.owner-action-row {
   border-top: 1px solid var(--line);
   color: #34d399;
 }
+.service-root-digital .digital-package-skeleton {
+  pointer-events: none;
+  overflow: hidden;
+}
+.service-root-digital .digital-package-skeleton span,
+.service-root-digital .digital-package-skeleton strong,
+.service-root-digital .digital-package-skeleton b {
+  width: 100%;
+  height: 12px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255,255,255,.05), rgba(255,255,255,.13), rgba(255,255,255,.05));
+  background-size: 220% 100%;
+  animation: digital-package-loading 1.1s linear infinite;
+}
+.service-root-digital .digital-package-skeleton span { width: 42px; height: 8px; }
+.service-root-digital .digital-package-skeleton strong { width: 68%; height: 16px; }
+.service-root-digital .digital-package-skeleton b { width: 45%; margin-top: auto; }
+@keyframes digital-package-loading {
+  to { background-position: -220% 0; }
+}
 .service-root-digital .digital-package-card div {
   place-content: center;
 }
