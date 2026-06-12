@@ -38,6 +38,17 @@ let customerOrderRows = [];
 let customerOrderFilter = "all";
 let latestRechargePayload = null;
 let languagePersistPromise = null;
+let numbersWorkspaceState = {
+  bootstrap: null,
+  mode: "temp",
+  service: "",
+  country: "none",
+  state: "none",
+  offers: [],
+  loading: false,
+  error: "",
+  picker: null,
+};
 
 const customerRoutes = {
   home: "/app",
@@ -2853,75 +2864,246 @@ function renderDigitalOrderForm(kind, offer, back) {
 async function loadNumbersWorkspace() {
   serviceLoading("جاري تحميل خدمات الأرقام...");
   try {
-    const payload = await api("/api/v1/numbers/catalog/bootstrap");
-    renderNumbersCatalog(payload);
+    const payload = await api(numbersApiEndpoint("bootstrap", "/api/v1/numbers/catalog/bootstrap"));
+    numbersWorkspaceState = {
+      ...numbersWorkspaceState,
+      bootstrap: payload,
+      mode: payload.defaults?.mode && payload.defaults.mode !== "none" ? payload.defaults.mode : "temp",
+      service: preferredNumbersService(payload.services || []),
+      country: "none",
+      state: "none",
+      offers: [],
+      loading: false,
+      error: "",
+      picker: null,
+    };
+    if (numbersWorkspaceState.mode === "voice") numbersWorkspaceState.country = "1";
+    renderNumbersWorkspace();
   } catch (error) {
     serviceError(error.message, loadNumbersWorkspace);
   }
 }
 
-function renderNumbersCatalog(payload) {
-  const root = serviceRoot();
-  const services = payload.services || [];
-  const countries = payload.countries || [];
-  const states = payload.states_us || [];
-  const modes = payload.modes || [];
-  root.innerHTML = `
-    <form class="numbers-picker" id="numbers-picker">
-      <label><span>نوع الرقم</span><select name="mode">${modes.map((row) => `<option value="${esc(row.key)}">${esc(localized(row.label, row.key))}</option>`).join("")}</select></label>
-      <label><span>الخدمة</span><select name="service">${services.map((row) => `<option value="${esc(row.key)}">${esc(localized(row.label, row.name || row.key))}</option>`).join("")}</select></label>
-      <label><span>الدولة</span><select name="country">${countries.map((row) => `<option value="${esc(row.code)}">${esc(localized(row.label, row.name || row.code))}</option>`).join("")}</select></label>
-      <label><span>الولاية</span><select name="state">${states.map((row) => `<option value="${esc(row.code)}">${esc(localized(row.label, row.name || row.code))}</option>`).join("")}</select></label>
-      <button class="primary" type="submit">عرض الأسعار</button>
-    </form>
-    <div id="numbers-quotes" class="quote-list"><div class="service-empty">اختر الخدمة والدولة لعرض الأسعار.</div></div>`;
-  const serviceSelect = root.querySelector("[name='service']");
-  const preferred = [...serviceSelect.options].find((option) => option.value === "telegram") || serviceSelect.options[0];
-  if (preferred) serviceSelect.value = preferred.value;
-  const countrySelect = root.querySelector("[name='country']");
-  if ([...countrySelect.options].some((option) => option.value === "1")) countrySelect.value = "1";
-  $("#numbers-picker").addEventListener("submit", loadNumbersQuotes);
+function numbersApiEndpoint(actionKey, fallback) {
+  return numbersWorkspaceState.bootstrap?.api?.actions?.[actionKey]?.endpoint
+    || numbersWorkspaceState.bootstrap?.actions?.[actionKey]?.endpoint
+    || fallback;
 }
 
-async function loadNumbersQuotes(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const values = fieldData(form);
-  const target = $("#numbers-quotes");
-  target.innerHTML = '<div class="service-loader">جاري تحميل الأسعار...</div>';
-  const params = new URLSearchParams(values);
-  try {
-    const payload = await api(`/api/v1/numbers/quotes?${params.toString()}`);
-    renderNumbersQuotes(payload);
-  } catch (error) {
-    target.innerHTML = `<div class="service-empty">${esc(error.message)}</div>`;
+function preferredNumbersService(services) {
+  const rows = services || [];
+  return (rows.find((row) => row.key === "telegram") || rows.find((row) => row.top) || rows[0] || {}).key || "";
+}
+
+function numbersServiceRows() {
+  return (numbersWorkspaceState.bootstrap?.services || []).filter((row) => row.key || row.code);
+}
+
+function numbersCountryRows() {
+  return (numbersWorkspaceState.bootstrap?.countries || []).filter((row) => row.code);
+}
+
+function numbersStateRows() {
+  return (numbersWorkspaceState.bootstrap?.states_us || []).filter((row) => row.code);
+}
+
+function numbersLabel(row, fallback = "") {
+  return localized(row?.label, row?.name || row?.key || row?.code || fallback);
+}
+
+function numbersServiceLabel(key = numbersWorkspaceState.service) {
+  const row = numbersServiceRows().find((item) => (item.key || item.code) === key);
+  return numbersLabel(row, key || "اختر الخدمة");
+}
+
+function numbersCountryLabel(code = numbersWorkspaceState.country) {
+  if (code === "none") return "اختر الدولة";
+  if (code === "any") return "أي دولة";
+  const row = numbersCountryRows().find((item) => String(item.code) === String(code));
+  return numbersLabel(row, code || "اختر الدولة");
+}
+
+function numbersStateLabel(code = numbersWorkspaceState.state) {
+  if (code === "none") return "أي ولاية";
+  const row = numbersStateRows().find((item) => String(item.code) === String(code));
+  return numbersLabel(row, code || "أي ولاية");
+}
+
+function numbersModeRows() {
+  return numbersWorkspaceState.bootstrap?.modes || [
+    {key: "temp", label: "Temporary SMS"},
+    {key: "rental", label: "Rental numbers"},
+    {key: "voice", label: "US call number"},
+  ];
+}
+
+function numbersModeLabel(key) {
+  const labels = {
+    temp: "مؤقت",
+    rental: "إيجار",
+    voice: "اتصال",
+  };
+  const row = numbersModeRows().find((item) => item.key === key);
+  return labels[key] || numbersLabel(row, key);
+}
+
+function setNumbersMode(mode) {
+  numbersWorkspaceState.mode = mode;
+  numbersWorkspaceState.offers = [];
+  numbersWorkspaceState.loading = false;
+  numbersWorkspaceState.error = "";
+  numbersWorkspaceState.country = mode === "voice" ? "1" : "none";
+  numbersWorkspaceState.state = "none";
+  renderNumbersWorkspace();
+}
+
+function setNumbersSelection(kind, value) {
+  numbersWorkspaceState.offers = [];
+  numbersWorkspaceState.error = "";
+  if (kind === "service") {
+    numbersWorkspaceState.service = value;
+  } else if (kind === "country") {
+    numbersWorkspaceState.country = value;
+    if (value !== "1") numbersWorkspaceState.state = "none";
+  } else if (kind === "state") {
+    numbersWorkspaceState.state = value;
   }
+  closeNumbersPicker();
+  renderNumbersWorkspace();
 }
 
-function renderNumbersQuotes(payload) {
-  const target = $("#numbers-quotes");
+function renderNumbersWorkspace() {
+  const root = serviceRoot();
+  const showCountry = numbersWorkspaceState.mode !== "voice";
+  const showState = numbersWorkspaceState.country === "1";
+  root.innerHTML = `
+    <div class="numbers-app-shell">
+      <div class="numbers-mode-segments" role="tablist" aria-label="نوع الرقم">
+        ${numbersModeRows().map((row) => `<button type="button" class="${row.key === numbersWorkspaceState.mode ? "active" : ""}" data-numbers-mode="${esc(row.key)}">${esc(numbersModeLabel(row.key))}</button>`).join("")}
+      </div>
+      <div class="numbers-live-line">اختر الخدمة والدولة ثم افحص عروض المزودين مباشرة.</div>
+      <div class="numbers-field-grid">
+        <button class="numbers-field" type="button" data-open-numbers-picker="service">
+          <span>الخدمة</span>
+          <strong>${esc(numbersServiceLabel())}</strong>
+        </button>
+        ${showCountry ? `<button class="numbers-field" type="button" data-open-numbers-picker="country">
+          <span>الدولة</span>
+          <strong>${esc(numbersCountryLabel())}</strong>
+        </button>` : ""}
+        ${showState ? `<button class="numbers-field" type="button" data-open-numbers-picker="state">
+          <span>الولاية</span>
+          <strong>${esc(numbersStateLabel())}</strong>
+        </button>` : ""}
+      </div>
+      <button class="numbers-check primary" type="button" data-check-numbers-prices>عرض الأسعار</button>
+      <div class="numbers-offers-head">
+        <div><strong>أفضل العروض</strong><span>${numbersWorkspaceState.loading ? "جاري الفحص..." : `${flattenNumbersOffers().length} عروض`}</span></div>
+      </div>
+      <div id="numbers-quotes" class="numbers-offer-list"></div>
+      <div id="numbers-picker-drawer" class="numbers-picker-drawer" hidden></div>
+    </div>`;
+  root.querySelectorAll("[data-numbers-mode]").forEach((button) => {
+    button.addEventListener("click", () => setNumbersMode(button.dataset.numbersMode));
+  });
+  root.querySelectorAll("[data-open-numbers-picker]").forEach((button) => {
+    button.addEventListener("click", () => openNumbersPicker(button.dataset.openNumbersPicker));
+  });
+  root.querySelector("[data-check-numbers-prices]")?.addEventListener("click", loadNumbersQuotes);
+  renderNumbersQuotes();
+}
+
+function flattenNumbersOffers() {
   const rows = [];
-  (payload.providers || []).forEach((provider) => {
-    if (Array.isArray(provider.options)) {
-      provider.options.forEach((option) => rows.push({ ...option, provider: provider.provider, provider_id: provider.provider_id }));
+  (numbersWorkspaceState.offers || []).forEach((provider) => {
+    if (Array.isArray(provider.options) && provider.options.length) {
+      provider.options.forEach((option) => rows.push({...option, provider: provider.provider, provider_id: provider.provider_id}));
     } else {
       rows.push(provider);
     }
   });
-  target.innerHTML = rows.length ? rows.map((row, index) => `
-    <button class="quote-row" type="button" data-number-offer="${index}">
-      <div><strong>${esc(row.provider || row.provider_id || "Provider")}</strong><span>${esc(row.duration_label || payload.mode || "")}</span></div>
-      <b>${esc(row.price_label || (row.price ? `$${Number(row.price).toFixed(2)}` : "-"))}</b>
-    </button>`).join("") : '<div class="service-empty">لا توجد أسعار متاحة حالياً.</div>';
+  return rows;
+}
+
+async function loadNumbersQuotes() {
+  const target = $("#numbers-quotes");
+  if (!numbersWorkspaceState.service) {
+    openNumbersPicker("service");
+    return;
+  }
+  if (numbersWorkspaceState.mode !== "voice" && numbersWorkspaceState.country === "none") {
+    openNumbersPicker("country");
+    return;
+  }
+  numbersWorkspaceState.loading = true;
+  numbersWorkspaceState.offers = [];
+  numbersWorkspaceState.error = "";
+  renderNumbersWorkspace();
+  const params = new URLSearchParams({
+    mode: numbersWorkspaceState.mode,
+    service: numbersWorkspaceState.service,
+    country: numbersWorkspaceState.mode === "voice" ? "1" : numbersWorkspaceState.country,
+    state: numbersWorkspaceState.country === "1" ? numbersWorkspaceState.state : "none",
+    language: appLanguage(),
+    _: String(Date.now()),
+  });
+  try {
+    const payload = await api(`${numbersApiEndpoint("quotes", "/api/v1/numbers/quotes")}?${params.toString()}`);
+    numbersWorkspaceState.offers = payload.providers || [];
+  } catch (error) {
+    numbersWorkspaceState.error = error.message;
+  } finally {
+    numbersWorkspaceState.loading = false;
+    renderNumbersWorkspace();
+  }
+}
+
+function numbersProviderName(row, index) {
+  return row.provider_name || row.public_provider_name || row.provider || row.provider_id || `Provider ${index + 1}`;
+}
+
+function numbersOfferCountry(row) {
+  return row.location_tag || row.country_label || row.country_iso || row.provider_country_iso || "";
+}
+
+function renderNumbersQuotes() {
+  const target = $("#numbers-quotes");
+  if (!target) return;
+  if (numbersWorkspaceState.loading) {
+    target.innerHTML = '<div class="service-loader">جاري فحص المزودين...</div>';
+    return;
+  }
+  if (numbersWorkspaceState.error) {
+    target.innerHTML = `<div class="service-empty">${esc(numbersWorkspaceState.error)}</div>`;
+    return;
+  }
+  const rows = flattenNumbersOffers();
+  if (!rows.length) {
+    target.innerHTML = '<div class="service-empty">اختر الخدمة والدولة ثم اضغط عرض الأسعار.</div>';
+    return;
+  }
+  target.innerHTML = rows.map((row, index) => `
+    <article class="numbers-offer-card${row.recommended || index === 0 ? " recommended" : ""}">
+      <button class="numbers-offer-buy" type="button" data-number-offer="${index}" ${row.available === false || row.purchase_action?.enabled === false ? "disabled" : ""}>شراء</button>
+      <div class="numbers-offer-rate">${esc(row.success_rate || row.successRate || "98%")}<span>نجاح</span></div>
+      <strong class="numbers-offer-price">${esc(row.price_label || (row.price ? `$${Number(row.price).toFixed(2)}` : "-"))}</strong>
+      <div class="numbers-offer-provider">
+        <b>${esc(numbersProviderName(row, index))}</b>
+        <small>${esc([numbersOfferCountry(row), row.option_label || row.duration_label].filter(Boolean).join(" · "))}</small>
+        ${row.available === false ? '<em class="unavailable">غير متاح</em>' : (row.recommended || index === 0 ? '<em>مقترح</em>' : "")}
+      </div>
+    </article>`).join("");
   target.querySelectorAll("[data-number-offer]").forEach((button) => {
     button.addEventListener("click", async () => {
       const row = rows[Number(button.dataset.numberOffer)];
+      const quoteToken = row.quote_token || row.purchase_action?.body?.quote_token;
+      if (!quoteToken) return;
       button.disabled = true;
       try {
-        const result = await api("/api/v1/numbers/orders", {
+        const result = await api(numbersApiEndpoint("create_order", "/api/v1/numbers/orders"), {
           method: "POST",
           headers: { "Idempotency-Key": idempotencyKey("numbers") },
-          body: JSON.stringify({ quote_token: row.quote_token, language: appLanguage() }),
+          body: JSON.stringify({ quote_token: quoteToken, language: appLanguage() }),
         });
         target.insertAdjacentHTML("afterbegin", `<div class="notice">تم إنشاء الطلب: ${esc(result.order?.id || "")}</div>`);
         await loadDashboard();
@@ -2931,6 +3113,73 @@ function renderNumbersQuotes(payload) {
         button.disabled = false;
       }
     });
+  });
+}
+
+function openNumbersPicker(kind) {
+  const drawer = $("#numbers-picker-drawer");
+  if (!drawer) return;
+  numbersWorkspaceState.picker = kind;
+  const config = numbersPickerConfig(kind);
+  drawer.hidden = false;
+  drawer.innerHTML = `
+    <div class="numbers-drawer-head">
+      <strong>${esc(config.title)}</strong>
+      <button type="button" data-close-numbers-picker>×</button>
+    </div>
+    <input class="numbers-drawer-search" type="search" placeholder="بحث..." autocomplete="off">
+    <div class="numbers-drawer-list"></div>`;
+  drawer.querySelector("[data-close-numbers-picker]")?.addEventListener("click", closeNumbersPicker);
+  drawer.querySelector(".numbers-drawer-search")?.addEventListener("input", renderNumbersPickerRows);
+  renderNumbersPickerRows();
+}
+
+function closeNumbersPicker() {
+  const drawer = $("#numbers-picker-drawer");
+  if (drawer) {
+    drawer.hidden = true;
+    drawer.replaceChildren();
+  }
+  numbersWorkspaceState.picker = null;
+}
+
+function numbersPickerConfig(kind = numbersWorkspaceState.picker) {
+  if (kind === "country") {
+    const rows = numbersCountryRows()
+      .filter((row) => !["", "none"].includes(String(row.code || "").toLowerCase()))
+      .map((row) => ({key: String(row.code), title: numbersLabel(row), sub: row.price_label || row.iso || ""}));
+    return {title: "اختر الدولة", rows};
+  }
+  if (kind === "state") {
+    return {
+      title: "اختر الولاية",
+      rows: [{key: "none", title: "أي ولاية", sub: ""}, ...numbersStateRows().map((row) => ({key: String(row.code), title: numbersLabel(row), sub: row.code || ""}))],
+    };
+  }
+  return {
+    title: "اختر الخدمة",
+    rows: numbersServiceRows().map((row) => ({
+      key: row.key || row.code,
+      title: numbersLabel(row),
+      sub: row.top ? "مقترحة" : (row.aliases || []).slice(0, 3).join(" · "),
+    })),
+  };
+}
+
+function renderNumbersPickerRows() {
+  const drawer = $("#numbers-picker-drawer");
+  if (!drawer || !numbersWorkspaceState.picker) return;
+  const query = String(drawer.querySelector(".numbers-drawer-search")?.value || "").trim().toLowerCase();
+  const config = numbersPickerConfig();
+  const list = drawer.querySelector(".numbers-drawer-list");
+  const rows = config.rows.filter((row) => `${row.title} ${row.sub}`.toLowerCase().includes(query)).slice(0, 90);
+  list.innerHTML = rows.length ? rows.map((row) => `
+    <button type="button" data-pick-numbers-value="${esc(row.key)}">
+      <strong>${esc(row.title)}</strong>
+      <span>${esc(row.sub || "")}</span>
+    </button>`).join("") : '<div class="service-empty">لا توجد نتائج مطابقة.</div>';
+  list.querySelectorAll("[data-pick-numbers-value]").forEach((button) => {
+    button.addEventListener("click", () => setNumbersSelection(numbersWorkspaceState.picker, button.dataset.pickNumbersValue));
   });
 }
 

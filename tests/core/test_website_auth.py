@@ -237,7 +237,12 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "/api/v1/numbers/support?language=" in js
     assert "/api/v1/digital/orders/${encodeURIComponent(orderId)}" in js
     assert 'api("/api/v1/numbers/support/ticket"' in js
-    assert 'body: JSON.stringify({ quote_token: row.quote_token, language: appLanguage() })' in js
+    assert 'numbersApiEndpoint("quotes", "/api/v1/numbers/quotes")' in js
+    assert 'numbersApiEndpoint("create_order", "/api/v1/numbers/orders")' in js
+    assert "const quoteToken = row.quote_token || row.purchase_action?.body?.quote_token" in js
+    assert 'body: JSON.stringify({ quote_token: quoteToken, language: appLanguage() })' in js
+    assert ".numbers-app-shell" in css
+    assert ".numbers-picker-drawer" in css
     assert '"الأمان": "Security"' in i18n
     assert '"تغيير كلمة المرور": "Change password"' in i18n
     assert ".language-toggle {" in i18n
