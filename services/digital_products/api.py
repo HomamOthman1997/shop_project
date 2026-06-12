@@ -228,7 +228,6 @@ def _public_watchlist_item(item: ProductWatchlistItem) -> dict[str, Any]:
         "public_note": item.public_note,
     }
 
-
 def _watchlist_category_counts(items: list[ProductWatchlistItem]) -> list[dict[str, Any]]:
     counts: dict[str, int] = {}
     for item in items:
@@ -1143,7 +1142,7 @@ async def create_order(request: web.Request) -> web.Response:
     except DigitalQuoteError as exc:
         return _json_error(str(exc), status=400, code=str(exc), rate_limit=rate_limit)
     quote_kind = str(quote.get("kind") or "").strip().lower()
-    if quote_kind not in {"game", "product"}:
+    if quote_kind not in {"game", "gift", "product"}:
         return _json_error("Unsupported quote kind.", status=400, code="unsupported_quote", rate_limit=rate_limit)
     player_id = str((body or {}).get("player_id") or "").strip()
     server_id = str((body or {}).get("server_id") or "").strip()

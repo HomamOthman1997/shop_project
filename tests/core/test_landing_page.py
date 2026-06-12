@@ -203,7 +203,9 @@ def test_public_catalog_payload_exposes_nested_sections_for_customer_app():
     assert sections["games"]["service"] == "digital"
     assert sections["verification-numbers"]["service"] == "numbers"
     assert sections["games"]["categories_count"] > 100
-    assert any(row["slug"] == "jawaker" for row in sections["games"]["categories"])
+    jawaker = next(row for row in sections["games"]["categories"] if row["slug"] == "jawaker")
+    assert jawaker["service_key"] == "games"
+    assert jawaker["family_key"] == "jawaker"
     assert any(row["slug"] == "telegram_numbers" for row in sections["verification-numbers"]["categories"])
 
 

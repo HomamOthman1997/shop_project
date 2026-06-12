@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 
 import pytest
@@ -16,6 +17,7 @@ def test_create_app_registers_health_routes():
     assert ("GET", "/health") in routes
     assert ("GET", "/healthz") in routes
     assert ("GET", "/ready") in routes
+    assert ("GET", "/api/v1/digital/families/{service_key}/{family_key}/packages") in routes
 
 
 def test_named_game_gift_products_are_grouped_under_games_not_store_cards():
@@ -96,6 +98,90 @@ class _DummyRequest:
 class _DummyQueryRequest:
     def __init__(self, query):
         self.query = dict(query)
+
+class _DummyMatchRequest:
+    def __init__(self, match_info):
+        self.match_info = dict(match_info)
+
+
+@pytest.mark.asyncio
+async def test_website_family_packages_uses_explicit_service_tree_ids(monkeypatch):
+    from services.digital_products import miniapp
+
+    async def _fake_auth(_request, scope):
+        assert scope == "digital:catalog"
+
+    async def _fake_catalog():
+        return {
+            "service_tree": [
+                {
+                    "key": "chat_apps",
+                    "families": [
+                        {
+                            "family_key": "honey_jar",
+                            "name": "Honey Jar",
+                            "variants": [{"game_ids": [], "gift_category_ids": ["chat-honey"]}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    async def _fake_gifts(category_id):
+        assert category_id == "chat-honey"
+        return [{"kind": "gift", "id": "325", "name": "325 Coins", "price_usd": 6.6, "best_provider_code": "manual"}]
+
+    monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "_gift_products", _fake_gifts)
+    monkeypatch.setattr(miniapp, "make_digital_quote_token", lambda payload: f"quote:{payload['kind']}:{payload['item_id']}")
+
+    response = await miniapp.website_family_packages(_DummyMatchRequest({"service_key": "chat_apps", "family_key": "honey_jar"}))
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["packages"][0]["name"] == "325 Coins"
+    assert payload["packages"][0]["quote_token"] == "quote:gift:325"
+
+
+@pytest.mark.asyncio
+async def test_website_game_family_packages_uses_explicit_game_ids(monkeypatch):
+    from services.digital_products import miniapp
+
+    async def _fake_auth(_request, _scope):
+        return None
+
+    async def _fake_catalog():
+        return {
+            "service_tree": [
+                {
+                    "key": "games",
+                    "families": [
+                        {
+                            "family_key": "pubg",
+                            "name": "PUBG",
+                            "variants": [{"game_ids": ["pubgm"], "gift_category_ids": []}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    async def _fake_game_items(game_id):
+        assert game_id == "pubgm"
+        return {"game_name": "PUBG Mobile", "items": [{"kind": "game", "id": "325", "game_id": "pubgm", "name": "325 UC", "price_usd": 6.6}]}
+
+    monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "_game_items", _fake_game_items)
+    monkeypatch.setattr(miniapp, "make_digital_quote_token", lambda payload: f"quote:{payload['game_id']}:{payload['item_id']}")
+
+    response = await miniapp.website_family_packages(_DummyMatchRequest({"service_key": "games", "family_key": "pubg"}))
+    payload = json.loads(response.text)
+
+    assert payload["packages"][0]["name"] == "325 UC"
+    assert payload["packages"][0]["price_label"] == "$6.60"
+    assert payload["packages"][0]["quote_token"] == "quote:pubgm:325"
 
 
 @pytest.mark.asyncio

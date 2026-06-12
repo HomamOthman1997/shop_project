@@ -33,7 +33,7 @@ from services.digital_products.fulfillment_rules import (
     offer_compare_key,
 )
 from services.digital_products.zendit_client import ZenditClient
-from services.digital_products.api import register_digital_api_routes
+from services.digital_products.api import make_digital_quote_token, register_digital_api_routes, require_digital_user_auth
 from services.digital_products.esim_route_service import (
     build_single_country_offers_live,
     choose_recommended_offer,
@@ -1757,6 +1757,76 @@ async def game_items(request: web.Request) -> web.Response:
         headers=dict(_NO_STORE_HEADERS),
     )
 
+async def website_family_packages(request: web.Request) -> web.Response:
+    await require_digital_user_auth(request, "digital:catalog")
+    service_key = str(request.match_info.get("service_key") or "").strip()
+    family_key = str(request.match_info.get("family_key") or "").strip()
+    payload = await _catalog_payload()
+    service = next((row for row in payload.get("service_tree", []) if str(row.get("key") or "") == service_key), None)
+    family = next((row for row in (service or {}).get("families", []) if str(row.get("family_key") or "") == family_key), None)
+    if not family:
+        raise web.HTTPNotFound(text="family not found")
+
+    game_ids = sorted({
+        str(game_id)
+        for variant in list(family.get("variants") or [])
+        for game_id in list(variant.get("game_ids") or [])
+        if str(game_id or "").strip()
+    })
+    gift_category_ids = sorted({
+        str(category_id)
+        for variant in list(family.get("variants") or [])
+        for category_id in list(variant.get("gift_category_ids") or [])
+        if str(category_id or "").strip()
+    })
+    packages: list[dict[str, Any]] = []
+    for game_id in game_ids:
+        game_payload = await _game_items(game_id)
+        for item in list(game_payload.get("items") or []):
+            price = float(item.get("price_usd") or 0.0)
+            quote = {
+                "kind": "game",
+                "game_id": str(item.get("game_id") or game_id),
+                "game_name": str(game_payload.get("game_name") or family.get("name") or family_key),
+                "item_id": str(item.get("id") or ""),
+                "item_name": str(item.get("name") or ""),
+                "requires_server": bool(item.get("requires_server")),
+                "sale_price": price,
+                "cost_price": price,
+                "provider": str(item.get("best_provider_code") or "manual"),
+            }
+            packages.append({**item, "quote_token": make_digital_quote_token(quote), "price_label": f"${price:.2f}"})
+    for category_id in gift_category_ids:
+        for item in await _gift_products(category_id):
+            price = float(item.get("price_usd") or 0.0)
+            params = [str(value) for value in list(item.get("za3em_params") or []) if str(value).strip()]
+            fields = [{"id": value, "label": value.replace("_", " ").title(), "required": True} for value in params]
+            if not fields:
+                fields = [{"id": "details", "label": "تفاصيل الطلب", "required": True}]
+            quote = {
+                "kind": "gift",
+                "product_id": category_id,
+                "product_name": str(family.get("name") or family_key),
+                "item_id": str(item.get("id") or ""),
+                "item_name": str(item.get("name") or ""),
+                "sale_price": price,
+                "cost_price": price,
+                "provider": str(item.get("best_provider_code") or "manual"),
+                "input_fields": fields,
+            }
+            packages.append({**item, "quote_token": make_digital_quote_token(quote), "input_fields": fields, "price_label": f"${price:.2f}"})
+    packages.sort(key=lambda row: (_money(row.get("price_usd") or 0.0), _natural_key(str(row.get("name") or ""))))
+    return web.json_response(
+        {
+            "ok": True,
+            "service_key": service_key,
+            "family_key": family_key,
+            "family_name": str(family.get("name") or family_key),
+            "packages": packages,
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
 
 async def simtopup_countries(request: web.Request) -> web.Response:
     section = str(request.query.get("section") or "balance").strip().lower()
@@ -2021,6 +2091,7 @@ def create_app(_argv: list[str] | None = None) -> web.Application:
     app.router.add_get("/mini/digital/api/catalog", catalog)
     app.router.add_get("/mini/digital/api/gifts/{category_id}", gift_products)
     app.router.add_get("/mini/digital/api/games/{game_id}", game_items)
+    app.router.add_get("/api/v1/digital/families/{service_key}/{family_key}/packages", website_family_packages)
     app.router.add_get("/mini/digital/api/simtopup/countries", simtopup_countries)
     app.router.add_get("/mini/digital/api/simtopup/offers", simtopup_offers)
     app.router.add_get("/mini/digital/api/esim/countries", esim_countries)

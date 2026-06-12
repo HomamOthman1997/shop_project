@@ -495,7 +495,12 @@ function openAccountCatalogRow(slug) {
     openService("numbers");
     return;
   }
-  pendingDigitalCatalogSelection = { slug: category.slug || "", title: category.title || "" };
+  pendingDigitalCatalogSelection = {
+    slug: category.slug || "",
+    title: category.title || "",
+    serviceKey: category.service_key || "",
+    familyKey: category.family_key || "",
+  };
   openService("digital");
 }
 
@@ -2805,9 +2810,16 @@ function renderDigitalCatalog(payload) {
   const productCategories = payload.product_categories || [];
   const selection = pendingDigitalCatalogSelection;
   pendingDigitalCatalogSelection = null;
-  const selectedGame = findDigitalSelectedGame(games, selection);
-  if (selectedGame) {
-    renderDigitalSelectedGame(payload, selectedGame);
+  if (selection?.serviceKey && selection?.familyKey) {
+    renderDigitalSelectedFamily(payload, selection);
+    return;
+  }
+  if (selection) {
+    root.innerHTML = `
+      <div class="service-empty">
+        <strong>${esc(selection.title || selection.slug || "الصنف")}</strong>
+        <span>هذا الصنف غير مربوط بمعرّفات منتجات الميني آب بعد، لذلك لن يتم عرض نتائج مخمّنة.</span>
+      </div>`;
     return;
   }
   const matchedCategory = selection && productCategories.some((row) => String(row.id) === String(selection.slug));
@@ -2880,22 +2892,9 @@ function renderDigitalCatalog(payload) {
   renderItems();
 }
 
-function normalizedDigitalName(value) {
-  return String(value || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g, "");
-}
-
-function findDigitalSelectedGame(games, selection) {
-  if (!selection || selection.slug === "games") return null;
-  const needles = [selection.slug, selection.title].map(normalizedDigitalName).filter(Boolean);
-  return games.find((game) => {
-    const values = [game.id, game.name, game.label].map(normalizedDigitalName).filter(Boolean);
-    return needles.some((needle) => values.some((value) => value.includes(needle) || needle.includes(value)));
-  }) || null;
-}
-
-function renderDigitalSelectedGame(payload, game) {
+function renderDigitalSelectedFamily(payload, selection) {
   const root = serviceRoot();
-  const title = localized(game.label, game.name || game.id);
+  const title = selection.title || selection.familyKey;
   root.innerHTML = `
     <div class="digital-direct-head">
       <div>
@@ -2912,7 +2911,7 @@ function renderDigitalSelectedGame(payload, game) {
       <div class="service-loader">جاري تحميل الحزم والأسعار...</div>
     </div>`;
   root.querySelector("[data-digital-catalog-back]").addEventListener("click", () => renderDigitalCatalog(payload));
-  loadDigitalQuotes("game", game.id);
+  loadDigitalFamilyPackages(selection, title);
 }
 
 function compareDigitalAvailability(left, right) {
@@ -2958,6 +2957,33 @@ async function loadDigitalQuotes(kind, id) {
   } catch (error) {
     detail.innerHTML = `<div class="service-empty">${esc(error.message)}</div>`;
   }
+}
+
+async function loadDigitalFamilyPackages(selection, title) {
+  const detail = $("#digital-detail");
+  try {
+    const result = await api(`/api/v1/digital/families/${encodeURIComponent(selection.serviceKey)}/${encodeURIComponent(selection.familyKey)}/packages`);
+    renderDigitalFamilyQuotes(title, result.packages || [], selection);
+  } catch (error) {
+    detail.innerHTML = `<div class="service-empty">${esc(error.message)}</div>`;
+  }
+}
+
+function renderDigitalFamilyQuotes(title, offers, selection) {
+  const detail = $("#digital-detail");
+  detail.innerHTML = `
+    <div class="service-detail-head">
+      <div><h4>${esc(title)}</h4><span>اختر الحزمة المطلوبة</span></div>
+    </div>
+    <div class="quote-list digital-package-grid">
+      ${offers.length ? offers.map((offer, index) => digitalOfferHtml(offer.kind, offer, index)).join("") : '<div class="service-empty">لا توجد حزم مربوطة ومتاحة حالياً.</div>'}
+    </div>`;
+  detail.querySelectorAll("[data-digital-offer]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const offer = offers[Number(button.dataset.digitalOffer)];
+      renderDigitalOrderForm(offer.kind, offer, () => renderDigitalFamilyQuotes(title, offers, selection));
+    });
+  });
 }
 
 function renderDigitalQuotes(kind, id, payload) {

@@ -1584,6 +1584,8 @@ def _family_categories(section: dict[str, object] | None) -> tuple[dict[str, obj
                 ),
                 "search_terms": aliases,
                 "generated": True,
+                "service_key": family_key,
+                "family_key": key,
             }
         )
     return tuple(rows)
@@ -1613,6 +1615,8 @@ def public_catalog_payload() -> dict[str, object]:
                 "subtitle": str(category.get("subtitle") or ""),
                 "search_terms": str(category.get("search_terms") or ""),
                 "generated": bool(category.get("generated")),
+                "service_key": str(category.get("service_key") or ""),
+                "family_key": str(category.get("family_key") or ""),
             }
             for category in _section_categories(section)
         ]

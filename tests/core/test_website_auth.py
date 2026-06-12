@@ -285,9 +285,9 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'data-account-catalog-disabled="1"' in js
     assert 'section.service === "numbers"' in js
     assert "pendingDigitalCatalogSelection" in js
-    assert "function findDigitalSelectedGame" in js
-    assert "function renderDigitalSelectedGame" in js
-    assert 'loadDigitalQuotes("game", game.id);' in js
+    assert "function renderDigitalSelectedFamily" in js
+    assert "function loadDigitalFamilyPackages" in js
+    assert "/api/v1/digital/families/${encodeURIComponent(selection.serviceKey)}/${encodeURIComponent(selection.familyKey)}/packages" in js
     assert 'class="quote-list digital-package-grid"' in js
     assert 'class="quote-row digital-package-card"' in js
     assert 'else if (initialView === "home") {\n    openPanel("home", "الخدمات", { updateRoute: false });\n  }' in js
