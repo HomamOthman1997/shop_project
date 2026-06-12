@@ -109,6 +109,29 @@ def test_catalog_exposes_custom_miniapp_sections_as_first_level_routes():
     assert "DFT Pro" in apps
 
 
+def test_catalog_sections_include_miniapp_family_categories():
+    games = landing_page.catalog_page_html("games")
+    numbers = landing_page.catalog_page_html("verification-numbers")
+    subscriptions = landing_page.catalog_page_html("subscriptions")
+    recharge = landing_page.catalog_page_html("mobile-recharge")
+
+    assert 'href="/catalog/games/free_fire"' in games
+    assert 'href="/catalog/games/jawaker"' in games
+    assert 'href="/catalog/verification-numbers/telegram_numbers"' in numbers
+    assert 'href="/catalog/verification-numbers/chatgpt_numbers"' in numbers
+    assert 'href="/catalog/subscriptions/chatgpt"' in subscriptions
+    assert 'href="/catalog/mobile-recharge/syriatel"' in recharge
+
+
+def test_catalog_generated_family_category_renders_as_product_stage():
+    html = landing_page.catalog_page_html("games", category_slug="free_fire")
+
+    assert "<h1>Free Fire</h1>" in html
+    assert "باقات وخدمات Free Fire" in html
+    assert 'href="/login?next=/app/digital"' in html
+    assert 'href="/catalog/games/free_fire"' in html
+
+
 def test_catalog_category_filters_items():
     html = landing_page.catalog_page_html("games", category_slug="games")
 

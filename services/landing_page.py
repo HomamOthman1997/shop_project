@@ -4,6 +4,8 @@ from html import escape
 
 from aiohttp import web
 
+from services.digital_products.custom_catalog import FAMILY_TABLE
+
 _LANDING_HTML = """\
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -1537,6 +1539,19 @@ _SHOWCASE_TILES: tuple[dict[str, str], ...] = (
 )
 
 
+_CATALOG_SECTION_FAMILIES = {
+    "games": "games",
+    "chat-apps": "chat_apps",
+    "social-services": "social_services",
+    "subscriptions": "paid_subscriptions",
+    "store-cards": "store_cards",
+    "verification-numbers": "numbers_services",
+    "internet-providers": "internet_providers",
+    "paid-apps": "paid_apps",
+    "mobile-recharge": "communications_data",
+}
+
+
 def _section_by_slug(slug: str) -> dict[str, object] | None:
     normalized = str(slug or "").strip().lower()
     return next(
@@ -1549,6 +1564,64 @@ def _section_by_slug(slug: str) -> dict[str, object] | None:
     )
 
 
+def _family_section_key(section: dict[str, object] | None) -> str:
+    if not section:
+        return ""
+    slug = str(section.get("slug") or "")
+    if slug in _CATALOG_SECTION_FAMILIES:
+        return _CATALOG_SECTION_FAMILIES[slug]
+    aliases = {str(alias) for alias in section.get("aliases", ())}  # type: ignore[union-attr]
+    for alias in aliases:
+        if alias in _CATALOG_SECTION_FAMILIES:
+            return _CATALOG_SECTION_FAMILIES[alias]
+    return ""
+
+
+def _family_alias_samples(row: dict[str, object], limit: int = 3) -> str:
+    aliases = [str(alias).strip() for alias in row.get("aliases", ()) if str(alias).strip()]
+    return "، ".join(aliases[:limit])
+
+
+def _family_categories(section: dict[str, object] | None) -> tuple[dict[str, object], ...]:
+    family_key = _family_section_key(section)
+    if not family_key:
+        return ()
+    rows: list[dict[str, object]] = []
+    for row in FAMILY_TABLE.get(family_key, ()):
+        key = str(row.get("key") or "").strip()
+        label = str(row.get("label") or key).strip()
+        if not key or not label:
+            continue
+        aliases = _family_alias_samples(row)
+        rows.append(
+            {
+                "slug": key,
+                "title": label,
+                "subtitle": f"منتجات وخدمات {label} حسب التوفر والأسعار الفعلية.",
+                "items": (
+                    (label, f"باقات وخدمات {label} من كاتالوغ الميني آب."),
+                    ("الخيارات المتاحة", "تظهر الأسعار والباقات بعد تسجيل الدخول وفتح القسم المناسب."),
+                    ("كلمات بحث", aliases or "تصنيف متوفر في الكاتالوغ الداخلي."),
+                ),
+                "generated": True,
+            }
+        )
+    return tuple(rows)
+
+
+def _section_categories(section: dict[str, object] | None) -> tuple[dict[str, object], ...]:
+    if not section:
+        return ()
+    manual = tuple(section.get("categories", ()))  # type: ignore[union-attr]
+    seen = {str(category.get("slug") or "").strip().lower() for category in manual}
+    generated = tuple(
+        category
+        for category in _family_categories(section)
+        if str(category.get("slug") or "").strip().lower() not in seen
+    )
+    return manual + generated
+
+
 def _category_by_slug(section: dict[str, object] | None, slug: str) -> dict[str, object] | None:
     normalized = str(slug or "").strip().lower()
     if not section or not normalized:
@@ -1556,7 +1629,7 @@ def _category_by_slug(section: dict[str, object] | None, slug: str) -> dict[str,
     return next(
         (
             category
-            for category in section.get("categories", ())  # type: ignore[union-attr]
+            for category in _section_categories(section)
             if str(category.get("slug") or "").strip().lower() == normalized
         ),
         None,
@@ -1566,7 +1639,7 @@ def _category_by_slug(section: dict[str, object] | None, slug: str) -> dict[str,
 def _category_tabs(section: dict[str, object] | None, *, active_category: str = "") -> str:
     if not section:
         return ""
-    categories = tuple(section.get("categories", ()))  # type: ignore[union-attr]
+    categories = _section_categories(section)
     if not categories:
         return ""
     section_slug = escape(str(section["slug"]))
@@ -1628,7 +1701,7 @@ def _catalog_cards(*, active_slug: str = "") -> str:
 def _category_cards(section: dict[str, object]) -> str:
     section_slug = escape(str(section["slug"]))
     cards: list[str] = []
-    for category in section.get("categories", ()):  # type: ignore[union-attr]
+    for category in _section_categories(section):
         slug = escape(str(category.get("slug") or ""))
         title = escape(str(category.get("title") or slug))
         subtitle = escape(str(category.get("subtitle") or ""))
@@ -1724,7 +1797,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
         stage_html = _catalog_items(section, category)
         stage_class = "product-stage"
         category_tabs_html = _category_tabs(section, active_category=str(category["slug"]))
-    elif section and tuple(section.get("categories", ())) :  # type: ignore[union-attr]
+    elif section and _section_categories(section):
         stage_title = "اختر الصنف الفرعي"
         stage_hint = "ادخل إلى الصنف المناسب حتى تصل إلى المنتجات المتاحة."
         stage_html = _category_cards(section)
