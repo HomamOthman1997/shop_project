@@ -1687,6 +1687,14 @@ def _catalog_breadcrumbs(section: dict[str, object] | None, category: dict[str, 
     )
 
 
+def _broader_catalog_search_path(section: dict[str, object] | None, category: dict[str, object] | None) -> str:
+    if category and section:
+        return f"/catalog/{escape(str(section['slug']))}"
+    if section:
+        return "/catalog"
+    return ""
+
+
 def _catalog_cards(*, active_slug: str = "") -> str:
     cards: list[str] = []
     for section in _CATALOG_SECTIONS:
@@ -1801,6 +1809,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
         else "اختر قسماً، ثم الصنف الفرعي، ثم المنتج. التصفح متاح للجميع والشراء يحتاج حساباً ورصيداً."
     )
     breadcrumbs_html = _catalog_breadcrumbs(section, category)
+    broader_search_path = _broader_catalog_search_path(section, category)
     if category:
         stage_title = "اختر المنتج أو الخدمة"
         stage_hint = "هذه المنتجات متاحة للاستعراض. تنفيذ الطلب يتم بعد تسجيل الدخول وشحن الرصيد."
@@ -1873,6 +1882,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
     .search-box span {{ color: #8b95b8; }}
     .catalog-empty {{ display: none; border: 1px solid rgba(245,158,11,.24); border-radius: 8px; background: rgba(245,158,11,.07); color: #fde68a; padding: 14px; line-height: 1.7; margin: 12px 0 22px; text-align: center; }}
     .catalog-empty.visible {{ display: block; }}
+    .catalog-empty a {{ color: #fff7ed; font-weight: 900; text-decoration: underline; text-underline-offset: 3px; }}
     [data-catalog-search][hidden] {{ display: none !important; }}
     .catalog-path {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 12px; color: #a7b0d0; font-size: .9rem; }}
     .breadcrumbs {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
@@ -1985,7 +1995,7 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
           </div>
         </section>
         {category_tabs_html}
-        <p class="catalog-empty" id="catalog-empty">لا توجد نتائج مطابقة. جرّب كلمة مثل ألعاب، أوكرانيا، أرقام، PUBG، أو VPN.</p>
+        <p class="catalog-empty" id="catalog-empty" data-broader-search="{broader_search_path}">لا توجد نتائج مطابقة. جرّب كلمة مثل ألعاب، أوكرانيا، أرقام، PUBG، أو VPN.</p>
     <footer class="footer">
       <span>phantom-app.net</span>
       <span>Public catalog, protected checkout</span>
@@ -2015,7 +2025,14 @@ def catalog_page_html(slug: str = "", *, category_slug: str = "") -> str:
         }});
         const visibleShowcase = document.querySelectorAll(".showcase-tile:not([hidden])").length;
         const visibleCatalogCards = document.querySelectorAll(".catalog-card:not([hidden])").length;
-        empty.classList.toggle("visible", Boolean(query) && visibleProducts === 0 && visibleShowcase === 0 && visibleCatalogCards === 0);
+        const hasNoResults = Boolean(query) && visibleProducts === 0 && visibleShowcase === 0 && visibleCatalogCards === 0;
+        empty.classList.toggle("visible", hasNoResults);
+        if (hasNoResults) {{
+          const broader = empty.getAttribute("data-broader-search");
+          empty.innerHTML = broader
+            ? `لا توجد نتائج هنا. <a href="${{broader}}?q=${{encodeURIComponent(input.value.trim())}}">ابحث ضمن نطاق أوسع</a>`
+            : "لا توجد نتائج مطابقة. جرّب كلمة مثل ألعاب، أوكرانيا، أرقام، PUBG، أو VPN.";
+        }}
       }};
       input.addEventListener("input", applySearch);
       const params = new URLSearchParams(window.location.search);

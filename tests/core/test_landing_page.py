@@ -68,7 +68,19 @@ def test_catalog_search_script_filters_public_content():
     assert 'input.addEventListener("input", applySearch)' in html
     assert 'params.get("q")' in html
     assert 'node.hidden = !isVisible' in html
+    assert 'encodeURIComponent(input.value.trim())' in html
     assert 'لا توجد نتائج مطابقة' in html
+
+
+def test_catalog_empty_search_links_to_broader_scope():
+    section_html = landing_page.catalog_page_html("games")
+    category_html = landing_page.catalog_page_html("games", category_slug="free_fire")
+    root_html = landing_page.catalog_page_html()
+
+    assert 'id="catalog-empty" data-broader-search="/catalog"' in section_html
+    assert 'id="catalog-empty" data-broader-search="/catalog/games"' in category_html
+    assert 'id="catalog-empty" data-broader-search=""' in root_html
+    assert 'ابحث ضمن نطاق أوسع' in section_html
 
 
 def test_catalog_section_shows_subcategory_tabs():
