@@ -1595,14 +1595,11 @@ def _family_categories(section: dict[str, object] | None) -> tuple[dict[str, obj
 def _section_categories(section: dict[str, object] | None) -> tuple[dict[str, object], ...]:
     if not section:
         return ()
+    generated = _family_categories(section)
+    if generated:
+        return generated
     manual = tuple(section.get("categories", ()))  # type: ignore[union-attr]
-    seen = {str(category.get("slug") or "").strip().lower() for category in manual}
-    generated = tuple(
-        category
-        for category in _family_categories(section)
-        if str(category.get("slug") or "").strip().lower() not in seen
-    )
-    return manual + generated
+    return manual
 
 
 def public_catalog_payload() -> dict[str, object]:

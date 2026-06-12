@@ -178,19 +178,24 @@ def test_catalog_exposes_custom_miniapp_sections_as_first_level_routes():
         assert f'href="{href}"' in html
 
     social = landing_page.catalog_page_html("social-services")
-    assert 'href="/catalog/social-services/tiktok"' in social
-    assert 'href="/catalog/social-services/instagram"' in social
+    assert 'href="/catalog/social-services/tiktok_services"' in social
+    assert 'href="/catalog/social-services/instagram_services"' in social
+    assert 'href="/catalog/social-services/messaging"' not in social
 
     cards = landing_page.catalog_page_html("store-cards")
-    assert 'href="/catalog/store-cards/mobile-stores"' in cards
-    assert 'href="/catalog/store-cards/platform-stores"' in cards
+    assert 'href="/catalog/store-cards/steam"' in cards
+    assert 'href="/catalog/store-cards/playstation"' in cards
+    assert 'href="/catalog/store-cards/google_play"' in cards
+    assert 'href="/catalog/store-cards/mobile-stores"' not in cards
+    assert 'href="/catalog/store-cards/platform-stores"' not in cards
+    assert 'href="/catalog/store-cards/payment-cards"' not in cards
     assert 'href="/catalog/store-cards/gaming-stores"' not in cards
     assert "Roblox" not in cards
     assert "Discord و IMO" not in cards
 
-    apps = landing_page.catalog_page_html("paid-apps", category_slug="mobile-tools")
-    assert "Android AMT" in apps
+    apps = landing_page.catalog_page_html("paid-apps", category_slug="dft_pro")
     assert "DFT Pro" in apps
+    assert 'href="/catalog/paid-apps/mobile-tools"' not in landing_page.catalog_page_html("paid-apps")
 
 
 def test_catalog_sections_include_miniapp_family_categories():
@@ -206,6 +211,8 @@ def test_catalog_sections_include_miniapp_family_categories():
     assert 'href="/catalog/subscriptions/chatgpt"' in subscriptions
     assert 'href="/catalog/mobile-recharge/syriatel"' in recharge
     assert 'href="/catalog/mobile-recharge/esim"' not in recharge
+    assert 'href="/catalog/mobile-recharge/ukraine"' not in recharge
+    assert 'href="/catalog/mobile-recharge/global"' not in recharge
 
 
 def test_esim_is_a_separate_disabled_section_until_api_is_enabled():
@@ -237,6 +244,28 @@ def test_public_catalog_payload_exposes_nested_sections_for_customer_app():
     assert jawaker["service_key"] == "games"
     assert jawaker["family_key"] == "jawaker"
     assert any(row["slug"] == "telegram_numbers" for row in sections["verification-numbers"]["categories"])
+    store_slugs = {row["slug"] for row in sections["store-cards"]["categories"]}
+    assert {"steam", "playstation", "google_play"} <= store_slugs
+    assert not {"mobile-stores", "platform-stores", "payment-cards"} & store_slugs
+
+
+def test_family_backed_catalog_sections_only_expose_direct_product_families():
+    sections = {row["slug"]: row for row in landing_page.public_catalog_payload()["sections"]}
+
+    for slug in (
+        "games",
+        "chat-apps",
+        "social-services",
+        "subscriptions",
+        "store-cards",
+        "verification-numbers",
+        "internet-providers",
+        "paid-apps",
+        "mobile-recharge",
+    ):
+        assert sections[slug]["categories"]
+        assert all(row["generated"] for row in sections[slug]["categories"])
+        assert all(row["service_key"] and row["family_key"] for row in sections[slug]["categories"])
 
 
 def test_catalog_generated_family_category_renders_as_product_stage():
@@ -272,7 +301,7 @@ def test_catalog_category_filters_items():
 
 def test_catalog_checkout_links_open_the_right_authenticated_workspace():
     games = landing_page.catalog_page_html("games", category_slug="pubg")
-    numbers = landing_page.catalog_page_html("verification-numbers", category_slug="temporary")
+    numbers = landing_page.catalog_page_html("verification-numbers", category_slug="telegram_numbers")
 
     assert "/app/services" not in games
     assert "/app/services" not in numbers

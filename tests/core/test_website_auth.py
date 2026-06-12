@@ -184,8 +184,8 @@ async def test_public_catalog_game_category_requires_login_before_showing_produc
 async def test_public_catalog_numbers_category_requires_login_before_showing_products():
     request = make_mocked_request(
         "GET",
-        "/catalog/verification-numbers/temporary",
-        match_info={"slug": "verification-numbers", "category": "temporary"},
+        "/catalog/verification-numbers/telegram_numbers",
+        match_info={"slug": "verification-numbers", "category": "telegram_numbers"},
     )
 
     with pytest.raises(web.HTTPFound) as exc:
