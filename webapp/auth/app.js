@@ -2708,16 +2708,23 @@ function renderDigitalCatalog(payload) {
   const root = serviceRoot();
   const products = payload.products || [];
   const games = payload.games || [];
+  const productCategories = payload.product_categories || [];
+  let activeDigitalFilter = "all";
   root.innerHTML = `
     <div class="service-toolbar">
       <input id="digital-search" type="search" placeholder="ابحث عن لعبة أو خدمة">
       <button class="secondary compact" type="button" data-digital-refresh>تحديث</button>
     </div>
+    <div class="digital-category-tabs" aria-label="تصنيفات المنتجات الرقمية">
+      <button type="button" class="active" data-digital-filter="all">الكل <span>${products.length + games.length}</span></button>
+      <button type="button" data-digital-filter="games">الألعاب <span>${games.length}</span></button>
+      ${productCategories.map((row) => `<button type="button" data-digital-filter="category:${esc(row.id)}">${esc(localized(row.label, row.id))} <span>${esc(row.count || 0)}</span></button>`).join("")}
+    </div>
     <div class="service-split">
       <div class="service-list-panel">
-        <h4>الألعاب</h4>
+        <h4 id="digital-games-heading">الألعاب</h4>
         <div class="service-grid" id="digital-games"></div>
-        <h4>الخدمات الرقمية</h4>
+        <h4 id="digital-products-heading">الخدمات الرقمية</h4>
         <div class="service-grid" id="digital-products"></div>
       </div>
       <div class="service-detail" id="digital-detail">
@@ -2728,9 +2735,20 @@ function renderDigitalCatalog(payload) {
   const renderItems = () => {
     const query = $("#digital-search").value.trim().toLowerCase();
     const filter = (row) => !query || JSON.stringify(row).toLowerCase().includes(query);
-    $("#digital-games").innerHTML = games.filter(filter).slice(0, 80).map((row) => digitalItemButton("game", row)).join("")
+    const selectedCategory = activeDigitalFilter.startsWith("category:") ? activeDigitalFilter.slice("category:".length) : "";
+    const showGames = activeDigitalFilter === "all" || activeDigitalFilter === "games";
+    const showProducts = activeDigitalFilter === "all" || selectedCategory;
+    const gameRows = showGames ? games.filter(filter) : [];
+    const productRows = showProducts
+      ? products.filter((row) => (!selectedCategory || row.category === selectedCategory) && filter(row)).sort(compareDigitalAvailability)
+      : [];
+    $("#digital-games-heading").hidden = !showGames;
+    $("#digital-games").hidden = !showGames;
+    $("#digital-products-heading").hidden = !showProducts;
+    $("#digital-products").hidden = !showProducts;
+    $("#digital-games").innerHTML = gameRows.slice(0, 80).map((row) => digitalItemButton("game", row)).join("")
       || '<div class="service-muted">لا توجد ألعاب مطابقة.</div>';
-    $("#digital-products").innerHTML = products.filter(filter).sort(compareDigitalAvailability).slice(0, 80).map((row) => digitalItemButton("product", row)).join("")
+    $("#digital-products").innerHTML = productRows.slice(0, 80).map((row) => digitalItemButton("product", row)).join("")
       || '<div class="service-muted">لا توجد خدمات مطابقة.</div>';
     root.querySelectorAll("[data-digital-kind]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -2743,6 +2761,14 @@ function renderDigitalCatalog(payload) {
     });
   };
   $("#digital-search").addEventListener("input", renderItems);
+  root.querySelectorAll("[data-digital-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      activeDigitalFilter = button.dataset.digitalFilter || "all";
+      root.querySelectorAll("[data-digital-filter]").forEach((item) => item.classList.toggle("active", item === button));
+      $("#digital-detail").innerHTML = '<div class="service-empty">اختر خدمة لعرض الباقات والأسعار.</div>';
+      renderItems();
+    });
+  });
   root.querySelector("[data-digital-refresh]").addEventListener("click", loadDigitalWorkspace);
   renderItems();
 }

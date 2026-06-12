@@ -250,8 +250,13 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'numbersApiEndpoint("create_order", "/api/v1/numbers/orders")' in js
     assert "const quoteToken = row.quote_token || row.purchase_action?.body?.quote_token" in js
     assert 'body: JSON.stringify({ quote_token: quoteToken, language: appLanguage() })' in js
+    assert "const productCategories = payload.product_categories || [];" in js
+    assert 'class="digital-category-tabs"' in js
+    assert 'data-digital-filter="category:${esc(row.id)}"' in js
+    assert 'row.category === selectedCategory' in js
     assert ".numbers-app-shell" in css
     assert ".numbers-picker-drawer" in css
+    assert ".digital-category-tabs" in css
     assert '"الأمان": "Security"' in i18n
     assert '"تغيير كلمة المرور": "Change password"' in i18n
     assert ".language-toggle {" in i18n

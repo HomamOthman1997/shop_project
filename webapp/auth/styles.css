@@ -1470,6 +1470,41 @@ button.owner-action-row {
   content: "↻";
   font-size: 18px;
 }
+.service-root-digital .digital-category-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 12px;
+  margin-bottom: 8px;
+  scrollbar-width: thin;
+}
+.service-root-digital .digital-category-tabs button {
+  min-height: 38px;
+  border: 1px solid var(--svc-line);
+  border-radius: 8px;
+  background: var(--svc-surface);
+  color: var(--svc-muted);
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  font-weight: 900;
+}
+.service-root-digital .digital-category-tabs button.active {
+  border-color: rgba(28, 185, 135, .34);
+  background: var(--svc-accent-soft);
+  color: var(--svc-accent);
+}
+.service-root-digital .digital-category-tabs span {
+  min-width: 22px;
+  border-radius: 999px;
+  background: rgba(137, 148, 163, .14);
+  color: inherit;
+  padding: 2px 6px;
+  text-align: center;
+  font-size: 10px;
+}
 .service-root-digital .service-split {
   display: grid;
   grid-template-columns: 1fr;
