@@ -285,6 +285,11 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'data-account-catalog-disabled="1"' in js
     assert 'section.service === "numbers"' in js
     assert "pendingDigitalCatalogSelection" in js
+    assert "function findDigitalSelectedGame" in js
+    assert "function renderDigitalSelectedGame" in js
+    assert 'loadDigitalQuotes("game", game.id);' in js
+    assert 'class="quote-list digital-package-grid"' in js
+    assert 'class="quote-row digital-package-card"' in js
     assert 'else if (initialView === "home") {\n    openPanel("home", "الخدمات", { updateRoute: false });\n  }' in js
     assert "function resolveNumbersCatalogSelection" in js
     assert 'temporary: "temp", temp: "temp", rental: "rental", voice: "voice"' in js
@@ -303,6 +308,9 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert ".numbers-app-shell" in css
     assert ".numbers-picker-drawer" in css
     assert ".digital-category-tabs" in css
+    assert ".digital-package-grid" in css
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in css
+    assert ".digital-package-card" in css
     assert ".manual-fulfillment-notice" in css
     assert ".account-catalog-grid" in css
     assert ".account-catalog-card" in css

@@ -1585,6 +1585,52 @@ button.owner-action-row {
 .service-root-digital .service-detail-head b {
   color: var(--svc-accent);
 }
+.service-root-digital .digital-direct-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.service-root-digital .digital-direct-head h3 {
+  margin: 4px 0 0;
+  color: var(--svc-text);
+  font-size: clamp(22px, 3vw, 32px);
+}
+.service-root-digital .digital-direct-head span {
+  color: var(--svc-accent);
+  font-size: 12px;
+  font-weight: 900;
+}
+.service-root-digital .digital-direct-detail {
+  width: 100%;
+}
+.service-root-digital .digital-package-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+.service-root-digital .digital-package-card {
+  min-height: 132px;
+  padding: 16px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 14px;
+  text-align: center;
+}
+.service-root-digital .digital-package-card div {
+  place-content: center;
+}
+.service-root-digital .digital-package-card strong {
+  color: var(--svc-text);
+  font-size: 16px;
+  line-height: 1.45;
+}
+.service-root-digital .digital-package-card b {
+  border-top: 1px solid var(--svc-line);
+  padding-top: 12px;
+  font-size: 18px;
+}
 .service-root-digital .service-loader,
 .service-root-digital .service-empty {
   border-color: var(--svc-line);
@@ -1973,6 +2019,29 @@ button.owner-action-row {
   .service-detail-head {
     align-items: stretch;
     flex-direction: column;
+  }
+  .service-root-digital .digital-direct-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .service-root-digital .digital-direct-head button {
+    width: 100%;
+  }
+  .service-root-digital .digital-package-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .service-root-digital .digital-package-card {
+    min-height: 118px;
+    padding: 11px 9px;
+    gap: 9px;
+  }
+  .service-root-digital .digital-package-card strong {
+    font-size: 13px;
+  }
+  .service-root-digital .digital-package-card b {
+    padding-top: 9px;
+    font-size: 15px;
   }
 }
 

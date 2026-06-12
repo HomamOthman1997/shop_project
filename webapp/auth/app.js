@@ -2805,6 +2805,11 @@ function renderDigitalCatalog(payload) {
   const productCategories = payload.product_categories || [];
   const selection = pendingDigitalCatalogSelection;
   pendingDigitalCatalogSelection = null;
+  const selectedGame = findDigitalSelectedGame(games, selection);
+  if (selectedGame) {
+    renderDigitalSelectedGame(payload, selectedGame);
+    return;
+  }
   const matchedCategory = selection && productCategories.some((row) => String(row.id) === String(selection.slug));
   let activeDigitalFilter = selection?.slug === "games" ? "games" : matchedCategory ? `category:${selection.slug}` : "all";
   const initialSearch = selection && activeDigitalFilter === "all" ? String(selection.title || selection.slug || "") : "";
@@ -2875,6 +2880,41 @@ function renderDigitalCatalog(payload) {
   renderItems();
 }
 
+function normalizedDigitalName(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g, "");
+}
+
+function findDigitalSelectedGame(games, selection) {
+  if (!selection || selection.slug === "games") return null;
+  const needles = [selection.slug, selection.title].map(normalizedDigitalName).filter(Boolean);
+  return games.find((game) => {
+    const values = [game.id, game.name, game.label].map(normalizedDigitalName).filter(Boolean);
+    return needles.some((needle) => values.some((value) => value.includes(needle) || needle.includes(value)));
+  }) || null;
+}
+
+function renderDigitalSelectedGame(payload, game) {
+  const root = serviceRoot();
+  const title = localized(game.label, game.name || game.id);
+  root.innerHTML = `
+    <div class="digital-direct-head">
+      <div>
+        <span>الألعاب</span>
+        <h3>${esc(title)}</h3>
+      </div>
+      <button class="secondary compact" type="button" data-digital-catalog-back>رجوع للألعاب</button>
+    </div>
+    <div class="manual-fulfillment-notice">
+      <strong>جميع الطلبات تنفيذ يدوي</strong>
+      <span>${esc(localized(payload.fulfillment?.label, "مدة التنفيذ من دقيقة إلى ساعة."))}</span>
+    </div>
+    <div class="service-detail digital-direct-detail" id="digital-detail">
+      <div class="service-loader">جاري تحميل الحزم والأسعار...</div>
+    </div>`;
+  root.querySelector("[data-digital-catalog-back]").addEventListener("click", () => renderDigitalCatalog(payload));
+  loadDigitalQuotes("game", game.id);
+}
+
 function compareDigitalAvailability(left, right) {
   const leftAvailable = digitalProductAvailable(left) ? 1 : 0;
   const rightAvailable = digitalProductAvailable(right) ? 1 : 0;
@@ -2932,7 +2972,7 @@ function renderDigitalQuotes(kind, id, payload) {
       <strong>تنفيذ يدوي</strong>
       <span>${esc(localized(payload.fulfillment?.label, "مدة التنفيذ من دقيقة إلى ساعة."))}</span>
     </div>
-    <div class="quote-list">
+    <div class="quote-list digital-package-grid">
       ${offers.length ? offers.map((offer, index) => digitalOfferHtml(kind, offer, index)).join("") : '<div class="service-empty">لا توجد باقات متاحة حالياً.</div>'}
     </div>`;
   detail.querySelectorAll("[data-digital-offer]").forEach((button) => {
@@ -2944,7 +2984,7 @@ function digitalOfferHtml(kind, offer, index) {
   const name = offer.item_name || offer.name || offer.title || offer.package_name || "Package";
   const price = offer.sale_price_label || offer.price_label || (offer.sale_price ? `$${Number(offer.sale_price).toFixed(2)}` : "-");
   return `
-    <button class="quote-row" type="button" data-digital-offer="${index}">
+    <button class="quote-row digital-package-card" type="button" data-digital-offer="${index}">
       <div><strong>${esc(name)}</strong><span>${esc(offer.duration || offer.provider || kind)}</span></div>
       <b>${esc(price)}</b>
     </button>`;
