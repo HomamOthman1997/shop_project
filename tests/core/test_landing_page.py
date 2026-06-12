@@ -81,6 +81,9 @@ def test_catalog_root_search_indexes_miniapp_families_without_showing_them_by_de
     assert 'data-root-search-result hidden' in html
     assert 'class="catalog-card green root-search-card" href="/catalog/games/jawaker"' in html
     assert 'class="catalog-card amber root-search-card" href="/catalog/verification-numbers/telegram_numbers"' in html
+    assert "جواكر" in html
+    assert "ببجي" in html
+    assert "ارقام تلجرام" in html
     assert 'const rootOnly = node.hasAttribute("data-root-search-result");' in html
     assert 'rootOnly ? Boolean(query) && haystack.includes(query)' in html
 

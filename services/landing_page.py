@@ -1604,6 +1604,7 @@ def _family_categories(section: dict[str, object] | None) -> tuple[dict[str, obj
                     ("الخيارات المتاحة", "تظهر الأسعار والباقات بعد تسجيل الدخول وفتح القسم المناسب."),
                     ("كلمات بحث", aliases or "تصنيف متوفر في الكاتالوغ الداخلي."),
                 ),
+                "search_terms": aliases,
                 "generated": True,
             }
         )
@@ -1724,7 +1725,7 @@ def _category_cards(section: dict[str, object]) -> str:
         slug = escape(str(category.get("slug") or ""))
         title = escape(str(category.get("title") or slug))
         subtitle = escape(str(category.get("subtitle") or ""))
-        search_text = escape(f"{title} {subtitle}")
+        search_text = escape(f"{title} {subtitle} {category.get('search_terms', '')}")
         cards.append(
             f"""
             <a class="catalog-card {escape(str(section["accent"]))}" href="/catalog/{section_slug}/{slug}" data-catalog-search="{search_text}">
@@ -1747,7 +1748,7 @@ def _root_family_search_cards() -> str:
             slug = escape(str(category.get("slug") or ""))
             title = escape(str(category.get("title") or slug))
             subtitle = escape(str(category.get("subtitle") or ""))
-            search_text = escape(f"{section_title} {category.get('title', '')} {category.get('subtitle', '')}")
+            search_text = escape(f"{section_title} {category.get('title', '')} {category.get('subtitle', '')} {category.get('search_terms', '')}")
             cards.append(
                 f"""
                 <a class="catalog-card {accent} root-search-card" href="/catalog/{section_slug}/{slug}" data-catalog-search="{search_text}" data-root-search-result hidden>
