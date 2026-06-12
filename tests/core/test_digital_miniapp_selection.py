@@ -44,6 +44,44 @@ def test_named_game_gift_products_are_grouped_under_games_not_store_cards():
     assert ("store_cards", "Valorant") not in grouped
 
 
+def test_store_card_service_tree_uses_countries_and_global_only():
+    from services.digital_products import miniapp
+
+    snapshot = {
+        "gift_categories": [
+            {"id": "ps-network", "name": "PlayStation Network"},
+            {"id": "ps-austria", "name": "PlayStation Austria"},
+        ],
+        "products_by_category": {
+            "ps-network": [{"id": "psn-10", "name": "PlayStation Network 10", "price": 10, "stock": 1}],
+            "ps-austria": [{"id": "ps-at-10", "name": "PlayStation Austria 10", "price": 10, "stock": 1}],
+        },
+    }
+    group_id = "grp:g:store_cards:playstation"
+
+    tree = miniapp._build_service_tree(
+        snapshot,
+        grouped_games=[],
+        game_source_map={},
+        grouped_gifts=[{"id": group_id, "service_key": "store_cards", "name": "PlayStation"}],
+        gift_source_map={group_id: ["ps-network", "ps-austria"]},
+    )
+
+    playstation = next(row for row in tree if row["key"] == "store_cards")["families"][0]
+    assert playstation["selection_kind"] == "region"
+    assert [(row["name"], row["variant_kind"]) for row in playstation["variants"]] == [
+        ("Global", "region"),
+        ("Austria", "region"),
+    ]
+
+
+def test_game_country_variants_are_allowed_but_random_options_are_not():
+    from services.digital_products import miniapp
+
+    assert miniapp._is_allowed_game_variant({"name": "Brazil", "variant_kind": "region"}) is True
+    assert miniapp._is_allowed_game_variant({"name": "Random bundle", "variant_kind": "option"}) is False
+
+
 @pytest.mark.asyncio
 async def test_website_enabled_starts_http_server_without_miniapps(monkeypatch):
     from services.digital_products import miniapp
@@ -67,6 +105,10 @@ async def test_website_enabled_starts_http_server_without_miniapps(monkeypatch):
     async def fake_bootstrap():
         calls["bootstrap"] = True
 
+    async def fake_catalog():
+        calls["catalog_warmed"] = True
+        return {}
+
     monkeypatch.setattr(miniapp.settings, "website_enabled", True, raising=False)
     monkeypatch.setattr(miniapp.settings, "digital_products_miniapp_enabled", False, raising=False)
     monkeypatch.setattr(miniapp.settings, "numbers_miniapp_enabled", False, raising=False)
@@ -74,6 +116,7 @@ async def test_website_enabled_starts_http_server_without_miniapps(monkeypatch):
     monkeypatch.setattr(miniapp.settings, "digital_products_miniapp_host", "0.0.0.0", raising=False)
     monkeypatch.setattr(miniapp.settings, "digital_products_miniapp_port", 8123, raising=False)
     monkeypatch.setattr(miniapp, "bootstrap_miniapp_indexes", fake_bootstrap)
+    monkeypatch.setattr(miniapp, "_catalog_payload", fake_catalog)
     monkeypatch.setattr(miniapp.web, "AppRunner", FakeRunner)
     monkeypatch.setattr(miniapp.web, "TCPSite", FakeSite)
 
@@ -81,9 +124,36 @@ async def test_website_enabled_starts_http_server_without_miniapps(monkeypatch):
 
     assert started is not None
     assert calls["bootstrap"] is True
+    assert calls["catalog_warmed"] is True
     assert calls["runner_setup"] is True
     assert calls["site_started"] is True
     assert calls["site"][1:] == ("0.0.0.0", 8123)
+
+
+@pytest.mark.asyncio
+async def test_catalog_payload_reuses_cached_service_tree(monkeypatch):
+    from services.digital_products import miniapp
+
+    calls = {"snapshot": 0}
+
+    async def _fake_snapshot(force=False):
+        assert force is False
+        calls["snapshot"] += 1
+        return {"enabled": True, "games": []}
+
+    monkeypatch.setattr(miniapp, "_CATALOG_PAYLOAD_CACHE", {"ts": 0.0, "data": None, "provider_state": {}})
+    monkeypatch.setattr(miniapp, "_miniapp_provider_state", lambda: {"za3em_enabled": True})
+    monkeypatch.setattr(miniapp, "get_catalog_snapshot", _fake_snapshot)
+    monkeypatch.setattr(miniapp, "_markup_percent", lambda: __import__("asyncio").sleep(0, result=0.0))
+    monkeypatch.setattr(miniapp, "_grouped_gift_categories", lambda _snapshot: ([], {}))
+    monkeypatch.setattr(miniapp, "_grouped_games", lambda _snapshot: ([], {}))
+    monkeypatch.setattr(miniapp, "_build_service_tree", lambda *_args: [])
+
+    first = await miniapp._catalog_payload()
+    second = await miniapp._catalog_payload()
+
+    assert calls["snapshot"] == 1
+    assert first == second
 
 
 class _DummyRequest:
@@ -100,8 +170,9 @@ class _DummyQueryRequest:
         self.query = dict(query)
 
 class _DummyMatchRequest:
-    def __init__(self, match_info):
+    def __init__(self, match_info, query=None):
         self.match_info = dict(match_info)
+        self.query = dict(query or {})
 
 
 @pytest.mark.asyncio
@@ -120,15 +191,26 @@ async def test_website_family_packages_uses_explicit_service_tree_ids(monkeypatc
                         {
                             "family_key": "honey_jar",
                             "name": "Honey Jar",
-                            "variants": [{"game_ids": [], "gift_category_ids": ["chat-honey"]}],
+                            "selection_kind": "general",
+                            "variants": [
+                                {
+                                    "id": "chat-honey",
+                                    "name": "Global",
+                                    "game_ids": [],
+                                    "gift_category_ids": ["chat-honey"],
+                                    "offer_mode": "all",
+                                }
+                            ],
                         }
                     ],
                 }
             ]
         }
 
-    async def _fake_gifts(category_id):
+    async def _fake_gifts(category_id, query, offer_mode):
         assert category_id == "chat-honey"
+        assert query == ""
+        assert offer_mode == "all"
         return [{"kind": "gift", "id": "325", "name": "325 Coins", "price_usd": 6.6, "best_provider_code": "manual"}]
 
     monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
@@ -160,7 +242,8 @@ async def test_website_game_family_packages_uses_explicit_game_ids(monkeypatch):
                         {
                             "family_key": "pubg",
                             "name": "PUBG",
-                            "variants": [{"game_ids": ["pubgm"], "gift_category_ids": []}],
+                            "selection_kind": "general",
+                            "variants": [{"id": "pubgm", "name": "Global", "game_ids": ["pubgm"], "gift_category_ids": []}],
                         }
                     ],
                 }
@@ -182,6 +265,131 @@ async def test_website_game_family_packages_uses_explicit_game_ids(monkeypatch):
     assert payload["packages"][0]["name"] == "325 UC"
     assert payload["packages"][0]["price_label"] == "$6.60"
     assert payload["packages"][0]["quote_token"] == "quote:pubgm:325"
+
+
+@pytest.mark.asyncio
+async def test_website_family_packages_requires_explicit_variant_before_loading(monkeypatch):
+    from services.digital_products import miniapp
+
+    async def _fake_auth(_request, _scope):
+        return None
+
+    async def _fake_catalog():
+        return {
+            "service_tree": [
+                {
+                    "key": "store_cards",
+                    "families": [
+                        {
+                            "family_key": "playstation",
+                            "name": "PlayStation",
+                            "selection_kind": "region",
+                            "variants": [
+                                {"id": "ps-us", "name": "US", "variant_kind": "region", "game_ids": [], "gift_category_ids": ["ps-us"]},
+                                {"id": "ps-tr", "name": "Turkey", "variant_kind": "region", "game_ids": [], "gift_category_ids": ["ps-tr"]},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    async def _unexpected_gifts(*_args):
+        raise AssertionError("products must not load before a variant is selected")
+
+    monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "_gift_products", _unexpected_gifts)
+
+    response = await miniapp.website_family_packages(
+        _DummyMatchRequest({"service_key": "store_cards", "family_key": "playstation"})
+    )
+    payload = json.loads(response.text)
+
+    assert payload["requires_variant_selection"] is True
+    assert payload["packages"] == []
+    assert [row["name"] for row in payload["variants"]] == ["US", "Turkey"]
+
+
+@pytest.mark.asyncio
+async def test_website_family_packages_loads_only_selected_variant(monkeypatch):
+    from services.digital_products import miniapp
+
+    loaded = []
+
+    async def _fake_auth(_request, _scope):
+        return None
+
+    async def _fake_catalog():
+        return {
+            "service_tree": [
+                {
+                    "key": "games",
+                    "families": [
+                        {
+                            "family_key": "pubg",
+                            "name": "PUBG",
+                            "selection_kind": "region",
+                            "variants": [
+                                {"id": "pubg-global", "name": "Global", "variant_kind": "region", "game_ids": ["pubg-global"], "gift_category_ids": []},
+                                {"id": "pubg-tr", "name": "Turkey", "variant_kind": "region", "game_ids": ["pubg-tr"], "gift_category_ids": []},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    async def _fake_game_items(game_id):
+        loaded.append(game_id)
+        return {"game_name": "PUBG", "items": [{"kind": "game", "id": "60", "game_id": game_id, "name": "60 UC", "price_usd": 1.0}]}
+
+    monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "_game_items", _fake_game_items)
+    monkeypatch.setattr(miniapp, "make_digital_quote_token", lambda payload: f"quote:{payload['game_id']}:{payload['item_id']}")
+
+    response = await miniapp.website_family_packages(
+        _DummyMatchRequest({"service_key": "games", "family_key": "pubg"}, {"variant_id": "pubg-tr"})
+    )
+    payload = json.loads(response.text)
+
+    assert loaded == ["pubg-tr"]
+    assert payload["selected_variant_name"] == "Turkey"
+    assert payload["packages"][0]["quote_token"] == "quote:pubg-tr:60"
+
+
+@pytest.mark.asyncio
+async def test_website_family_packages_rejects_variant_outside_family(monkeypatch):
+    from services.digital_products import miniapp
+
+    async def _fake_auth(_request, _scope):
+        return None
+
+    async def _fake_catalog():
+        return {
+            "service_tree": [
+                {
+                    "key": "games",
+                    "families": [
+                        {
+                            "family_key": "pubg",
+                            "name": "PUBG",
+                            "variants": [{"id": "pubg-global", "name": "Global", "game_ids": ["pubg-global"], "gift_category_ids": []}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+
+    with pytest.raises(miniapp.web.HTTPNotFound) as exc_info:
+        await miniapp.website_family_packages(
+            _DummyMatchRequest({"service_key": "games", "family_key": "pubg"}, {"variant_id": "pubg-turkey"})
+        )
+    assert exc_info.value.text == "variant not found"
 
 
 @pytest.mark.asyncio

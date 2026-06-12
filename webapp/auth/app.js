@@ -2916,7 +2916,7 @@ function renderDigitalSelectedFamily(payload, selection) {
     <div class="account-catalog-path digital-direct-head">
       <div>
         <strong>${esc(title)}</strong>
-        <span>اختر الحزمة المطلوبة.</span>
+        <span data-digital-family-hint>جاري تحميل التصنيفات...</span>
       </div>
       <button class="account-catalog-back" type="button" data-digital-catalog-back>رجوع</button>
     </div>
@@ -2929,7 +2929,7 @@ function renderDigitalSelectedFamily(payload, selection) {
         ${Array.from({ length: 8 }, () => '<div class="account-catalog-card digital-package-skeleton"><span></span><strong></strong><b></b></div>').join("")}
       </div>
     </div>`;
-  root.querySelector("[data-digital-catalog-back]").addEventListener("click", returnToAccountCatalog);
+  root.querySelector("[data-digital-catalog-back]").onclick = returnToAccountCatalog;
   loadDigitalFamilyPackages(selection, title);
 }
 
@@ -2978,14 +2978,71 @@ async function loadDigitalQuotes(kind, id) {
   }
 }
 
-async function loadDigitalFamilyPackages(selection, title) {
+function setDigitalFamilyHint(message) {
+  const hint = serviceRoot()?.querySelector("[data-digital-family-hint]");
+  if (hint) hint.textContent = message;
+}
+
+function setDigitalFamilyBack(handler) {
+  const button = serviceRoot()?.querySelector("[data-digital-catalog-back]");
+  if (button) button.onclick = handler;
+}
+
+function renderDigitalFamilyLoading(label = "جاري تحميل الحزم") {
+  const detail = $("#digital-detail");
+  if (!detail) return;
+  detail.innerHTML = `
+    <div class="account-catalog-grid digital-package-grid" aria-label="${esc(label)}">
+      ${Array.from({ length: 8 }, () => '<div class="account-catalog-card digital-package-skeleton"><span></span><strong></strong><b></b></div>').join("")}
+    </div>`;
+}
+
+async function loadDigitalFamilyPackages(selection, title, variantId = "") {
   const detail = $("#digital-detail");
   try {
-    const result = await api(`/api/v1/digital/families/${encodeURIComponent(selection.serviceKey)}/${encodeURIComponent(selection.familyKey)}/packages`);
+    const query = variantId ? `?variant_id=${encodeURIComponent(variantId)}` : "";
+    const result = await api(`/api/v1/digital/families/${encodeURIComponent(selection.serviceKey)}/${encodeURIComponent(selection.familyKey)}/packages${query}`, { timeoutMs: 45000 });
+    if (result.requires_variant_selection && !variantId) {
+      renderDigitalFamilyVariants(title, result, selection);
+      return;
+    }
+    const selectedVariantName = String(result.selected_variant_name || "").trim();
+    setDigitalFamilyHint(selectedVariantName ? `اختر المنتج المطلوب من تصنيف ${selectedVariantName}.` : "اختر المنتج المطلوب.");
+    if ((result.variants || []).length > 1) {
+      setDigitalFamilyBack(() => renderDigitalFamilyVariants(title, result, selection));
+    } else {
+      setDigitalFamilyBack(returnToAccountCatalog);
+    }
     renderDigitalFamilyQuotes(title, result.packages || [], selection);
   } catch (error) {
     detail.innerHTML = `<div class="service-empty">${esc(error.message)}</div>`;
   }
+}
+
+function renderDigitalFamilyVariants(title, payload, selection) {
+  const detail = $("#digital-detail");
+  const variants = payload.variants || [];
+  const hint = payload.selection_kind === "region" ? "اختر الدولة أو Global." : "اختر التصنيف المناسب.";
+  setDigitalFamilyHint(hint);
+  setDigitalFamilyBack(returnToAccountCatalog);
+  detail.innerHTML = `
+    <div class="account-catalog-grid digital-package-grid digital-variant-grid">
+      ${variants.length ? variants.map((variant) => `
+        <button class="account-catalog-card green digital-variant-card" type="button" data-digital-variant-id="${esc(variant.id || "")}">
+          <span class="account-catalog-mark" aria-hidden="true"></span>
+          <strong>${esc(variant.name || "Global")}</strong>
+          <span>عرض المنتجات ضمن هذا التصنيف.</span>
+          <b>${String(variant.name || "").toLowerCase() === "global" ? "Global" : (variant.variant_kind === "region" ? "دولة / منطقة" : "تصنيف")}</b>
+        </button>`).join("") : '<div class="service-empty">لا توجد تصنيفات مرتبطة بهذا الصنف حالياً.</div>'}
+    </div>`;
+  detail.querySelectorAll("[data-digital-variant-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const variant = variants.find((row) => String(row.id || "") === button.dataset.digitalVariantId);
+      setDigitalFamilyHint(`جاري تحميل منتجات ${variant?.name || title}...`);
+      renderDigitalFamilyLoading();
+      loadDigitalFamilyPackages(selection, title, button.dataset.digitalVariantId);
+    });
+  });
 }
 
 function renderDigitalFamilyQuotes(title, offers, selection) {

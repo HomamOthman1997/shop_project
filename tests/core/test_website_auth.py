@@ -291,7 +291,9 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "openDigitalCatalogSelection(pendingDigitalCatalogSelection);" in js
     assert "Array.from({ length: 8 }" in js
     assert "function returnToAccountCatalog" in js
-    assert 'root.querySelector("[data-digital-catalog-back]").addEventListener("click", returnToAccountCatalog);' in js
+    assert 'root.querySelector("[data-digital-catalog-back]").onclick = returnToAccountCatalog;' in js
+    assert "function renderDigitalFamilyVariants" in js
+    assert "?variant_id=${encodeURIComponent(variantId)}" in js
     assert "/api/v1/digital/families/${encodeURIComponent(selection.serviceKey)}/${encodeURIComponent(selection.familyKey)}/packages" in js
     assert 'class="account-catalog-grid digital-package-grid"' in js
     assert 'class="account-catalog-card green digital-package-card"' in js

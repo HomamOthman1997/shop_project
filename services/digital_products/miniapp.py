@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
@@ -189,6 +190,23 @@ _KNOWN_REGION_LABELS: set[str] = {
     "brazil",
     "bangladesh",
     "indonesia",
+    "austria",
+    "bahrain",
+    "belgium",
+    "czech republic",
+    "finland",
+    "greece",
+    "hungary",
+    "kuwait",
+    "lebanon",
+    "oman",
+    "poland",
+    "qatar",
+    "romania",
+    "saudi arabia",
+    "slovakia",
+    "south africa",
+    "spain",
     "taiwan",
     "thailand",
     "vietnam",
@@ -1311,6 +1329,17 @@ def _verify_init_data(init_data: str) -> dict[str, Any]:
 
 async def _catalog_payload() -> dict[str, Any]:
     provider_state = _miniapp_provider_state()
+    ttl = max(10, int(getattr(settings, "g2bulk_catalog_cache_ttl_sec", 120) or 120))
+    now = time.time()
+    cached = _CATALOG_PAYLOAD_CACHE.get("data")
+    if (
+        isinstance(cached, dict)
+        and cached
+        and _CATALOG_PAYLOAD_CACHE.get("provider_state") == provider_state
+        and (now - float(_CATALOG_PAYLOAD_CACHE.get("ts") or 0.0)) < ttl
+    ):
+        return dict(cached)
+
     snapshot = await get_catalog_snapshot(force=False)
     markup = await _markup_percent()
     categories, gift_source_map = _grouped_gift_categories(snapshot)
@@ -1389,6 +1418,7 @@ async def _catalog_payload() -> dict[str, Any]:
     }
     _CATALOG_PAYLOAD_CACHE["data"] = dict(payload)
     _CATALOG_PAYLOAD_CACHE["provider_state"] = provider_state
+    _CATALOG_PAYLOAD_CACHE["ts"] = time.time()
     return payload
 
 
@@ -1772,18 +1802,58 @@ async def website_family_packages(request: web.Request) -> web.Response:
     if not family:
         raise web.HTTPNotFound(text="family not found")
 
+    variants = list(family.get("variants") or [])
+    public_variants = [
+        {
+            "id": str(variant.get("id") or variant.get("name") or "").strip(),
+            "name": str(variant.get("name") or "Global").strip(),
+            "variant_kind": str(variant.get("variant_kind") or "general").strip(),
+            "entry_kind": str(variant.get("entry_kind") or "gift").strip(),
+            "image_url": str(variant.get("image_url") or "").strip(),
+        }
+        for variant in variants
+    ]
+    requested_variant_id = str(getattr(request, "query", {}).get("variant_id") or "").strip()
+    selected_variant = None
+    if requested_variant_id:
+        selected_variant = next(
+            (
+                variant
+                for variant in variants
+                if str(variant.get("id") or variant.get("name") or "").strip() == requested_variant_id
+            ),
+            None,
+        )
+        if not selected_variant:
+            raise web.HTTPNotFound(text="variant not found")
+    elif len(variants) == 1:
+        selected_variant = variants[0]
+
+    response_payload = {
+        "ok": True,
+        "service_key": service_key,
+        "family_key": family_key,
+        "family_name": str(family.get("name") or family_key),
+        "selection_kind": str(family.get("selection_kind") or ("general" if len(variants) <= 1 else "region")),
+        "requires_variant_selection": len(variants) > 1 and selected_variant is None,
+        "variants": public_variants,
+        "selected_variant_id": str((selected_variant or {}).get("id") or (selected_variant or {}).get("name") or "").strip(),
+        "selected_variant_name": str((selected_variant or {}).get("name") or "").strip(),
+    }
+    if selected_variant is None:
+        return web.json_response({**response_payload, "packages": []}, headers=dict(_NO_STORE_HEADERS))
+
     game_ids = sorted({
         str(game_id)
-        for variant in list(family.get("variants") or [])
-        for game_id in list(variant.get("game_ids") or [])
+        for game_id in list(selected_variant.get("game_ids") or [])
         if str(game_id or "").strip()
     })
     gift_category_ids = sorted({
         str(category_id)
-        for variant in list(family.get("variants") or [])
-        for category_id in list(variant.get("gift_category_ids") or [])
+        for category_id in list(selected_variant.get("gift_category_ids") or [])
         if str(category_id or "").strip()
     })
+    offer_mode = str(selected_variant.get("offer_mode") or "all").strip()
     packages: list[dict[str, Any]] = []
     game_payloads = await asyncio.gather(*(_game_items(game_id) for game_id in game_ids))
     for game_id, game_payload in zip(game_ids, game_payloads):
@@ -1801,7 +1871,7 @@ async def website_family_packages(request: web.Request) -> web.Response:
                 "provider": str(item.get("best_provider_code") or "manual"),
             }
             packages.append({**item, "quote_token": make_digital_quote_token(quote), "price_label": f"${price:.2f}"})
-    gift_payloads = await asyncio.gather(*(_gift_products(category_id) for category_id in gift_category_ids))
+    gift_payloads = await asyncio.gather(*(_gift_products(category_id, "", offer_mode) for category_id in gift_category_ids))
     for category_id, gift_items in zip(gift_category_ids, gift_payloads):
         for item in gift_items:
             price = float(item.get("price_usd") or 0.0)
@@ -1822,16 +1892,7 @@ async def website_family_packages(request: web.Request) -> web.Response:
             }
             packages.append({**item, "quote_token": make_digital_quote_token(quote), "input_fields": fields, "price_label": f"${price:.2f}"})
     packages.sort(key=lambda row: (_money(row.get("price_usd") or 0.0), _natural_key(str(row.get("name") or ""))))
-    return web.json_response(
-        {
-            "ok": True,
-            "service_key": service_key,
-            "family_key": family_key,
-            "family_name": str(family.get("name") or family_key),
-            "packages": packages,
-        },
-        headers=dict(_NO_STORE_HEADERS),
-    )
+    return web.json_response({**response_payload, "packages": packages}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def simtopup_countries(request: web.Request) -> web.Response:
@@ -2126,6 +2187,10 @@ async def start_miniapp_server() -> tuple[web.AppRunner, web.TCPSite] | None:
     ):
         return None
     await bootstrap_miniapp_indexes()
+    try:
+        await _catalog_payload()
+    except Exception:
+        pass
     app = create_app()
     runner = web.AppRunner(app)
     await runner.setup()
@@ -2264,10 +2329,8 @@ def _variant_kind(service_key: str, label: str) -> str:
 def _is_allowed_game_variant(row: dict[str, Any]) -> bool:
     label = taxonomy_norm_text(str(row.get("name") or ""))
     kind = str(row.get("variant_kind") or "")
-    if kind == "option":
-        return label in _GAME_REGION_ALLOWLIST
-    if kind == "region":
-        return label in _GAME_REGION_ALLOWLIST
+    if kind in {"general", "region"}:
+        return True
     return label in _GAME_REGION_ALLOWLIST
 
 
@@ -2451,6 +2514,8 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
                     )
                 continue
             region_label = _resolve_region_label(service_key, family_key, family_label, category_name, names)
+            if service_key == "store_cards" and _variant_kind(service_key, region_label) == "option":
+                region_label = "Global"
             upsert_region(
                 parent,
                 region_label,
