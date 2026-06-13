@@ -1202,6 +1202,20 @@ button.owner-action-row {
   line-height: 1;
   background: rgba(56, 189, 248, .16);
 }
+.owner-website-family-tile {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+.owner-website-family-tile > .owner-website-card {
+  width: 100%;
+}
+.owner-website-family-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .owner-website-toolbar {
   justify-content: flex-start;
   margin-bottom: 12px;
@@ -1737,25 +1751,19 @@ button.owner-action-row {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 .service-root-digital .digital-package-card {
-  min-height: 132px;
-  padding: 16px;
+  min-height: 210px;
+  padding: 0;
+  overflow: hidden;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(92px, .95fr) auto;
   align-items: stretch;
-  gap: 14px;
+  gap: 0;
   text-align: center;
 }
 .service-root-digital.is-catalog-packages .digital-package-card {
-  min-height: 150px;
-  display: flex;
-  align-items: flex-start;
-  text-align: start;
-}
-.service-root-digital.is-catalog-packages .digital-package-card b {
-  width: 100%;
-  margin-top: auto;
-  border-top: 1px solid var(--line);
-  color: #34d399;
+  min-height: 210px;
+  display: grid;
+  text-align: center;
 }
 .service-root-digital .digital-package-skeleton {
   pointer-events: none;
@@ -1778,18 +1786,52 @@ button.owner-action-row {
 @keyframes digital-package-loading {
   to { background-position: -220% 0; }
 }
-.service-root-digital .digital-package-card div {
-  place-content: center;
-}
 .service-root-digital .digital-package-card strong {
   color: var(--svc-text);
   font-size: 16px;
   line-height: 1.45;
 }
 .service-root-digital .digital-package-card b {
-  border-top: 1px solid var(--svc-line);
-  padding-top: 12px;
+  border-top: 0;
+  padding-top: 0;
   font-size: 18px;
+}
+.service-root-digital .digital-package-image {
+  min-height: 98px;
+  padding: 14px;
+  border-bottom: 1px solid var(--svc-line);
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(16, 185, 129, .08), rgba(56, 189, 248, .08));
+  color: var(--svc-muted) !important;
+  font-weight: 900;
+}
+.service-root-digital .digital-package-image img {
+  max-width: 100%;
+  max-height: 96px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.service-root-digital .digital-package-image em {
+  font-style: normal;
+}
+.service-root-digital .digital-package-body {
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+  place-items: center;
+}
+.service-root-digital .digital-package-buy {
+  min-width: 96px;
+  min-height: 34px;
+  padding: 7px 16px;
+  border: 1px solid rgba(52, 211, 153, .38);
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  background: rgba(52, 211, 153, .12);
+  color: var(--svc-accent) !important;
+  font-weight: 900;
 }
 .service-root-digital .service-loader,
 .service-root-digital .service-empty {

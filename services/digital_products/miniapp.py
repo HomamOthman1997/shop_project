@@ -37,8 +37,10 @@ from services.digital_products.fulfillment_rules import (
 from services.digital_products.manual_catalog import (
     CATALOG_TYPE as WEBSITE_MANUAL_CATALOG_TYPE,
     EXECUTION_MODE_MANUAL,
+    family_label as manual_family_label,
     family_packages as manual_family_packages,
     fresh_quote_payload as fresh_manual_quote_payload,
+    is_builtin_family as manual_is_builtin_family,
     static_family_packages as manual_static_family_packages,
     upsert_static_manual_product,
 )
@@ -2124,23 +2126,18 @@ async def website_family_packages(request: web.Request) -> web.Response:
     manual_payload = await _manual_static_payload(service_key, family_key, variant_id=requested_variant_id)
     if manual_payload and manual_payload.pop("variant_not_found", False):
         raise web.HTTPNotFound(text="variant not found")
-    payload = await _catalog_payload()
-    service = next((row for row in payload.get("service_tree", []) if str(row.get("key") or "") == service_key), None)
-    family = next((row for row in (service or {}).get("families", []) if str(row.get("family_key") or "") == family_key), None)
     if manual_payload:
-        if family and not manual_payload.get("family_name"):
-            manual_payload["family_name"] = str(family.get("name") or family_key)
         return web.json_response(manual_payload, headers=dict(_NO_STORE_HEADERS))
     if requested_variant_id:
         raise web.HTTPNotFound(text="variant not found")
-    if not family:
+    if not manual_is_builtin_family(service_key, family_key):
         raise web.HTTPNotFound(text="family not found")
     return web.json_response(
         {
             "ok": True,
             "service_key": service_key,
             "family_key": family_key,
-            "family_name": str(family.get("name") or family_key),
+            "family_name": manual_family_label(service_key, family_key),
             "selection_kind": "general",
             "requires_variant_selection": False,
             "variants": [],

@@ -581,6 +581,7 @@ async def public_sections(
                 continue
             categories.append(
                 {
+                    "node_id": family_id,
                     "slug": family_key or f"manual-{family_id}",
                     "title": str(family.get("name") or ""),
                     "subtitle": str(family.get("display_text") or f"{product_count} منتجات تنفيذ يدوي."),
@@ -635,6 +636,7 @@ async def static_family_packages(
     public_variants = [
         {
             "id": _manual_variant_public_id(row),
+            "node_id": _node_id(row),
             "name": str(row.get("name") or "Global"),
             "variant_kind": "region",
             "entry_kind": "manual",
@@ -702,6 +704,7 @@ async def family_packages(family_id: str, *, variant_id: str = "", owner_id: int
     public_variants = [
         {
             "id": str(row.get("_id") or ""),
+            "node_id": _node_id(row),
             "name": str(row.get("name") or "Global"),
             "variant_kind": "region",
             "entry_kind": "manual",
@@ -753,6 +756,7 @@ def public_product(row: dict[str, Any], *, family: dict[str, Any], variant: dict
         "item_name": str(row.get("name") or ""),
         "price_usd": price,
         "price_label": f"${price:.2f}",
+        "image_url": str(row.get("website_image_url") or ""),
         "provider": "manual_catalog",
         "duration": str(row.get("product_info_text") or ""),
         "input_fields": clean_input_fields(row.get("input_fields")),

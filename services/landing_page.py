@@ -1651,12 +1651,20 @@ def merge_manual_catalog(payload: dict[str, object], manual_sections: list[dict[
             by_slug[slug] = clone
             continue
         categories = list(existing.get("categories") or [])
-        known = {str(row.get("slug") or "") for row in categories if isinstance(row, dict)}
-        categories.extend(
-            dict(row)
-            for row in list(manual.get("categories") or [])
-            if isinstance(row, dict) and str(row.get("slug") or "") not in known
-        )
+        by_category_slug = {str(row.get("slug") or ""): row for row in categories if isinstance(row, dict)}
+        for row in list(manual.get("categories") or []):
+            if not isinstance(row, dict):
+                continue
+            category_slug = str(row.get("slug") or "")
+            if not category_slug:
+                continue
+            current = by_category_slug.get(category_slug)
+            if current:
+                current.update(dict(row))
+            else:
+                clone = dict(row)
+                categories.append(clone)
+                by_category_slug[category_slug] = clone
         existing["categories"] = categories
         existing["categories_count"] = len(categories)
         existing["enabled"] = True

@@ -274,6 +274,36 @@ def test_manual_catalog_categories_merge_into_existing_section():
     assert sections["mobile-recharge"]["categories_count"] == len(sections["mobile-recharge"]["categories"])
 
 
+def test_manual_catalog_updates_existing_static_category_metadata():
+    base = landing_page.public_catalog_payload()
+    base_games_count = next(row for row in base["sections"] if row["slug"] == "games")["categories_count"]
+
+    payload = landing_page.merge_manual_catalog(
+        base,
+        [
+            {
+                "slug": "games",
+                "categories": [
+                    {
+                        "slug": "pubg",
+                        "node_id": "family-pubg",
+                        "title": "PUBG",
+                        "manual": True,
+                        "service_key": "games",
+                        "family_key": "pubg",
+                    }
+                ],
+            }
+        ],
+    )
+    games = next(row for row in payload["sections"] if row["slug"] == "games")
+    pubg = next(row for row in games["categories"] if row["slug"] == "pubg")
+
+    assert games["categories_count"] == base_games_count
+    assert pubg["node_id"] == "family-pubg"
+    assert pubg["manual"] is True
+
+
 def test_family_backed_catalog_sections_only_expose_direct_product_families():
     sections = {row["slug"]: row for row in landing_page.public_catalog_payload()["sections"]}
 

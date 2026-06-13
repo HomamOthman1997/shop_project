@@ -183,29 +183,7 @@ async def test_website_family_packages_does_not_load_api_gifts_without_manual_ca
         assert scope == "digital:catalog"
 
     async def _fake_catalog():
-        return {
-            "service_tree": [
-                {
-                    "key": "chat_apps",
-                    "families": [
-                        {
-                            "family_key": "honey_jar",
-                            "name": "Honey Jar",
-                            "selection_kind": "general",
-                            "variants": [
-                                {
-                                    "id": "chat-honey",
-                                    "name": "Global",
-                                    "game_ids": [],
-                                    "gift_category_ids": ["chat-honey"],
-                                    "offer_mode": "all",
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ]
-        }
+        raise AssertionError("website family packages must not wait for the API catalog")
 
     async def _fake_gifts(category_id, query, offer_mode):
         raise AssertionError("API gifts must not be shown directly on the website catalog")
@@ -235,21 +213,7 @@ async def test_website_game_family_packages_does_not_load_api_games_without_manu
         return None
 
     async def _fake_catalog():
-        return {
-            "service_tree": [
-                {
-                    "key": "games",
-                    "families": [
-                        {
-                            "family_key": "pubg",
-                            "name": "PUBG",
-                            "selection_kind": "general",
-                            "variants": [{"id": "pubgm", "name": "Global", "game_ids": ["pubgm"], "gift_category_ids": []}],
-                        }
-                    ],
-                }
-            ]
-        }
+        raise AssertionError("website game packages must not wait for the API catalog")
 
     async def _fake_game_items(game_id):
         raise AssertionError("API game products must be imported into manual catalog first")
@@ -268,6 +232,29 @@ async def test_website_game_family_packages_does_not_load_api_games_without_manu
 
     assert payload["family_name"] == "PUBG"
     assert payload["packages"] == []
+
+
+@pytest.mark.asyncio
+async def test_website_family_packages_rejects_unknown_static_family_without_api(monkeypatch):
+    from services.digital_products import miniapp
+
+    async def _fake_auth(_request, _scope):
+        return None
+
+    async def _fake_manual(*_args, **_kwargs):
+        return None
+
+    async def _fake_catalog():
+        raise AssertionError("unknown website families must not load the API catalog")
+
+    monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
+    monkeypatch.setattr(miniapp, "manual_static_family_packages", _fake_manual)
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+
+    with pytest.raises(miniapp.web.HTTPNotFound) as exc_info:
+        await miniapp.website_family_packages(_DummyMatchRequest({"service_key": "games", "family_key": "missing_game"}))
+
+    assert exc_info.value.text == "family not found"
 
 
 @pytest.mark.asyncio

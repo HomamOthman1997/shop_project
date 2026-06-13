@@ -64,6 +64,7 @@ def _static_tree():
             "node_type": "endpoint",
             "name": "325 UC manual",
             "price": 6.6,
+            "website_image_url": "https://cdn.example.test/pubg-uc.png",
             "input_fields": [{"id": "player_id", "label": "Player ID", "required": True}],
         },
     ]
@@ -91,6 +92,7 @@ async def test_public_sections_exposes_only_complete_manual_families(monkeypatch
     sections = await manual_catalog.public_sections(77)
 
     assert sections[0]["slug"] == "mobile-recharge"
+    assert sections[0]["categories"][0]["node_id"] == "family"
     assert sections[0]["categories"][0]["service_key"] == "website_manual"
     assert sections[0]["categories"][0]["family_key"] == "family"
 
@@ -104,11 +106,15 @@ async def test_static_manual_overlay_does_not_duplicate_builtin_family_in_public
     monkeypatch.setattr(manual_catalog, "list_catalog_nodes", nodes)
 
     sections = await manual_catalog.public_sections(77)
+    builtin_sections = await manual_catalog.public_sections(77, include_builtin=True)
     packages = await manual_catalog.static_family_packages("games", "pubg", owner_id=77)
 
     assert sections == []
+    assert builtin_sections[0]["categories"][0]["node_id"] == "family"
     assert packages["variants"][0]["id"] == "manual:variant"
+    assert packages["variants"][0]["node_id"] == "variant"
     assert packages["packages"][0]["name"] == "325 UC manual"
+    assert packages["packages"][0]["image_url"] == "https://cdn.example.test/pubg-uc.png"
     assert packages["packages"][0]["input_fields"][0]["id"] == "player_id"
 
 

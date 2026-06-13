@@ -1582,6 +1582,7 @@ async def test_owner_create_website_manual_section_sets_hierarchy_metadata(monke
 @pytest.mark.asyncio
 async def test_owner_create_website_manual_product_uses_static_catalog_path(monkeypatch):
     calls = {}
+    metadata_calls = []
 
     async def owner(_request):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
@@ -1593,9 +1594,14 @@ async def test_owner_create_website_manual_product_uses_static_catalog_path(monk
     async def audit(**_kwargs):
         return None
 
+    async def metadata(node_id, reseller_id, **kwargs):
+        metadata_calls.append((node_id, reseller_id, kwargs))
+        return {"_id": node_id, "name": "325 UC", "node_type": "endpoint", "catalog_type": "website_manual", **kwargs}
+
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "_owner_catalog_id", lambda: 77)
     monkeypatch.setattr(owner_api, "create_static_manual_product", create)
+    monkeypatch.setattr(owner_api, "update_node_website_metadata", metadata)
     monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     request = make_mocked_request("POST", "/api/v1/owner/website-catalog/manual-products")
     request._read_bytes = json.dumps(
@@ -1605,6 +1611,7 @@ async def test_owner_create_website_manual_product_uses_static_catalog_path(monk
             "variant_name": "Global",
             "name": "325 UC",
             "price": "6.60",
+            "website_image_url": "https://cdn.example.test/pubg-uc.png",
             "input_fields_text": "player_id|Player ID|required|text",
         }
     ).encode()
@@ -1618,6 +1625,10 @@ async def test_owner_create_website_manual_product_uses_static_catalog_path(monk
     assert calls["product_name"] == "325 UC"
     assert calls["price"] == 6.6
     assert calls["input_fields"][0]["id"] == "player_id"
+    assert metadata_calls[0][0] == "product-1"
+    assert metadata_calls[0][1] == 77
+    assert metadata_calls[0][2]["website_image_url"] == "https://cdn.example.test/pubg-uc.png"
+    assert metadata_calls[0][2]["catalog_type"] == "website_manual"
 
 
 @pytest.mark.asyncio
@@ -1727,7 +1738,8 @@ async def test_owner_update_website_manual_product_variant_moves_product(monkeyp
         calls["metadata"].append((node_id, reseller_id, kwargs))
         if node_id == "variant-my":
             return {"_id": "variant-my", "parent_id": "family-pubg", "name": "Malaysia", "node_type": "folder", **kwargs}
-        return {**product, "parent_id": "variant-my", **kwargs}
+        parent_id = "variant-my" if kwargs.get("website_variant_key") == "malaysia" else product["parent_id"]
+        return {**product, "parent_id": parent_id, **kwargs}
 
     async def move(node_id, owner_id, new_parent_id, *, catalog_type):
         calls["move"].append((node_id, owner_id, new_parent_id, catalog_type))
@@ -1750,15 +1762,65 @@ async def test_owner_update_website_manual_product_variant_moves_product(monkeyp
     monkeypatch.setattr(owner_api, "update_endpoint", endpoint)
     monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     request = make_mocked_request("PATCH", "/api/v1/owner/custom-catalog/nodes/product-1", match_info={"node_id": "product-1"})
-    request._read_bytes = json.dumps({"catalog_type": "website_manual", "variant_name": "Malaysia", "price": "2.00"}).encode()
+    request._read_bytes = json.dumps(
+        {
+            "catalog_type": "website_manual",
+            "variant_name": "Malaysia",
+            "price": "2.00",
+            "website_image_url": "https://cdn.example.test/ml.png",
+        }
+    ).encode()
 
     response = await owner_api.owner_update_custom_catalog_node(request)
 
     assert response.status == 200
     assert calls["create_variant"] == [(77, "family-pubg", "Malaysia", "website_manual")]
     assert calls["move"] == [("product-1", 77, "variant-my", "website_manual")]
+    assert calls["metadata"][0][2]["website_image_url"] == "https://cdn.example.test/ml.png"
     assert calls["metadata"][-1][2]["website_variant_key"] == "malaysia"
     assert calls["endpoint"][0][2]["price"] == 2.0
+
+
+@pytest.mark.asyncio
+async def test_owner_delete_website_manual_folder_requires_empty_node(monkeypatch):
+    calls = {"deactivate": []}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def node(node_id, *, reseller_id, catalog_type):
+        assert node_id == "family-pubg"
+        assert reseller_id == 77
+        assert catalog_type == "website_manual"
+        return {"_id": "family-pubg", "name": "PUBG", "node_type": "folder", "website_level": "family"}
+
+    async def children(owner_id, parent_id, *, catalog_type):
+        assert owner_id == 77
+        assert parent_id == "family-pubg"
+        assert catalog_type == "website_manual"
+        return [{"_id": "variant-global", "node_type": "folder"}]
+
+    async def deactivate(node_id, owner_id, *, catalog_type):
+        calls["deactivate"].append((node_id, owner_id, catalog_type))
+        return 1
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_owner_catalog_id", lambda: 77)
+    monkeypatch.setattr(owner_api, "get_node", node)
+    monkeypatch.setattr(owner_api, "list_children", children)
+    monkeypatch.setattr(owner_api, "deactivate_node", deactivate)
+    request = make_mocked_request(
+        "DELETE",
+        "/api/v1/owner/custom-catalog/nodes/family-pubg?catalog_type=website_manual",
+        match_info={"node_id": "family-pubg"},
+    )
+
+    response = await owner_api.owner_delete_custom_catalog_node(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 409
+    assert payload["ok"] is False
+    assert calls["deactivate"] == []
 
 
 @pytest.mark.asyncio

@@ -1085,6 +1085,7 @@ def _custom_catalog_node_payload(row: dict[str, Any], *, include_inventory: bool
         "website_family_key": _text(row.get("website_family_key")),
         "website_variant_key": _text(row.get("website_variant_key")),
         "website_execution_mode": clean_execution_mode(row.get("website_execution_mode")),
+        "website_image_url": _text(row.get("website_image_url")),
         "website_source_kind": _text(row.get("website_source_kind")),
         "website_source_key": _text(row.get("website_source_key")),
         "api_source_available": bool(row.get("website_api_source")),
@@ -1337,6 +1338,13 @@ async def owner_create_website_manual_product(request: web.Request) -> web.Respo
             input_fields=input_fields,
             product_info_text=str((body or {}).get("product_info_text") or ""),
         )
+        if "website_image_url" in body:
+            node = await update_node_website_metadata(
+                node["_id"],
+                owner_id,
+                website_image_url=body.get("website_image_url"),
+                catalog_type=WEBSITE_MANUAL_CATALOG_TYPE,
+            ) or node
     except ValueError as exc:
         return web.json_response({"ok": False, "message": str(exc)}, status=400, headers=dict(_NO_STORE_HEADERS))
     await _write_owner_audit(
@@ -1468,6 +1476,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
         website_accent = None
         input_fields = None
         website_execution_mode = None
+        website_image_url = None
         requested_variant_name = None
         if node_level(node) == "section" and "website_slug" in body:
             website_slug = clean_slug(body.get("website_slug"))
@@ -1489,6 +1498,8 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                 )
         if node_level(node) == "product" and "variant_name" in body:
             requested_variant_name = _manual_variant_display_name(body.get("variant_name"))
+        if node_level(node) == "product" and "website_image_url" in body:
+            website_image_url = _text(body.get("website_image_url"))
         if node_level(node) == "product" and "website_execution_mode" in body:
             website_execution_mode = clean_execution_mode(body.get("website_execution_mode"))
             if website_execution_mode == "api" and not (bool(node.get("website_api_source")) and _text(node.get("website_source_kind")) == "game"):
@@ -1497,7 +1508,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                     status=400,
                     headers=dict(_NO_STORE_HEADERS),
                 )
-        if website_slug is not None or website_accent is not None or input_fields is not None or website_execution_mode is not None:
+        if website_slug is not None or website_accent is not None or input_fields is not None or website_execution_mode is not None or website_image_url is not None:
             node = await update_node_website_metadata(
                 node_id,
                 owner_id,
@@ -1505,6 +1516,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                 website_accent=website_accent,
                 input_fields=input_fields,
                 website_execution_mode=website_execution_mode,
+                website_image_url=website_image_url,
                 catalog_type=catalog_type,
             ) or node
         if requested_variant_name is not None:
@@ -1638,9 +1650,14 @@ async def owner_delete_custom_catalog_node(request: web.Request) -> web.Response
     node = await get_node(node_id, reseller_id=owner_id, catalog_type=catalog_type)
     if not node or bool(node.get("is_root")):
         return web.json_response({"ok": False, "message": "Catalog node was not found or cannot be deleted."}, status=404, headers=dict(_NO_STORE_HEADERS))
-    pending = await db.custom_service_preorders.count_documents({"endpoint_id": node.get("_id"), "status": {"$in": ["pending", "fulfilling", "refunding"]}})
-    if pending:
-        return web.json_response({"ok": False, "message": "Resolve pending preorders before deleting this item."}, status=409, headers=dict(_NO_STORE_HEADERS))
+    if catalog_type == WEBSITE_MANUAL_CATALOG_TYPE and str(node.get("node_type") or "") == "folder":
+        children = await list_children(owner_id, node["_id"], catalog_type=catalog_type)
+        if children:
+            return web.json_response({"ok": False, "message": "احذف العناصر الموجودة داخل هذا الصنف أولاً، ثم احذف الصنف الفارغ."}, status=409, headers=dict(_NO_STORE_HEADERS))
+    if str(node.get("node_type") or "") == "endpoint":
+        pending = await db.custom_service_preorders.count_documents({"endpoint_id": node.get("_id"), "status": {"$in": ["pending", "fulfilling", "refunding"]}})
+        if pending:
+            return web.json_response({"ok": False, "message": "Resolve pending preorders before deleting this item."}, status=409, headers=dict(_NO_STORE_HEADERS))
     deleted = await deactivate_node(node_id, owner_id, catalog_type=catalog_type)
     await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action="custom_catalog_delete", target_type=_text(node.get("node_type")), target_id=node_id, metadata={"nodes": deleted})
     return web.json_response({"ok": True, "deleted_nodes": int(deleted)}, headers=dict(_NO_STORE_HEADERS))

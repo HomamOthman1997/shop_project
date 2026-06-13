@@ -2309,6 +2309,26 @@ function ownerWebsiteCard({title, subtitle, accent = "green", badge = "", attrs 
     </button>`;
 }
 
+function ownerWebsiteFamilyTile(row, section) {
+  const accent = section?.accent || row.accent || "green";
+  const openAttrs = `data-owner-website-family="${esc(row.family_key || row.slug || "")}" data-service-key="${esc(row.service_key || "")}" data-title="${esc(row.title || "")}"`;
+  const nodeId = String(row.node_id || "").trim();
+  return `
+    <article class="owner-website-family-tile">
+      ${ownerWebsiteCard({
+        title: row.title || row.slug || "",
+        subtitle: row.subtitle || "فتح منتجات هذا الصنف.",
+        accent,
+        badge: row.status || "",
+        attrs: openAttrs,
+      })}
+      ${nodeId ? `<div class="owner-website-family-actions">
+        <button class="secondary compact" type="button" data-owner-catalog-detail="${esc(nodeId)}">تعديل</button>
+        <button class="danger compact" type="button" data-owner-catalog-delete="${esc(nodeId)}">حذف إذا فارغ</button>
+      </div>` : ""}
+    </article>`;
+}
+
 function renderOwnerWebsiteCatalog(payload) {
   const target = $("#owner-custom-catalog");
   if (!target) return;
@@ -2339,6 +2359,7 @@ function renderOwnerWebsiteCatalog(payload) {
         const attrs = section
           ? `data-owner-website-family="${esc(row.family_key || row.slug || "")}" data-service-key="${esc(row.service_key || "")}" data-title="${esc(row.title || "")}"`
           : `data-owner-website-section="${esc(row.slug || "")}"`;
+        if (section) return ownerWebsiteFamilyTile(row, section);
         return ownerWebsiteCard({
           title: row.title || row.slug || "",
           subtitle: row.subtitle || (section ? "فتح منتجات هذا الصنف." : `${Number(row.categories_count || 0)} صنف`),
@@ -2377,6 +2398,8 @@ function renderOwnerWebsiteCatalog(payload) {
   });
   target.querySelector("[data-owner-website-add-family]")?.addEventListener("click", () => openOwnerWebsiteFamilyModal(section));
   target.querySelector("[data-owner-website-import-section]")?.addEventListener("click", importOwnerWebsiteApiSection);
+  target.querySelectorAll("[data-owner-catalog-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerCatalogNode(button.dataset.ownerCatalogDetail)));
+  target.querySelectorAll("[data-owner-catalog-delete]").forEach((button) => button.addEventListener("click", () => deleteOwnerCatalogNode(button.dataset.ownerCatalogDelete)));
 }
 
 function renderOwnerWebsiteFamily() {
@@ -2569,6 +2592,7 @@ function openOwnerWebsiteProductModal() {
       <label><span>اسم المنتج</span><input name="name" required minlength="2" maxlength="100" placeholder="325 UC"></label>
       <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" required></label>
       <label><span>الدولة / Global</span><input name="variant_name" value="${esc(payload.selected_variant_name || "Global")}"></label>
+      <label><span>رابط صورة المنتج</span><input name="website_image_url" type="url" placeholder="https://..."></label>
       <label><span>الوصف</span><textarea name="product_info_text" rows="3" placeholder="ملاحظات للطلب أو شروط الخدمة، لا تظهر داخل بطاقة المنتج."></textarea></label>
       <label class="owner-catalog-fields"><span>حقول الطلب، سطر لكل حقل</span><textarea name="input_fields_text" rows="5" required placeholder="player_id|Player ID|required|text&#10;server_id|Server ID|optional|text"></textarea></label>
       <button class="primary compact" type="submit">إضافة المنتج</button>
@@ -2745,6 +2769,7 @@ async function loadOwnerCatalogNode(nodeId) {
             ${node.node_type === "folder" ? `<label><span>الوصف</span><textarea name="display_text" rows="3">${esc(node.display_text || "")}</textarea></label>` : `
               <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" value="${esc(node.price)}" required></label>
               <label><span>الدولة / Global</span><input name="variant_name" value="${esc(currentVariantName || "Global")}" required></label>
+              <label><span>رابط صورة المنتج</span><input name="website_image_url" type="url" value="${esc(node.website_image_url || "")}" placeholder="https://..."></label>
               <label><span>طريقة التنفيذ</span><select name="website_execution_mode">
                 <option value="manual" ${currentExecutionMode !== "api" ? "selected" : ""}>Manual</option>
                 <option value="api" ${currentExecutionMode === "api" ? "selected" : ""} ${apiExecutionSupported ? "" : "disabled"}>API</option>
@@ -3557,12 +3582,17 @@ function renderDigitalQuotes(kind, id, payload) {
 function digitalOfferHtml(kind, offer, index) {
   const name = offer.item_name || offer.name || offer.title || offer.package_name || "Package";
   const price = offer.sale_price_label || offer.price_label || (offer.sale_price ? `$${Number(offer.sale_price).toFixed(2)}` : "-");
+  const region = String(offer.manual_catalog?.variant_name || offer.region || offer.country || "").trim();
+  const imageUrl = String(offer.image_url || offer.image || "").trim();
+  const nameLine = [name, region].filter(Boolean).join(" ");
   return `
     <button class="account-catalog-card green digital-package-card" type="button" data-digital-offer="${index}">
-      <span class="account-catalog-mark" aria-hidden="true"></span>
-      <strong>${esc(name)}</strong>
-      <span>${esc(offer.duration || offer.provider || (kind === "game" ? "شحن لعبة" : "منتج رقمي"))}</span>
-      <b>${esc(price)}</b>
+      <span class="digital-package-image">${imageUrl ? `<img src="${esc(imageUrl)}" alt="${esc(name)}">` : "<em>صورة المنتج</em>"}</span>
+      <span class="digital-package-body">
+        <strong>${esc(nameLine)}</strong>
+        <b>${esc(price)}</b>
+        <span class="digital-package-buy">شراء</span>
+      </span>
     </button>`;
 }
 

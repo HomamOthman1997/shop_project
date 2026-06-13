@@ -621,6 +621,7 @@ async def update_node_website_metadata(
     website_source_kind: str | None = None,
     website_source_key: str | None = None,
     website_api_source: dict | None = None,
+    website_image_url: str | None = None,
     input_fields: list[dict] | None = None,
     catalog_type: Optional[str] = None,
 ) -> Optional[dict]:
@@ -633,6 +634,7 @@ async def update_node_website_metadata(
         query["catalog_type"] = _norm_catalog_type(catalog_type)
 
     payload: dict = {"updated_at": datetime.now(UTC)}
+    unset_payload: dict = {}
     if website_level is not None:
         payload["website_level"] = str(website_level or "").strip().lower()
     if website_slug is not None:
@@ -653,12 +655,21 @@ async def update_node_website_metadata(
         payload["website_source_key"] = str(website_source_key or "").strip()
     if website_api_source is not None:
         payload["website_api_source"] = dict(website_api_source) if isinstance(website_api_source, dict) else {}
+    if website_image_url is not None:
+        image_url = str(website_image_url or "").strip()
+        if image_url:
+            payload["website_image_url"] = image_url
+        else:
+            unset_payload["website_image_url"] = ""
     if input_fields is not None:
         payload["input_fields"] = [dict(field) for field in input_fields if isinstance(field, dict)]
 
+    update_payload: dict = {"$set": payload}
+    if unset_payload:
+        update_payload["$unset"] = unset_payload
     return await db.custom_services.find_one_and_update(
         query,
-        {"$set": payload},
+        update_payload,
         return_document=ReturnDocument.AFTER,
     )
 
