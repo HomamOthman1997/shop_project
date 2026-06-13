@@ -2257,22 +2257,6 @@ function ownerWebsiteSection() {
   return (ownerWebsiteCatalogState.sections || []).find((row) => row.slug === ownerWebsiteCatalogState.activeSectionSlug) || null;
 }
 
-function ownerWebsiteSectionServiceKey(section) {
-  const categoryKey = (section?.categories || []).find((row) => row.service_key)?.service_key || "";
-  if (categoryKey) return categoryKey;
-  return {
-    "games": "games",
-    "chat-apps": "chat_apps",
-    "social-services": "social_services",
-    "mobile-recharge": "communications_data",
-    "verification-numbers": "numbers_services",
-    "subscriptions": "paid_subscriptions",
-    "store-cards": "store_cards",
-    "internet-providers": "internet_providers",
-    "paid-apps": "paid_apps",
-  }[section?.slug || ""] || "";
-}
-
 function ownerWebsiteProtectedSection(section) {
   return section?.service === "numbers" || section?.slug === "esim";
 }
@@ -2351,7 +2335,6 @@ function renderOwnerWebsiteCatalog(payload) {
       ${section ? '<button class="account-catalog-back" type="button" data-owner-website-back>رجوع</button>' : ""}
     </div>
     <div id="owner-catalog-detail"></div>
-    ${section && !protectedSection ? '<div class="owner-order-actions owner-website-toolbar"><button class="secondary compact" type="button" data-owner-website-import-section>استيراد كل API لهذا القسم كمنتجات يدوية</button></div>' : ""}
     ${protectedSection ? '<div class="notice">هذا القسم يبقى على منطق الطلب الحالي ولا يدخل ضمن الكاتالوغ اليدوي.</div>' : ""}
     <div class="account-catalog-grid owner-website-grid">
       ${rows.map((row) => {
@@ -2397,7 +2380,6 @@ function renderOwnerWebsiteCatalog(payload) {
     });
   });
   target.querySelector("[data-owner-website-add-family]")?.addEventListener("click", () => openOwnerWebsiteFamilyModal(section));
-  target.querySelector("[data-owner-website-import-section]")?.addEventListener("click", importOwnerWebsiteApiSection);
   target.querySelectorAll("[data-owner-catalog-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerCatalogNode(button.dataset.ownerCatalogDetail)));
   target.querySelectorAll("[data-owner-catalog-delete]").forEach((button) => button.addEventListener("click", () => deleteOwnerCatalogNode(button.dataset.ownerCatalogDelete)));
 }
@@ -2422,7 +2404,7 @@ function renderOwnerWebsiteFamily() {
       <button class="account-catalog-back" type="button" data-owner-website-back>رجوع</button>
     </div>
     <div class="owner-order-actions owner-website-toolbar">
-      ${protectedSection ? "" : '<button class="secondary compact" type="button" data-owner-website-import>استيراد منتجات API كيدوية</button><button class="primary compact" type="button" data-owner-website-add-product>+ منتج</button>'}
+      ${protectedSection ? "" : '<button class="primary compact" type="button" data-owner-website-add-product>+ منتج</button>'}
       ${!protectedSection && showingProducts && packages.length ? '<button class="secondary compact" type="button" data-owner-website-clear-selection>إلغاء التحديد</button><button class="danger compact" type="button" data-owner-website-delete-selected disabled>حذف المحدد</button>' : ""}
     </div>
     ${protectedSection ? '<div class="notice">هذا القسم يبقى على طريقة الطلب الحالية.</div>' : ""}
@@ -2464,7 +2446,6 @@ function renderOwnerWebsiteFamily() {
       }) : ""}
     </div>`;
   target.querySelector("[data-owner-website-back]")?.addEventListener("click", ownerWebsiteBack);
-  target.querySelector("[data-owner-website-import]")?.addEventListener("click", importOwnerWebsiteApiFamily);
   target.querySelectorAll("[data-owner-website-add-product]").forEach((button) => {
     button.addEventListener("click", () => openOwnerWebsiteProductModal());
   });
@@ -2620,46 +2601,6 @@ async function createOwnerWebsiteProduct(event) {
     closeOwnerWebsiteModal();
     setText("#owner-message", "تمت إضافة المنتج.");
     await loadOwnerWebsiteFamily();
-  } catch (error) { setText("#owner-message", error.message); }
-}
-
-async function importOwnerWebsiteApiFamily() {
-  const family = ownerWebsiteCatalogState.activeFamily || {};
-  if (!family.serviceKey || !family.familyKey) return;
-  if (!window.confirm("استيراد منتجات API كمنتجات يدوية؟ لن يتم تغيير المنتجات الموجودة سابقاً.")) return;
-  try {
-    const selectedManualVariantId = ownerWebsiteCatalogState.familyPayload?.selected_variant_id || "";
-    const selectedVariantName = ownerWebsiteCatalogState.familyPayload?.selected_variant_name || "";
-    const body = {service_key: family.serviceKey, family_key: family.familyKey};
-    if (selectedVariantName) body.variant_id = selectedVariantName;
-    const result = await ownerApi("/api/v1/owner/website-catalog/import-api", {
-      method: "POST",
-      timeoutMs: 90000,
-      body: JSON.stringify(body),
-    });
-    const extraMessage = result.message ? ` ${result.message}` : "";
-    setText("#owner-message", `تم الاستيراد: جديد ${result.created || 0}، موجود ${result.existing || 0}، متجاهل ${result.skipped || 0}.${extraMessage}`);
-    await loadOwnerWebsiteFamily(selectedManualVariantId, {autoOpenFirstVariant: true});
-  } catch (error) { setText("#owner-message", error.message); }
-}
-
-async function importOwnerWebsiteApiSection() {
-  const section = ownerWebsiteSection();
-  const serviceKey = ownerWebsiteSectionServiceKey(section);
-  if (!serviceKey) return;
-  if (!window.confirm(`استيراد كل منتجات API ضمن قسم ${section?.title || serviceKey} كمنتجات يدوية؟ هذه عملية مساعدة لمرة واحدة ولن تغيّر المنتجات الموجودة سابقاً.`)) return;
-  try {
-    const result = await ownerApi("/api/v1/owner/website-catalog/import-api", {
-      method: "POST",
-      timeoutMs: 180000,
-      body: JSON.stringify({service_key: serviceKey}),
-    });
-    const extraMessage = result.message ? ` ${result.message}` : "";
-    setText(
-      "#owner-message",
-      `تم استيراد القسم: أصناف ${result.imported_families || 0}/${result.families || 0}، جديد ${result.created || 0}، موجود ${result.existing || 0}، متجاهل ${result.skipped || 0}.${extraMessage}`,
-    );
-    await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
 }
 

@@ -18,6 +18,7 @@ def test_create_app_registers_health_routes():
     assert ("GET", "/healthz") in routes
     assert ("GET", "/ready") in routes
     assert ("GET", "/api/v1/digital/families/{service_key}/{family_key}/packages") in routes
+    assert ("POST", "/api/v1/owner/website-catalog/import-api") not in routes
 
 
 def test_named_game_gift_products_are_grouped_under_games_not_store_cards():

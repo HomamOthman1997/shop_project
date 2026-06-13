@@ -1813,37 +1813,6 @@ async def game_items(request: web.Request) -> web.Response:
     )
 
 
-async def owner_import_website_api_catalog(request: web.Request) -> web.Response:
-    from services.platform.owner_api import require_website_owner
-
-    owner = await require_website_owner(request)
-    owner_id = int(getattr(settings, "owner_id", 0) or 0)
-    if owner_id <= 0:
-        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    service_key = str((body or {}).get("service_key") or "").strip()
-    family_key = str((body or {}).get("family_key") or "").strip()
-    variant_id = str((body or {}).get("variant_id") or "").strip()
-    if not service_key:
-        return web.json_response({"ok": False, "message": "Choose a catalog section to import."}, status=400, headers=dict(_NO_STORE_HEADERS))
-    if service_key.strip().lower() in {"numbers_services", "esim"}:
-        return web.json_response({"ok": False, "message": "This catalog section keeps its existing product flow."}, status=409, headers=dict(_NO_STORE_HEADERS))
-    if family_key:
-        result = await _import_api_family_to_manual(
-            owner_id,
-            service_key=service_key,
-            family_key=family_key,
-            variant_id=variant_id,
-        )
-    else:
-        result = await _import_api_service_to_manual(owner_id, service_key=service_key)
-    result["actor_id"] = int(getattr(owner, "customer_id", 0) or 0)
-    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
-
-
 async def _quote_manual_packages(packages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for package in list(packages or []):
@@ -2413,7 +2382,6 @@ def create_app(_argv: list[str] | None = None) -> web.Application:
     app.router.add_get("/mini/digital/api/gifts/{category_id}", gift_products)
     app.router.add_get("/mini/digital/api/games/{game_id}", game_items)
     app.router.add_get("/api/v1/digital/families/{service_key}/{family_key}/packages", website_family_packages)
-    app.router.add_post("/api/v1/owner/website-catalog/import-api", owner_import_website_api_catalog)
     app.router.add_get("/mini/digital/api/simtopup/countries", simtopup_countries)
     app.router.add_get("/mini/digital/api/simtopup/offers", simtopup_offers)
     app.router.add_get("/mini/digital/api/esim/countries", esim_countries)
