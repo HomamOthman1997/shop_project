@@ -142,6 +142,8 @@ class Settings(BaseSettings):
     cyberyozh_proxy_key: Optional[str] = None
     g2bulk_base_url: str = "https://api.g2bulk.com"
     g2bulk_api_key: Optional[str] = None
+    mangerr_base_url: str = "https://api.mangerr.com"
+    mangerr_api_token: Optional[str] = None
     za3em_base_url: str = "https://api.za3em-card.com"
     za3em_enabled: bool = False
     za3em_api_token: Optional[str] = None

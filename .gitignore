@@ -21,6 +21,8 @@ tmp_*
 # Generated analysis reports; archived snapshots live in docs/archive/generated-reports/.
 data/shared_services_price_report.*
 data/price_compare_g2bulk_za3em.csv
+data/mangerr_products_raw.json
+data/mangerr_g2bulk_game_comparison.*
 data/similar_services_candidates*
 data/similar_services_strong.txt
 data/herosms_actions_probe.json
