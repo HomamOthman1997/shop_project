@@ -1642,6 +1642,10 @@ def merge_manual_catalog(payload: dict[str, object], manual_sections: list[dict[
         slug = str(manual.get("slug") or "")
         if not slug:
             continue
+        if bool(manual.get("hidden")):
+            merged = [row for row in merged if str(row.get("slug") or "") != slug]
+            by_slug.pop(slug, None)
+            continue
         existing = by_slug.get(slug)
         if not existing:
             clone = dict(manual)
@@ -1659,6 +1663,11 @@ def merge_manual_catalog(payload: dict[str, object], manual_sections: list[dict[
             if not category_slug:
                 continue
             current = by_category_slug.get(category_slug)
+            if bool(row.get("hidden")):
+                if current:
+                    categories = [item for item in categories if not (isinstance(item, dict) and str(item.get("slug") or "") == category_slug)]
+                    by_category_slug.pop(category_slug, None)
+                continue
             if current:
                 current.update(dict(row))
             else:

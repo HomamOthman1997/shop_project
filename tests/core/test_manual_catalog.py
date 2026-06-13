@@ -119,6 +119,28 @@ async def test_static_manual_overlay_does_not_duplicate_builtin_family_in_public
 
 
 @pytest.mark.asyncio
+async def test_hidden_builtin_family_publishes_tombstone_overlay(monkeypatch):
+    rows = [dict(row) for row in _static_tree()]
+    for row in rows:
+        if row["_id"] == "family":
+            row["website_hidden"] = True
+
+    async def nodes(_owner_id, *, catalog_type):
+        assert catalog_type == "website_manual"
+        return rows
+
+    monkeypatch.setattr(manual_catalog, "list_catalog_nodes", nodes)
+
+    sections = await manual_catalog.public_sections(77)
+    packages = await manual_catalog.static_family_packages("games", "pubg", owner_id=77)
+
+    assert sections[0]["slug"] == "games"
+    assert sections[0]["categories"][0]["slug"] == "pubg"
+    assert sections[0]["categories"][0]["hidden"] is True
+    assert packages is None
+
+
+@pytest.mark.asyncio
 async def test_fresh_quote_payload_reads_current_manual_product_price(monkeypatch):
     rows = {row["_id"]: row for row in _tree()}
 

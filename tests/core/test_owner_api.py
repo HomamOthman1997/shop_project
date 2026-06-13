@@ -1632,6 +1632,58 @@ async def test_owner_create_website_manual_product_uses_static_catalog_path(monk
 
 
 @pytest.mark.asyncio
+async def test_owner_website_catalog_shells_materialize_static_families(monkeypatch):
+    calls = {"create": [], "metadata": []}
+
+    async def root(owner_id, *, catalog_type):
+        assert owner_id == 77
+        assert catalog_type == "website_manual"
+        return {"_id": "root"}
+
+    async def nodes(owner_id, *, catalog_type):
+        assert owner_id == 77
+        assert catalog_type == "website_manual"
+        return []
+
+    async def create(owner_id, parent_id, name, *, catalog_type):
+        calls["create"].append((owner_id, parent_id, name, catalog_type))
+        node_id = f"node-{len(calls['create'])}"
+        return {"_id": node_id, "parent_id": parent_id, "name": name, "node_type": "folder"}
+
+    async def metadata(node_id, reseller_id, **kwargs):
+        calls["metadata"].append((node_id, reseller_id, kwargs))
+        return {"_id": node_id, "parent_id": "root" if node_id == "node-1" else "node-1", "node_type": "folder", **kwargs}
+
+    monkeypatch.setattr(owner_api, "ensure_root_node", root)
+    monkeypatch.setattr(owner_api, "list_catalog_nodes", nodes)
+    monkeypatch.setattr(owner_api, "create_folder", create)
+    monkeypatch.setattr(owner_api, "update_node_website_metadata", metadata)
+
+    await owner_api._ensure_website_catalog_shells(
+        77,
+        {
+            "sections": [
+                {
+                    "slug": "games",
+                    "title": "Games",
+                    "accent": "green",
+                    "categories": [{"slug": "pubg", "title": "PUBG", "service_key": "games", "family_key": "pubg"}],
+                }
+            ]
+        },
+    )
+
+    assert calls["create"] == [
+        (77, "root", "Games", "website_manual"),
+        (77, "node-1", "PUBG", "website_manual"),
+    ]
+    assert calls["metadata"][0][2]["website_level"] == "section"
+    assert calls["metadata"][0][2]["website_section_key"] == "games"
+    assert calls["metadata"][1][2]["website_level"] == "family"
+    assert calls["metadata"][1][2]["website_family_key"] == "pubg"
+
+
+@pytest.mark.asyncio
 async def test_owner_custom_catalog_node_detail_includes_manual_product_context(monkeypatch):
     async def owner(_request):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
@@ -1820,6 +1872,74 @@ async def test_owner_delete_website_manual_folder_requires_empty_node(monkeypatc
 
     assert response.status == 409
     assert payload["ok"] is False
+    assert calls["deactivate"] == []
+
+
+@pytest.mark.asyncio
+async def test_owner_delete_empty_builtin_family_hides_static_category(monkeypatch):
+    calls = {"metadata": [], "deactivate": []}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def node(node_id, *, reseller_id, catalog_type):
+        assert node_id == "family-pubg"
+        assert reseller_id == 77
+        assert catalog_type == "website_manual"
+        return {
+            "_id": "family-pubg",
+            "name": "PUBG",
+            "node_type": "folder",
+            "website_level": "family",
+            "website_section_key": "games",
+            "website_family_key": "pubg",
+        }
+
+    async def children(owner_id, parent_id, *, catalog_type):
+        assert owner_id == 77
+        assert parent_id == "family-pubg"
+        assert catalog_type == "website_manual"
+        return []
+
+    async def metadata(node_id, reseller_id, **kwargs):
+        calls["metadata"].append((node_id, reseller_id, kwargs))
+        return {
+            "_id": node_id,
+            "name": "PUBG",
+            "node_type": "folder",
+            "website_level": "family",
+            "website_section_key": "games",
+            "website_family_key": "pubg",
+            "website_hidden": kwargs.get("website_hidden"),
+        }
+
+    async def deactivate(node_id, owner_id, *, catalog_type):
+        calls["deactivate"].append((node_id, owner_id, catalog_type))
+        return 1
+
+    async def audit(**_kwargs):
+        return None
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_owner_catalog_id", lambda: 77)
+    monkeypatch.setattr(owner_api, "get_node", node)
+    monkeypatch.setattr(owner_api, "list_children", children)
+    monkeypatch.setattr(owner_api, "update_node_website_metadata", metadata)
+    monkeypatch.setattr(owner_api, "deactivate_node", deactivate)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    request = make_mocked_request(
+        "DELETE",
+        "/api/v1/owner/custom-catalog/nodes/family-pubg?catalog_type=website_manual",
+        match_info={"node_id": "family-pubg"},
+    )
+
+    response = await owner_api.owner_delete_custom_catalog_node(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["hidden"] is True
+    assert payload["node"]["website_hidden"] is True
+    assert calls["metadata"][0][2]["website_hidden"] is True
     assert calls["deactivate"] == []
 
 

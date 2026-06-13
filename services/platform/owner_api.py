@@ -23,6 +23,7 @@ from database.custom_services_repo import (
     get_node,
     get_pending_preorder_position,
     get_preorder_request,
+    list_catalog_nodes,
     list_stock_events,
     list_children,
     move_node_in_parent,
@@ -93,6 +94,7 @@ from services.digital_products.manual_catalog import (
     expected_child,
     family_label as manual_family_label,
     input_fields_text,
+    is_builtin_family,
     node_level,
     parse_input_fields_text,
     static_family_packages as manual_static_family_packages,
@@ -1086,6 +1088,7 @@ def _custom_catalog_node_payload(row: dict[str, Any], *, include_inventory: bool
         "website_variant_key": _text(row.get("website_variant_key")),
         "website_execution_mode": clean_execution_mode(row.get("website_execution_mode")),
         "website_image_url": _text(row.get("website_image_url")),
+        "website_hidden": bool(row.get("website_hidden")),
         "website_source_kind": _text(row.get("website_source_kind")),
         "website_source_key": _text(row.get("website_source_key")),
         "api_source_available": bool(row.get("website_api_source")),
@@ -1118,6 +1121,105 @@ async def _website_manual_product_context(row: dict[str, Any], owner_id: int) ->
         "manual_family_id": _text((family or {}).get("_id")),
         "manual_family_name": _text((family or {}).get("name")),
     }
+
+
+def _catalog_node_id(row: dict[str, Any] | None) -> str:
+    return _text((row or {}).get("_id"))
+
+
+def _catalog_parent_id(row: dict[str, Any] | None) -> str:
+    return _text((row or {}).get("parent_id"))
+
+
+def _catalog_by_parent(nodes: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    by_parent: dict[str, list[dict[str, Any]]] = {}
+    for row in nodes:
+        by_parent.setdefault(_catalog_parent_id(row), []).append(row)
+    return by_parent
+
+
+async def _ensure_website_catalog_shells(owner_id: int, payload: dict[str, Any]) -> None:
+    root = await ensure_root_node(owner_id, catalog_type=WEBSITE_MANUAL_CATALOG_TYPE)
+    nodes = await list_catalog_nodes(owner_id, catalog_type=WEBSITE_MANUAL_CATALOG_TYPE)
+    by_parent = _catalog_by_parent(nodes)
+    root_id = _catalog_node_id(root)
+
+    for section in list(payload.get("sections") or []):
+        if not isinstance(section, dict) or bool(section.get("enabled", True)) is False:
+            continue
+        section_slug = clean_slug(section.get("slug"))
+        categories = [row for row in list(section.get("categories") or []) if isinstance(row, dict)]
+        service_key = next(
+            (
+                clean_catalog_key(row.get("service_key"))
+                for row in categories
+                if clean_catalog_key(row.get("service_key")) and not _protected_website_service_key(row.get("service_key"))
+            ),
+            "",
+        )
+        if not section_slug or not service_key:
+            continue
+        section_node = next(
+            (
+                row
+                for row in by_parent.get(root_id, [])
+                if node_level(row) == "section"
+                and (
+                    clean_catalog_key(row.get("website_section_key")) == service_key
+                    or clean_slug(row.get("website_slug")) == section_slug
+                )
+            ),
+            None,
+        )
+        if not section_node:
+            section_node = await create_folder(
+                owner_id,
+                root["_id"],
+                str(section.get("title") or section_slug),
+                catalog_type=WEBSITE_MANUAL_CATALOG_TYPE,
+            )
+            by_parent.setdefault(root_id, []).append(section_node)
+        section_node = await update_node_website_metadata(
+            section_node["_id"],
+            owner_id,
+            website_level="section",
+            website_slug=section_slug,
+            website_accent=clean_accent(section.get("accent")),
+            website_section_key=service_key,
+            catalog_type=WEBSITE_MANUAL_CATALOG_TYPE,
+        ) or section_node
+        section_id = _catalog_node_id(section_node)
+        by_parent.setdefault(section_id, [])
+
+        for category in categories:
+            category_service_key = clean_catalog_key(category.get("service_key"))
+            family_key = clean_catalog_key(category.get("family_key") or category.get("slug"))
+            if not category_service_key or not family_key or _protected_website_service_key(category_service_key):
+                continue
+            family_node = next(
+                (
+                    row
+                    for row in by_parent.get(section_id, [])
+                    if node_level(row) == "family" and clean_catalog_key(row.get("website_family_key")) == family_key
+                ),
+                None,
+            )
+            if not family_node:
+                family_node = await create_folder(
+                    owner_id,
+                    section_node["_id"],
+                    str(category.get("title") or family_key),
+                    catalog_type=WEBSITE_MANUAL_CATALOG_TYPE,
+                )
+                by_parent.setdefault(section_id, []).append(family_node)
+            await update_node_website_metadata(
+                family_node["_id"],
+                owner_id,
+                website_level="family",
+                website_section_key=category_service_key,
+                website_family_key=family_key,
+                catalog_type=WEBSITE_MANUAL_CATALOG_TYPE,
+            )
 
 
 async def _move_website_manual_product_to_variant(
@@ -1213,6 +1315,7 @@ async def owner_website_catalog(request: web.Request) -> web.Response:
     from services.landing_page import merge_manual_catalog, public_catalog_payload
 
     payload = public_catalog_payload()
+    await _ensure_website_catalog_shells(owner_id, payload)
     payload = merge_manual_catalog(payload, await manual_public_sections(owner_id, include_empty=True, include_builtin=True))
     payload["admin"] = True
     return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
@@ -1654,6 +1757,27 @@ async def owner_delete_custom_catalog_node(request: web.Request) -> web.Response
         children = await list_children(owner_id, node["_id"], catalog_type=catalog_type)
         if children:
             return web.json_response({"ok": False, "message": "احذف العناصر الموجودة داخل هذا الصنف أولاً، ثم احذف الصنف الفارغ."}, status=409, headers=dict(_NO_STORE_HEADERS))
+        service_key = clean_catalog_key(node.get("website_section_key"))
+        family_key = clean_catalog_key(node.get("website_family_key"))
+        if node_level(node) == "family" and service_key and family_key and is_builtin_family(service_key, family_key):
+            hidden = await update_node_website_metadata(
+                node_id,
+                owner_id,
+                website_hidden=True,
+                catalog_type=catalog_type,
+            )
+            await _write_owner_audit(
+                actor_id=owner.customer_id,
+                actor_email=owner.email,
+                action="website_catalog_hide",
+                target_type="family",
+                target_id=node_id,
+                metadata={"service_key": service_key, "family_key": family_key},
+            )
+            return web.json_response(
+                {"ok": True, "hidden": True, "deleted_nodes": 0, "node": _custom_catalog_node_payload(hidden or node, include_inventory=False)},
+                headers=dict(_NO_STORE_HEADERS),
+            )
     if str(node.get("node_type") or "") == "endpoint":
         pending = await db.custom_service_preorders.count_documents({"endpoint_id": node.get("_id"), "status": {"$in": ["pending", "fulfilling", "refunding"]}})
         if pending:

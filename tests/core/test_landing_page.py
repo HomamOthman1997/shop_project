@@ -304,6 +304,29 @@ def test_manual_catalog_updates_existing_static_category_metadata():
     assert pubg["manual"] is True
 
 
+def test_manual_catalog_hidden_category_removes_static_category():
+    payload = landing_page.merge_manual_catalog(
+        landing_page.public_catalog_payload(),
+        [
+            {
+                "slug": "games",
+                "categories": [
+                    {
+                        "slug": "pubg",
+                        "service_key": "games",
+                        "family_key": "pubg",
+                        "hidden": True,
+                    }
+                ],
+            }
+        ],
+    )
+    games = next(row for row in payload["sections"] if row["slug"] == "games")
+
+    assert all(row["slug"] != "pubg" for row in games["categories"])
+    assert games["categories_count"] == len(games["categories"])
+
+
 def test_family_backed_catalog_sections_only_expose_direct_product_families():
     sections = {row["slug"]: row for row in landing_page.public_catalog_payload()["sections"]}
 

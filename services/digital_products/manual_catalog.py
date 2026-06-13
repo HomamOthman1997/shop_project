@@ -193,6 +193,10 @@ def _parent_id(row: dict[str, Any] | None) -> str:
     return str((row or {}).get("parent_id") or "")
 
 
+def node_hidden(row: dict[str, Any] | None) -> bool:
+    return bool((row or {}).get("website_hidden"))
+
+
 def _by_parent(nodes: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     by_parent: dict[str, list[dict[str, Any]]] = {}
     for row in nodes:
@@ -224,6 +228,7 @@ def _static_family_nodes(
         row
         for row in nodes
         if node_level(row) == "section"
+        and not node_hidden(row)
         and (
             str(row.get("website_section_key") or "").strip() == service
             or (
@@ -237,7 +242,9 @@ def _static_family_nodes(
         row
         for section_id in section_ids
         for row in by_parent.get(section_id, [])
-        if node_level(row) == "family" and str(row.get("website_family_key") or "").strip() == family
+        if node_level(row) == "family"
+        and not node_hidden(row)
+        and str(row.get("website_family_key") or "").strip() == family
     ]
     return families, by_parent
 
@@ -276,6 +283,7 @@ async def ensure_static_family_path(
         website_slug=service_section_slug(service),
         website_accent=service_accent(service),
         website_section_key=service,
+        website_hidden=False,
         catalog_type=CATALOG_TYPE,
     ) or section
 
@@ -297,6 +305,7 @@ async def ensure_static_family_path(
         website_level="family",
         website_section_key=service,
         website_family_key=family,
+        website_hidden=False,
         catalog_type=CATALOG_TYPE,
     ) or family_node
 
@@ -325,6 +334,7 @@ async def ensure_static_family_path(
         website_section_key=service,
         website_family_key=family,
         website_variant_key=variant_key,
+        website_hidden=False,
         catalog_type=CATALOG_TYPE,
     ) or variant
     return {"root": root, "section": section, "family": family_node, "variant": variant}
@@ -559,6 +569,22 @@ async def public_sections(
         section_slug = clean_slug(section.get("website_slug"))
         if not section_slug:
             continue
+        if node_hidden(section):
+            sections.append(
+                {
+                    "slug": section_slug,
+                    "title": str(section.get("name") or section_slug),
+                    "subtitle": str(section.get("display_text") or ""),
+                    "accent": clean_accent(section.get("website_accent")),
+                    "service": "digital",
+                    "enabled": True,
+                    "status": "",
+                    "hidden": True,
+                    "categories": [],
+                    "categories_count": 0,
+                }
+            )
+            continue
         categories = []
         for family in by_parent.get(str(section.get("_id") or ""), []):
             if node_level(family) != "family":
@@ -572,12 +598,37 @@ async def public_sections(
                 and float(product.get("price") or 0) > 0
                 and bool(clean_input_fields(product.get("input_fields")))
             )
-            if product_count <= 0 and not include_empty:
-                continue
             family_id = str(family.get("_id") or "")
             service_key = str(family.get("website_section_key") or section.get("website_section_key") or "").strip()
             family_key = str(family.get("website_family_key") or "").strip()
-            if not include_builtin and service_key and family_key and is_builtin_family(service_key, family_key):
+            builtin_family = bool(service_key and family_key and is_builtin_family(service_key, family_key))
+            default_family_name = family_label(service_key, family_key) if builtin_family else ""
+            has_public_override = bool(
+                builtin_family
+                and (
+                    str(family.get("display_text") or "").strip()
+                    or (str(family.get("name") or "").strip() and str(family.get("name") or "").strip() != default_family_name)
+                )
+            )
+            if node_hidden(family):
+                categories.append(
+                    {
+                        "node_id": family_id,
+                        "slug": family_key or f"manual-{family_id}",
+                        "title": str(family.get("name") or ""),
+                        "subtitle": str(family.get("display_text") or ""),
+                        "search_terms": str(family.get("name") or ""),
+                        "generated": True,
+                        "service_key": service_key or CATALOG_TYPE,
+                        "family_key": family_key or family_id,
+                        "manual": True,
+                        "hidden": True,
+                    }
+                )
+                continue
+            if product_count <= 0 and not include_empty and not (builtin_family and has_public_override):
+                continue
+            if not include_builtin and builtin_family and not has_public_override:
                 continue
             categories.append(
                 {
