@@ -585,12 +585,140 @@ async def test_import_api_family_materializes_manual_products_without_api_execut
     result = await miniapp._import_api_family_to_manual(77, service_key="games", family_key="pubg")
 
     assert result["created"] == 1
+    assert result["source_refs"] == 1
+    assert result["message"] == ""
     assert calls[0][0] == 77
     assert calls[0][1]["product_name"] == "325 UC"
     assert calls[0][1]["source_key"] == "game:pubgm:325"
     assert calls[0][1]["execution_mode"] == "manual"
     assert calls[0][1]["api_source"]["game_id"] == "pubgm"
     assert calls[0][1]["input_fields"][1]["id"] == "server_id"
+
+
+@pytest.mark.asyncio
+async def test_import_api_family_accepts_unit_price_only_items(monkeypatch):
+    from services.digital_products import miniapp
+
+    calls = []
+
+    async def _fake_catalog():
+        return {
+            "service_tree": [
+                {
+                    "key": "store_cards",
+                    "families": [
+                        {
+                            "family_key": "steam",
+                            "name": "Steam",
+                            "variants": [{"id": "steam-global", "name": "Global", "game_ids": [], "gift_category_ids": ["steam-global"]}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    async def _fake_gift_products(category_id, query="", offer_mode=""):
+        assert category_id == "steam-global"
+        return [
+            {
+                "kind": "gift",
+                "id": "steam-10",
+                "category_id": category_id,
+                "name": "Steam $10",
+                "unit_price_usd": 10.0,
+                "za3em_params": ["account"],
+                "best_provider_code": "g2bulk",
+                "fulfillment_mode": "voucher",
+            }
+        ]
+
+    async def _fake_upsert(owner_id, **kwargs):
+        calls.append((owner_id, kwargs))
+        return {"_id": "product-1", "name": kwargs["product_name"]}, True
+
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "_gift_products", _fake_gift_products)
+    monkeypatch.setattr(miniapp, "upsert_static_manual_product", _fake_upsert)
+
+    result = await miniapp._import_api_family_to_manual(77, service_key="store_cards", family_key="steam")
+
+    assert result["created"] == 1
+    assert result["skipped"] == 0
+    assert calls[0][1]["price"] == 10.0
+    assert calls[0][1]["source_key"] == "gift:steam-global:steam-10"
+
+
+def test_grouped_games_routes_app_topups_to_chat_apps():
+    from services.digital_products import miniapp
+
+    grouped, source_map = miniapp._grouped_games(
+        {
+            "games": [
+                {"id": "starmaker", "name": "Starmaker"},
+                {"id": "pubgm", "name": "PUBG Mobile"},
+            ]
+        }
+    )
+
+    starmaker = next(row for row in grouped if row["name"] == "StarMaker")
+    pubg = next(row for row in grouped if row["name"] == "PUBG")
+    assert starmaker["service_key"] == "chat_apps"
+    assert starmaker["id"] == "grp:gm:chat_apps:starmaker"
+    assert source_map[starmaker["id"]] == ["starmaker"]
+    assert pubg["service_key"] == "games"
+
+
+@pytest.mark.asyncio
+async def test_import_api_service_materializes_all_families(monkeypatch):
+    from services.digital_products import miniapp
+
+    calls = []
+
+    async def _fake_catalog():
+        return {
+            "service_tree": [
+                {
+                    "key": "chat_apps",
+                    "families": [
+                        {
+                            "family_key": "telegram",
+                            "name": "Telegram",
+                            "variants": [{"id": "telegram-global", "name": "Global", "game_ids": [], "gift_category_ids": ["144"]}],
+                        },
+                        {
+                            "family_key": "starmaker",
+                            "name": "StarMaker",
+                            "variants": [{"id": "starmaker", "name": "Global", "game_ids": ["starmaker"], "gift_category_ids": []}],
+                        },
+                    ],
+                }
+            ]
+        }
+
+    async def _fake_gift_products(category_id, query="", offer_mode=""):
+        assert category_id == "144"
+        return [{"kind": "gift", "id": "tg-50", "category_id": category_id, "name": "Telegram 50 Stars", "price_usd": 1.2}]
+
+    async def _fake_game_items(game_id):
+        assert game_id == "starmaker"
+        return {"game_name": "StarMaker", "game_id": game_id, "items": [{"kind": "game", "id": "coins-100", "game_id": game_id, "name": "100 Coins", "price_usd": 2.5}]}
+
+    async def _fake_upsert(owner_id, **kwargs):
+        calls.append((owner_id, kwargs))
+        return {"_id": kwargs["source_key"], "name": kwargs["product_name"]}, True
+
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "_gift_products", _fake_gift_products)
+    monkeypatch.setattr(miniapp, "_game_items", _fake_game_items)
+    monkeypatch.setattr(miniapp, "upsert_static_manual_product", _fake_upsert)
+
+    result = await miniapp._import_api_service_to_manual(77, service_key="chat_apps")
+
+    assert result["families"] == 2
+    assert result["imported_families"] == 2
+    assert result["created"] == 2
+    assert {call[1]["source_key"] for call in calls} == {"gift:144:tg-50", "game:starmaker:coins-100"}
+    assert {call[1]["family_key"] for call in calls} == {"telegram", "starmaker"}
 
 
 @pytest.mark.asyncio

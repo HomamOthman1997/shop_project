@@ -24,7 +24,7 @@ let mode = "login";
 let currentAccount = null;
 let activeOwnerTab = "overview";
 let ownerCatalogParentId = "";
-let ownerWebsiteCatalogState = { sections: [], activeSectionSlug: "", activeFamily: null, familyPayload: null, loadingFamily: false };
+let ownerWebsiteCatalogState = { sections: [], activeSectionSlug: "", activeFamily: null, familyPayload: null, loadingFamily: false, selectedProductIds: new Set() };
 let ownerDashboardLoadId = 0;
 let ownerAuditFilters = {q: "", action: "", target_type: ""};
 let ownerUserRows = [];
@@ -2257,11 +2257,28 @@ function ownerWebsiteSection() {
   return (ownerWebsiteCatalogState.sections || []).find((row) => row.slug === ownerWebsiteCatalogState.activeSectionSlug) || null;
 }
 
+function ownerWebsiteSectionServiceKey(section) {
+  const categoryKey = (section?.categories || []).find((row) => row.service_key)?.service_key || "";
+  if (categoryKey) return categoryKey;
+  return {
+    "games": "games",
+    "chat-apps": "chat_apps",
+    "social-services": "social_services",
+    "mobile-recharge": "communications_data",
+    "verification-numbers": "numbers_services",
+    "subscriptions": "paid_subscriptions",
+    "store-cards": "store_cards",
+    "internet-providers": "internet_providers",
+    "paid-apps": "paid_apps",
+  }[section?.slug || ""] || "";
+}
+
 function ownerWebsiteProtectedSection(section) {
   return section?.service === "numbers" || section?.slug === "esim";
 }
 
 function ownerWebsiteBack() {
+  ownerWebsiteCatalogState.selectedProductIds = new Set();
   if (ownerWebsiteCatalogState.activeFamily) {
     ownerWebsiteCatalogState.activeFamily = null;
     ownerWebsiteCatalogState.familyPayload = null;
@@ -2306,6 +2323,7 @@ function renderOwnerWebsiteCatalog(payload) {
       ${section ? '<button class="account-catalog-back" type="button" data-owner-website-back>رجوع</button>' : ""}
     </div>
     <div id="owner-catalog-detail"></div>
+    ${section && !protectedSection ? '<div class="owner-order-actions owner-website-toolbar"><button class="secondary compact" type="button" data-owner-website-import-section>استيراد كل API لهذا القسم كمنتجات يدوية</button></div>' : ""}
     ${protectedSection ? '<div class="notice">هذا القسم يبقى على منطق الطلب الحالي ولا يدخل ضمن الكاتالوغ اليدوي.</div>' : ""}
     <div class="account-catalog-grid owner-website-grid">
       ${rows.map((row) => {
@@ -2332,12 +2350,14 @@ function renderOwnerWebsiteCatalog(payload) {
   target.querySelector("[data-owner-website-back]")?.addEventListener("click", ownerWebsiteBack);
   target.querySelectorAll("[data-owner-website-section]").forEach((button) => {
     button.addEventListener("click", () => {
+      ownerWebsiteCatalogState.selectedProductIds = new Set();
       ownerWebsiteCatalogState.activeSectionSlug = button.dataset.ownerWebsiteSection || "";
       renderOwnerWebsiteCatalog(ownerWebsiteCatalogPayload());
     });
   });
   target.querySelectorAll("[data-owner-website-family]").forEach((button) => {
     button.addEventListener("click", () => {
+      ownerWebsiteCatalogState.selectedProductIds = new Set();
       ownerWebsiteCatalogState.activeFamily = {
         serviceKey: button.dataset.serviceKey || "",
         familyKey: button.dataset.ownerWebsiteFamily || "",
@@ -2348,6 +2368,7 @@ function renderOwnerWebsiteCatalog(payload) {
     });
   });
   target.querySelector("[data-owner-website-add-family]")?.addEventListener("click", () => openOwnerWebsiteFamilyModal(section));
+  target.querySelector("[data-owner-website-import-section]")?.addEventListener("click", importOwnerWebsiteApiSection);
 }
 
 function renderOwnerWebsiteFamily() {
@@ -2359,6 +2380,8 @@ function renderOwnerWebsiteFamily() {
   const variants = payload.variants || [];
   const packages = payload.packages || [];
   const selectedVariant = payload.selected_variant_name || "";
+  const showingProducts = !ownerWebsiteCatalogState.loadingFamily && (!variants.length || payload.selected_variant_id || variants.length <= 1);
+  const selectedProductIds = ownerWebsiteCatalogState.selectedProductIds || new Set();
   target.innerHTML = `
     <div class="account-catalog-path owner-website-head">
       <div>
@@ -2369,6 +2392,7 @@ function renderOwnerWebsiteFamily() {
     </div>
     <div class="owner-order-actions owner-website-toolbar">
       ${protectedSection ? "" : '<button class="secondary compact" type="button" data-owner-website-import>استيراد منتجات API كيدوية</button><button class="primary compact" type="button" data-owner-website-add-product>+ منتج</button>'}
+      ${!protectedSection && showingProducts && packages.length ? '<button class="danger compact" type="button" data-owner-website-delete-selected disabled>حذف المحدد</button>' : ""}
     </div>
     ${protectedSection ? '<div class="notice">هذا القسم يبقى على طريقة الطلب الحالية.</div>' : ""}
     <div id="owner-catalog-detail"></div>
@@ -2381,8 +2405,12 @@ function renderOwnerWebsiteFamily() {
         badge: variant.variant_kind === "region" ? "دولة / Global" : "تصنيف",
         attrs: `data-owner-website-variant="${esc(variant.id || "")}"`,
       })).join("") : ""}
-      ${!ownerWebsiteCatalogState.loadingFamily && (!variants.length || payload.selected_variant_id || variants.length <= 1) ? packages.map((product) => `
+      ${showingProducts ? packages.map((product) => `
         <article class="account-catalog-card owner-website-product-card green">
+          <label class="owner-website-select">
+            <input type="checkbox" data-owner-website-select="${esc(product.id)}" ${selectedProductIds.has(String(product.id || "")) ? "checked" : ""}>
+            <span>تحديد</span>
+          </label>
           <span class="account-catalog-mark" aria-hidden="true"></span>
           <strong>${esc(product.name || product.item_name || "")}</strong>
           <span>${esc(product.duration || "تنفيذ يدوي خلال دقيقة إلى ساعة.")}</span>
@@ -2396,7 +2424,7 @@ function renderOwnerWebsiteFamily() {
             <button class="danger compact" type="button" data-owner-catalog-delete="${esc(product.id)}">حذف</button>
           </div>
         </article>`).join("") : ""}
-      ${!protectedSection && !ownerWebsiteCatalogState.loadingFamily && (!variants.length || payload.selected_variant_id || variants.length <= 1) ? ownerWebsiteCard({
+      ${!protectedSection && showingProducts ? ownerWebsiteCard({
         title: "+",
         subtitle: "إضافة منتج يدوي داخل هذا الصنف.",
         accent: "blue",
@@ -2415,16 +2443,72 @@ function renderOwnerWebsiteFamily() {
   target.querySelectorAll("[data-owner-catalog-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerCatalogNode(button.dataset.ownerCatalogDetail)));
   target.querySelectorAll("[data-owner-catalog-delete]").forEach((button) => button.addEventListener("click", () => deleteOwnerCatalogNode(button.dataset.ownerCatalogDelete)));
   target.querySelectorAll("[data-owner-website-execution]").forEach((select) => select.addEventListener("change", updateOwnerWebsiteExecutionMode));
+  target.querySelectorAll("[data-owner-website-select]").forEach((checkbox) => checkbox.addEventListener("change", toggleOwnerWebsiteProductSelection));
+  target.querySelector("[data-owner-website-delete-selected]")?.addEventListener("click", deleteSelectedOwnerWebsiteProducts);
+  updateOwnerWebsiteBulkDeleteState();
 }
 
-async function loadOwnerWebsiteFamily(variantId = "") {
+function toggleOwnerWebsiteProductSelection(event) {
+  const checkbox = event.currentTarget;
+  const productId = String(checkbox.dataset.ownerWebsiteSelect || "").trim();
+  if (!productId) return;
+  if (!(ownerWebsiteCatalogState.selectedProductIds instanceof Set)) {
+    ownerWebsiteCatalogState.selectedProductIds = new Set();
+  }
+  if (checkbox.checked) ownerWebsiteCatalogState.selectedProductIds.add(productId);
+  else ownerWebsiteCatalogState.selectedProductIds.delete(productId);
+  updateOwnerWebsiteBulkDeleteState();
+}
+
+function updateOwnerWebsiteBulkDeleteState() {
+  const button = document.querySelector("[data-owner-website-delete-selected]");
+  if (!button) return;
+  const count = ownerWebsiteCatalogState.selectedProductIds instanceof Set ? ownerWebsiteCatalogState.selectedProductIds.size : 0;
+  button.disabled = count <= 0;
+  button.textContent = count > 0 ? `حذف المحدد (${count})` : "حذف المحدد";
+}
+
+async function deleteSelectedOwnerWebsiteProducts() {
+  const ids = ownerWebsiteCatalogState.selectedProductIds instanceof Set ? Array.from(ownerWebsiteCatalogState.selectedProductIds).filter(Boolean) : [];
+  if (!ids.length) return;
+  if (!window.confirm(`حذف ${ids.length} منتج من هذا الصنف؟`)) return;
+  const button = document.querySelector("[data-owner-website-delete-selected]");
+  if (button) button.disabled = true;
+  const catalogType = $("#owner-catalog-type")?.value || "website_manual";
+  let deleted = 0;
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(id)}?catalog_type=${encodeURIComponent(catalogType)}`, {method: "DELETE"});
+      deleted += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  ownerWebsiteCatalogState.selectedProductIds = new Set();
+  setText("#owner-message", failed ? `تم حذف ${deleted} منتج، وفشل حذف ${failed}.` : `تم حذف ${deleted} منتج.`);
+  await loadOwnerWebsiteFamily(ownerWebsiteCatalogState.familyPayload?.selected_variant_id || "");
+}
+
+async function loadOwnerWebsiteFamily(variantId = "", options = {}) {
   const family = ownerWebsiteCatalogState.activeFamily;
   if (!family?.serviceKey || !family?.familyKey) return;
+  ownerWebsiteCatalogState.selectedProductIds = new Set();
   ownerWebsiteCatalogState.loadingFamily = true;
   renderOwnerWebsiteFamily();
   try {
     const query = variantId ? `?variant_id=${encodeURIComponent(variantId)}` : "";
     ownerWebsiteCatalogState.familyPayload = await ownerApi(`/api/v1/owner/website-catalog/families/${encodeURIComponent(family.serviceKey)}/${encodeURIComponent(family.familyKey)}${query}`);
+    const variants = ownerWebsiteCatalogState.familyPayload?.variants || [];
+    const packages = ownerWebsiteCatalogState.familyPayload?.packages || [];
+    if (options.autoOpenFirstVariant && !variantId && !packages.length && variants.length) {
+      const firstVariantId = variants[0]?.id || "";
+      if (firstVariantId) {
+        ownerWebsiteCatalogState.loadingFamily = false;
+        await loadOwnerWebsiteFamily(firstVariantId);
+        return;
+      }
+    }
   } catch (error) {
     setText("#owner-message", error.message);
     ownerWebsiteCatalogState.familyPayload = {packages: [], variants: []};
@@ -2505,13 +2589,38 @@ async function importOwnerWebsiteApiFamily() {
   if (!family.serviceKey || !family.familyKey) return;
   if (!window.confirm("استيراد منتجات API كمنتجات يدوية؟ لن يتم تغيير المنتجات الموجودة سابقاً.")) return;
   try {
+    const selectedManualVariantId = ownerWebsiteCatalogState.familyPayload?.selected_variant_id || "";
+    const selectedVariantName = ownerWebsiteCatalogState.familyPayload?.selected_variant_name || "";
+    const body = {service_key: family.serviceKey, family_key: family.familyKey};
+    if (selectedVariantName) body.variant_id = selectedVariantName;
     const result = await ownerApi("/api/v1/owner/website-catalog/import-api", {
       method: "POST",
       timeoutMs: 90000,
-      body: JSON.stringify({service_key: family.serviceKey, family_key: family.familyKey}),
+      body: JSON.stringify(body),
     });
-    setText("#owner-message", `تم الاستيراد: جديد ${result.created || 0}، موجود ${result.existing || 0}، متجاهل ${result.skipped || 0}.`);
-    await loadOwnerWebsiteFamily();
+    const extraMessage = result.message ? ` ${result.message}` : "";
+    setText("#owner-message", `تم الاستيراد: جديد ${result.created || 0}، موجود ${result.existing || 0}، متجاهل ${result.skipped || 0}.${extraMessage}`);
+    await loadOwnerWebsiteFamily(selectedManualVariantId, {autoOpenFirstVariant: true});
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function importOwnerWebsiteApiSection() {
+  const section = ownerWebsiteSection();
+  const serviceKey = ownerWebsiteSectionServiceKey(section);
+  if (!serviceKey) return;
+  if (!window.confirm(`استيراد كل منتجات API ضمن قسم ${section?.title || serviceKey} كمنتجات يدوية؟ هذه عملية مساعدة لمرة واحدة ولن تغيّر المنتجات الموجودة سابقاً.`)) return;
+  try {
+    const result = await ownerApi("/api/v1/owner/website-catalog/import-api", {
+      method: "POST",
+      timeoutMs: 180000,
+      body: JSON.stringify({service_key: serviceKey}),
+    });
+    const extraMessage = result.message ? ` ${result.message}` : "";
+    setText(
+      "#owner-message",
+      `تم استيراد القسم: أصناف ${result.imported_families || 0}/${result.families || 0}، جديد ${result.created || 0}، موجود ${result.existing || 0}، متجاهل ${result.skipped || 0}.${extraMessage}`,
+    );
+    await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
 }
 

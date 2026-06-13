@@ -1236,14 +1236,17 @@ def _grouped_games(snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], dict
         if _norm(game_id) in _HIDDEN_GAME_VARIANT_IDS:
             continue
         game_name = str(game.get("name") or "-").strip()
-        family_key, family_label = _guess_family("games", game_name, [])
-        group_id = f"grp:gm:{family_key}"
+        service_key = _gift_service_key(game_name)
+        if service_key in {"numbers_services", "communications_data", "internet_providers"}:
+            service_key = "games"
+        family_key, family_label = _guess_family(service_key, game_name, [])
+        group_id = f"grp:gm:{service_key}:{family_key}"
         if group_id not in grouped:
             grouped[group_id] = {
                 "id": group_id,
                 "name": family_label,
                 "group_key": _game_root_group_key(family_label),
-                "service_key": "games",
+                "service_key": service_key,
                 "count": 0,
                 "variants": [],
                 "image_url": "",
@@ -1815,16 +1818,19 @@ async def owner_import_website_api_catalog(request: web.Request) -> web.Response
     service_key = str((body or {}).get("service_key") or "").strip()
     family_key = str((body or {}).get("family_key") or "").strip()
     variant_id = str((body or {}).get("variant_id") or "").strip()
-    if not service_key or not family_key:
-        return web.json_response({"ok": False, "message": "Choose a catalog family to import."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if not service_key:
+        return web.json_response({"ok": False, "message": "Choose a catalog section to import."}, status=400, headers=dict(_NO_STORE_HEADERS))
     if service_key.strip().lower() in {"numbers_services", "esim"}:
         return web.json_response({"ok": False, "message": "This catalog section keeps its existing product flow."}, status=409, headers=dict(_NO_STORE_HEADERS))
-    result = await _import_api_family_to_manual(
-        owner_id,
-        service_key=service_key,
-        family_key=family_key,
-        variant_id=variant_id,
-    )
+    if family_key:
+        result = await _import_api_family_to_manual(
+            owner_id,
+            service_key=service_key,
+            family_key=family_key,
+            variant_id=variant_id,
+        )
+    else:
+        result = await _import_api_service_to_manual(owner_id, service_key=service_key)
     result["actor_id"] = int(getattr(owner, "customer_id", 0) or 0)
     return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
 
@@ -1903,8 +1909,21 @@ def _source_offer_from_item(item: dict[str, Any], *, source_kind: str, family_na
     }
 
 
-async def _import_api_family_to_manual(owner_id: int, *, service_key: str, family_key: str, variant_id: str = "") -> dict[str, Any]:
-    payload = await _catalog_payload()
+def _import_item_price(item: dict[str, Any]) -> float:
+    return _round_sale_price(item.get("price_usd") or item.get("unit_price_usd") or item.get("price") or 0.0)
+
+
+async def _import_api_family_to_manual(
+    owner_id: int,
+    *,
+    service_key: str,
+    family_key: str,
+    variant_id: str = "",
+    catalog_payload: dict[str, Any] | None = None,
+    import_cache: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = catalog_payload if isinstance(catalog_payload, dict) else await _catalog_payload()
+    cache = import_cache if isinstance(import_cache, dict) else {}
     service = next((row for row in payload.get("service_tree", []) if str(row.get("key") or "") == service_key), None)
     family = next((row for row in (service or {}).get("families", []) if str(row.get("family_key") or "") == family_key), None)
     if not family:
@@ -1927,15 +1946,17 @@ async def _import_api_family_to_manual(owner_id: int, *, service_key: str, famil
     existing = 0
     imported = 0
     skipped = 0
+    source_refs = 0
     for variant in variants:
         variant_name = str(variant.get("name") or "Global").strip() or "Global"
         game_ids = [str(game_id).strip() for game_id in list(variant.get("game_ids") or []) if str(game_id).strip()]
         gift_category_ids = [str(category_id).strip() for category_id in list(variant.get("gift_category_ids") or []) if str(category_id).strip()]
+        source_refs += len(game_ids) + len(gift_category_ids)
 
         for game_payload in await asyncio.gather(*(_game_items(game_id) for game_id in game_ids)):
             game_name = str(game_payload.get("game_name") or family_name)
             for item in list(game_payload.get("items") or []):
-                price = float(item.get("price_usd") or 0.0)
+                price = _import_item_price(item)
                 item_id = str(item.get("id") or "").strip()
                 game_id = str(item.get("game_id") or game_payload.get("game_id") or "").strip()
                 if not item_id or price <= 0:
@@ -1969,6 +1990,7 @@ async def _import_api_family_to_manual(owner_id: int, *, service_key: str, famil
                             "provider_offers": [offer],
                         },
                         execution_mode=EXECUTION_MODE_MANUAL,
+                        import_cache=cache,
                     )
                 except ValueError:
                     skipped += 1
@@ -1980,7 +2002,7 @@ async def _import_api_family_to_manual(owner_id: int, *, service_key: str, famil
         for category_id in gift_category_ids:
             gift_items = await _gift_products(category_id, "", str(variant.get("offer_mode") or "all"))
             for item in gift_items:
-                price = float(item.get("price_usd") or 0.0)
+                price = _import_item_price(item)
                 item_id = str(item.get("id") or "").strip()
                 source_category_id = str(item.get("category_id") or category_id).strip()
                 if not item_id or price <= 0:
@@ -2012,6 +2034,7 @@ async def _import_api_family_to_manual(owner_id: int, *, service_key: str, famil
                             "provider_offers": [offer],
                         },
                         execution_mode=EXECUTION_MODE_MANUAL,
+                        import_cache=cache,
                     )
                 except ValueError:
                     skipped += 1
@@ -2020,7 +2043,39 @@ async def _import_api_family_to_manual(owner_id: int, *, service_key: str, famil
                 created += 1 if was_created else 0
                 existing += 0 if was_created else 1
 
-    return {"ok": True, "imported": imported, "created": created, "existing": existing, "skipped": skipped}
+    message = "" if source_refs else "لم يتم العثور على مصادر API لهذا الصنف."
+    return {"ok": True, "imported": imported, "created": created, "existing": existing, "skipped": skipped, "source_refs": source_refs, "message": message}
+
+
+async def _import_api_service_to_manual(owner_id: int, *, service_key: str) -> dict[str, Any]:
+    payload = await _catalog_payload()
+    service = next((row for row in payload.get("service_tree", []) if str(row.get("key") or "") == service_key), None)
+    if not service:
+        raise web.HTTPNotFound(text="service not found")
+    totals = {"imported": 0, "created": 0, "existing": 0, "skipped": 0, "source_refs": 0}
+    families = [row for row in list(service.get("families") or []) if str(row.get("family_key") or "").strip()]
+    imported_families = 0
+    import_cache: dict[str, Any] = {}
+    for family in families:
+        result = await _import_api_family_to_manual(
+            owner_id,
+            service_key=service_key,
+            family_key=str(family.get("family_key") or "").strip(),
+            catalog_payload=payload,
+            import_cache=import_cache,
+        )
+        imported_families += 1 if int(result.get("imported") or 0) > 0 else 0
+        for key in totals:
+            totals[key] += int(result.get(key) or 0)
+    message = "" if totals["source_refs"] else "لم يتم العثور على مصادر API لهذا القسم."
+    return {
+        "ok": True,
+        "service_key": service_key,
+        "families": len(families),
+        "imported_families": imported_families,
+        **totals,
+        "message": message,
+    }
 
 
 async def website_family_packages(request: web.Request) -> web.Response:
@@ -2533,7 +2588,7 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
     game_family_keys = {
         str(group.get("id") or "").split(":")[-1]
         for group in grouped_games
-        if isinstance(group, dict) and str(group.get("id") or "").strip()
+        if isinstance(group, dict) and str(group.get("id") or "").strip() and str(group.get("service_key") or "games") == "games"
     }
 
     def ensure_service(service_key: str) -> dict[str, Any]:
@@ -2602,12 +2657,13 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
                 existing["offer_mode"] = "all"
 
     for group in grouped_games:
+        service_key = str(group.get("service_key") or "games").strip() or "games"
         family_key = str(group.get("id") or "").split(":")[-1]
         family_label = str(group.get("name") or "-")
-        parent = ensure_family("games", family_key, family_label)
+        parent = ensure_family(service_key, family_key, family_label)
         for variant in list(group.get("variants") or []):
             game_name = str(variant.get("name") or "").strip()
-            region_label = _resolve_region_label("games", family_key, family_label, game_name, [game_name])
+            region_label = _resolve_region_label(service_key, family_key, family_label, game_name, [game_name])
             region_label = _region_from_game_id(str(variant.get("id") or ""), family_label, region_label)
             image_url = str(variant.get("image_url") or group.get("image_url") or "").strip()
             if image_url and not str(parent.get("image_url") or "").strip():
@@ -2620,7 +2676,7 @@ def _build_service_tree(snapshot: dict[str, Any], grouped_games: list[dict[str, 
                     "entry_kind": "game",
                     "game_ids": list(variant.get("game_ids") or [str(variant.get("id") or "")]),
                     "gift_category_ids": [],
-                    "variant_kind": _variant_kind("games", region_label),
+                    "variant_kind": _variant_kind(service_key, region_label),
                     "image_url": image_url,
                     "offer_mode": "topup",
                 },

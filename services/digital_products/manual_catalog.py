@@ -361,7 +361,40 @@ async def create_static_manual_product(
         family_name=family_name,
         variant_name=variant_name,
     )
-    product = await create_endpoint(catalog_owner_id, path["variant"]["_id"], name, float(price), 0, 1, catalog_type=CATALOG_TYPE)
+    return await _create_static_manual_product_at_variant(
+        catalog_owner_id,
+        path["variant"],
+        service_key=service_key,
+        family_key=family_key,
+        product_name=name,
+        price=price,
+        input_fields=clean_fields,
+        variant_name=variant_name,
+        product_info_text=product_info_text,
+        execution_mode=execution_mode,
+        source_kind=source_kind,
+        source_key=source_key,
+        api_source=api_source,
+    )
+
+
+async def _create_static_manual_product_at_variant(
+    catalog_owner_id: int,
+    variant: dict[str, Any],
+    *,
+    service_key: str,
+    family_key: str,
+    product_name: str,
+    price: float,
+    input_fields: list[dict[str, Any]],
+    variant_name: str,
+    product_info_text: str,
+    execution_mode: str,
+    source_kind: str,
+    source_key: str,
+    api_source: dict[str, Any] | None,
+) -> dict[str, Any]:
+    product = await create_endpoint(catalog_owner_id, variant["_id"], product_name, float(price), 0, 1, catalog_type=CATALOG_TYPE)
     product = await update_node_website_metadata(
         product["_id"],
         catalog_owner_id,
@@ -373,7 +406,7 @@ async def create_static_manual_product(
         website_source_kind=clean_source_kind(source_kind),
         website_source_key=str(source_key or "").strip(),
         website_api_source=clean_api_source(api_source),
-        input_fields=clean_fields,
+        input_fields=clean_input_fields(input_fields),
         catalog_type=CATALOG_TYPE,
     ) or product
     if product_info_text:
@@ -396,29 +429,48 @@ async def upsert_static_manual_product(
     variant_name: str = "Global",
     product_info_text: str = "",
     execution_mode: str = EXECUTION_MODE_MANUAL,
+    import_cache: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], bool]:
     catalog_owner_id = int(owner_id or owner_catalog_id())
     clean_source = str(source_key or "").strip()
     if not clean_source:
         raise ValueError("invalid source key")
-    path = await ensure_static_family_path(
-        catalog_owner_id,
-        service_key=service_key,
-        family_key=family_key,
-        family_name=family_name,
-        variant_name=variant_name,
-    )
-    nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
-    existing = next(
-        (
-            row
-            for row in nodes
-            if node_level(row) == "product"
-            and _parent_id(row) == _node_id(path["variant"])
-            and str(row.get("website_source_key") or "").strip() == clean_source
-        ),
-        None,
-    )
+    cache = import_cache if isinstance(import_cache, dict) else None
+    path_cache_key = (catalog_owner_id, clean_catalog_key(service_key), clean_catalog_key(family_key), clean_variant_key(variant_name))
+    path = (cache or {}).get("paths", {}).get(path_cache_key) if cache is not None else None
+    if not path:
+        path = await ensure_static_family_path(
+            catalog_owner_id,
+            service_key=service_key,
+            family_key=family_key,
+            family_name=family_name,
+            variant_name=variant_name,
+        )
+        if cache is not None:
+            cache.setdefault("paths", {})[path_cache_key] = path
+    source_products = None
+    if cache is not None:
+        if "source_products" not in cache:
+            nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
+            cache["source_products"] = {
+                (_parent_id(row), str(row.get("website_source_key") or "").strip()): row
+                for row in nodes
+                if node_level(row) == "product" and str(row.get("website_source_key") or "").strip()
+            }
+        source_products = cache["source_products"]
+        existing = source_products.get((_node_id(path["variant"]), clean_source))
+    else:
+        nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
+        existing = next(
+            (
+                row
+                for row in nodes
+                if node_level(row) == "product"
+                and _parent_id(row) == _node_id(path["variant"])
+                and str(row.get("website_source_key") or "").strip() == clean_source
+            ),
+            None,
+        )
     if existing:
         updates: dict[str, Any] = {
             "website_level": "product",
@@ -439,14 +491,22 @@ async def upsert_static_manual_product(
         ) or existing
         return existing, False
 
-    product = await create_static_manual_product(
+    name = " ".join(str(product_name or "").strip().split())
+    clean_fields = clean_input_fields(input_fields)
+    if len(name) < 2 or len(name) > 100:
+        raise ValueError("invalid product name")
+    if float(price or 0) <= 0:
+        raise ValueError("invalid product price")
+    if not clean_fields:
+        raise ValueError("invalid input fields")
+    product = await _create_static_manual_product_at_variant(
         catalog_owner_id,
+        path["variant"],
         service_key=service_key,
         family_key=family_key,
-        product_name=product_name,
+        product_name=name,
         price=price,
-        input_fields=input_fields,
-        family_name=family_name,
+        input_fields=clean_fields,
         variant_name=variant_name,
         product_info_text=product_info_text,
         execution_mode=execution_mode,
@@ -454,6 +514,8 @@ async def upsert_static_manual_product(
         source_key=clean_source,
         api_source=api_source,
     )
+    if isinstance(source_products, dict):
+        source_products[(_node_id(path["variant"]), clean_source)] = product
     return product, True
 
 

@@ -1208,7 +1208,29 @@ button.owner-action-row {
   flex-wrap: wrap;
 }
 .owner-website-product-card {
+  position: relative;
   cursor: default;
+}
+.owner-website-select {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid rgba(148, 163, 184, .28);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, .72);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.owner-website-select input {
+  accent-color: var(--accent);
 }
 .owner-website-product-actions {
   width: 100%;
