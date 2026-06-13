@@ -940,6 +940,42 @@ async def move_node_in_parent(
     return True, "ok"
 
 
+async def move_node_to_parent(node_id, reseller_id: int, new_parent_id, *, catalog_type: Optional[str] = None) -> Optional[dict]:
+    oid = _to_oid(node_id)
+    parent_oid = _to_oid(new_parent_id)
+    if oid is None or parent_oid is None:
+        return None
+    catalog = _norm_catalog_type(catalog_type)
+    parent = await db.custom_services.find_one(
+        {
+            "_id": parent_oid,
+            "reseller_id": int(reseller_id),
+            "node_type": "folder",
+            "is_active": True,
+            "catalog_type": catalog,
+        },
+        {"_id": 1},
+    )
+    if not parent:
+        return None
+    return await db.custom_services.find_one_and_update(
+        {
+            "_id": oid,
+            "reseller_id": int(reseller_id),
+            "is_active": True,
+            "catalog_type": catalog,
+        },
+        {
+            "$set": {
+                "parent_id": parent_oid,
+                "position": await _next_position(int(reseller_id), parent_oid, catalog_type=catalog),
+                "updated_at": datetime.now(UTC),
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+
 async def clone_catalog_from_reseller_template(
     *,
     source_reseller_id: int,

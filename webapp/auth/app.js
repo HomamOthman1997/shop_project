@@ -2392,7 +2392,7 @@ function renderOwnerWebsiteFamily() {
     </div>
     <div class="owner-order-actions owner-website-toolbar">
       ${protectedSection ? "" : '<button class="secondary compact" type="button" data-owner-website-import>استيراد منتجات API كيدوية</button><button class="primary compact" type="button" data-owner-website-add-product>+ منتج</button>'}
-      ${!protectedSection && showingProducts && packages.length ? '<button class="danger compact" type="button" data-owner-website-delete-selected disabled>حذف المحدد</button>' : ""}
+      ${!protectedSection && showingProducts && packages.length ? '<button class="secondary compact" type="button" data-owner-website-clear-selection>إلغاء التحديد</button><button class="danger compact" type="button" data-owner-website-delete-selected disabled>حذف المحدد</button>' : ""}
     </div>
     ${protectedSection ? '<div class="notice">هذا القسم يبقى على طريقة الطلب الحالية.</div>' : ""}
     <div id="owner-catalog-detail"></div>
@@ -2409,7 +2409,7 @@ function renderOwnerWebsiteFamily() {
         <article class="account-catalog-card owner-website-product-card green">
           <label class="owner-website-select">
             <input type="checkbox" data-owner-website-select="${esc(product.id)}" ${selectedProductIds.has(String(product.id || "")) ? "checked" : ""}>
-            <span>تحديد</span>
+            <span>اختيار للحذف</span>
           </label>
           <span class="account-catalog-mark" aria-hidden="true"></span>
           <strong>${esc(product.name || product.item_name || "")}</strong>
@@ -2444,6 +2444,7 @@ function renderOwnerWebsiteFamily() {
   target.querySelectorAll("[data-owner-catalog-delete]").forEach((button) => button.addEventListener("click", () => deleteOwnerCatalogNode(button.dataset.ownerCatalogDelete)));
   target.querySelectorAll("[data-owner-website-execution]").forEach((select) => select.addEventListener("change", updateOwnerWebsiteExecutionMode));
   target.querySelectorAll("[data-owner-website-select]").forEach((checkbox) => checkbox.addEventListener("change", toggleOwnerWebsiteProductSelection));
+  target.querySelector("[data-owner-website-clear-selection]")?.addEventListener("click", clearOwnerWebsiteProductSelection);
   target.querySelector("[data-owner-website-delete-selected]")?.addEventListener("click", deleteSelectedOwnerWebsiteProducts);
   updateOwnerWebsiteBulkDeleteState();
 }
@@ -2466,6 +2467,12 @@ function updateOwnerWebsiteBulkDeleteState() {
   const count = ownerWebsiteCatalogState.selectedProductIds instanceof Set ? ownerWebsiteCatalogState.selectedProductIds.size : 0;
   button.disabled = count <= 0;
   button.textContent = count > 0 ? `حذف المحدد (${count})` : "حذف المحدد";
+}
+
+function clearOwnerWebsiteProductSelection() {
+  ownerWebsiteCatalogState.selectedProductIds = new Set();
+  document.querySelectorAll("[data-owner-website-select]").forEach((checkbox) => { checkbox.checked = false; });
+  updateOwnerWebsiteBulkDeleteState();
 }
 
 async function deleteSelectedOwnerWebsiteProducts() {

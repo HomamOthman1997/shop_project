@@ -11,6 +11,7 @@ from database.custom_services_repo import (
     get_node,
     list_catalog_nodes,
     list_children,
+    move_node_to_parent,
     update_endpoint_product_info,
     update_node_display_text,
     update_node_website_metadata,
@@ -457,8 +458,22 @@ async def upsert_static_manual_product(
                 for row in nodes
                 if node_level(row) == "product" and str(row.get("website_source_key") or "").strip()
             }
+            cache["source_products_by_key"] = {
+                str(row.get("website_source_key") or "").strip(): row
+                for row in nodes
+                if node_level(row) == "product" and str(row.get("website_source_key") or "").strip()
+            }
         source_products = cache["source_products"]
         existing = source_products.get((_node_id(path["variant"]), clean_source))
+        if not existing:
+            existing = cache.get("source_products_by_key", {}).get(clean_source)
+            if existing and _parent_id(existing) != _node_id(path["variant"]):
+                moved = await move_node_to_parent(existing["_id"], catalog_owner_id, path["variant"]["_id"], catalog_type=CATALOG_TYPE)
+                if moved:
+                    source_products.pop((_parent_id(existing), clean_source), None)
+                    existing = moved
+                    source_products[(_node_id(path["variant"]), clean_source)] = existing
+                    cache["source_products_by_key"][clean_source] = existing
     else:
         nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
         existing = next(
@@ -516,6 +531,8 @@ async def upsert_static_manual_product(
     )
     if isinstance(source_products, dict):
         source_products[(_node_id(path["variant"]), clean_source)] = product
+        if cache is not None:
+            cache.setdefault("source_products_by_key", {})[clean_source] = product
     return product, True
 
 

@@ -168,3 +168,62 @@ async def test_fresh_quote_payload_uses_manual_price_with_optional_api_execution
     assert quote["game_id"] == "pubgm"
     assert quote["requires_server"] is True
     assert quote["provider_offers"][0]["fulfillment_mode"] == "auto_topup"
+
+
+@pytest.mark.asyncio
+async def test_upsert_static_manual_product_moves_existing_source_to_new_variant(monkeypatch):
+    source_key = "gift:ps-global:ps-my-20"
+    existing = {
+        "_id": "product",
+        "parent_id": "old-variant",
+        "website_level": "product",
+        "node_type": "endpoint",
+        "website_source_key": source_key,
+    }
+    moved = dict(existing, parent_id="target-variant")
+    calls = {"move": [], "updates": []}
+
+    async def ensure_path(_owner_id, *, service_key, family_key, family_name, variant_name):
+        assert service_key == "store_cards"
+        assert family_key == "playstation"
+        assert family_name == "PlayStation"
+        assert variant_name == "Malaysia"
+        return {"variant": {"_id": "target-variant"}}
+
+    async def nodes(_owner_id, *, catalog_type):
+        assert catalog_type == "website_manual"
+        return [existing]
+
+    async def move(node_id, owner_id, new_parent_id, *, catalog_type):
+        calls["move"].append((node_id, owner_id, new_parent_id, catalog_type))
+        return moved
+
+    async def update(node_id, owner_id, *, catalog_type, **updates):
+        calls["updates"].append((node_id, owner_id, catalog_type, updates))
+        return {**moved, **updates}
+
+    monkeypatch.setattr(manual_catalog, "ensure_static_family_path", ensure_path)
+    monkeypatch.setattr(manual_catalog, "list_catalog_nodes", nodes)
+    monkeypatch.setattr(manual_catalog, "move_node_to_parent", move)
+    monkeypatch.setattr(manual_catalog, "update_node_website_metadata", update)
+
+    product, was_created = await manual_catalog.upsert_static_manual_product(
+        77,
+        service_key="store_cards",
+        family_key="playstation",
+        family_name="PlayStation",
+        variant_name="Malaysia",
+        product_name="PlayStation MYR 20",
+        price=20.0,
+        input_fields=[{"id": "account", "label": "Account", "required": True}],
+        source_key=source_key,
+        source_kind="gift",
+        api_source={"kind": "gift", "variant_name": "Malaysia"},
+        import_cache={},
+    )
+
+    assert was_created is False
+    assert product["parent_id"] == "target-variant"
+    assert product["website_variant_key"] == "malaysia"
+    assert calls["move"] == [("product", 77, "target-variant", "website_manual")]
+    assert calls["updates"][0][3]["website_api_source"]["variant_name"] == "Malaysia"

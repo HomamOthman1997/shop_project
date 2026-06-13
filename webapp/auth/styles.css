@@ -1214,22 +1214,24 @@ button.owner-action-row {
 .owner-website-select {
   position: absolute;
   top: 12px;
-  left: 12px;
+  right: 12px;
   z-index: 2;
-  min-height: 30px;
-  padding: 5px 9px;
-  border: 1px solid rgba(148, 163, 184, .28);
-  border-radius: 999px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid rgba(56, 189, 248, .45);
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(15, 23, 42, .72);
-  color: var(--muted);
+  gap: 8px;
+  background: rgba(15, 23, 42, .9);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
 .owner-website-select input {
+  width: 18px;
+  height: 18px;
   accent-color: var(--accent);
 }
 .owner-website-product-actions {

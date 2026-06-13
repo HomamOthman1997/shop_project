@@ -648,6 +648,128 @@ async def test_import_api_family_accepts_unit_price_only_items(monkeypatch):
     assert calls[0][1]["source_key"] == "gift:steam-global:steam-10"
 
 
+@pytest.mark.asyncio
+async def test_import_api_family_splits_gift_products_by_detected_region(monkeypatch):
+    from services.digital_products import miniapp
+
+    calls = []
+
+    async def _fake_catalog():
+        return {
+            "service_tree": [
+                {
+                    "key": "store_cards",
+                    "families": [
+                        {
+                            "family_key": "playstation",
+                            "name": "PlayStation",
+                            "variants": [{"id": "ps-global", "name": "Global", "game_ids": [], "gift_category_ids": ["ps-global"]}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    async def _fake_gift_products(category_id, query="", offer_mode=""):
+        assert category_id == "ps-global"
+        return [
+            {
+                "kind": "gift",
+                "id": "ps-us-10",
+                "category_id": category_id,
+                "category_name": "PlayStation USA",
+                "name": "PlayStation US 10 USD",
+                "price_usd": 10.0,
+                "za3em_params": ["account"],
+            },
+            {
+                "kind": "gift",
+                "id": "ps-my-20",
+                "category_id": category_id,
+                "category_name": "PlayStation Malaysia",
+                "name": "PlayStation MYR 20",
+                "price_usd": 20.0,
+                "za3em_params": ["account"],
+            },
+        ]
+
+    async def _fake_upsert(owner_id, **kwargs):
+        calls.append((owner_id, kwargs))
+        return {"_id": kwargs["source_key"], "name": kwargs["product_name"]}, True
+
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "_gift_products", _fake_gift_products)
+    monkeypatch.setattr(miniapp, "upsert_static_manual_product", _fake_upsert)
+
+    result = await miniapp._import_api_family_to_manual(77, service_key="store_cards", family_key="playstation")
+
+    assert result["created"] == 2
+    assert [call[1]["variant_name"] for call in calls] == ["USA", "Malaysia"]
+    assert [call[1]["api_source"]["category_name"] for call in calls] == ["PlayStation USA", "PlayStation Malaysia"]
+
+
+@pytest.mark.asyncio
+async def test_import_api_family_splits_game_products_by_source_game_region(monkeypatch):
+    from services.digital_products import miniapp
+
+    calls = []
+
+    async def _fake_catalog():
+        return {
+            "service_tree": [
+                {
+                    "key": "games",
+                    "families": [
+                        {
+                            "family_key": "mobile_legends",
+                            "name": "Mobile Legends",
+                            "variants": [{"id": "mlbb_my", "name": "Global", "game_ids": ["mlbb_my"], "gift_category_ids": []}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    async def _fake_game_items(game_id):
+        assert game_id == "mlbb_my"
+        return {
+            "game_name": "Mobile Legends",
+            "game_id": game_id,
+            "items": [{"kind": "game", "id": "diamonds-10", "game_id": game_id, "name": "10 Diamonds", "price_usd": 1.0}],
+        }
+
+    async def _fake_upsert(owner_id, **kwargs):
+        calls.append((owner_id, kwargs))
+        return {"_id": kwargs["source_key"], "name": kwargs["product_name"]}, True
+
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "_game_items", _fake_game_items)
+    monkeypatch.setattr(miniapp, "upsert_static_manual_product", _fake_upsert)
+
+    result = await miniapp._import_api_family_to_manual(77, service_key="games", family_key="mobile_legends")
+
+    assert result["created"] == 1
+    assert calls[0][1]["variant_name"] == "Malaysia"
+    assert calls[0][1]["api_source"]["variant_name"] == "Malaysia"
+
+
+def test_import_region_detection_does_not_treat_my_game_name_as_malaysia():
+    from services.digital_products import miniapp
+
+    assert (
+        miniapp._import_variant_name(
+            service_key="games",
+            family_key="my_singing_monsters",
+            family_name="My Singing Monsters",
+            default_variant_name="Global",
+            source_id="mysingingmonsters",
+            source_text="My Singing Monsters",
+            item_name="100 Diamonds",
+        )
+        == "Global"
+    )
+
+
 def test_grouped_games_routes_app_topups_to_chat_apps():
     from services.digital_products import miniapp
 

@@ -171,6 +171,10 @@ _GAME_ID_REGION_SUFFIXES: dict[str, str] = {
     "tr": "Turkey",
     "ru": "Russia",
     "europa": "Europe",
+    "au": "Australia",
+    "nz": "New Zealand",
+    "jp": "Japan",
+    "kr": "Korea",
 }
 _GAME_DEFAULT_TOPUP_UNIT: dict[str, str] = {
     "pubgm": "UC",
@@ -226,6 +230,8 @@ _KNOWN_REGION_LABELS: set[str] = {
     "japan",
     "korea",
     "russia",
+    "australia",
+    "new zealand",
 }
 _KNOWN_OPTION_LABELS: set[str] = {
     "add-ons",
@@ -1546,6 +1552,7 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
                 "kind": "gift",
                 "id": item_id,
                 "category_id": str(item.get("raw", {}).get("category_id") or item.get("raw", {}).get("cat_id") or item.get("raw", {}).get("categoryId") or sid),
+                "category_name": category_name,
                 "name": display_name,
                 "price_usd": display_sale_price,
                 "unit_price_usd": round(float(unit_sale_price), 6),
@@ -1962,6 +1969,15 @@ async def _import_api_family_to_manual(
                 if not item_id or price <= 0:
                     skipped += 1
                     continue
+                item_variant_name = _import_variant_name(
+                    service_key=service_key,
+                    family_key=family_key,
+                    family_name=family_name,
+                    default_variant_name=variant_name,
+                    source_id=game_id,
+                    source_text=game_name,
+                    item_name=str(item.get("name") or item_id),
+                )
                 offer = _source_offer_from_item(item, source_kind="game", family_name=game_name)
                 try:
                     _node, was_created = await upsert_static_manual_product(
@@ -1969,7 +1985,7 @@ async def _import_api_family_to_manual(
                         service_key=service_key,
                         family_key=family_key,
                         family_name=family_name,
-                        variant_name=variant_name,
+                        variant_name=item_variant_name,
                         product_name=str(item.get("name") or item_id),
                         price=price,
                         input_fields=_game_import_fields(item),
@@ -1986,6 +2002,7 @@ async def _import_api_family_to_manual(
                             "requires_server": bool(item.get("requires_server")),
                             "player_field": "player_id",
                             "server_field": "server_id",
+                            "variant_name": item_variant_name,
                             "source_price_usd": price,
                             "provider_offers": [offer],
                         },
@@ -2008,6 +2025,16 @@ async def _import_api_family_to_manual(
                 if not item_id or price <= 0:
                     skipped += 1
                     continue
+                category_name = str(item.get("category_name") or "").strip()
+                item_variant_name = _import_variant_name(
+                    service_key=service_key,
+                    family_key=family_key,
+                    family_name=family_name,
+                    default_variant_name=variant_name,
+                    source_id=f"{source_category_id} {item_id}",
+                    source_text=category_name,
+                    item_name=str(item.get("name") or item_id),
+                )
                 offer = _source_offer_from_item(item, source_kind="gift", family_name=family_name)
                 try:
                     _node, was_created = await upsert_static_manual_product(
@@ -2015,7 +2042,7 @@ async def _import_api_family_to_manual(
                         service_key=service_key,
                         family_key=family_key,
                         family_name=family_name,
-                        variant_name=variant_name,
+                        variant_name=item_variant_name,
                         product_name=str(item.get("name") or item_id),
                         price=price,
                         input_fields=_gift_import_fields(item),
@@ -2025,11 +2052,13 @@ async def _import_api_family_to_manual(
                         api_source={
                             "kind": "gift",
                             "category_id": source_category_id,
+                            "category_name": category_name,
                             "product_id": item_id,
                             "product_name": family_name,
                             "item_id": item_id,
                             "provider": offer["provider"],
                             "provider_ref_id": offer["ref_id"],
+                            "variant_name": item_variant_name,
                             "source_price_usd": price,
                             "provider_offers": [offer],
                         },
@@ -2483,6 +2512,162 @@ def _extract_region_label(value: str, family_label: str = "") -> str:
             tail = re.sub(pattern, "", tail, flags=re.IGNORECASE).strip()
         return _title_case_region(tail) or "General"
     return "General"
+
+
+_IMPORT_REGION_ALIASES: dict[str, str] = {
+    "global": "Global",
+    "worldwide": "Global",
+    "international": "Global",
+    "malaysia": "Malaysia",
+    "my": "Malaysia",
+    "myr": "Malaysia",
+    "singapore": "Singapore",
+    "sg": "Singapore",
+    "sgd": "Singapore",
+    "sgmy": "SGMY",
+    "philippines": "Philippines",
+    "philippine": "Philippines",
+    "ph": "Philippines",
+    "php": "Philippines",
+    "cambodia": "Cambodia",
+    "kh": "Cambodia",
+    "vietnam": "Vietnam",
+    "vn": "Vietnam",
+    "india": "India",
+    "in": "India",
+    "pakistan": "Pakistan",
+    "pk": "Pakistan",
+    "bangladesh": "Bangladesh",
+    "bd": "Bangladesh",
+    "indonesia": "Indonesia",
+    "id": "Indonesia",
+    "idr": "Indonesia",
+    "turkey": "Turkey",
+    "turkiye": "Turkey",
+    "tr": "Turkey",
+    "try": "Turkey",
+    "brazil": "Brazil",
+    "br": "Brazil",
+    "brl": "Brazil",
+    "australia": "Australia",
+    "au": "Australia",
+    "aud": "Australia",
+    "new zealand": "New Zealand",
+    "nz": "New Zealand",
+    "nzd": "New Zealand",
+    "austria": "Austria",
+    "at": "Austria",
+    "usa": "USA",
+    "united states": "USA",
+    "us": "USA",
+    "united kingdom": "UK",
+    "uk": "UK",
+    "gb": "UK",
+    "gbp": "UK",
+    "saudi arabia": "KSA",
+    "ksa": "KSA",
+    "sar": "KSA",
+    "uae": "UAE",
+    "united arab emirates": "UAE",
+    "aed": "UAE",
+    "europe": "Europe",
+    "eu": "Europe",
+    "eur": "Europe",
+    "mena": "MENA",
+    "latam": "LATAM",
+    "sea": "SEA",
+    "middle east": "Middle East",
+    "canada": "Canada",
+    "ca": "Canada",
+    "cad": "Canada",
+    "mexico": "Mexico",
+    "mx": "Mexico",
+    "mxn": "Mexico",
+    "japan": "Japan",
+    "jp": "Japan",
+    "jpy": "Japan",
+    "korea": "Korea",
+    "kr": "Korea",
+    "hong kong": "Hong Kong",
+    "hk": "Hong Kong",
+    "hkd": "Hong Kong",
+    "taiwan": "Taiwan",
+    "tw": "Taiwan",
+    "twd": "Taiwan",
+    "thailand": "Thailand",
+    "th": "Thailand",
+    "thb": "Thailand",
+    "russia": "Russia",
+    "ru": "Russia",
+}
+_IMPORT_REGION_CODE_TOKENS: set[str] = {
+    token
+    for token in _IMPORT_REGION_ALIASES
+    if " " not in token and token != "global" and (len(token) <= 3 or token in {"latam", "mena", "naeu", "sgmy"})
+}
+_IMPORT_REGION_TEXT_ALIASES: dict[str, str] = {
+    token: label
+    for token, label in _IMPORT_REGION_ALIASES.items()
+    if token not in _IMPORT_REGION_CODE_TOKENS
+}
+
+
+def _token_in_text(text: str, token: str) -> bool:
+    return bool(re.search(rf"(^|[^a-z0-9\u0600-\u06ff]){re.escape(token)}([^a-z0-9\u0600-\u06ff]|$)", text))
+
+
+def _upper_code_token_in_raw_text(raw: str, token: str) -> bool:
+    wanted = str(token or "").upper()
+    if not wanted:
+        return False
+    return any(part == wanted for part in re.split(r"[^A-Za-z0-9]+", str(raw or "")))
+
+
+def _detect_import_region_label(
+    *values: Any,
+    allow_code_tokens: bool = False,
+    service_key: str = "",
+    family_name: str = "",
+) -> str:
+    for value in values:
+        raw = " ".join(str(value or "").strip().split())
+        if not raw:
+            continue
+        text = taxonomy_norm_text(raw)
+        for token, label in sorted(_IMPORT_REGION_TEXT_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+            if _token_in_text(text, token):
+                return label
+        for token in sorted(_IMPORT_REGION_CODE_TOKENS, key=len, reverse=True):
+            if (allow_code_tokens and _token_in_text(text, token)) or _upper_code_token_in_raw_text(raw, token):
+                return _IMPORT_REGION_ALIASES[token]
+        extracted = _extract_region_label(raw, family_name)
+        if extracted and extracted not in {"General", "Global"} and _variant_kind(service_key, extracted) == "region":
+            return extracted
+    return ""
+
+
+def _import_variant_name(
+    *,
+    service_key: str,
+    family_key: str,
+    family_name: str,
+    default_variant_name: str,
+    source_id: str = "",
+    source_text: str = "",
+    item_name: str = "",
+) -> str:
+    detected = _detect_import_region_label(source_text, item_name, service_key=service_key, family_name=family_name)
+    if not detected:
+        detected = _detect_import_region_label(source_id, allow_code_tokens=True, service_key=service_key, family_name=family_name)
+    if detected:
+        return detected
+    from_id = _region_from_game_id(source_id, family_name, "")
+    if from_id:
+        return from_id
+    default = " ".join(str(default_variant_name or "").strip().split()) or "Global"
+    if default == "General":
+        return "Global"
+    return default
 
 
 def _family_aliases(service_key: str, family_key: str, family_label: str) -> list[str]:
