@@ -26,6 +26,7 @@ from database.custom_services_repo import (
     list_stock_events,
     list_children,
     move_node_in_parent,
+    move_node_to_parent,
     rename_node,
     record_stock_event,
     set_endpoint_inventory,
@@ -82,6 +83,7 @@ from services.digital_products.api import _order_payload, execute_manual_order_a
 from services.digital_products.manual_catalog import (
     CATALOG_TYPE as WEBSITE_MANUAL_CATALOG_TYPE,
     clean_catalog_key,
+    clean_variant_key,
     clean_accent,
     clean_input_fields,
     clean_slug,
@@ -1098,6 +1100,86 @@ def _custom_catalog_node_payload(row: dict[str, Any], *, include_inventory: bool
     return payload
 
 
+def _manual_variant_display_name(value: Any) -> str:
+    return " ".join(str(value or "").strip().split()) or "Global"
+
+
+async def _website_manual_product_context(row: dict[str, Any], owner_id: int) -> dict[str, str]:
+    if node_level(row) != "product":
+        return {}
+    variant = await get_node(row.get("parent_id"), reseller_id=owner_id, catalog_type=WEBSITE_MANUAL_CATALOG_TYPE)
+    if not variant or node_level(variant) != "variant":
+        return {}
+    family = await get_node(variant.get("parent_id"), reseller_id=owner_id, catalog_type=WEBSITE_MANUAL_CATALOG_TYPE)
+    return {
+        "manual_variant_id": _text(variant.get("_id")),
+        "manual_variant_name": _text(variant.get("name") or "Global"),
+        "manual_family_id": _text((family or {}).get("_id")),
+        "manual_family_name": _text((family or {}).get("name")),
+    }
+
+
+async def _move_website_manual_product_to_variant(
+    node: dict[str, Any],
+    owner_id: int,
+    variant_name: Any,
+) -> tuple[dict[str, Any] | None, str]:
+    target_name = _manual_variant_display_name(variant_name)
+    target_key = clean_variant_key(target_name)
+    if not target_key:
+        return None, "Enter a valid country / Global value."
+    current_variant = await get_node(node.get("parent_id"), reseller_id=owner_id, catalog_type=WEBSITE_MANUAL_CATALOG_TYPE)
+    if not current_variant or node_level(current_variant) != "variant":
+        return None, "Current product country was not found."
+    family = await get_node(current_variant.get("parent_id"), reseller_id=owner_id, catalog_type=WEBSITE_MANUAL_CATALOG_TYPE)
+    if not family or node_level(family) != "family":
+        return None, "Current product category was not found."
+
+    section_key = clean_catalog_key(node.get("website_section_key") or current_variant.get("website_section_key") or family.get("website_section_key"))
+    family_key = clean_catalog_key(node.get("website_family_key") or current_variant.get("website_family_key") or family.get("website_family_key"))
+    current_key = clean_variant_key(current_variant.get("website_variant_key") or current_variant.get("name"))
+    target_variant = current_variant
+    if current_key != target_key:
+        siblings = await list_children(owner_id, family["_id"], catalog_type=WEBSITE_MANUAL_CATALOG_TYPE)
+        target_variant = next(
+            (
+                row
+                for row in siblings
+                if node_level(row) == "variant"
+                and (
+                    clean_variant_key(row.get("website_variant_key")) == target_key
+                    or clean_variant_key(row.get("name")) == target_key
+                )
+            ),
+            None,
+        )
+        if not target_variant:
+            target_variant = await create_folder(owner_id, family["_id"], target_name, catalog_type=WEBSITE_MANUAL_CATALOG_TYPE)
+        target_variant = await update_node_website_metadata(
+            target_variant["_id"],
+            owner_id,
+            website_level="variant",
+            website_section_key=section_key or None,
+            website_family_key=family_key or None,
+            website_variant_key=target_key,
+            catalog_type=WEBSITE_MANUAL_CATALOG_TYPE,
+        ) or target_variant
+        moved = await move_node_to_parent(node["_id"], owner_id, target_variant["_id"], catalog_type=WEBSITE_MANUAL_CATALOG_TYPE)
+        if not moved:
+            return None, "Could not move product to the selected country."
+        node = moved
+
+    node = await update_node_website_metadata(
+        node["_id"],
+        owner_id,
+        website_section_key=section_key or None,
+        website_family_key=family_key or None,
+        website_variant_key=target_key,
+        catalog_type=WEBSITE_MANUAL_CATALOG_TYPE,
+    ) or node
+    return node, ""
+
+
 async def owner_custom_catalog(request: web.Request) -> web.Response:
     await require_website_owner(request)
     owner_id = _owner_catalog_id()
@@ -1275,7 +1357,10 @@ async def owner_custom_catalog_node_detail(request: web.Request) -> web.Response
     node = await get_node(request.match_info.get("node_id"), reseller_id=owner_id, catalog_type=catalog_type)
     if not node:
         return web.json_response({"ok": False, "message": "Catalog node was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
-    return web.json_response({"ok": True, "node": _custom_catalog_node_payload(node)}, headers=dict(_NO_STORE_HEADERS))
+    payload = _custom_catalog_node_payload(node)
+    if catalog_type == WEBSITE_MANUAL_CATALOG_TYPE:
+        payload.update(await _website_manual_product_context(node, owner_id))
+    return web.json_response({"ok": True, "node": payload}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_create_custom_catalog_node(request: web.Request) -> web.Response:
@@ -1383,6 +1468,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
         website_accent = None
         input_fields = None
         website_execution_mode = None
+        requested_variant_name = None
         if node_level(node) == "section" and "website_slug" in body:
             website_slug = clean_slug(body.get("website_slug"))
             if not website_slug:
@@ -1401,6 +1487,8 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                     status=400,
                     headers=dict(_NO_STORE_HEADERS),
                 )
+        if node_level(node) == "product" and "variant_name" in body:
+            requested_variant_name = _manual_variant_display_name(body.get("variant_name"))
         if node_level(node) == "product" and "website_execution_mode" in body:
             website_execution_mode = clean_execution_mode(body.get("website_execution_mode"))
             if website_execution_mode == "api" and not (bool(node.get("website_api_source")) and _text(node.get("website_source_kind")) == "game"):
@@ -1419,6 +1507,10 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                 website_execution_mode=website_execution_mode,
                 catalog_type=catalog_type,
             ) or node
+        if requested_variant_name is not None:
+            node, error = await _move_website_manual_product_to_variant(node, owner_id, requested_variant_name)
+            if error:
+                return web.json_response({"ok": False, "message": error}, status=400, headers=dict(_NO_STORE_HEADERS))
     if str(node.get("node_type") or "") == "endpoint":
         try:
             if catalog_type == WEBSITE_MANUAL_CATALOG_TYPE and float(body.get("price", node.get("price") or 0)) <= 0:

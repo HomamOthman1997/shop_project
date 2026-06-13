@@ -1210,6 +1210,9 @@ button.owner-action-row {
 .owner-website-product-card {
   position: relative;
   cursor: default;
+  min-height: 190px;
+  padding-top: 58px;
+  gap: 8px;
 }
 .owner-website-select {
   position: absolute;
@@ -1233,6 +1236,21 @@ button.owner-action-row {
   width: 18px;
   height: 18px;
   accent-color: var(--accent);
+}
+.owner-website-product-name {
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.35;
+}
+.owner-website-product-meta {
+  color: var(--muted) !important;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.owner-website-product-price {
+  margin-top: 2px !important;
+  color: #fde68a !important;
+  font-size: 16px !important;
 }
 .owner-website-product-actions {
   width: 100%;

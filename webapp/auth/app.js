@@ -2277,6 +2277,14 @@ function ownerWebsiteProtectedSection(section) {
   return section?.service === "numbers" || section?.slug === "esim";
 }
 
+function ownerWebsiteProductFamilyLabel(product, payload = {}) {
+  return String(product?.manual_catalog?.family_name || payload.family_name || ownerWebsiteCatalogState.activeFamily?.title || "").trim();
+}
+
+function ownerWebsiteProductCountryLabel(product, payload = {}) {
+  return String(product?.manual_catalog?.variant_name || payload.selected_variant_name || "Global").trim() || "Global";
+}
+
 function ownerWebsiteBack() {
   ownerWebsiteCatalogState.selectedProductIds = new Set();
   if (ownerWebsiteCatalogState.activeFamily) {
@@ -2405,25 +2413,25 @@ function renderOwnerWebsiteFamily() {
         badge: variant.variant_kind === "region" ? "دولة / Global" : "تصنيف",
         attrs: `data-owner-website-variant="${esc(variant.id || "")}"`,
       })).join("") : ""}
-      ${showingProducts ? packages.map((product) => `
+      ${showingProducts ? packages.map((product) => {
+        const familyLabel = ownerWebsiteProductFamilyLabel(product, payload);
+        const countryLabel = ownerWebsiteProductCountryLabel(product, payload);
+        return `
         <article class="account-catalog-card owner-website-product-card green">
           <label class="owner-website-select">
             <input type="checkbox" data-owner-website-select="${esc(product.id)}" ${selectedProductIds.has(String(product.id || "")) ? "checked" : ""}>
             <span>اختيار للحذف</span>
           </label>
-          <span class="account-catalog-mark" aria-hidden="true"></span>
-          <strong>${esc(product.name || product.item_name || "")}</strong>
-          <span>${esc(product.duration || "تنفيذ يدوي خلال دقيقة إلى ساعة.")}</span>
-          <b>${esc(product.price_label || "")}</b>
+          <strong class="owner-website-product-name">${esc(product.name || product.item_name || "")}</strong>
+          <span class="owner-website-product-meta">الفئة: ${esc(familyLabel || "-")}</span>
+          <span class="owner-website-product-meta">البلد: ${esc(countryLabel)}</span>
+          <b class="owner-website-product-price">${esc(product.price_label || "")}</b>
           <div class="owner-website-product-actions">
-            <select data-owner-website-execution="${esc(product.id)}" ${product.api_execution_supported ? "" : "disabled"}>
-              <option value="manual" ${product.execution_mode !== "api" ? "selected" : ""}>Manual</option>
-              <option value="api" ${product.execution_mode === "api" ? "selected" : ""}>API</option>
-            </select>
             <button class="secondary compact" type="button" data-owner-catalog-detail="${esc(product.id)}">تعديل</button>
             <button class="danger compact" type="button" data-owner-catalog-delete="${esc(product.id)}">حذف</button>
           </div>
-        </article>`).join("") : ""}
+        </article>`;
+      }).join("") : ""}
       ${!protectedSection && showingProducts ? ownerWebsiteCard({
         title: "+",
         subtitle: "إضافة منتج يدوي داخل هذا الصنف.",
@@ -2561,7 +2569,7 @@ function openOwnerWebsiteProductModal() {
       <label><span>اسم المنتج</span><input name="name" required minlength="2" maxlength="100" placeholder="325 UC"></label>
       <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" required></label>
       <label><span>الدولة / Global</span><input name="variant_name" value="${esc(payload.selected_variant_name || "Global")}"></label>
-      <label><span>الوصف</span><textarea name="product_info_text" rows="3" placeholder="تنفيذ يدوي خلال دقيقة إلى ساعة."></textarea></label>
+      <label><span>الوصف</span><textarea name="product_info_text" rows="3" placeholder="ملاحظات للطلب أو شروط الخدمة، لا تظهر داخل بطاقة المنتج."></textarea></label>
       <label class="owner-catalog-fields"><span>حقول الطلب، سطر لكل حقل</span><textarea name="input_fields_text" rows="5" required placeholder="player_id|Player ID|required|text&#10;server_id|Server ID|optional|text"></textarea></label>
       <button class="primary compact" type="submit">إضافة المنتج</button>
     </form>`);
@@ -2721,6 +2729,10 @@ async function loadOwnerCatalogNode(nodeId) {
     const payload = await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}`);
     const node = payload.node || {};
     const target = $("#owner-catalog-detail");
+    const listedProduct = (ownerWebsiteCatalogState.familyPayload?.packages || []).find((row) => String(row.id || "") === String(node.id || ""));
+    const currentVariantName = node.manual_variant_name || ownerWebsiteProductCountryLabel(listedProduct || {}, ownerWebsiteCatalogState.familyPayload || {});
+    const currentExecutionMode = node.website_execution_mode || listedProduct?.execution_mode || "manual";
+    const apiExecutionSupported = Boolean(node.api_execution_supported || listedProduct?.api_execution_supported);
     if (catalogType === "website_manual") {
       target.innerHTML = `
         <article class="owner-review-card">
@@ -2732,6 +2744,11 @@ async function loadOwnerCatalogNode(nodeId) {
               <label><span>لون القسم</span><select name="website_accent">${["green", "blue", "amber", "violet"].map((accent) => `<option value="${accent}" ${node.website_accent === accent ? "selected" : ""}>${accent}</option>`).join("")}</select></label>` : ""}
             ${node.node_type === "folder" ? `<label><span>الوصف</span><textarea name="display_text" rows="3">${esc(node.display_text || "")}</textarea></label>` : `
               <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" value="${esc(node.price)}" required></label>
+              <label><span>الدولة / Global</span><input name="variant_name" value="${esc(currentVariantName || "Global")}" required></label>
+              <label><span>طريقة التنفيذ</span><select name="website_execution_mode">
+                <option value="manual" ${currentExecutionMode !== "api" ? "selected" : ""}>Manual</option>
+                <option value="api" ${currentExecutionMode === "api" ? "selected" : ""} ${apiExecutionSupported ? "" : "disabled"}>API</option>
+              </select></label>
               <label><span>وصف المنتج</span><textarea name="product_info_text" rows="3">${esc(node.product_info_text || "")}</textarea></label>
               <label class="owner-catalog-fields"><span>حقول الطلب</span><textarea name="input_fields_text" rows="6" required>${esc(node.input_fields_text || "")}</textarea></label>`}
             <button class="primary compact" type="submit">حفظ التعديل</button>
