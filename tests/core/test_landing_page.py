@@ -283,6 +283,9 @@ def test_manual_catalog_updates_existing_static_category_metadata():
         [
             {
                 "slug": "games",
+                "node_id": "section-games",
+                "title": "Games Edited",
+                "subtitle": "Managed website games",
                 "categories": [
                     {
                         "slug": "pubg",
@@ -300,6 +303,9 @@ def test_manual_catalog_updates_existing_static_category_metadata():
     pubg = next(row for row in games["categories"] if row["slug"] == "pubg")
 
     assert games["categories_count"] == base_games_count
+    assert games["node_id"] == "section-games"
+    assert games["title"] == "Games Edited"
+    assert games["subtitle"] == "Managed website games"
     assert pubg["node_id"] == "family-pubg"
     assert pubg["manual"] is True
 

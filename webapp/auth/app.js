@@ -2313,6 +2313,24 @@ function ownerWebsiteFamilyTile(row, section) {
     </article>`;
 }
 
+function ownerWebsiteSectionTile(row) {
+  const nodeId = String(row.node_id || "").trim();
+  return `
+    <article class="owner-website-family-tile">
+      ${ownerWebsiteCard({
+        title: row.title || row.slug || "",
+        subtitle: row.subtitle || `${Number(row.categories_count || 0)} صنف`,
+        accent: row.accent || "green",
+        badge: row.status || "",
+        attrs: `data-owner-website-section="${esc(row.slug || "")}"`,
+      })}
+      ${nodeId ? `<div class="owner-website-family-actions">
+        <button class="secondary compact" type="button" data-owner-catalog-detail="${esc(nodeId)}">تعديل القسم</button>
+        <button class="danger compact" type="button" data-owner-catalog-delete="${esc(nodeId)}">حذف إذا فارغ</button>
+      </div>` : ""}
+    </article>`;
+}
+
 function renderOwnerWebsiteCatalog(payload) {
   const target = $("#owner-custom-catalog");
   if (!target) return;
@@ -2343,6 +2361,7 @@ function renderOwnerWebsiteCatalog(payload) {
           ? `data-owner-website-family="${esc(row.family_key || row.slug || "")}" data-service-key="${esc(row.service_key || "")}" data-title="${esc(row.title || "")}"`
           : `data-owner-website-section="${esc(row.slug || "")}"`;
         if (section) return ownerWebsiteFamilyTile(row, section);
+        if (row.node_id) return ownerWebsiteSectionTile(row);
         return ownerWebsiteCard({
           title: row.title || row.slug || "",
           subtitle: row.subtitle || (section ? "فتح منتجات هذا الصنف." : `${Number(row.categories_count || 0)} صنف`),

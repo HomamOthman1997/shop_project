@@ -572,6 +572,7 @@ async def public_sections(
         if node_hidden(section):
             sections.append(
                 {
+                    "node_id": str(section.get("_id") or ""),
                     "slug": section_slug,
                     "title": str(section.get("name") or section_slug),
                     "subtitle": str(section.get("display_text") or ""),
@@ -646,6 +647,7 @@ async def public_sections(
         if categories:
             sections.append(
                 {
+                    "node_id": str(section.get("_id") or ""),
                     "slug": section_slug,
                     "title": str(section.get("name") or section_slug),
                     "subtitle": str(section.get("display_text") or "خدمات ومنتجات يضيفها الأدمن وتنفذ يدوياً."),

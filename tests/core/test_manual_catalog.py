@@ -92,6 +92,7 @@ async def test_public_sections_exposes_only_complete_manual_families(monkeypatch
     sections = await manual_catalog.public_sections(77)
 
     assert sections[0]["slug"] == "mobile-recharge"
+    assert sections[0]["node_id"] == "section"
     assert sections[0]["categories"][0]["node_id"] == "family"
     assert sections[0]["categories"][0]["service_key"] == "website_manual"
     assert sections[0]["categories"][0]["family_key"] == "family"

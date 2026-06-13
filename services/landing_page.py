@@ -1654,6 +1654,9 @@ def merge_manual_catalog(payload: dict[str, object], manual_sections: list[dict[
             merged.append(clone)
             by_slug[slug] = clone
             continue
+        for key in ("node_id", "title", "subtitle", "accent", "service", "manual"):
+            if key in manual:
+                existing[key] = manual[key]
         categories = list(existing.get("categories") or [])
         by_category_slug = {str(row.get("slug") or ""): row for row in categories if isinstance(row, dict)}
         for row in list(manual.get("categories") or []):
