@@ -39,6 +39,8 @@ def test_register_owner_api_routes():
     assert ("POST", "/api/v1/owner/custom-preorders/{preorder_id}/action") in routes
     assert ("POST", "/api/v1/owner/custom-preorders/{preorder_id}/attachment") in routes
     assert ("GET", "/api/v1/owner/custom-catalog") in routes
+    assert ("GET", "/api/v1/owner/website-catalog") in routes
+    assert ("POST", "/api/v1/owner/website-catalog/manual-products") in routes
     assert ("POST", "/api/v1/owner/custom-catalog/nodes") in routes
     assert ("GET", "/api/v1/owner/custom-catalog/nodes/{node_id}") in routes
     assert ("PATCH", "/api/v1/owner/custom-catalog/nodes/{node_id}") in routes
@@ -1575,6 +1577,47 @@ async def test_owner_create_website_manual_section_sets_hierarchy_metadata(monke
     assert calls["website_slug"] == "mobile-recharge"
     assert calls["website_accent"] == "blue"
     assert calls["catalog_type"] == "website_manual"
+
+
+@pytest.mark.asyncio
+async def test_owner_create_website_manual_product_uses_static_catalog_path(monkeypatch):
+    calls = {}
+
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def create(owner_id, **kwargs):
+        calls.update({"owner_id": owner_id, **kwargs})
+        return {"_id": "product-1", "name": kwargs["product_name"], "node_type": "endpoint", "catalog_type": "website_manual", "price": kwargs["price"]}
+
+    async def audit(**_kwargs):
+        return None
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_owner_catalog_id", lambda: 77)
+    monkeypatch.setattr(owner_api, "create_static_manual_product", create)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    request = make_mocked_request("POST", "/api/v1/owner/website-catalog/manual-products")
+    request._read_bytes = json.dumps(
+        {
+            "service_key": "games",
+            "family_key": "pubg",
+            "variant_name": "Global",
+            "name": "325 UC",
+            "price": "6.60",
+            "input_fields_text": "player_id|Player ID|required|text",
+        }
+    ).encode()
+
+    response = await owner_api.owner_create_website_manual_product(request)
+
+    assert response.status == 200
+    assert calls["owner_id"] == 77
+    assert calls["service_key"] == "games"
+    assert calls["family_key"] == "pubg"
+    assert calls["product_name"] == "325 UC"
+    assert calls["price"] == 6.6
+    assert calls["input_fields"][0]["id"] == "player_id"
 
 
 @pytest.mark.asyncio

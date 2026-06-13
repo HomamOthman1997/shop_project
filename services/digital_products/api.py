@@ -1207,6 +1207,16 @@ async def create_order(request: web.Request) -> web.Response:
                 code="missing_customer_data_fields",
                 rate_limit=rate_limit,
             )
+        if quote_kind == "manual" and bool(quote.get("api_execution_supported")):
+            player_field = str(quote.get("api_player_field") or "player_id")
+            server_field = str(quote.get("api_server_field") or "server_id")
+            player_id = str(customer_data.get(player_field) or customer_data.get("player_id") or player_id).strip()
+            server_id = str(customer_data.get(server_field) or customer_data.get("server_id") or server_id).strip()
+            if str(quote.get("execution_mode") or "").strip().lower() == "api":
+                if not player_id:
+                    return _json_error("Missing player_id.", status=400, code="missing_player_id", rate_limit=rate_limit)
+                if bool(quote.get("requires_server")) and not server_id:
+                    return _json_error("Missing server_id.", status=400, code="missing_server_id", rate_limit=rate_limit)
 
     selected_offer = dict((quote.get("provider_offers") or [{}])[0] or {})
     provider_code = str(selected_offer.get("provider") or quote.get("provider") or "g2bulk")
@@ -1231,6 +1241,10 @@ async def create_order(request: web.Request) -> web.Response:
         "fulfillment_mode": "manual_topup",
         "manual_fulfillment_required": True,
         "manual_fulfillment_status": "pending",
+        "manual_execution_mode": str(quote.get("execution_mode") or "manual"),
+        "api_execution_supported": bool(quote.get("api_execution_supported")),
+        "website_source_kind": str(quote.get("source_kind") or ""),
+        "website_source_key": str(quote.get("source_key") or ""),
         "fulfillment_min_minutes": _MANUAL_FULFILLMENT_MIN_MINUTES,
         "fulfillment_max_minutes": _MANUAL_FULFILLMENT_MAX_MINUTES,
         "fulfillment_label": _MANUAL_FULFILLMENT_LABEL_AR,
@@ -1255,6 +1269,17 @@ async def create_order(request: web.Request) -> web.Response:
     }
     await update_order_details(order["_id"], details)
     order = {**order, **details}
+    if (
+        quote_kind == "manual"
+        and str(quote.get("execution_mode") or "").strip().lower() == "api"
+        and bool(quote.get("api_execution_supported"))
+    ):
+        auto_result = await submit_manual_auto_api(order, actor_id=int(auth.user_id))
+        order = {**order, **dict(auto_result.get("patch") or {})}
+        if auto_result.get("ok"):
+            await update_order_details(order["_id"], {"owner_notification_sent": False, "owner_notification_source": "auto_api"})
+            order["owner_notification_sent"] = False
+            return web.json_response({"ok": True, "order": _order_payload(order)}, headers=_response_headers(rate_limit))
     notified = await _notify_owner_manual_order(
         order,
         player_data=customer_data,

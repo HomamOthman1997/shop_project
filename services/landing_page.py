@@ -331,7 +331,7 @@ _LANDING_HTML = """\
         <a class="service-card digital" href="/catalog/digital">
           <span class="icon">🎮</span>
           <h3>Digital Services</h3>
-          <p>بطاقات ألعاب، توب أب، وباقات رقمية منظمة حسب التصنيفات، مع طلبات ومحفظة ضمن الحساب.</p>
+          <p>توب أب وأرصدة ألعاب وباقات رقمية منظمة حسب التصنيفات، مع طلبات ومحفظة ضمن الحساب.</p>
           <span class="card-link">استعراض المنتجات الرقمية ←</span>
         </a>
         <a class="service-card cards" href="/register">
@@ -625,7 +625,7 @@ _LANDING_HTML_V2 = """\
         </section>
         <section class="service-grid" aria-label="الأقسام الرئيسية">
           <a class="service-card" href="/catalog/games">
-            <div><span class="icon">🎮</span><h3>الألعاب</h3><small>GAME TOP-UPS</small><p>شدات، بطاقات ألعاب، وتوب أب للألعاب.</p></div>
+            <div><span class="icon">🎮</span><h3>الألعاب</h3><small>GAME TOP-UPS</small><p>شدات، أرصدة، وتوب أب للألعاب.</p></div>
             <span class="arrow">←</span>
           </a>
           <a class="service-card blue" href="/catalog/chat-apps">
@@ -859,7 +859,7 @@ _LANDING_HTML_V3 = """\
             <span class="icon">🎮</span>
             <h2>الألعاب</h2>
             <small>GAME TOP-UPS</small>
-            <p>شدات، بطاقات ألعاب، وتوب أب للألعاب.</p>
+            <p>شدات، أرصدة، وتوب أب للألعاب.</p>
           </div>
           <span class="arrow">←</span>
         </a>
@@ -991,7 +991,7 @@ _CATALOG_SECTIONS: tuple[dict[str, object], ...] = (
         "slug": "digital",
         "aliases": ("games",),
         "title": "المنتجات الرقمية",
-        "subtitle": "شدات، نقاط، بطاقات ألعاب، وباقات تطبيقات ضمن قسم المنتجات الرقمية.",
+        "subtitle": "شدات، نقاط، توب أب، وباقات تطبيقات ضمن قسم المنتجات الرقمية.",
         "accent": "green",
         "items": (
             ("PUBG و BGMI", "باقات UC وخيارات تسليم حسب معرف اللاعب أو الكود."),
@@ -1006,7 +1006,7 @@ _CATALOG_SECTIONS: tuple[dict[str, object], ...] = (
                 "items": (
                     ("PUBG Mobile UC", "باقات UC مع تحقق اسم اللاعب عند توفر المزود."),
                     ("BGMI و ألعاب مشابهة", "تصنيفات قابلة للتوسيع حسب مصادر المنتجات."),
-                    ("بطاقات ألعاب", "أكواد أو تنفيذ يدوي حسب المخزون والمصدر."),
+                    ("حزم وأرصدة ألعاب", "تنفيذ يدوي أو عبر المزود حسب إعداد المنتج من الأدمن."),
                 ),
             },
             {
@@ -1114,7 +1114,7 @@ _CATALOG_SECTIONS = (
         "slug": "games",
         "aliases": ("digital",),
         "title": "الألعاب",
-        "subtitle": "شحن ألعاب، بطاقات، وتوب أب حسب اللعبة أو الباقة.",
+        "subtitle": "شحن وأرصدة وتوب أب حسب اللعبة أو الباقة.",
         "accent": "green",
         "items": (
             ("شحن ألعاب", "منتجات ألعاب عامة قابلة للتوسع حسب المزود."),
@@ -1267,8 +1267,8 @@ _CATALOG_SECTIONS = (
         "accent": "amber",
         "items": (
             ("Apple / iTunes", "بطاقات Apple و iTunes حسب الدولة والقيمة."),
-            ("Steam و Google Play", "بطاقات متاجر رقمية للألعاب والتطبيقات."),
-            ("PlayStation و Xbox", "بطاقات منصات ألعاب حسب المنطقة."),
+            ("Steam و Google Play", "بطاقات متاجر رقمية للتطبيقات والمنصات."),
+            ("PlayStation و Xbox", "بطاقات متاجر ومنصات حسب المنطقة."),
         ),
         "categories": (
             {

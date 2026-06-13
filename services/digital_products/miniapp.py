@@ -36,8 +36,11 @@ from services.digital_products.fulfillment_rules import (
 )
 from services.digital_products.manual_catalog import (
     CATALOG_TYPE as WEBSITE_MANUAL_CATALOG_TYPE,
+    EXECUTION_MODE_MANUAL,
     family_packages as manual_family_packages,
     fresh_quote_payload as fresh_manual_quote_payload,
+    static_family_packages as manual_static_family_packages,
+    upsert_static_manual_product,
 )
 from services.digital_products.zendit_client import ZenditClient
 from services.digital_products.api import make_digital_quote_token, register_digital_api_routes, require_digital_user_auth
@@ -1797,121 +1800,272 @@ async def game_items(request: web.Request) -> web.Response:
         headers=dict(_NO_STORE_HEADERS),
     )
 
-async def website_family_packages(request: web.Request) -> web.Response:
-    await require_digital_user_auth(request, "digital:catalog")
-    service_key = str(request.match_info.get("service_key") or "").strip()
-    family_key = str(request.match_info.get("family_key") or "").strip()
-    if service_key == WEBSITE_MANUAL_CATALOG_TYPE:
-        requested_variant_id = str(getattr(request, "query", {}).get("variant_id") or "").strip()
-        manual_payload = await manual_family_packages(family_key, variant_id=requested_variant_id)
-        if not manual_payload:
-            raise web.HTTPNotFound(text="family not found")
-        if manual_payload.pop("variant_not_found", False):
-            raise web.HTTPNotFound(text="variant not found")
-        packages = []
-        for package in list(manual_payload.get("packages") or []):
-            quote = await fresh_manual_quote_payload(str(package.get("id") or ""))
-            if quote:
-                packages.append({**package, "quote_token": make_digital_quote_token(quote)})
-        manual_payload["packages"] = packages
-        return web.json_response(manual_payload, headers=dict(_NO_STORE_HEADERS))
+
+async def owner_import_website_api_catalog(request: web.Request) -> web.Response:
+    from services.platform.owner_api import require_website_owner
+
+    owner = await require_website_owner(request)
+    owner_id = int(getattr(settings, "owner_id", 0) or 0)
+    if owner_id <= 0:
+        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    service_key = str((body or {}).get("service_key") or "").strip()
+    family_key = str((body or {}).get("family_key") or "").strip()
+    variant_id = str((body or {}).get("variant_id") or "").strip()
+    if not service_key or not family_key:
+        return web.json_response({"ok": False, "message": "Choose a catalog family to import."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if service_key.strip().lower() in {"numbers_services", "esim"}:
+        return web.json_response({"ok": False, "message": "This catalog section keeps its existing product flow."}, status=409, headers=dict(_NO_STORE_HEADERS))
+    result = await _import_api_family_to_manual(
+        owner_id,
+        service_key=service_key,
+        family_key=family_key,
+        variant_id=variant_id,
+    )
+    result["actor_id"] = int(getattr(owner, "customer_id", 0) or 0)
+    return web.json_response(result, headers=dict(_NO_STORE_HEADERS))
+
+
+async def _quote_manual_packages(packages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for package in list(packages or []):
+        quote = await fresh_manual_quote_payload(str(package.get("id") or ""))
+        if quote:
+            out.append({**package, "quote_token": make_digital_quote_token(quote)})
+    return out
+
+
+async def _manual_static_payload(
+    service_key: str,
+    family_key: str,
+    *,
+    variant_id: str = "",
+    variant_name: str = "",
+) -> dict[str, Any] | None:
+    manual_payload = await manual_static_family_packages(
+        service_key,
+        family_key,
+        variant_id=variant_id,
+        variant_name=variant_name,
+    )
+    if not manual_payload:
+        return None
+    if manual_payload.get("variant_not_found"):
+        return manual_payload
+    manual_payload = dict(manual_payload)
+    manual_payload["packages"] = await _quote_manual_packages(list(manual_payload.get("packages") or []))
+    return manual_payload
+
+
+def _manual_field_id(value: Any) -> str:
+    field_id = re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower()).strip("_")
+    if not field_id or not re.match(r"^[a-z]", field_id):
+        field_id = "details"
+    return field_id[:40]
+
+
+def _game_import_fields(item: dict[str, Any]) -> list[dict[str, Any]]:
+    fields = [{"id": "player_id", "label": "Player ID", "required": True, "type": "text"}]
+    if bool(item.get("requires_server")):
+        fields.append({"id": "server_id", "label": "Server ID", "required": True, "type": "text"})
+    return fields
+
+
+def _gift_import_fields(item: dict[str, Any]) -> list[dict[str, Any]]:
+    params = [str(value).strip() for value in list(item.get("za3em_params") or []) if str(value).strip()]
+    if not params:
+        return [{"id": "details", "label": "Order details", "required": True, "type": "text"}]
+    seen: set[str] = set()
+    fields: list[dict[str, Any]] = []
+    for param in params[:8]:
+        field_id = _manual_field_id(param)
+        if field_id in seen:
+            continue
+        seen.add(field_id)
+        fields.append({"id": field_id, "label": param.replace("_", " ").title(), "required": True, "type": "text"})
+    return fields or [{"id": "details", "label": "Order details", "required": True, "type": "text"}]
+
+
+def _source_offer_from_item(item: dict[str, Any], *, source_kind: str, family_name: str) -> dict[str, Any]:
+    provider = str(item.get("best_provider_code") or item.get("provider") or "g2bulk").strip().lower()
+    mode = str(item.get("fulfillment_mode") or (AUTO_TOPUP_MODE if source_kind == "game" else VOUCHER_DELIVERY_MODE)).strip()
+    return {
+        "provider": provider,
+        "ref_id": str(item.get("id") or ""),
+        "price": float(item.get("unit_price_usd") or item.get("price_usd") or 0.0),
+        "available": True,
+        "fulfillment_mode": mode,
+        "source_product_name": family_name,
+        "source_denomination_name": str(item.get("name") or ""),
+    }
+
+
+async def _import_api_family_to_manual(owner_id: int, *, service_key: str, family_key: str, variant_id: str = "") -> dict[str, Any]:
     payload = await _catalog_payload()
     service = next((row for row in payload.get("service_tree", []) if str(row.get("key") or "") == service_key), None)
     family = next((row for row in (service or {}).get("families", []) if str(row.get("family_key") or "") == family_key), None)
     if not family:
         raise web.HTTPNotFound(text="family not found")
-
     variants = list(family.get("variants") or [])
-    public_variants = [
-        {
-            "id": str(variant.get("id") or variant.get("name") or "").strip(),
-            "name": str(variant.get("name") or "Global").strip(),
-            "variant_kind": str(variant.get("variant_kind") or "general").strip(),
-            "entry_kind": str(variant.get("entry_kind") or "gift").strip(),
-            "image_url": str(variant.get("image_url") or "").strip(),
-        }
-        for variant in variants
-    ]
-    requested_variant_id = str(getattr(request, "query", {}).get("variant_id") or "").strip()
-    selected_variant = None
-    if requested_variant_id:
-        selected_variant = next(
-            (
-                variant
-                for variant in variants
-                if str(variant.get("id") or variant.get("name") or "").strip() == requested_variant_id
-            ),
-            None,
-        )
-        if not selected_variant:
+    requested_variant = str(variant_id or "").strip()
+    if requested_variant:
+        variants = [
+            row
+            for row in variants
+            if str(row.get("id") or row.get("name") or "").strip() == requested_variant
+        ]
+        if not variants:
             raise web.HTTPNotFound(text="variant not found")
-    elif len(variants) == 1:
-        selected_variant = variants[0]
+    if not variants:
+        variants = [{"id": "", "name": "Global", "game_ids": [], "gift_category_ids": []}]
 
-    response_payload = {
-        "ok": True,
-        "service_key": service_key,
-        "family_key": family_key,
-        "family_name": str(family.get("name") or family_key),
-        "selection_kind": str(family.get("selection_kind") or ("general" if len(variants) <= 1 else "region")),
-        "requires_variant_selection": len(variants) > 1 and selected_variant is None,
-        "variants": public_variants,
-        "selected_variant_id": str((selected_variant or {}).get("id") or (selected_variant or {}).get("name") or "").strip(),
-        "selected_variant_name": str((selected_variant or {}).get("name") or "").strip(),
-    }
-    if selected_variant is None:
-        return web.json_response({**response_payload, "packages": []}, headers=dict(_NO_STORE_HEADERS))
+    family_name = str(family.get("name") or family_key)
+    created = 0
+    existing = 0
+    imported = 0
+    skipped = 0
+    for variant in variants:
+        variant_name = str(variant.get("name") or "Global").strip() or "Global"
+        game_ids = [str(game_id).strip() for game_id in list(variant.get("game_ids") or []) if str(game_id).strip()]
+        gift_category_ids = [str(category_id).strip() for category_id in list(variant.get("gift_category_ids") or []) if str(category_id).strip()]
 
-    game_ids = sorted({
-        str(game_id)
-        for game_id in list(selected_variant.get("game_ids") or [])
-        if str(game_id or "").strip()
-    })
-    gift_category_ids = sorted({
-        str(category_id)
-        for category_id in list(selected_variant.get("gift_category_ids") or [])
-        if str(category_id or "").strip()
-    })
-    offer_mode = str(selected_variant.get("offer_mode") or "all").strip()
-    packages: list[dict[str, Any]] = []
-    game_payloads = await asyncio.gather(*(_game_items(game_id) for game_id in game_ids))
-    for game_id, game_payload in zip(game_ids, game_payloads):
-        for item in list(game_payload.get("items") or []):
-            price = float(item.get("price_usd") or 0.0)
-            quote = {
-                "kind": "game",
-                "game_id": str(item.get("game_id") or game_id),
-                "game_name": str(game_payload.get("game_name") or family.get("name") or family_key),
-                "item_id": str(item.get("id") or ""),
-                "item_name": str(item.get("name") or ""),
-                "requires_server": bool(item.get("requires_server")),
-                "sale_price": price,
-                "cost_price": price,
-                "provider": str(item.get("best_provider_code") or "manual"),
-            }
-            packages.append({**item, "quote_token": make_digital_quote_token(quote), "price_label": f"${price:.2f}"})
-    gift_payloads = await asyncio.gather(*(_gift_products(category_id, "", offer_mode) for category_id in gift_category_ids))
-    for category_id, gift_items in zip(gift_category_ids, gift_payloads):
-        for item in gift_items:
-            price = float(item.get("price_usd") or 0.0)
-            params = [str(value) for value in list(item.get("za3em_params") or []) if str(value).strip()]
-            fields = [{"id": value, "label": value.replace("_", " ").title(), "required": True} for value in params]
-            if not fields:
-                fields = [{"id": "details", "label": "تفاصيل الطلب", "required": True}]
-            quote = {
-                "kind": "gift",
-                "product_id": category_id,
-                "product_name": str(family.get("name") or family_key),
-                "item_id": str(item.get("id") or ""),
-                "item_name": str(item.get("name") or ""),
-                "sale_price": price,
-                "cost_price": price,
-                "provider": str(item.get("best_provider_code") or "manual"),
-                "input_fields": fields,
-            }
-            packages.append({**item, "quote_token": make_digital_quote_token(quote), "input_fields": fields, "price_label": f"${price:.2f}"})
-    packages.sort(key=lambda row: (_money(row.get("price_usd") or 0.0), _natural_key(str(row.get("name") or ""))))
-    return web.json_response({**response_payload, "packages": packages}, headers=dict(_NO_STORE_HEADERS))
+        for game_payload in await asyncio.gather(*(_game_items(game_id) for game_id in game_ids)):
+            game_name = str(game_payload.get("game_name") or family_name)
+            for item in list(game_payload.get("items") or []):
+                price = float(item.get("price_usd") or 0.0)
+                item_id = str(item.get("id") or "").strip()
+                game_id = str(item.get("game_id") or game_payload.get("game_id") or "").strip()
+                if not item_id or price <= 0:
+                    skipped += 1
+                    continue
+                offer = _source_offer_from_item(item, source_kind="game", family_name=game_name)
+                try:
+                    _node, was_created = await upsert_static_manual_product(
+                        owner_id,
+                        service_key=service_key,
+                        family_key=family_key,
+                        family_name=family_name,
+                        variant_name=variant_name,
+                        product_name=str(item.get("name") or item_id),
+                        price=price,
+                        input_fields=_game_import_fields(item),
+                        product_info_text="Manual execution: 1 minute to 1 hour.",
+                        source_key=f"game:{game_id}:{item_id}",
+                        source_kind="game",
+                        api_source={
+                            "kind": "game",
+                            "game_id": game_id,
+                            "game_name": game_name,
+                            "item_id": item_id,
+                            "provider": offer["provider"],
+                            "provider_ref_id": offer["ref_id"],
+                            "requires_server": bool(item.get("requires_server")),
+                            "player_field": "player_id",
+                            "server_field": "server_id",
+                            "source_price_usd": price,
+                            "provider_offers": [offer],
+                        },
+                        execution_mode=EXECUTION_MODE_MANUAL,
+                    )
+                except ValueError:
+                    skipped += 1
+                    continue
+                imported += 1
+                created += 1 if was_created else 0
+                existing += 0 if was_created else 1
+
+        for category_id in gift_category_ids:
+            gift_items = await _gift_products(category_id, "", str(variant.get("offer_mode") or "all"))
+            for item in gift_items:
+                price = float(item.get("price_usd") or 0.0)
+                item_id = str(item.get("id") or "").strip()
+                source_category_id = str(item.get("category_id") or category_id).strip()
+                if not item_id or price <= 0:
+                    skipped += 1
+                    continue
+                offer = _source_offer_from_item(item, source_kind="gift", family_name=family_name)
+                try:
+                    _node, was_created = await upsert_static_manual_product(
+                        owner_id,
+                        service_key=service_key,
+                        family_key=family_key,
+                        family_name=family_name,
+                        variant_name=variant_name,
+                        product_name=str(item.get("name") or item_id),
+                        price=price,
+                        input_fields=_gift_import_fields(item),
+                        product_info_text="Manual execution: 1 minute to 1 hour.",
+                        source_key=f"gift:{source_category_id}:{item_id}",
+                        source_kind="gift",
+                        api_source={
+                            "kind": "gift",
+                            "category_id": source_category_id,
+                            "product_id": item_id,
+                            "product_name": family_name,
+                            "item_id": item_id,
+                            "provider": offer["provider"],
+                            "provider_ref_id": offer["ref_id"],
+                            "source_price_usd": price,
+                            "provider_offers": [offer],
+                        },
+                        execution_mode=EXECUTION_MODE_MANUAL,
+                    )
+                except ValueError:
+                    skipped += 1
+                    continue
+                imported += 1
+                created += 1 if was_created else 0
+                existing += 0 if was_created else 1
+
+    return {"ok": True, "imported": imported, "created": created, "existing": existing, "skipped": skipped}
+
+
+async def website_family_packages(request: web.Request) -> web.Response:
+    await require_digital_user_auth(request, "digital:catalog")
+    service_key = str(request.match_info.get("service_key") or "").strip()
+    family_key = str(request.match_info.get("family_key") or "").strip()
+    requested_variant_id = str(getattr(request, "query", {}).get("variant_id") or "").strip()
+    if service_key == WEBSITE_MANUAL_CATALOG_TYPE:
+        manual_payload = await manual_family_packages(family_key, variant_id=requested_variant_id)
+        if not manual_payload:
+            raise web.HTTPNotFound(text="family not found")
+        if manual_payload.pop("variant_not_found", False):
+            raise web.HTTPNotFound(text="variant not found")
+        manual_payload["packages"] = await _quote_manual_packages(list(manual_payload.get("packages") or []))
+        return web.json_response(manual_payload, headers=dict(_NO_STORE_HEADERS))
+
+    manual_payload = await _manual_static_payload(service_key, family_key, variant_id=requested_variant_id)
+    if manual_payload and manual_payload.pop("variant_not_found", False):
+        raise web.HTTPNotFound(text="variant not found")
+    payload = await _catalog_payload()
+    service = next((row for row in payload.get("service_tree", []) if str(row.get("key") or "") == service_key), None)
+    family = next((row for row in (service or {}).get("families", []) if str(row.get("family_key") or "") == family_key), None)
+    if manual_payload:
+        if family and not manual_payload.get("family_name"):
+            manual_payload["family_name"] = str(family.get("name") or family_key)
+        return web.json_response(manual_payload, headers=dict(_NO_STORE_HEADERS))
+    if requested_variant_id:
+        raise web.HTTPNotFound(text="variant not found")
+    if not family:
+        raise web.HTTPNotFound(text="family not found")
+    return web.json_response(
+        {
+            "ok": True,
+            "service_key": service_key,
+            "family_key": family_key,
+            "family_name": str(family.get("name") or family_key),
+            "selection_kind": "general",
+            "requires_variant_selection": False,
+            "variants": [],
+            "selected_variant_id": "",
+            "selected_variant_name": "",
+            "packages": [],
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
 
 
 async def simtopup_countries(request: web.Request) -> web.Response:
@@ -2178,6 +2332,7 @@ def create_app(_argv: list[str] | None = None) -> web.Application:
     app.router.add_get("/mini/digital/api/gifts/{category_id}", gift_products)
     app.router.add_get("/mini/digital/api/games/{game_id}", game_items)
     app.router.add_get("/api/v1/digital/families/{service_key}/{family_key}/packages", website_family_packages)
+    app.router.add_post("/api/v1/owner/website-catalog/import-api", owner_import_website_api_catalog)
     app.router.add_get("/mini/digital/api/simtopup/countries", simtopup_countries)
     app.router.add_get("/mini/digital/api/simtopup/offers", simtopup_offers)
     app.router.add_get("/mini/digital/api/esim/countries", esim_countries)

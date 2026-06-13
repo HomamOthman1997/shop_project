@@ -1185,6 +1185,65 @@ button.owner-action-row {
 .account-catalog-card span:last-child { color: var(--ink); }
 .account-catalog-card b { margin-top: auto; color: #fde68a; font-size: 12px; }
 .account-catalog-card.is-unavailable { border-color: rgba(245,158,11,.28); opacity: .78; }
+.owner-website-head { margin-bottom: 14px; }
+.owner-website-grid { margin-top: 12px; }
+.owner-website-card.owner-catalog-add-card {
+  border-style: dashed;
+  border-color: rgba(56, 189, 248, .45);
+  background: rgba(56, 189, 248, .08);
+}
+.owner-catalog-add-card .account-catalog-mark {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1;
+  background: rgba(56, 189, 248, .16);
+}
+.owner-website-toolbar {
+  justify-content: flex-start;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.owner-website-product-card {
+  cursor: default;
+}
+.owner-website-product-actions {
+  width: 100%;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.owner-website-product-actions select {
+  min-width: 92px;
+  height: 34px;
+}
+.owner-catalog-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(2, 6, 23, .72);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+.owner-catalog-modal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #101827;
+  padding: 18px;
+  box-shadow: 0 24px 90px rgba(0,0,0,.45);
+}
+.owner-catalog-modal .owner-order-head {
+  grid-column: 1 / -1;
+}
 .account-catalog-empty {
   grid-column: 1 / -1;
   min-height: 160px;

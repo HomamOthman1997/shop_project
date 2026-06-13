@@ -81,13 +81,19 @@ from database.webhooks_repo import create_webhook, revoke_webhook, serialize_web
 from services.digital_products.api import _order_payload, execute_manual_order_action
 from services.digital_products.manual_catalog import (
     CATALOG_TYPE as WEBSITE_MANUAL_CATALOG_TYPE,
+    clean_catalog_key,
     clean_accent,
     clean_input_fields,
     clean_slug,
+    clean_execution_mode,
+    create_static_manual_product,
+    ensure_static_family_path,
     expected_child,
+    family_label as manual_family_label,
     input_fields_text,
     node_level,
     parse_input_fields_text,
+    static_family_packages as manual_static_family_packages,
 )
 from services.numbers.api import _refund_review_payload
 from services.numbers.provider_readiness import provider_readiness_rows
@@ -1046,6 +1052,10 @@ def _catalog_type(value: Any) -> str:
     return "custom"
 
 
+def _protected_website_service_key(value: Any) -> bool:
+    return clean_catalog_key(value) in {"numbers_services", "esim"}
+
+
 def _custom_catalog_node_payload(row: dict[str, Any], *, include_inventory: bool = True) -> dict[str, Any]:
     payload = {
         "id": _text(row.get("_id")),
@@ -1069,6 +1079,14 @@ def _custom_catalog_node_payload(row: dict[str, Any], *, include_inventory: bool
         "website_level": node_level(row),
         "website_slug": _text(row.get("website_slug")),
         "website_accent": clean_accent(row.get("website_accent")),
+        "website_section_key": _text(row.get("website_section_key")),
+        "website_family_key": _text(row.get("website_family_key")),
+        "website_variant_key": _text(row.get("website_variant_key")),
+        "website_execution_mode": clean_execution_mode(row.get("website_execution_mode")),
+        "website_source_kind": _text(row.get("website_source_kind")),
+        "website_source_key": _text(row.get("website_source_key")),
+        "api_source_available": bool(row.get("website_api_source")),
+        "api_execution_supported": bool(row.get("website_api_source")) and _text(row.get("website_source_kind")) == "game",
         "input_fields": clean_input_fields(row.get("input_fields")),
         "input_fields_text": input_fields_text(row.get("input_fields")),
         "updated_at": _iso_value(row.get("updated_at")),
@@ -1101,6 +1119,153 @@ async def owner_custom_catalog(request: web.Request) -> web.Response:
         },
         headers=dict(_NO_STORE_HEADERS),
     )
+
+
+async def owner_website_catalog(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    if owner_id <= 0:
+        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
+    from services.digital_products.manual_catalog import public_sections as manual_public_sections
+    from services.landing_page import merge_manual_catalog, public_catalog_payload
+
+    payload = public_catalog_payload()
+    payload = merge_manual_catalog(payload, await manual_public_sections(owner_id, include_empty=True, include_builtin=True))
+    payload["admin"] = True
+    return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_website_catalog_family(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    if owner_id <= 0:
+        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
+    service_key = clean_catalog_key(request.match_info.get("service_key"))
+    family_key = clean_catalog_key(request.match_info.get("family_key"))
+    variant_id = str(request.query.get("variant_id") or "").strip()
+    if not service_key or not family_key:
+        return web.json_response({"ok": False, "message": "Invalid catalog family."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if _protected_website_service_key(service_key):
+        return web.json_response({"ok": False, "message": "This catalog section keeps its existing product flow."}, status=409, headers=dict(_NO_STORE_HEADERS))
+    payload = await manual_static_family_packages(service_key, family_key, variant_id=variant_id, owner_id=owner_id)
+    if not payload:
+        payload = {
+            "ok": True,
+            "service_key": service_key,
+            "family_key": family_key,
+            "family_name": manual_family_label(service_key, family_key),
+            "selection_kind": "region",
+            "requires_variant_selection": False,
+            "variants": [],
+            "selected_variant_id": "",
+            "selected_variant_name": "",
+            "packages": [],
+        }
+    if payload.pop("variant_not_found", False):
+        return web.json_response({"ok": False, "message": "Variant was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_create_website_manual_family(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    if owner_id <= 0:
+        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    service_key = clean_catalog_key((body or {}).get("service_key"))
+    family_name = " ".join(str((body or {}).get("family_name") or (body or {}).get("name") or "").strip().split())
+    family_key = clean_catalog_key((body or {}).get("family_key")) or clean_catalog_key(family_name)
+    variant_name = " ".join(str((body or {}).get("variant_name") or "Global").strip().split()) or "Global"
+    if not service_key or not family_key or len(family_name) < 2:
+        return web.json_response({"ok": False, "message": "Choose a section and enter a valid family name."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if _protected_website_service_key(service_key):
+        return web.json_response({"ok": False, "message": "This catalog section keeps its existing product flow."}, status=409, headers=dict(_NO_STORE_HEADERS))
+    try:
+        path = await ensure_static_family_path(
+            owner_id,
+            service_key=service_key,
+            family_key=family_key,
+            family_name=family_name,
+            variant_name=variant_name,
+        )
+    except ValueError as exc:
+        return web.json_response({"ok": False, "message": str(exc)}, status=400, headers=dict(_NO_STORE_HEADERS))
+    family_node = path["family"]
+    if "display_text" in body:
+        family_node = await update_node_display_text(family_node["_id"], owner_id, body.get("display_text"), catalog_type=WEBSITE_MANUAL_CATALOG_TYPE) or family_node
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="website_manual_family_create",
+        target_type="family",
+        target_id=family_node["_id"],
+        metadata={"service_key": service_key, "family_key": family_key},
+    )
+    return web.json_response({"ok": True, "family": _custom_catalog_node_payload(family_node, include_inventory=False)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_create_website_manual_product(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    if owner_id <= 0:
+        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    service_key = clean_catalog_key((body or {}).get("service_key"))
+    family_key = clean_catalog_key((body or {}).get("family_key"))
+    if not service_key:
+        return web.json_response({"ok": False, "message": "Choose a catalog section first."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    if _protected_website_service_key(service_key):
+        return web.json_response({"ok": False, "message": "This catalog section keeps its existing product flow."}, status=409, headers=dict(_NO_STORE_HEADERS))
+    family_name = " ".join(str((body or {}).get("family_name") or "").strip().split())
+    if not family_key:
+        family_key = clean_catalog_key(family_name)
+    if not family_key:
+        return web.json_response({"ok": False, "message": "Choose or enter a catalog family."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    name = " ".join(str((body or {}).get("name") or "").strip().split())
+    if len(name) < 2 or len(name) > 100:
+        return web.json_response({"ok": False, "message": "Product name must be between 2 and 100 characters."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    try:
+        price = max(0.0, float((body or {}).get("price") or 0))
+    except Exception:
+        price = 0.0
+    if price <= 0:
+        return web.json_response({"ok": False, "message": "Manual website products require a price above zero."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    input_fields = clean_input_fields((body or {}).get("input_fields")) or parse_input_fields_text((body or {}).get("input_fields_text"))
+    if not input_fields:
+        return web.json_response(
+            {"ok": False, "message": "Add at least one order field using field_id|Label."},
+            status=400,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+    try:
+        node = await create_static_manual_product(
+            owner_id,
+            service_key=service_key,
+            family_key=family_key,
+            family_name=family_name or manual_family_label(service_key, family_key),
+            variant_name=str((body or {}).get("variant_name") or "Global"),
+            product_name=name,
+            price=price,
+            input_fields=input_fields,
+            product_info_text=str((body or {}).get("product_info_text") or ""),
+        )
+    except ValueError as exc:
+        return web.json_response({"ok": False, "message": str(exc)}, status=400, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="website_manual_product_create",
+        target_type="product",
+        target_id=node["_id"],
+        metadata={"service_key": service_key, "family_key": family_key},
+    )
+    return web.json_response({"ok": True, "node": _custom_catalog_node_payload(node)}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_custom_catalog_node_detail(request: web.Request) -> web.Response:
@@ -1217,6 +1382,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
         website_slug = None
         website_accent = None
         input_fields = None
+        website_execution_mode = None
         if node_level(node) == "section" and "website_slug" in body:
             website_slug = clean_slug(body.get("website_slug"))
             if not website_slug:
@@ -1235,13 +1401,22 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                     status=400,
                     headers=dict(_NO_STORE_HEADERS),
                 )
-        if website_slug is not None or website_accent is not None or input_fields is not None:
+        if node_level(node) == "product" and "website_execution_mode" in body:
+            website_execution_mode = clean_execution_mode(body.get("website_execution_mode"))
+            if website_execution_mode == "api" and not (bool(node.get("website_api_source")) and _text(node.get("website_source_kind")) == "game"):
+                return web.json_response(
+                    {"ok": False, "message": "This product is not linked to a supported API top-up source."},
+                    status=400,
+                    headers=dict(_NO_STORE_HEADERS),
+                )
+        if website_slug is not None or website_accent is not None or input_fields is not None or website_execution_mode is not None:
             node = await update_node_website_metadata(
                 node_id,
                 owner_id,
                 website_slug=website_slug,
                 website_accent=website_accent,
                 input_fields=input_fields,
+                website_execution_mode=website_execution_mode,
                 catalog_type=catalog_type,
             ) or node
     if str(node.get("node_type") or "") == "endpoint":
@@ -2552,6 +2727,10 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/owner/custom-preorders/{preorder_id}/action", owner_custom_preorder_action)
     app.router.add_post("/api/v1/owner/custom-preorders/{preorder_id}/attachment", owner_custom_preorder_attachment)
     app.router.add_get("/api/v1/owner/custom-catalog", owner_custom_catalog)
+    app.router.add_get("/api/v1/owner/website-catalog", owner_website_catalog)
+    app.router.add_get("/api/v1/owner/website-catalog/families/{service_key}/{family_key}", owner_website_catalog_family)
+    app.router.add_post("/api/v1/owner/website-catalog/families", owner_create_website_manual_family)
+    app.router.add_post("/api/v1/owner/website-catalog/manual-products", owner_create_website_manual_product)
     app.router.add_post("/api/v1/owner/custom-catalog/nodes", owner_create_custom_catalog_node)
     app.router.add_get("/api/v1/owner/custom-catalog/nodes/{node_id}", owner_custom_catalog_node_detail)
     app.router.add_patch("/api/v1/owner/custom-catalog/nodes/{node_id}", owner_update_custom_catalog_node)

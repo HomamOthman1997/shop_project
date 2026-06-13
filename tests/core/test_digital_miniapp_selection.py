@@ -176,7 +176,7 @@ class _DummyMatchRequest:
 
 
 @pytest.mark.asyncio
-async def test_website_family_packages_uses_explicit_service_tree_ids(monkeypatch):
+async def test_website_family_packages_does_not_load_api_gifts_without_manual_catalog(monkeypatch):
     from services.digital_products import miniapp
 
     async def _fake_auth(_request, scope):
@@ -208,26 +208,27 @@ async def test_website_family_packages_uses_explicit_service_tree_ids(monkeypatc
         }
 
     async def _fake_gifts(category_id, query, offer_mode):
-        assert category_id == "chat-honey"
-        assert query == ""
-        assert offer_mode == "all"
-        return [{"kind": "gift", "id": "325", "name": "325 Coins", "price_usd": 6.6, "best_provider_code": "manual"}]
+        raise AssertionError("API gifts must not be shown directly on the website catalog")
+
+    async def _fake_manual(*_args, **_kwargs):
+        return None
 
     monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
     monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
     monkeypatch.setattr(miniapp, "_gift_products", _fake_gifts)
+    monkeypatch.setattr(miniapp, "manual_static_family_packages", _fake_manual)
     monkeypatch.setattr(miniapp, "make_digital_quote_token", lambda payload: f"quote:{payload['kind']}:{payload['item_id']}")
 
     response = await miniapp.website_family_packages(_DummyMatchRequest({"service_key": "chat_apps", "family_key": "honey_jar"}))
     payload = json.loads(response.text)
 
     assert response.status == 200
-    assert payload["packages"][0]["name"] == "325 Coins"
-    assert payload["packages"][0]["quote_token"] == "quote:gift:325"
+    assert payload["family_name"] == "Honey Jar"
+    assert payload["packages"] == []
 
 
 @pytest.mark.asyncio
-async def test_website_game_family_packages_uses_explicit_game_ids(monkeypatch):
+async def test_website_game_family_packages_does_not_load_api_games_without_manual_catalog(monkeypatch):
     from services.digital_products import miniapp
 
     async def _fake_auth(_request, _scope):
@@ -251,20 +252,22 @@ async def test_website_game_family_packages_uses_explicit_game_ids(monkeypatch):
         }
 
     async def _fake_game_items(game_id):
-        assert game_id == "pubgm"
-        return {"game_name": "PUBG Mobile", "items": [{"kind": "game", "id": "325", "game_id": "pubgm", "name": "325 UC", "price_usd": 6.6}]}
+        raise AssertionError("API game products must be imported into manual catalog first")
+
+    async def _fake_manual(*_args, **_kwargs):
+        return None
 
     monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
     monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
     monkeypatch.setattr(miniapp, "_game_items", _fake_game_items)
+    monkeypatch.setattr(miniapp, "manual_static_family_packages", _fake_manual)
     monkeypatch.setattr(miniapp, "make_digital_quote_token", lambda payload: f"quote:{payload['game_id']}:{payload['item_id']}")
 
     response = await miniapp.website_family_packages(_DummyMatchRequest({"service_key": "games", "family_key": "pubg"}))
     payload = json.loads(response.text)
 
-    assert payload["packages"][0]["name"] == "325 UC"
-    assert payload["packages"][0]["price_label"] == "$6.60"
-    assert payload["packages"][0]["quote_token"] == "quote:pubgm:325"
+    assert payload["family_name"] == "PUBG"
+    assert payload["packages"] == []
 
 
 @pytest.mark.asyncio
@@ -297,22 +300,26 @@ async def test_website_family_packages_requires_explicit_variant_before_loading(
     async def _unexpected_gifts(*_args):
         raise AssertionError("products must not load before a variant is selected")
 
+    async def _fake_manual(*_args, **_kwargs):
+        return None
+
     monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
     monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
     monkeypatch.setattr(miniapp, "_gift_products", _unexpected_gifts)
+    monkeypatch.setattr(miniapp, "manual_static_family_packages", _fake_manual)
 
     response = await miniapp.website_family_packages(
         _DummyMatchRequest({"service_key": "store_cards", "family_key": "playstation"})
     )
     payload = json.loads(response.text)
 
-    assert payload["requires_variant_selection"] is True
+    assert payload["requires_variant_selection"] is False
     assert payload["packages"] == []
-    assert [row["name"] for row in payload["variants"]] == ["US", "Turkey"]
+    assert payload["variants"] == []
 
 
 @pytest.mark.asyncio
-async def test_website_family_packages_loads_only_selected_variant(monkeypatch):
+async def test_website_family_packages_rejects_api_variant_without_manual_catalog(monkeypatch):
     from services.digital_products import miniapp
 
     loaded = []
@@ -342,21 +349,24 @@ async def test_website_family_packages_loads_only_selected_variant(monkeypatch):
 
     async def _fake_game_items(game_id):
         loaded.append(game_id)
-        return {"game_name": "PUBG", "items": [{"kind": "game", "id": "60", "game_id": game_id, "name": "60 UC", "price_usd": 1.0}]}
+        raise AssertionError("API game products must not load from variant selection")
+
+    async def _fake_manual(*_args, **_kwargs):
+        return None
 
     monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
     monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
     monkeypatch.setattr(miniapp, "_game_items", _fake_game_items)
+    monkeypatch.setattr(miniapp, "manual_static_family_packages", _fake_manual)
     monkeypatch.setattr(miniapp, "make_digital_quote_token", lambda payload: f"quote:{payload['game_id']}:{payload['item_id']}")
 
-    response = await miniapp.website_family_packages(
-        _DummyMatchRequest({"service_key": "games", "family_key": "pubg"}, {"variant_id": "pubg-tr"})
-    )
-    payload = json.loads(response.text)
+    with pytest.raises(miniapp.web.HTTPNotFound) as exc_info:
+        await miniapp.website_family_packages(
+            _DummyMatchRequest({"service_key": "games", "family_key": "pubg"}, {"variant_id": "pubg-tr"})
+        )
 
-    assert loaded == ["pubg-tr"]
-    assert payload["selected_variant_name"] == "Turkey"
-    assert payload["packages"][0]["quote_token"] == "quote:pubg-tr:60"
+    assert loaded == []
+    assert exc_info.value.text == "variant not found"
 
 
 @pytest.mark.asyncio
@@ -384,6 +394,7 @@ async def test_website_family_packages_rejects_variant_outside_family(monkeypatc
 
     monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
     monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "manual_static_family_packages", lambda *_args, **_kwargs: __import__("asyncio").sleep(0, result=None))
 
     with pytest.raises(miniapp.web.HTTPNotFound) as exc_info:
         await miniapp.website_family_packages(
@@ -425,6 +436,161 @@ async def test_website_family_packages_serves_manual_admin_catalog(monkeypatch):
     payload = json.loads(response.text)
 
     assert payload["packages"][0]["quote_token"] == "quote:product-1"
+
+
+@pytest.mark.asyncio
+async def test_website_family_packages_serves_static_manual_family_without_api_family(monkeypatch):
+    from services.digital_products import miniapp
+
+    async def _fake_auth(_request, scope):
+        assert scope == "digital:catalog"
+
+    async def _fake_catalog():
+        return {"service_tree": [{"key": "games", "families": []}]}
+
+    async def _fake_manual(service_key, family_key, *, variant_id="", variant_name=""):
+        assert (service_key, family_key) == ("games", "pubg")
+        assert variant_id == ""
+        assert variant_name == ""
+        return {
+            "ok": True,
+            "service_key": "games",
+            "family_key": "pubg",
+            "family_name": "PUBG",
+            "selection_kind": "general",
+            "requires_variant_selection": False,
+            "variants": [{"id": "manual:variant-1", "name": "Global"}],
+            "selected_variant_id": "manual:variant-1",
+            "selected_variant_name": "Global",
+            "packages": [{"kind": "manual", "id": "product-1", "name": "325 UC", "price_usd": 6.6}],
+        }
+
+    async def _fake_quote(endpoint_id):
+        assert endpoint_id == "product-1"
+        return {"kind": "manual", "item_id": endpoint_id, "sale_price": 6.6}
+
+    monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "manual_static_family_packages", _fake_manual)
+    monkeypatch.setattr(miniapp, "fresh_manual_quote_payload", _fake_quote)
+    monkeypatch.setattr(miniapp, "make_digital_quote_token", lambda payload: f"quote:{payload['item_id']}")
+
+    response = await miniapp.website_family_packages(_DummyMatchRequest({"service_key": "games", "family_key": "pubg"}))
+    payload = json.loads(response.text)
+
+    assert payload["family_name"] == "PUBG"
+    assert payload["packages"][0]["quote_token"] == "quote:product-1"
+
+
+@pytest.mark.asyncio
+async def test_website_family_packages_serves_manual_only_for_api_backed_family(monkeypatch):
+    from services.digital_products import miniapp
+
+    async def _fake_auth(_request, _scope):
+        return None
+
+    async def _fake_catalog():
+        return {
+            "service_tree": [
+                {
+                    "key": "games",
+                    "families": [
+                        {
+                            "family_key": "pubg",
+                            "name": "PUBG",
+                            "selection_kind": "general",
+                            "variants": [{"id": "pubgm", "name": "Global", "game_ids": ["pubgm"], "gift_category_ids": []}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    async def _fake_manual(_service_key, _family_key, *, variant_id="", variant_name=""):
+        if variant_id:
+            return None
+        if variant_name and variant_name != "Global":
+            return None
+        return {
+            "ok": True,
+            "variants": [{"id": "manual:variant-1", "name": "Global"}],
+            "packages": [{"kind": "manual", "id": "product-1", "name": "325 UC manual", "price_usd": 6.6}],
+        }
+
+    async def _fake_quote(endpoint_id):
+        return {"kind": "manual", "item_id": endpoint_id, "sale_price": 6.6}
+
+    monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "manual_static_family_packages", _fake_manual)
+    monkeypatch.setattr(miniapp, "fresh_manual_quote_payload", _fake_quote)
+    monkeypatch.setattr(miniapp, "make_digital_quote_token", lambda payload: f"quote:{payload['item_id']}")
+
+    response = await miniapp.website_family_packages(_DummyMatchRequest({"service_key": "games", "family_key": "pubg"}))
+    payload = json.loads(response.text)
+
+    assert [row["name"] for row in payload["variants"]] == ["Global"]
+    assert {row["name"] for row in payload["packages"]} == {"325 UC manual"}
+
+
+@pytest.mark.asyncio
+async def test_import_api_family_materializes_manual_products_without_api_execution(monkeypatch):
+    from services.digital_products import miniapp
+
+    calls = []
+
+    async def _fake_catalog():
+        return {
+            "service_tree": [
+                {
+                    "key": "games",
+                    "families": [
+                        {
+                            "family_key": "pubg",
+                            "name": "PUBG",
+                            "variants": [{"id": "pubgm", "name": "Global", "game_ids": ["pubgm"], "gift_category_ids": []}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    async def _fake_game_items(game_id):
+        assert game_id == "pubgm"
+        return {
+            "game_name": "PUBG Mobile",
+            "game_id": game_id,
+            "items": [
+                {
+                    "kind": "game",
+                    "id": "325",
+                    "game_id": game_id,
+                    "name": "325 UC",
+                    "price_usd": 6.6,
+                    "requires_server": True,
+                    "best_provider_code": "g2bulk",
+                    "fulfillment_mode": "auto_topup",
+                }
+            ],
+        }
+
+    async def _fake_upsert(owner_id, **kwargs):
+        calls.append((owner_id, kwargs))
+        return {"_id": "product-1", "name": kwargs["product_name"]}, True
+
+    monkeypatch.setattr(miniapp, "_catalog_payload", _fake_catalog)
+    monkeypatch.setattr(miniapp, "_game_items", _fake_game_items)
+    monkeypatch.setattr(miniapp, "upsert_static_manual_product", _fake_upsert)
+
+    result = await miniapp._import_api_family_to_manual(77, service_key="games", family_key="pubg")
+
+    assert result["created"] == 1
+    assert calls[0][0] == 77
+    assert calls[0][1]["product_name"] == "325 UC"
+    assert calls[0][1]["source_key"] == "game:pubgm:325"
+    assert calls[0][1]["execution_mode"] == "manual"
+    assert calls[0][1]["api_source"]["game_id"] == "pubgm"
+    assert calls[0][1]["input_fields"][1]["id"] == "server_id"
 
 
 @pytest.mark.asyncio

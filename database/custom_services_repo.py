@@ -614,6 +614,13 @@ async def update_node_website_metadata(
     website_level: str | None = None,
     website_slug: str | None = None,
     website_accent: str | None = None,
+    website_section_key: str | None = None,
+    website_family_key: str | None = None,
+    website_variant_key: str | None = None,
+    website_execution_mode: str | None = None,
+    website_source_kind: str | None = None,
+    website_source_key: str | None = None,
+    website_api_source: dict | None = None,
     input_fields: list[dict] | None = None,
     catalog_type: Optional[str] = None,
 ) -> Optional[dict]:
@@ -632,6 +639,20 @@ async def update_node_website_metadata(
         payload["website_slug"] = str(website_slug or "").strip().lower()
     if website_accent is not None:
         payload["website_accent"] = str(website_accent or "").strip().lower()
+    if website_section_key is not None:
+        payload["website_section_key"] = str(website_section_key or "").strip().lower()
+    if website_family_key is not None:
+        payload["website_family_key"] = str(website_family_key or "").strip().lower()
+    if website_variant_key is not None:
+        payload["website_variant_key"] = str(website_variant_key or "").strip().lower()
+    if website_execution_mode is not None:
+        payload["website_execution_mode"] = str(website_execution_mode or "").strip().lower()
+    if website_source_kind is not None:
+        payload["website_source_kind"] = str(website_source_kind or "").strip().lower()
+    if website_source_key is not None:
+        payload["website_source_key"] = str(website_source_key or "").strip()
+    if website_api_source is not None:
+        payload["website_api_source"] = dict(website_api_source) if isinstance(website_api_source, dict) else {}
     if input_fields is not None:
         payload["input_fields"] = [dict(field) for field in input_fields if isinstance(field, dict)]
 

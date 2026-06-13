@@ -24,6 +24,7 @@ let mode = "login";
 let currentAccount = null;
 let activeOwnerTab = "overview";
 let ownerCatalogParentId = "";
+let ownerWebsiteCatalogState = { sections: [], activeSectionSlug: "", activeFamily: null, familyPayload: null, loadingFamily: false };
 let ownerDashboardLoadId = 0;
 let ownerAuditFilters = {q: "", action: "", target_type: ""};
 let ownerUserRows = [];
@@ -944,7 +945,9 @@ function ownerRequestMap() {
       sources: () => ownerApi(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent(sourceFilter)}&limit=30`),
     },
     catalog: {
-      catalog: () => ownerApi(`/api/v1/owner/custom-catalog?catalog_type=${encodeURIComponent(catalogType)}${ownerCatalogParentId ? `&parent_id=${encodeURIComponent(ownerCatalogParentId)}` : ""}`),
+      catalog: () => catalogType === "website_manual"
+        ? ownerApi("/api/v1/owner/website-catalog")
+        : ownerApi(`/api/v1/owner/custom-catalog?catalog_type=${encodeURIComponent(catalogType)}${ownerCatalogParentId ? `&parent_id=${encodeURIComponent(ownerCatalogParentId)}` : ""}`),
     },
     system: {
       settings: () => ownerApi("/api/v1/owner/settings"),
@@ -2246,7 +2249,292 @@ function manualCatalogCreateFields(parent) {
     </form>`;
 }
 
+function ownerWebsiteCatalogPayload() {
+  return { sections: ownerWebsiteCatalogState.sections || [] };
+}
+
+function ownerWebsiteSection() {
+  return (ownerWebsiteCatalogState.sections || []).find((row) => row.slug === ownerWebsiteCatalogState.activeSectionSlug) || null;
+}
+
+function ownerWebsiteProtectedSection(section) {
+  return section?.service === "numbers" || section?.slug === "esim";
+}
+
+function ownerWebsiteBack() {
+  if (ownerWebsiteCatalogState.activeFamily) {
+    ownerWebsiteCatalogState.activeFamily = null;
+    ownerWebsiteCatalogState.familyPayload = null;
+    renderOwnerWebsiteCatalog(ownerWebsiteCatalogPayload());
+    return;
+  }
+  if (ownerWebsiteCatalogState.activeSectionSlug) {
+    ownerWebsiteCatalogState.activeSectionSlug = "";
+    renderOwnerWebsiteCatalog(ownerWebsiteCatalogPayload());
+  }
+}
+
+function ownerWebsiteCard({title, subtitle, accent = "green", badge = "", attrs = "", add = false}) {
+  return `
+    <button class="account-catalog-card owner-website-card ${esc(accent)}${add ? " owner-catalog-add-card" : ""}" type="button" ${attrs}>
+      <span class="account-catalog-mark" aria-hidden="true">${add ? "+" : ""}</span>
+      <strong>${esc(title)}</strong>
+      <span>${esc(subtitle || "")}</span>
+      ${badge ? `<b>${esc(badge)}</b>` : ""}
+    </button>`;
+}
+
+function renderOwnerWebsiteCatalog(payload) {
+  const target = $("#owner-custom-catalog");
+  if (!target) return;
+  ownerWebsiteCatalogState.sections = payload.sections || ownerWebsiteCatalogState.sections || [];
+  const section = ownerWebsiteSection();
+  const family = ownerWebsiteCatalogState.activeFamily;
+  if (family) {
+    renderOwnerWebsiteFamily();
+    return;
+  }
+  const rows = section ? (section.categories || []) : ownerWebsiteCatalogState.sections;
+  const protectedSection = ownerWebsiteProtectedSection(section);
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <div class="account-catalog-path owner-website-head">
+      <div>
+        <strong>${esc(section ? section.title : "كاتالوغ الموقع")}</strong>
+        <span>${esc(section ? "اختر الصنف أو أضف صنف جديد." : "الأقسام الرئيسية الثابتة، والإضافة من الأدمن.")}</span>
+      </div>
+      ${section ? '<button class="account-catalog-back" type="button" data-owner-website-back>رجوع</button>' : ""}
+    </div>
+    <div id="owner-catalog-detail"></div>
+    ${protectedSection ? '<div class="notice">هذا القسم يبقى على منطق الطلب الحالي ولا يدخل ضمن الكاتالوغ اليدوي.</div>' : ""}
+    <div class="account-catalog-grid owner-website-grid">
+      ${rows.map((row) => {
+        const accent = section?.accent || row.accent || "green";
+        const attrs = section
+          ? `data-owner-website-family="${esc(row.family_key || row.slug || "")}" data-service-key="${esc(row.service_key || "")}" data-title="${esc(row.title || "")}"`
+          : `data-owner-website-section="${esc(row.slug || "")}"`;
+        return ownerWebsiteCard({
+          title: row.title || row.slug || "",
+          subtitle: row.subtitle || (section ? "فتح منتجات هذا الصنف." : `${Number(row.categories_count || 0)} صنف`),
+          accent,
+          badge: row.status || "",
+          attrs,
+        });
+      }).join("")}
+      ${protectedSection ? "" : ownerWebsiteCard({
+        title: section ? "إضافة صنف" : "إضافة قسم/صنف",
+        subtitle: section ? "ينشئ صنف جديد داخل هذا القسم." : "ينشئ قسم أو صنف يدوي جديد.",
+        accent: "blue",
+        add: true,
+        attrs: "data-owner-website-add-family",
+      })}
+    </div>`;
+  target.querySelector("[data-owner-website-back]")?.addEventListener("click", ownerWebsiteBack);
+  target.querySelectorAll("[data-owner-website-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      ownerWebsiteCatalogState.activeSectionSlug = button.dataset.ownerWebsiteSection || "";
+      renderOwnerWebsiteCatalog(ownerWebsiteCatalogPayload());
+    });
+  });
+  target.querySelectorAll("[data-owner-website-family]").forEach((button) => {
+    button.addEventListener("click", () => {
+      ownerWebsiteCatalogState.activeFamily = {
+        serviceKey: button.dataset.serviceKey || "",
+        familyKey: button.dataset.ownerWebsiteFamily || "",
+        title: button.dataset.title || button.dataset.ownerWebsiteFamily || "",
+      };
+      ownerWebsiteCatalogState.familyPayload = null;
+      loadOwnerWebsiteFamily();
+    });
+  });
+  target.querySelector("[data-owner-website-add-family]")?.addEventListener("click", () => openOwnerWebsiteFamilyModal(section));
+}
+
+function renderOwnerWebsiteFamily() {
+  const target = $("#owner-custom-catalog");
+  const family = ownerWebsiteCatalogState.activeFamily || {};
+  const payload = ownerWebsiteCatalogState.familyPayload || {};
+  const section = ownerWebsiteSection();
+  const protectedSection = ownerWebsiteProtectedSection(section);
+  const variants = payload.variants || [];
+  const packages = payload.packages || [];
+  const selectedVariant = payload.selected_variant_name || "";
+  target.innerHTML = `
+    <div class="account-catalog-path owner-website-head">
+      <div>
+        <strong>${esc(payload.family_name || family.title || family.familyKey || "الصنف")}</strong>
+        <span>${esc(selectedVariant ? `منتجات ${selectedVariant}` : "المنتجات اليدوية داخل هذا الصنف.")}</span>
+      </div>
+      <button class="account-catalog-back" type="button" data-owner-website-back>رجوع</button>
+    </div>
+    <div class="owner-order-actions owner-website-toolbar">
+      ${protectedSection ? "" : '<button class="secondary compact" type="button" data-owner-website-import>استيراد منتجات API كيدوية</button><button class="primary compact" type="button" data-owner-website-add-product>+ منتج</button>'}
+    </div>
+    ${protectedSection ? '<div class="notice">هذا القسم يبقى على طريقة الطلب الحالية.</div>' : ""}
+    <div id="owner-catalog-detail"></div>
+    <div class="account-catalog-grid owner-website-grid">
+      ${ownerWebsiteCatalogState.loadingFamily ? Array.from({length: 6}, () => '<div class="account-catalog-card digital-package-skeleton"><span></span><strong></strong><b></b></div>').join("") : ""}
+      ${!ownerWebsiteCatalogState.loadingFamily && variants.length > 1 && !payload.selected_variant_id ? variants.map((variant) => ownerWebsiteCard({
+        title: variant.name || "Global",
+        subtitle: "فتح منتجات هذا التصنيف.",
+        accent: "green",
+        badge: variant.variant_kind === "region" ? "دولة / Global" : "تصنيف",
+        attrs: `data-owner-website-variant="${esc(variant.id || "")}"`,
+      })).join("") : ""}
+      ${!ownerWebsiteCatalogState.loadingFamily && (!variants.length || payload.selected_variant_id || variants.length <= 1) ? packages.map((product) => `
+        <article class="account-catalog-card owner-website-product-card green">
+          <span class="account-catalog-mark" aria-hidden="true"></span>
+          <strong>${esc(product.name || product.item_name || "")}</strong>
+          <span>${esc(product.duration || "تنفيذ يدوي خلال دقيقة إلى ساعة.")}</span>
+          <b>${esc(product.price_label || "")}</b>
+          <div class="owner-website-product-actions">
+            <select data-owner-website-execution="${esc(product.id)}" ${product.api_execution_supported ? "" : "disabled"}>
+              <option value="manual" ${product.execution_mode !== "api" ? "selected" : ""}>Manual</option>
+              <option value="api" ${product.execution_mode === "api" ? "selected" : ""}>API</option>
+            </select>
+            <button class="secondary compact" type="button" data-owner-catalog-detail="${esc(product.id)}">تعديل</button>
+            <button class="danger compact" type="button" data-owner-catalog-delete="${esc(product.id)}">حذف</button>
+          </div>
+        </article>`).join("") : ""}
+      ${!protectedSection && !ownerWebsiteCatalogState.loadingFamily && (!variants.length || payload.selected_variant_id || variants.length <= 1) ? ownerWebsiteCard({
+        title: "+",
+        subtitle: "إضافة منتج يدوي داخل هذا الصنف.",
+        accent: "blue",
+        add: true,
+        attrs: "data-owner-website-add-product",
+      }) : ""}
+    </div>`;
+  target.querySelector("[data-owner-website-back]")?.addEventListener("click", ownerWebsiteBack);
+  target.querySelector("[data-owner-website-import]")?.addEventListener("click", importOwnerWebsiteApiFamily);
+  target.querySelectorAll("[data-owner-website-add-product]").forEach((button) => {
+    button.addEventListener("click", () => openOwnerWebsiteProductModal());
+  });
+  target.querySelectorAll("[data-owner-website-variant]").forEach((button) => {
+    button.addEventListener("click", () => loadOwnerWebsiteFamily(button.dataset.ownerWebsiteVariant || ""));
+  });
+  target.querySelectorAll("[data-owner-catalog-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerCatalogNode(button.dataset.ownerCatalogDetail)));
+  target.querySelectorAll("[data-owner-catalog-delete]").forEach((button) => button.addEventListener("click", () => deleteOwnerCatalogNode(button.dataset.ownerCatalogDelete)));
+  target.querySelectorAll("[data-owner-website-execution]").forEach((select) => select.addEventListener("change", updateOwnerWebsiteExecutionMode));
+}
+
+async function loadOwnerWebsiteFamily(variantId = "") {
+  const family = ownerWebsiteCatalogState.activeFamily;
+  if (!family?.serviceKey || !family?.familyKey) return;
+  ownerWebsiteCatalogState.loadingFamily = true;
+  renderOwnerWebsiteFamily();
+  try {
+    const query = variantId ? `?variant_id=${encodeURIComponent(variantId)}` : "";
+    ownerWebsiteCatalogState.familyPayload = await ownerApi(`/api/v1/owner/website-catalog/families/${encodeURIComponent(family.serviceKey)}/${encodeURIComponent(family.familyKey)}${query}`);
+  } catch (error) {
+    setText("#owner-message", error.message);
+    ownerWebsiteCatalogState.familyPayload = {packages: [], variants: []};
+  } finally {
+    ownerWebsiteCatalogState.loadingFamily = false;
+    renderOwnerWebsiteFamily();
+  }
+}
+
+function ownerWebsiteModal(html) {
+  document.querySelector(".owner-catalog-modal-backdrop")?.remove();
+  document.body.insertAdjacentHTML("beforeend", `<div class="owner-catalog-modal-backdrop"><div class="owner-catalog-modal">${html}</div></div>`);
+  document.querySelector(".owner-catalog-modal-backdrop [data-owner-modal-close]")?.addEventListener("click", closeOwnerWebsiteModal);
+}
+
+function closeOwnerWebsiteModal() {
+  document.querySelector(".owner-catalog-modal-backdrop")?.remove();
+}
+
+function openOwnerWebsiteFamilyModal(section = null) {
+  ownerWebsiteModal(`
+    <form class="owner-review-form" id="owner-website-family-form">
+      <div class="owner-order-head"><div><strong>إضافة صنف</strong><span>قسم ثم صنف ثم دولة / Global.</span></div><button class="secondary compact" type="button" data-owner-modal-close>إغلاق</button></div>
+      <label><span>مفتاح القسم</span><input name="service_key" value="${esc(section?.categories?.[0]?.service_key || "")}" placeholder="games" required></label>
+      <label><span>اسم الصنف</span><input name="family_name" required minlength="2" maxlength="100"></label>
+      <label><span>مفتاح الصنف</span><input name="family_key" placeholder="pubg أو ukraine_balance"></label>
+      <label><span>الدولة / Global</span><input name="variant_name" value="Global"></label>
+      <label class="owner-catalog-fields"><span>الوصف</span><textarea name="display_text" rows="3"></textarea></label>
+      <button class="primary compact" type="submit">إضافة</button>
+    </form>`);
+  $("#owner-website-family-form")?.addEventListener("submit", createOwnerWebsiteFamily);
+}
+
+function openOwnerWebsiteProductModal() {
+  const family = ownerWebsiteCatalogState.activeFamily || {};
+  const payload = ownerWebsiteCatalogState.familyPayload || {};
+  ownerWebsiteModal(`
+    <form class="owner-review-form" id="owner-website-product-form">
+      <div class="owner-order-head"><div><strong>إضافة منتج</strong><span>${esc(payload.family_name || family.title || "")}</span></div><button class="secondary compact" type="button" data-owner-modal-close>إغلاق</button></div>
+      <input type="hidden" name="service_key" value="${esc(family.serviceKey || "")}">
+      <input type="hidden" name="family_key" value="${esc(family.familyKey || "")}">
+      <input type="hidden" name="family_name" value="${esc(payload.family_name || family.title || "")}">
+      <label><span>اسم المنتج</span><input name="name" required minlength="2" maxlength="100" placeholder="325 UC"></label>
+      <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" required></label>
+      <label><span>الدولة / Global</span><input name="variant_name" value="${esc(payload.selected_variant_name || "Global")}"></label>
+      <label><span>الوصف</span><textarea name="product_info_text" rows="3" placeholder="تنفيذ يدوي خلال دقيقة إلى ساعة."></textarea></label>
+      <label class="owner-catalog-fields"><span>حقول الطلب، سطر لكل حقل</span><textarea name="input_fields_text" rows="5" required placeholder="player_id|Player ID|required|text&#10;server_id|Server ID|optional|text"></textarea></label>
+      <button class="primary compact" type="submit">إضافة المنتج</button>
+    </form>`);
+  $("#owner-website-product-form")?.addEventListener("submit", createOwnerWebsiteProduct);
+}
+
+async function createOwnerWebsiteFamily(event) {
+  event.preventDefault();
+  const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+  try {
+    await ownerApi("/api/v1/owner/website-catalog/families", {method: "POST", body: JSON.stringify(values)});
+    closeOwnerWebsiteModal();
+    setText("#owner-message", "تمت إضافة الصنف.");
+    await loadOwnerDashboard();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function createOwnerWebsiteProduct(event) {
+  event.preventDefault();
+  const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+  values.price = Number(values.price || 0);
+  try {
+    await ownerApi("/api/v1/owner/website-catalog/manual-products", {method: "POST", body: JSON.stringify(values)});
+    closeOwnerWebsiteModal();
+    setText("#owner-message", "تمت إضافة المنتج.");
+    await loadOwnerWebsiteFamily();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function importOwnerWebsiteApiFamily() {
+  const family = ownerWebsiteCatalogState.activeFamily || {};
+  if (!family.serviceKey || !family.familyKey) return;
+  if (!window.confirm("استيراد منتجات API كمنتجات يدوية؟ لن يتم تغيير المنتجات الموجودة سابقاً.")) return;
+  try {
+    const result = await ownerApi("/api/v1/owner/website-catalog/import-api", {
+      method: "POST",
+      timeoutMs: 90000,
+      body: JSON.stringify({service_key: family.serviceKey, family_key: family.familyKey}),
+    });
+    setText("#owner-message", `تم الاستيراد: جديد ${result.created || 0}، موجود ${result.existing || 0}، متجاهل ${result.skipped || 0}.`);
+    await loadOwnerWebsiteFamily();
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function updateOwnerWebsiteExecutionMode(event) {
+  const select = event.currentTarget;
+  try {
+    await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(select.dataset.ownerWebsiteExecution)}`, {
+      method: "PATCH",
+      body: JSON.stringify({catalog_type: "website_manual", website_execution_mode: select.value}),
+    });
+    setText("#owner-message", "تم تحديث طريقة التنفيذ.");
+    await loadOwnerWebsiteFamily(ownerWebsiteCatalogState.familyPayload?.selected_variant_id || "");
+  } catch (error) {
+    setText("#owner-message", error.message);
+    await loadOwnerWebsiteFamily(ownerWebsiteCatalogState.familyPayload?.selected_variant_id || "");
+  }
+}
+
 function renderOwnerCustomCatalog(payload) {
+  if (websiteManualCatalogActive() && Array.isArray(payload.sections)) {
+    renderOwnerWebsiteCatalog(payload);
+    return;
+  }
   const target = $("#owner-custom-catalog");
   const parent = payload.parent || {};
   const root = payload.root || {};
@@ -3723,7 +4011,11 @@ document.querySelectorAll("[data-order-filter]").forEach((button) => {
 $("#refresh-owner")?.addEventListener("click", loadOwnerDashboard);
 $("#owner-digital-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-preorder-filter")?.addEventListener("change", loadOwnerDashboard);
-$("#owner-catalog-type")?.addEventListener("change", () => { ownerCatalogParentId = ""; loadOwnerDashboard(); });
+$("#owner-catalog-type")?.addEventListener("change", () => {
+  ownerCatalogParentId = "";
+  ownerWebsiteCatalogState = { sections: [], activeSectionSlug: "", activeFamily: null, familyPayload: null, loadingFamily: false };
+  loadOwnerDashboard();
+});
 $("#owner-refunds-resolved")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-recharge-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-identity-filter")?.addEventListener("change", loadOwnerDashboard);
