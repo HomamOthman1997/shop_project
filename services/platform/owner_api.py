@@ -883,6 +883,34 @@ def _owner_digital_order_payload(order: dict[str, Any]) -> dict[str, Any]:
         "updated_at": _iso_value(order.get("updated_at") or order.get("manual_route_updated_at")),
         "action_note": _text(order.get("manual_action_note")),
     }
+    # Admin-only smart routing diagnostics so the owner can see why a route was (or
+    # was not) chosen and exactly what each provider returned.
+    payload["owner_details"]["smart_routing"] = {
+        "compare_key": _text(order.get("compare_key")),
+        "candidates": [
+            {
+                "provider": _text(row.get("provider")),
+                "route": _text(row.get("route")),
+                "cost_price": row.get("cost_price"),
+                "ref_id": _text(row.get("ref_id") or row.get("provider_ref_id")),
+            }
+            for row in list(order.get("routing_candidates") or [])
+            if isinstance(row, dict)
+        ],
+        "attempts": [
+            {
+                "provider": _text(row.get("provider")),
+                "route": _text(row.get("route")),
+                "status": _text(row.get("status")),
+                "cost_price": row.get("cost_price"),
+                "error": _text(row.get("error")),
+            }
+            for row in list(order.get("routing_attempts") or [])
+            if isinstance(row, dict)
+        ],
+        "diagnostics": order.get("routing_diagnostics") if isinstance(order.get("routing_diagnostics"), dict) else {},
+        "provider_error": _text(order.get("provider_error")),
+    }
     return payload
 
 

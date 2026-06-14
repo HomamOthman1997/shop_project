@@ -1302,6 +1302,10 @@ async def create_order(request: web.Request) -> web.Response:
         "manual_product_name": str(quote.get("product_name") or quote.get("product_id") or ""),
         "manual_variant_id": str(quote.get("manual_variant_id") or ""),
         "manual_variant_name": str(quote.get("manual_variant_name") or ""),
+        # Persist the catalog's exact compare_key so the admin Smart action matches
+        # live provider rows directly instead of re-deriving it from the item name.
+        "compare_key": str(quote.get("compare_key") or ""),
+        "manual_family_key": str(quote.get("manual_family_key") or ""),
         "product_id": str(quote.get("product_id") or ""),
         "game_id": str(quote.get("game_id") or ""),
         "player_id": player_id,
