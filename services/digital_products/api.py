@@ -1036,11 +1036,20 @@ async def execute_manual_order_action(
         sale_price, _cost = extract_order_amounts(order)
         plan = await resolve_smart_game_routing(quote_like, sale_price=float(sale_price))
         candidates = profitable_candidates(plan, float(sale_price))
+        diagnostics = dict(plan.get("diagnostics") or {})
+        # Keep the raw resolver candidates (before the no-loss profitability filter) and the
+        # sale price so the owner can see why a candidate was kept or dropped as unprofitable.
+        diagnostics["sale_price"] = float(sale_price)
+        diagnostics["all_candidates"] = [
+            {"provider": r.get("provider"), "route": r.get("route"), "cost_price": r.get("cost_price")}
+            for r in list(plan.get("candidates") or [])
+            if isinstance(r, dict)
+        ]
         routing_details = {
             "smart_routing_enabled": True,
             "compare_key": str(plan.get("compare_key") or ""),
             "routing_candidates": candidates,
-            "routing_diagnostics": dict(plan.get("diagnostics") or {}),
+            "routing_diagnostics": diagnostics,
         }
         await update_order_details(order["_id"], routing_details)
         order = {**order, **routing_details}
