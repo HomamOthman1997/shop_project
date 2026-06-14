@@ -945,7 +945,9 @@ function ownerRequestMap() {
       sources: () => ownerApi(`/api/v1/owner/digital-provider-sources?provider=bittopup&status=${encodeURIComponent(sourceFilter)}&limit=30`),
     },
     catalog: {
-      catalog: () => catalogType === "website_manual"
+      catalog: () => catalogType === "staging"
+        ? ownerApi("/api/v1/owner/catalog-staging")
+        : catalogType === "website_manual"
         ? ownerApi("/api/v1/owner/website-catalog")
         : ownerApi(`/api/v1/owner/custom-catalog?catalog_type=${encodeURIComponent(catalogType)}${ownerCatalogParentId ? `&parent_id=${encodeURIComponent(ownerCatalogParentId)}` : ""}`),
     },
@@ -2638,7 +2640,146 @@ async function updateOwnerWebsiteExecutionMode(event) {
   }
 }
 
+const STAGING_STATUS_LABELS = { new: "جديد", review: "مراجعة", duplicate: "مكرر", dropped: "مُسقط", approved: "معتمد", stale: "قديم" };
+const STAGING_SERVICE_LABELS = { games: "الألعاب", chat_apps: "تطبيقات الدردشة", store_cards: "بطاقات المتاجر", followers: "المتابعين", software: "البرامج", subscriptions: "الاشتراكات" };
+
+function stagingItemRow(item) {
+  const dropped = item.status === "dropped";
+  const policy = item.execution_policy === "manual" ? "manual" : "api";
+  const providers = (item.providers || []).filter(Boolean);
+  return `
+  <div class="staging-item${dropped ? " is-dropped" : ""}" data-staging-id="${esc(item.id)}">
+    <div class="staging-item-info">
+      <strong class="staging-item-name">${esc(item.package_name || "—")}</strong>
+      <div class="staging-chips">
+        ${item.region ? `<span class="staging-chip region">${esc(item.region)}</span>` : ""}
+        ${providers.map((p) => `<span class="staging-chip prov">${esc(p)}</span>`).join("")}
+        <span class="staging-chip st-${esc(item.status)}">${esc(STAGING_STATUS_LABELS[item.status] || item.status)}</span>
+      </div>
+    </div>
+    <label class="staging-price"><span>$</span><input type="number" step="0.01" min="0" data-staging-price value="${esc(Number(item.suggested_price_usd || 0).toFixed(2))}"></label>
+    <select class="compact-select staging-policy" data-staging-policy>
+      <option value="api"${policy === "api" ? " selected" : ""}>API ذكي</option>
+      <option value="manual"${policy === "manual" ? " selected" : ""}>يدوي</option>
+    </select>
+    <div class="staging-item-actions">
+      <button class="secondary compact" type="button" data-staging-action="save">حفظ</button>
+      ${dropped
+        ? `<button class="secondary compact" type="button" data-staging-action="restore">إرجاع</button>`
+        : `<button class="primary compact" type="button" data-staging-action="approve">اعتماد</button>
+           <button class="danger compact" type="button" data-staging-action="drop">إسقاط</button>`}
+    </div>
+  </div>`;
+}
+
+function renderOwnerStagingCatalog(payload) {
+  const target = $("#owner-custom-catalog");
+  if (!target) return;
+  const counts = payload.status_counts || {};
+  const sections = Array.isArray(payload.sections) ? payload.sections : [];
+  target.classList.remove("empty");
+  const countBar = [["new", "جديد"], ["review", "مراجعة"], ["approved", "معتمد"], ["dropped", "مُسقط"]]
+    .map(([k, label]) => `<span class="staging-count c-${k}"><b>${Number(counts[k] || 0)}</b>${label}</span>`).join("");
+  const tree = sections.map((sec) => `
+    <details class="staging-section" open>
+      <summary><span class="staging-section-title">${esc(STAGING_SERVICE_LABELS[sec.service_key] || sec.service_key || "—")}</span><span class="staging-section-meta">${(sec.families || []).length} صنف</span></summary>
+      ${(sec.families || []).map((fam) => `
+        <details class="staging-family">
+          <summary>${esc(fam.family_name || fam.family_key || "—")}</summary>
+          ${(fam.sub_categories || []).map((sub) => `
+            <div class="staging-sub">
+              <div class="staging-sub-head">${esc(sub.sub_category || "عام")} <span>${(sub.items || []).length}</span></div>
+              ${(sub.items || []).map(stagingItemRow).join("")}
+            </div>`).join("")}
+        </details>`).join("")}
+    </details>`).join("") || '<div class="notice">لا يوجد عناصر بعد. اضغط "استيراد من المزودين" لسحب الكاتالوغ وتطبيق القواعد.</div>';
+
+  target.innerHTML = `
+    <div class="staging-shell">
+      <div class="staging-toolbar">
+        <div class="staging-counts">${countBar}<span class="staging-count c-total"><b>${Number(payload.total || 0)}</b>إجمالي</span></div>
+        <div class="staging-toolbar-actions">
+          <button class="primary compact" type="button" data-staging-global="import">⟳ استيراد من المزودين</button>
+          <button class="secondary compact" type="button" data-staging-global="approve_all">اعتماد الكل</button>
+          <button class="secondary compact" type="button" data-staging-global="cutover_dry">فحص التنظيف</button>
+          <button class="danger compact" type="button" data-staging-global="cutover">تنظيف القديم</button>
+        </div>
+      </div>
+      <p class="staging-hint">يسحب من G2Bulk وMangerr، يفلتر المناطق (USA/أوروبا/Global فقط)، يدمج بالـ compare_key، ويسعّر بالهامش. راجِع وعدّل ثم اعتمد لينتقل للكاتالوغ الحي.</p>
+      <div class="staging-tree">${tree}</div>
+    </div>`;
+
+  target.querySelectorAll("[data-staging-global]").forEach((b) => b.addEventListener("click", () => runStagingGlobalAction(b)));
+  target.querySelectorAll("[data-staging-action]").forEach((b) => b.addEventListener("click", () => runStagingItemAction(b)));
+}
+
+async function runStagingGlobalAction(button) {
+  const action = button.dataset.stagingGlobal;
+  const confirms = {
+    import: "سحب كل المنتجات من المزودين إلى الـ staging؟ (آمن — لا يلمس الكاتالوغ الحي).",
+    approve_all: "اعتماد كل العناصر الجديدة/قيد المراجعة ونقلها للكاتالوغ الحي بأسعارها؟",
+    cutover: "تنظيف: إخفاء منتجات الكاتالوغ القديمة غير الموجودة في الاستيراد المعتمد. متأكد؟",
+  };
+  if (confirms[action] && !window.confirm(confirms[action])) return;
+  button.disabled = true;
+  setText("#owner-message", "جاري التنفيذ، قد يستغرق دقيقة...");
+  try {
+    if (action === "import") {
+      const r = await ownerApi("/api/v1/owner/catalog-staging/import", { method: "POST", body: "{}", timeoutMs: 180000 });
+      setText("#owner-message", `تم الاستيراد: ${r.result?.staged || 0} عنصر (${r.result?.dropped_region || 0} مرفوض بالمنطقة).`);
+    } else if (action === "approve_all") {
+      const r = await ownerApi("/api/v1/owner/catalog-staging/approve", { method: "POST", body: JSON.stringify({ approve_all: true }), timeoutMs: 180000 });
+      setText("#owner-message", `تم اعتماد ${r.created || 0} منتج (${r.failed || 0} فشل).`);
+    } else if (action === "cutover_dry") {
+      const r = await ownerApi("/api/v1/owner/catalog-staging/cutover", { method: "POST", body: JSON.stringify({ dry_run: true }) });
+      window.alert(`فحص التنظيف: سيتم إخفاء ${r.report?.candidates || 0} منتج قديم عند التنفيذ الفعلي.`);
+      button.disabled = false;
+      return;
+    } else if (action === "cutover") {
+      const r = await ownerApi("/api/v1/owner/catalog-staging/cutover", { method: "POST", body: JSON.stringify({ dry_run: false }) });
+      setText("#owner-message", `تم إخفاء ${r.report?.hidden || 0} منتج قديم.`);
+    }
+    await loadOwnerDashboard();
+  } catch (error) {
+    setText("#owner-message", error.message || "فشل التنفيذ.");
+    button.disabled = false;
+  }
+}
+
+async function runStagingItemAction(button) {
+  const row = button.closest("[data-staging-id]");
+  const id = row?.dataset.stagingId;
+  if (!id) return;
+  const action = button.dataset.stagingAction;
+  row.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  try {
+    if (action === "save") {
+      const price = parseFloat(row.querySelector("[data-staging-price]")?.value || "0");
+      const policy = row.querySelector("[data-staging-policy]")?.value || "api";
+      await ownerApi(`/api/v1/owner/catalog-staging/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ suggested_price_usd: price, execution_policy: policy }) });
+      setText("#owner-message", "تم حفظ التعديل.");
+    } else if (action === "drop") {
+      await ownerApi(`/api/v1/owner/catalog-staging/${encodeURIComponent(id)}/drop`, { method: "POST", body: "{}" });
+      setText("#owner-message", "تم إسقاط العنصر.");
+    } else if (action === "restore") {
+      await ownerApi(`/api/v1/owner/catalog-staging/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ status: "new" }) });
+      setText("#owner-message", "تم إرجاع العنصر.");
+    } else if (action === "approve") {
+      const r = await ownerApi("/api/v1/owner/catalog-staging/approve", { method: "POST", body: JSON.stringify({ item_ids: [id] }) });
+      setText("#owner-message", `تم الاعتماد (${r.created || 0}).`);
+    }
+    await loadOwnerDashboard();
+  } catch (error) {
+    setText("#owner-message", error.message || "فشل الإجراء.");
+    row.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+  }
+}
+
 function renderOwnerCustomCatalog(payload) {
+  if (($("#owner-catalog-type")?.value || "") === "staging") {
+    renderOwnerStagingCatalog(payload);
+    return;
+  }
   if (websiteManualCatalogActive() && Array.isArray(payload.sections)) {
     renderOwnerWebsiteCatalog(payload);
     return;

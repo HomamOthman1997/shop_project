@@ -510,6 +510,11 @@ async def upsert_static_manual_product(
         }
         if not str(existing.get("website_execution_mode") or "").strip():
             updates["website_execution_mode"] = clean_execution_mode(execution_mode)
+        # Reprice the existing product from the (admin-reviewed) staged price so an import
+        # + approve actually updates prices, e.g. when the margin changes. Skipped for
+        # non-positive prices so a bad value can never zero out a live product.
+        if float(price or 0) > 0:
+            updates["price"] = float(price)
         existing = await update_node_website_metadata(
             existing["_id"],
             catalog_owner_id,

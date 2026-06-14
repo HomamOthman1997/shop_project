@@ -624,6 +624,7 @@ async def update_node_website_metadata(
     website_image_url: str | None = None,
     website_hidden: bool | None = None,
     input_fields: list[dict] | None = None,
+    price: float | None = None,
     catalog_type: Optional[str] = None,
 ) -> Optional[dict]:
     query = {
@@ -664,6 +665,8 @@ async def update_node_website_metadata(
             unset_payload["website_image_url"] = ""
     if website_hidden is not None:
         payload["website_hidden"] = bool(website_hidden)
+    if price is not None and float(price) > 0:
+        payload["price"] = float(price)
     if input_fields is not None:
         payload["input_fields"] = [dict(field) for field in input_fields if isinstance(field, dict)]
 
