@@ -2915,6 +2915,7 @@ async function runOwnerPreorderAttachment(button) {
 }
 
 const ownerDigitalActionLabels = {
+  smart: "⚡ Smart",
   claim: "استلام",
   auto_api: "Auto API",
   future: "Future",
@@ -2950,7 +2951,7 @@ function ownerDigitalActionButtons(order, closed) {
     ? order.available_actions
     : ["claim", "auto_api", "future", "complete", "refund"];
   return `<div class="owner-order-actions">${actions.map((action) => {
-    const kind = action === "refund" ? "danger" : action === "complete" ? "primary" : "secondary";
+    const kind = action === "refund" ? "danger" : (action === "complete" || action === "smart") ? "primary" : "secondary";
     return `<button class="${kind} compact" type="button" data-owner-order="${esc(order.id)}" data-owner-action="${esc(action)}">${esc(ownerDigitalActionLabels[action] || action)}</button>`;
   }).join("")}</div>`;
 }

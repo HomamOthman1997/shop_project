@@ -844,7 +844,18 @@ def _owner_digital_available_actions(order: dict[str, Any]) -> list[str]:
     manual_status = str(order.get("manual_fulfillment_status") or "").strip().lower()
     if status in {"success", "done", "refunded", "failed", "cancelled"} or manual_status in {"completed", "refunded"}:
         return []
-    return ["claim", "auto_api", "future", "complete", "refund"]
+    actions = ["claim", "auto_api", "future", "complete", "refund"]
+    # Smart routing only makes sense for game products that carry an API source; it
+    # re-prices the live providers (G2Bulk/Mangerr) at click time and picks the
+    # cheapest profitable route, or falls back to manual review.
+    smart_eligible = (
+        bool(order.get("api_execution_supported"))
+        and str(order.get("website_source_kind") or "").strip().lower() == "game"
+        and bool(str(order.get("game_id") or "").strip())
+    )
+    if smart_eligible:
+        actions.insert(0, "smart")
+    return actions
 
 
 def _owner_digital_order_payload(order: dict[str, Any]) -> dict[str, Any]:
