@@ -548,6 +548,77 @@ async def upsert_static_manual_product(
     return product, True
 
 
+def compute_orphan_products(
+    nodes: list[dict[str, Any]],
+    *,
+    keep_source_keys: set[str],
+    services: set[str],
+) -> list[dict[str, Any]]:
+    """Pure helper for the staging cutover: pick provider-sourced live products to hide.
+
+    Returns product nodes that (a) carry a `website_source_key` (i.e. came from an
+    import, never an admin-hand-made product), (b) sit in one of the imported
+    `services` sections, and (c) are NOT in `keep_source_keys` (the approved set).
+    Admin-made products without a source key and products in untouched sections are
+    always left alone, so a cutover only prunes the catalog it actually rebuilt.
+    """
+    keep = {str(key).strip() for key in keep_source_keys if str(key).strip()}
+    scope = {clean_catalog_key(svc) for svc in services if str(svc).strip()}
+    orphans: list[dict[str, Any]] = []
+    for row in nodes:
+        if node_level(row) != "product":
+            continue
+        source_key = str(row.get("website_source_key") or "").strip()
+        if not source_key or source_key in keep:
+            continue
+        if scope and clean_catalog_key(row.get("website_section_key")) not in scope:
+            continue
+        if bool(row.get("website_hidden")):
+            continue
+        orphans.append(row)
+    return orphans
+
+
+async def hide_orphan_products(
+    owner_id: int,
+    *,
+    keep_source_keys: set[str],
+    services: set[str],
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Clean-rebuild cutover: hide live products no longer in the approved staging set.
+
+    Hides (reversible `website_hidden=True`), never hard-deletes, and only touches
+    provider-sourced products inside the imported sections. Empty families are left
+    for the owner's existing "delete if empty" control.
+    """
+    catalog_owner_id = int(owner_id or owner_catalog_id())
+    nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
+    orphans = compute_orphan_products(nodes, keep_source_keys=keep_source_keys, services=services)
+    hidden = 0
+    if not dry_run:
+        for row in orphans:
+            updated = await update_node_website_metadata(
+                row["_id"], catalog_owner_id, catalog_type=CATALOG_TYPE, website_hidden=True
+            )
+            if updated:
+                hidden += 1
+    return {
+        "dry_run": bool(dry_run),
+        "candidates": len(orphans),
+        "hidden": hidden,
+        "services": sorted({clean_catalog_key(svc) for svc in services if str(svc).strip()}),
+        "samples": [
+            {
+                "name": str(row.get("name") or ""),
+                "source_key": str(row.get("website_source_key") or ""),
+                "section": clean_catalog_key(row.get("website_section_key")),
+            }
+            for row in orphans[:20]
+        ],
+    }
+
+
 async def public_sections(
     owner_id: int | None = None,
     *,

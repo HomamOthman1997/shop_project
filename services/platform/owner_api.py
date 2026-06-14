@@ -93,12 +93,23 @@ from services.digital_products.manual_catalog import (
     ensure_static_family_path,
     expected_child,
     family_label as manual_family_label,
+    hide_orphan_products,
     input_fields_text,
     is_builtin_family,
     node_level,
     parse_input_fields_text,
     static_family_packages as manual_static_family_packages,
+    upsert_static_manual_product,
 )
+from database.digital_catalog_staging_repo import (
+    clear_staging,
+    get_staging_item,
+    list_staging_items,
+    set_staging_status,
+    staging_status_counts,
+    update_staging_item,
+)
+from services.digital_products.catalog_staging_service import run_staging_import, staged_product_payload
 from services.numbers.api import _refund_review_payload
 from services.numbers.provider_readiness import provider_readiness_rows
 from services.numbers.provider_webhook_service import replay_provider_webhook_event
@@ -1459,6 +1470,213 @@ async def owner_create_website_manual_product(request: web.Request) -> web.Respo
         metadata={"service_key": service_key, "family_key": family_key},
     )
     return web.json_response({"ok": True, "node": _custom_catalog_node_payload(node)}, headers=dict(_NO_STORE_HEADERS))
+
+
+def _staging_item_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("_id") or ""),
+        "staging_key": str(row.get("staging_key") or ""),
+        "compare_key": str(row.get("compare_key") or ""),
+        "service_key": str(row.get("service_key") or ""),
+        "family_key": str(row.get("family_key") or ""),
+        "family_name": str(row.get("family_name") or ""),
+        "sub_category": str(row.get("sub_category") or ""),
+        "region": str(row.get("region") or ""),
+        "package_name": str(row.get("package_name") or ""),
+        "suggested_price_usd": float(row.get("suggested_price_usd") or 0.0),
+        "execution_policy": str(row.get("execution_policy") or "api"),
+        "status": str(row.get("status") or "new"),
+        "drop_reason": str(row.get("drop_reason") or ""),
+        "providers": [str(offer.get("provider") or "") for offer in list(row.get("provider_offers") or [])],
+        "admin_edited": bool(row.get("admin_edited")),
+    }
+
+
+async def owner_catalog_staging(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    status = str(request.query.get("status") or "").strip().lower() or None
+    rows = await list_staging_items(owner_id, status=status)
+    counts = await staging_status_counts(owner_id)
+    tree: dict[str, Any] = {}
+    for row in rows:
+        item = _staging_item_payload(row)
+        service = tree.setdefault(item["service_key"], {"service_key": item["service_key"], "families": {}})
+        family = service["families"].setdefault(
+            item["family_key"],
+            {"family_key": item["family_key"], "family_name": item["family_name"], "sub_categories": {}},
+        )
+        sub = family["sub_categories"].setdefault(item["sub_category"], {"sub_category": item["sub_category"], "items": []})
+        sub["items"].append(item)
+    sections = []
+    for service in tree.values():
+        families = []
+        for family in service["families"].values():
+            family["sub_categories"] = list(family["sub_categories"].values())
+            families.append(family)
+        service["families"] = families
+        sections.append(service)
+    return web.json_response(
+        {"ok": True, "status_counts": counts, "total": len(rows), "sections": sections},
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_catalog_staging_import(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    if owner_id <= 0:
+        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
+    result = await run_staging_import(owner_id)
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="catalog_staging_import",
+        target_type="catalog",
+        target_id="staging",
+        metadata=result if isinstance(result, dict) else {"result": result},
+    )
+    return web.json_response({"ok": True, "result": result}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_catalog_staging_update(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    item_id = str(request.match_info.get("item_id") or "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    patch: dict[str, Any] = {}
+    for key in ("service_key", "family_key", "family_name", "sub_category", "package_name", "execution_policy", "status"):
+        if key in (body or {}):
+            patch[key] = body[key]
+    if "suggested_price_usd" in (body or {}) or "price" in (body or {}):
+        try:
+            patch["suggested_price_usd"] = round(float((body or {}).get("suggested_price_usd", (body or {}).get("price")) or 0), 2)
+        except (TypeError, ValueError):
+            pass
+    row = await update_staging_item(owner_id, item_id, patch)
+    if not row:
+        return web.json_response({"ok": False, "message": "Staged item not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="catalog_staging_update",
+        target_type="catalog",
+        target_id=item_id,
+        metadata={"fields": sorted(patch.keys())},
+    )
+    return web.json_response({"ok": True, "item": _staging_item_payload(row)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_catalog_staging_drop(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    item_id = str(request.match_info.get("item_id") or "")
+    count = await set_staging_status(owner_id, [item_id], "dropped", drop_reason="manual")
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="catalog_staging_drop",
+        target_type="catalog",
+        target_id=item_id,
+        metadata={"dropped": count},
+    )
+    return web.json_response({"ok": bool(count), "dropped": count}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_catalog_staging_approve(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    if owner_id <= 0:
+        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    item_ids = [str(value) for value in list((body or {}).get("item_ids") or []) if str(value).strip()]
+    approve_all = bool((body or {}).get("approve_all"))
+
+    rows: list[dict[str, Any]] = []
+    if item_ids:
+        for item_id in item_ids:
+            row = await get_staging_item(owner_id, item_id)
+            if row:
+                rows.append(row)
+    elif approve_all:
+        rows = await list_staging_items(owner_id, status="new")
+        rows += await list_staging_items(owner_id, status="review")
+    else:
+        return web.json_response({"ok": False, "message": "Provide item_ids or approve_all."}, status=400, headers=dict(_NO_STORE_HEADERS))
+
+    created = 0
+    failed = 0
+    approved_ids: list[str] = []
+    import_cache: dict[str, Any] = {}
+    for row in rows:
+        if str(row.get("status") or "") == "dropped":
+            continue
+        payload = staged_product_payload(row)
+        if not payload.get("family_key") or not payload.get("product_name") or float(payload.get("price") or 0) <= 0:
+            failed += 1
+            continue
+        try:
+            await upsert_static_manual_product(owner_id, import_cache=import_cache, **payload)
+            created += 1
+            approved_ids.append(str(row.get("_id")))
+        except Exception as exc:
+            logging.getLogger("owner_api").warning("approve staged item failed: %s", exc)
+            failed += 1
+    if approved_ids:
+        await set_staging_status(owner_id, approved_ids, "approved")
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="catalog_staging_approve",
+        target_type="catalog",
+        target_id="staging",
+        metadata={"created": created, "failed": failed},
+    )
+    return web.json_response({"ok": True, "created": created, "failed": failed, "approved": len(approved_ids)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_catalog_staging_cutover(request: web.Request) -> web.Response:
+    """Clean-rebuild cutover: hide live products no longer in the approved staging set.
+
+    Defaults to a dry run (report only). The owner must pass `dry_run=false` to
+    actually hide orphans. Scope is limited to the sections the approved set covers,
+    so untouched manual sections are never pruned.
+    """
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    if owner_id <= 0:
+        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    dry_run = bool((body or {}).get("dry_run", True))
+    approved = await list_staging_items(owner_id, status="approved")
+    keep = {str(row.get("source_key") or "").strip() for row in approved if str(row.get("source_key") or "").strip()}
+    services = {str(row.get("service_key") or "").strip() for row in approved if str(row.get("service_key") or "").strip()}
+    if not keep:
+        return web.json_response(
+            {"ok": False, "message": "Approve staged items before running a cutover."},
+            status=409,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+    report = await hide_orphan_products(owner_id, keep_source_keys=keep, services=services, dry_run=dry_run)
+    if not dry_run:
+        await _write_owner_audit(
+            actor_id=owner.customer_id,
+            actor_email=owner.email,
+            action="catalog_staging_cutover",
+            target_type="catalog",
+            target_id="staging",
+            metadata={"hidden": report.get("hidden", 0), "services": report.get("services", [])},
+        )
+    return web.json_response({"ok": True, "report": report}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_custom_catalog_node_detail(request: web.Request) -> web.Response:
@@ -2964,6 +3182,12 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/website-catalog/families/{service_key}/{family_key}", owner_website_catalog_family)
     app.router.add_post("/api/v1/owner/website-catalog/families", owner_create_website_manual_family)
     app.router.add_post("/api/v1/owner/website-catalog/manual-products", owner_create_website_manual_product)
+    app.router.add_get("/api/v1/owner/catalog-staging", owner_catalog_staging)
+    app.router.add_post("/api/v1/owner/catalog-staging/import", owner_catalog_staging_import)
+    app.router.add_post("/api/v1/owner/catalog-staging/approve", owner_catalog_staging_approve)
+    app.router.add_post("/api/v1/owner/catalog-staging/cutover", owner_catalog_staging_cutover)
+    app.router.add_patch("/api/v1/owner/catalog-staging/{item_id}", owner_catalog_staging_update)
+    app.router.add_post("/api/v1/owner/catalog-staging/{item_id}/drop", owner_catalog_staging_drop)
     app.router.add_post("/api/v1/owner/custom-catalog/nodes", owner_create_custom_catalog_node)
     app.router.add_get("/api/v1/owner/custom-catalog/nodes/{node_id}", owner_custom_catalog_node_detail)
     app.router.add_patch("/api/v1/owner/custom-catalog/nodes/{node_id}", owner_update_custom_catalog_node)

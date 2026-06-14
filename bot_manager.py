@@ -19,6 +19,7 @@ from config import settings, validate_runtime_security, enforce_openrouter_only_
 from database.bots_repo import bootstrap_bot_indexes, get_verified_bots
 from database.custom_services_repo import bootstrap_custom_services_indexes
 from database.digital_provider_sources_repo import bootstrap_digital_provider_sources_indexes
+from database.digital_catalog_staging_repo import bootstrap_digital_catalog_staging_indexes
 from database.user_repo import bootstrap_user_indexes, bootstrap_user_links_indexes
 from database.mongo import db
 from database.cardex_repo import bootstrap_cardex_indexes, release_due_cards
@@ -171,6 +172,7 @@ async def _run_startup_bootstraps() -> None:
         ("card-ex indexes", bootstrap_cardex_indexes),
         ("custom services indexes", bootstrap_custom_services_indexes),
         ("digital provider source indexes", bootstrap_digital_provider_sources_indexes),
+        ("digital catalog staging indexes", bootstrap_digital_catalog_staging_indexes),
         ("recharge indexes", bootstrap_recharge_indexes),
         ("user indexes", bootstrap_user_indexes),
         ("user links indexes", bootstrap_user_links_indexes),

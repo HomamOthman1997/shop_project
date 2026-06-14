@@ -1318,6 +1318,11 @@ async def create_order(request: web.Request) -> web.Response:
     }
     await update_order_details(order["_id"], details)
     order = {**order, **details}
+    # The per-product execution switch decides routing: execution_mode="api" auto-routes via the
+    # smart engine; execution_mode="manual" stays with the admin (some products, e.g. Clash via
+    # direct official top-up on the customer account, are far cheaper handled manually than through
+    # any provider). The catalog import defaults game-currency products to "api" and leaves
+    # manual-cheaper products on "manual".
     is_api_auto = (
         quote_kind == "manual"
         and str(quote.get("execution_mode") or "").strip().lower() == "api"
