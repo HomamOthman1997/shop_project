@@ -1876,7 +1876,7 @@ def _gift_import_fields(item: dict[str, Any]) -> list[dict[str, Any]]:
 def _source_offer_from_item(item: dict[str, Any], *, source_kind: str, family_name: str) -> dict[str, Any]:
     provider = str(item.get("best_provider_code") or item.get("provider") or "g2bulk").strip().lower()
     mode = str(item.get("fulfillment_mode") or (AUTO_TOPUP_MODE if source_kind == "game" else VOUCHER_DELIVERY_MODE)).strip()
-    return {
+    offer = {
         "provider": provider,
         "ref_id": str(item.get("id") or ""),
         "price": float(item.get("unit_price_usd") or item.get("price_usd") or 0.0),
@@ -1885,6 +1885,10 @@ def _source_offer_from_item(item: dict[str, Any], *, source_kind: str, family_na
         "source_product_name": family_name,
         "source_denomination_name": str(item.get("name") or ""),
     }
+    compare_key = str(item.get("compare_key") or "").strip()
+    if compare_key:
+        offer["compare_key"] = compare_key
+    return offer
 
 
 def _import_item_price(item: dict[str, Any]) -> float:
@@ -1968,6 +1972,7 @@ async def _import_api_family_to_manual(
                             "game_id": game_id,
                             "game_name": game_name,
                             "item_id": item_id,
+                            "compare_key": str(item.get("compare_key") or "").strip(),
                             "provider": offer["provider"],
                             "provider_ref_id": offer["ref_id"],
                             "requires_server": bool(item.get("requires_server")),
@@ -2027,6 +2032,7 @@ async def _import_api_family_to_manual(
                             "product_id": item_id,
                             "product_name": family_name,
                             "item_id": item_id,
+                            "compare_key": str(item.get("compare_key") or "").strip(),
                             "provider": offer["provider"],
                             "provider_ref_id": offer["ref_id"],
                             "variant_name": item_variant_name,

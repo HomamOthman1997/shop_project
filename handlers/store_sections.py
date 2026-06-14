@@ -60,8 +60,15 @@ from services.digital_products.lona_cards import (
 from services.digital_products.esim_access_client import EsimAccessClient
 from services.digital_products.miniapp import consume_selection
 from services.digital_products.manual_fulfillment import (
+    execute_smart_game_routing,
     submit_manual_auto_api,
     submit_manual_future,
+)
+from services.digital_products.smart_routing import (
+    profitable_candidates,
+    quote_like_from_order,
+    resolve_smart_game_routing,
+    smart_routing_applicable,
 )
 from services.digital_products.za3em_client import Za3emClient
 from services.digital_products.zendit_client import ZenditClient
@@ -2593,6 +2600,9 @@ def _manual_topup_notification_payload(
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [
+                InlineKeyboardButton(text="⚡ Smart", callback_data=f"dpm:smart:{order_id}"),
+            ],
+            [
                 InlineKeyboardButton(text="Auto API", callback_data=f"dpm:auto:{order_id}"),
                 InlineKeyboardButton(text="Future", callback_data=f"dpm:future:{order_id}"),
             ],
@@ -2856,6 +2866,68 @@ async def _submit_manual_game_future(callback: types.CallbackQuery) -> None:
         except Exception:
             pass
     await callback.answer("Future submitted")
+
+
+async def _submit_manual_game_smart(callback: types.CallbackQuery) -> None:
+    if not _owner_action_allowed(int(callback.from_user.id)):
+        return await callback.answer("Unauthorized", show_alert=True)
+    order_id = _manual_topup_order_id_from_callback(callback)
+    order = await _find_order_for_owner_action(order_id)
+    if not order or str(order.get("fulfillment_mode") or "") != MANUAL_TOPUP_MODE:
+        return await callback.answer("Order not found", show_alert=True)
+    if str(order.get("status") or "") in {"success", "done", "refunded"}:
+        return await callback.answer("Order is already closed", show_alert=True)
+
+    quote_like = quote_like_from_order(order)
+    if not smart_routing_applicable(quote_like):
+        return await callback.answer("Smart routing is not available for this order.", show_alert=True)
+
+    sale_price, _cost = extract_order_amounts(order)
+    plan = await resolve_smart_game_routing(quote_like, sale_price=float(sale_price))
+    candidates = profitable_candidates(plan, float(sale_price))
+    routing_details = {
+        "smart_routing_enabled": True,
+        "compare_key": str(plan.get("compare_key") or ""),
+        "routing_candidates": candidates,
+        "routing_diagnostics": dict(plan.get("diagnostics") or {}),
+    }
+    await update_order_details(order["_id"], routing_details)
+    order = {**order, **routing_details}
+
+    result = await execute_smart_game_routing(order, actor_id=int(callback.from_user.id))
+    if not result.get("ok"):
+        if callback.message:
+            try:
+                await callback.message.edit_text(
+                    f"{callback.message.text or ''}\n\nRoute: Smart routing -> manual review",
+                    reply_markup=callback.message.reply_markup,
+                )
+            except Exception:
+                pass
+        message = str(result.get("message") or "No profitable route. Order is still pending.")
+        return await callback.answer(message, show_alert=True)
+
+    update_payload = dict(result.get("patch") or {})
+    route = str(result.get("route") or "")
+    external_order_id = str(result.get("provider_order_id") or "")
+    voucher_lines = list(result.get("delivery_lines_private") or [])
+    await _notify_manual_processing_user(callback.bot, {**order, **update_payload})
+    if callback.message:
+        try:
+            suffix = f"\n\nRoute: Smart ({route}) submitted"
+            if external_order_id:
+                suffix += f"\nProvider order: {external_order_id}"
+            if voucher_lines:
+                suffix += "\nPrivate voucher/code:\n" + "\n".join(f"- {line}" for line in voucher_lines[:10])
+            await callback.message.edit_text(f"{callback.message.text or ''}{suffix}", reply_markup=callback.message.reply_markup)
+        except Exception:
+            pass
+    await callback.answer("Smart routing submitted")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("dpm:smart:"))
+async def choose_manual_digital_smart(callback: types.CallbackQuery):
+    await _submit_manual_game_smart(callback)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("dpm:claim:"))

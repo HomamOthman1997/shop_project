@@ -22,8 +22,15 @@ from database.mongo import db
 from database.orders_repo import extract_order_amounts, update_order_details, update_order_status
 from database.user_repo import get_user
 from services.digital_products.catalog_service import digital_provider_enabled, extract_provider_offers, get_catalog_snapshot, get_game_topups
-from services.digital_products.manual_fulfillment import submit_manual_auto_api, submit_manual_future
+from services.digital_products.manual_fulfillment import execute_smart_game_routing, submit_manual_auto_api, submit_manual_future
 from services.digital_products.manual_catalog import fresh_quote_payload as fresh_manual_quote_payload
+from services.digital_products.smart_routing import (
+    ROUTE_FUTURE,
+    profitable_candidates,
+    quote_like_from_order,
+    resolve_smart_game_routing,
+    smart_routing_applicable,
+)
 from services.digital_products.product_watchlist import (
     ProductProviderSource,
     ProductWatchlistItem,
@@ -1012,7 +1019,7 @@ async def execute_manual_order_action(
     rate_limit: ApiRateLimitDecision | None = None,
 ) -> web.Response:
     action = str((body or {}).get("action") or "").strip().lower()
-    if action not in {"claim", "auto_api", "future", "complete", "refund"}:
+    if action not in {"claim", "auto_api", "future", "smart", "complete", "refund"}:
         return _json_error("Unsupported manual action.", status=400, code="unsupported_manual_action", rate_limit=rate_limit)
 
     order = await _find_manageable_manual_order(order_id, auth)
@@ -1020,6 +1027,48 @@ async def execute_manual_order_action(
         return _json_error("Manual order not found.", status=404, code="order_not_found", rate_limit=rate_limit)
 
     current_status = str(order.get("status") or "").strip().lower()
+    if action == "smart":
+        if current_status in {"success", "done", "refunded", "failed", "cancelled"}:
+            return _json_error("Order is already closed.", status=409, code="order_closed", rate_limit=rate_limit)
+        quote_like = quote_like_from_order(order)
+        if not smart_routing_applicable(quote_like):
+            return _json_error("Smart routing is not available for this order.", status=409, code="smart_routing_unavailable", rate_limit=rate_limit)
+        sale_price, _cost = extract_order_amounts(order)
+        plan = await resolve_smart_game_routing(quote_like, sale_price=float(sale_price))
+        candidates = profitable_candidates(plan, float(sale_price))
+        routing_details = {
+            "smart_routing_enabled": True,
+            "compare_key": str(plan.get("compare_key") or ""),
+            "routing_candidates": candidates,
+            "routing_diagnostics": dict(plan.get("diagnostics") or {}),
+        }
+        await update_order_details(order["_id"], routing_details)
+        order = {**order, **routing_details}
+        result = await execute_smart_game_routing(order, actor_id=int(auth.user_id))
+        if not result.get("ok"):
+            return _json_error(
+                str(result.get("message") or "No profitable route succeeded."),
+                status=409,
+                code=str(result.get("code") or "smart_route_manual_review"),
+                rate_limit=rate_limit,
+            )
+        updated = {**order, **dict(result.get("patch") or {})}
+        notified = await _notify_manual_order_user(updated, status="processing") if bool((body or {}).get("notify_user", True)) else False
+        if notified:
+            await update_order_details(order["_id"], {"manual_processing_notified_at": datetime.now(UTC)})
+        return web.json_response(
+            {
+                "ok": True,
+                "action": action,
+                "route": str(result.get("route") or ""),
+                "notified": notified,
+                "provider_order_id": str(result.get("provider_order_id") or ""),
+                "delivery_lines_private": list(result.get("delivery_lines_private") or []),
+                "order": _order_payload(updated),
+            },
+            headers=_response_headers(rate_limit),
+        )
+
     if action in {"auto_api", "future"}:
         if current_status in {"success", "done", "refunded", "failed", "cancelled"}:
             return _json_error("Order is already closed.", status=409, code="order_closed", rate_limit=rate_limit)
@@ -1269,11 +1318,37 @@ async def create_order(request: web.Request) -> web.Response:
     }
     await update_order_details(order["_id"], details)
     order = {**order, **details}
-    if (
+    is_api_auto = (
         quote_kind == "manual"
         and str(quote.get("execution_mode") or "").strip().lower() == "api"
         and bool(quote.get("api_execution_supported"))
-    ):
+    )
+    if is_api_auto and smart_routing_applicable(quote):
+        plan = await resolve_smart_game_routing(quote, sale_price=sale_price)
+        candidates = profitable_candidates(plan, sale_price)
+        routing_details = {
+            "smart_routing_enabled": True,
+            "compare_key": str(plan.get("compare_key") or ""),
+            "routing_candidates": candidates,
+            "routing_diagnostics": dict(plan.get("diagnostics") or {}),
+        }
+        await update_order_details(order["_id"], routing_details)
+        order = {**order, **routing_details}
+        smart_result = await execute_smart_game_routing(order, actor_id=int(auth.user_id))
+        order = {**order, **dict(smart_result.get("patch") or {})}
+        if smart_result.get("ok"):
+            # Future vouchers are bought automatically but still need the owner to redeem;
+            # auto_api routes are fully automated and need no owner action.
+            if str(smart_result.get("route") or "") == ROUTE_FUTURE:
+                notified = await _notify_owner_manual_order(order, player_data=customer_data, offers=offers)
+                await update_order_details(order["_id"], {"owner_notification_sent": bool(notified), "owner_notification_source": "smart_future"})
+                order["owner_notification_sent"] = bool(notified)
+            else:
+                await update_order_details(order["_id"], {"owner_notification_sent": False, "owner_notification_source": "smart_auto_api"})
+                order["owner_notification_sent"] = False
+            return web.json_response({"ok": True, "order": _order_payload(order)}, headers=_response_headers(rate_limit))
+        # Smart routing exhausted every profitable candidate -> fall through to manual owner review.
+    elif is_api_auto:
         auto_result = await submit_manual_auto_api(order, actor_id=int(auth.user_id))
         order = {**order, **dict(auto_result.get("patch") or {})}
         if auto_result.get("ok"):

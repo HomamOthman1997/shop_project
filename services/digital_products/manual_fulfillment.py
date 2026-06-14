@@ -9,6 +9,8 @@ from database.orders_repo import update_order_details
 from services.digital_products.catalog_service import digital_provider_enabled
 from services.digital_products.fulfillment_rules import MANUAL_TOPUP_MODE
 from services.digital_products.g2bulk_client import G2BulkClient
+from services.digital_products.mangerr_client import MangerrClient
+from services.digital_products.smart_routing import ROUTE_AUTO_API, ROUTE_FUTURE, ROUTE_MANUAL_REVIEW
 from services.digital_products.za3em_client import Za3emClient
 
 _TWOPLACES = Decimal("0.01")
@@ -189,6 +191,18 @@ async def create_provider_game_order(
             player_id=player_id,
             server_id=server_id or None,
         )
+    if p == "mangerr":
+        extra_params: dict[str, Any] = {}
+        if str(server_id or "").strip():
+            extra_params["serverId"] = str(server_id).strip()
+        client = MangerrClient()
+        return await client.create_order(
+            product_id=ref_id,
+            quantity=1,
+            order_uuid=uuid4().hex,
+            player_id=player_id,
+            extra_params=extra_params,
+        )
     client = G2BulkClient()
     return await client.create_topup_order(
         product_id=ref_id,
@@ -209,6 +223,158 @@ async def create_provider_gift_order(*, provider: str, ref_id: str, quantity: in
         return await client.create_order(product_id=ref_id, quantity=max(1, int(quantity or 1)), order_uuid=uuid4().hex)
     client = G2BulkClient()
     return await client.create_voucher_order(product_id=ref_id, quantity=max(1, int(quantity or 1)))
+
+
+def _order_sale_amount(order: dict[str, Any]) -> Decimal:
+    for key in ("retail_amount", "sale_price", "amount"):
+        amount = _money((order or {}).get(key))
+        if amount > 0:
+            return amount
+    return Decimal("0.00")
+
+
+def _candidate_cost(candidate: dict[str, Any]) -> Decimal:
+    return _money((candidate or {}).get("cost_price") or (candidate or {}).get("price") or 0)
+
+
+def _routing_attempt_row(candidate: dict[str, Any], *, status: str, response: Any = None, error: str = "") -> dict[str, Any]:
+    row = {
+        "provider": str((candidate or {}).get("provider") or "").strip().lower(),
+        "route": str((candidate or {}).get("route") or "").strip(),
+        "ref_id": str((candidate or {}).get("ref_id") or (candidate or {}).get("provider_ref_id") or "").strip(),
+        "cost_price": float(_candidate_cost(candidate)),
+        "compare_key": str((candidate or {}).get("compare_key") or "").strip(),
+        "status": status,
+        "attempted_at": datetime.now(UTC),
+    }
+    if error:
+        row["error"] = str(error)[:300]
+    if response is not None:
+        row["provider_response"] = response
+    return row
+
+
+async def execute_smart_game_routing(order: dict[str, Any], *, actor_id: int) -> dict[str, Any]:
+    candidates = [
+        dict(row)
+        for row in list((order or {}).get("routing_candidates") or [])
+        if isinstance(row, dict)
+    ]
+    sale_price = _order_sale_amount(order)
+    attempts: list[dict[str, Any]] = []
+    last_error = ""
+    if not candidates:
+        last_error = "No smart routing candidates."
+
+    for candidate in candidates:
+        provider = str(candidate.get("provider") or "").strip().lower()
+        route = str(candidate.get("route") or "").strip().lower()
+        ref_id = str(candidate.get("ref_id") or candidate.get("provider_ref_id") or "").strip()
+        cost_price = _candidate_cost(candidate)
+        if not provider or not ref_id or route not in {ROUTE_AUTO_API, ROUTE_FUTURE}:
+            last_error = "Invalid routing candidate."
+            attempts.append(_routing_attempt_row(candidate, status="skipped_invalid", error=last_error))
+            continue
+        if cost_price <= 0:
+            last_error = "Invalid candidate cost."
+            attempts.append(_routing_attempt_row(candidate, status="skipped_invalid_cost", error=last_error))
+            continue
+        if sale_price > 0 and cost_price > sale_price:
+            last_error = "Candidate cost exceeds sale price."
+            attempts.append(_routing_attempt_row(candidate, status="skipped_unprofitable", error=last_error))
+            continue
+
+        now = datetime.now(UTC)
+        await update_order_details(
+            order["_id"],
+            {
+                "manual_execution_route": route,
+                "manual_fulfillment_status": f"{route}_submitting",
+                "manual_route_updated_by": int(actor_id),
+                "manual_route_updated_at": now,
+                "selected_routing_candidate": candidate,
+                "selected_provider_offer": candidate,
+                "provider_code": provider,
+                "provider_ref_id": ref_id,
+                "routing_attempts": attempts,
+            },
+        )
+
+        if route == ROUTE_FUTURE:
+            attempt = await create_provider_gift_order(provider=provider, ref_id=ref_id, quantity=max(1, int(candidate.get("quantity") or 1)))
+        else:
+            game_id = str(candidate.get("game_id") or order.get("game_id") or "").strip()
+            player_id = str(order.get("player_id") or "").strip()
+            server_id = str(order.get("server_id") or "").strip()
+            catalogue_name = str(candidate.get("catalogue_name") or order.get("manual_item_name") or order.get("service_ref_id") or "Digital top-up")
+            if not (game_id and player_id):
+                last_error = "Missing API execution data."
+                attempts.append(_routing_attempt_row(candidate, status="failed", error=last_error))
+                continue
+            attempt = await create_provider_game_order(
+                provider=provider,
+                ref_id=ref_id,
+                game_id=game_id,
+                player_id=player_id,
+                server_id=server_id or None,
+                catalogue_name=catalogue_name,
+            )
+
+        provider_data = attempt.get("data") if isinstance(attempt, dict) else attempt
+        ok = provider_ok(attempt if isinstance(attempt, dict) else {})
+        external_order_id = extract_external_order_id(provider_data)
+        voucher_lines = extract_voucher_lines(provider_data) if route == ROUTE_FUTURE else []
+        attempts.append(_routing_attempt_row(candidate, status="success" if ok else "failed", response=attempt, error="" if ok else extract_provider_error(provider_data)))
+        if not ok:
+            last_error = extract_provider_error(provider_data)
+            continue
+
+        patch: dict[str, Any] = {
+            "provider_response": attempt,
+            "provider_order_id": external_order_id,
+            "manual_execution_route": route,
+            "manual_fulfillment_status": "processing",
+            "manual_route_updated_by": int(actor_id),
+            "manual_route_updated_at": datetime.now(UTC),
+            "selected_routing_candidate": candidate,
+            "selected_provider_offer": candidate,
+            "provider_code": provider,
+            "provider_ref_id": ref_id,
+            "routing_attempts": attempts,
+        }
+        if voucher_lines:
+            patch["delivery_lines_private"] = voucher_lines
+        await update_order_details(order["_id"], patch)
+        return {
+            "ok": True,
+            "code": "smart_route_submitted",
+            "route": route,
+            "provider_order_id": external_order_id,
+            "delivery_lines_private": voucher_lines,
+            "provider_response": attempt,
+            "patch": patch,
+            "offer": candidate,
+            "attempts": attempts,
+        }
+
+    patch = {
+        "manual_execution_route": ROUTE_MANUAL_REVIEW,
+        "manual_fulfillment_status": "pending",
+        "manual_route_updated_by": int(actor_id),
+        "manual_route_updated_at": datetime.now(UTC),
+        "provider_response": {"status": "manual_review", "source": "smart_routing", "reason": last_error or "No profitable route succeeded."},
+        "provider_error": last_error or "No profitable route succeeded.",
+        "routing_attempts": attempts,
+    }
+    await update_order_details(order["_id"], patch)
+    return {
+        "ok": False,
+        "code": "smart_route_manual_review",
+        "route": ROUTE_MANUAL_REVIEW,
+        "message": last_error or "No profitable route succeeded.",
+        "patch": patch,
+        "attempts": attempts,
+    }
 
 
 async def submit_manual_auto_api(order: dict[str, Any], *, actor_id: int) -> dict[str, Any]:

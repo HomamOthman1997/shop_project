@@ -17,6 +17,8 @@ from database.custom_services_repo import (
     update_node_website_metadata,
 )
 from services.digital_products.custom_catalog import FAMILY_TABLE, SECTION_TABLE
+from services.digital_products.fulfillment_rules import game_default_unit, game_family_key, offer_compare_key, offer_region_label
+from services.digital_products.static_taxonomy import guess_family
 
 CATALOG_TYPE = "website_manual"
 _ACCENTS = {"green", "blue", "amber", "violet"}
@@ -802,6 +804,7 @@ def public_product(row: dict[str, Any], *, family: dict[str, Any], variant: dict
     api_source = clean_api_source(row.get("website_api_source"))
     source_kind = clean_source_kind(row.get("website_source_kind"))
     api_supported = bool(api_source) and source_kind == "game"
+    compare_key = _api_source_compare_key(row, family=family, variant=variant)
     return {
         "kind": "manual",
         "id": str(row.get("_id") or ""),
@@ -818,6 +821,7 @@ def public_product(row: dict[str, Any], *, family: dict[str, Any], variant: dict
         "api_execution_supported": api_supported,
         "source_kind": source_kind,
         "source_key": str(row.get("website_source_key") or ""),
+        "compare_key": compare_key,
         "manual_catalog": {
             "family_name": str(family.get("name") or ""),
             "variant_name": str(variant.get("name") or ""),
@@ -840,6 +844,7 @@ def _manual_provider_offer(endpoint: dict[str, Any], family: dict[str, Any], *, 
 
 def _api_provider_offers(endpoint: dict[str, Any], *, price: float) -> list[dict[str, Any]]:
     source = clean_api_source(endpoint.get("website_api_source"))
+    compare_key = str(source.get("compare_key") or "").strip()
     offers = [dict(row) for row in list(source.get("provider_offers") or []) if isinstance(row, dict)]
     out: list[dict[str, Any]] = []
     for offer in offers[:10]:
@@ -853,10 +858,39 @@ def _api_provider_offers(endpoint: dict[str, Any], *, price: float) -> list[dict
         row["available"] = bool(row.get("available", True))
         row["price"] = float(row.get("price") or source.get("source_price_usd") or price)
         row["fulfillment_mode"] = str(row.get("fulfillment_mode") or "auto_topup").strip() or "auto_topup"
+        if compare_key:
+            row["compare_key"] = compare_key
         row.setdefault("source_product_name", str(source.get("game_name") or source.get("product_name") or ""))
         row.setdefault("source_denomination_name", str(endpoint.get("name") or source.get("item_name") or ""))
         out.append(row)
     return out
+
+
+def _api_source_compare_key(endpoint: dict[str, Any], *, family: dict[str, Any], variant: dict[str, Any]) -> str:
+    source_kind = clean_source_kind(endpoint.get("website_source_kind"))
+    source = clean_api_source(endpoint.get("website_api_source"))
+    explicit = str(source.get("compare_key") or "").strip()
+    if explicit:
+        return explicit
+    if source_kind != "game" or not source:
+        return ""
+    product_name = str(endpoint.get("name") or source.get("item_name") or "").strip()
+    game_id = str(source.get("game_id") or "").strip()
+    game_name = str(source.get("game_name") or family.get("name") or "").strip()
+    family_key = str(family.get("website_family_key") or "").strip()
+    if not family_key:
+        family_key = game_family_key(game_id, game_name)
+    if not family_key:
+        family_key, _label = guess_family("games", game_name or product_name, [product_name] if product_name else [])
+    if not family_key or family_key == "other" or not product_name:
+        return ""
+    variant_name = str(source.get("variant_name") or variant.get("name") or "Global").strip() or "Global"
+    return offer_compare_key(
+        family_key=family_key,
+        region=offer_region_label(f"{variant_name} {game_name} {product_name}", default=variant_name),
+        offer_name=product_name,
+        default_unit=game_default_unit(game_id, game_name),
+    )
 
 
 async def fresh_quote_payload(endpoint_id: str, *, owner_id: int | None = None) -> dict[str, Any] | None:
@@ -877,6 +911,7 @@ async def fresh_quote_payload(endpoint_id: str, *, owner_id: int | None = None) 
     source_kind = clean_source_kind(endpoint.get("website_source_kind"))
     api_source = clean_api_source(endpoint.get("website_api_source"))
     api_supported = bool(api_source) and source_kind == "game"
+    compare_key = _api_source_compare_key(endpoint, family=family, variant=variant)
     api_offers = _api_provider_offers(endpoint, price=price) if api_supported else []
     manual_offer = _manual_provider_offer(endpoint, family, price=price)
     provider_offers = (api_offers + [manual_offer]) if execution_mode == EXECUTION_MODE_API and api_offers else ([manual_offer] + api_offers)
@@ -900,6 +935,9 @@ async def fresh_quote_payload(endpoint_id: str, *, owner_id: int | None = None) 
         "api_execution_supported": api_supported,
         "source_kind": source_kind,
         "source_key": str(endpoint.get("website_source_key") or ""),
+        "compare_key": compare_key,
+        "manual_family_key": str(family.get("website_family_key") or ""),
+        "manual_section_key": str(family.get("website_section_key") or ""),
         "game_id": str(api_source.get("game_id") or "") if api_supported else "",
         "game_name": str(api_source.get("game_name") or family.get("name") or "") if api_supported else "",
         "requires_server": bool(api_source.get("requires_server")) if api_supported else False,
