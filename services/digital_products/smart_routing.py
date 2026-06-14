@@ -152,7 +152,11 @@ async def _g2bulk_candidates(*, quote: dict[str, Any], compare_key: str, diagnos
     if not game_id:
         return []
     try:
-        rows = await get_game_topups(game_id, force=True)
+        # Use the cached catalog snapshot (kept fresh by background refresh) instead of a
+        # forced live fetch: the full G2Bulk pull is too slow for the order-time routing
+        # timeout and was timing out. Cached prices are fine for the cheapest-route decision,
+        # and the no-loss cost guard still protects against stale-low prices.
+        rows = await get_game_topups(game_id, force=False)
     except Exception as exc:
         diagnostics["g2bulk"] = {"ok": False, "error": str(exc)[:200]}
         return []
