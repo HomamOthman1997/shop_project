@@ -459,7 +459,7 @@ function renderAccountCatalog() {
     const unavailable = row.enabled === false;
     const showThumb = section && section.slug === "games" && row.slug;
     const thumb = showThumb
-      ? `<img class="account-catalog-thumb" src="/auth/static/img/games/${esc(row.slug)}.png" alt="" loading="lazy" onerror="this.remove()">`
+      ? `<img class="account-catalog-thumb" src="/auth/static/img/games/${esc(row.slug)}.png" alt="" loading="lazy">`
       : "";
     return `
       <button class="account-catalog-card ${esc(accent)}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
@@ -472,6 +472,10 @@ function renderAccountCatalog() {
   }).join("") : '<div class="account-catalog-empty">لا توجد نتائج مطابقة.</div>';
   target.querySelectorAll("[data-account-catalog-slug]").forEach((button) => {
     button.addEventListener("click", () => openAccountCatalogRow(button.dataset.accountCatalogSlug));
+  });
+  // CSP blocks inline onerror, so hide missing game thumbnails from JS instead.
+  target.querySelectorAll(".account-catalog-thumb").forEach((img) => {
+    img.addEventListener("error", () => img.remove());
   });
 }
 

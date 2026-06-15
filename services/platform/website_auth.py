@@ -583,7 +583,18 @@ async def auth_static(request: web.Request) -> web.Response:
     path = (_AUTH_STATIC / name).resolve()
     if _AUTH_STATIC.resolve() not in path.parents or not path.is_file():
         raise web.HTTPNotFound()
-    content_types = {".css": "text/css", ".js": "application/javascript"}
+    content_types = {
+        ".css": "text/css",
+        ".js": "application/javascript",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+        ".gif": "image/gif",
+        ".ico": "image/x-icon",
+        ".woff2": "font/woff2",
+    }
     return web.Response(
         body=path.read_bytes(),
         content_type=content_types.get(path.suffix.lower(), "application/octet-stream"),
@@ -599,7 +610,7 @@ def register_website_auth_routes(app: web.Application) -> None:
     app.router.add_get("/app/{tail:.*}", auth_page)
     app.router.add_get("/admin", auth_page)
     app.router.add_get("/admin/{tail:.*}", auth_page)
-    app.router.add_get("/auth/static/{name}", auth_static)
+    app.router.add_get("/auth/static/{name:.*}", auth_static)
     app.router.add_post("/api/v1/auth/register", register)
     app.router.add_post("/api/v1/auth/login", login)
     app.router.add_post("/api/v1/auth/logout", logout)
