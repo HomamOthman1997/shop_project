@@ -179,3 +179,15 @@ async def clear_staging(owner_id: int, *, only_status: str | None = None) -> int
         query["status"] = str(only_status).strip().lower()
     result = await db.digital_catalog_staging.delete_many(query)
     return int(result.deleted_count or 0)
+
+
+async def set_import_run(owner_id: int, patch: dict[str, Any]) -> None:
+    """Upsert the (single) background import-run status doc for an owner."""
+    doc = {**patch, "owner_id": int(owner_id), "updated_at": _now()}
+    await db.digital_catalog_staging_runs.update_one(
+        {"owner_id": int(owner_id)}, {"$set": doc}, upsert=True
+    )
+
+
+async def get_import_run(owner_id: int) -> dict[str, Any] | None:
+    return await db.digital_catalog_staging_runs.find_one({"owner_id": int(owner_id)})

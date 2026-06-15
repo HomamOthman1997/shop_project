@@ -2672,6 +2672,21 @@ function stagingItemRow(item) {
   </div>`;
 }
 
+function stagingImportBanner(st) {
+  if (!st || st.status === "idle") return "";
+  if (st.active || st.status === "running") {
+    return `<div class="staging-banner running">⏳ الاستيراد شغّال بالخلفية... <button class="secondary compact" type="button" onclick="loadOwnerDashboard()">تحديث</button></div>`;
+  }
+  if (st.status === "error") {
+    return `<div class="staging-banner error">✗ فشل آخر استيراد: ${esc(st.error || "")}</div>`;
+  }
+  if (st.status === "done") {
+    const r = st.result || {};
+    return `<div class="staging-banner done">✓ آخر استيراد: ${Number(r.staged || 0)} عنصر مُرحّل، ${Number(r.dropped_region || 0)} مرفوض بالمنطقة.</div>`;
+  }
+  return "";
+}
+
 function renderOwnerStagingCatalog(payload) {
   const target = $("#owner-custom-catalog");
   if (!target) return;
@@ -2706,6 +2721,7 @@ function renderOwnerStagingCatalog(payload) {
         </div>
       </div>
       <p class="staging-hint">يسحب من G2Bulk وMangerr، يفلتر المناطق (USA/أوروبا/Global فقط)، يدمج بالـ compare_key، ويسعّر بالهامش. راجِع وعدّل ثم اعتمد لينتقل للكاتالوغ الحي.</p>
+      ${stagingImportBanner(payload.import_status)}
       <div class="staging-tree">${tree}</div>
     </div>`;
 
@@ -2725,8 +2741,12 @@ async function runStagingGlobalAction(button) {
   setText("#owner-message", "جاري التنفيذ، قد يستغرق دقيقة...");
   try {
     if (action === "import") {
-      const r = await ownerApi("/api/v1/owner/catalog-staging/import", { method: "POST", body: "{}", timeoutMs: 180000 });
-      setText("#owner-message", `تم الاستيراد: ${r.result?.staged || 0} عنصر (${r.result?.dropped_region || 0} مرفوض بالمنطقة).`);
+      const r = await ownerApi("/api/v1/owner/catalog-staging/import", { method: "POST", body: "{}" });
+      setText("#owner-message", r.already_running
+        ? "الاستيراد شغّال بالخلفية بالفعل — حدّث الصفحة بعد قليل."
+        : "بدأ الاستيراد بالخلفية (قد يستغرق 1-2 دقيقة). حدّث الصفحة لمتابعة التقدم.");
+      button.disabled = false;
+      return;
     } else if (action === "approve_all") {
       const r = await ownerApi("/api/v1/owner/catalog-staging/approve", { method: "POST", body: JSON.stringify({ approve_all: true }), timeoutMs: 180000 });
       setText("#owner-message", `تم اعتماد ${r.created || 0} منتج (${r.failed || 0} فشل).`);

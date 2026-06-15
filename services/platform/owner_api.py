@@ -103,8 +103,10 @@ from services.digital_products.manual_catalog import (
 )
 from database.digital_catalog_staging_repo import (
     clear_staging,
+    get_import_run,
     get_staging_item,
     list_staging_items,
+    set_import_run,
     set_staging_status,
     staging_status_counts,
     update_staging_item,
@@ -1537,6 +1539,15 @@ async def owner_catalog_staging(request: web.Request) -> web.Response:
     status = str(request.query.get("status") or "").strip().lower() or None
     rows = await list_staging_items(owner_id, status=status)
     counts = await staging_status_counts(owner_id)
+    import_run = await get_import_run(owner_id)
+    import_status = {
+        "status": str((import_run or {}).get("status") or "idle"),
+        "started_at": _iso_value((import_run or {}).get("started_at")),
+        "finished_at": _iso_value((import_run or {}).get("finished_at")),
+        "error": str((import_run or {}).get("error") or ""),
+        "result": (import_run or {}).get("result") if isinstance((import_run or {}).get("result"), dict) else {},
+        "active": _import_run_is_active(import_run),
+    }
     tree: dict[str, Any] = {}
     for row in rows:
         item = _staging_item_payload(row)
@@ -1556,9 +1567,36 @@ async def owner_catalog_staging(request: web.Request) -> web.Response:
         service["families"] = families
         sections.append(service)
     return web.json_response(
-        {"ok": True, "status_counts": counts, "total": len(rows), "sections": sections},
+        {"ok": True, "status_counts": counts, "total": len(rows), "sections": sections, "import_status": import_status},
         headers=dict(_NO_STORE_HEADERS),
     )
+
+
+_STAGING_IMPORT_TASKS: dict[int, Any] = {}
+
+
+async def _run_staging_import_job(owner_id: int) -> None:
+    """Run the heavy provider pull in the background so the HTTP request can return
+    immediately (a synchronous import exceeds Cloudflare's request timeout -> 524)."""
+    try:
+        await set_import_run(owner_id, {"status": "running", "started_at": datetime.now(UTC), "error": "", "result": {}})
+        result = await run_staging_import(owner_id)
+        await set_import_run(owner_id, {"status": "done", "finished_at": datetime.now(UTC), "result": result, "error": ""})
+    except Exception as exc:  # never let a background failure go unrecorded
+        logging.getLogger("owner_api").warning("staging import job failed: %s", exc)
+        await set_import_run(owner_id, {"status": "error", "finished_at": datetime.now(UTC), "error": str(exc)[:300]})
+    finally:
+        _STAGING_IMPORT_TASKS.pop(owner_id, None)
+
+
+def _import_run_is_active(run: dict[str, Any] | None) -> bool:
+    if not run or str(run.get("status") or "") != "running":
+        return False
+    started = run.get("started_at")
+    if isinstance(started, datetime):
+        # A run stuck "running" past 15 min (e.g. a deploy killed it) is treated as stale.
+        return (datetime.now(UTC) - started).total_seconds() < 900
+    return True
 
 
 async def owner_catalog_staging_import(request: web.Request) -> web.Response:
@@ -1566,16 +1604,19 @@ async def owner_catalog_staging_import(request: web.Request) -> web.Response:
     owner_id = _owner_catalog_id()
     if owner_id <= 0:
         return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
-    result = await run_staging_import(owner_id)
+    if _import_run_is_active(await get_import_run(owner_id)):
+        return web.json_response({"ok": True, "started": False, "already_running": True}, headers=dict(_NO_STORE_HEADERS))
+    await set_import_run(owner_id, {"status": "running", "started_at": datetime.now(UTC), "error": "", "result": {}})
+    _STAGING_IMPORT_TASKS[owner_id] = asyncio.create_task(_run_staging_import_job(owner_id))
     await _write_owner_audit(
         actor_id=owner.customer_id,
         actor_email=owner.email,
         action="catalog_staging_import",
         target_type="catalog",
         target_id="staging",
-        metadata=result if isinstance(result, dict) else {"result": result},
+        metadata={"mode": "background"},
     )
-    return web.json_response({"ok": True, "result": result}, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"ok": True, "started": True}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_catalog_staging_update(request: web.Request) -> web.Response:

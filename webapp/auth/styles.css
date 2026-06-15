@@ -2592,3 +2592,12 @@ html[dir="ltr"] .nav { direction: ltr; }
   .staging-item { grid-template-columns: 1fr; }
   .staging-item-actions { justify-content: flex-end; }
 }
+
+.staging-banner {
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  padding: 10px 14px; border-radius: 12px; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--line);
+}
+.staging-banner.running { color: var(--blue); border-color: rgba(56,189,248,.4); background: rgba(56,189,248,.08); }
+.staging-banner.done { color: var(--accent); border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.08); }
+.staging-banner.error { color: var(--danger); border-color: rgba(251,113,133,.4); background: rgba(251,113,133,.08); }
