@@ -466,7 +466,7 @@ function renderAccountCatalog() {
       <button class="account-catalog-card account-game-card ${esc(accent)}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
         <span class="account-game-thumb-wrap">
           <span class="account-game-mono" aria-hidden="true">${esc(initials)}</span>
-          <img class="account-game-thumb" src="/auth/static/img/${esc(section.slug)}/${esc(row.slug)}.png?v=1" alt="" loading="lazy">
+          <img class="account-game-thumb" src="/auth/static/img/${esc(section.slug)}/${esc(row.slug)}.png?v=2" alt="" loading="lazy">
         </span>
         <strong>${esc(row.title || row.slug || "")}</strong>
       </button>`;
