@@ -457,15 +457,16 @@ function renderAccountCatalog() {
     const accent = section?.accent || row.accent || "green";
     const count = section ? "" : `${Number(row.categories_count || 0)} صنف`;
     const unavailable = row.enabled === false;
-    const isGame = section && section.slug === "games" && row.slug;
-    if (isGame) {
+    const imageSections = { games: 1, "chat-apps": 1 };
+    const isImageCard = section && imageSections[section.slug] && row.slug;
+    if (isImageCard) {
       const words = String(row.title || row.slug).trim().split(/\s+/).filter(Boolean);
       const initials = (words.length > 1 ? words.slice(0, 2).map((w) => w[0]).join("") : String(row.title || row.slug).slice(0, 2)).toUpperCase();
       return `
       <button class="account-catalog-card account-game-card ${esc(accent)}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
         <span class="account-game-thumb-wrap">
           <span class="account-game-mono" aria-hidden="true">${esc(initials)}</span>
-          <img class="account-game-thumb" src="/auth/static/img/games/${esc(row.slug)}.png?v=1" alt="" loading="lazy">
+          <img class="account-game-thumb" src="/auth/static/img/${esc(section.slug)}/${esc(row.slug)}.png?v=1" alt="" loading="lazy">
         </span>
         <strong>${esc(row.title || row.slug || "")}</strong>
       </button>`;
