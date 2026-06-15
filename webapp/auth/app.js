@@ -3707,9 +3707,13 @@ function digitalOfferHtml(kind, offer, index) {
   const region = String(offer.manual_catalog?.variant_name || offer.region || offer.country || "").trim();
   const imageUrl = String(offer.image_url || offer.image || "").trim();
   const nameLine = [name, region].filter(Boolean).join(" ");
+  const amountMatch = String(name).match(/\d[\d,.]*/);
+  const mono = imageUrl
+    ? ""
+    : (amountMatch ? amountMatch[0].replace(/[.,]+$/, "") : (String(name).replace(/[^A-Za-z؀-ۿ]/g, "").slice(0, 2).toUpperCase() || "PH"));
   return `
     <button class="account-catalog-card green digital-package-card" type="button" data-digital-offer="${index}">
-      <span class="digital-package-image">${imageUrl ? `<img src="${esc(imageUrl)}" alt="${esc(name)}">` : "<em>صورة المنتج</em>"}</span>
+      <span class="digital-package-image">${imageUrl ? `<img src="${esc(imageUrl)}" alt="${esc(name)}">` : `<em class="dp-mono">${esc(mono)}</em>`}</span>
       <span class="digital-package-body">
         <strong>${esc(nameLine)}</strong>
         <b>${esc(price)}</b>

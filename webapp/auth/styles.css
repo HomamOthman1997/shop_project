@@ -2601,3 +2601,32 @@ html[dir="ltr"] .nav { direction: ltr; }
 .staging-banner.running { color: var(--blue); border-color: rgba(56,189,248,.4); background: rgba(56,189,248,.08); }
 .staging-banner.done { color: var(--accent); border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.08); }
 .staging-banner.error { color: var(--danger); border-color: rgba(251,113,133,.4); background: rgba(251,113,133,.08); }
+
+/* ===== Customer storefront UI refresh (2026-06-15) ===== */
+body { font-family: "Segoe UI", "Helvetica Neue", system-ui, "Tajawal", sans-serif; letter-spacing: -.003em; }
+.app-main { border-radius: 0 22px 22px 0; }
+.sidebar { border-radius: 22px 0 0 22px; }
+.section-label { letter-spacing: .14em !important; text-transform: uppercase; font-size: 11px !important; font-weight: 600 !important; }
+.app-header h2 { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
+.nav-item { border-radius: 11px; font-size: 14.5px; transition: background .15s ease, color .15s ease; position: relative; }
+.nav-item:hover { background: rgba(255,255,255,.06); }
+.nav-item.active { color: #eafff6; background: rgba(52,211,153,.14); }
+.nav-item.active::before { content: ""; position: absolute; inset-inline-start: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 9px; background: #34d399; box-shadow: 0 0 12px #34d399; }
+.balance-block { background: linear-gradient(180deg, rgba(52,211,153,.12), rgba(255,255,255,.03)); border: 1px solid rgba(52,211,153,.22); border-radius: 16px; padding: 14px 16px; }
+.balance-block strong { font-size: 24px; font-weight: 700; color: #eafff6; }
+#account-catalog-search { border-radius: 14px; min-height: 48px; background: rgba(255,255,255,.04); transition: border-color .16s ease, box-shadow .16s ease; }
+#account-catalog-search:focus { border-color: rgba(52,211,153,.5); box-shadow: 0 0 0 4px rgba(52,211,153,.14); }
+.account-catalog-grid { gap: 14px; }
+.account-catalog-card { border-radius: 16px; background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.08); padding: 18px; transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease; }
+.account-catalog-card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, currentColor 55%, transparent); background: rgba(255,255,255,.07); box-shadow: 0 16px 38px -18px rgba(0,0,0,.75); }
+.account-catalog-mark { width: 32px; height: 6px; box-shadow: 0 0 16px currentColor; }
+.account-catalog-card strong { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.service-root-digital .digital-package-card { border-radius: 16px; }
+.service-root-digital .digital-package-image { background: radial-gradient(130% 120% at 50% 0%, color-mix(in srgb, var(--svc-accent, #34d399) 16%, transparent), transparent 68%), linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.01)); }
+.service-root-digital .digital-package-image em.dp-mono,
+.service-root-digital .digital-package-image em { font-style: normal; font-size: 30px; font-weight: 800; letter-spacing: -.02em; color: color-mix(in srgb, var(--svc-accent, #34d399) 80%, #fff); opacity: .92; }
+.service-root-digital .digital-package-card b { color: #fcd34d; font-size: 19px; font-weight: 800; }
+.service-root-digital .digital-package-buy { transition: background .16s ease, color .16s ease, transform .12s ease; font-weight: 700; }
+.service-root-digital .digital-package-card:hover .digital-package-buy { background: var(--svc-accent, #34d399); color: #06150f; }
+@keyframes rd-fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.app-view.active { animation: rd-fade .3s ease both; }
