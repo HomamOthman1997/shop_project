@@ -457,13 +457,21 @@ function renderAccountCatalog() {
     const accent = section?.accent || row.accent || "green";
     const count = section ? "" : `${Number(row.categories_count || 0)} صنف`;
     const unavailable = row.enabled === false;
-    const showThumb = section && section.slug === "games" && row.slug;
-    const thumb = showThumb
-      ? `<img class="account-catalog-thumb" src="/auth/static/img/games/${esc(row.slug)}.png?v=1" alt="" loading="lazy">`
-      : "";
+    const isGame = section && section.slug === "games" && row.slug;
+    if (isGame) {
+      const words = String(row.title || row.slug).trim().split(/\s+/).filter(Boolean);
+      const initials = (words.length > 1 ? words.slice(0, 2).map((w) => w[0]).join("") : String(row.title || row.slug).slice(0, 2)).toUpperCase();
+      return `
+      <button class="account-catalog-card account-game-card ${esc(accent)}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
+        <span class="account-game-thumb-wrap">
+          <span class="account-game-mono" aria-hidden="true">${esc(initials)}</span>
+          <img class="account-game-thumb" src="/auth/static/img/games/${esc(row.slug)}.png?v=1" alt="" loading="lazy">
+        </span>
+        <strong>${esc(row.title || row.slug || "")}</strong>
+      </button>`;
+    }
     return `
       <button class="account-catalog-card ${esc(accent)}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
-        ${thumb}
         <span class="account-catalog-mark" aria-hidden="true"></span>
         <strong>${esc(row.title || row.slug || "")}</strong>
         <span>${esc(row.subtitle || count)}</span>
@@ -473,8 +481,9 @@ function renderAccountCatalog() {
   target.querySelectorAll("[data-account-catalog-slug]").forEach((button) => {
     button.addEventListener("click", () => openAccountCatalogRow(button.dataset.accountCatalogSlug));
   });
-  // CSP blocks inline onerror, so hide missing game thumbnails from JS instead.
-  target.querySelectorAll(".account-catalog-thumb").forEach((img) => {
+  // CSP blocks inline onerror, so drop missing game thumbnails from JS instead
+  // (the monogram fallback behind the image then shows through).
+  target.querySelectorAll(".account-game-thumb").forEach((img) => {
     img.addEventListener("error", () => img.remove());
   });
 }
