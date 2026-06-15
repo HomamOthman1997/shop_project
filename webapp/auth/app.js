@@ -457,8 +457,13 @@ function renderAccountCatalog() {
     const accent = section?.accent || row.accent || "green";
     const count = section ? "" : `${Number(row.categories_count || 0)} صنف`;
     const unavailable = row.enabled === false;
+    const showThumb = section && section.slug === "games" && row.slug;
+    const thumb = showThumb
+      ? `<img class="account-catalog-thumb" src="/auth/static/img/games/${esc(row.slug)}.png" alt="" loading="lazy" onerror="this.remove()">`
+      : "";
     return `
       <button class="account-catalog-card ${esc(accent)}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
+        ${thumb}
         <span class="account-catalog-mark" aria-hidden="true"></span>
         <strong>${esc(row.title || row.slug || "")}</strong>
         <span>${esc(row.subtitle || count)}</span>

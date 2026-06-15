@@ -2630,3 +2630,10 @@ body { font-family: "Segoe UI", "Helvetica Neue", system-ui, "Tajawal", sans-ser
 .service-root-digital .digital-package-card:hover .digital-package-buy { background: var(--svc-accent, #34d399); color: #06150f; }
 @keyframes rd-fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .app-view.active { animation: rd-fade .3s ease both; }
+
+/* game thumbnail on catalog category cards */
+.account-catalog-thumb {
+  width: 50px; height: 50px; border-radius: 13px; object-fit: cover;
+  border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.05);
+}
+.account-catalog-card:has(.account-catalog-thumb) .account-catalog-mark { display: none; }
