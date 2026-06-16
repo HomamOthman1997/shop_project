@@ -1345,6 +1345,45 @@ async def test_owner_conversation_start_finds_or_creates(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_owner_catalog_staging_approve_all_runs_in_background(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    job_runs: list[tuple] = []
+
+    async def get_job_run(owner_id, job):
+        return None  # nothing active
+
+    async def set_job_run(owner_id, job, patch):
+        job_runs.append((job, patch.get("status")))
+
+    async def audit(**_kwargs):
+        return None
+
+    scheduled = {}
+
+    async def fake_job(owner_id):
+        scheduled["owner_id"] = owner_id
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_owner_catalog_id", lambda: 555)
+    monkeypatch.setattr(owner_api, "get_staging_job_run", get_job_run)
+    monkeypatch.setattr(owner_api, "set_staging_job_run", set_job_run)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    monkeypatch.setattr(owner_api, "_run_staging_approve_job", fake_job)
+
+    request = make_mocked_request("POST", "/api/v1/owner/catalog-staging/approve")
+    request._read_bytes = json.dumps({"approve_all": True}).encode()
+
+    response = await owner_api.owner_catalog_staging_approve(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["started"] is True
+    assert ("approve", "running") in job_runs
+
+
+@pytest.mark.asyncio
 async def test_owner_notifications_list(monkeypatch):
     async def owner(_request):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")

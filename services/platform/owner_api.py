@@ -122,8 +122,10 @@ from database.digital_catalog_staging_repo import (
     clear_staging,
     get_import_run,
     get_staging_item,
+    get_staging_job_run,
     list_staging_items,
     set_import_run,
+    set_staging_job_run,
     set_staging_status,
     staging_status_counts,
     update_staging_item,
@@ -1550,6 +1552,17 @@ def _staging_item_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _staging_run_status_payload(run: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "status": str((run or {}).get("status") or "idle"),
+        "started_at": _iso_value((run or {}).get("started_at")),
+        "finished_at": _iso_value((run or {}).get("finished_at")),
+        "error": str((run or {}).get("error") or ""),
+        "result": (run or {}).get("result") if isinstance((run or {}).get("result"), dict) else {},
+        "active": _import_run_is_active(run),
+    }
+
+
 async def owner_catalog_staging(request: web.Request) -> web.Response:
     await require_website_owner(request)
     owner_id = _owner_catalog_id()
@@ -1557,14 +1570,9 @@ async def owner_catalog_staging(request: web.Request) -> web.Response:
     rows = await list_staging_items(owner_id, status=status)
     counts = await staging_status_counts(owner_id)
     import_run = await get_import_run(owner_id)
-    import_status = {
-        "status": str((import_run or {}).get("status") or "idle"),
-        "started_at": _iso_value((import_run or {}).get("started_at")),
-        "finished_at": _iso_value((import_run or {}).get("finished_at")),
-        "error": str((import_run or {}).get("error") or ""),
-        "result": (import_run or {}).get("result") if isinstance((import_run or {}).get("result"), dict) else {},
-        "active": _import_run_is_active(import_run),
-    }
+    import_status = _staging_run_status_payload(import_run)
+    approve_status = _staging_run_status_payload(await get_staging_job_run(owner_id, "approve"))
+    cutover_status = _staging_run_status_payload(await get_staging_job_run(owner_id, "cutover"))
     tree: dict[str, Any] = {}
     for row in rows:
         item = _staging_item_payload(row)
@@ -1584,7 +1592,15 @@ async def owner_catalog_staging(request: web.Request) -> web.Response:
         service["families"] = families
         sections.append(service)
     return web.json_response(
-        {"ok": True, "status_counts": counts, "total": len(rows), "sections": sections, "import_status": import_status},
+        {
+            "ok": True,
+            "status_counts": counts,
+            "total": len(rows),
+            "sections": sections,
+            "import_status": import_status,
+            "approve_status": approve_status,
+            "cutover_status": cutover_status,
+        },
         headers=dict(_NO_STORE_HEADERS),
     )
 
@@ -1683,30 +1699,7 @@ async def owner_catalog_staging_drop(request: web.Request) -> web.Response:
     return web.json_response({"ok": bool(count), "dropped": count}, headers=dict(_NO_STORE_HEADERS))
 
 
-async def owner_catalog_staging_approve(request: web.Request) -> web.Response:
-    owner = await require_website_owner(request)
-    owner_id = _owner_catalog_id()
-    if owner_id <= 0:
-        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    item_ids = [str(value) for value in list((body or {}).get("item_ids") or []) if str(value).strip()]
-    approve_all = bool((body or {}).get("approve_all"))
-
-    rows: list[dict[str, Any]] = []
-    if item_ids:
-        for item_id in item_ids:
-            row = await get_staging_item(owner_id, item_id)
-            if row:
-                rows.append(row)
-    elif approve_all:
-        rows = await list_staging_items(owner_id, status="new")
-        rows += await list_staging_items(owner_id, status="review")
-    else:
-        return web.json_response({"ok": False, "message": "Provide item_ids or approve_all."}, status=400, headers=dict(_NO_STORE_HEADERS))
-
+async def _approve_staged_rows(owner_id: int, rows: list[dict[str, Any]]) -> dict[str, int]:
     created = 0
     failed = 0
     approved_ids: list[str] = []
@@ -1727,15 +1720,69 @@ async def owner_catalog_staging_approve(request: web.Request) -> web.Response:
             failed += 1
     if approved_ids:
         await set_staging_status(owner_id, approved_ids, "approved")
+    return {"created": created, "failed": failed, "approved": len(approved_ids)}
+
+
+async def _run_staging_approve_job(owner_id: int) -> None:
+    """Approve the whole new/review set in the background (a synchronous loop over
+    a large catalog exceeds Cloudflare's request timeout -> 524)."""
+    try:
+        rows = await list_staging_items(owner_id, status="new")
+        rows += await list_staging_items(owner_id, status="review")
+        result = await _approve_staged_rows(owner_id, rows)
+        await set_staging_job_run(owner_id, "approve", {"status": "done", "finished_at": datetime.now(UTC), "result": result, "error": ""})
+    except Exception as exc:
+        logging.getLogger("owner_api").warning("staging approve job failed: %s", exc)
+        await set_staging_job_run(owner_id, "approve", {"status": "error", "finished_at": datetime.now(UTC), "error": str(exc)[:300]})
+
+
+async def owner_catalog_staging_approve(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    owner_id = _owner_catalog_id()
+    if owner_id <= 0:
+        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    item_ids = [str(value) for value in list((body or {}).get("item_ids") or []) if str(value).strip()]
+    approve_all = bool((body or {}).get("approve_all"))
+
+    if approve_all:
+        # Heavy: run in the background and let the UI poll approve_status.
+        if _import_run_is_active(await get_staging_job_run(owner_id, "approve")):
+            return web.json_response({"ok": True, "started": False, "already_running": True}, headers=dict(_NO_STORE_HEADERS))
+        await set_staging_job_run(owner_id, "approve", {"status": "running", "started_at": datetime.now(UTC), "error": "", "result": {}})
+        asyncio.create_task(_run_staging_approve_job(owner_id))
+        await _write_owner_audit(
+            actor_id=owner.customer_id,
+            actor_email=owner.email,
+            action="catalog_staging_approve",
+            target_type="catalog",
+            target_id="staging",
+            metadata={"mode": "background"},
+        )
+        return web.json_response({"ok": True, "started": True}, headers=dict(_NO_STORE_HEADERS))
+
+    if not item_ids:
+        return web.json_response({"ok": False, "message": "Provide item_ids or approve_all."}, status=400, headers=dict(_NO_STORE_HEADERS))
+
+    # A small, explicit selection (e.g. one item from the row button) is fast enough to run inline.
+    rows: list[dict[str, Any]] = []
+    for item_id in item_ids:
+        row = await get_staging_item(owner_id, item_id)
+        if row:
+            rows.append(row)
+    result = await _approve_staged_rows(owner_id, rows)
     await _write_owner_audit(
         actor_id=owner.customer_id,
         actor_email=owner.email,
         action="catalog_staging_approve",
         target_type="catalog",
         target_id="staging",
-        metadata={"created": created, "failed": failed},
+        metadata=result,
     )
-    return web.json_response({"ok": True, "created": created, "failed": failed, "approved": len(approved_ids)}, headers=dict(_NO_STORE_HEADERS))
+    return web.json_response({"ok": True, **result}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_catalog_staging_cutover(request: web.Request) -> web.Response:
@@ -1763,17 +1810,33 @@ async def owner_catalog_staging_cutover(request: web.Request) -> web.Response:
             status=409,
             headers=dict(_NO_STORE_HEADERS),
         )
-    report = await hide_orphan_products(owner_id, keep_source_keys=keep, services=services, dry_run=dry_run)
-    if not dry_run:
-        await _write_owner_audit(
-            actor_id=owner.customer_id,
-            actor_email=owner.email,
-            action="catalog_staging_cutover",
-            target_type="catalog",
-            target_id="staging",
-            metadata={"hidden": report.get("hidden", 0), "services": report.get("services", [])},
-        )
-    return web.json_response({"ok": True, "report": report}, headers=dict(_NO_STORE_HEADERS))
+    if dry_run:
+        report = await hide_orphan_products(owner_id, keep_source_keys=keep, services=services, dry_run=True)
+        return web.json_response({"ok": True, "report": report}, headers=dict(_NO_STORE_HEADERS))
+
+    # Real cutover can touch many nodes — run in the background and poll cutover_status.
+    if _import_run_is_active(await get_staging_job_run(owner_id, "cutover")):
+        return web.json_response({"ok": True, "started": False, "already_running": True}, headers=dict(_NO_STORE_HEADERS))
+    await set_staging_job_run(owner_id, "cutover", {"status": "running", "started_at": datetime.now(UTC), "error": "", "result": {}})
+    asyncio.create_task(_run_staging_cutover_job(owner_id, keep, services))
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="catalog_staging_cutover",
+        target_type="catalog",
+        target_id="staging",
+        metadata={"mode": "background"},
+    )
+    return web.json_response({"ok": True, "started": True}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def _run_staging_cutover_job(owner_id: int, keep: set[str], services: set[str]) -> None:
+    try:
+        report = await hide_orphan_products(owner_id, keep_source_keys=keep, services=services, dry_run=False)
+        await set_staging_job_run(owner_id, "cutover", {"status": "done", "finished_at": datetime.now(UTC), "result": report, "error": ""})
+    except Exception as exc:
+        logging.getLogger("owner_api").warning("staging cutover job failed: %s", exc)
+        await set_staging_job_run(owner_id, "cutover", {"status": "error", "finished_at": datetime.now(UTC), "error": str(exc)[:300]})
 
 
 async def owner_custom_catalog_node_detail(request: web.Request) -> web.Response:

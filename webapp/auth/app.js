@@ -2980,7 +2980,7 @@ function stagingItemRow(item) {
 function stagingImportBanner(st) {
   if (!st || st.status === "idle") return "";
   if (st.active || st.status === "running") {
-    return `<div class="staging-banner running">⏳ الاستيراد شغّال بالخلفية... <button class="secondary compact" type="button" onclick="loadOwnerDashboard()">تحديث</button></div>`;
+    return `<div class="staging-banner running">⏳ الاستيراد شغّال بالخلفية... <button class="secondary compact" type="button" data-staging-refresh>تحديث</button></div>`;
   }
   if (st.status === "error") {
     return `<div class="staging-banner error">✗ فشل آخر استيراد: ${esc(st.error || "")}</div>`;
@@ -2988,6 +2988,20 @@ function stagingImportBanner(st) {
   if (st.status === "done") {
     const r = st.result || {};
     return `<div class="staging-banner done">✓ آخر استيراد: ${Number(r.staged || 0)} عنصر مُرحّل، ${Number(r.dropped_region || 0)} مرفوض بالمنطقة.</div>`;
+  }
+  return "";
+}
+
+function stagingJobBanner(st, label, doneText) {
+  if (!st || st.status === "idle") return "";
+  if (st.active || st.status === "running") {
+    return `<div class="staging-banner running">⏳ ${esc(label)} شغّال بالخلفية... <button class="secondary compact" type="button" data-staging-refresh>تحديث</button></div>`;
+  }
+  if (st.status === "error") {
+    return `<div class="staging-banner error">✗ فشل ${esc(label)}: ${esc(st.error || "")}</div>`;
+  }
+  if (st.status === "done") {
+    return `<div class="staging-banner done">✓ ${esc(doneText(st.result || {}))}</div>`;
   }
   return "";
 }
@@ -3027,11 +3041,14 @@ function renderOwnerStagingCatalog(payload) {
       </div>
       <p class="staging-hint">يسحب من G2Bulk وMangerr، يفلتر المناطق (USA/أوروبا/Global فقط)، يدمج بالـ compare_key، ويسعّر بالهامش. راجِع وعدّل ثم اعتمد لينتقل للكاتالوغ الحي.</p>
       ${stagingImportBanner(payload.import_status)}
+      ${stagingJobBanner(payload.approve_status, "الاعتماد", (r) => `آخر اعتماد: ${Number(r.created || 0)} منتج (${Number(r.failed || 0)} فشل).`)}
+      ${stagingJobBanner(payload.cutover_status, "التنظيف", (r) => `آخر تنظيف: ${Number(r.hidden || 0)} منتج قديم مخفي.`)}
       <div class="staging-tree">${tree}</div>
     </div>`;
 
   target.querySelectorAll("[data-staging-global]").forEach((b) => b.addEventListener("click", () => runStagingGlobalAction(b)));
   target.querySelectorAll("[data-staging-action]").forEach((b) => b.addEventListener("click", () => runStagingItemAction(b)));
+  target.querySelectorAll("[data-staging-refresh]").forEach((b) => b.addEventListener("click", () => loadOwnerDashboard()));
 }
 
 async function runStagingGlobalAction(button) {
@@ -3053,8 +3070,12 @@ async function runStagingGlobalAction(button) {
       button.disabled = false;
       return;
     } else if (action === "approve_all") {
-      const r = await ownerApi("/api/v1/owner/catalog-staging/approve", { method: "POST", body: JSON.stringify({ approve_all: true }), timeoutMs: 180000 });
-      setText("#owner-message", `تم اعتماد ${r.created || 0} منتج (${r.failed || 0} فشل).`);
+      const r = await ownerApi("/api/v1/owner/catalog-staging/approve", { method: "POST", body: JSON.stringify({ approve_all: true }) });
+      setText("#owner-message", r.already_running
+        ? "الاعتماد شغّال بالخلفية بالفعل — حدّث الصفحة بعد قليل."
+        : "بدأ الاعتماد بالخلفية (قد يستغرق دقيقة أو أكثر حسب العدد). حدّث الصفحة لمتابعة التقدم.");
+      button.disabled = false;
+      return;
     } else if (action === "cutover_dry") {
       const r = await ownerApi("/api/v1/owner/catalog-staging/cutover", { method: "POST", body: JSON.stringify({ dry_run: true }) });
       window.alert(`فحص التنظيف: سيتم إخفاء ${r.report?.candidates || 0} منتج قديم عند التنفيذ الفعلي.`);
@@ -3062,7 +3083,11 @@ async function runStagingGlobalAction(button) {
       return;
     } else if (action === "cutover") {
       const r = await ownerApi("/api/v1/owner/catalog-staging/cutover", { method: "POST", body: JSON.stringify({ dry_run: false }) });
-      setText("#owner-message", `تم إخفاء ${r.report?.hidden || 0} منتج قديم.`);
+      setText("#owner-message", r.already_running
+        ? "التنظيف شغّال بالخلفية بالفعل — حدّث الصفحة بعد قليل."
+        : "بدأ التنظيف بالخلفية. حدّث الصفحة لمتابعة التقدم.");
+      button.disabled = false;
+      return;
     }
     await loadOwnerDashboard();
   } catch (error) {

@@ -191,3 +191,18 @@ async def set_import_run(owner_id: int, patch: dict[str, Any]) -> None:
 
 async def get_import_run(owner_id: int) -> dict[str, Any] | None:
     return await db.digital_catalog_staging_runs.find_one({"owner_id": int(owner_id)})
+
+
+async def set_staging_job_run(owner_id: int, job: str, patch: dict[str, Any]) -> None:
+    """Upsert a background-job status doc per (owner, job) — e.g. approve, cutover.
+
+    Kept separate from the import-run doc so the heavy approve/cutover steps can
+    run in the background (a synchronous run exceeds Cloudflare's timeout -> 524)."""
+    doc = {**patch, "owner_id": int(owner_id), "job": str(job), "updated_at": _now()}
+    await db.digital_catalog_staging_jobs.update_one(
+        {"owner_id": int(owner_id), "job": str(job)}, {"$set": doc}, upsert=True
+    )
+
+
+async def get_staging_job_run(owner_id: int, job: str) -> dict[str, Any] | None:
+    return await db.digital_catalog_staging_jobs.find_one({"owner_id": int(owner_id), "job": str(job)})
