@@ -2086,9 +2086,8 @@ def test_telabot_helpers():
 
     import asyncio
     prov._get = fake
-    loop = asyncio.get_event_loop()
-    assert loop.run_until_complete(prov.list_services()) == {"foo": {"price": "1.23"}}
-    assert loop.run_until_complete(prov.get_balance()) == {"balance": 42}
+    assert asyncio.run(prov.list_services()) == {"foo": {"price": "1.23"}}
+    assert asyncio.run(prov.get_balance()) == {"balance": 42}
 
 
 def test_data_wrappers_import():
@@ -2148,13 +2147,13 @@ def test_inline_query_limits(monkeypatch):
     # blank search_text case (should return first 20)
     iq = DummyInlineQuery('service')
     import asyncio
-    asyncio.get_event_loop().run_until_complete(numbers_inline.handle_smart_search(iq))
+    asyncio.run(numbers_inline.handle_smart_search(iq))
     assert iq.results is not None
     assert len(iq.results) <= 50
 
     # non-empty query matching all entries
     iq2 = DummyInlineQuery('service k')
-    asyncio.get_event_loop().run_until_complete(numbers_inline.handle_smart_search(iq2))
+    asyncio.run(numbers_inline.handle_smart_search(iq2))
     assert len(iq2.results) <= 50
 
 
