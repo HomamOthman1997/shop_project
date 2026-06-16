@@ -683,9 +683,16 @@ async def test_change_password_updates_hash_after_current_password_check(monkeyp
             "status": "active",
         }
 
+    revoked = {}
+
+    async def revoke_sessions(account_id, *, keep_token_hash):
+        revoked.update({"account_id": account_id, "keep": keep_token_hash})
+        return 0
+
     monkeypatch.setattr(website_auth, "require_website_auth", auth)
     monkeypatch.setattr(website_auth, "find_website_account_by_id", account)
     monkeypatch.setattr(website_auth, "update_website_account_password", update)
+    monkeypatch.setattr(website_auth, "delete_other_website_sessions", revoke_sessions)
     monkeypatch.setattr(website_auth, "_enforce_rate_limit", lambda *_args, **_kwargs: __import__("asyncio").sleep(0))
 
     response = await website_auth.change_password(
@@ -702,6 +709,8 @@ async def test_change_password_updates_hash_after_current_password_check(monkeyp
     assert saved["account_id"] == "account-1"
     assert website_auth._password_matches("new-secure-password", saved)
     assert not website_auth._password_matches("old-secure-password", saved)
+    # Other sessions are revoked on password change, keeping only the current one.
+    assert revoked == {"account_id": "account-1", "keep": "hash"}
 
 
 @pytest.mark.asyncio
