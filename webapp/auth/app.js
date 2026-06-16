@@ -169,8 +169,14 @@ function csrfToken() {
   return item ? decodeURIComponent(item.split("=").slice(1).join("=")) : "";
 }
 
-function friendlyApiMessage(message, status) {
+function friendlyApiMessage(message, status, code) {
   const text = String(message || "").trim();
+  if (status === 402 || code === "insufficient_balance") {
+    return "رصيد محفظتك غير كافٍ لإتمام هذا الطلب. اشحن رصيدك ثم حاول مرة أخرى.";
+  }
+  if (status === 429) {
+    return "محاولات كثيرة خلال وقت قصير. انتظر قليلاً ثم حاول مجدداً.";
+  }
   if (status === 401 || text === "invalid session" || text === "missing session") {
     return "انتهت الجلسة. سجّل دخولك مرة أخرى للمتابعة.";
   }
@@ -206,7 +212,12 @@ async function api(path, options = {}) {
   }
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch { data = {}; }
-  if (!response.ok) throw new Error(friendlyApiMessage(data.message || text, response.status));
+  if (!response.ok) {
+    const err = new Error(friendlyApiMessage(data.message || text, response.status, data.code));
+    err.status = response.status;
+    err.code = String(data.code || "");
+    throw err;
+  }
   return data;
 }
 
@@ -3778,10 +3789,28 @@ function renderDigitalOrderForm(kind, offer, back) {
         headers: { "Idempotency-Key": idempotencyKey("digital") },
         body: JSON.stringify(body),
       });
-      message.textContent = `تم إنشاء الطلب: ${result.order?.id || ""}. التنفيذ يدوي خلال دقيقة إلى ساعة.`;
+      detail.innerHTML = `
+        <div class="order-success">
+          <div class="order-success-icon" aria-hidden="true">✓</div>
+          <h4>تم استلام طلبك</h4>
+          <p>${esc(offer.item_name || offer.name || "")} — ${esc(offer.sale_price_label || offer.price_label || "")}</p>
+          <p class="message">رقم الطلب: ${esc(result.order?.id || "")}</p>
+          <p class="message">التنفيذ يدوي خلال دقيقة إلى ساعة. بنتابعك بالتحديثات.</p>
+          <div class="order-success-actions">
+            <button class="primary" type="button" data-go-orders>متابعة طلباتي</button>
+            <button class="secondary" type="button" data-go-shop>متابعة التسوق</button>
+          </div>
+        </div>`;
+      detail.querySelector("[data-go-orders]")?.addEventListener("click", () => document.querySelector('.nav-item[data-view="orders"]')?.click());
+      detail.querySelector("[data-go-shop]")?.addEventListener("click", back);
       await loadDashboard();
+      return;
     } catch (error) {
-      message.textContent = error.message;
+      const lowBalance = error.status === 402 || error.code === "insufficient_balance";
+      message.innerHTML = lowBalance
+        ? `${esc(error.message)} <button class="secondary compact" type="button" data-go-recharge>اشحن رصيدك</button>`
+        : esc(error.message);
+      message.querySelector("[data-go-recharge]")?.addEventListener("click", () => document.querySelector('.nav-item[data-view="recharge"]')?.click());
     } finally {
       if (button) button.disabled = false;
     }
