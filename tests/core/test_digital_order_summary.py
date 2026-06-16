@@ -81,10 +81,11 @@ def test_manual_topup_notification_includes_provider_source_details():
     assert "- BitTopup manual | 20.75" in text and "https://bittopup.com/pubg/" in text
     assert "- G2Bulk Future | 20.50" in text
     assert "ref=2968" not in text
-    assert markup.inline_keyboard[0][0].callback_data == "dpm:auto:order-1"
-    assert markup.inline_keyboard[0][1].callback_data == "dpm:future:order-1"
-    assert markup.inline_keyboard[1][0].callback_data == "dpm:claim:order-1"
-    assert markup.inline_keyboard[2][0].callback_data == "dpm:done:order-1"
+    assert markup.inline_keyboard[0][0].callback_data == "dpm:smart:order-1"
+    assert markup.inline_keyboard[1][0].callback_data == "dpm:auto:order-1"
+    assert markup.inline_keyboard[1][1].callback_data == "dpm:future:order-1"
+    assert markup.inline_keyboard[2][0].callback_data == "dpm:claim:order-1"
+    assert markup.inline_keyboard[3][0].callback_data == "dpm:done:order-1"
 
 
 def test_bittopup_offer_is_external_manual_source():
@@ -94,3 +95,18 @@ def test_bittopup_offer_is_external_manual_source():
         {"provider": "bittopup", "fulfillment_mode": MANUAL_TOPUP_MODE, "source_url": "https://bittopup.com/pubg/"}
     )
     assert not _is_external_manual_source_offer({"provider": "g2bulk", "fulfillment_mode": MANUAL_TOPUP_MODE})
+
+
+def test_digital_order_payload_carries_website_status_message():
+    from services.digital_products.api import _order_payload
+
+    pending = _order_payload({"_id": "ord-1", "manual_game_name": "PUBG", "manual_fulfillment_status": ""})
+    assert pending["messages"]
+    assert "تم استلام طلبك" in pending["messages"][0]
+    assert "PUBG" in pending["messages"][0]
+
+    done = _order_payload({"_id": "ord-2", "manual_game_name": "PUBG", "status": "success"})
+    assert "تم تنفيذ طلبك بنجاح" in done["messages"][0]
+
+    refunded = _order_payload({"_id": "ord-3", "manual_game_name": "PUBG", "status": "refunded"})
+    assert "إعادة المبلغ" in refunded["messages"][0]

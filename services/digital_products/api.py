@@ -515,6 +515,27 @@ def _fresh_product_quote_payload(product_id: str, package_id: str) -> dict[str, 
     return token_payload
 
 
+def _digital_order_customer_messages(
+    *, public_status: str, item_name: str, order_id: str, min_minutes: int, max_minutes: int
+) -> list[str]:
+    """Arabic, customer-facing status text shown in the website order detail.
+
+    The website is the delivery channel for customers without Telegram, so the
+    order detail must always carry a clear status message on its own."""
+    status = str(public_status or "").strip().lower()
+    item = item_name or "المنتج"
+    if status in {"completed", "success", "done"}:
+        return [f"تم تنفيذ طلبك بنجاح.\nالخدمة: {item}\nرقم الطلب: {order_id}"]
+    if status == "refunded":
+        return [f"تعذّر تنفيذ طلبك وتمت إعادة المبلغ إلى رصيدك.\nالخدمة: {item}\nرقم الطلب: {order_id}"]
+    if status == "processing":
+        return [f"طلبك قيد التنفيذ الآن.\nالخدمة: {item}\nرقم الطلب: {order_id}"]
+    return [
+        f"تم استلام طلبك وسيتم تنفيذه يدوياً خلال {min_minutes}–{max_minutes} دقيقة.\n"
+        f"الخدمة: {item}\nرقم الطلب: {order_id}"
+    ]
+
+
 def _order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
     order = dict(order or {})
     sale_price, cost_price = extract_order_amounts(order)
@@ -522,6 +543,16 @@ def _order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
     status = str(order.get("status") or "")
     manual_status = str(order.get("manual_fulfillment_status") or "")
     public_status = "completed" if status in {"success", "done"} else "refunded" if status == "refunded" else manual_status or status
+    item_label = str(
+        order.get("manual_item_name")
+        or order.get("manual_product_name")
+        or order.get("manual_game_name")
+        or order.get("game_name")
+        or order.get("service_ref_id")
+        or "المنتج"
+    )
+    fulfillment_min = int(order.get("fulfillment_min_minutes") or _MANUAL_FULFILLMENT_MIN_MINUTES)
+    fulfillment_max = int(order.get("fulfillment_max_minutes") or _MANUAL_FULFILLMENT_MAX_MINUTES)
     return {
         "id": order_id,
         "status": status,
@@ -546,6 +577,13 @@ def _order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
         "fulfillment_min_minutes": int(order.get("fulfillment_min_minutes") or _MANUAL_FULFILLMENT_MIN_MINUTES),
         "fulfillment_max_minutes": int(order.get("fulfillment_max_minutes") or _MANUAL_FULFILLMENT_MAX_MINUTES),
         "fulfillment_label": str(order.get("fulfillment_label") or _MANUAL_FULFILLMENT_LABEL_AR),
+        "messages": _digital_order_customer_messages(
+            public_status=public_status,
+            item_name=item_label,
+            order_id=order_id,
+            min_minutes=fulfillment_min,
+            max_minutes=fulfillment_max,
+        ),
         "owner_notification_sent": bool(order.get("owner_notification_sent")),
         "source": str(order.get("api_order_source") or order.get("number_mode") or ""),
         "created_at": _iso(order.get("created_at")),
