@@ -22,6 +22,8 @@ const verifyEmailCodeSubmit = $("#verify-email-code-button");
 
 let mode = "login";
 let currentAccount = null;
+let conversationPollTimer = null;
+let conversationSignature = "";
 let activeOwnerTab = "overview";
 let ownerCatalogParentId = "";
 let ownerWebsiteCatalogState = { sections: [], activeSectionSlug: "", activeFamily: null, familyPayload: null, loadingFamily: false, selectedProductIds: new Set() };
@@ -311,7 +313,6 @@ function showAccount(account) {
     openPanel("home", "الخدمات", { updateRoute: false });
   } else {
     openPanel(initialView, "", { updateRoute: false });
-    if (initialView === "messages") loadConversation();
   }
   loadAccountCatalog();
   loadDashboard();
@@ -707,6 +708,13 @@ function renderConversation(payload) {
   const thread = $("#conversation-thread");
   if (!thread) return;
   const messages = payload.messages || [];
+  // Skip re-render (and the scroll jump) when nothing changed — important while polling.
+  const signature = `${messages.length}:${messages[messages.length - 1]?.id || ""}`;
+  if (signature === conversationSignature && !thread.classList.contains("empty")) {
+    updateMessagesBadge(0);
+    return;
+  }
+  conversationSignature = signature;
   thread.classList.toggle("empty", !messages.length);
   thread.innerHTML = messages.length
     ? messages.map((row) => `
@@ -727,9 +735,24 @@ async function loadConversation() {
     const payload = await api("/api/v1/auth/conversation");
     renderConversation(payload);
   } catch (error) {
-    thread.classList.remove("empty");
-    thread.textContent = error.message || "تعذر تحميل المحادثة.";
+    if (thread.classList.contains("empty") || !thread.childElementCount) {
+      thread.classList.remove("empty");
+      thread.textContent = error.message || "تعذر تحميل المحادثة.";
+    }
   }
+}
+
+function startConversationPolling() {
+  if (conversationPollTimer) return;
+  conversationSignature = "";
+  loadConversation();
+  conversationPollTimer = window.setInterval(loadConversation, 15000);
+}
+
+function stopConversationPolling() {
+  if (!conversationPollTimer) return;
+  window.clearInterval(conversationPollTimer);
+  conversationPollTimer = null;
 }
 
 async function submitConversationMessage(event) {
@@ -4352,6 +4375,8 @@ function openPanel(view, title = "", options = {}) {
   });
   if (title || customerViewTitles[view]) setPageTitle(title || customerViewTitles[view]);
   if (options.updateRoute !== false && view !== "owner") pushRoute(routeForView(view));
+  if (view === "messages") startConversationPolling();
+  else stopConversationPolling();
 }
 
 function openService(service) {
@@ -4392,7 +4417,6 @@ document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
       setWorkspaceTheme("");
     }
     openPanel(view, button.textContent.trim());
-    if (view === "messages") loadConversation();
   });
 });
 
