@@ -2527,9 +2527,29 @@ def _identity_payload(row: dict[str, Any]) -> dict[str, Any]:
         "birth_date": _text(row.get("birth_date")),
         "country": _text(row.get("country")),
         "id_type": _text(row.get("id_type")),
+        "has_document": bool(row.get("has_document")),
         "review_note": _text(row.get("review_note")),
         "created_at": _date_text(row.get("created_at")),
     }
+
+
+async def owner_identity_document(request: web.Request) -> web.Response:
+    """Serve the attached ID photo for a review to the authenticated owner only."""
+    await require_website_owner(request)
+    review_id = str(request.match_info.get("review_id") or "")
+    doc = await db.identity_documents.find_one({"_id": review_id})
+    data = doc.get("data") if doc else None
+    if not data:
+        return web.json_response(
+            {"ok": False, "message": "No identity document on file."},
+            status=404,
+            headers=dict(_NO_STORE_HEADERS),
+        )
+    return web.Response(
+        body=bytes(data),
+        content_type=str(doc.get("mime") or "image/jpeg"),
+        headers=dict(_NO_STORE_HEADERS),
+    )
 
 
 async def owner_identity_reviews(request: web.Request) -> web.Response:
@@ -2574,6 +2594,8 @@ async def owner_identity_review_action(request: web.Request) -> web.Response:
             account_query,
             {"$set": {"identity_status": review["status"], "identity_updated_at": now, "updated_at": now}},
         )
+    # Identity photos are sensitive PII: keep them only while pending review.
+    await db.identity_documents.delete_one({"_id": review["_id"]})
     await _write_owner_audit(
         actor_id=owner.customer_id,
         actor_email=owner.email,
@@ -3285,6 +3307,7 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/recharge-reviews/{request_id}/proof", owner_recharge_review_proof)
     app.router.add_post("/api/v1/owner/recharge-reviews/{request_id}/action", owner_recharge_review_action)
     app.router.add_get("/api/v1/owner/identity-reviews", owner_identity_reviews)
+    app.router.add_get("/api/v1/owner/identity-reviews/{review_id}/document", owner_identity_document)
     app.router.add_post("/api/v1/owner/identity-reviews/{review_id}/action", owner_identity_review_action)
     app.router.add_get("/api/v1/owner/support-tickets", owner_support_tickets)
     app.router.add_get("/api/v1/owner/support-tickets/{ticket_id}", owner_support_ticket_detail)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+import base64
 import hashlib
 import hmac
 import logging
@@ -27,6 +28,7 @@ from database.website_auth_repo import (
     create_website_user_profile,
     create_website_session,
     create_identity_verification_request,
+    store_identity_document,
     delete_website_session,
     find_website_account_by_email,
     find_website_account_by_id,
@@ -533,21 +535,51 @@ async def submit_identity(request: web.Request) -> web.Response:
     id_type = str(body.get("id_type") or "").strip()
     if len(full_name) < 5 or not birth_date or len(country) < 2 or id_type not in {"national_id", "passport"}:
         raise web.HTTPBadRequest(text="invalid identity request")
+    doc_bytes, doc_mime = _parse_identity_document(body.get("document"))
     now = _now()
+    request_id = str(uuid4())
     await create_identity_verification_request(
         {
-            "_id": str(uuid4()),
+            "_id": request_id,
             "account_id": auth.account_id,
             "customer_id": auth.customer_id,
             "full_name": full_name,
             "birth_date": birth_date,
             "country": country,
             "id_type": id_type,
+            "has_document": True,
             "status": "pending",
             "created_at": now,
         }
     )
+    await store_identity_document(
+        request_id,
+        data=doc_bytes,
+        mime=doc_mime,
+        account_id=auth.account_id,
+        created_at=now,
+    )
     return web.json_response({"ok": True, "status": "pending"}, status=201)
+
+
+_IDENTITY_DOC_RE = re.compile(r"^data:(image/(?:jpeg|png|webp));base64,(.+)$", re.DOTALL)
+_IDENTITY_DOC_MIN = 1024
+_IDENTITY_DOC_MAX = 5 * 1024 * 1024
+
+
+def _parse_identity_document(value: Any) -> tuple[bytes, str]:
+    """Validate the attached ID photo (a base64 data URL) and return its bytes."""
+    match = _IDENTITY_DOC_RE.match(str(value or "").strip())
+    if not match:
+        raise web.HTTPBadRequest(text="identity document image is required")
+    mime = match.group(1)
+    try:
+        raw = base64.b64decode(match.group(2), validate=True)
+    except Exception as exc:  # noqa: BLE001 - any decode failure is a bad request
+        raise web.HTTPBadRequest(text="invalid identity document") from exc
+    if not (_IDENTITY_DOC_MIN <= len(raw) <= _IDENTITY_DOC_MAX):
+        raise web.HTTPBadRequest(text="identity document size invalid")
+    return raw, mime
 
 
 async def consume_telegram_link(payload: str, *, telegram_id: int) -> dict[str, Any]:

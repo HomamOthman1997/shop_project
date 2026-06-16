@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import time
 from typing import Any
 
+from bson.binary import Binary
 from pymongo import ReturnDocument
 
 from .mongo import db
@@ -198,6 +199,30 @@ async def create_identity_verification_request(doc: dict[str, Any]) -> None:
 
 async def find_latest_identity_verification(account_id: str) -> dict[str, Any] | None:
     return await db.identity_verification_requests.find_one({"account_id": account_id}, sort=[("created_at", -1)])
+
+
+async def store_identity_document(request_id: str, *, data: bytes, mime: str, account_id: str, created_at: Any) -> None:
+    """Store the uploaded ID image bytes in a side collection (kept out of the
+    request doc so list queries stay light). One document per identity request."""
+    await db.identity_documents.replace_one(
+        {"_id": request_id},
+        {
+            "_id": request_id,
+            "account_id": account_id,
+            "mime": mime,
+            "data": Binary(data),
+            "created_at": created_at,
+        },
+        upsert=True,
+    )
+
+
+async def get_identity_document(request_id: str) -> dict[str, Any] | None:
+    return await db.identity_documents.find_one({"_id": request_id})
+
+
+async def delete_identity_document(request_id: str) -> None:
+    await db.identity_documents.delete_one({"_id": request_id})
 
 
 async def consume_website_auth_rate_limit(subject_hash: str, *, bucket: str, limit: int, window_seconds: int = 60) -> bool:

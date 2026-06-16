@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <title>تسجيل الدخول | Phantom</title>
-  <link rel="stylesheet" href="/auth/static/styles.css?v=20260615-buy">
+  <link rel="stylesheet" href="/auth/static/styles.css?v=20260615-identity">
   <script src="/auth/static/i18n.js" defer></script>
-  <script src="/auth/static/app.js?v=20260615-buy" defer></script>
+  <script src="/auth/static/app.js?v=20260615-identity" defer></script>
 </head>
 <body>
   <main class="auth-shell">
@@ -229,7 +229,9 @@
                 <label><span>تاريخ الميلاد</span><input name="birth_date" type="date" required></label>
                 <label><span>البلد</span><input name="country" value="Syria" required></label>
                 <label><span>نوع الوثيقة</span><select name="id_type"><option value="national_id">هوية شخصية</option><option value="passport">جواز سفر</option></select></label>
-                <p class="message">تتم المراجعة حالياً من بياناتك الأساسية، وقد يطلب الدعم وثائق إضافية عند الحاجة.</p>
+                <label class="identity-upload"><span>صورة الوثيقة</span><input id="identity-document-input" name="document_file" type="file" accept="image/*" required></label>
+                <img id="identity-document-preview" class="identity-doc-preview" alt="معاينة الوثيقة" hidden>
+                <p class="message">أرفق صورة واضحة لوجه الهوية أو الجواز. تُحفظ الصورة بشكل مؤقت لغرض المراجعة فقط وتُحذف بعد القرار.</p>
                 <button class="primary" type="submit">إرسال طلب المراجعة</button>
                 <p id="identity-message" class="message" role="status"></p>
               </form>

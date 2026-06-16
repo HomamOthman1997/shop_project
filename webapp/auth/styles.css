@@ -1102,6 +1102,10 @@ button.owner-action-row {
 }
 .identity-state { background: var(--surface); border: 1px solid var(--line); padding: 18px; display: flex; justify-content: space-between; margin-bottom: 20px; }
 #identity-form { max-width: 620px; background: var(--surface); border: 1px solid var(--line); padding: 22px; }
+.identity-upload input[type="file"] { padding: 10px; }
+.identity-doc-preview { display: block; max-width: 240px; max-height: 240px; margin: 6px 0 4px; border: 1px solid var(--line); border-radius: 10px; object-fit: cover; }
+.identity-doc-link { display: inline-block; margin: 8px 0; }
+.identity-doc-thumb { max-width: 180px; max-height: 180px; border: 1px solid var(--line); border-radius: 10px; object-fit: cover; }
 
 .account-catalog { display: grid; gap: 20px; }
 .account-catalog-search {

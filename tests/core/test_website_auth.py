@@ -428,6 +428,8 @@ def test_every_owner_api_route_has_a_dashboard_callsite():
         canonical = route.resource.canonical
         if canonical == "/api/v1/owner/recharge-reviews/{request_id}/proof" and "row.proof_url" in js:
             continue
+        if canonical == "/api/v1/owner/identity-reviews/{review_id}/document" and "/document" in js:
+            continue
         parts = [part for part in re.split(r"\{[^}]+\}", canonical) if part]
         if not any(all(part in call for part in parts) for call in api_calls):
             missing.append(f"{route.method} {canonical}")
@@ -1144,6 +1146,54 @@ async def test_email_and_identity_handlers_reject_bad_json_without_server_error(
     assert json.loads(verify_response.text)["message"] == "invalid json body"
     assert identity_response.status == 400
     assert json.loads(identity_response.text)["message"] == "invalid json body"
+
+
+@pytest.mark.asyncio
+async def test_submit_identity_requires_and_stores_document_image(monkeypatch):
+    import base64
+
+    async def auth(_request):
+        return website_auth.WebsiteAuthContext(
+            account_id="account-1",
+            customer_id=900000000001,
+            email="user@example.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    async def account(_account_id):
+        return {"_id": "account-1", "identity_status": "not_submitted"}
+
+    created: dict = {}
+    stored: dict = {}
+
+    async def create(doc):
+        created.update(doc)
+
+    async def store(request_id, *, data, mime, account_id, created_at):
+        stored.update({"id": request_id, "data": data, "mime": mime, "account_id": account_id})
+
+    monkeypatch.setattr(website_auth, "require_website_auth", auth)
+    monkeypatch.setattr(website_auth, "find_website_account_by_id", account)
+    monkeypatch.setattr(website_auth, "create_identity_verification_request", create)
+    monkeypatch.setattr(website_auth, "store_identity_document", store)
+
+    fields = {"full_name": "Homam Othman", "birth_date": "1997-01-01", "country": "Syria", "id_type": "national_id"}
+
+    # No attached image -> rejected.
+    with pytest.raises(web.HTTPBadRequest):
+        await website_auth.submit_identity(raw_request("POST", "/api/v1/auth/identity", json.dumps(fields)))
+
+    # Valid attached image data URL -> stored.
+    raw = b"\x89PNG\r\n" + b"0" * 1500
+    fields["document"] = "data:image/png;base64," + base64.b64encode(raw).decode()
+    response = await website_auth.submit_identity(raw_request("POST", "/api/v1/auth/identity", json.dumps(fields)))
+
+    assert response.status == 201
+    assert created["has_document"] is True
+    assert stored["id"] == created["_id"]
+    assert stored["mime"] == "image/png"
+    assert stored["data"] == raw
 
 
 @pytest.mark.asyncio

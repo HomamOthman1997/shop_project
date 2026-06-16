@@ -1254,10 +1254,18 @@ async def test_owner_identity_action_updates_website_account_by_customer_id(monk
         async def update_one(self, query, update):
             self.updated = (query, update)
 
+    class IdentityDocuments:
+        def __init__(self):
+            self.deleted = None
+
+        async def delete_one(self, query):
+            self.deleted = query
+
     class FakeDb:
         def __init__(self):
             self.identity_verification_requests = IdentityRequests()
             self.website_accounts = WebsiteAccounts()
+            self.identity_documents = IdentityDocuments()
 
     fake_db = FakeDb()
     audit_calls = []
@@ -1280,6 +1288,7 @@ async def test_owner_identity_action_updates_website_account_by_customer_id(monk
     assert fake_db.website_accounts.updated[1]["$set"]["identity_status"] == "approved"
     assert audit_calls[0]["action"] == "identity.approve"
     assert audit_calls[0]["metadata"]["customer_id"] == 900000000123
+    assert fake_db.identity_documents.deleted == {"_id": "review-1"}
 
 
 @pytest.mark.asyncio

@@ -1877,6 +1877,7 @@ function renderOwnerIdentityReviews(payload, append = false) {
     <article class="owner-review-card">
       <div class="owner-order-head"><div><strong>${esc(row.full_name || "طلب هوية")}</strong><span>${esc(row.id)}</span></div><b>${esc(row.status)}</b></div>
       <div class="owner-order-meta"><span>العميل: ${esc(row.customer_id)}</span><span>${esc(row.country)}</span><span>${esc(row.id_type)}</span><span>${esc(row.birth_date)}</span></div>
+      ${row.has_document && row.status === "pending" ? `<a class="identity-doc-link" href="/api/v1/owner/identity-reviews/${encodeURIComponent(row.id)}/document" target="_blank" rel="noopener"><img class="identity-doc-thumb" src="/api/v1/owner/identity-reviews/${encodeURIComponent(row.id)}/document" alt="صورة الوثيقة"></a>` : ""}
       ${row.review_note ? `<div class="notice">${esc(row.review_note)}</div>` : ""}
       ${row.status === "pending" ? `<form class="owner-review-form" data-owner-identity="${esc(row.id)}">
         <label><span>ملاحظة المراجعة</span><input name="note" placeholder="سبب الرفض مطلوب عند الرفض"></label>
@@ -4393,18 +4394,67 @@ verifyEmailCodeSubmit.addEventListener("click", async () => {
   });
 });
 
+async function compressImageToDataUrl(file, maxSide = 1280, quality = 0.82) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("تعذر قراءة الملف"));
+    reader.readAsDataURL(file);
+  });
+  const img = await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("الملف ليس صورة صالحة"));
+    image.src = dataUrl;
+  });
+  let { width, height } = img;
+  const longest = Math.max(width, height) || 1;
+  if (longest > maxSide) {
+    const scale = maxSide / longest;
+    width = Math.round(width * scale);
+    height = Math.round(height * scale);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+$("#identity-document-input")?.addEventListener("change", (event) => {
+  const file = event.currentTarget.files?.[0];
+  const preview = $("#identity-document-preview");
+  if (!preview) return;
+  if (!file) { preview.hidden = true; preview.removeAttribute("src"); return; }
+  const reader = new FileReader();
+  reader.onload = () => { preview.src = reader.result; preview.hidden = false; };
+  reader.readAsDataURL(file);
+});
+
 $("#identity-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   const message = $("#identity-message");
   const button = form.querySelector("button[type='submit']");
-  const formData = new FormData(form);
+  const fileInput = $("#identity-document-input");
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    if (message) message.textContent = "يرجى إرفاق صورة الوثيقة.";
+    return;
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    if (message) message.textContent = "حجم الصورة كبير جداً (الحد 12 ميغابايت).";
+    return;
+  }
   if (message) message.textContent = "جاري إرسال طلب مراجعة الهوية...";
   if (button) button.disabled = true;
   try {
+    const payload = Object.fromEntries(new FormData(form).entries());
+    delete payload.document_file;
+    payload.document = await compressImageToDataUrl(file);
     const data = await api("/api/v1/auth/identity", {
       method: "POST",
-      body: JSON.stringify(Object.fromEntries(formData.entries())),
+      body: JSON.stringify(payload),
     });
     currentAccount.identity_status = data.status;
     applyIdentityState(data.status);
