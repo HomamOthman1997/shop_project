@@ -1292,6 +1292,54 @@ async def test_owner_identity_action_updates_website_account_by_customer_id(monk
 
 
 @pytest.mark.asyncio
+async def test_owner_conversation_start_finds_or_creates(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    captured: dict = {}
+    conversation = {
+        "_id": "conv-1",
+        "customer_id": 900000000123,
+        "customer_email": "c@example.com",
+        "owner_unread": 2,
+        "last_message_preview": "hi",
+        "last_message_by": "customer",
+        "last_message_at": None,
+    }
+
+    async def get_or_create(*, customer_id, account_id=None, customer_email=None):
+        captured.update({"customer_id": customer_id, "email": customer_email})
+        return conversation
+
+    class WebsiteAccounts:
+        async def find_one(self, _query):
+            return {"_id": "acc-1", "email": "c@example.com"}
+
+    class FakeDb:
+        def __init__(self):
+            self.website_accounts = WebsiteAccounts()
+
+    async def audit(**_kwargs):
+        return None
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "get_or_create_conversation", get_or_create)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    monkeypatch.setattr(owner_api, "db", FakeDb())
+
+    request = make_mocked_request("POST", "/api/v1/owner/conversations/start")
+    request._read_bytes = json.dumps({"customer_id": 900000000123, "order_ref": "ord-1"}).encode()
+
+    response = await owner_api.owner_conversation_start(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert captured["customer_id"] == 900000000123
+    assert payload["conversation"]["customer_id"] == 900000000123
+    assert payload["conversation"]["unread"] == 2
+
+
+@pytest.mark.asyncio
 async def test_owner_support_action_uses_shared_ticket_state(monkeypatch):
     calls = {}
 

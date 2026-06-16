@@ -1107,6 +1107,21 @@ button.owner-action-row {
 .identity-doc-link { display: inline-block; margin: 8px 0; }
 .identity-doc-thumb { max-width: 180px; max-height: 180px; border: 1px solid var(--line); border-radius: 10px; object-fit: cover; }
 
+/* Direct customer↔owner chat */
+.nav-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-inline-start: 6px; padding: 0 5px; border-radius: 9px; background: var(--danger, #e5484d); color: #fff; font-size: 11px; font-weight: 700; }
+.conversation-thread { display: flex; flex-direction: column; gap: 10px; max-height: 52vh; overflow-y: auto; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 14px; }
+.conversation-thread.empty { align-items: center; justify-content: center; color: var(--muted); text-align: center; }
+.conversation-form { display: flex; gap: 10px; align-items: flex-end; }
+.conversation-form textarea { flex: 1; resize: vertical; }
+.chat-bubble { max-width: 78%; padding: 10px 12px; border-radius: 14px; line-height: 1.5; word-break: break-word; }
+.chat-bubble p { margin: 0; white-space: pre-wrap; }
+.chat-bubble.is-mine { align-self: flex-start; background: var(--accent-soft, #e9efff); border: 1px solid var(--line); }
+.chat-bubble.is-support { align-self: flex-end; background: var(--surface-2, #f4f5f8); border: 1px solid var(--line); }
+.chat-order-ref { display: inline-block; margin-bottom: 4px; font-size: 11px; font-weight: 700; color: var(--accent, #3858e9); }
+.chat-time { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.owner-support-conversation { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; margin: 10px 0; padding: 10px; background: var(--surface-2, #f4f5f8); border-radius: 12px; }
+.owner-unread { background: var(--danger, #e5484d); color: #fff; padding: 2px 8px; border-radius: 9px; font-size: 12px; }
+
 .account-catalog { display: grid; gap: 20px; }
 .account-catalog-search {
   width: min(760px, 100%);

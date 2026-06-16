@@ -24,6 +24,9 @@ async def bootstrap_website_auth_indexes() -> None:
     await db.identity_verification_requests.create_index([("status", 1), ("created_at", 1)], background=True)
     await db.owner_admin_audit.create_index([("created_at", -1)], background=True)
     await db.owner_admin_audit.create_index([("actor_id", 1), ("created_at", -1)], background=True)
+    from database.customer_conversations_repo import bootstrap_customer_conversation_indexes
+
+    await bootstrap_customer_conversation_indexes()
     await db.owner_admin_audit.create_index([("action", 1), ("created_at", -1)], background=True)
 
 

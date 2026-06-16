@@ -1197,6 +1197,58 @@ async def test_submit_identity_requires_and_stores_document_image(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_customer_conversation_send_creates_thread(monkeypatch):
+    async def auth(_request):
+        return website_auth.WebsiteAuthContext(
+            account_id="account-1",
+            customer_id=900000000001,
+            email="user@example.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    async def account(_account_id):
+        return {"_id": "account-1", "email": "user@example.com"}
+
+    conversation = {"_id": "conv-1", "status": "open", "customer_unread": 0, "last_message_at": None}
+    sent: dict = {}
+
+    async def get_or_create(**_kwargs):
+        return conversation
+
+    async def append(conv, *, direction, actor_id, text, order_ref=None):
+        sent.update({"direction": direction, "text": text, "actor_id": actor_id})
+
+    async def list_messages(_conversation_id, **_kwargs):
+        return [{"_id": "m1", "direction": "customer_to_owner", "text": "مرحبا", "created_at": None}]
+
+    async def noop_rate_limit(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(website_auth, "require_website_auth", auth)
+    monkeypatch.setattr(website_auth, "find_website_account_by_id", account)
+    monkeypatch.setattr(website_auth, "get_or_create_conversation", get_or_create)
+    monkeypatch.setattr(website_auth, "_conversation_append_message", append)
+    monkeypatch.setattr(website_auth, "_conversation_list_messages", list_messages)
+    monkeypatch.setattr(website_auth, "_enforce_rate_limit", noop_rate_limit)
+
+    # Empty message is rejected.
+    with pytest.raises(web.HTTPBadRequest):
+        await website_auth.conversation_send_message(
+            raw_request("POST", "/api/v1/auth/conversation/messages", json.dumps({"text": "   "}))
+        )
+
+    response = await website_auth.conversation_send_message(
+        raw_request("POST", "/api/v1/auth/conversation/messages", json.dumps({"text": "مرحبا"}))
+    )
+    assert response.status == 201
+    body = json.loads(response.text)
+    assert sent["direction"] == "customer_to_owner"
+    assert body["messages"][0]["actor"] == "you"
+    assert body["conversation"]["unread"] == 0
+
+
+@pytest.mark.asyncio
 async def test_require_website_purchase_ready_rejects_unverified_cookie_account(monkeypatch):
     async def auth(_request):
         return website_auth.WebsiteAuthContext(

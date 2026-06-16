@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <title>تسجيل الدخول | Phantom</title>
-  <link rel="stylesheet" href="/auth/static/styles.css?v=20260615-identity">
+  <link rel="stylesheet" href="/auth/static/styles.css?v=20260616-chat">
   <script src="/auth/static/i18n.js" defer></script>
-  <script src="/auth/static/app.js?v=20260615-identity" defer></script>
+  <script src="/auth/static/app.js?v=20260616-chat" defer></script>
 </head>
 <body>
   <main class="auth-shell">
@@ -89,6 +89,7 @@
               <button class="nav-item active" data-view="home">الخدمات</button>
               <button class="nav-item" data-view="orders">طلباتي</button>
               <button class="nav-item" data-view="recharge">شحن الرصيد</button>
+              <button class="nav-item" data-view="messages">مراسلة<span id="messages-nav-badge" class="nav-badge" hidden>0</span></button>
               <button class="nav-item" data-view="support">الدعم</button>
               <button class="nav-item" data-view="account">حسابي</button>
               <button class="nav-item" data-view="identity">تأكيد الهوية</button>
@@ -170,6 +171,16 @@
               <div id="recharge-list" class="data-list empty">جاري تحميل طرق الشحن...</div>
               <div class="section-head activity-head"><h3>طلبات الشحن السابقة</h3></div>
               <div id="recharge-requests-list" class="data-list empty">لا توجد طلبات شحن حتى الآن.</div>
+            </section>
+
+            <section class="app-view" data-panel="messages">
+              <div class="section-head"><div><h3>مراسلة مباشرة</h3><p>تواصل مباشر مع فريق Phantom لمتابعة طلباتك وأي استفسار.</p></div></div>
+              <div id="conversation-thread" class="conversation-thread empty">جاري تحميل المحادثة...</div>
+              <form id="conversation-form" class="conversation-form">
+                <textarea name="text" rows="2" maxlength="3500" required placeholder="اكتب رسالتك هنا..."></textarea>
+                <button class="primary compact" type="submit">إرسال</button>
+              </form>
+              <p id="conversation-message" class="message" role="status"></p>
             </section>
 
             <section class="app-view" data-panel="account">
@@ -310,6 +321,10 @@
                 <select id="owner-support-filter" class="compact-select"><option value="open">مفتوحة</option><option value="solved">محلولة</option><option value="all">الكل</option></select>
               </div>
               <div id="owner-support-tickets" class="owner-review-list empty">جاري تحميل تذاكر الدعم...</div>
+              <div class="section-head activity-head">
+                <div><h3>المحادثات المباشرة</h3><p>راسل أي زبون وتابع طلباته. يمكن فتح المحادثة أيضاً من زر "راسل الزبون" داخل أي طلب.</p></div>
+              </div>
+              <div id="owner-conversations" class="owner-review-list empty">جاري تحميل المحادثات...</div>
               <div class="section-head activity-head">
                 <div><h3>تكامل API</h3><p>إدارة مفاتيح API وwebhooks من الموقع. الأسرار تظهر مرة واحدة عند الإنشاء فقط.</p></div>
               </div>

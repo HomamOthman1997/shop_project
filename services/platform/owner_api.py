@@ -57,6 +57,15 @@ from database.financial_ledger import (
     scan_financial_anomalies,
 )
 from database.mongo import db
+from database.customer_conversations_repo import (
+    DIRECTION_OWNER,
+    append_message as _conversation_append_message,
+    get_conversation_by_id,
+    get_or_create_conversation,
+    list_messages as _conversation_list_messages,
+    mark_conversation_read,
+    owner_conversations_cursor,
+)
 from database.numbers_config_repo import get_numbers_markup_percent, set_numbers_markup_percent
 from database.owner_payment_settings_repo import (
     get_owner_exchange_rate,
@@ -2607,6 +2616,124 @@ async def owner_identity_review_action(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "review": _identity_payload(review)}, headers=dict(_NO_STORE_HEADERS))
 
 
+def _conversation_inbox_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": _text(row.get("_id")),
+        "customer_id": int(row.get("customer_id") or 0),
+        "customer_email": _text(row.get("customer_email")),
+        "last_message_preview": _text(row.get("last_message_preview")),
+        "last_message_by": _text(row.get("last_message_by")),
+        "last_message_at": _date_text(row.get("last_message_at")),
+        "unread": int(row.get("owner_unread") or 0),
+    }
+
+
+def _conversation_owner_message_payload(row: dict[str, Any]) -> dict[str, Any]:
+    direction = _text(row.get("direction"))
+    return {
+        "id": _text(row.get("_id")),
+        "actor": "owner" if direction == "owner_to_customer" else "customer",
+        "text": _text(row.get("text")),
+        "order_ref": _text(row.get("order_ref")),
+        "created_at": _date_text(row.get("created_at")),
+    }
+
+
+async def owner_conversations(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    rows, pagination = await _paged_rows(owner_conversations_cursor(), request)
+    return web.json_response(
+        {"ok": True, "conversations": [_conversation_inbox_payload(row) for row in rows], "pagination": pagination},
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_conversation_detail(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    conversation = await get_conversation_by_id(str(request.match_info.get("conversation_id") or ""))
+    if not conversation:
+        return web.json_response({"ok": False, "message": "Conversation was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    rows = await _conversation_list_messages(conversation["_id"])
+    await mark_conversation_read(conversation["_id"], side="owner")
+    return web.json_response(
+        {
+            "ok": True,
+            "conversation": {**_conversation_inbox_payload(conversation), "unread": 0},
+            "messages": [_conversation_owner_message_payload(row) for row in rows],
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_conversation_send(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    conversation = await get_conversation_by_id(str(request.match_info.get("conversation_id") or ""))
+    if not conversation:
+        return web.json_response({"ok": False, "message": "Conversation was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    text = " ".join(str((body or {}).get("text") or "").strip().split())
+    if len(text) < 1 or len(text) > 3500:
+        return web.json_response({"ok": False, "message": "Write a message between 1 and 3500 characters."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    order_ref = str((body or {}).get("order_ref") or "").strip()[:120]
+    await _conversation_append_message(
+        conversation,
+        direction=DIRECTION_OWNER,
+        actor_id=owner.customer_id,
+        text=text,
+        order_ref=order_ref,
+    )
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="conversation.message",
+        target_type="conversation",
+        target_id=_text(conversation.get("_id")),
+        metadata={"customer_id": int(conversation.get("customer_id") or 0), "order_ref": order_ref},
+    )
+    rows = await _conversation_list_messages(conversation["_id"])
+    return web.json_response(
+        {
+            "ok": True,
+            "conversation": {**_conversation_inbox_payload(conversation), "unread": 0},
+            "messages": [_conversation_owner_message_payload(row) for row in rows],
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_conversation_start(request: web.Request) -> web.Response:
+    """Find-or-create a customer's conversation (used by 'message customer' on an order)."""
+    owner = await require_website_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    customer_id = _safe_int((body or {}).get("customer_id"))
+    if customer_id is None or customer_id <= 0:
+        return web.json_response({"ok": False, "message": "A customer id is required."}, status=400, headers=dict(_NO_STORE_HEADERS))
+    account = await db.website_accounts.find_one({"customer_id": int(customer_id)})
+    conversation = await get_or_create_conversation(
+        customer_id=int(customer_id),
+        account_id=_text((account or {}).get("_id")) or None,
+        customer_email=_text((account or {}).get("email")),
+    )
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="conversation.start",
+        target_type="conversation",
+        target_id=_text(conversation.get("_id")),
+        metadata={"customer_id": int(customer_id)},
+    )
+    return web.json_response(
+        {"ok": True, "conversation": _conversation_inbox_payload(conversation)},
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
 def _support_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": _text(row.get("_id")),
@@ -3309,6 +3436,10 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/identity-reviews", owner_identity_reviews)
     app.router.add_get("/api/v1/owner/identity-reviews/{review_id}/document", owner_identity_document)
     app.router.add_post("/api/v1/owner/identity-reviews/{review_id}/action", owner_identity_review_action)
+    app.router.add_get("/api/v1/owner/conversations", owner_conversations)
+    app.router.add_post("/api/v1/owner/conversations/start", owner_conversation_start)
+    app.router.add_get("/api/v1/owner/conversations/{conversation_id}", owner_conversation_detail)
+    app.router.add_post("/api/v1/owner/conversations/{conversation_id}/messages", owner_conversation_send)
     app.router.add_get("/api/v1/owner/support-tickets", owner_support_tickets)
     app.router.add_get("/api/v1/owner/support-tickets/{ticket_id}", owner_support_ticket_detail)
     app.router.add_post("/api/v1/owner/support-tickets/{ticket_id}/attachment", owner_support_ticket_attachment)

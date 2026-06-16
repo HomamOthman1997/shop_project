@@ -58,6 +58,7 @@ const customerRoutes = {
   home: "/app",
   orders: "/app/orders",
   recharge: "/app/recharge",
+  messages: "/app/messages",
   support: "/app/support",
   account: "/app/account",
   identity: "/app/identity",
@@ -80,6 +81,7 @@ const customerViewTitles = {
   home: "الخدمات",
   orders: "طلباتي",
   recharge: "شحن الرصيد",
+  messages: "مراسلة",
   support: "الدعم",
   account: "حسابي",
   identity: "تأكيد الهوية",
@@ -114,6 +116,7 @@ function viewForPath(pathname = window.location.pathname) {
   if (pathname.startsWith("/app/numbers")) return "numbers";
   if (pathname.startsWith("/app/orders")) return "orders";
   if (pathname.startsWith("/app/recharge")) return "recharge";
+  if (pathname.startsWith("/app/messages")) return "messages";
   if (pathname.startsWith("/app/support")) return "support";
   if (pathname.startsWith("/app/account")) return "account";
   if (pathname.startsWith("/app/identity")) return "identity";
@@ -308,6 +311,7 @@ function showAccount(account) {
     openPanel("home", "الخدمات", { updateRoute: false });
   } else {
     openPanel(initialView, "", { updateRoute: false });
+    if (initialView === "messages") loadConversation();
   }
   loadAccountCatalog();
   loadDashboard();
@@ -699,6 +703,67 @@ async function submitRechargeProof(event) {
   }
 }
 
+function renderConversation(payload) {
+  const thread = $("#conversation-thread");
+  if (!thread) return;
+  const messages = payload.messages || [];
+  thread.classList.toggle("empty", !messages.length);
+  thread.innerHTML = messages.length
+    ? messages.map((row) => `
+        <div class="chat-bubble ${row.actor === "support" ? "is-support" : "is-mine"}">
+          ${row.order_ref ? `<span class="chat-order-ref">طلب: ${esc(row.order_ref)}</span>` : ""}
+          <p>${esc(row.text || "")}</p>
+          <span class="chat-time">${esc(row.created_at || "")}</span>
+        </div>`).join("")
+    : "ابدأ المحادثة مع فريق Phantom — اكتب رسالتك بالأسفل.";
+  thread.scrollTop = thread.scrollHeight;
+  updateMessagesBadge(0);
+}
+
+async function loadConversation() {
+  const thread = $("#conversation-thread");
+  if (!thread) return;
+  try {
+    const payload = await api("/api/v1/auth/conversation");
+    renderConversation(payload);
+  } catch (error) {
+    thread.classList.remove("empty");
+    thread.textContent = error.message || "تعذر تحميل المحادثة.";
+  }
+}
+
+async function submitConversationMessage(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = $("#conversation-message");
+  const button = form.querySelector("button[type='submit']");
+  const field = form.elements.text;
+  const text = String(field?.value || "").trim();
+  if (!text) return;
+  if (button) button.disabled = true;
+  if (message) message.textContent = "";
+  try {
+    const payload = await api("/api/v1/auth/conversation/messages", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+    if (field) field.value = "";
+    renderConversation(payload);
+  } catch (error) {
+    if (message) message.textContent = error.message || "تعذر إرسال الرسالة.";
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function updateMessagesBadge(count) {
+  const badge = $("#messages-nav-badge");
+  if (!badge) return;
+  const value = Number(count || 0);
+  badge.textContent = String(value);
+  badge.hidden = value <= 0;
+}
+
 function renderSupportOptions(payload) {
   const target = $("#support-list");
   const categorySelect = $("#support-category-select");
@@ -896,7 +961,7 @@ const ownerGroupTargets = {
   overview: ["owner-metrics", "owner-queues", "owner-sections"],
   finance: ["owner-finance-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-finance-audit", "owner-reseller-deposit-tools", "owner-reseller-management"],
   users: ["owner-user-management", "owner-identity-reviews"],
-  support: ["owner-support-tickets"],
+  support: ["owner-support-tickets", "owner-conversations"],
   integrations: ["owner-api-tools", "owner-bot-creation-reviews", "owner-bot-tools"],
   providers: ["owner-provider-diagnostics"],
   catalog: ["owner-custom-catalog"],
@@ -918,6 +983,7 @@ const ownerLoadingLabels = {
   "owner-user-management": "جاري تحميل المستخدمين...",
   "owner-identity-reviews": "جاري تحميل مراجعات الهوية...",
   "owner-support-tickets": "جاري تحميل تذاكر الدعم...",
+  "owner-conversations": "جاري تحميل المحادثات...",
   "owner-api-tools": "جاري تحميل أدوات API...",
   "owner-bot-creation-reviews": "جاري تحميل مراجعات إنشاء البوتات...",
   "owner-provider-diagnostics": "جاري تحميل تشخيص المزودين...",
@@ -962,6 +1028,7 @@ function ownerRequestMap() {
     },
     support: {
       support: () => ownerApi(`/api/v1/owner/support-tickets?status=${encodeURIComponent(supportFilter)}&limit=30`),
+      conversations: () => ownerApi("/api/v1/owner/conversations?limit=30"),
     },
     integrations: {
       apiKeys: () => ownerApi("/api/v1/owner/api-keys?status=all&limit=30"),
@@ -1070,6 +1137,7 @@ function ownerPagedRequest(key, offset) {
   if (key === "recharge") return ownerApi(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent($("#owner-recharge-filter")?.value || "pending")}&${params}`);
   if (key === "identity") return ownerApi(`/api/v1/owner/identity-reviews?status=${encodeURIComponent($("#owner-identity-filter")?.value || "pending")}&${params}`);
   if (key === "support") return ownerApi(`/api/v1/owner/support-tickets?status=${encodeURIComponent($("#owner-support-filter")?.value || "open")}&${params}`);
+  if (key === "conversations") return ownerApi(`/api/v1/owner/conversations?${params}`);
   if (key === "botCreationReviews") return ownerApi(`/api/v1/owner/bot-creation-reviews?status=${encodeURIComponent($("#owner-bot-review-filter")?.value || "pending")}&${params}`);
   if (key === "bots") return ownerApi(`/api/v1/owner/bots?status=all&${params}`);
   throw new Error("Unsupported owner list.");
@@ -1087,6 +1155,7 @@ async function loadMoreOwnerList(button) {
       recharge: renderOwnerRechargeReviews,
       identity: renderOwnerIdentityReviews,
       support: renderOwnerSupportTickets,
+      conversations: renderOwnerConversations,
       botCreationReviews: renderOwnerBotCreationReviews,
       bots: renderOwnerBotTools,
     };
@@ -1197,6 +1266,7 @@ async function loadOwnerDashboardIsolated() {
   if (requested("users")) { clearOwnerBusy("owner-user-management"); data.users ? renderOwnerUserManagement(data.users) : fail("#owner-user-management", "تعذر تحميل المستخدمين."); }
   if (requested("identity")) { clearOwnerBusy("owner-identity-reviews"); data.identity ? renderOwnerIdentityReviews(data.identity) : fail("#owner-identity-reviews", "تعذر تحميل مراجعات الهوية."); }
   if (requested("support")) { clearOwnerBusy("owner-support-tickets"); data.support ? renderOwnerSupportTickets(data.support) : fail("#owner-support-tickets", "تعذر تحميل تذاكر الدعم."); }
+  if (requested("conversations")) { clearOwnerBusy("owner-conversations"); data.conversations ? renderOwnerConversations(data.conversations) : fail("#owner-conversations", "تعذر تحميل المحادثات."); }
   if (requested("apiKeys") || requested("webhooks")) { clearOwnerBusy("owner-api-tools"); data.apiKeys && data.webhooks ? renderOwnerApiTools(data.apiKeys, data.webhooks) : fail("#owner-api-tools", "تعذر تحميل أدوات API."); }
   if (requested("botCreationReviews")) { clearOwnerBusy("owner-bot-creation-reviews"); data.botCreationReviews ? renderOwnerBotCreationReviews(data.botCreationReviews) : fail("#owner-bot-creation-reviews", "تعذر تحميل مراجعات إنشاء البوتات."); }
   if (requested("providers") || requested("providerEvents") || requested("sources")) {
@@ -1987,6 +2057,97 @@ async function runOwnerSupportAttachment(event) {
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
   finally { button.disabled = false; }
+}
+
+function renderOwnerConversations(payload, append = false) {
+  const target = $("#owner-conversations");
+  if (!target) return;
+  const rows = ownerPagedItems("conversations", payload, "conversations", append);
+  target.classList.toggle("empty", !rows.length);
+  target.innerHTML = rows.length ? rows.map((row) => `
+    <article class="owner-review-card" data-conversation-id="${esc(row.id)}">
+      <div class="owner-order-head">
+        <div><strong>${esc(row.customer_email || "زبون")}</strong><span>#${esc(row.customer_id)}</span></div>
+        ${Number(row.unread) > 0 ? `<b class="owner-unread">${esc(row.unread)} جديد</b>` : `<b>${esc(row.last_message_at || "")}</b>`}
+      </div>
+      <div class="owner-order-meta"><span>${esc(row.last_message_by === "owner" ? "أنت" : row.last_message_by === "customer" ? "الزبون" : "—")}: ${esc(row.last_message_preview || "لا توجد رسائل بعد")}</span></div>
+      <div class="owner-support-conversation" hidden></div>
+      <form class="owner-support-reply" data-owner-conversation-reply="${esc(row.id)}">
+        <input name="text" required minlength="1" maxlength="3500" placeholder="اكتب رسالة للزبون">
+        <button class="secondary compact" type="submit">إرسال</button>
+      </form>
+      <div class="owner-order-actions"><button class="secondary compact" type="button" data-owner-conversation-detail="${esc(row.id)}">عرض المحادثة</button></div>
+    </article>`).join("") : '<div class="notice">لا توجد محادثات بعد. افتح محادثة من زر "راسل الزبون" داخل أي طلب.</div>';
+  target.querySelectorAll("[data-owner-conversation-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerConversationDetail(button.dataset.ownerConversationDetail, button.closest(".owner-review-card"))));
+  target.querySelectorAll("[data-owner-conversation-reply]").forEach((form) => form.addEventListener("submit", runOwnerConversationReply));
+  target.insertAdjacentHTML("beforeend", ownerPaginationButton("conversations", payload.pagination, "Load more conversations"));
+  bindOwnerPagination(target);
+}
+
+function renderOwnerConversationMessages(container, messages) {
+  if (!container) return;
+  container.hidden = false;
+  container.innerHTML = messages.length ? messages.map((message) => `
+    <div class="chat-bubble ${message.actor === "owner" ? "is-mine" : "is-support"}">
+      ${message.order_ref ? `<span class="chat-order-ref">طلب: ${esc(message.order_ref)}</span>` : ""}
+      <p>${esc(message.text || "")}</p>
+      <span class="chat-time">${esc(message.created_at || "")}</span>
+    </div>`).join("") : '<div class="notice">لا توجد رسائل بعد.</div>';
+  container.scrollTop = container.scrollHeight;
+}
+
+async function loadOwnerConversationDetail(conversationId, card) {
+  const container = card?.querySelector(".owner-support-conversation");
+  try {
+    const payload = await ownerApi(`/api/v1/owner/conversations/${encodeURIComponent(conversationId)}`);
+    renderOwnerConversationMessages(container, payload.messages || []);
+    card?.querySelector(".owner-unread")?.remove();
+  } catch (error) {
+    setText("#owner-message", error.message);
+  }
+}
+
+async function runOwnerConversationReply(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  const card = form.closest(".owner-review-card");
+  const conversationId = form.dataset.ownerConversationReply;
+  button.disabled = true;
+  try {
+    const payload = await ownerApi(`/api/v1/owner/conversations/${encodeURIComponent(conversationId)}/messages`, {method: "POST", body: JSON.stringify({text: form.elements.text.value})});
+    form.reset();
+    renderOwnerConversationMessages(card?.querySelector(".owner-support-conversation"), payload.messages || []);
+    setText("#owner-message", "تم إرسال الرسالة للزبون.");
+  } catch (error) { setText("#owner-message", error.message); }
+  finally { button.disabled = false; }
+}
+
+async function startOwnerConversationFromOrder(customerId, orderRef) {
+  const numericId = Number(customerId);
+  if (!numericId) return setText("#owner-message", "لا يوجد معرّف زبون لهذا الطلب.");
+  try {
+    const payload = await ownerApi("/api/v1/owner/conversations/start", {
+      method: "POST",
+      body: JSON.stringify({ customer_id: numericId, order_ref: orderRef || "" }),
+    });
+    const conversationId = payload.conversation?.id;
+    openPanel("owner", ownerTabTitles.support || "لوحة الإدارة", { updateRoute: false });
+    applyOwnerTab("support");
+    await loadOwnerDashboard();
+    const card = document.querySelector(`#owner-conversations [data-conversation-id="${conversationId}"]`);
+    if (card) {
+      card.querySelector("[data-owner-conversation-detail]")?.click();
+      const input = card.querySelector("[data-owner-conversation-reply] input[name='text']");
+      if (input && orderRef) input.value = `بخصوص الطلب ${orderRef}: `;
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      input?.focus();
+    } else {
+      setText("#owner-message", "تم فتح المحادثة. ابحث عنها في قائمة المحادثات.");
+    }
+  } catch (error) {
+    setText("#owner-message", error.message);
+  }
 }
 
 async function runOwnerSupportAction(button) {
@@ -3173,10 +3334,14 @@ function renderOwnerDigitalOrders(payload, append = false) {
       <div class="owner-digital-details">${ownerDigitalDetailRows(order)}</div>
       <details><summary>بيانات العميل</summary><pre>${esc(JSON.stringify(order.customer_data || {}, null, 2))}</pre></details>
       ${ownerDigitalActionButtons(order, closed)}
+      ${order.owner_details?.user_id ? `<div class="owner-order-actions"><button class="secondary compact" type="button" data-owner-message-customer="${esc(order.owner_details.user_id)}" data-order-ref="${esc(order.id || "")}">💬 راسل الزبون</button></div>` : ""}
     </article>`;
   }).join("") : '<div class="notice">لا توجد طلبات رقمية ضمن هذا الفلتر.</div>';
   target.querySelectorAll("[data-owner-order]").forEach((button) => {
     button.addEventListener("click", () => runOwnerDigitalAction(button));
+  });
+  target.querySelectorAll("[data-owner-message-customer]").forEach((button) => {
+    button.addEventListener("click", () => startOwnerConversationFromOrder(button.dataset.ownerMessageCustomer, button.dataset.orderRef));
   });
   target.insertAdjacentHTML("beforeend", ownerPaginationButton("digital", payload.pagination, "Load more digital orders"));
   bindOwnerPagination(target);
@@ -4227,8 +4392,11 @@ document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
       setWorkspaceTheme("");
     }
     openPanel(view, button.textContent.trim());
+    if (view === "messages") loadConversation();
   });
 });
+
+$("#conversation-form")?.addEventListener("submit", submitConversationMessage);
 
 document.querySelectorAll("[data-open-service]").forEach((button) => {
   button.addEventListener("click", () => openService(button.dataset.openService));
@@ -4536,4 +4704,4 @@ async function logout() {
 $("#logout-button").addEventListener("click", logout);
 $("#verify-logout-button").addEventListener("click", logout);
 
-api("/api/v1/auth/me").then((data) => showAccount(data.account)).catch(() => {});
+api("/api/v1/auth/me").then((data) => { showAccount(data.account); updateMessagesBadge(data.conversation_unread); }).catch(() => {});

@@ -40,6 +40,14 @@ from database.website_auth_repo import (
     update_website_account_language,
     update_website_account_password,
 )
+from database.customer_conversations_repo import (
+    DIRECTION_CUSTOMER,
+    append_message as _conversation_append_message,
+    get_conversation_for_customer,
+    get_or_create_conversation,
+    list_messages as _conversation_list_messages,
+    mark_conversation_read,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -379,7 +387,9 @@ async def login(request: web.Request) -> web.Response:
 async def me(request: web.Request) -> web.Response:
     auth = await require_website_auth(request)
     account = await find_website_account_by_id(auth.account_id)
-    return web.json_response({"account": _public_account(account or {})})
+    conversation = await get_conversation_for_customer(auth.customer_id)
+    unread = int((conversation or {}).get("customer_unread") or 0)
+    return web.json_response({"account": _public_account(account or {}), "conversation_unread": unread})
 
 
 async def logout(request: web.Request) -> web.Response:
@@ -582,6 +592,86 @@ def _parse_identity_document(value: Any) -> tuple[bytes, str]:
     return raw, mime
 
 
+_CONVERSATION_MESSAGE_MAX = 3500
+
+
+def _conversation_message_payload(row: dict[str, Any]) -> dict[str, Any]:
+    direction = str(row.get("direction") or "")
+    created_at = row.get("created_at")
+    return {
+        "id": str(row.get("_id") or ""),
+        "actor": "support" if direction == "owner_to_customer" else "you",
+        "text": str(row.get("text") or ""),
+        "order_ref": str(row.get("order_ref") or ""),
+        "created_at": created_at.isoformat() if isinstance(created_at, datetime) else "",
+    }
+
+
+def _conversation_payload(conversation: dict[str, Any]) -> dict[str, Any]:
+    last_at = conversation.get("last_message_at")
+    return {
+        "id": str(conversation.get("_id") or ""),
+        "status": str(conversation.get("status") or "open"),
+        "unread": int(conversation.get("customer_unread") or 0),
+        "last_message_at": last_at.isoformat() if isinstance(last_at, datetime) else "",
+    }
+
+
+async def conversation_detail(request: web.Request) -> web.Response:
+    auth = await require_website_auth(request)
+    account = await find_website_account_by_id(auth.account_id) or {}
+    conversation = await get_or_create_conversation(
+        customer_id=auth.customer_id,
+        account_id=auth.account_id,
+        customer_email=str(account.get("email") or auth.email or ""),
+    )
+    rows = await _conversation_list_messages(conversation["_id"])
+    await mark_conversation_read(conversation["_id"], side="customer")
+    return web.json_response(
+        {
+            "ok": True,
+            "conversation": {**_conversation_payload(conversation), "unread": 0},
+            "messages": [_conversation_message_payload(row) for row in rows],
+        }
+    )
+
+
+async def conversation_send_message(request: web.Request) -> web.Response:
+    auth = await require_website_auth(request)
+    await _enforce_rate_limit(request, bucket="conversation_send", discriminator=auth.account_id, limit=30)
+    body = await _read_json_body(request)
+    if isinstance(body, web.Response):
+        return body
+    text = " ".join(str(body.get("text") or "").strip().split())
+    if len(text) < 1:
+        raise web.HTTPBadRequest(text="empty message")
+    if len(text) > _CONVERSATION_MESSAGE_MAX:
+        text = text[:_CONVERSATION_MESSAGE_MAX]
+    order_ref = str(body.get("order_ref") or "").strip()[:120]
+    account = await find_website_account_by_id(auth.account_id) or {}
+    conversation = await get_or_create_conversation(
+        customer_id=auth.customer_id,
+        account_id=auth.account_id,
+        customer_email=str(account.get("email") or auth.email or ""),
+    )
+    await _conversation_append_message(
+        conversation,
+        direction=DIRECTION_CUSTOMER,
+        actor_id=auth.customer_id,
+        text=text,
+        order_ref=order_ref,
+    )
+    rows = await _conversation_list_messages(conversation["_id"])
+    return web.json_response(
+        {
+            "ok": True,
+            "conversation": {**_conversation_payload(conversation), "unread": 0},
+            "messages": [_conversation_message_payload(row) for row in rows],
+        },
+        status=201,
+    )
+
+
 async def consume_telegram_link(payload: str, *, telegram_id: int) -> dict[str, Any]:
     raw_token = str(payload or "").strip()
     if raw_token.startswith("link_"):
@@ -656,3 +746,5 @@ def register_website_auth_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/auth/email/verify", verify_email_code)
     app.router.add_get("/api/v1/auth/identity", identity_status)
     app.router.add_post("/api/v1/auth/identity", submit_identity)
+    app.router.add_get("/api/v1/auth/conversation", conversation_detail)
+    app.router.add_post("/api/v1/auth/conversation/messages", conversation_send_message)
