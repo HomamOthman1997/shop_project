@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <title>تسجيل الدخول | Phantom</title>
-  <link rel="stylesheet" href="/auth/static/styles.css?v=20260616-chat2">
+  <link rel="stylesheet" href="/auth/static/styles.css?v=20260616-notif">
   <script src="/auth/static/i18n.js" defer></script>
-  <script src="/auth/static/app.js?v=20260616-chat2" defer></script>
+  <script src="/auth/static/app.js?v=20260616-notif" defer></script>
 </head>
 <body>
   <main class="auth-shell">
@@ -90,6 +90,7 @@
               <button class="nav-item" data-view="orders">طلباتي</button>
               <button class="nav-item" data-view="recharge">شحن الرصيد</button>
               <button class="nav-item" data-view="messages">مراسلة<span id="messages-nav-badge" class="nav-badge" hidden>0</span></button>
+              <button class="nav-item" data-view="notifications">🔔 التنبيهات<span id="notifications-nav-badge" class="nav-badge" hidden>0</span></button>
               <button class="nav-item" data-view="support">الدعم</button>
               <button class="nav-item" data-view="account">حسابي</button>
               <button class="nav-item" data-view="identity">تأكيد الهوية</button>
@@ -183,6 +184,11 @@
               <p id="conversation-message" class="message" role="status"></p>
             </section>
 
+            <section class="app-view" data-panel="notifications">
+              <div class="section-head"><div><h3>التنبيهات</h3><p>كل جديد على طلباتك، رصيدك، هويتك، ورسائلك في مكان واحد.</p></div></div>
+              <div id="notifications-list" class="data-list empty">جاري تحميل التنبيهات...</div>
+            </section>
+
             <section class="app-view" data-panel="account">
               <div class="section-head"><div><h3>حسابي</h3><p>إدارة الوصول والربط.</p></div></div>
               <div class="settings-row"><div><strong>البريد الإلكتروني</strong><span id="settings-email"></span></div><b id="email-status">مؤكد</b></div>
@@ -269,6 +275,11 @@
                 <button class="admin-tab" type="button" data-owner-tab="orders">الطلبات</button>
               </nav>
               <div id="owner-metrics" class="owner-metrics empty">جاري تحميل المؤشرات...</div>
+              <div class="section-head activity-head">
+                <div><h3>التنبيهات</h3><p>كل حدث جديد: طلبات، شحن، هويات، ورسائل الزبائن.</p></div>
+                <button id="owner-notifications-read" class="secondary compact" type="button">تعليم الكل كمقروء</button>
+              </div>
+              <div id="owner-notifications" class="owner-review-list empty">جاري تحميل التنبيهات...</div>
               <div class="section-head activity-head">
                 <div><h3>المالية والتسعير</h3><p>إعدادات مشتركة بين الموقع والبوتات وتطبق مباشرة على عمليات الشراء.</p></div>
               </div>

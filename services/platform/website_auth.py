@@ -48,6 +48,13 @@ from database.customer_conversations_repo import (
     list_messages as _conversation_list_messages,
     mark_conversation_read,
 )
+from database.notifications_repo import (
+    RECIPIENT_CUSTOMER,
+    list_notifications as _list_notifications,
+    mark_all_read as _notifications_mark_all_read,
+    notify_owner,
+    unread_count as _notifications_unread_count,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -389,7 +396,14 @@ async def me(request: web.Request) -> web.Response:
     account = await find_website_account_by_id(auth.account_id)
     conversation = await get_conversation_for_customer(auth.customer_id)
     unread = int((conversation or {}).get("customer_unread") or 0)
-    return web.json_response({"account": _public_account(account or {}), "conversation_unread": unread})
+    notifications_unread = await _notifications_unread_count(recipient_type=RECIPIENT_CUSTOMER, recipient_id=auth.customer_id)
+    return web.json_response(
+        {
+            "account": _public_account(account or {}),
+            "conversation_unread": unread,
+            "notifications_unread": int(notifications_unread),
+        }
+    )
 
 
 async def logout(request: web.Request) -> web.Response:
@@ -569,6 +583,13 @@ async def submit_identity(request: web.Request) -> web.Response:
         account_id=auth.account_id,
         created_at=now,
     )
+    await notify_owner(
+        kind="identity",
+        title="طلب تأكيد هوية جديد",
+        body=full_name,
+        link="/admin/users",
+        meta={"customer_id": auth.customer_id, "request_id": request_id},
+    )
     return web.json_response({"ok": True, "status": "pending"}, status=201)
 
 
@@ -662,6 +683,14 @@ async def conversation_send_message(request: web.Request) -> web.Response:
         order_ref=order_ref,
     )
     rows = await _conversation_list_messages(conversation["_id"])
+    # Let the owner know a customer wrote in.
+    await notify_owner(
+        kind="conversation",
+        title="رسالة جديدة من زبون",
+        body=text[:120],
+        link="/admin/support",
+        meta={"customer_id": auth.customer_id, "conversation_id": str(conversation.get("_id") or "")},
+    )
     return web.json_response(
         {
             "ok": True,
@@ -670,6 +699,34 @@ async def conversation_send_message(request: web.Request) -> web.Response:
         },
         status=201,
     )
+
+
+def _notification_payload(row: dict[str, Any]) -> dict[str, Any]:
+    created_at = row.get("created_at")
+    return {
+        "id": str(row.get("_id") or ""),
+        "kind": str(row.get("kind") or ""),
+        "title": str(row.get("title") or ""),
+        "body": str(row.get("body") or ""),
+        "link": str(row.get("link") or ""),
+        "read": bool(row.get("read")),
+        "created_at": created_at.isoformat() if isinstance(created_at, datetime) else "",
+    }
+
+
+async def notifications_list(request: web.Request) -> web.Response:
+    auth = await require_website_auth(request)
+    rows = await _list_notifications(recipient_type=RECIPIENT_CUSTOMER, recipient_id=auth.customer_id, limit=40)
+    unread = await _notifications_unread_count(recipient_type=RECIPIENT_CUSTOMER, recipient_id=auth.customer_id)
+    return web.json_response(
+        {"ok": True, "unread": int(unread), "notifications": [_notification_payload(row) for row in rows]}
+    )
+
+
+async def notifications_mark_read(request: web.Request) -> web.Response:
+    auth = await require_website_auth(request)
+    await _notifications_mark_all_read(recipient_type=RECIPIENT_CUSTOMER, recipient_id=auth.customer_id)
+    return web.json_response({"ok": True, "unread": 0})
 
 
 async def consume_telegram_link(payload: str, *, telegram_id: int) -> dict[str, Any]:
@@ -748,3 +805,5 @@ def register_website_auth_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/auth/identity", submit_identity)
     app.router.add_get("/api/v1/auth/conversation", conversation_detail)
     app.router.add_post("/api/v1/auth/conversation/messages", conversation_send_message)
+    app.router.add_get("/api/v1/auth/notifications", notifications_list)
+    app.router.add_post("/api/v1/auth/notifications/read", notifications_mark_read)

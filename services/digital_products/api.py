@@ -19,6 +19,7 @@ from bson import ObjectId
 from config import settings
 from database.financial_ledger import create_order_v3, get_user_wallet_balance, list_user_wallet_entries
 from database.mongo import db
+from database.notifications_repo import notify_customer, notify_owner
 from database.orders_repo import extract_order_amounts, update_order_details, update_order_status
 from database.user_repo import get_user
 from services.digital_products.catalog_service import digital_provider_enabled, extract_provider_offers, get_catalog_snapshot, get_game_topups
@@ -617,9 +618,28 @@ def _manual_status_text(lang: str, *, item_name: str, order_id: str, status: str
     return ""
 
 
+_MANUAL_STATUS_NOTIFY_TITLES = {
+    "processing": "طلبك قيد التنفيذ",
+    "completed": "تم تنفيذ طلبك بنجاح",
+    "refunded": "تم استرجاع مبلغ طلبك",
+}
+
+
 async def _notify_manual_order_user(order: dict[str, Any], *, status: str) -> bool:
-    token = str(getattr(settings, "bot_digital_products_token", "") or getattr(settings, "bot_main_token", "") or "").strip()
     user_id = int((order or {}).get("user_id") or 0)
+    item_label = str((order or {}).get("manual_item_name") or (order or {}).get("manual_game_name") or (order or {}).get("game_name") or "المنتج")
+    notify_title = _MANUAL_STATUS_NOTIFY_TITLES.get(str(status or "").strip().lower())
+    if notify_title:
+        # In-app notification mirror — reaches website customers without Telegram.
+        await notify_customer(
+            user_id,
+            kind="order",
+            title=notify_title,
+            body=item_label,
+            link="/app/orders",
+            meta={"order_id": str((order or {}).get("_id") or "")},
+        )
+    token = str(getattr(settings, "bot_digital_products_token", "") or getattr(settings, "bot_main_token", "") or "").strip()
     if not token or user_id <= 0:
         return False
     user_doc = await get_user(user_id) or {}
@@ -731,11 +751,19 @@ def _manual_execution_lines(offers: list[dict[str, Any]]) -> list[str]:
 
 
 async def _notify_owner_manual_order(order: dict[str, Any], *, player_data: dict[str, str], offers: list[dict[str, Any]]) -> bool:
+    order_id = str(order.get("_id") or "")
+    # In-app owner notification (independent of Telegram delivery).
+    await notify_owner(
+        kind="order",
+        title="طلب يدوي جديد بانتظار التنفيذ",
+        body=str(order.get("manual_item_name") or order.get("manual_game_name") or "منتج رقمي"),
+        link="/admin/orders",
+        meta={"order_id": order_id, "customer_id": int(order.get("user_id") or 0)},
+    )
     token = str(getattr(settings, "bot_digital_products_token", "") or getattr(settings, "bot_main_token", "") or "").strip()
     owner_id = int(getattr(settings, "owner_id", 0) or 0)
     if not token or owner_id <= 0:
         return False
-    order_id = str(order.get("_id") or "")
     lines = [
         "Manual digital top-up pending",
         f"Order: {order_id}",

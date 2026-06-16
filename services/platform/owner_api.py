@@ -66,6 +66,14 @@ from database.customer_conversations_repo import (
     mark_conversation_read,
     owner_conversations_cursor,
 )
+from database.notifications_repo import (
+    RECIPIENT_OWNER,
+    OWNER_RECIPIENT_ID,
+    list_notifications as _list_notifications,
+    mark_all_read as _notifications_mark_all_read,
+    notify_customer,
+    unread_count as _notifications_unread_count,
+)
 from database.numbers_config_repo import get_numbers_markup_percent, set_numbers_markup_percent
 from database.owner_payment_settings_repo import (
     get_owner_exchange_rate,
@@ -2613,6 +2621,15 @@ async def owner_identity_review_action(request: web.Request) -> web.Response:
         target_id=_text(review.get("_id") or request.match_info.get("review_id")),
         metadata={"customer_id": customer_id, "status": review.get("status")},
     )
+    if customer_id is not None:
+        approved = action == "approve"
+        await notify_customer(
+            int(customer_id),
+            kind="identity",
+            title="تم قبول هويتك" if approved else "تم رفض طلب الهوية",
+            body="" if approved else (note or "يرجى إعادة الإرسال بصورة أوضح."),
+            link="/app/identity",
+        )
     return web.json_response({"ok": True, "review": _identity_payload(review)}, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -2693,6 +2710,14 @@ async def owner_conversation_send(request: web.Request) -> web.Response:
         target_id=_text(conversation.get("_id")),
         metadata={"customer_id": int(conversation.get("customer_id") or 0), "order_ref": order_ref},
     )
+    await notify_customer(
+        int(conversation.get("customer_id") or 0),
+        kind="conversation",
+        title="رسالة جديدة من الدعم",
+        body=text[:120],
+        link="/app/messages",
+        meta={"conversation_id": _text(conversation.get("_id"))},
+    )
     rows = await _conversation_list_messages(conversation["_id"])
     return web.json_response(
         {
@@ -2732,6 +2757,34 @@ async def owner_conversation_start(request: web.Request) -> web.Response:
         {"ok": True, "conversation": _conversation_inbox_payload(conversation)},
         headers=dict(_NO_STORE_HEADERS),
     )
+
+
+def _owner_notification_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": _text(row.get("_id")),
+        "kind": _text(row.get("kind")),
+        "title": _text(row.get("title")),
+        "body": _text(row.get("body")),
+        "link": _text(row.get("link")),
+        "read": bool(row.get("read")),
+        "created_at": _date_text(row.get("created_at")),
+    }
+
+
+async def owner_notifications(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    rows = await _list_notifications(recipient_type=RECIPIENT_OWNER, recipient_id=OWNER_RECIPIENT_ID, limit=40)
+    unread = await _notifications_unread_count(recipient_type=RECIPIENT_OWNER, recipient_id=OWNER_RECIPIENT_ID)
+    return web.json_response(
+        {"ok": True, "unread": int(unread), "notifications": [_owner_notification_payload(row) for row in rows]},
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_notifications_read(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    await _notifications_mark_all_read(recipient_type=RECIPIENT_OWNER, recipient_id=OWNER_RECIPIENT_ID)
+    return web.json_response({"ok": True, "unread": 0}, headers=dict(_NO_STORE_HEADERS))
 
 
 def _support_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -3436,6 +3489,8 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/identity-reviews", owner_identity_reviews)
     app.router.add_get("/api/v1/owner/identity-reviews/{review_id}/document", owner_identity_document)
     app.router.add_post("/api/v1/owner/identity-reviews/{review_id}/action", owner_identity_review_action)
+    app.router.add_get("/api/v1/owner/notifications", owner_notifications)
+    app.router.add_post("/api/v1/owner/notifications/read", owner_notifications_read)
     app.router.add_get("/api/v1/owner/conversations", owner_conversations)
     app.router.add_post("/api/v1/owner/conversations/start", owner_conversation_start)
     app.router.add_get("/api/v1/owner/conversations/{conversation_id}", owner_conversation_detail)

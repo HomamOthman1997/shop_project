@@ -104,11 +104,16 @@ def test_all_mutating_owner_routes_write_an_audit_event():
     app = web.Application()
     owner_api.register_owner_api_routes(app)
 
+    # Personal UI read-state toggles do not change customer-facing state and are
+    # intentionally not audited.
+    audit_exempt = {"/api/v1/owner/notifications/read"}
     missing_audit = []
     for route in app.router.routes():
         if route.method not in {"POST", "PUT", "PATCH", "DELETE"}:
             continue
         if not route.resource.canonical.startswith("/api/v1/owner/"):
+            continue
+        if route.resource.canonical in audit_exempt:
             continue
         tree = ast.parse(textwrap.dedent(inspect.getsource(route.handler)))
         calls = {
@@ -1337,6 +1342,30 @@ async def test_owner_conversation_start_finds_or_creates(monkeypatch):
     assert captured["customer_id"] == 900000000123
     assert payload["conversation"]["customer_id"] == 900000000123
     assert payload["conversation"]["unread"] == 2
+
+
+@pytest.mark.asyncio
+async def test_owner_notifications_list(monkeypatch):
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    async def list_notifications(*, recipient_type, recipient_id, limit=30):
+        assert recipient_type == "owner"
+        return [{"_id": "n1", "kind": "order", "title": "طلب يدوي جديد", "body": "PUBG", "link": "/admin/orders", "read": False, "created_at": None}]
+
+    async def unread(*, recipient_type, recipient_id):
+        return 5
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_list_notifications", list_notifications)
+    monkeypatch.setattr(owner_api, "_notifications_unread_count", unread)
+
+    response = await owner_api.owner_notifications(make_mocked_request("GET", "/api/v1/owner/notifications"))
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["unread"] == 5
+    assert payload["notifications"][0]["link"] == "/admin/orders"
 
 
 @pytest.mark.asyncio

@@ -1249,6 +1249,46 @@ async def test_customer_conversation_send_creates_thread(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_customer_notifications_list_and_mark_read(monkeypatch):
+    async def auth(_request):
+        return website_auth.WebsiteAuthContext(
+            account_id="account-1",
+            customer_id=900000000001,
+            email="user@example.com",
+            telegram_id=None,
+            session_token_hash="hash",
+        )
+
+    marked: dict = {}
+
+    async def list_notifications(*, recipient_type, recipient_id, limit=30):
+        assert recipient_type == "customer"
+        assert recipient_id == 900000000001
+        return [{"_id": "n1", "kind": "order", "title": "تم تنفيذ طلبك", "body": "PUBG", "link": "/app/orders", "read": False, "created_at": None}]
+
+    async def unread(*, recipient_type, recipient_id):
+        return 3
+
+    async def mark_all_read(*, recipient_type, recipient_id):
+        marked.update({"type": recipient_type, "id": recipient_id})
+
+    monkeypatch.setattr(website_auth, "require_website_auth", auth)
+    monkeypatch.setattr(website_auth, "_list_notifications", list_notifications)
+    monkeypatch.setattr(website_auth, "_notifications_unread_count", unread)
+    monkeypatch.setattr(website_auth, "_notifications_mark_all_read", mark_all_read)
+
+    listed = await website_auth.notifications_list(raw_request("GET", "/api/v1/auth/notifications", "{}"))
+    body = json.loads(listed.text)
+    assert body["unread"] == 3
+    assert body["notifications"][0]["kind"] == "order"
+    assert body["notifications"][0]["link"] == "/app/orders"
+
+    read = await website_auth.notifications_mark_read(raw_request("POST", "/api/v1/auth/notifications/read", "{}"))
+    assert json.loads(read.text)["unread"] == 0
+    assert marked == {"type": "customer", "id": 900000000001}
+
+
+@pytest.mark.asyncio
 async def test_require_website_purchase_ready_rejects_unverified_cookie_account(monkeypatch):
     async def auth(_request):
         return website_auth.WebsiteAuthContext(

@@ -61,6 +61,7 @@ const customerRoutes = {
   orders: "/app/orders",
   recharge: "/app/recharge",
   messages: "/app/messages",
+  notifications: "/app/notifications",
   support: "/app/support",
   account: "/app/account",
   identity: "/app/identity",
@@ -84,6 +85,7 @@ const customerViewTitles = {
   orders: "طلباتي",
   recharge: "شحن الرصيد",
   messages: "مراسلة",
+  notifications: "التنبيهات",
   support: "الدعم",
   account: "حسابي",
   identity: "تأكيد الهوية",
@@ -119,6 +121,7 @@ function viewForPath(pathname = window.location.pathname) {
   if (pathname.startsWith("/app/orders")) return "orders";
   if (pathname.startsWith("/app/recharge")) return "recharge";
   if (pathname.startsWith("/app/messages")) return "messages";
+  if (pathname.startsWith("/app/notifications")) return "notifications";
   if (pathname.startsWith("/app/support")) return "support";
   if (pathname.startsWith("/app/account")) return "account";
   if (pathname.startsWith("/app/identity")) return "identity";
@@ -787,6 +790,60 @@ function updateMessagesBadge(count) {
   badge.hidden = value <= 0;
 }
 
+function updateNotificationsBadge(count) {
+  const badge = $("#notifications-nav-badge");
+  if (!badge) return;
+  const value = Number(count || 0);
+  badge.textContent = value > 99 ? "99+" : String(value);
+  badge.hidden = value <= 0;
+}
+
+const notificationIcons = { order: "📦", recharge: "💳", identity: "🪪", conversation: "💬" };
+
+function renderNotifications(payload) {
+  const target = $("#notifications-list");
+  if (!target) return;
+  const rows = payload.notifications || [];
+  target.classList.toggle("empty", !rows.length);
+  if (!rows.length) {
+    target.textContent = "لا توجد تنبيهات بعد.";
+    return;
+  }
+  target.innerHTML = rows.map((row) => `
+    <button class="data-row notification-row ${row.read ? "" : "is-unread"}" type="button" data-notification-link="${esc(row.link || "")}">
+      <div>
+        <strong>${esc(notificationIcons[row.kind] || "🔔")} ${esc(row.title || "")}</strong>
+        <span>${esc(row.body || "")}</span>
+      </div>
+      <small>${esc(row.created_at || "")}</small>
+    </button>`).join("");
+  target.querySelectorAll("[data-notification-link]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const view = viewForPath(button.dataset.notificationLink || "");
+      document.querySelector(`.nav-item[data-view="${view}"]`)?.click();
+    });
+  });
+}
+
+async function loadNotifications() {
+  const target = $("#notifications-list");
+  if (!target) return;
+  try {
+    const payload = await api("/api/v1/auth/notifications");
+    renderNotifications(payload);
+    // Opening the center clears the unread state.
+    if (Number(payload.unread || 0) > 0) {
+      await api("/api/v1/auth/notifications/read", { method: "POST" }).catch(() => {});
+    }
+    updateNotificationsBadge(0);
+  } catch (error) {
+    if (target.classList.contains("empty") || !target.childElementCount) {
+      target.classList.remove("empty");
+      target.textContent = error.message || "تعذر تحميل التنبيهات.";
+    }
+  }
+}
+
 function renderSupportOptions(payload) {
   const target = $("#support-list");
   const categorySelect = $("#support-category-select");
@@ -981,7 +1038,7 @@ const ownerShortcutTabs = {
 };
 
 const ownerGroupTargets = {
-  overview: ["owner-metrics", "owner-queues", "owner-sections"],
+  overview: ["owner-metrics", "owner-notifications", "owner-queues", "owner-sections"],
   finance: ["owner-finance-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-finance-audit", "owner-reseller-deposit-tools", "owner-reseller-management"],
   users: ["owner-user-management", "owner-identity-reviews"],
   support: ["owner-support-tickets", "owner-conversations"],
@@ -1007,6 +1064,7 @@ const ownerLoadingLabels = {
   "owner-identity-reviews": "جاري تحميل مراجعات الهوية...",
   "owner-support-tickets": "جاري تحميل تذاكر الدعم...",
   "owner-conversations": "جاري تحميل المحادثات...",
+  "owner-notifications": "جاري تحميل التنبيهات...",
   "owner-api-tools": "جاري تحميل أدوات API...",
   "owner-bot-creation-reviews": "جاري تحميل مراجعات إنشاء البوتات...",
   "owner-provider-diagnostics": "جاري تحميل تشخيص المزودين...",
@@ -1038,6 +1096,7 @@ function ownerRequestMap() {
     overview: {
       dashboard: () => ownerApi("/api/v1/owner/dashboard"),
       queues: () => ownerApi("/api/v1/owner/queues"),
+      notifications: () => ownerApi("/api/v1/owner/notifications?limit=40"),
     },
     finance: {
       settings: () => ownerApi("/api/v1/owner/settings"),
@@ -1249,6 +1308,7 @@ async function loadOwnerDashboardIsolated() {
     fail(metricsTarget, "تعذر تحميل مؤشرات المالك.");
     fail(sectionsTarget, "تعذر تحميل خصائص الإدارة.");
   }
+  if (requested("notifications")) { clearOwnerBusy("owner-notifications"); data.notifications ? renderOwnerNotifications(data.notifications) : fail("#owner-notifications", "تعذر تحميل التنبيهات."); }
   if (requested("queues") && data.queues) {
     clearOwnerBusy("owner-queues");
     const queues = Object.entries(data.queues.queues || {});
@@ -2080,6 +2140,36 @@ async function runOwnerSupportAttachment(event) {
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
   finally { button.disabled = false; }
+}
+
+function renderOwnerNotifications(payload) {
+  const target = $("#owner-notifications");
+  if (!target) return;
+  const rows = payload.notifications || [];
+  target.classList.toggle("empty", !rows.length);
+  target.innerHTML = rows.length ? rows.map((row) => `
+    <button class="data-row notification-row ${row.read ? "" : "is-unread"}" type="button" data-owner-notification-link="${esc(row.link || "")}">
+      <div>
+        <strong>${esc(notificationIcons[row.kind] || "🔔")} ${esc(row.title || "")}</strong>
+        <span>${esc(row.body || "")}</span>
+      </div>
+      <small>${esc(row.created_at || "")}</small>
+    </button>`).join("") : '<div class="notice">لا توجد تنبيهات بعد.</div>';
+  target.querySelectorAll("[data-owner-notification-link]").forEach((button) => {
+    button.addEventListener("click", () => openOwnerShortcut(ownerTabForPath(button.dataset.ownerNotificationLink || "")));
+  });
+  const badge = Number(payload.unread || 0);
+  const tab = document.querySelector('[data-owner-tab="overview"]');
+  if (tab) tab.dataset.unread = badge > 0 ? String(badge) : "";
+}
+
+async function markOwnerNotificationsRead() {
+  try {
+    await ownerApi("/api/v1/owner/notifications/read", { method: "POST" });
+    await loadOwnerDashboard();
+  } catch (error) {
+    setText("#owner-message", error.message);
+  }
 }
 
 function renderOwnerConversations(payload, append = false) {
@@ -4377,6 +4467,7 @@ function openPanel(view, title = "", options = {}) {
   if (options.updateRoute !== false && view !== "owner") pushRoute(routeForView(view));
   if (view === "messages") startConversationPolling();
   else stopConversationPolling();
+  if (view === "notifications") loadNotifications();
 }
 
 function openService(service) {
@@ -4550,6 +4641,7 @@ $("#owner-refunds-resolved")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-recharge-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-identity-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-support-filter")?.addEventListener("change", loadOwnerDashboard);
+$("#owner-notifications-read")?.addEventListener("click", markOwnerNotificationsRead);
 $("#owner-source-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-audit-days")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-bot-review-filter")?.addEventListener("change", loadOwnerDashboard);
@@ -4728,4 +4820,4 @@ async function logout() {
 $("#logout-button").addEventListener("click", logout);
 $("#verify-logout-button").addEventListener("click", logout);
 
-api("/api/v1/auth/me").then((data) => { showAccount(data.account); updateMessagesBadge(data.conversation_unread); }).catch(() => {});
+api("/api/v1/auth/me").then((data) => { showAccount(data.account); updateMessagesBadge(data.conversation_unread); updateNotificationsBadge(data.notifications_unread); }).catch(() => {});

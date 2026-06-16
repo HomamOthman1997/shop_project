@@ -1122,6 +1122,13 @@ button.owner-action-row {
 .owner-support-conversation { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; margin: 10px 0; padding: 10px; background: var(--surface-2, #f4f5f8); border-radius: 12px; }
 .owner-unread { background: var(--danger, #e5484d); color: #fff; padding: 2px 8px; border-radius: 9px; font-size: 12px; }
 
+/* Notification center */
+.notification-row { width: 100%; text-align: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--surface); }
+.notification-row:hover { border-color: var(--accent, #3858e9); }
+.notification-row.is-unread { background: var(--accent-soft, #eef2ff); border-inline-start: 3px solid var(--accent, #3858e9); }
+.notification-row strong { display: block; }
+.notification-row span { color: var(--muted); font-size: 13px; }
+
 .account-catalog { display: grid; gap: 20px; }
 .account-catalog-search {
   width: min(760px, 100%);
