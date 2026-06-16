@@ -78,6 +78,13 @@ async def bootstrap_custom_services_indexes() -> None:
     await db.custom_services.create_index([("reseller_id", 1), ("node_type", 1), ("is_active", 1)], background=True)
     await db.custom_services.create_index([("reseller_id", 1), ("name", 1)], background=True)
     await db.custom_services.create_index([("reseller_id", 1), ("catalog_type", 1), ("parent_id", 1), ("is_active", 1)], background=True)
+    # Covers list_catalog_nodes: filter {reseller_id, catalog_type, is_active} + sort {position, created_at}.
+    # Without the trailing sort keys MongoDB does an in-memory sort of the whole catalog, which is
+    # slow on a large catalog and can hit the 32MB sort limit (the family/products view fails to open).
+    await db.custom_services.create_index(
+        [("reseller_id", 1), ("catalog_type", 1), ("is_active", 1), ("position", 1), ("created_at", 1)],
+        background=True,
+    )
     await db.custom_service_preorders.create_index([("endpoint_id", 1), ("status", 1), ("created_at", 1)], background=True)
     await db.custom_service_preorders.create_index([("order_id", 1)], unique=True, background=True)
     await db.custom_service_preorders.create_index([("buyer_user_id", 1), ("status", 1), ("created_at", 1)], background=True)
