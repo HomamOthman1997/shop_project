@@ -90,6 +90,15 @@ async def delete_website_session(token_hash: str) -> None:
     await db.website_sessions.delete_one({"token_hash": token_hash})
 
 
+async def delete_other_website_sessions(account_id: str, *, keep_token_hash: str) -> int:
+    """Revoke every other session for an account (used on password change so a
+    stolen/old session cannot survive a password reset)."""
+    result = await db.website_sessions.delete_many(
+        {"account_id": str(account_id), "token_hash": {"$ne": str(keep_token_hash)}}
+    )
+    return int(getattr(result, "deleted_count", 0) or 0)
+
+
 async def create_telegram_link_token(doc: dict[str, Any]) -> None:
     await db.telegram_link_tokens.insert_one(doc)
 

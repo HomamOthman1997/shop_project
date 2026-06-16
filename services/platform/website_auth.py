@@ -30,6 +30,7 @@ from database.website_auth_repo import (
     create_identity_verification_request,
     store_identity_document,
     delete_website_session,
+    delete_other_website_sessions,
     find_website_account_by_email,
     find_website_account_by_id,
     find_website_session,
@@ -76,7 +77,11 @@ _SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=()",
 }
+# HSTS only in production (HTTPS guaranteed behind the edge); avoids forcing HTTPS in local/dev.
+if bool(getattr(settings, "production_mode", False)):
+    _SECURITY_HEADERS["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
 
 def _auth_error(message: str, *, status: int) -> web.Response:
@@ -474,6 +479,8 @@ async def change_password(request: web.Request) -> web.Response:
         raise web.HTTPUnauthorized(text="invalid current password")
     salt, password_hash = _password_hash(new_password)
     updated = await update_website_account_password(auth.account_id, salt=salt, password_hash=password_hash, now=_now())
+    # Revoke every other session so a stolen/old session cannot outlive the password change.
+    await delete_other_website_sessions(auth.account_id, keep_token_hash=auth.session_token_hash)
     return web.json_response({"ok": True, "account": _public_account(updated or account)})
 
 
