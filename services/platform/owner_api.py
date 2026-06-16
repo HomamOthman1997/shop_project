@@ -2594,6 +2594,21 @@ async def owner_recharge_review_action(request: web.Request) -> web.Response:
             "approved_amount": _money(current.get("approved_amount")) if action == "accept" else None,
         },
     )
+    recharge_customer_id = _safe_int(current.get("user_id"))
+    if recharge_customer_id is not None:
+        recharge_titles = {
+            "accept": "تم قبول طلب الشحن وإضافة الرصيد",
+            "reject": "تم رفض طلب الشحن",
+            "need_more_proof": "مطلوب إثبات إضافي لطلب الشحن",
+        }
+        await notify_customer(
+            int(recharge_customer_id),
+            kind="recharge",
+            title=recharge_titles.get(action, "تحديث على طلب الشحن"),
+            body=note,
+            link="/app/recharge",
+            meta={"request_id": _text(current.get("_id"))},
+        )
     return web.json_response({"ok": True, "review": _recharge_payload(current)}, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -3452,9 +3467,12 @@ async def owner_support_ticket_action(request: web.Request) -> web.Response:
     if not ticket:
         return web.json_response({"ok": False, "message": "Support ticket was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
     action = str((body or {}).get("action") or "").strip().lower()
+    ticket_customer_id = _safe_int(ticket.get("user_id"))
     if action == "solve":
         await mark_support_ticket_solved(ticket_id, actor_id=owner.customer_id)
         await send_ticket_message(ticket, "Your support ticket has been solved.")
+        if ticket_customer_id is not None:
+            await notify_customer(int(ticket_customer_id), kind="support", title="تم حل تذكرة الدعم", link="/app/support", meta={"ticket_id": ticket_id})
     elif action == "reply":
         message = " ".join(str((body or {}).get("message") or "").strip().split())
         if len(message) < 2 or len(message) > 3500:
@@ -3484,6 +3502,8 @@ async def owner_support_ticket_action(request: web.Request) -> web.Response:
                 "$inc": {"payload_count": 1},
             },
         )
+        if ticket_customer_id is not None:
+            await notify_customer(int(ticket_customer_id), kind="support", title="رد جديد على تذكرة الدعم", body=message[:120], link="/app/support", meta={"ticket_id": ticket_id})
     elif action in {"bug_confirmed", "not_bug"}:
         await mark_support_ticket_bug_triage(ticket_id, actor_id=owner.customer_id, status="confirmed" if action == "bug_confirmed" else "not_bug")
     elif action == "bug_reward":

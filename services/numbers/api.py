@@ -9,6 +9,7 @@ from bson import ObjectId
 
 from database.financial_ledger import get_user_wallet_balance, list_user_wallet_entries
 from database.mongo import db
+from database.notifications_repo import notify_owner
 from database.owner_payment_settings_repo import get_owner_payment_methods
 from database.orders_repo import (
     get_user_number_order,
@@ -516,6 +517,13 @@ async def submit_recharge(request: web.Request) -> web.Response:
         )
     balance = await get_user_wallet_balance(auth.user_id, auth.reseller_id)
     result["wallet"] = {"balance": float(balance), "currency": "USD", "balance_label": _format_money(balance)}
+    await notify_owner(
+        kind="recharge",
+        title="طلب شحن رصيد جديد",
+        body=str(fields.get("method_code") or ""),
+        link="/admin/finance",
+        meta={"customer_id": int(auth.user_id)},
+    )
     return web.json_response(result, headers=_response_headers(rate_limit))
 
 
@@ -589,6 +597,13 @@ async def support_ticket(request: web.Request) -> web.Response:
             code=str(result.get("code") or "support_failed"),
             rate_limit=rate_limit,
         )
+    await notify_owner(
+        kind="support",
+        title="تذكرة دعم جديدة",
+        body=str((body or {}).get("category") or ""),
+        link="/admin/support",
+        meta={"customer_id": int(auth.user_id), "ticket_no": result.get("ticket_no")},
+    )
     return web.json_response(result, headers=_response_headers(rate_limit))
 
 
@@ -639,6 +654,13 @@ async def support_ticket_reply(request: web.Request) -> web.Response:
             "$set": {"status": "awaiting_admin", "last_reply_by": int(auth.user_id), "last_reply_at": now, "updated_at": now},
             "$inc": {"payload_count": 1},
         },
+    )
+    await notify_owner(
+        kind="support",
+        title="رد جديد من زبون على تذكرة",
+        body=message[:120],
+        link="/admin/support",
+        meta={"customer_id": int(auth.user_id), "ticket_no": int(ticket.get("ticket_no") or 0)},
     )
     refreshed = await _get_customer_support_ticket(str(ticket.get("_id")), auth.user_id) or ticket
     rows = await db.support_ticket_messages.find({"ticket_id": ticket.get("_id")}).sort("created_at", 1).limit(200).to_list(length=200)
