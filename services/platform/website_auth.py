@@ -582,7 +582,8 @@ async def auth_static(request: web.Request) -> web.Response:
     name = str(request.match_info.get("name") or "")
     path = (_AUTH_STATIC / name).resolve()
     if _AUTH_STATIC.resolve() not in path.parents or not path.is_file():
-        raise web.HTTPNotFound()
+        # no-store so the CDN never caches a 404 (an image added later must serve)
+        return web.Response(status=404, text="404: Not Found", headers={"Cache-Control": "no-store"})
     content_types = {
         ".css": "text/css",
         ".js": "application/javascript",

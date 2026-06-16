@@ -37,6 +37,47 @@ SGDB_API = "https://www.steamgriddb.com/api/v2"
 UA = "PhantomCatalogImageFetcher/1.0 (https://phantom-app.net)"
 MAX_SIDE = 360
 STEAMGRIDDB_KEY = os.environ.get("STEAMGRIDDB_KEY", "").strip()
+G2BULK_KEY = os.environ.get("G2BULK_KEY", "").strip()
+G2BULK_BASE = os.environ.get("G2BULK_BASE", "https://api.g2bulk.com").rstrip("/")
+# Skip a family when its image already exists, so a re-run only fills gaps and
+# never overwrites art that is already in place.
+SKIP_EXISTING = os.environ.get("REFETCH_ALL", "").strip() not in ("1", "true", "yes")
+_G2_GAMES: list[tuple[str, str]] | None = None
+
+
+def _slugify(name: str) -> str:
+    import re
+    return re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", str(name).lower())).strip("_")
+
+
+def _g2bulk_games() -> list[tuple[str, str]]:
+    """G2Bulk's own game catalogue images, as (slugified-name, image_url)."""
+    global _G2_GAMES
+    if _G2_GAMES is not None:
+        return _G2_GAMES
+    _G2_GAMES = []
+    if not G2BULK_KEY:
+        return _G2_GAMES
+    try:
+        req = urllib.request.Request(G2BULK_BASE + "/v1/games", headers={"x-api-key": G2BULK_KEY, "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            games = json.loads(resp.read().decode("utf-8")).get("games") or []
+        _G2_GAMES = [(_slugify(g.get("name") or ""), g.get("image_url")) for g in games if g.get("image_url")]
+    except Exception as exc:
+        print("[warn] G2Bulk games fetch failed:", str(exc)[:80])
+    return _G2_GAMES
+
+
+def _g2bulk_thumb(slug: str) -> str | None:
+    """Match our family slug to a G2Bulk game (exact, then word-boundary prefix)."""
+    games = _g2bulk_games()
+    for g2slug, url in games:
+        if g2slug == slug:
+            return url
+    for g2slug, url in games:
+        if g2slug.startswith(slug + "_") or slug.startswith(g2slug + "_"):
+            return url
+    return None
 
 SEARCH_OVERRIDES = {
     "pubg": "PUBG Battlegrounds",
@@ -150,9 +191,12 @@ def main() -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
         print(f"\n== {section} ({len(slugs)}) ==")
         for slug in slugs:
+            dest = out_dir / f"{slug}.png"
+            if SKIP_EXISTING and dest.exists():
+                continue
             name = _search_name(slug)
             try:
-                src = _sgdb_thumb(name) or _wiki_thumb(name)
+                src = _g2bulk_thumb(slug) or _sgdb_thumb(name) or _wiki_thumb(name)
                 if not src:
                     miss.append(f"{section}/{slug}")
                     continue
