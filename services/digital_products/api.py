@@ -23,6 +23,13 @@ from database.notifications_repo import notify_customer, notify_owner
 from database.orders_repo import extract_order_amounts, update_order_details, update_order_status
 from database.user_repo import get_user
 from services.digital_products.catalog_service import digital_provider_enabled, extract_provider_offers, get_catalog_snapshot, get_game_topups
+from services.digital_products.esim_route_service import (
+    build_single_country_offers_live,
+    offer_summary as esim_offer_summary,
+    route_available_days_live,
+    search_countries_live,
+)
+from services.digital_products.esim_web import esim_provider_configured, purchase_esim_offer
 from services.digital_products.manual_fulfillment import execute_smart_game_routing, submit_manual_auto_api, submit_manual_future
 from services.digital_products.manual_catalog import fresh_quote_payload as fresh_manual_quote_payload
 from services.digital_products.smart_routing import (
@@ -554,6 +561,16 @@ def _order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
     )
     fulfillment_min = int(order.get("fulfillment_min_minutes") or _MANUAL_FULFILLMENT_MIN_MINUTES)
     fulfillment_max = int(order.get("fulfillment_max_minutes") or _MANUAL_FULFILLMENT_MAX_MINUTES)
+    delivery_type = str(order.get("delivery_type") or "")
+    esim_profiles: list[dict[str, Any]] = []
+    if delivery_type == "esim":
+        for profile in order.get("delivery_profiles") or []:
+            if isinstance(profile, dict):
+                esim_profiles.append({
+                    "iccid": str(profile.get("iccid") or "").strip(),
+                    "qr": str(profile.get("qrCodeUrl") or profile.get("qr") or "").strip(),
+                    "ac": str(profile.get("ac") or "").strip(),
+                })
     return {
         "id": order_id,
         "status": status,
@@ -578,6 +595,8 @@ def _order_payload(order: dict[str, Any] | None) -> dict[str, Any]:
         "fulfillment_min_minutes": int(order.get("fulfillment_min_minutes") or _MANUAL_FULFILLMENT_MIN_MINUTES),
         "fulfillment_max_minutes": int(order.get("fulfillment_max_minutes") or _MANUAL_FULFILLMENT_MAX_MINUTES),
         "fulfillment_label": str(order.get("fulfillment_label") or _MANUAL_FULFILLMENT_LABEL_AR),
+        "delivery_type": delivery_type,
+        "esim_profiles": esim_profiles,
         "messages": _digital_order_customer_messages(
             public_status=public_status,
             item_name=item_label,
@@ -1449,8 +1468,99 @@ async def create_order(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "order": _order_payload(order)}, headers=_response_headers(rate_limit))
 
 
+async def esim_countries(request: web.Request) -> web.Response:
+    auth = await require_digital_user_auth(request, "digital:catalog")
+    rate_limit = await _check_rate_limit(auth, bucket="digital:esim:countries", limit=60)
+    if not esim_provider_configured():
+        return web.json_response({"ok": True, "configured": False, "countries": []}, headers=_response_headers(rate_limit))
+    rows = await search_countries_live(str(request.query.get("q") or "").strip(), limit=100)
+    countries = [{"country": str(row).strip()} for row in rows if str(row or "").strip()]
+    return web.json_response({"ok": True, "configured": True, "countries": countries}, headers=_response_headers(rate_limit))
+
+
+async def esim_days(request: web.Request) -> web.Response:
+    auth = await require_digital_user_auth(request, "digital:catalog")
+    rate_limit = await _check_rate_limit(auth, bucket="digital:esim:days", limit=60)
+    country = str(request.query.get("country") or "").strip()
+    if not country:
+        return _json_error("Missing country.", status=400, code="missing_country", rate_limit=rate_limit)
+    days = await route_available_days_live([country])
+    return web.json_response({"ok": True, "country": country, "days": [int(d) for d in days if int(d) > 0]}, headers=_response_headers(rate_limit))
+
+
+async def esim_offers(request: web.Request) -> web.Response:
+    auth = await require_digital_user_auth(request, "digital:catalog")
+    rate_limit = await _check_rate_limit(auth, bucket="digital:esim:offers", limit=40)
+    country = str(request.query.get("country") or "").strip()
+    usage_key = str(request.query.get("usage") or "low").strip().lower()
+    try:
+        days = int(request.query.get("days") or 0)
+    except Exception:
+        days = 0
+    if not country:
+        return _json_error("Missing country.", status=400, code="missing_country", rate_limit=rate_limit)
+    if days <= 0:
+        return _json_error("Invalid days.", status=400, code="invalid_days", rate_limit=rate_limit)
+    if usage_key not in {"low", "mid", "high"}:
+        usage_key = "low"
+    offers = await build_single_country_offers_live(country, days=days, usage_key=usage_key)
+    out: list[dict[str, Any]] = []
+    for offer in offers:
+        sale = float(_money(offer.get("price_usd") or 0))
+        if sale <= 0:
+            continue
+        cost = float(_money(offer.get("_cost_price_usd") or sale))
+        try:
+            safe_offer = json.loads(json.dumps(offer, default=float))  # coerce Decimals -> JSON-safe
+            token = make_digital_quote_token({"kind": "esim", "offer": safe_offer, "days": days, "country": country, "sale_price": sale, "cost_price": cost})
+        except Exception:
+            continue  # skip an offer that can't be safely signed
+        out.append({
+            "summary": esim_offer_summary(offer, lang="ar"),
+            "price": sale,
+            "price_label": _money_label(sale),
+            "days": days,
+            "quote_token": token,
+        })
+    return web.json_response({"ok": True, "country": country, "days": days, "usage": usage_key, "offers": out}, headers=_response_headers(rate_limit))
+
+
+async def esim_buy(request: web.Request) -> web.Response:
+    auth = await require_digital_user_auth(request, "digital:orders:create")
+    rate_limit = await _check_rate_limit(auth, bucket="digital:esim:buy", limit=15)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    token = str((body or {}).get("quote_token") or "").strip()
+    if not token:
+        return _json_error("Missing quote.", status=400, code="missing_quote", rate_limit=rate_limit)
+    try:
+        quote = verify_digital_quote_token(token)
+    except DigitalQuoteError as exc:
+        return _json_error("Quote expired — refresh the offers and try again.", status=409, code=str(exc), rate_limit=rate_limit)
+    if str(quote.get("kind")) != "esim":
+        return _json_error("Invalid quote.", status=400, code="invalid_quote", rate_limit=rate_limit)
+    offer = dict(quote.get("offer") or {})
+    # Trust only the server-signed prices, never the client.
+    offer["price_usd"] = float(quote.get("sale_price") or offer.get("price_usd") or 0)
+    offer["_cost_price_usd"] = float(quote.get("cost_price") or offer.get("_cost_price_usd") or 0)
+    result = await purchase_esim_offer(
+        user_id=int(auth.user_id), reseller_id=int(auth.reseller_id), offer=offer, days=int(quote.get("days") or 0)
+    )
+    if not result.get("ok"):
+        code = str(result.get("code") or "esim_failed")
+        status = {"charge_failed": 402, "provider_failed": 409, "esim_not_configured": 503}.get(code, 400)
+        return _json_error(str(result.get("message") or "eSIM purchase failed."), status=status, code=code, rate_limit=rate_limit)
+    return web.json_response({"ok": True, **result}, headers=_response_headers(rate_limit))
+
+
 def register_digital_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/digital/health", health)
+    app.router.add_get("/api/v1/digital/esim/countries", esim_countries)
+    app.router.add_get("/api/v1/digital/esim/days", esim_days)
+    app.router.add_get("/api/v1/digital/esim/offers", esim_offers)
+    app.router.add_post("/api/v1/digital/esim/buy", esim_buy)
     app.router.add_get("/api/v1/digital/account", account)
     app.router.add_get("/api/v1/digital/catalog", catalog)
     app.router.add_get("/api/v1/digital/source-diagnostics", source_diagnostics)

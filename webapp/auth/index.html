@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <title>تسجيل الدخول | Phantom</title>
-  <link rel="stylesheet" href="/auth/static/styles.css?v=20260616-staging-bg">
+  <link rel="stylesheet" href="/auth/static/styles.css?v=20260616-esim">
   <script src="/auth/static/i18n.js" defer></script>
-  <script src="/auth/static/app.js?v=20260616-staging-bg" defer></script>
+  <script src="/auth/static/app.js?v=20260616-esim" defer></script>
 </head>
 <body>
   <main class="auth-shell">
@@ -88,6 +88,7 @@
             <nav>
               <button class="nav-item active" data-view="home">الخدمات</button>
               <button class="nav-item" data-view="orders">طلباتي</button>
+              <button class="nav-item" data-view="esim">🌐 شرائح eSIM</button>
               <button class="nav-item" data-view="recharge">شحن الرصيد</button>
               <button class="nav-item" data-view="messages">مراسلة<span id="messages-nav-badge" class="nav-badge" hidden>0</span></button>
               <button class="nav-item" data-view="notifications">🔔 التنبيهات<span id="notifications-nav-badge" class="nav-badge" hidden>0</span></button>
@@ -161,6 +162,23 @@
                 <button class="filter-chip" type="button" data-order-filter="done">المكتملة</button>
               </div>
               <div id="orders-list" class="data-list empty">لا توجد طلبات.</div>
+            </section>
+
+            <section class="app-view" data-panel="esim">
+              <div class="section-head"><div><h3>شرائح eSIM</h3><p>باقات داتا دولية — اختر الدولة والمدة، ادفع من رصيدك، ويوصلك الـQR فوراً.</p></div></div>
+              <div id="esim-unavailable" class="notice" hidden>خدمة eSIM غير متاحة حالياً. تواصل مع الدعم.</div>
+              <div class="esim-flow">
+                <label class="esim-field"><span>الدولة</span><input id="esim-country-search" placeholder="ابحث عن دولة..." autocomplete="off"></label>
+                <div id="esim-country-list" class="esim-chip-row empty"></div>
+                <div id="esim-config" hidden>
+                  <label class="esim-field"><span>المدة (أيام)</span><div id="esim-days-list" class="esim-chip-row empty">اختر دولة أولاً</div></label>
+                  <label class="esim-field"><span>الاستهلاك</span><select id="esim-usage"><option value="low">خفيف (تصفّح/مراسلة)</option><option value="mid">متوسط</option><option value="high">كثيف (فيديو)</option></select></label>
+                  <button id="esim-load-offers" class="primary compact" type="button" disabled>اعرض الباقات</button>
+                </div>
+                <div id="esim-offers" class="data-list"></div>
+                <p id="esim-message" class="message" role="status"></p>
+                <div id="esim-result"></div>
+              </div>
             </section>
 
             <section class="app-view" data-panel="recharge">

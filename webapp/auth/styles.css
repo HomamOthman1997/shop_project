@@ -1129,6 +1129,19 @@ button.owner-action-row {
 .notification-row strong { display: block; }
 .notification-row span { color: var(--muted); font-size: 13px; }
 
+/* eSIM flow */
+.esim-flow { display: flex; flex-direction: column; gap: 16px; max-width: 640px; }
+.esim-field { display: flex; flex-direction: column; gap: 6px; }
+.esim-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.esim-chip-row.empty { color: var(--muted); }
+.esim-chip { padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); cursor: pointer; font-size: 13px; }
+.esim-chip:hover { border-color: var(--accent, #3858e9); }
+.esim-chip.active { background: var(--accent, #3858e9); color: #fff; border-color: var(--accent, #3858e9); }
+.esim-offer .stacked-meta { display: flex; align-items: center; gap: 10px; }
+.esim-profile, .esim-delivery .esim-profile { padding: 10px 12px; margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, #f4f5f8); }
+.esim-profile strong { display: block; margin-bottom: 4px; }
+.esim-profile code { word-break: break-all; }
+
 .account-catalog { display: grid; gap: 20px; }
 .account-catalog-search {
   width: min(760px, 100%);

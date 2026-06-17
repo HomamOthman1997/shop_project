@@ -59,6 +59,7 @@ let numbersWorkspaceState = {
 const customerRoutes = {
   home: "/app",
   orders: "/app/orders",
+  esim: "/app/esim",
   recharge: "/app/recharge",
   messages: "/app/messages",
   notifications: "/app/notifications",
@@ -83,6 +84,7 @@ const adminRoutes = {
 const customerViewTitles = {
   home: "الخدمات",
   orders: "طلباتي",
+  esim: "شرائح eSIM",
   recharge: "شحن الرصيد",
   messages: "مراسلة",
   notifications: "التنبيهات",
@@ -119,6 +121,7 @@ function viewForPath(pathname = window.location.pathname) {
   if (pathname.startsWith("/app/digital")) return "digital";
   if (pathname.startsWith("/app/numbers")) return "numbers";
   if (pathname.startsWith("/app/orders")) return "orders";
+  if (pathname.startsWith("/app/esim")) return "esim";
   if (pathname.startsWith("/app/recharge")) return "recharge";
   if (pathname.startsWith("/app/messages")) return "messages";
   if (pathname.startsWith("/app/notifications")) return "notifications";
@@ -842,6 +845,121 @@ async function loadNotifications() {
       target.textContent = error.message || "تعذر تحميل التنبيهات.";
     }
   }
+}
+
+const esimState = { country: "", days: 0, usage: "low", configured: true };
+let esimSearchTimer = null;
+
+async function loadEsimPanel() {
+  esimState.country = ""; esimState.days = 0;
+  const cfg = $("#esim-config"); if (cfg) cfg.hidden = true;
+  setText("#esim-message", "");
+  if ($("#esim-offers")) $("#esim-offers").innerHTML = "";
+  if ($("#esim-result")) $("#esim-result").innerHTML = "";
+  if ($("#esim-country-search")) $("#esim-country-search").value = "";
+  if ($("#esim-country-list")) $("#esim-country-list").innerHTML = "";
+  try {
+    const data = await api("/api/v1/digital/esim/countries");
+    esimState.configured = data.configured !== false;
+    const banner = $("#esim-unavailable");
+    if (banner) banner.hidden = esimState.configured;
+  } catch (_error) { /* keep the panel usable; search will surface errors */ }
+}
+
+async function searchEsimCountries(query) {
+  const list = $("#esim-country-list");
+  if (!list) return;
+  if (!query || query.length < 2) { list.innerHTML = ""; return; }
+  try {
+    const data = await api(`/api/v1/digital/esim/countries?q=${encodeURIComponent(query)}`);
+    const rows = data.countries || [];
+    list.classList.toggle("empty", !rows.length);
+    list.innerHTML = rows.slice(0, 24).map((row) => `<button type="button" class="esim-chip" data-esim-country="${esc(row.country)}">${esc(row.country)}</button>`).join("");
+    list.querySelectorAll("[data-esim-country]").forEach((button) => button.addEventListener("click", () => selectEsimCountry(button.dataset.esimCountry)));
+  } catch (error) { setText("#esim-message", error.message); }
+}
+
+async function selectEsimCountry(country) {
+  esimState.country = country; esimState.days = 0;
+  if ($("#esim-country-search")) $("#esim-country-search").value = country;
+  if ($("#esim-country-list")) $("#esim-country-list").innerHTML = "";
+  if ($("#esim-offers")) $("#esim-offers").innerHTML = "";
+  if ($("#esim-result")) $("#esim-result").innerHTML = "";
+  const cfg = $("#esim-config"); if (cfg) cfg.hidden = false;
+  const daysList = $("#esim-days-list");
+  if (daysList) { daysList.classList.remove("empty"); daysList.textContent = "جاري جلب المدد..."; }
+  const loadBtn = $("#esim-load-offers"); if (loadBtn) loadBtn.disabled = true;
+  try {
+    const data = await api(`/api/v1/digital/esim/days?country=${encodeURIComponent(country)}`);
+    const days = data.days || [];
+    if (!daysList) return;
+    daysList.classList.toggle("empty", !days.length);
+    daysList.innerHTML = days.length ? days.map((d) => `<button type="button" class="esim-chip" data-esim-day="${d}">${d} يوم</button>`).join("") : "لا توجد مدد متاحة لهذه الدولة.";
+    daysList.querySelectorAll("[data-esim-day]").forEach((button) => button.addEventListener("click", () => {
+      esimState.days = Number(button.dataset.esimDay);
+      daysList.querySelectorAll(".esim-chip").forEach((chip) => chip.classList.toggle("active", chip === button));
+      if (loadBtn) loadBtn.disabled = false;
+    }));
+  } catch (error) { if (daysList) daysList.textContent = error.message; }
+}
+
+async function loadEsimOffers() {
+  if (!esimState.country || !esimState.days) return;
+  esimState.usage = $("#esim-usage")?.value || "low";
+  const target = $("#esim-offers");
+  if (!target) return;
+  target.classList.remove("empty");
+  target.innerHTML = '<div class="notice">جاري جلب الباقات...</div>';
+  if ($("#esim-result")) $("#esim-result").innerHTML = "";
+  setText("#esim-message", "");
+  try {
+    const data = await api(`/api/v1/digital/esim/offers?country=${encodeURIComponent(esimState.country)}&days=${esimState.days}&usage=${encodeURIComponent(esimState.usage)}`);
+    const offers = data.offers || [];
+    target.classList.toggle("empty", !offers.length);
+    target.innerHTML = offers.length ? offers.map((offer, index) => `
+      <div class="data-row esim-offer">
+        <div><strong>${esc(offer.summary || "باقة eSIM")}</strong><span>${esc(offer.days)} يوم</span></div>
+        <div class="stacked-meta"><b>${esc(offer.price_label || "")}</b><button class="primary compact" type="button" data-esim-buy="${index}">شراء</button></div>
+      </div>`).join("") : '<div class="notice">لا توجد باقات لهذا الاختيار.</div>';
+    target.querySelectorAll("[data-esim-buy]").forEach((button) => button.addEventListener("click", () => buyEsim(offers[Number(button.dataset.esimBuy)], button)));
+  } catch (error) { target.innerHTML = `<div class="notice error">${esc(error.message)}</div>`; }
+}
+
+async function buyEsim(offer, button) {
+  if (!offer?.quote_token) return;
+  if (!window.confirm(`شراء هذه الباقة بسعر ${offer.price_label}؟ سيتم الخصم من رصيدك.`)) return;
+  if (button) button.disabled = true;
+  setText("#esim-message", "جاري تنفيذ الشراء، قد يستغرق لحظات...");
+  try {
+    const data = await api("/api/v1/digital/esim/buy", { method: "POST", body: JSON.stringify({ quote_token: offer.quote_token }), timeoutMs: 90000 });
+    setText("#esim-message", "");
+    if ($("#esim-offers")) $("#esim-offers").innerHTML = "";
+    renderEsimResult(data);
+  } catch (error) {
+    setText("#esim-message", friendlyApiMessage(error));
+    if (button) button.disabled = false;
+  }
+}
+
+function esimProfilesHtml(profiles) {
+  return (profiles || []).map((profile, index) => `
+    <div class="esim-profile">
+      <strong>eSIM #${index + 1}</strong>
+      ${profile.qr ? `<div><a href="${esc(profile.qr)}" target="_blank" rel="noopener">📷 افتح رمز QR للتفعيل</a></div>` : ""}
+      <div>ICCID: <code>${esc(profile.iccid || "-")}</code></div>
+      ${profile.ac ? `<div>كود التفعيل: <code>${esc(profile.ac)}</code></div>` : ""}
+    </div>`).join("");
+}
+
+function renderEsimResult(data) {
+  const target = $("#esim-result");
+  if (!target) return;
+  if (data.status === "preparing") {
+    target.innerHTML = '<div class="order-success"><h4>✅ تم استلام طلبك</h4><p>eSIM قيد التجهيز وسيصلك خلال دقائق في صفحة طلباتي.</p><button class="secondary compact" type="button" data-go-orders>عرض طلباتي</button></div>';
+  } else {
+    target.innerHTML = `<div class="order-success"><h4>✅ eSIM جاهزة</h4>${esimProfilesHtml(data.profiles)}<button class="secondary compact" type="button" data-go-orders>عرض طلباتي</button></div>`;
+  }
+  target.querySelector("[data-go-orders]")?.addEventListener("click", () => document.querySelector('.nav-item[data-view="orders"]')?.click());
 }
 
 function renderSupportOptions(payload) {
@@ -3598,6 +3716,7 @@ function renderOrderDetail(channel, order) {
         <button class="secondary compact" type="button" data-back-orders>رجوع</button>
       </div>
       <div class="order-meta-grid">${orderMetaRows(order, channel)}</div>
+      ${order.delivery_type === "esim" && (order.esim_profiles || []).length ? `<div class="esim-delivery">${esimProfilesHtml(order.esim_profiles)}</div>` : ""}
       ${messages.length ? `<div class="order-messages">${messages.map((message) => `<pre>${esc(message)}</pre>`).join("")}</div>` : ""}
       <div class="order-actions">${channel === "numbers" ? `${numberClientActionsHtml(order)}${numbersOrderActionsHtml(order)}` : ""}</div>
       <p class="message" id="order-action-message"></p>
@@ -4493,6 +4612,7 @@ function openPanel(view, title = "", options = {}) {
   if (view === "messages") startConversationPolling();
   else stopConversationPolling();
   if (view === "notifications") loadNotifications();
+  if (view === "esim") loadEsimPanel();
 }
 
 function openService(service) {
@@ -4537,6 +4657,13 @@ document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
 });
 
 $("#conversation-form")?.addEventListener("submit", submitConversationMessage);
+
+$("#esim-country-search")?.addEventListener("input", (event) => {
+  const value = String(event.currentTarget.value || "").trim();
+  clearTimeout(esimSearchTimer);
+  esimSearchTimer = setTimeout(() => searchEsimCountries(value), 300);
+});
+$("#esim-load-offers")?.addEventListener("click", loadEsimOffers);
 
 document.querySelectorAll("[data-open-service]").forEach((button) => {
   button.addEventListener("click", () => openService(button.dataset.openService));
