@@ -32,6 +32,9 @@ async def bootstrap_notifications_indexes() -> None:
     await db.notifications.create_index(
         [("recipient_type", 1), ("recipient_id", 1), ("read", 1)], background=True
     )
+    # Bound storage growth: a read notification is purged 30 days after it was read.
+    # Unread notifications have no `read_at` field, so MongoDB's TTL never expires them.
+    await db.notifications.create_index("read_at", expireAfterSeconds=30 * 24 * 3600, background=True)
 
 
 async def push_notification(
