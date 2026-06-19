@@ -40,6 +40,18 @@ the owner, so `_notify_owner_manual_order` only fires after smart already ran (f
 exhausted / manual fallback) — re-offering Smart would be pointless. The bot offers Smart because
 it doesn't auto-run it. **Status: wontfix (intentional). Do not "align" them.**
 
+### 🔴→✅ F5. Catalog approve/cutover silently died — un-referenced background tasks (**root cause of the broken+slow+messy catalog**)
+`owner_api.py` launched the approve (1756) and cutover (1821) background jobs with
+`asyncio.create_task(...)` **without keeping a reference**. asyncio holds only *weak* refs to
+tasks → an un-referenced task is garbage-collected mid-run → the job vanishes, status stuck
+`running`, re-clicks return "already_running". (Import worked: it stored its task in a dict.)
+**Effect cascade:** cutover never hid orphans → every re-import piled up orphan/duplicate nodes
+→ `list_catalog_nodes` (`.to_list(None)`, whole active tree) returns thousands of nodes → slow
+catalog. **Fixed** (commit 1de310a): `_STAGING_BG_TASKS` strong refs + done-callback for both.
+Verified source_keys are stable (`game:{id}:{item}` / `mangerr:{ref}`) so approve *updates* not
+duplicates — the mess is orphans, now cleanable by running cutover. Status: fixed.
+> Owner action: run Import → Approve → Cutover (all background now) to purge the orphan bloat.
+
 ### 🟡→✅ F2. Notifications collection grew unbounded
 No TTL → storage grows forever. **Fixed** (commit e360748): TTL index on `read_at`
 (read notifications purge 30d after read; unread kept). Status: fixed.
