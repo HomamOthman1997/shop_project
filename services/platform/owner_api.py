@@ -1606,6 +1606,17 @@ async def owner_catalog_staging(request: web.Request) -> web.Response:
 
 
 _STAGING_IMPORT_TASKS: dict[int, Any] = {}
+# Strong references to background approve/cutover tasks. asyncio keeps only WEAK
+# references to tasks, so an un-referenced task can be garbage-collected mid-run
+# (which silently aborted approve/cutover, leaving status stuck "running").
+_STAGING_BG_TASKS: set[Any] = set()
+
+
+def _spawn_tracked_task(coro: Any) -> Any:
+    task = asyncio.create_task(coro)
+    _STAGING_BG_TASKS.add(task)
+    task.add_done_callback(_STAGING_BG_TASKS.discard)
+    return task
 
 
 async def _run_staging_import_job(owner_id: int) -> None:
@@ -1753,7 +1764,7 @@ async def owner_catalog_staging_approve(request: web.Request) -> web.Response:
         if _import_run_is_active(await get_staging_job_run(owner_id, "approve")):
             return web.json_response({"ok": True, "started": False, "already_running": True}, headers=dict(_NO_STORE_HEADERS))
         await set_staging_job_run(owner_id, "approve", {"status": "running", "started_at": datetime.now(UTC), "error": "", "result": {}})
-        asyncio.create_task(_run_staging_approve_job(owner_id))
+        _spawn_tracked_task(_run_staging_approve_job(owner_id))
         await _write_owner_audit(
             actor_id=owner.customer_id,
             actor_email=owner.email,
@@ -1818,7 +1829,7 @@ async def owner_catalog_staging_cutover(request: web.Request) -> web.Response:
     if _import_run_is_active(await get_staging_job_run(owner_id, "cutover")):
         return web.json_response({"ok": True, "started": False, "already_running": True}, headers=dict(_NO_STORE_HEADERS))
     await set_staging_job_run(owner_id, "cutover", {"status": "running", "started_at": datetime.now(UTC), "error": "", "result": {}})
-    asyncio.create_task(_run_staging_cutover_job(owner_id, keep, services))
+    _spawn_tracked_task(_run_staging_cutover_job(owner_id, keep, services))
     await _write_owner_audit(
         actor_id=owner.customer_id,
         actor_email=owner.email,
