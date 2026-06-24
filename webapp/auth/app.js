@@ -3929,10 +3929,6 @@ function renderDigitalCatalog(payload) {
   let activeDigitalFilter = selection?.slug === "games" ? "games" : matchedCategory ? `category:${selection.slug}` : "all";
   const initialSearch = selection && activeDigitalFilter === "all" ? String(selection.title || selection.slug || "") : "";
   root.innerHTML = `
-    <div class="manual-fulfillment-notice">
-      <strong>جميع الطلبات تنفيذ يدوي</strong>
-      <span>${esc(localized(payload.fulfillment?.label, "مدة التنفيذ من دقيقة إلى ساعة."))}</span>
-    </div>
     <div class="service-toolbar">
       <input id="digital-search" type="search" value="${esc(initialSearch)}" placeholder="ابحث عن لعبة أو خدمة">
       <button class="secondary compact" type="button" data-digital-refresh>تحديث</button>
@@ -4006,10 +4002,6 @@ function renderDigitalSelectedFamily(payload, selection) {
         <span data-digital-family-hint>جاري تحميل التصنيفات...</span>
       </div>
       <button class="account-catalog-back" type="button" data-digital-catalog-back>رجوع</button>
-    </div>
-    <div class="manual-fulfillment-notice">
-      <strong>جميع الطلبات تنفيذ يدوي</strong>
-      <span>${esc(localized(payload.fulfillment?.label, "مدة التنفيذ من دقيقة إلى ساعة."))}</span>
     </div>
     <div class="digital-direct-detail" id="digital-detail">
       <div class="account-catalog-grid digital-package-grid" aria-label="جاري تحميل الحزم">
@@ -4119,7 +4111,6 @@ function renderDigitalFamilyVariants(title, payload, selection) {
           <span class="account-catalog-mark" aria-hidden="true"></span>
           <strong>${esc(variant.name || "Global")}</strong>
           <span>عرض المنتجات ضمن هذا التصنيف.</span>
-          <b>${String(variant.name || "").toLowerCase() === "global" ? "Global" : (variant.variant_kind === "region" ? "دولة / منطقة" : "تصنيف")}</b>
         </button>`).join("") : '<div class="service-empty">لا توجد تصنيفات مرتبطة بهذا الصنف حالياً.</div>'}
     </div>`;
   detail.querySelectorAll("[data-digital-variant-id]").forEach((button) => {
