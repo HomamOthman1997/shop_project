@@ -100,6 +100,20 @@ def test_available_owner_management_items_point_to_registered_owner_routes():
     assert all(item["endpoint"] in routes for item in available)
 
 
+def test_import_run_is_active_handles_naive_datetime():
+    # MongoDB returns naive datetimes; the staleness check must not raise
+    # "can't subtract offset-naive and offset-aware datetimes".
+    from datetime import timedelta
+
+    recent_naive = datetime.now(UTC).replace(tzinfo=None)  # naive, as Mongo returns
+    assert owner_api._import_run_is_active({"status": "running", "started_at": recent_naive}) is True
+    stale_naive = recent_naive - timedelta(hours=1)
+    assert owner_api._import_run_is_active({"status": "running", "started_at": stale_naive}) is False
+    # aware datetimes still work
+    assert owner_api._import_run_is_active({"status": "running", "started_at": datetime.now(UTC)}) is True
+    assert owner_api._import_run_is_active({"status": "done", "started_at": recent_naive}) is False
+
+
 def test_all_mutating_owner_routes_write_an_audit_event():
     app = web.Application()
     owner_api.register_owner_api_routes(app)

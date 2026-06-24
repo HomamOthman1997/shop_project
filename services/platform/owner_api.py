@@ -1638,6 +1638,10 @@ def _import_run_is_active(run: dict[str, Any] | None) -> bool:
         return False
     started = run.get("started_at")
     if isinstance(started, datetime):
+        # MongoDB returns naive datetimes (stored as UTC); make it tz-aware before subtracting
+        # to avoid "can't subtract offset-naive and offset-aware datetimes".
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
         # A run stuck "running" past 15 min (e.g. a deploy killed it) is treated as stale.
         return (datetime.now(UTC) - started).total_seconds() < 900
     return True
@@ -1710,18 +1714,22 @@ async def owner_catalog_staging_drop(request: web.Request) -> web.Response:
     return web.json_response({"ok": bool(count), "dropped": count}, headers=dict(_NO_STORE_HEADERS))
 
 
-async def _approve_staged_rows(owner_id: int, rows: list[dict[str, Any]]) -> dict[str, int]:
+async def _approve_staged_rows(owner_id: int, rows: list[dict[str, Any]]) -> dict[str, Any]:
     created = 0
     failed = 0
+    skipped = {"no_price": 0, "no_family": 0, "no_name": 0, "error": 0}
     approved_ids: list[str] = []
     import_cache: dict[str, Any] = {}
     for row in rows:
         if str(row.get("status") or "") == "dropped":
             continue
         payload = staged_product_payload(row)
-        if not payload.get("family_key") or not payload.get("product_name") or float(payload.get("price") or 0) <= 0:
-            failed += 1
-            continue
+        if not payload.get("family_key"):
+            failed += 1; skipped["no_family"] += 1; continue
+        if not payload.get("product_name"):
+            failed += 1; skipped["no_name"] += 1; continue
+        if float(payload.get("price") or 0) <= 0:
+            failed += 1; skipped["no_price"] += 1; continue
         try:
             await upsert_static_manual_product(owner_id, import_cache=import_cache, **payload)
             created += 1
@@ -1729,6 +1737,7 @@ async def _approve_staged_rows(owner_id: int, rows: list[dict[str, Any]]) -> dic
         except Exception as exc:
             logging.getLogger("owner_api").warning("approve staged item failed: %s", exc)
             failed += 1
+            skipped["error"] += 1
     if approved_ids:
         await set_staging_status(owner_id, approved_ids, "approved")
     return {"created": created, "failed": failed, "approved": len(approved_ids)}

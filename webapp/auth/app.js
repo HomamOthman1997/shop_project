@@ -3159,7 +3159,16 @@ function renderOwnerStagingCatalog(payload) {
       </div>
       <p class="staging-hint">يسحب من G2Bulk وMangerr، يفلتر المناطق (USA/أوروبا/Global فقط)، يدمج بالـ compare_key، ويسعّر بالهامش. راجِع وعدّل ثم اعتمد لينتقل للكاتالوغ الحي.</p>
       ${stagingImportBanner(payload.import_status)}
-      ${stagingJobBanner(payload.approve_status, "الاعتماد", (r) => `آخر اعتماد: ${Number(r.created || 0)} منتج (${Number(r.failed || 0)} فشل).`)}
+      ${stagingJobBanner(payload.approve_status, "الاعتماد", (r) => {
+        const s = r.skipped || {};
+        const reasons = [];
+        if (s.no_price) reasons.push(`${s.no_price} بلا سعر`);
+        if (s.no_family) reasons.push(`${s.no_family} بلا صنف`);
+        if (s.no_name) reasons.push(`${s.no_name} بلا اسم`);
+        if (s.error) reasons.push(`${s.error} خطأ`);
+        const why = reasons.length ? ` — تخطّي: ${reasons.join("، ")}` : "";
+        return `آخر اعتماد: ${Number(r.created || 0)} معتمد، ${Number(r.failed || 0)} متخطّى${why}.`;
+      })}
       ${stagingJobBanner(payload.cutover_status, "التنظيف", (r) => `آخر تنظيف: ${Number(r.hidden || 0)} منتج قديم مخفي.`)}
       <div class="staging-tree">${tree}</div>
     </div>`;
@@ -3209,7 +3218,10 @@ async function runStagingGlobalAction(button) {
     }
     await loadOwnerDashboard();
   } catch (error) {
-    setText("#owner-message", error.message || "فشل التنفيذ.");
+    const msg = /approve staged items/i.test(error.message || "")
+      ? "لازم تعتمد العناصر أولاً (زر \"اعتماد الكل\") وتنتظر تخلص بالخلفية، بعدها شغّل التنظيف."
+      : (error.message || "فشل التنفيذ.");
+    setText("#owner-message", msg);
     button.disabled = false;
   }
 }
