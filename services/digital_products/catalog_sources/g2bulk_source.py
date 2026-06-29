@@ -132,15 +132,24 @@ def _gift_offer(
     package_name = str(item.get("name") or item_id)
     compare_key = str(item.get("compare_key") or "").strip()
     _fam, region, _amount, unit = parse_compare_key(compare_key)
-    sub_category = variant_fn(
-        service_key=service_key,
-        family_key=family_key,
-        family_name=family_name,
-        default_variant_name=default_variant,
-        source_id=f"{category_id} {item_id}",
-        source_text=category_name,
-        item_name=package_name,
-    )
+    if str(service_key) == "games":
+        # A game-currency voucher (e.g. PUBG UC voucher) is just the *future* route of
+        # the same product the auto top-up serves — the route is a backend/smart-routing
+        # detail (merged via compare_key), never a customer-facing category. So it joins
+        # the game's "topup" bucket (matching _game_offer's default) instead of a region
+        # bucket, so the customer sees the currency once — not split across topup/Global.
+        sub_category = str(item.get("group_key") or "topup").strip() or "topup"
+    else:
+        # Real gift cards (Steam/Razer/…) — region is the meaningful axis.
+        sub_category = variant_fn(
+            service_key=service_key,
+            family_key=family_key,
+            family_name=family_name,
+            default_variant_name=default_variant,
+            source_id=f"{category_id} {item_id}",
+            source_text=category_name,
+            item_name=package_name,
+        )
     return CatalogOffer(
         provider="g2bulk",
         ref_id=item_id,

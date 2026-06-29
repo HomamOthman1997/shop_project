@@ -224,3 +224,21 @@ def test_cutover_skips_already_hidden_products():
     nodes = [_product("game:pubgm:old", hidden=True, name="already hidden")]
     orphans = compute_orphan_products(nodes, keep_source_keys=set(), services={"games"})
     assert orphans == []
+
+
+def test_gift_offer_game_currency_joins_topup_not_region():
+    # A game-currency voucher (PUBG UC) must land in the game's "topup" bucket, not a
+    # region bucket — so the customer doesn't see UC split across topup + Global. The
+    # route (future voucher vs auto) is backend-only, merged via compare_key.
+    from services.digital_products.catalog_sources.g2bulk_source import _gift_offer
+
+    item = {"id": "v1", "name": "60 Uc Voucher", "category_id": "c1", "compare_key": "pubg:global:60:uc"}
+    price_fn = lambda _it: 1.5
+    fields_fn = lambda _it: []
+    region_variant_fn = lambda **_kw: "Global"
+
+    game = _gift_offer(item, "games", "pubg", "PUBG Mobile", "Global", fields_fn, price_fn, region_variant_fn)
+    assert game.sub_category == "topup"
+
+    card = _gift_offer(item, "gift-cards", "steam", "Steam", "Global", fields_fn, price_fn, region_variant_fn)
+    assert card.sub_category == "Global"
