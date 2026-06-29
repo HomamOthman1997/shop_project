@@ -312,7 +312,7 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'data-digital-filter="category:${esc(row.id)}"' in js
     assert 'row.category === selectedCategory' in js
     assert 'openService("digital");' not in js
-    assert "جميع الطلبات تنفيذ يدوي" in js
+    # The "جميع الطلبات تنفيذ يدوي" banner was intentionally removed (owner request).
     assert "مدة التنفيذ المتوقعة من دقيقة إلى ساعة." in js
     assert "التنفيذ يدوي خلال دقيقة إلى ساعة." in js
     assert ".numbers-app-shell" in css

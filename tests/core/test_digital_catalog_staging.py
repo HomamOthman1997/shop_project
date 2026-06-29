@@ -242,3 +242,18 @@ def test_gift_offer_game_currency_joins_topup_not_region():
 
     card = _gift_offer(item, "gift-cards", "steam", "Steam", "Global", fields_fn, price_fn, region_variant_fn)
     assert card.sub_category == "Global"
+
+
+def test_compare_key_does_not_treat_subscriptions_or_packs_as_currency():
+    # "Prime (1 Month)" / "Weekly Deal Pack 1" must NOT become "1 uc" and collide.
+    from services.digital_products.fulfillment_rules import offer_compare_key
+
+    ck = lambda n: offer_compare_key(family_key="pubg", region="global", offer_name=n, default_unit="uc")
+    assert ck("Prime (1 Month)") == ""
+    assert ck("Prime (3 Months)") == ""
+    assert ck("Weekly Deal Pack 1") == ""
+    assert ck("Royale Pass") == ""
+    # Real currency amounts still resolve correctly.
+    assert ck("60") == "pubg:global:60:uc"
+    assert ck("8100 UC") == "pubg:global:8100:uc"
+    assert ck("60 Uc Voucher") == "pubg:global:60:uc"

@@ -205,6 +205,16 @@ def _extract_amount_unit(name: str | None, *, default_unit: str = "") -> tuple[s
             candidates.append((amount, "usd"))
 
     if not candidates:
+        # Don't force the default currency unit onto products that aren't a bare currency
+        # amount. e.g. "Prime (1 Month)" or "Weekly Deal Pack 1" must NOT become "1 uc"
+        # (which collides with other products and wrongly merges them). These get an empty
+        # key and stay distinct products (matched by source_key, fulfilled on their own).
+        if re.search(
+            r"\b(month|months|week|weekly|year|years|day|days|prime|pass|passes|membership|"
+            r"subscription|sub|pack|packs|bundle|deal|deals|season|tier|combo|gift)\b",
+            text,
+        ):
+            return "", ""
         default = _UNIT_ALIASES.get(norm_text(default_unit), "")
         match = re.search(r"(\d+(?:\.\d+)?)", text)
         amount = _money_amount(match.group(1)) if match else ""
