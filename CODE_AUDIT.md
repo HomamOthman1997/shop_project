@@ -8,6 +8,31 @@ Status: `open` · `fixed` · `wontfix (intentional)` · `deferred`
 
 ---
 
+## Catalog system — full analysis (2026-06-18)
+
+Pipeline: **Import → Staging → Review/edit → Approve → Cutover → Live (`custom_services`, catalog_type=website_manual) → Customer**.
+
+### ✅ Working / fixed this session
+- Import / Approve / Cutover are background jobs; approve+cutover GC bug **fixed** (F5). Status page 500 (naive datetime) **fixed**. Approve now reports skip reasons.
+- Rules: region filter (global/usa/uk/eu kept, rest `dropped`) ✓; dedup/merge by compare_key ✓; default policy api→manual for non-game-source ✓.
+- compare_key: routes (topup/Global = auto/future) **merge** by route-agnostic key ✓; game-currency vouchers now join the `topup` bucket ✓; subscriptions/packs no longer mis-keyed as currency ✓ (all fixed this session, need a re-import to show).
+- Source idempotency: stable `source_key`s (`game:{id}:{item}`, `mangerr:{ref}`) → approve updates, doesn't duplicate ✓.
+
+### 🔴 Needs work — high value
+1. **Margin is NOT applied (no profit + breaks smart routing).** `build_staging_items` sets `suggested_price_usd = cheapest provider COST` with no markup — but the staging hint claims "ويسعّر بالهامش" and there IS a `digital_products_markup_percent` setting. So approved products go live at **cost** → zero profit, and since `cost ≈ sale_price` the no-loss guard finds **no profitable route** → everything falls to manual. This is the long-standing "رفعت الهامش بس ما تغير شي". **Fix:** apply the digital margin to `suggested_price` at import (or approve), with the admin's per-item override still winning. (Confirm: margin is NOT applied at checkout either — customer pays the catalog `price`.)
+2. **Two coexisting customer catalog systems.** `/api/v1/catalog` (website_manual staging tree, what the PUBG screenshot shows) vs `/api/v1/digital/catalog` (old watchlist/snapshot, `catalog()` api.py:852, used by `renderDigitalWorkspace`). Likely a real source of "تخبص" + duplicate maintenance. Needs an untangle: pick one as canonical, retire/redirect the other.
+
+### ⚠️ Needs work — medium
+3. **Import is slow** (~5 min): `g2bulk_source.fetch_offers` pulls ~200 games **sequentially** (one API call each) + gifts + Mangerr. Fix: bounded-concurrency `asyncio.gather` (e.g. 8 at a time) → minutes→seconds. Watch provider rate limits.
+4. **No import progress** — banner only says "running". Add a progress counter (games done / total) to the run doc.
+5. **"G Coins" mis-keyed as `uc`** — `_extract_amount_unit` fallback labels "PUBG G Coins - 100" as `100:uc` (Coins name precedes the number). Low collision risk; tidy later.
+6. **Empty families** (games with 0 active products) show as empty cards — deferred earlier (product count not at list level). Cosmetic.
+
+### Notes
+- Auto-margin (#1) matters because manually pricing 3000+ staged products is impractical AND smart routing needs cost<sale to pick a profitable route.
+
+---
+
 ## Coverage tracker
 
 Big generated **data** files are skipped (not logic): `services/numbers/data/*_services.py`.
