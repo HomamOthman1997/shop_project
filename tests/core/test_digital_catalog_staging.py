@@ -272,3 +272,11 @@ def test_build_staging_items_applies_margin_keeps_cost():
     # default (no margin) is unchanged
     plain, _ = build_staging_items(offers)
     assert plain[0]["suggested_price_usd"] == 0.80
+
+
+def test_compare_key_g_coins_distinct_from_uc():
+    from services.digital_products.fulfillment_rules import offer_compare_key
+
+    ck = lambda n: offer_compare_key(family_key="pubg", region="global", offer_name=n, default_unit="uc")
+    assert ck("PUBG G Coins - 100") == "pubg:global:100:gcoin"
+    assert ck("100") == "pubg:global:100:uc"  # bare amount still UC

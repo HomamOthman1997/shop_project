@@ -215,10 +215,16 @@ def _extract_amount_unit(name: str | None, *, default_unit: str = "") -> tuple[s
             text,
         ):
             return "", ""
-        default = _UNIT_ALIASES.get(norm_text(default_unit), "")
         match = re.search(r"(\d+(?:\.\d+)?)", text)
         amount = _money_amount(match.group(1)) if match else ""
-        return (amount, default) if amount and default else ("", "")
+        if not amount:
+            return "", ""
+        # "G Coins" is a distinct currency — don't fold it into the family's UC default
+        # (so "PUBG G Coins - 100" -> 100:gcoin, never collides with 100:uc).
+        if re.search(r"\bg\s*coins?\b", text):
+            return amount, "gcoin"
+        default = _UNIT_ALIASES.get(norm_text(default_unit), "")
+        return (amount, default) if default else ("", "")
 
     candidates.sort(key=lambda row: _UNIT_PRIORITY.index(row[1]) if row[1] in _UNIT_PRIORITY else 999)
     return candidates[0]
