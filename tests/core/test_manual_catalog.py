@@ -256,3 +256,49 @@ async def test_upsert_static_manual_product_moves_existing_source_to_new_variant
     assert product["website_variant_key"] == "malaysia"
     assert calls["move"] == [("product", 77, "target-variant", "website_manual")]
     assert calls["updates"][0][3]["website_api_source"]["variant_name"] == "Malaysia"
+
+
+@pytest.mark.asyncio
+async def test_builtin_family_keys_with_products_includes_backed_family(monkeypatch):
+    async def nodes(_owner_id, *, catalog_type):
+        return _static_tree()
+
+    monkeypatch.setattr(manual_catalog, "list_catalog_nodes", nodes)
+
+    backed = await manual_catalog.builtin_family_keys_with_products(77)
+
+    assert backed == {"games:pubg"}
+
+
+@pytest.mark.asyncio
+async def test_builtin_family_keys_with_products_excludes_family_without_priced_product(monkeypatch):
+    rows = [dict(row) for row in _static_tree()]
+    for row in rows:
+        if row["_id"] == "product":
+            row["price"] = 0
+
+    async def nodes(_owner_id, *, catalog_type):
+        return rows
+
+    monkeypatch.setattr(manual_catalog, "list_catalog_nodes", nodes)
+
+    backed = await manual_catalog.builtin_family_keys_with_products(77)
+
+    assert backed == set()
+
+
+@pytest.mark.asyncio
+async def test_builtin_family_keys_with_products_excludes_hidden_family(monkeypatch):
+    rows = [dict(row) for row in _static_tree()]
+    for row in rows:
+        if row["_id"] == "family":
+            row["website_hidden"] = True
+
+    async def nodes(_owner_id, *, catalog_type):
+        return rows
+
+    monkeypatch.setattr(manual_catalog, "list_catalog_nodes", nodes)
+
+    backed = await manual_catalog.builtin_family_keys_with_products(77)
+
+    assert backed == set()

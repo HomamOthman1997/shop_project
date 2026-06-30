@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
@@ -247,6 +249,43 @@ def test_public_catalog_payload_exposes_nested_sections_for_customer_app():
     store_slugs = {row["slug"] for row in sections["store-cards"]["categories"]}
     assert {"steam", "playstation", "google_play"} <= store_slugs
     assert not {"mobile-stores", "platform-stores", "payment-cards"} & store_slugs
+
+
+@pytest.mark.asyncio
+async def test_public_catalog_api_drops_generated_families_without_real_products(monkeypatch):
+    async def backed(*_args, **_kwargs):
+        return {"games:pubg"}
+
+    async def manual_sections(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(landing_page, "builtin_family_keys_with_products", backed)
+    monkeypatch.setattr(landing_page, "manual_public_sections", manual_sections)
+
+    response = await landing_page.public_catalog_api(make_mocked_request("GET", "/api/v1/catalog"))
+    payload = json.loads(response.text)
+    games = next(row for row in payload["sections"] if row["slug"] == "games")
+
+    assert [row["family_key"] for row in games["categories"]] == ["pubg"]
+    assert games["categories_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_public_catalog_api_keeps_all_generated_families_when_backing_lookup_fails(monkeypatch):
+    async def backed(*_args, **_kwargs):
+        raise RuntimeError("db unavailable")
+
+    async def manual_sections(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(landing_page, "builtin_family_keys_with_products", backed)
+    monkeypatch.setattr(landing_page, "manual_public_sections", manual_sections)
+
+    response = await landing_page.public_catalog_api(make_mocked_request("GET", "/api/v1/catalog"))
+    payload = json.loads(response.text)
+    games = next(row for row in payload["sections"] if row["slug"] == "games")
+
+    assert games["categories_count"] > 100
 
 
 def test_manual_catalog_categories_merge_into_existing_section():

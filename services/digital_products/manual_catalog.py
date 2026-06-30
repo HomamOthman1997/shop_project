@@ -740,6 +740,37 @@ async def public_sections(
     return sections
 
 
+async def builtin_family_keys_with_products(owner_id: int | None = None) -> set[str]:
+    """(service_key, family_key) pairs of FAMILY_TABLE entries that have a real,
+    priced, fulfillable product behind them — used to drop empty generated cards."""
+    catalog_owner_id = int(owner_id or owner_catalog_id())
+    if catalog_owner_id <= 0:
+        return set()
+    nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
+    by_parent = _by_parent(nodes)
+    backed: set[str] = set()
+    for family in nodes:
+        if node_level(family) != "family" or node_hidden(family):
+            continue
+        service_key = str(family.get("website_section_key") or "").strip()
+        family_key = str(family.get("website_family_key") or "").strip()
+        if not service_key or not family_key or not is_builtin_family(service_key, family_key):
+            continue
+        key = f"{service_key}:{family_key}"
+        if key in backed:
+            continue
+        variants = [row for row in by_parent.get(str(family.get("_id") or ""), []) if node_level(row) == "variant"]
+        has_product = any(
+            float(product.get("price") or 0) > 0 and bool(clean_input_fields(product.get("input_fields")))
+            for variant in variants
+            for product in by_parent.get(str(variant.get("_id") or ""), [])
+            if node_level(product) == "product"
+        )
+        if has_product:
+            backed.add(key)
+    return backed
+
+
 async def static_family_packages(
     service_key: str,
     family_key: str,

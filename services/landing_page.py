@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from aiohttp import web
 
 from services.digital_products.custom_catalog import FAMILY_TABLE
+from services.digital_products.manual_catalog import builtin_family_keys_with_products
 from services.digital_products.manual_catalog import public_sections as manual_public_sections
 from services.platform.website_auth import require_website_auth
 
@@ -2188,6 +2189,19 @@ async def catalog_page(request: web.Request) -> web.Response:
 
 async def public_catalog_api(_request: web.Request) -> web.Response:
     payload = public_catalog_payload()
+    try:
+        backed = await builtin_family_keys_with_products()
+    except Exception:
+        backed = None
+    if backed is not None:
+        for section in payload.get("sections", []):
+            categories = [
+                category
+                for category in (section.get("categories") or [])
+                if not category.get("generated") or f"{category.get('service_key')}:{category.get('family_key')}" in backed
+            ]
+            section["categories"] = categories
+            section["categories_count"] = len(categories)
     try:
         payload = merge_manual_catalog(payload, await manual_public_sections())
     except Exception:
