@@ -257,3 +257,18 @@ def test_compare_key_does_not_treat_subscriptions_or_packs_as_currency():
     assert ck("60") == "pubg:global:60:uc"
     assert ck("8100 UC") == "pubg:global:8100:uc"
     assert ck("60 Uc Voucher") == "pubg:global:60:uc"
+
+
+def test_build_staging_items_applies_margin_keeps_cost():
+    # Margin turns the cheapest provider COST into the suggested SELL price; the raw
+    # cost is preserved so the no-loss guard still compares against the true cost.
+    offers = [
+        _offer(provider="g2bulk", ref_id="264", source_key="game:pubgm:264", price_usd=1.00),
+        _offer(provider="mangerr", ref_id="m1", source_key="mangerr:m1", price_usd=0.80),
+    ]
+    items, _ = build_staging_items(offers, margin_factor=1.25)  # +25%
+    assert items[0]["cost_price_usd"] == 0.80
+    assert items[0]["suggested_price_usd"] == 1.0  # 0.80 * 1.25
+    # default (no margin) is unchanged
+    plain, _ = build_staging_items(offers)
+    assert plain[0]["suggested_price_usd"] == 0.80

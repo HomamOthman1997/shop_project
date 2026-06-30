@@ -49,13 +49,18 @@ def _offer_brief(offer: CatalogOffer) -> dict[str, Any]:
     }
 
 
-def build_staging_items(offers: list[CatalogOffer]) -> tuple[list[dict[str, Any]], int]:
+def build_staging_items(offers: list[CatalogOffer], *, margin_factor: float = 1.0) -> tuple[list[dict[str, Any]], int]:
     """Apply the catalog rules to raw offers and return (staged_items, dropped_count).
 
     Rules: region filter (1), dedup/merge by compare_key (4), default execution
     policy = api (5). Family/service reclassification (2) and sub-type split (3)
     are already carried on each offer by the source layer.
+
+    `margin_factor` (1 + markup%/100) turns the cheapest provider **cost** into the
+    suggested **selling** price. The raw cost is kept in `cost_price_usd` so the
+    no-loss guard / provider lanes still compare against the true cost.
     """
+    factor = float(margin_factor) if margin_factor and margin_factor > 0 else 1.0
     staged: dict[str, dict[str, Any]] = {}
     dropped = 0
     for offer in offers:
@@ -69,6 +74,7 @@ def build_staging_items(offers: list[CatalogOffer]) -> tuple[list[dict[str, Any]
             region_ok = region in ALLOWED_REGIONS
             if not region_ok:
                 dropped += 1
+            cost = _round2(offer.price_usd)
             staged[staging_key] = {
                 "staging_key": staging_key,
                 "compare_key": offer.compare_key,
@@ -82,7 +88,8 @@ def build_staging_items(offers: list[CatalogOffer]) -> tuple[list[dict[str, Any]
                 "package_name": offer.package_name,
                 "source_key": offer.source_key,
                 "provider_offers": [brief],
-                "suggested_price_usd": _round2(offer.price_usd),
+                "cost_price_usd": cost,
+                "suggested_price_usd": _round2(cost * factor),
                 "execution_policy": "api",
                 "input_fields": list(offer.input_fields or []),
                 "requires_server": bool(offer.requires_server),
@@ -93,8 +100,9 @@ def build_staging_items(offers: list[CatalogOffer]) -> tuple[list[dict[str, Any]
         # Merge another provider's offer for the same package (rule 4 dedup).
         if not any(o["provider"] == brief["provider"] and o["ref_id"] == brief["ref_id"] for o in item["provider_offers"]):
             item["provider_offers"].append(brief)
-        if _round2(offer.price_usd) < _round2(item["suggested_price_usd"]):
-            item["suggested_price_usd"] = _round2(offer.price_usd)
+        if _round2(offer.price_usd) < _round2(item.get("cost_price_usd") or item["suggested_price_usd"]):
+            item["cost_price_usd"] = _round2(offer.price_usd)
+            item["suggested_price_usd"] = _round2(_round2(offer.price_usd) * factor)
             item["source_key"] = offer.source_key
             item["requires_server"] = bool(offer.requires_server)
             item["input_fields"] = list(offer.input_fields or [])
@@ -139,7 +147,7 @@ def staged_api_source(item: dict[str, Any]) -> dict[str, Any]:
         "player_field": "player_id",
         "server_field": "server_id",
         "variant_name": str(item.get("sub_category") or "Global"),
-        "source_price_usd": _round2(item.get("suggested_price_usd")),
+        "source_price_usd": _round2(item.get("cost_price_usd") if item.get("cost_price_usd") is not None else item.get("suggested_price_usd")),
         "provider_offers": [
             {
                 "provider": str(offer.get("provider") or ""),
@@ -198,7 +206,14 @@ async def run_staging_import(owner_id: int, *, sources: list[Any] | None = None)
         by_provider[code] = {"ok": True, "offers": len(fetched)}
         all_offers.extend(fetched)
 
-    items, dropped = build_staging_items(all_offers)
+    try:
+        from database.digital_products_config_repo import get_digital_products_markup_percent
+
+        markup_pct = float(await get_digital_products_markup_percent())
+    except Exception:
+        markup_pct = 0.0
+    margin_factor = 1.0 + max(0.0, markup_pct) / 100.0
+    items, dropped = build_staging_items(all_offers, margin_factor=margin_factor)
     upsert = await upsert_staging_items(owner_id, run_id, items)
     counts = await staging_status_counts(owner_id)
     return {
