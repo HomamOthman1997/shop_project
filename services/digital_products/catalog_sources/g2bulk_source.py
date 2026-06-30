@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
 from services.digital_products.catalog_sources.base import CatalogOffer, parse_compare_key
 
 logger = logging.getLogger("catalog_sources.g2bulk")
+
+# How many provider catalogue calls to run at once. Conservative to avoid the
+# provider rate-limiting us (a 429'd game is logged + skipped, not fatal).
+_FETCH_CONCURRENCY = 6
 
 
 class G2BulkCatalogSource:
@@ -31,10 +36,12 @@ class G2BulkCatalogSource:
         )
 
         payload = await _catalog_payload()
-        offers: list[CatalogOffer] = []
         seen_games: set[str] = set()
         seen_gifts: set[str] = set()
+        game_jobs: list[tuple[str, str, str, str]] = []
+        gift_jobs: list[tuple[str, str, str, str, str, str]] = []
 
+        # Pass 1: flatten the tree into a deduped list of provider fetches.
         for service in list(payload.get("service_tree") or []):
             service_key = str(service.get("key") or "").strip()
             for family in list(service.get("families") or []):
@@ -42,47 +49,54 @@ class G2BulkCatalogSource:
                 family_name = str(family.get("name") or family_key)
                 for variant in list(family.get("variants") or []):
                     default_variant = str(variant.get("name") or "Global").strip() or "Global"
-
+                    offer_mode = str(variant.get("offer_mode") or "all")
                     for game_id in list(variant.get("game_ids") or []):
                         gid = str(game_id).strip()
-                        if not gid or gid in seen_games:
-                            continue
-                        seen_games.add(gid)
-                        try:
-                            data = await _game_items(gid)
-                        except Exception as exc:  # one game failing must not abort the import
-                            logger.warning("g2bulk game_items failed game=%s err=%s", gid, exc)
-                            continue
-                        for item in list(data.get("items") or []):
-                            offer = _game_offer(item, service_key, family_key, family_name, _game_import_fields)
-                            if offer:
-                                offers.append(offer)
-
+                        if gid and gid not in seen_games:
+                            seen_games.add(gid)
+                            game_jobs.append((gid, service_key, family_key, family_name))
                     for category_id in list(variant.get("gift_category_ids") or []):
                         cid = str(category_id).strip()
-                        if not cid or cid in seen_gifts:
-                            continue
-                        seen_gifts.add(cid)
-                        try:
-                            items = await _gift_products(cid, "", str(variant.get("offer_mode") or "all"))
-                        except Exception as exc:
-                            logger.warning("g2bulk gift_products failed cat=%s err=%s", cid, exc)
-                            continue
-                        for item in list(items or []):
-                            offer = _gift_offer(
-                                item,
-                                service_key,
-                                family_key,
-                                family_name,
-                                default_variant,
-                                _gift_import_fields,
-                                _import_item_price,
-                                _import_variant_name,
-                            )
-                            if offer:
-                                offers.append(offer)
+                        if cid and cid not in seen_gifts:
+                            seen_gifts.add(cid)
+                            gift_jobs.append((cid, service_key, family_key, family_name, default_variant, offer_mode))
 
-        logger.info("g2bulk catalog source produced %d offers", len(offers))
+        # Pass 2: fetch them with bounded concurrency (was sequential -> minutes).
+        sem = asyncio.Semaphore(_FETCH_CONCURRENCY)
+
+        async def fetch_game(job: tuple[str, str, str, str]) -> list[CatalogOffer]:
+            gid, sk, fk, fn = job
+            async with sem:
+                try:
+                    data = await _game_items(gid)
+                except Exception as exc:  # one game failing must not abort the import
+                    logger.warning("g2bulk game_items failed game=%s err=%s", gid, exc)
+                    return []
+            out = [_game_offer(item, sk, fk, fn, _game_import_fields) for item in list(data.get("items") or [])]
+            return [o for o in out if o]
+
+        async def fetch_gift(job: tuple[str, str, str, str, str, str]) -> list[CatalogOffer]:
+            cid, sk, fk, fn, dv, om = job
+            async with sem:
+                try:
+                    items = await _gift_products(cid, "", om)
+                except Exception as exc:
+                    logger.warning("g2bulk gift_products failed cat=%s err=%s", cid, exc)
+                    return []
+            out = [
+                _gift_offer(item, sk, fk, fn, dv, _gift_import_fields, _import_item_price, _import_variant_name)
+                for item in list(items or [])
+            ]
+            return [o for o in out if o]
+
+        results = await asyncio.gather(
+            *(fetch_game(j) for j in game_jobs), *(fetch_gift(j) for j in gift_jobs)
+        )
+        offers: list[CatalogOffer] = [offer for group in results for offer in group]
+        logger.info(
+            "g2bulk catalog source produced %d offers (games=%d gifts=%d concurrency=%d)",
+            len(offers), len(game_jobs), len(gift_jobs), _FETCH_CONCURRENCY,
+        )
         return offers
 
 
