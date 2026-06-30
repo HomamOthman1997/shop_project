@@ -300,7 +300,9 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'class="account-catalog-grid digital-package-grid"' in js
     assert 'class="account-catalog-card green digital-package-card"' in js
     assert 'root.classList.add("is-catalog-packages");' in js
-    assert 'else if (initialView === "home") {\n    openPanel("home", "الخدمات", { updateRoute: false });\n  }' in js
+    assert 'else if (initialView === "digital" || initialView === "home") {\n    openPanel("home", "الخدمات", { updateRoute: false });\n  }' in js
+    assert 'if (pathView === "digital") {\n    openPanel("home", "الخدمات", { updateRoute: false });\n    return;\n  }' in js
+    assert "DIGITAL PRODUCTS" not in js
     assert "function resolveNumbersCatalogSelection" in js
     assert 'temporary: "temp", temp: "temp", rental: "rental", voice: "voice"' in js
     assert 'replace(/_numbers$/, "")' in js

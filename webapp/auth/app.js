@@ -312,10 +312,10 @@ function showAccount(account) {
   if (window.location.pathname.startsWith("/admin")) pushRoute("/app");
   pushRoute(postAuthCustomerPath());
   const initialView = viewForPath();
-  if (initialView === "digital" || initialView === "numbers") {
+  if (initialView === "numbers") {
     openPanel("home", "الخدمات", { updateRoute: false });
     openService(initialView);
-  } else if (initialView === "home") {
+  } else if (initialView === "digital" || initialView === "home") {
     openPanel("home", "الخدمات", { updateRoute: false });
   } else {
     openPanel(initialView, "", { updateRoute: false });
@@ -4620,11 +4620,6 @@ function openPanel(view, title = "", options = {}) {
 
 function openService(service) {
   const serviceMap = {
-    digital: {
-      title: "منتجات رقمية",
-      kicker: "DIGITAL PRODUCTS",
-      load: loadDigitalWorkspace,
-    },
     numbers: {
       title: "أرقام",
       kicker: "NUMBERS SERVICE",
@@ -4701,8 +4696,12 @@ window.addEventListener("popstate", () => {
     return;
   }
   const pathView = viewForPath();
-  if (pathView === "digital" || pathView === "numbers") {
+  if (pathView === "numbers") {
     openService(pathView);
+    return;
+  }
+  if (pathView === "digital") {
+    openPanel("home", "الخدمات", { updateRoute: false });
     return;
   }
   openPanel(pathView, "", { updateRoute: false });
