@@ -624,16 +624,27 @@ async def hide_orphan_products(
     }
 
 
+async def load_public_catalog_nodes(owner_id: int | None = None) -> list[dict[str, Any]]:
+    """One shared fetch of the whole website_manual tree, so callers that need
+    several passes over it (catalog payload + empty-family filter) hit Mongo once."""
+    catalog_owner_id = int(owner_id or owner_catalog_id())
+    if catalog_owner_id <= 0:
+        return []
+    return await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
+
+
 async def public_sections(
     owner_id: int | None = None,
     *,
     include_empty: bool = False,
     include_builtin: bool = False,
+    nodes: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     catalog_owner_id = int(owner_id or owner_catalog_id())
     if catalog_owner_id <= 0:
         return []
-    nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
+    if nodes is None:
+        nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
     by_parent = _by_parent(nodes)
 
     root = next((row for row in nodes if node_level(row) == "root"), None)
@@ -740,13 +751,18 @@ async def public_sections(
     return sections
 
 
-async def builtin_family_keys_with_products(owner_id: int | None = None) -> set[str]:
+async def builtin_family_keys_with_products(
+    owner_id: int | None = None,
+    *,
+    nodes: list[dict[str, Any]] | None = None,
+) -> set[str]:
     """(service_key, family_key) pairs of FAMILY_TABLE entries that have a real,
     priced, fulfillable product behind them — used to drop empty generated cards."""
     catalog_owner_id = int(owner_id or owner_catalog_id())
     if catalog_owner_id <= 0:
         return set()
-    nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
+    if nodes is None:
+        nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
     by_parent = _by_parent(nodes)
     backed: set[str] = set()
     for family in nodes:

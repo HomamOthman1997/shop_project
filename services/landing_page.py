@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import time
 from html import escape
 from urllib.parse import urlencode
 
 from aiohttp import web
 
 from services.digital_products.custom_catalog import FAMILY_TABLE
-from services.digital_products.manual_catalog import builtin_family_keys_with_products
+from services.digital_products.manual_catalog import builtin_family_keys_with_products, load_public_catalog_nodes
 from services.digital_products.manual_catalog import public_sections as manual_public_sections
 from services.platform.website_auth import require_website_auth
 
@@ -2187,10 +2188,23 @@ async def catalog_page(request: web.Request) -> web.Response:
     )
 
 
-async def public_catalog_api(_request: web.Request) -> web.Response:
+_CATALOG_CACHE_TTL_SECONDS = 30.0
+_catalog_cache: dict[str, object] = {"at": 0.0, "payload": None}
+
+
+def invalidate_public_catalog_cache() -> None:
+    _catalog_cache["at"] = 0.0
+    _catalog_cache["payload"] = None
+
+
+async def _build_public_catalog() -> dict[str, object]:
     payload = public_catalog_payload()
     try:
-        backed = await builtin_family_keys_with_products()
+        nodes = await load_public_catalog_nodes()
+    except Exception:
+        nodes = None
+    try:
+        backed = await builtin_family_keys_with_products(nodes=nodes)
     except Exception:
         backed = None
     if backed is not None:
@@ -2203,9 +2217,23 @@ async def public_catalog_api(_request: web.Request) -> web.Response:
             section["categories"] = categories
             section["categories_count"] = len(categories)
     try:
-        payload = merge_manual_catalog(payload, await manual_public_sections())
+        payload = merge_manual_catalog(payload, await manual_public_sections(nodes=nodes))
     except Exception:
         pass
+    return payload
+
+
+async def public_catalog_api(_request: web.Request) -> web.Response:
+    # The website_manual tree is ~4K nodes; without this cache every home-page
+    # visit pulled it from Mongo (twice, before the shared-nodes refactor) and
+    # customers saw request timeouts.
+    now = time.monotonic()
+    cached = _catalog_cache.get("payload")
+    if cached is not None and (now - float(_catalog_cache.get("at") or 0.0)) < _CATALOG_CACHE_TTL_SECONDS:
+        return web.json_response(cached, headers=dict(_NO_STORE_HEADERS))
+    payload = await _build_public_catalog()
+    _catalog_cache["payload"] = payload
+    _catalog_cache["at"] = time.monotonic()
     return web.json_response(payload, headers=dict(_NO_STORE_HEADERS))
 
 

@@ -251,6 +251,22 @@ def test_public_catalog_payload_exposes_nested_sections_for_customer_app():
     assert not {"mobile-stores", "platform-stores", "payment-cards"} & store_slugs
 
 
+@pytest.fixture(autouse=True)
+def _fresh_public_catalog_cache():
+    landing_page.invalidate_public_catalog_cache()
+    yield
+    landing_page.invalidate_public_catalog_cache()
+
+
+def _patch_catalog_sources(monkeypatch, backed, manual_sections):
+    async def nodes(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(landing_page, "load_public_catalog_nodes", nodes)
+    monkeypatch.setattr(landing_page, "builtin_family_keys_with_products", backed)
+    monkeypatch.setattr(landing_page, "manual_public_sections", manual_sections)
+
+
 @pytest.mark.asyncio
 async def test_public_catalog_api_drops_generated_families_without_real_products(monkeypatch):
     async def backed(*_args, **_kwargs):
@@ -259,8 +275,7 @@ async def test_public_catalog_api_drops_generated_families_without_real_products
     async def manual_sections(*_args, **_kwargs):
         return []
 
-    monkeypatch.setattr(landing_page, "builtin_family_keys_with_products", backed)
-    monkeypatch.setattr(landing_page, "manual_public_sections", manual_sections)
+    _patch_catalog_sources(monkeypatch, backed, manual_sections)
 
     response = await landing_page.public_catalog_api(make_mocked_request("GET", "/api/v1/catalog"))
     payload = json.loads(response.text)
@@ -278,14 +293,37 @@ async def test_public_catalog_api_keeps_all_generated_families_when_backing_look
     async def manual_sections(*_args, **_kwargs):
         return []
 
-    monkeypatch.setattr(landing_page, "builtin_family_keys_with_products", backed)
-    monkeypatch.setattr(landing_page, "manual_public_sections", manual_sections)
+    _patch_catalog_sources(monkeypatch, backed, manual_sections)
 
     response = await landing_page.public_catalog_api(make_mocked_request("GET", "/api/v1/catalog"))
     payload = json.loads(response.text)
     games = next(row for row in payload["sections"] if row["slug"] == "games")
 
     assert games["categories_count"] > 100
+
+
+@pytest.mark.asyncio
+async def test_public_catalog_api_serves_cached_payload_within_ttl(monkeypatch):
+    calls = {"n": 0}
+
+    async def backed(*_args, **_kwargs):
+        calls["n"] += 1
+        return {"games:pubg"}
+
+    async def manual_sections(*_args, **_kwargs):
+        return []
+
+    _patch_catalog_sources(monkeypatch, backed, manual_sections)
+
+    first = await landing_page.public_catalog_api(make_mocked_request("GET", "/api/v1/catalog"))
+    second = await landing_page.public_catalog_api(make_mocked_request("GET", "/api/v1/catalog"))
+
+    assert calls["n"] == 1
+    assert json.loads(first.text) == json.loads(second.text)
+
+    landing_page.invalidate_public_catalog_cache()
+    await landing_page.public_catalog_api(make_mocked_request("GET", "/api/v1/catalog"))
+    assert calls["n"] == 2
 
 
 def test_manual_catalog_categories_merge_into_existing_section():
