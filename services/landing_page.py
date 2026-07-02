@@ -1221,8 +1221,8 @@ _CATALOG_SECTIONS = (
     {
         "slug": "subscriptions",
         "aliases": ("apps",),
-        "title": "اشتراكات برامج",
-        "subtitle": "اشتراكات وخدمات برامج مثل Adobe وTelegram وخدمات رقمية أخرى.",
+        "title": "الاشتراكات",
+        "subtitle": "شاهد، نتفليكس، تيليغرام بريميوم واشتراكات رقمية أخرى.",
         "accent": "violet",
         "items": (
             ("Adobe", "اشتراكات وأدوات تصميم حسب التوفر."),
@@ -1451,16 +1451,21 @@ _CATALOG_SECTIONS = (
     {
         "slug": "esim",
         "title": "eSIM",
-        "subtitle": "شرائح إلكترونية وباقات بيانات للسفر. الـ API غير مفعّل حالياً.",
+        "subtitle": "شرائح إلكترونية وباقات بيانات للسفر حسب الدولة والمدة.",
         "accent": "amber",
-        "enabled": False,
-        "status": "قريباً - API غير مفعّل",
         "items": (
-            ("باقات حسب الدولة", "اختيار الدولة والمدة وحجم البيانات بعد تفعيل الـ API."),
-            ("باقات متعددة الدول", "خطط سفر إقليمية وعالمية بعد تفعيل المصدر."),
+            ("باقات حسب الدولة", "اختيار الدولة والمدة وحجم البيانات."),
+            ("باقات متعددة الدول", "خطط سفر إقليمية وعالمية."),
         ),
     },
 )
+
+# Homam's 2026-07 slim-down: the public catalog shows games, subscriptions,
+# global balance top-ups, eSIM and numbers only. These sections stay defined
+# (and their data stays in the manual tree) but are not served to customers.
+_HIDDEN_SECTION_SLUGS = frozenset({"chat-apps", "social-services", "store-cards", "internet-providers", "paid-apps"})
+
+_SECTION_SERVICE_BY_SLUG = {"verification-numbers": "numbers", "esim": "esim"}
 
 _SHOWCASE_TILES: tuple[dict[str, str], ...] = (
     {
@@ -1471,8 +1476,8 @@ _SHOWCASE_TILES: tuple[dict[str, str], ...] = (
         "accent": "green",
     },
     {
-        "title": "التطبيقات",
-        "subtitle": "اشتراكات وخدمات تطبيقات",
+        "title": "الاشتراكات",
+        "subtitle": "شاهد، نتفليكس، تيليغرام بريميوم",
         "href": "/catalog/subscriptions",
         "image": "/mini/digital/static/communications-rtl.png",
         "accent": "blue",
@@ -1485,25 +1490,11 @@ _SHOWCASE_TILES: tuple[dict[str, str], ...] = (
         "accent": "amber",
     },
     {
-        "title": "السوشيال ميديا",
-        "subtitle": "خدمات حسابات ومنصات",
-        "href": "/catalog/social-services",
-        "image": "/mini/digital/static/store-cards-rtl.png",
-        "accent": "violet",
-    },
-    {
-        "title": "بطاقات المتاجر",
-        "subtitle": "بطاقات ومنتجات رقمية",
-        "href": "/catalog/store-cards",
-        "image": "/mini/digital/static/section-store-cards.jpg",
+        "title": "eSIM",
+        "subtitle": "شرائح بيانات للسفر",
+        "href": "/catalog/esim",
+        "image": "/mini/digital/static/section-communications.jpg",
         "accent": "green",
-    },
-    {
-        "title": "مزودات الإنترنت",
-        "subtitle": "اتصال وباقات محلية",
-        "href": "/catalog/internet-providers",
-        "image": "/mini/digital/static/numbers-rtl.png",
-        "accent": "blue",
     },
     {
         "title": "الأرقام",
@@ -1605,9 +1596,13 @@ def _section_categories(section: dict[str, object] | None) -> tuple[dict[str, ob
     return manual
 
 
+def _public_catalog_sections() -> tuple[dict[str, object], ...]:
+    return tuple(section for section in _CATALOG_SECTIONS if str(section.get("slug") or "") not in _HIDDEN_SECTION_SLUGS)
+
+
 def public_catalog_payload() -> dict[str, object]:
     sections: list[dict[str, object]] = []
-    for section in _CATALOG_SECTIONS:
+    for section in _public_catalog_sections():
         slug = str(section.get("slug") or "")
         categories = [
             {
@@ -1627,7 +1622,7 @@ def public_catalog_payload() -> dict[str, object]:
                 "title": str(section.get("title") or ""),
                 "subtitle": str(section.get("subtitle") or ""),
                 "accent": str(section.get("accent") or "green"),
-                "service": "numbers" if slug == "verification-numbers" else "digital",
+                "service": _SECTION_SERVICE_BY_SLUG.get(slug, "digital"),
                 "enabled": bool(section.get("enabled", True)),
                 "status": str(section.get("status") or ""),
                 "categories": categories,
@@ -1766,7 +1761,7 @@ def _broader_catalog_search_path(section: dict[str, object] | None, category: di
 
 def _catalog_cards(*, active_slug: str = "") -> str:
     cards: list[str] = []
-    for section in _CATALOG_SECTIONS:
+    for section in _public_catalog_sections():
         slug = str(section["slug"])
         title = escape(str(section["title"]))
         subtitle = escape(str(section["subtitle"]))
@@ -1811,7 +1806,7 @@ def _category_cards(section: dict[str, object]) -> str:
 
 def _root_family_search_cards() -> str:
     cards: list[str] = []
-    for section in _CATALOG_SECTIONS:
+    for section in _public_catalog_sections():
         section_slug = escape(str(section["slug"]))
         accent = escape(str(section["accent"]))
         section_title = str(section["title"])
@@ -2168,7 +2163,7 @@ async def catalog_page(request: web.Request) -> web.Response:
     """Public section browser. Final category selection continues inside the account."""
     slug = str(request.match_info.get("slug") or "")
     section = _section_by_slug(slug)
-    if slug and section is None:
+    if slug and (section is None or str(section.get("slug") or "") in _HIDDEN_SECTION_SLUGS):
         raise web.HTTPNotFound(text="catalog section not found")
     category_slug = str(request.match_info.get("category") or request.query.get("category") or "")
     if slug and section and slug != str(section["slug"]):
@@ -2220,6 +2215,9 @@ async def _build_public_catalog() -> dict[str, object]:
         payload = merge_manual_catalog(payload, await manual_public_sections(nodes=nodes))
     except Exception:
         pass
+    payload["sections"] = [
+        section for section in payload.get("sections", []) if str(section.get("slug") or "") not in _HIDDEN_SECTION_SLUGS
+    ]
     return payload
 
 

@@ -515,6 +515,10 @@ function openAccountCatalogRow(slug) {
   const section = accountCatalogState.activeSection;
   if (!section) {
     const selected = accountCatalogState.sections.find((row) => row.slug === slug) || null;
+    if (selected?.service === "esim") {
+      openPanel("esim");
+      return;
+    }
     if (selected?.enabled === false) {
       $("#account-catalog-grid").innerHTML = `
         <div class="account-catalog-empty">

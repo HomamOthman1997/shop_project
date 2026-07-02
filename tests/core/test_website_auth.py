@@ -93,13 +93,13 @@ async def test_public_landing_page_links_to_auth_and_service_routes():
     assert 'href="/register"' in text
     assert 'href="/catalog"' in text
     assert 'href="/catalog/games"' in text
-    assert 'href="/catalog/chat-apps"' in text
-    assert 'href="/catalog/social-services"' in text
     assert 'href="/catalog/subscriptions"' in text
-    assert 'href="/catalog/store-cards"' in text
     assert 'href="/catalog/verification-numbers"' in text
-    assert 'href="/catalog/internet-providers"' in text
-    assert 'href="/catalog/paid-apps"' in text
+    assert 'href="/catalog/chat-apps"' not in text
+    assert 'href="/catalog/social-services"' not in text
+    assert 'href="/catalog/store-cards"' not in text
+    assert 'href="/catalog/internet-providers"' not in text
+    assert 'href="/catalog/paid-apps"' not in text
     assert "الشراء" not in text
     assert "طلباتي" not in text
 
@@ -113,14 +113,15 @@ async def test_public_catalog_page_exposes_sections_without_checkout():
     assert "<h1>Phantom Services</h1>" in text
     assert "كتالوغ Phantom" not in text
     assert 'href="/catalog/games"' in text
-    assert 'href="/catalog/chat-apps"' in text
-    assert 'href="/catalog/social-services"' in text
     assert 'href="/catalog/subscriptions"' in text
-    assert 'href="/catalog/store-cards"' in text
     assert 'href="/catalog/verification-numbers"' in text
-    assert 'href="/catalog/internet-providers"' in text
-    assert 'href="/catalog/paid-apps"' in text
     assert 'href="/catalog/mobile-recharge"' in text
+    assert 'href="/catalog/esim"' in text
+    assert 'href="/catalog/chat-apps"' not in text
+    assert 'href="/catalog/social-services"' not in text
+    assert 'href="/catalog/store-cards"' not in text
+    assert 'href="/catalog/internet-providers"' not in text
+    assert 'href="/catalog/paid-apps"' not in text
     assert 'href="/register"' in text
     assert 'href="/login"' in text
     assert "PUBG Mobile UC" not in text

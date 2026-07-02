@@ -42,15 +42,15 @@ def test_landing_page_exposes_public_website_navigation():
     assert 'id="catalog-search"' in html
     assert "<h1>Phantom Services</h1>" in html
     assert 'href="/catalog/games"' in html
-    assert 'href="/catalog/chat-apps"' in html
-    assert 'href="/catalog/social-services"' in html
     assert 'href="/catalog/subscriptions"' in html
-    assert 'href="/catalog/store-cards"' in html
     assert 'href="/catalog/verification-numbers"' in html
-    assert 'href="/catalog/internet-providers"' in html
-    assert 'href="/catalog/paid-apps"' in html
     assert 'href="/catalog/mobile-recharge"' in html
     assert 'href="/catalog/esim"' in html
+    assert 'href="/catalog/chat-apps"' not in html
+    assert 'href="/catalog/social-services"' not in html
+    assert 'href="/catalog/store-cards"' not in html
+    assert 'href="/catalog/internet-providers"' not in html
+    assert 'href="/catalog/paid-apps"' not in html
     assert 'class="catalog-nav"' in html
     assert 'class="service-grid"' not in html
     assert 'class="side-nav"' not in html
@@ -93,13 +93,13 @@ def test_catalog_page_uses_public_showcase_before_login():
     assert 'class="breadcrumbs"' in html
     assert "رجوع إلى الأقسام" not in html
     assert 'href="/catalog/games"' in html
-    assert 'href="/catalog/chat-apps"' in html
-    assert 'href="/catalog/social-services"' in html
     assert 'href="/catalog/subscriptions"' in html
-    assert 'href="/catalog/store-cards"' in html
     assert 'href="/catalog/verification-numbers"' in html
-    assert 'href="/catalog/internet-providers"' in html
-    assert 'href="/catalog/paid-apps"' in html
+    assert 'href="/catalog/chat-apps"' not in html
+    assert 'href="/catalog/social-services"' not in html
+    assert 'href="/catalog/store-cards"' not in html
+    assert 'href="/catalog/internet-providers"' not in html
+    assert 'href="/catalog/paid-apps"' not in html
     assert 'href="/catalog/numbers"' not in html
     assert 'href="/catalog/digital/' not in html
     assert 'class="catalog-card green" href="/catalog/games" data-catalog-search=' in html
@@ -168,36 +168,16 @@ def test_catalog_section_shows_subcategory_tabs():
     assert "PUBG Mobile UC" not in html
 
 
-def test_catalog_exposes_custom_miniapp_sections_as_first_level_routes():
+def test_hidden_sections_are_not_exposed_publicly():
     html = landing_page.catalog_page_html()
+    payload = landing_page.public_catalog_payload()
+    slugs = {row["slug"] for row in payload["sections"]}
 
-    for href in (
-        "/catalog/social-services",
-        "/catalog/store-cards",
-        "/catalog/internet-providers",
-        "/catalog/paid-apps",
-    ):
-        assert f'href="{href}"' in html
+    for hidden in ("chat-apps", "social-services", "store-cards", "internet-providers", "paid-apps"):
+        assert f'href="/catalog/{hidden}"' not in html
+        assert hidden not in slugs
 
-    social = landing_page.catalog_page_html("social-services")
-    assert 'href="/catalog/social-services/tiktok_services"' in social
-    assert 'href="/catalog/social-services/instagram_services"' in social
-    assert 'href="/catalog/social-services/messaging"' not in social
-
-    cards = landing_page.catalog_page_html("store-cards")
-    assert 'href="/catalog/store-cards/steam"' in cards
-    assert 'href="/catalog/store-cards/playstation"' in cards
-    assert 'href="/catalog/store-cards/google_play"' in cards
-    assert 'href="/catalog/store-cards/mobile-stores"' not in cards
-    assert 'href="/catalog/store-cards/platform-stores"' not in cards
-    assert 'href="/catalog/store-cards/payment-cards"' not in cards
-    assert 'href="/catalog/store-cards/gaming-stores"' not in cards
-    assert "Roblox" not in cards
-    assert "Discord و IMO" not in cards
-
-    apps = landing_page.catalog_page_html("paid-apps", category_slug="dft_pro")
-    assert "DFT Pro" in apps
-    assert 'href="/catalog/paid-apps/mobile-tools"' not in landing_page.catalog_page_html("paid-apps")
+    assert {"games", "subscriptions", "verification-numbers", "mobile-recharge", "esim"} <= slugs
 
 
 def test_catalog_sections_include_miniapp_family_categories():
@@ -217,20 +197,15 @@ def test_catalog_sections_include_miniapp_family_categories():
     assert 'href="/catalog/mobile-recharge/global"' not in recharge
 
 
-def test_esim_is_a_separate_disabled_section_until_api_is_enabled():
+def test_esim_is_an_enabled_section_card_that_opens_the_esim_system():
     root = landing_page.catalog_page_html()
-    esim = landing_page.catalog_page_html("esim")
     payload = landing_page.public_catalog_payload()
     sections = {row["slug"]: row for row in payload["sections"]}
 
     assert 'href="/catalog/esim"' in root
-    assert "قريباً - API غير مفعّل" in root
-    assert "<h1>eSIM</h1>" in esim
-    assert "الخدمة غير مفعّلة حالياً" in esim
-    assert "سيتم فتح الباقات والشراء بعد تفعيل وربط الـ API." in esim
-    assert "/login?next=/app/digital" not in esim
-    assert sections["esim"]["enabled"] is False
-    assert sections["esim"]["categories_count"] == 0
+    assert "قريباً - API غير مفعّل" not in root
+    assert sections["esim"]["enabled"] is True
+    assert sections["esim"]["service"] == "esim"
     assert sections["mobile-recharge"]["enabled"] is True
     assert all(row["slug"] != "esim" for row in sections["mobile-recharge"]["categories"])
 
@@ -246,9 +221,8 @@ def test_public_catalog_payload_exposes_nested_sections_for_customer_app():
     assert jawaker["service_key"] == "games"
     assert jawaker["family_key"] == "jawaker"
     assert any(row["slug"] == "telegram_numbers" for row in sections["verification-numbers"]["categories"])
-    store_slugs = {row["slug"] for row in sections["store-cards"]["categories"]}
-    assert {"steam", "playstation", "google_play"} <= store_slugs
-    assert not {"mobile-stores", "platform-stores", "payment-cards"} & store_slugs
+    subscription_slugs = {row["slug"] for row in sections["subscriptions"]["categories"]}
+    assert {"netflix", "shahid", "telegram_premium"} <= subscription_slugs
 
 
 @pytest.fixture(autouse=True)
@@ -415,13 +389,8 @@ def test_family_backed_catalog_sections_only_expose_direct_product_families():
 
     for slug in (
         "games",
-        "chat-apps",
-        "social-services",
         "subscriptions",
-        "store-cards",
         "verification-numbers",
-        "internet-providers",
-        "paid-apps",
         "mobile-recharge",
     ):
         assert sections[slug]["categories"]
