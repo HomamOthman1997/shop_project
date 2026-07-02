@@ -14,6 +14,10 @@ logger = logging.getLogger("catalog_staging")
 # imported but flagged `dropped` so the admin can still see what was filtered.
 ALLOWED_REGIONS = {"global", "usa", "uk", "eu", ""}
 
+# Families whose vouchers at the same source are cheaper than the API top-up,
+# so their orders go the voucher/manual route instead of smart auto-routing.
+VOUCHER_FIRST_FAMILIES = {"pubg", "free_fire"}
+
 
 def _round2(value: Any) -> float:
     try:
@@ -111,7 +115,7 @@ def build_staging_items(offers: list[CatalogOffer], *, margin_factor: float = 1.
     # games, or gift/voucher products) can't auto-route, so default them to manual
     # instead of silently labelling them "api" and sending every order to review.
     for item in staged.values():
-        if not _has_game_source(item):
+        if not _has_game_source(item) or str(item.get("family_key") or "") in VOUCHER_FIRST_FAMILIES:
             item["execution_policy"] = "manual"
     return list(staged.values()), dropped
 

@@ -92,9 +92,33 @@ def test_sub_types_split_into_separate_items():
     assert by_key["pubg:global:1:elitepass"]["sub_category"] == "passes"
 
 
+def _jawaker_offer(**over):
+    base = dict(
+        family_key="jawaker",
+        family_name="Jawaker",
+        source_key="game:jawaker:9",
+        compare_key="jawaker:global:10000:token",
+        unit_kind="token",
+        package_name="10000 Tokens",
+    )
+    base.update(over)
+    return _offer(**base)
+
+
 def test_default_execution_policy_is_api():
-    items, _ = build_staging_items([_offer()])
+    items, _ = build_staging_items([_jawaker_offer()])
     assert items[0]["execution_policy"] == "api"
+
+
+def test_voucher_first_families_default_to_manual_even_with_game_source():
+    # PUBG / Free Fire vouchers at the same source are cheaper than the API
+    # top-up, so their orders go the voucher/manual route.
+    pubg = build_staging_items([_offer()])[0][0]
+    assert pubg["execution_policy"] == "manual"
+    free_fire = build_staging_items(
+        [_offer(family_key="free_fire", family_name="Free Fire", source_key="game:freefire:1", compare_key="free_fire:global:100:diamond")]
+    )[0][0]
+    assert free_fire["execution_policy"] == "manual"
 
 
 def test_offer_without_compare_key_keyed_by_source_key():
@@ -128,7 +152,7 @@ def test_staged_product_payload_maps_fields_for_live_upsert():
     assert payload["product_name"] == "60 UC"
     assert payload["price"] == 0.85
     assert payload["source_kind"] == "game"
-    assert payload["execution_mode"] == "api"
+    assert payload["execution_mode"] == "manual"     # pubg is voucher-first
     assert payload["api_source"]["compare_key"] == "pubg:global:60:uc"
 
 
@@ -175,7 +199,7 @@ def test_mangerr_only_item_defaults_to_manual():
 
 
 def test_game_sourced_item_defaults_to_api():
-    item = build_staging_items([_offer()])[0][0]
+    item = build_staging_items([_jawaker_offer()])[0][0]
     assert item["execution_policy"] == "api"
 
 
