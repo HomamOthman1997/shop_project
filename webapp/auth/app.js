@@ -118,6 +118,7 @@ function routeForView(view) {
 }
 
 function viewForPath(pathname = window.location.pathname) {
+  if (pathname.startsWith("/app/catalog")) return "catalog";
   if (pathname.startsWith("/app/digital")) return "digital";
   if (pathname.startsWith("/app/numbers")) return "numbers";
   if (pathname.startsWith("/app/orders")) return "orders";
@@ -146,6 +147,16 @@ function ownerTabForPath(pathname = window.location.pathname) {
 
 function pushRoute(path) {
   if (window.location.pathname !== path) window.history.pushState({}, "", path);
+}
+
+function catalogPathParts(pathname = window.location.pathname) {
+  const match = /^\/app\/catalog\/([a-z0-9-]+)(?:\/([a-z0-9_-]+))?/.exec(pathname);
+  return match ? { section: match[1], category: match[2] || "" } : null;
+}
+
+function resetCatalogScroll() {
+  window.scrollTo(0, 0);
+  document.querySelector(".app-main")?.scrollTo?.(0, 0);
 }
 
 function postAuthCustomerPath(pathname = window.location.pathname, search = window.location.search) {
@@ -312,7 +323,10 @@ function showAccount(account) {
   if (window.location.pathname.startsWith("/admin")) pushRoute("/app");
   pushRoute(postAuthCustomerPath());
   const initialView = viewForPath();
-  if (initialView === "numbers") {
+  if (initialView === "catalog") {
+    openPanel("home", "الخدمات", { updateRoute: false });
+    applyCatalogPath();
+  } else if (initialView === "numbers") {
     openPanel("home", "الخدمات", { updateRoute: false });
     openService(initialView);
   } else if (initialView === "digital" || initialView === "home") {
@@ -320,7 +334,7 @@ function showAccount(account) {
   } else {
     openPanel(initialView, "", { updateRoute: false });
   }
-  loadAccountCatalog();
+  if (initialView !== "catalog") loadAccountCatalog();
   loadDashboard();
 }
 
@@ -461,6 +475,28 @@ function accountCatalogRows() {
   return section ? (section.categories || []) : accountCatalogState.sections;
 }
 
+function resetAccountCatalogSearch() {
+  accountCatalogState.query = "";
+  const input = $("#account-catalog-search");
+  if (input) input.value = "";
+}
+
+function closeAccountCatalogSection(options = {}) {
+  accountCatalogState.activeSection = null;
+  resetAccountCatalogSearch();
+  if (options.updateRoute !== false) pushRoute("/app");
+  renderAccountCatalog();
+  resetCatalogScroll();
+}
+
+function enterAccountCatalogSection(selected, options = {}) {
+  accountCatalogState.activeSection = selected;
+  resetAccountCatalogSearch();
+  if (options.updateRoute !== false && selected?.slug) pushRoute(`/app/catalog/${selected.slug}`);
+  renderAccountCatalog();
+  resetCatalogScroll();
+}
+
 function renderAccountCatalog() {
   const target = $("#account-catalog-grid");
   const input = $("#account-catalog-search");
@@ -473,8 +509,17 @@ function renderAccountCatalog() {
     return `${row.title || ""} ${row.subtitle || ""} ${row.search_terms || ""}`.toLowerCase().includes(query);
   });
   back.hidden = !section;
-  setText("#account-catalog-title", section ? section.title : "اختر القسم");
+  const titleEl = $("#account-catalog-title");
+  if (titleEl) {
+    titleEl.innerHTML = section
+      ? `<button type="button" class="catalog-crumb" data-catalog-crumb-home>الخدمات</button><span class="catalog-crumb-sep" aria-hidden="true">‹</span><span>${esc(section.title || "")}</span>`
+      : "اختر القسم";
+    titleEl.querySelector("[data-catalog-crumb-home]")?.addEventListener("click", () => closeAccountCatalogSection());
+  }
   setText("#account-catalog-hint", section ? "اختر الصنف الذي تريد فتحه." : "اختر قسماً رئيسياً، ثم تابع إلى الأصناف والمنتجات.");
+  target.classList.remove("nav-fade");
+  void target.offsetWidth;
+  target.classList.add("nav-fade");
   target.innerHTML = rows.length ? rows.map((row) => {
     const accent = section?.accent || row.accent || "green";
     const count = section ? "" : `${Number(row.categories_count || 0)} صنف`;
@@ -527,11 +572,7 @@ function openAccountCatalogRow(slug) {
         </div>`;
       return;
     }
-    accountCatalogState.activeSection = selected;
-    accountCatalogState.query = "";
-    const input = $("#account-catalog-search");
-    if (input) input.value = "";
-    renderAccountCatalog();
+    enterAccountCatalogSection(selected);
     return;
   }
   const category = (section.categories || []).find((row) => row.slug === slug);
@@ -546,6 +587,8 @@ function openAccountCatalogRow(slug) {
     title: category.title || "",
     serviceKey: category.service_key || "",
     familyKey: category.family_key || "",
+    sectionSlug: section.slug || "",
+    sectionTitle: section.title || "",
   };
   openDigitalCatalogSelection(pendingDigitalCatalogSelection);
 }
@@ -3901,12 +3944,67 @@ async function loadDigitalWorkspace() {
   }
 }
 
-function openDigitalCatalogSelection(selection) {
+function openDigitalCatalogSelection(selection, options = {}) {
   pendingDigitalCatalogSelection = null;
   setWorkspaceTheme("digital");
-  pushRoute("/app/digital");
+  if (options.updateRoute !== false) {
+    pushRoute(selection.sectionSlug && selection.slug ? `/app/catalog/${selection.sectionSlug}/${selection.slug}` : "/app/digital");
+  }
   openPanel("workspace", selection.title || "منتجات رقمية", { updateRoute: false });
   renderDigitalSelectedFamily({ fulfillment: { label: "تنفيذ يدوي خلال دقيقة إلى ساعة" } }, selection);
+  resetCatalogScroll();
+}
+
+async function applyCatalogPath(pathname = window.location.pathname) {
+  const parts = catalogPathParts(pathname);
+  if (!parts) return false;
+  if (!(accountCatalogState.sections || []).length) await loadAccountCatalog();
+  if (serviceRoot()) {
+    serviceRoot().innerHTML = "";
+    setWorkspaceTheme("");
+  }
+  openPanel("home", "الخدمات", { updateRoute: false });
+  const section = (accountCatalogState.sections || []).find((row) => row.slug === parts.section) || null;
+  if (!section || section.enabled === false) {
+    closeAccountCatalogSection({ updateRoute: false });
+    return true;
+  }
+  if (section.service === "esim") {
+    openPanel("esim", "", { updateRoute: false });
+    return true;
+  }
+  if (!parts.category) {
+    enterAccountCatalogSection(section, { updateRoute: false });
+    return true;
+  }
+  const category = (section.categories || []).find((row) => row.slug === parts.category) || null;
+  if (!category) {
+    enterAccountCatalogSection(section, { updateRoute: false });
+    return true;
+  }
+  if (section.service === "numbers") {
+    pendingNumbersCatalogSelection = { slug: category.slug || "", title: category.title || "", generated: Boolean(category.generated) };
+    openService("numbers");
+    return true;
+  }
+  openDigitalCatalogSelection({
+    slug: category.slug || "",
+    title: category.title || "",
+    serviceKey: category.service_key || "",
+    familyKey: category.family_key || "",
+    sectionSlug: section.slug || "",
+    sectionTitle: section.title || "",
+  }, { updateRoute: false });
+  return true;
+}
+
+function returnToCatalogSection(sectionSlug) {
+  if (serviceRoot()) serviceRoot().innerHTML = "";
+  setWorkspaceTheme("");
+  openPanel("home", "الخدمات", { updateRoute: false });
+  const selected = accountCatalogState.sections.find((row) => row.slug === sectionSlug) || null;
+  if (selected) enterAccountCatalogSection(selected);
+  else closeAccountCatalogSection();
 }
 
 function renderDigitalCatalog(payload) {
@@ -3998,11 +4096,19 @@ function renderDigitalCatalog(payload) {
 function renderDigitalSelectedFamily(payload, selection) {
   const root = serviceRoot();
   const title = selection.title || selection.familyKey;
+  const sectionCrumb = selection.sectionSlug && selection.sectionTitle
+    ? `<span class="catalog-crumb-sep" aria-hidden="true">‹</span><button type="button" class="catalog-crumb" data-crumb-section>${esc(selection.sectionTitle)}</button>`
+    : "";
   root.classList.add("is-catalog-packages");
   root.innerHTML = `
     <div class="account-catalog-path digital-direct-head">
       <div>
-        <strong>${esc(title)}</strong>
+        <nav class="catalog-crumbs" aria-label="مسار التنقل">
+          <button type="button" class="catalog-crumb" data-crumb-home>الخدمات</button>
+          ${sectionCrumb}
+          <span class="catalog-crumb-sep" aria-hidden="true">‹</span>
+          <strong>${esc(title)}</strong>
+        </nav>
         <span data-digital-family-hint>جاري تحميل التصنيفات...</span>
       </div>
       <button class="account-catalog-back" type="button" data-digital-catalog-back>رجوع</button>
@@ -4012,7 +4118,11 @@ function renderDigitalSelectedFamily(payload, selection) {
         ${Array.from({ length: 8 }, () => '<div class="account-catalog-card digital-package-skeleton"><span></span><strong></strong><b></b></div>').join("")}
       </div>
     </div>`;
-  root.querySelector("[data-digital-catalog-back]").onclick = returnToAccountCatalog;
+  const backToSection = selection.sectionSlug ? () => returnToCatalogSection(selection.sectionSlug) : returnToAccountCatalog;
+  root.querySelector("[data-digital-catalog-back]").onclick = backToSection;
+  root.querySelector("[data-crumb-home]").onclick = returnToAccountCatalog;
+  const sectionButton = root.querySelector("[data-crumb-section]");
+  if (sectionButton) sectionButton.onclick = backToSection;
   loadDigitalFamilyPackages(selection, title);
 }
 
@@ -4094,7 +4204,7 @@ async function loadDigitalFamilyPackages(selection, title, variantId = "") {
     if ((result.variants || []).length > 1) {
       setDigitalFamilyBack(() => renderDigitalFamilyVariants(title, result, selection));
     } else {
-      setDigitalFamilyBack(returnToAccountCatalog);
+      setDigitalFamilyBack(selection.sectionSlug ? () => returnToCatalogSection(selection.sectionSlug) : returnToAccountCatalog);
     }
     renderDigitalFamilyQuotes(title, result.packages || [], selection);
   } catch (error) {
@@ -4107,7 +4217,7 @@ function renderDigitalFamilyVariants(title, payload, selection) {
   const variants = payload.variants || [];
   const hint = payload.selection_kind === "region" ? "اختر الدولة أو Global." : "اختر التصنيف المناسب.";
   setDigitalFamilyHint(hint);
-  setDigitalFamilyBack(returnToAccountCatalog);
+  setDigitalFamilyBack(selection.sectionSlug ? () => returnToCatalogSection(selection.sectionSlug) : returnToAccountCatalog);
   detail.innerHTML = `
     <div class="account-catalog-grid digital-package-grid digital-variant-grid">
       ${variants.length ? variants.map((variant) => `
@@ -4654,6 +4764,11 @@ document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
       serviceRoot().innerHTML = "";
       setWorkspaceTheme("");
     }
+    if (view === "home") {
+      accountCatalogState.activeSection = null;
+      resetAccountCatalogSearch();
+      renderAccountCatalog();
+    }
     openPanel(view, button.textContent.trim());
   });
 });
@@ -4676,13 +4791,7 @@ $("#account-catalog-search")?.addEventListener("input", (event) => {
   renderAccountCatalog();
 });
 
-$("#account-catalog-back")?.addEventListener("click", () => {
-  accountCatalogState.activeSection = null;
-  accountCatalogState.query = "";
-  const input = $("#account-catalog-search");
-  if (input) input.value = "";
-  renderAccountCatalog();
-});
+$("#account-catalog-back")?.addEventListener("click", () => closeAccountCatalogSection());
 
 document.querySelectorAll("[data-owner-tab]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -4700,6 +4809,10 @@ window.addEventListener("popstate", () => {
     return;
   }
   const pathView = viewForPath();
+  if (pathView === "catalog") {
+    applyCatalogPath();
+    return;
+  }
   if (pathView === "numbers") {
     openService(pathView);
     return;
@@ -4707,6 +4820,11 @@ window.addEventListener("popstate", () => {
   if (pathView === "digital") {
     openPanel("home", "الخدمات", { updateRoute: false });
     return;
+  }
+  if (pathView === "home") {
+    accountCatalogState.activeSection = null;
+    resetAccountCatalogSearch();
+    renderAccountCatalog();
   }
   openPanel(pathView, "", { updateRoute: false });
 });

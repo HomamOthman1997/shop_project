@@ -294,7 +294,20 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "openDigitalCatalogSelection(pendingDigitalCatalogSelection);" in js
     assert "Array.from({ length: 8 }" in js
     assert "function returnToAccountCatalog" in js
-    assert 'root.querySelector("[data-digital-catalog-back]").onclick = returnToAccountCatalog;' in js
+    assert 'root.querySelector("[data-digital-catalog-back]").onclick = backToSection;' in js
+    # Real catalog navigation: every level has a URL, back button works, scroll resets.
+    assert 'if (pathname.startsWith("/app/catalog")) return "catalog";' in js
+    assert "function catalogPathParts" in js
+    assert "function applyCatalogPath" in js
+    assert "function enterAccountCatalogSection" in js
+    assert "function closeAccountCatalogSection" in js
+    assert "function returnToCatalogSection" in js
+    assert "function resetCatalogScroll" in js
+    assert "pushRoute(`/app/catalog/${selected.slug}`)" in js
+    assert "`/app/catalog/${selection.sectionSlug}/${selection.slug}`" in js
+    assert 'data-crumb-home' in js
+    assert ".catalog-crumbs" in css
+    assert ".nav-fade" in css
     assert "function renderDigitalFamilyVariants" in js
     assert "?variant_id=${encodeURIComponent(variantId)}" in js
     assert "/api/v1/digital/families/${encodeURIComponent(selection.serviceKey)}/${encodeURIComponent(selection.familyKey)}/packages" in js
