@@ -511,6 +511,36 @@ function enterAccountCatalogSection(selected, options = {}) {
   resetCatalogScroll();
 }
 
+// Each section card borrows its glow color from its own artwork, so the home
+// reads as a row of shelf-lit product boxes rather than identical gray tiles.
+const SECTION_ART = {
+  "games": { image: "/mini/digital/static/games-rtl.webp", tone: "sb-violet", featured: true },
+  "verification-numbers": { image: "/mini/digital/static/numbers-ltr.webp", tone: "sb-crimson", wide: true },
+  "store-cards": { image: "/mini/digital/static/store-cards-ltr.webp", tone: "sb-cobalt" },
+  "mobile-recharge": { image: "/mini/digital/static/communications-rtl.webp", tone: "sb-teal" },
+  "esim": { emblem: "eSIM", tone: "sb-amber" },
+  "subscriptions": { emblem: "▶", tone: "sb-orchid" },
+};
+
+function sectionBannerHtml(row) {
+  const art = SECTION_ART[row.slug] || {};
+  const searchText = esc(`${row.title || ""} ${row.subtitle || ""} ${row.search_terms || ""}`.toLowerCase());
+  const unavailable = row.enabled === false;
+  const media = art.image
+    ? `<img class="section-banner-art" src="${esc(art.image)}" alt="" loading="lazy">`
+    : `<span class="section-banner-emblem" aria-hidden="true">${esc(art.emblem || String(row.title || row.slug || "").slice(0, 2))}</span>`;
+  return `
+    <button class="section-banner ${esc(art.tone || "sb-green")}${art.featured ? " is-featured" : ""}${art.wide ? " is-wide" : ""}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" data-catalog-search="${searchText}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
+      ${media}
+      <span class="section-banner-scrim" aria-hidden="true"></span>
+      <span class="section-banner-copy">
+        <strong>${esc(row.title || row.slug || "")}</strong>
+        <span>${esc(row.subtitle || "")}</span>
+        <b class="section-banner-cta">تصفح القسم <span class="section-banner-arrow" aria-hidden="true">←</span></b>
+      </span>
+    </button>`;
+}
+
 function applyAccountCatalogFilter() {
   // Filtering only toggles visibility — rebuilding the grid per keystroke made
   // every card image reload while typing in the search box.
@@ -542,11 +572,13 @@ function renderAccountCatalog() {
       : "اختر القسم";
     titleEl.querySelector("[data-catalog-crumb-home]")?.addEventListener("click", () => closeAccountCatalogSection());
   }
-  setText("#account-catalog-hint", section ? "اختر الصنف الذي تريد فتحه." : "اختر قسماً رئيسياً، ثم تابع إلى الأصناف والمنتجات.");
+  setText("#account-catalog-hint", section ? "اختر الصنف الذي تريد فتحه." : "كل خدماتك من حساب ومحفظة واحدة — اختر وابدأ.");
+  target.classList.toggle("is-sections", !section);
   target.classList.remove("nav-fade");
   void target.offsetWidth;
   target.classList.add("nav-fade");
   target.innerHTML = rows.length ? rows.map((row) => {
+    if (!section) return sectionBannerHtml(row);
     const accent = section?.accent || row.accent || "green";
     const count = section ? "" : `${Number(row.categories_count || 0)} صنف`;
     const unavailable = row.enabled === false;

@@ -1116,7 +1116,7 @@ _CATALOG_SECTIONS = (
         "slug": "games",
         "aliases": ("digital",),
         "title": "الألعاب",
-        "subtitle": "شحن وأرصدة وتوب أب حسب اللعبة أو الباقة.",
+        "subtitle": "شدات ببجي، جواهر فري فاير، وشحن كل ألعابك — تنفيذ سريع وآمن.",
         "accent": "green",
         "items": (
             ("شحن ألعاب", "منتجات ألعاب عامة قابلة للتوسع حسب المزود."),
@@ -1660,8 +1660,12 @@ def merge_manual_catalog(payload: dict[str, object], manual_sections: list[dict[
             by_slug[slug] = clone
             continue
         for key in ("node_id", "title", "subtitle", "accent", "service", "manual"):
-            if key in manual:
-                existing[key] = manual[key]
+            if key not in manual:
+                continue
+            # An empty admin title/subtitle must not wipe the curated static copy.
+            if key in ("title", "subtitle") and not str(manual.get(key) or "").strip():
+                continue
+            existing[key] = manual[key]
         categories = list(existing.get("categories") or [])
         by_category_slug = {str(row.get("slug") or ""): row for row in categories if isinstance(row, dict)}
         for row in list(manual.get("categories") or []):
@@ -1677,7 +1681,12 @@ def merge_manual_catalog(payload: dict[str, object], manual_sections: list[dict[
                     by_category_slug.pop(category_slug, None)
                 continue
             if current:
-                current.update(dict(row))
+                patch = {
+                    key: value
+                    for key, value in dict(row).items()
+                    if not (key in ("title", "subtitle") and not str(value or "").strip())
+                }
+                current.update(patch)
             else:
                 clone = dict(row)
                 categories.append(clone)
