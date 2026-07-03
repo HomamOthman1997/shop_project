@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <title>تسجيل الدخول | Phantom</title>
-  <link rel="stylesheet" href="/auth/static/styles.css?v=20260702-slim3">
+  <link rel="stylesheet" href="/auth/static/styles.css?v=20260703-boot1">
   <script src="/auth/static/i18n.js" defer></script>
-  <script src="/auth/static/app.js?v=20260702-slim3" defer></script>
+  <script src="/auth/static/app.js?v=20260703-boot1" defer></script>
 </head>
 <body>
   <main class="auth-shell">
@@ -29,7 +29,11 @@
 
     <section class="form-panel">
       <div class="form-wrap">
-        <div id="auth-view">
+        <div id="boot-splash" class="boot-splash" aria-label="جاري التحميل">
+          <span class="brand-ghost boot-splash-ghost">👻</span>
+          <span class="boot-splash-text">جاري التحميل...</span>
+        </div>
+        <div id="auth-view" hidden>
           <div class="tabs" role="tablist">
             <button class="tab active" type="button" data-mode="login">تسجيل الدخول</button>
             <button class="tab" type="button" data-mode="register">إنشاء حساب</button>

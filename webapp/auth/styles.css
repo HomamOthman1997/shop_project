@@ -1182,6 +1182,27 @@ button.owner-action-row {
   padding: 0 14px;
   cursor: pointer;
 }
+.boot-splash {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--muted);
+}
+.boot-splash-ghost {
+  font-size: 44px;
+  animation: bootSplashPulse 1.2s ease-in-out infinite;
+}
+.boot-splash-text { font-size: 14px; }
+@keyframes bootSplashPulse {
+  0%, 100% { opacity: .45; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-6px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot-splash-ghost { animation: none; }
+}
 .catalog-crumbs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .catalog-crumb {
   border: 0;

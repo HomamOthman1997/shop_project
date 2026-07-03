@@ -277,8 +277,21 @@ function setPostAuthMessage(messageNode, text) {
   if (messageNode) messageNode.textContent = text;
 }
 
+function hideBootSplash() {
+  const splash = $("#boot-splash");
+  if (splash) splash.hidden = true;
+}
+
+function showLoginView() {
+  hideBootSplash();
+  authView.hidden = false;
+  verifyView.hidden = true;
+  accountView.hidden = true;
+}
+
 function showVerifyOnly(account) {
   currentAccount = account;
+  hideBootSplash();
   authView.hidden = true;
   accountView.hidden = true;
   verifyView.hidden = false;
@@ -295,6 +308,7 @@ function showAccount(account) {
     return;
   }
 
+  hideBootSplash();
   authView.hidden = true;
   verifyView.hidden = true;
   accountView.hidden = false;
@@ -5110,4 +5124,10 @@ async function logout() {
 $("#logout-button").addEventListener("click", logout);
 $("#verify-logout-button").addEventListener("click", logout);
 
-api("/api/v1/auth/me").then((data) => { showAccount(data.account); updateMessagesBadge(data.conversation_unread); updateNotificationsBadge(data.notifications_unread); }).catch(() => {});
+// Boot: the HTML shows a neutral splash, never the login form, until the
+// session check answers — refreshing inside the app must not flash the login
+// page. Public auth pages (/login, /register, /) show the form right away.
+if (!/^\/(app|admin|account)/.test(window.location.pathname)) showLoginView();
+api("/api/v1/auth/me")
+  .then((data) => { showAccount(data.account); updateMessagesBadge(data.conversation_unread); updateNotificationsBadge(data.notifications_unread); })
+  .catch(() => { if (!currentAccount) showLoginView(); });
