@@ -4853,6 +4853,10 @@ $("#account-catalog-search")?.addEventListener("input", (event) => {
 
 $("#account-catalog-back")?.addEventListener("click", () => closeAccountCatalogSection());
 
+$("#balance-chip")?.addEventListener("click", () => {
+  document.querySelector('.nav-item[data-view="recharge"]')?.click();
+});
+
 document.querySelectorAll("[data-owner-tab]").forEach((button) => {
   button.addEventListener("click", () => {
     openPanel("owner", ownerTabTitles[button.dataset.ownerTab] || "لوحة الإدارة", { updateRoute: false });
