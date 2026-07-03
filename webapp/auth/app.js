@@ -691,8 +691,6 @@ async function loadDashboard() {
 
     const digitalRows = digitalOrders.orders || digitalOrders.items || [];
     const numberRows = numberOrders.orders || numberOrders.items || [];
-    setText("#digital-order-count", digitalRows.length);
-    setText("#numbers-order-count", numberRows.length);
 
     const recentActivity = combinedRecentActivity(digitalAccount, numbersAccount);
     renderRows(activity, recentActivity, (row) => `
