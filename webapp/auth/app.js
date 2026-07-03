@@ -497,17 +497,29 @@ function enterAccountCatalogSection(selected, options = {}) {
   resetCatalogScroll();
 }
 
+function applyAccountCatalogFilter() {
+  // Filtering only toggles visibility — rebuilding the grid per keystroke made
+  // every card image reload while typing in the search box.
+  const target = $("#account-catalog-grid");
+  if (!target) return;
+  const query = String(accountCatalogState.query || "").trim().toLowerCase();
+  let visible = 0;
+  target.querySelectorAll("[data-account-catalog-slug]").forEach((card) => {
+    const match = !query || (card.dataset.catalogSearch || "").includes(query);
+    card.hidden = !match;
+    if (match) visible += 1;
+  });
+  const empty = target.querySelector("[data-catalog-no-results]");
+  if (empty) empty.hidden = visible > 0;
+}
+
 function renderAccountCatalog() {
   const target = $("#account-catalog-grid");
   const input = $("#account-catalog-search");
   const back = $("#account-catalog-back");
   if (!target || !input || !back) return;
   const section = accountCatalogState.activeSection;
-  const query = String(accountCatalogState.query || "").trim().toLowerCase();
-  const rows = accountCatalogRows().filter((row) => {
-    if (!query) return true;
-    return `${row.title || ""} ${row.subtitle || ""} ${row.search_terms || ""}`.toLowerCase().includes(query);
-  });
+  const rows = accountCatalogRows();
   back.hidden = !section;
   const titleEl = $("#account-catalog-title");
   if (titleEl) {
@@ -524,13 +536,14 @@ function renderAccountCatalog() {
     const accent = section?.accent || row.accent || "green";
     const count = section ? "" : `${Number(row.categories_count || 0)} صنف`;
     const unavailable = row.enabled === false;
+    const searchText = esc(`${row.title || ""} ${row.subtitle || ""} ${row.search_terms || ""}`.toLowerCase());
     const imageSections = { games: 1, "chat-apps": 1 };
     const isImageCard = section && imageSections[section.slug] && row.slug;
     if (isImageCard) {
       const words = String(row.title || row.slug).trim().split(/\s+/).filter(Boolean);
       const initials = (words.length > 1 ? words.slice(0, 2).map((w) => w[0]).join("") : String(row.title || row.slug).slice(0, 2)).toUpperCase();
       return `
-      <button class="account-catalog-card account-game-card ${esc(accent)}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
+      <button class="account-catalog-card account-game-card ${esc(accent)}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" data-catalog-search="${searchText}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
         <span class="account-game-thumb-wrap">
           <span class="account-game-mono" aria-hidden="true">${esc(initials)}</span>
           <img class="account-game-thumb" src="/auth/static/img/${esc(section.slug)}/${esc(row.slug)}.png?v=3" alt="" loading="lazy">
@@ -539,13 +552,13 @@ function renderAccountCatalog() {
       </button>`;
     }
     return `
-      <button class="account-catalog-card ${esc(accent)}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
+      <button class="account-catalog-card ${esc(accent)}${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" data-catalog-search="${searchText}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
         <span class="account-catalog-mark" aria-hidden="true"></span>
         <strong>${esc(row.title || row.slug || "")}</strong>
         <span>${esc(row.subtitle || count)}</span>
         ${row.status ? `<b>${esc(row.status)}</b>` : ""}
       </button>`;
-  }).join("") : '<div class="account-catalog-empty">لا توجد نتائج مطابقة.</div>';
+  }).join("") + '<div class="account-catalog-empty" data-catalog-no-results hidden>لا توجد نتائج مطابقة.</div>' : '<div class="account-catalog-empty">لا توجد نتائج مطابقة.</div>';
   target.querySelectorAll("[data-account-catalog-slug]").forEach((button) => {
     button.addEventListener("click", () => openAccountCatalogRow(button.dataset.accountCatalogSlug));
   });
@@ -554,6 +567,7 @@ function renderAccountCatalog() {
   target.querySelectorAll(".account-game-thumb").forEach((img) => {
     img.addEventListener("error", () => img.remove());
   });
+  applyAccountCatalogFilter();
 }
 
 function openAccountCatalogRow(slug) {
@@ -4788,7 +4802,7 @@ document.querySelectorAll("[data-open-service]").forEach((button) => {
 
 $("#account-catalog-search")?.addEventListener("input", (event) => {
   accountCatalogState.query = event.currentTarget.value || "";
-  renderAccountCatalog();
+  applyAccountCatalogFilter();
 });
 
 $("#account-catalog-back")?.addEventListener("click", () => closeAccountCatalogSection());
