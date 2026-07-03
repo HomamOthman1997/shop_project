@@ -1604,8 +1604,19 @@ def _section_categories(section: dict[str, object] | None) -> tuple[dict[str, ob
     return manual
 
 
+# Homam's display order (2026-07-03): global top-ups lead, games take the wide
+# mid banner, eSIM sits where store cards used to.
+_PUBLIC_SECTION_ORDER = ("mobile-recharge", "subscriptions", "esim", "games", "store-cards", "verification-numbers")
+
+
 def _public_catalog_sections() -> tuple[dict[str, object], ...]:
-    return tuple(section for section in _CATALOG_SECTIONS if str(section.get("slug") or "") not in _HIDDEN_SECTION_SLUGS)
+    visible = [section for section in _CATALOG_SECTIONS if str(section.get("slug") or "") not in _HIDDEN_SECTION_SLUGS]
+
+    def order_key(section: dict[str, object]) -> int:
+        slug = str(section.get("slug") or "")
+        return _PUBLIC_SECTION_ORDER.index(slug) if slug in _PUBLIC_SECTION_ORDER else len(_PUBLIC_SECTION_ORDER)
+
+    return tuple(sorted(visible, key=order_key))
 
 
 def public_catalog_payload() -> dict[str, object]:

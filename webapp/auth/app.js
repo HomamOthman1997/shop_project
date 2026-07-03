@@ -514,10 +514,10 @@ function enterAccountCatalogSection(selected, options = {}) {
 // Each section card borrows its glow color from its own artwork, so the home
 // reads as a row of shelf-lit product boxes rather than identical gray tiles.
 const SECTION_ART = {
-  "games": { image: "/mini/digital/static/games-rtl.webp", tone: "sb-violet", featured: true },
-  "verification-numbers": { image: "/mini/digital/static/numbers-ltr.webp", tone: "sb-crimson", wide: true },
+  "mobile-recharge": { image: "/mini/digital/static/communications-rtl.webp", tone: "sb-teal", featured: true },
+  "games": { image: "/mini/digital/static/games-rtl.webp", tone: "sb-violet", wide: true },
+  "verification-numbers": { image: "/mini/digital/static/numbers-ltr.webp", tone: "sb-crimson" },
   "store-cards": { image: "/mini/digital/static/store-cards-ltr.webp", tone: "sb-cobalt" },
-  "mobile-recharge": { image: "/mini/digital/static/communications-rtl.webp", tone: "sb-teal" },
   "esim": { emblem: "eSIM", tone: "sb-amber" },
   "subscriptions": { emblem: "▶", tone: "sb-orchid" },
 };
