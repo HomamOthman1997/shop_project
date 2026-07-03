@@ -1183,7 +1183,10 @@ button.owner-action-row {
   cursor: pointer;
 }
 .boot-splash {
-  min-height: 320px;
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: #0b1020;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1191,6 +1194,7 @@ button.owner-action-row {
   gap: 14px;
   color: var(--muted);
 }
+.boot-splash[hidden] { display: none; }
 .boot-splash-ghost {
   font-size: 44px;
   animation: bootSplashPulse 1.2s ease-in-out infinite;
