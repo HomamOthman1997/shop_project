@@ -2012,6 +2012,20 @@ async def main() -> None:
     telegram_error_handler = install_telegram_error_handler(bot_token=settings.bot_admin_token)
     await _run_startup_bootstraps()
 
+    # Warm the public catalog tree cache in the background: pulling it from
+    # Atlas takes tens of seconds, and without this the first customer on
+    # /api/v1/catalog (or a family page) after a deploy pays that wait.
+    async def _warm_public_catalog() -> None:
+        try:
+            from services.digital_products.manual_catalog import load_public_catalog_nodes
+
+            nodes = await load_public_catalog_nodes()
+            logging.info("public catalog cache warmed (%d nodes)", len(nodes))
+        except Exception as exc:
+            logging.warning("public catalog cache warm failed: %s", exc)
+
+    asyncio.create_task(_warm_public_catalog())
+
     logging.info(
         "loaded settings: admin_token=%s main_token=%s numbers_token=%s smspool_key=%s herosms_key=%s nonvoip_key=%s",
         bool(settings.bot_admin_token),

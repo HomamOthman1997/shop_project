@@ -3,6 +3,34 @@ import pytest
 from services.digital_products import manual_catalog
 
 
+@pytest.mark.asyncio
+async def test_public_nodes_cache_serves_stale_and_refreshes_in_background(monkeypatch):
+    calls = {"n": 0}
+
+    async def nodes(_owner_id, *, catalog_type):
+        calls["n"] += 1
+        return [{"_id": f"tree{calls['n']}"}]
+
+    monkeypatch.setattr(manual_catalog, "list_catalog_nodes", nodes)
+
+    first = await manual_catalog.load_public_catalog_nodes(77)
+    second = await manual_catalog.load_public_catalog_nodes(77)
+    assert calls["n"] == 1
+    assert second is first
+
+    # Invalidation must NOT make anyone wait: the stale copy is served
+    # immediately and a background task fetches the fresh tree.
+    manual_catalog.invalidate_public_catalog_nodes_cache()
+    stale = await manual_catalog.load_public_catalog_nodes(77)
+    assert stale is first
+    task = manual_catalog._public_nodes_cache["task"]
+    assert task is not None
+    await task
+    refreshed = await manual_catalog.load_public_catalog_nodes(77)
+    assert refreshed[0]["_id"] == "tree2"
+    assert calls["n"] == 2
+
+
 def _tree():
     return [
         {"_id": "root", "parent_id": None, "is_root": True, "name": "Website manual catalog"},

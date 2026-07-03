@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
+import time
 from typing import Any
 
 from config import settings
@@ -521,6 +524,7 @@ async def upsert_static_manual_product(
             catalog_type=CATALOG_TYPE,
             **updates,
         ) or existing
+        invalidate_public_catalog_nodes_cache()
         return existing, False
 
     name = " ".join(str(product_name or "").strip().split())
@@ -550,6 +554,7 @@ async def upsert_static_manual_product(
         source_products[(_node_id(path["variant"]), clean_source)] = product
         if cache is not None:
             cache.setdefault("source_products_by_key", {})[clean_source] = product
+    invalidate_public_catalog_nodes_cache()
     return product, True
 
 
@@ -608,6 +613,8 @@ async def hide_orphan_products(
             )
             if updated:
                 hidden += 1
+        if hidden:
+            invalidate_public_catalog_nodes_cache()
     return {
         "dry_run": bool(dry_run),
         "candidates": len(orphans),
@@ -624,13 +631,57 @@ async def hide_orphan_products(
     }
 
 
+_public_nodes_logger = logging.getLogger("manual_catalog")
+
+# Pulling the whole website_manual tree from Atlas takes tens of seconds from
+# the app host (slow transfer, not a bad query plan), so customer requests must
+# NEVER wait on it. The tree is cached in-process and refreshed in the
+# background once it goes stale (stale-while-revalidate).
+_PUBLIC_NODES_TTL_SECONDS = 120.0
+_public_nodes_cache: dict[str, Any] = {"at": 0.0, "nodes": None, "task": None}
+
+
+def invalidate_public_catalog_nodes_cache() -> None:
+    """Mark the cached tree stale (kept and served until the refresh lands)."""
+    _public_nodes_cache["at"] = 0.0
+
+
+def _spawn_public_nodes_refresh(owner_id: int) -> None:
+    task = _public_nodes_cache.get("task")
+    if task is not None and not task.done():
+        return
+
+    async def _refresh() -> None:
+        try:
+            fresh = await list_catalog_nodes(owner_id, catalog_type=CATALOG_TYPE)
+        except Exception:
+            _public_nodes_logger.warning("public catalog nodes refresh failed", exc_info=True)
+            return
+        _public_nodes_cache["nodes"] = fresh
+        _public_nodes_cache["at"] = time.monotonic()
+
+    _public_nodes_cache["task"] = asyncio.create_task(_refresh())
+
+
 async def load_public_catalog_nodes(owner_id: int | None = None) -> list[dict[str, Any]]:
-    """One shared fetch of the whole website_manual tree, so callers that need
-    several passes over it (catalog payload + empty-family filter) hit Mongo once."""
+    """The shared website_manual tree for public reads, served from the cache.
+
+    Fresh -> cached copy. Stale -> cached copy immediately + background refresh.
+    Empty (process boot) -> one synchronous fetch (warmed at startup so real
+    traffic doesn't hit this)."""
     catalog_owner_id = int(owner_id or owner_catalog_id())
     if catalog_owner_id <= 0:
         return []
-    return await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
+    nodes = _public_nodes_cache.get("nodes")
+    age = time.monotonic() - float(_public_nodes_cache.get("at") or 0.0)
+    if nodes is not None:
+        if age >= _PUBLIC_NODES_TTL_SECONDS:
+            _spawn_public_nodes_refresh(catalog_owner_id)
+        return nodes
+    fresh = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
+    _public_nodes_cache["nodes"] = fresh
+    _public_nodes_cache["at"] = time.monotonic()
+    return fresh
 
 
 async def public_sections(
@@ -802,7 +853,7 @@ async def static_family_packages(
     family_key_clean = clean_catalog_key(family_key)
     if not service or not family_key_clean:
         return None
-    nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
+    nodes = await load_public_catalog_nodes(catalog_owner_id)
     families, by_parent = _static_family_nodes(nodes, service, family_key_clean)
     if not families:
         return None
