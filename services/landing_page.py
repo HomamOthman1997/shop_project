@@ -1461,9 +1461,10 @@ _CATALOG_SECTIONS = (
 )
 
 # Homam's 2026-07 slim-down: the public catalog shows games, subscriptions,
-# global balance top-ups, eSIM and numbers only. These sections stay defined
-# (and their data stays in the manual tree) but are not served to customers.
-_HIDDEN_SECTION_SLUGS = frozenset({"chat-apps", "social-services", "store-cards", "internet-providers", "paid-apps"})
+# global balance top-ups, store cards, eSIM and numbers only. These sections
+# stay defined (and their data stays in the manual tree) but are not served
+# to customers.
+_HIDDEN_SECTION_SLUGS = frozenset({"chat-apps", "social-services", "internet-providers", "paid-apps"})
 
 _SECTION_SERVICE_BY_SLUG = {"verification-numbers": "numbers", "esim": "esim"}
 
@@ -1488,6 +1489,13 @@ _SHOWCASE_TILES: tuple[dict[str, str], ...] = (
         "href": "/catalog/mobile-recharge",
         "image": "/mini/digital/static/section-communications.jpg",
         "accent": "amber",
+    },
+    {
+        "title": "بطاقات المتاجر",
+        "subtitle": "بطاقات ومنتجات رقمية",
+        "href": "/catalog/store-cards",
+        "image": "/mini/digital/static/section-store-cards.jpg",
+        "accent": "green",
     },
     {
         "title": "eSIM",

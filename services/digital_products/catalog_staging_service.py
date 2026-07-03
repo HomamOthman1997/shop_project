@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -17,6 +18,18 @@ ALLOWED_REGIONS = {"global", "usa", "uk", "eu", ""}
 # Families whose vouchers at the same source are cheaper than the API top-up,
 # so their orders go the voucher/manual route instead of smart auto-routing.
 VOUCHER_FIRST_FAMILIES = {"pubg", "free_fire"}
+
+# Store cards must stay platform gift cards (Steam, PSN, iTunes...). Game
+# vouchers sold as "gifts" (PUBG UC cards etc.) are fulfillment inventory for
+# the voucher-first games, not customer products — never stage them there.
+_GAME_VOUCHER_RE = re.compile(r"\buc\b|pubg|free ?fire|garena|jawaker|diamond|ludo", flags=re.IGNORECASE)
+
+
+def _is_game_voucher_in_store_cards(item: dict[str, Any]) -> bool:
+    if str(item.get("service_key") or "") != "store_cards":
+        return False
+    text = f"{item.get('family_key') or ''} {item.get('family_name') or ''} {item.get('package_name') or ''}"
+    return bool(_GAME_VOUCHER_RE.search(text)) or str(item.get("family_key") or "") in VOUCHER_FIRST_FAMILIES
 
 
 def _round2(value: Any) -> float:
@@ -117,6 +130,10 @@ def build_staging_items(offers: list[CatalogOffer], *, margin_factor: float = 1.
     for item in staged.values():
         if not _has_game_source(item) or str(item.get("family_key") or "") in VOUCHER_FIRST_FAMILIES:
             item["execution_policy"] = "manual"
+        if item["status"] == "new" and _is_game_voucher_in_store_cards(item):
+            item["status"] = "dropped"
+            item["drop_reason"] = "game_voucher_in_store_cards"
+            dropped += 1
     return list(staged.values()), dropped
 
 

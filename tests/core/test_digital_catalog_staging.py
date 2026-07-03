@@ -110,6 +110,23 @@ def test_default_execution_policy_is_api():
     assert items[0]["execution_policy"] == "api"
 
 
+def test_game_vouchers_never_stage_into_store_cards():
+    # A PUBG UC voucher card sold as a "gift" must not become a store-cards
+    # customer product; real platform gift cards stage normally.
+    voucher = build_staging_items(
+        [_offer(service_key="store_cards", family_key="pubg_cards", family_name="PUBG Cards",
+                source_key="gift:pubg:60uc", compare_key="", package_name="PUBG 60 UC Voucher Global")]
+    )[0][0]
+    assert voucher["status"] == "dropped"
+    assert voucher["drop_reason"] == "game_voucher_in_store_cards"
+
+    steam = build_staging_items(
+        [_offer(service_key="store_cards", family_key="steam", family_name="Steam",
+                source_key="gift:steam:10", compare_key="", package_name="Steam Global 10 USD")]
+    )[0][0]
+    assert steam["status"] == "new"
+
+
 def test_voucher_first_families_default_to_manual_even_with_game_source():
     # PUBG / Free Fire vouchers at the same source are cheaper than the API
     # top-up, so their orders go the voucher/manual route.

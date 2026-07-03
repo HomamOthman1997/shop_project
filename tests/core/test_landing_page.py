@@ -46,9 +46,9 @@ def test_landing_page_exposes_public_website_navigation():
     assert 'href="/catalog/verification-numbers"' in html
     assert 'href="/catalog/mobile-recharge"' in html
     assert 'href="/catalog/esim"' in html
+    assert 'href="/catalog/store-cards"' in html
     assert 'href="/catalog/chat-apps"' not in html
     assert 'href="/catalog/social-services"' not in html
-    assert 'href="/catalog/store-cards"' not in html
     assert 'href="/catalog/internet-providers"' not in html
     assert 'href="/catalog/paid-apps"' not in html
     assert 'class="catalog-nav"' in html
@@ -95,9 +95,9 @@ def test_catalog_page_uses_public_showcase_before_login():
     assert 'href="/catalog/games"' in html
     assert 'href="/catalog/subscriptions"' in html
     assert 'href="/catalog/verification-numbers"' in html
+    assert 'href="/catalog/store-cards"' in html
     assert 'href="/catalog/chat-apps"' not in html
     assert 'href="/catalog/social-services"' not in html
-    assert 'href="/catalog/store-cards"' not in html
     assert 'href="/catalog/internet-providers"' not in html
     assert 'href="/catalog/paid-apps"' not in html
     assert 'href="/catalog/numbers"' not in html
@@ -173,11 +173,11 @@ def test_hidden_sections_are_not_exposed_publicly():
     payload = landing_page.public_catalog_payload()
     slugs = {row["slug"] for row in payload["sections"]}
 
-    for hidden in ("chat-apps", "social-services", "store-cards", "internet-providers", "paid-apps"):
+    for hidden in ("chat-apps", "social-services", "internet-providers", "paid-apps"):
         assert f'href="/catalog/{hidden}"' not in html
         assert hidden not in slugs
 
-    assert {"games", "subscriptions", "verification-numbers", "mobile-recharge", "esim"} <= slugs
+    assert {"games", "subscriptions", "verification-numbers", "mobile-recharge", "esim", "store-cards"} <= slugs
 
 
 def test_catalog_sections_include_miniapp_family_categories():

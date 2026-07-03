@@ -95,9 +95,9 @@ async def test_public_landing_page_links_to_auth_and_service_routes():
     assert 'href="/catalog/games"' in text
     assert 'href="/catalog/subscriptions"' in text
     assert 'href="/catalog/verification-numbers"' in text
+    assert 'href="/catalog/store-cards"' in text
     assert 'href="/catalog/chat-apps"' not in text
     assert 'href="/catalog/social-services"' not in text
-    assert 'href="/catalog/store-cards"' not in text
     assert 'href="/catalog/internet-providers"' not in text
     assert 'href="/catalog/paid-apps"' not in text
     assert "الشراء" not in text
@@ -117,9 +117,9 @@ async def test_public_catalog_page_exposes_sections_without_checkout():
     assert 'href="/catalog/verification-numbers"' in text
     assert 'href="/catalog/mobile-recharge"' in text
     assert 'href="/catalog/esim"' in text
+    assert 'href="/catalog/store-cards"' in text
     assert 'href="/catalog/chat-apps"' not in text
     assert 'href="/catalog/social-services"' not in text
-    assert 'href="/catalog/store-cards"' not in text
     assert 'href="/catalog/internet-providers"' not in text
     assert 'href="/catalog/paid-apps"' not in text
     assert 'href="/register"' in text
