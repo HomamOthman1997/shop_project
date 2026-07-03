@@ -634,10 +634,14 @@ async def hide_orphan_products(
 _public_nodes_logger = logging.getLogger("manual_catalog")
 
 # Pulling the whole website_manual tree from Atlas takes tens of seconds from
-# the app host (slow transfer, not a bad query plan), so customer requests must
+# the app host (the free-tier cluster throttles transfer to ~15KB/s once past
+# its quota — latency is fine, throughput is not), so customer requests must
 # NEVER wait on it. The tree is cached in-process and refreshed in the
-# background once it goes stale (stale-while-revalidate).
-_PUBLIC_NODES_TTL_SECONDS = 120.0
+# background once it goes stale (stale-while-revalidate). The TTL is long on
+# purpose: each refresh moves ~3.5MB, and hogging the throttled pipe starves
+# every other query (the admin dashboard visibly times out). Admin edits that
+# go through the wired invalidation paths still refresh immediately.
+_PUBLIC_NODES_TTL_SECONDS = 600.0
 _public_nodes_cache: dict[str, Any] = {"at": 0.0, "nodes": None, "task": None}
 
 
