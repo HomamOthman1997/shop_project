@@ -1292,7 +1292,7 @@ button.owner-action-row {
 .section-banner-scrim {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to left, rgba(11, 16, 32, .93) 22%, rgba(11, 16, 32, .55) 52%, rgba(11, 16, 32, .05) 82%);
+  background: linear-gradient(to left, rgba(11, 16, 32, .95) 26%, rgba(11, 16, 32, .62) 55%, rgba(11, 16, 32, .06) 84%);
 }
 .section-banner-emblem {
   position: absolute;

@@ -518,8 +518,8 @@ const SECTION_ART = {
   "games": { image: "/mini/digital/static/games-rtl.webp", tone: "sb-violet", wide: true },
   "verification-numbers": { image: "/mini/digital/static/numbers-ltr.webp", tone: "sb-crimson" },
   "store-cards": { image: "/mini/digital/static/store-cards-ltr.webp", tone: "sb-cobalt" },
-  "esim": { emblem: "eSIM", tone: "sb-amber" },
-  "subscriptions": { emblem: "▶", tone: "sb-orchid" },
+  "esim": { image: "/mini/digital/static/esim-rtl.webp", tone: "sb-cobalt" },
+  "subscriptions": { image: "/mini/digital/static/subscriptions-rtl.webp", tone: "sb-orchid" },
 };
 
 function sectionBannerHtml(row) {
