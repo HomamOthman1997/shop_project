@@ -131,7 +131,7 @@ def test_catalog_root_search_indexes_miniapp_families_without_showing_them_by_de
     assert 'href="/catalog/games/jawaker" data-catalog-search=' in html
     assert 'href="/catalog/verification-numbers/telegram_numbers" data-catalog-search=' in html
     assert 'data-root-search-result data-preserve-catalog-query hidden' in html
-    assert '<small class="catalog-section-kicker">ضمن الألعاب</small>' in html
+    assert '<small class="catalog-section-kicker">ضمن شحن ألعاب</small>' in html
     assert '<small class="catalog-section-kicker">ضمن أرقام تأكيد</small>' in html
     assert "جواكر" in html
     assert "ببجي" in html
@@ -157,7 +157,7 @@ def test_catalog_section_shows_subcategory_tabs():
     assert "اختر الصنف الفرعي" in html
     assert 'class="category-tabs"' not in html
     assert 'class="breadcrumbs"' in html
-    assert "<span>الألعاب</span>" in html
+    assert "<span>شحن ألعاب</span>" in html
     assert "رجوع إلى الأقسام" in html
     assert 'href="/catalog/games/pubg"' in html
     assert 'href="/catalog/games/free_fire"' in html
@@ -421,7 +421,7 @@ def test_catalog_category_filters_items():
     assert "<h1>PUBG</h1>" in html
     assert "اختر المنتج أو الخدمة" in html
     assert 'class="category-tabs"' in html
-    assert 'href="/catalog/games" data-preserve-catalog-query>الألعاب</a>' in html
+    assert 'href="/catalog/games" data-preserve-catalog-query>شحن ألعاب</a>' in html
     assert "<span>PUBG</span>" in html
     assert "رجوع إلى الأصناف" in html
     assert "باقات وخدمات PUBG" in html

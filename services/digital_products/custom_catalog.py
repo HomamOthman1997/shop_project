@@ -3,8 +3,8 @@ from __future__ import annotations
 SECTION_TABLE: tuple[dict[str, object], ...] = (
     {
         "key": "games",
-        "label": {"en": "Games", "ar": "قسم الألعاب"},
-        "aliases": ("games", "game", "قسم الالعاب", "قسم الألعاب"),
+        "label": {"en": "Games", "ar": "شحن ألعاب"},
+        "aliases": ("games", "game", "قسم الالعاب", "قسم الألعاب", "شحن العاب", "شحن ألعاب"),
     },
     {
         "key": "chat_apps",

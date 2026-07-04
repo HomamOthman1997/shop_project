@@ -1115,7 +1115,7 @@ _CATALOG_SECTIONS = (
     {
         "slug": "games",
         "aliases": ("digital",),
-        "title": "الألعاب",
+        "title": "شحن ألعاب",
         "subtitle": "شدات ببجي، جواهر فري فاير، وشحن كل ألعابك — تنفيذ سريع وآمن.",
         "accent": "green",
         "items": (
