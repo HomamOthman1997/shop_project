@@ -112,6 +112,7 @@ from services.digital_products.manual_catalog import (
     family_label as manual_family_label,
     hide_orphan_products,
     input_fields_text,
+    invalidate_public_catalog_nodes_cache,
     is_builtin_family,
     node_level,
     parse_input_fields_text,
@@ -1354,6 +1355,18 @@ async def _move_website_manual_product_to_variant(
     return node, ""
 
 
+def _bust_catalog_caches() -> None:
+    """Drop the customer-facing catalog caches after an owner edit so new/removed
+    products, families and prices show up immediately instead of after the TTL."""
+    invalidate_public_catalog_nodes_cache()
+    try:
+        from services.landing_page import invalidate_public_catalog_cache
+
+        invalidate_public_catalog_cache()
+    except Exception:
+        pass
+
+
 async def owner_custom_catalog(request: web.Request) -> web.Response:
     await require_website_owner(request)
     owner_id = _owner_catalog_id()
@@ -1950,6 +1963,7 @@ async def owner_create_custom_catalog_node(request: web.Request) -> web.Response
         if website_level == "product" and "product_info_text" in body:
             node = await update_endpoint_product_info(node["_id"], owner_id, body.get("product_info_text"), catalog_type=catalog_type) or node
     await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action="custom_catalog_create", target_type=node_type, target_id=node["_id"])
+    _bust_catalog_caches()
     return web.json_response({"ok": True, "node": _custom_catalog_node_payload(node)}, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -2055,6 +2069,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                 catalog_type=catalog_type,
             ) or node
     await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action="custom_catalog_update", target_type=_text(node.get("node_type")), target_id=node_id)
+    _bust_catalog_caches()
     return web.json_response({"ok": True, "node": _custom_catalog_node_payload(node)}, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -2082,6 +2097,7 @@ async def owner_update_custom_catalog_inventory(request: web.Request) -> web.Res
     if not updated:
         return web.json_response({"ok": False, "message": "Could not update inventory."}, status=409, headers=dict(_NO_STORE_HEADERS))
     await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action=f"custom_catalog_inventory_{mode}", target_type="endpoint", target_id=node_id, metadata={"count": len(cleaned)})
+    _bust_catalog_caches()
     before_qty = int(node.get("available_qty") or 0)
     delta = int(updated.get("available_qty") or 0) - before_qty
     await record_stock_event(
@@ -2112,6 +2128,7 @@ async def owner_custom_catalog_node_action(request: web.Request) -> web.Response
     else:
         return web.json_response({"ok": False, "message": "Unsupported catalog action."}, status=400, headers=dict(_NO_STORE_HEADERS))
     await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action=f"custom_catalog_{action}", target_type="node", target_id=node_id, metadata={"direction": body.get("direction")})
+    _bust_catalog_caches()
     return web.json_response({"ok": True, "result": reason}, headers=dict(_NO_STORE_HEADERS))
 
 
@@ -2182,6 +2199,7 @@ async def owner_delete_custom_catalog_node(request: web.Request) -> web.Response
             return web.json_response({"ok": False, "message": "Resolve pending preorders before deleting this item."}, status=409, headers=dict(_NO_STORE_HEADERS))
     deleted = await deactivate_node(node_id, owner_id, catalog_type=catalog_type)
     await _write_owner_audit(actor_id=owner.customer_id, actor_email=owner.email, action="custom_catalog_delete", target_type=_text(node.get("node_type")), target_id=node_id, metadata={"nodes": deleted})
+    _bust_catalog_caches()
     return web.json_response({"ok": True, "deleted_nodes": int(deleted)}, headers=dict(_NO_STORE_HEADERS))
 
 
