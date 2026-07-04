@@ -575,14 +575,16 @@ function renderAccountCatalog() {
   const section = accountCatalogState.activeSection;
   const rows = accountCatalogRows();
   back.hidden = !section;
+  // The root grid speaks for itself — only show the path header (breadcrumb)
+  // once the customer is inside a section.
+  const pathEl = document.querySelector(".account-catalog-path");
+  if (pathEl) pathEl.hidden = !section;
   const titleEl = $("#account-catalog-title");
-  if (titleEl) {
-    titleEl.innerHTML = section
-      ? `<button type="button" class="catalog-crumb" data-catalog-crumb-home>الخدمات</button><span class="catalog-crumb-sep" aria-hidden="true">‹</span><span>${esc(section.title || "")}</span>`
-      : "اختر القسم";
+  if (titleEl && section) {
+    titleEl.innerHTML = `<button type="button" class="catalog-crumb" data-catalog-crumb-home>الخدمات</button><span class="catalog-crumb-sep" aria-hidden="true">‹</span><span>${esc(section.title || "")}</span>`;
     titleEl.querySelector("[data-catalog-crumb-home]")?.addEventListener("click", () => closeAccountCatalogSection());
   }
-  setText("#account-catalog-hint", section ? "اختر الصنف الذي تريد فتحه." : "كل خدماتك من حساب ومحفظة واحدة — اختر وابدأ.");
+  setText("#account-catalog-hint", "اختر الصنف الذي تريد فتحه.");
   target.classList.toggle("is-sections", !section);
   target.classList.remove("nav-fade");
   void target.offsetWidth;
