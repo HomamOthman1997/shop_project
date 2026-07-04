@@ -1260,8 +1260,9 @@ async def test_digital_manual_order_complete_marks_success(monkeypatch):
     async def fake_status(order_id, status):
         calls["status"] = (order_id, status)
 
-    async def fake_notify(updated_order, *, status):
+    async def fake_notify(updated_order, *, status, extra_message=""):
         calls["notify"] = (updated_order, status)
+        calls["notify_message"] = extra_message
         return True
 
     monkeypatch.setattr(api, "require_api_auth", fake_require_api_auth)
@@ -1274,7 +1275,7 @@ async def test_digital_manual_order_complete_marks_success(monkeypatch):
     request = json_request(
         "POST",
         "/api/v1/digital/orders/order-1/manual-action",
-        {"action": "complete"},
+        {"action": "complete", "customer_message": "تكرم عينك، اطلب وتنال"},
         match_info={"order_id": "order-1"},
     )
     response = await api.manual_order_action(request)
@@ -1284,6 +1285,9 @@ async def test_digital_manual_order_complete_marks_success(monkeypatch):
     assert calls["updates"][0][1]["manual_fulfillment_status"] == "completed"
     assert calls["status"] == ("order-1", "success")
     assert calls["notify"][1] == "completed"
+    # The admin's delivery note reaches the customer and is stored on the order.
+    assert calls["notify_message"] == "تكرم عينك، اطلب وتنال"
+    assert calls["updates"][0][1]["manual_delivery_message"] == "تكرم عينك، اطلب وتنال"
     assert payload["order"]["public_status"] == "completed"
 
 

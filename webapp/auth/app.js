@@ -3755,17 +3755,26 @@ async function runOwnerDigitalAction(button) {
   const orderId = button.dataset.ownerOrder;
   const action = button.dataset.ownerAction;
   const actionLabel = ownerDigitalActionLabels[action] || action;
-  const warning = action === "refund"
-    ? "سيتم إعادة المبلغ إلى محفظة العميل. هل تريد تنفيذ الاسترداد؟"
-    : `هل تريد تنفيذ الإجراء ${actionLabel} على هذا الطلب؟`;
-  if (!window.confirm(warning)) return;
+  // On delivery the admin can attach a free-text note that reaches the customer
+  // with the "تم التسليم" notification. The prompt doubles as the confirm.
+  let customerMessage = "";
+  if (action === "complete") {
+    const typed = window.prompt("تم التسليم — رسالة اختيارية ترسل للزبون (اتركها فارغة لإشعار افتراضي):", "");
+    if (typed === null) return;
+    customerMessage = typed;
+  } else {
+    const warning = action === "refund"
+      ? "سيتم إعادة المبلغ إلى محفظة العميل. هل تريد تنفيذ الاسترداد؟"
+      : `هل تريد تنفيذ الإجراء ${actionLabel} على هذا الطلب؟`;
+    if (!window.confirm(warning)) return;
+  }
   const card = button.closest(".owner-digital-order");
   card?.querySelectorAll("[data-owner-order]").forEach((item) => { item.disabled = true; });
   setText("#owner-message", `جاري تنفيذ ${actionLabel}...`);
   try {
     const result = await ownerApi(`/api/v1/owner/digital/orders/${encodeURIComponent(orderId)}/action`, {
       method: "POST",
-      body: JSON.stringify({ action, notify_user: true }),
+      body: JSON.stringify({ action, notify_user: true, customer_message: customerMessage }),
       timeoutMs: 45000,
     });
     setText("#owner-message", `تم تنفيذ ${ownerDigitalActionLabels[result.action] || result.action || actionLabel}.`);

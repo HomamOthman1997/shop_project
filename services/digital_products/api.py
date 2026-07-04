@@ -644,9 +644,10 @@ _MANUAL_STATUS_NOTIFY_TITLES = {
 }
 
 
-async def _notify_manual_order_user(order: dict[str, Any], *, status: str) -> bool:
+async def _notify_manual_order_user(order: dict[str, Any], *, status: str, extra_message: str = "") -> bool:
     user_id = int((order or {}).get("user_id") or 0)
     item_label = str((order or {}).get("manual_item_name") or (order or {}).get("manual_game_name") or (order or {}).get("game_name") or "المنتج")
+    extra_message = str(extra_message or "").strip()
     notify_title = _MANUAL_STATUS_NOTIFY_TITLES.get(str(status or "").strip().lower())
     if notify_title:
         # In-app notification mirror — reaches website customers without Telegram.
@@ -654,7 +655,7 @@ async def _notify_manual_order_user(order: dict[str, Any], *, status: str) -> bo
             user_id,
             kind="order",
             title=notify_title,
-            body=item_label,
+            body=f"{item_label}\n{extra_message}" if extra_message else item_label,
             link="/app/orders",
             meta={"order_id": str((order or {}).get("_id") or "")},
         )
@@ -665,6 +666,8 @@ async def _notify_manual_order_user(order: dict[str, Any], *, status: str) -> bo
     lang = str(user_doc.get("language") or "en")
     item_name = str((order or {}).get("manual_item_name") or (order or {}).get("service_ref_id") or "Digital product")
     text = _manual_status_text(lang, item_name=item_name, order_id=str((order or {}).get("_id") or ""), status=status)
+    if extra_message:
+        text = f"{text}\n\n{extra_message}" if text else extra_message
     if not text:
         return False
     bot = Bot(token=token)
@@ -1219,16 +1222,20 @@ async def execute_manual_order_action(
         if current_status == "refunded":
             return _json_error("Order is already refunded.", status=409, code="order_refunded", rate_limit=rate_limit)
         now = datetime.now(UTC)
+        # An optional note the admin types on delivery — reaches the customer with
+        # the "delivered" notification (e.g. "تكرم عينك، اطلب وتنال").
+        customer_message = str((body or {}).get("customer_message") or (body or {}).get("note") or "").strip()[:500]
         patch = {
             "manual_fulfillment_status": "completed",
             "manual_fulfilled_by": int(auth.user_id),
             "manual_fulfilled_at": now,
-            "manual_action_note": str((body or {}).get("note") or "").strip(),
+            "manual_action_note": customer_message,
+            "manual_delivery_message": customer_message,
         }
         await update_order_details(order["_id"], patch)
         await update_order_status(order["_id"], "success")
         updated = {**order, **patch, "status": "success", "completed_at": now}
-        notified = await _notify_manual_order_user(updated, status="completed") if bool((body or {}).get("notify_user", True)) else False
+        notified = await _notify_manual_order_user(updated, status="completed", extra_message=customer_message) if bool((body or {}).get("notify_user", True)) else False
         if notified:
             await update_order_details(order["_id"], {"manual_completion_notified_at": datetime.now(UTC)})
         return web.json_response({"ok": True, "action": action, "notified": notified, "order": _order_payload(updated)}, headers=_response_headers(rate_limit))
