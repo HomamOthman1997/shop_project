@@ -1164,18 +1164,25 @@ button.owner-action-row {
 .conversation-form textarea { flex: 1; resize: vertical; }
 .chat-bubble { max-width: 78%; padding: 10px 12px; border-radius: 14px; line-height: 1.5; word-break: break-word; }
 .chat-bubble p { margin: 0; white-space: pre-wrap; }
-.chat-bubble.is-mine { align-self: flex-start; background: var(--accent-soft, #e9efff); border: 1px solid var(--line); }
-.chat-bubble.is-support { align-self: flex-end; background: var(--surface-2, #f4f5f8); border: 1px solid var(--line); }
+.chat-bubble.is-mine { align-self: flex-start; background: linear-gradient(180deg, rgba(52,211,153,.18), rgba(52,211,153,.08)); border: 1px solid rgba(52,211,153,.3); color: #eafff6; }
+.chat-bubble.is-support { align-self: flex-end; background: rgba(255,255,255,.06); border: 1px solid var(--line); color: var(--ink); }
 .chat-order-ref { display: inline-block; margin-bottom: 4px; font-size: 11px; font-weight: 700; color: var(--accent, #3858e9); }
 .chat-time { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
-.owner-support-conversation { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; margin: 10px 0; padding: 10px; background: var(--surface-2, #f4f5f8); border-radius: 12px; }
+.owner-support-conversation { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; margin: 10px 0; padding: 10px; background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 12px; }
 .owner-unread { background: var(--danger, #e5484d); color: #fff; padding: 2px 8px; border-radius: 9px; font-size: 12px; }
 
 /* Notification center */
 .notification-row { width: 100%; text-align: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--surface); }
 .notification-row:hover { border-color: var(--accent, #3858e9); }
-.notification-row.is-unread { background: var(--accent-soft, #eef2ff); border-inline-start: 3px solid var(--accent, #3858e9); }
-.notification-row strong { display: block; }
+/* Unread: a red neon frame instead of a light fill (which read as white-on-white). */
+.notification-row.is-unread {
+  background: rgba(251, 113, 133, .06);
+  border-color: rgba(251, 113, 133, .5);
+  border-inline-start: 3px solid #fb7185;
+  box-shadow: inset 0 0 0 1px rgba(251, 113, 133, .3), 0 0 16px -5px rgba(251, 113, 133, .6);
+}
+.notification-row.is-unread:hover { border-color: #fb7185; }
+.notification-row strong { display: block; color: var(--ink); }
 .notification-row span { color: var(--muted); font-size: 13px; }
 
 /* eSIM flow */
