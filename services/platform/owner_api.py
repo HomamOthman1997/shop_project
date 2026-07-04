@@ -2017,7 +2017,9 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                 )
         if node_level(node) == "product" and "variant_name" in body:
             requested_variant_name = _manual_variant_display_name(body.get("variant_name"))
-        if node_level(node) == "product" and "website_image_url" in body:
+        # Image can sit on a product OR a family/category card (a family image
+        # renders full-bleed on the storefront, replacing the text).
+        if "website_image_url" in body:
             website_image_url = _text(body.get("website_image_url"))
         if node_level(node) == "product" and "website_purchase_url" in body:
             website_purchase_url = _text(body.get("website_purchase_url"))

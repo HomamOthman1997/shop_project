@@ -70,7 +70,7 @@ _AUTH_STATIC = Path(__file__).resolve().parents[2] / "webapp" / "auth"
 _SECURITY_HEADERS = {
     "Cache-Control": "no-store",
     "Content-Security-Policy": (
-        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; "
         "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     ),
     "Cross-Origin-Opener-Policy": "same-origin",

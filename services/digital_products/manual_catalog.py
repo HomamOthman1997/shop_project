@@ -752,6 +752,7 @@ async def public_sections(
                 builtin_family
                 and (
                     str(family.get("display_text") or "").strip()
+                    or str(family.get("website_image_url") or "").strip()
                     or (str(family.get("name") or "").strip() and str(family.get("name") or "").strip() != default_family_name)
                 )
             )
@@ -785,6 +786,7 @@ async def public_sections(
                     "generated": True,
                     "service_key": service_key or CATALOG_TYPE,
                     "family_key": family_key or family_id,
+                    "image_url": str(family.get("website_image_url") or ""),
                     "manual": True,
                 }
             )

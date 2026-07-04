@@ -2955,6 +2955,21 @@ button.balance-block:focus-visible {
   .account-catalog-grid:has(.account-game-card) { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* category cover: the artwork is the whole card, no text overlay */
+.account-cover-card {
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden;
+  align-items: stretch !important;
+  min-height: 0 !important;
+}
+.account-cover-img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
 /* digital order success state */
 .order-success { text-align: center; padding: 22px 16px; display: grid; gap: 9px; place-items: center; }
 .order-success-icon { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; font-weight: 800; background: rgba(52,211,153,.15); color: #34d399; border: 1px solid rgba(52,211,153,.4); }

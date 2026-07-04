@@ -585,6 +585,15 @@ function renderAccountCatalog() {
     const count = section ? "" : `${Number(row.categories_count || 0)} صنف`;
     const unavailable = row.enabled === false;
     const searchText = esc(`${row.title || ""} ${row.subtitle || ""} ${row.search_terms || ""}`.toLowerCase());
+    // A custom category image is the whole card — the artwork already carries the
+    // name, so no text overlays it.
+    const coverImage = safeExternalUrl(row.image_url) || "";
+    if (coverImage) {
+      return `
+      <button class="account-catalog-card account-cover-card${unavailable ? " is-unavailable" : ""}" type="button" data-account-catalog-slug="${esc(row.slug || "")}" data-catalog-search="${searchText}" title="${esc(row.title || "")}" ${unavailable ? 'data-account-catalog-disabled="1"' : ""}>
+        <img class="account-cover-img" src="${esc(coverImage)}" alt="${esc(row.title || "")}" loading="lazy">
+      </button>`;
+    }
     const imageSections = { games: 1, "chat-apps": 1 };
     const isImageCard = section && imageSections[section.slug] && row.slug;
     if (isImageCard) {
@@ -3455,7 +3464,7 @@ async function loadOwnerCatalogNode(nodeId) {
             ${node.website_level === "section" ? `
               <label><span>مفتاح القسم</span><input name="website_slug" value="${esc(node.website_slug || "")}" required pattern="[a-z0-9][a-z0-9-]{1,59}"></label>
               <label><span>لون القسم</span><select name="website_accent">${["green", "blue", "amber", "violet"].map((accent) => `<option value="${accent}" ${node.website_accent === accent ? "selected" : ""}>${accent}</option>`).join("")}</select></label>` : ""}
-            ${node.node_type === "folder" ? `<label><span>الوصف</span><textarea name="display_text" rows="3">${esc(node.display_text || "")}</textarea></label>` : `
+            ${node.node_type === "folder" ? `<label><span>الوصف</span><textarea name="display_text" rows="3">${esc(node.display_text || "")}</textarea></label>${node.website_level === "family" || node.website_level === "variant" ? `<label><span>صورة الصنف (تغطي البطاقة وتخفي الاسم)</span><input name="website_image_url" type="url" value="${esc(node.website_image_url || "")}" placeholder="https://..."></label>` : ""}` : `
               <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" value="${esc(node.price)}" required></label>
               <label><span>الدولة / Global</span><input name="variant_name" value="${esc(currentVariantName || "Global")}" required></label>
               <label><span>رابط صورة المنتج</span><input name="website_image_url" type="url" value="${esc(node.website_image_url || "")}" placeholder="https://..."></label>
