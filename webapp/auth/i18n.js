@@ -264,8 +264,9 @@
   }
 
   function currentLanguage() {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return SUPPORTED.has(saved) ? saved : "ar";
+    // English is disabled for now — pin to Arabic so a previously-stored "en"
+    // (from before the toggle was removed) can't strand anyone.
+    return "ar";
   }
 
   function setDocumentLanguage(lang) {
@@ -332,13 +333,10 @@
   }
 
   function installToggle() {
-    if (document.querySelector("[data-language-toggle]")) return;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "language-toggle";
-    button.dataset.languageToggle = "1";
-    button.addEventListener("click", () => setLanguage(currentLanguage() === "ar" ? "en" : "ar"));
-    document.body.appendChild(button);
+    // Language switching is disabled for now — the storefront ships Arabic-only
+    // until the English pass is done. The i18n machinery stays so re-enabling is
+    // just restoring this button.
+    return;
   }
 
   let scheduled = false;

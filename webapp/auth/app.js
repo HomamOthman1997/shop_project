@@ -282,15 +282,6 @@ function hideBootSplash() {
   if (splash) splash.hidden = true;
 }
 
-// The language toggle is a global floating pill (also on the login page). Once
-// logged in, dock it into the slim top bar next to the balance so it reads as
-// part of the header instead of overlapping content.
-function relocateLanguageToggle() {
-  const slot = document.getElementById("app-header-tools");
-  const toggle = document.querySelector("[data-language-toggle]");
-  if (slot && toggle && toggle.parentElement !== slot) slot.appendChild(toggle);
-}
-
 function showLoginView() {
   hideBootSplash();
   authView.hidden = false;
@@ -321,7 +312,6 @@ function showAccount(account) {
   authView.hidden = true;
   verifyView.hidden = true;
   accountView.hidden = false;
-  relocateLanguageToggle();
   $(".form-wrap").classList.add("dashboard-mode");
   accountView.classList.toggle("admin-mode", Boolean(account.is_owner));
   setText("#account-email", account.email);

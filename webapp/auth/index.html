@@ -88,13 +88,16 @@
 
         <div id="account-view" class="site-app" hidden>
           <aside class="sidebar">
-            <a class="brand sidebar-brand" href="/"><span class="brand-ghost">👻</span><span>Phantom</span></a>
+            <div class="sidebar-top">
+              <a class="brand sidebar-brand" href="/"><span class="brand-ghost">👻</span><span>Phantom</span></a>
+              <button id="balance-chip" class="balance-chip" type="button" title="اضغط لشحن الرصيد"><span class="balance-chip-label">الرصيد</span><strong id="wallet-balance">$0.00</strong></button>
+            </div>
             <nav>
               <button class="nav-item active" data-view="home">الخدمات</button>
               <button class="nav-item" data-view="orders">طلباتي</button>
               <button class="nav-item" data-view="recharge">شحن الرصيد</button>
               <button class="nav-item" data-view="messages">مراسلة<span id="messages-nav-badge" class="nav-badge" hidden>0</span></button>
-              <button class="nav-item" data-view="notifications">🔔 التنبيهات<span id="notifications-nav-badge" class="nav-badge" hidden>0</span></button>
+              <button class="nav-item" data-view="notifications">التنبيهات<span id="notifications-nav-badge" class="nav-badge" hidden>0</span></button>
               <button class="nav-item" data-view="support">الدعم</button>
               <button class="nav-item" data-view="account">حسابي</button>
               <button class="nav-item" data-view="identity">تأكيد الهوية</button>
@@ -112,12 +115,6 @@
           </aside>
 
           <div class="app-main">
-            <header class="app-header">
-              <h2 id="view-title">الخدمات</h2>
-              <div class="app-header-tools" id="app-header-tools">
-                <button id="balance-chip" class="balance-chip" type="button" title="اضغط لشحن الرصيد"><span class="balance-chip-label">الرصيد</span><strong id="wallet-balance">$0.00</strong><span class="balance-chip-plus" aria-hidden="true">+</span></button>
-              </div>
-            </header>
 
             <section class="app-view active" data-panel="home">
               <div class="account-catalog" id="account-catalog">
