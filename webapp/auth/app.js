@@ -2776,6 +2776,7 @@ function manualCatalogCreateFields(parent) {
       <label><span>الوصف</span><textarea name="${level === "product" ? "product_info_text" : "display_text"}" rows="3" placeholder="وصف واضح للزبون"></textarea></label>
       ${level === "product" ? `
         <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" required></label>
+        <label><span>رابط الشراء (للأدمن فقط، لا يظهر للزبون)</span><input name="website_purchase_url" type="url" placeholder="https://... المكان الذي تنفّذ منه الطلب"></label>
         <label class="owner-catalog-fields"><span>حقول الطلب، سطر لكل حقل</span><textarea name="input_fields_text" rows="5" required placeholder="phone_number|رقم الهاتف|required|text&#10;notes|ملاحظات|optional|text"></textarea></label>` : ""}
       <button class="primary compact" type="submit">إضافة ${manualCatalogLevelLabel(level)}</button>
     </form>`;
@@ -3458,6 +3459,7 @@ async function loadOwnerCatalogNode(nodeId) {
               <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" value="${esc(node.price)}" required></label>
               <label><span>الدولة / Global</span><input name="variant_name" value="${esc(currentVariantName || "Global")}" required></label>
               <label><span>رابط صورة المنتج</span><input name="website_image_url" type="url" value="${esc(node.website_image_url || "")}" placeholder="https://..."></label>
+              <label><span>رابط الشراء (للأدمن فقط، لا يظهر للزبون)</span><input name="website_purchase_url" type="url" value="${esc(node.website_purchase_url || "")}" placeholder="https://... المكان الذي تنفّذ منه الطلب"></label>
               <label><span>طريقة التنفيذ</span><select name="website_execution_mode">
                 <option value="manual" ${currentExecutionMode !== "api" ? "selected" : ""}>Manual</option>
                 <option value="api" ${currentExecutionMode === "api" ? "selected" : ""} ${apiExecutionSupported ? "" : "disabled"}>API</option>
@@ -3681,7 +3683,12 @@ function ownerDigitalDetailRows(order) {
     ["Actor", details.route_updated_by || details.fulfilled_by || details.refunded_by],
     ["Note", details.action_note],
   ].filter(([, value]) => String(value || "").trim());
-  return rows.map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+  let html = rows.map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+  const buyUrl = safeExternalUrl(details.purchase_url);
+  if (buyUrl) {
+    html += `<div><span>مصدر الشراء</span><strong><a href="${esc(buyUrl)}" target="_blank" rel="noopener noreferrer">فتح رابط الشراء ↗</a></strong></div>`;
+  }
+  return html;
 }
 
 function ownerDigitalActionButtons(order, closed) {

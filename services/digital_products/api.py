@@ -1378,8 +1378,21 @@ async def create_order(request: web.Request) -> web.Response:
         return _json_error("Insufficient balance.", status=402, code="insufficient_balance", rate_limit=rate_limit)
 
     offers = [dict(row) for row in list(quote.get("provider_offers") or []) if isinstance(row, dict)]
+    # Snapshot the owner-only "buy it here" link onto the order so the fulfiller
+    # sees exactly where to execute it. Kept server-side — never in the customer quote.
+    manual_purchase_url = ""
+    if quote_kind == "manual" and str(quote.get("product_id") or "").strip():
+        try:
+            from database.custom_services_repo import get_node
+            from services.digital_products.manual_catalog import CATALOG_TYPE, owner_catalog_id
+
+            product_node = await get_node(str(quote.get("product_id")), reseller_id=owner_catalog_id(), catalog_type=CATALOG_TYPE)
+            manual_purchase_url = str((product_node or {}).get("website_purchase_url") or "").strip()
+        except Exception:
+            manual_purchase_url = ""
     details = {
         "digital_kind": quote_kind,
+        "manual_purchase_url": manual_purchase_url,
         "number_mode": "digital_products",
         "fulfillment_mode": "manual_topup",
         "manual_fulfillment_required": True,

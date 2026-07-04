@@ -900,6 +900,7 @@ def _owner_digital_order_payload(order: dict[str, Any]) -> dict[str, Any]:
         "provider": _text(order.get("provider_code") or order.get("provider")),
         "provider_ref_id": _text(order.get("provider_ref_id") or order.get("service_ref_id")),
         "provider_order_id": _text(order.get("provider_order_id")),
+        "purchase_url": _text(order.get("manual_purchase_url")),
         "created_at": _iso_value(order.get("created_at")),
         "completed_at": _iso_value(order.get("completed_at")),
         "updated_at": _iso_value(order.get("updated_at") or order.get("manual_route_updated_at")),
@@ -1160,6 +1161,7 @@ def _custom_catalog_node_payload(row: dict[str, Any], *, include_inventory: bool
         "website_variant_key": _text(row.get("website_variant_key")),
         "website_execution_mode": clean_execution_mode(row.get("website_execution_mode")),
         "website_image_url": _text(row.get("website_image_url")),
+        "website_purchase_url": _text(row.get("website_purchase_url")),
         "website_hidden": bool(row.get("website_hidden")),
         "website_source_kind": _text(row.get("website_source_kind")),
         "website_source_key": _text(row.get("website_source_key")),
@@ -1955,6 +1957,7 @@ async def owner_create_custom_catalog_node(request: web.Request) -> web.Response
             website_level=website_level,
             website_slug=website_slug if website_level == "section" else None,
             website_accent=website_accent if website_level == "section" else None,
+            website_purchase_url=(body or {}).get("website_purchase_url") if website_level == "product" else None,
             input_fields=input_fields if website_level == "product" else None,
             catalog_type=catalog_type,
         ) or node
@@ -1992,6 +1995,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
         input_fields = None
         website_execution_mode = None
         website_image_url = None
+        website_purchase_url = None
         requested_variant_name = None
         if node_level(node) == "section" and "website_slug" in body:
             website_slug = clean_slug(body.get("website_slug"))
@@ -2015,6 +2019,8 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
             requested_variant_name = _manual_variant_display_name(body.get("variant_name"))
         if node_level(node) == "product" and "website_image_url" in body:
             website_image_url = _text(body.get("website_image_url"))
+        if node_level(node) == "product" and "website_purchase_url" in body:
+            website_purchase_url = _text(body.get("website_purchase_url"))
         if node_level(node) == "product" and "website_execution_mode" in body:
             website_execution_mode = clean_execution_mode(body.get("website_execution_mode"))
             if website_execution_mode == "api" and not (bool(node.get("website_api_source")) and _text(node.get("website_source_kind")) == "game"):
@@ -2023,7 +2029,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                     status=400,
                     headers=dict(_NO_STORE_HEADERS),
                 )
-        if website_slug is not None or website_accent is not None or input_fields is not None or website_execution_mode is not None or website_image_url is not None:
+        if website_slug is not None or website_accent is not None or input_fields is not None or website_execution_mode is not None or website_image_url is not None or website_purchase_url is not None:
             node = await update_node_website_metadata(
                 node_id,
                 owner_id,
@@ -2032,6 +2038,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                 input_fields=input_fields,
                 website_execution_mode=website_execution_mode,
                 website_image_url=website_image_url,
+                website_purchase_url=website_purchase_url,
                 catalog_type=catalog_type,
             ) or node
         if requested_variant_name is not None:
