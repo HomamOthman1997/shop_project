@@ -349,19 +349,18 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,
 .site-app.admin-mode .sidebar nav .nav-item:not(.owner-nav) { display: none; }
 .site-app.admin-mode .owner-nav { display: block; }
 .site-app.admin-mode .admin-tabs { display: none; }
-.site-app.admin-mode .balance-block { display: none; }
+.site-app.admin-mode .balance-chip { display: none; }
 .app-main { min-width: 0; padding: 28px clamp(20px, 4vw, 54px) 48px; background: rgba(9,13,27,.78); border: 1px solid var(--line); border-right: 0; border-radius: 0 18px 18px 0; }
 .app-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding-bottom: 22px;
+  min-height: 52px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
-.app-header h2 { font-size: 27px; font-weight: 800; letter-spacing: -.3px; }
-.app-header h2 { margin: 0; font-size: 26px; }
 .balance-block { text-align: left; display: grid; gap: 3px; }
 .balance-block span { color: var(--muted); font-size: 12px; }
 .balance-block strong { font-size: 22px; }
@@ -2914,3 +2913,55 @@ button.balance-block:focus-visible {
 .order-success-icon { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; font-weight: 800; background: rgba(52,211,153,.15); color: #34d399; border: 1px solid rgba(52,211,153,.4); }
 .order-success h4 { margin: 4px 0 0; font-size: 18px; }
 .order-success-actions { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
+
+/* ===== Slim top bar (title + balance + language, 2026-07-03) ===== */
+#view-title { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -.2px; }
+.app-header-tools { display: flex; align-items: center; gap: 10px; }
+.balance-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(52,211,153,.14), rgba(255,255,255,.03));
+  border: 1px solid rgba(52,211,153,.28);
+  color: #eafff6;
+  cursor: pointer;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.balance-chip:hover,
+.balance-chip:focus-visible {
+  border-color: rgba(52,211,153,.55);
+  box-shadow: 0 8px 22px -12px rgba(52,211,153,.6);
+  transform: translateY(-1px);
+}
+.balance-chip-label { color: var(--muted); font-size: 12px; }
+.balance-chip strong { font-size: 16px; font-weight: 800; color: #eafff6; }
+.balance-chip-plus {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(52,211,153,.9);
+  color: #06231a;
+  font-weight: 900;
+  font-size: 13px;
+  line-height: 1;
+}
+/* Docked language toggle drops the floating pill's fixed positioning */
+.app-header-tools .language-toggle {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+@media (min-width: 821px) {
+  .app-header { padding-top: 12px; padding-bottom: 12px; min-height: 56px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .balance-chip { transition: none; }
+  .balance-chip:hover { transform: none; }
+}

@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <title>تسجيل الدخول | Phantom</title>
-  <link rel="stylesheet" href="/auth/static/styles.css?v=20260703-art2">
+  <link rel="stylesheet" href="/auth/static/styles.css?v=20260703-topbar1">
   <script src="/auth/static/i18n.js" defer></script>
-  <script src="/auth/static/app.js?v=20260703-art2" defer></script>
+  <script src="/auth/static/app.js?v=20260703-topbar1" defer></script>
 </head>
 <body>
   <main class="auth-shell">
@@ -113,11 +113,10 @@
 
           <div class="app-main">
             <header class="app-header">
-              <div>
-                <p class="section-label">Phantom Services</p>
-                <h2 id="view-title">الخدمات</h2>
+              <h2 id="view-title">الخدمات</h2>
+              <div class="app-header-tools" id="app-header-tools">
+                <button id="balance-chip" class="balance-chip" type="button" title="اضغط لشحن الرصيد"><span class="balance-chip-label">الرصيد</span><strong id="wallet-balance">$0.00</strong><span class="balance-chip-plus" aria-hidden="true">+</span></button>
               </div>
-              <button id="balance-chip" class="balance-block" type="button" title="اضغط لشحن الرصيد"><span>الرصيد</span><strong id="wallet-balance">$0.00</strong><small>اضغط للشحن +</small></button>
             </header>
 
             <section class="app-view active" data-panel="home">
