@@ -2168,10 +2168,17 @@ async def owner_delete_custom_catalog_node(request: web.Request) -> web.Response
     node = await get_node(node_id, reseller_id=owner_id, catalog_type=catalog_type)
     if not node or bool(node.get("is_root")):
         return web.json_response({"ok": False, "message": "Catalog node was not found or cannot be deleted."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    cascade = str(request.query.get("cascade") or "").strip().lower() in {"1", "true", "yes"}
     if catalog_type == WEBSITE_MANUAL_CATALOG_TYPE and str(node.get("node_type") or "") == "folder":
         children = await list_children(owner_id, node["_id"], catalog_type=catalog_type)
-        if children:
-            return web.json_response({"ok": False, "message": "احذف العناصر الموجودة داخل هذا الصنف أولاً، ثم احذف الصنف الفارغ."}, status=409, headers=dict(_NO_STORE_HEADERS))
+        # Empty folder deletes directly; a populated one needs an explicit cascade
+        # (the client confirms first) so a whole family/section can't be wiped by accident.
+        if children and not cascade:
+            return web.json_response(
+                {"ok": False, "code": "has_children", "message": "هذا الصنف يحتوي عناصر بداخله. أكّد الحذف لإزالته مع كل ما بداخله."},
+                status=409,
+                headers=dict(_NO_STORE_HEADERS),
+            )
         service_key = clean_catalog_key(node.get("website_section_key"))
         family_key = clean_catalog_key(node.get("website_family_key"))
         if node_level(node) == "family" and service_key and family_key and is_builtin_family(service_key, family_key):

@@ -2850,7 +2850,7 @@ function ownerWebsiteFamilyTile(row, section) {
       })}
       ${nodeId ? `<div class="owner-website-family-actions">
         <button class="secondary compact" type="button" data-owner-catalog-detail="${esc(nodeId)}">تعديل</button>
-        <button class="danger compact" type="button" data-owner-catalog-delete="${esc(nodeId)}">حذف إذا فارغ</button>
+        <button class="danger compact" type="button" data-owner-catalog-delete="${esc(nodeId)}">حذف</button>
       </div>` : ""}
     </article>`;
 }
@@ -2868,7 +2868,7 @@ function ownerWebsiteSectionTile(row) {
       })}
       ${nodeId ? `<div class="owner-website-family-actions">
         <button class="secondary compact" type="button" data-owner-catalog-detail="${esc(nodeId)}">تعديل القسم</button>
-        <button class="danger compact" type="button" data-owner-catalog-delete="${esc(nodeId)}">حذف إذا فارغ</button>
+        <button class="danger compact" type="button" data-owner-catalog-delete="${esc(nodeId)}">حذف</button>
       </div>` : ""}
     </article>`;
 }
@@ -3541,13 +3541,26 @@ async function updateOwnerCatalogInventory(event) {
 }
 
 async function deleteOwnerCatalogNode(nodeId) {
-  if (!window.confirm("Disable this catalog node and its children?")) return;
+  if (!window.confirm("حذف هذا العنصر؟")) return;
+  const catalogType = $("#owner-catalog-type")?.value || "website_manual";
+  const url = (cascade) => `/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}${cascade ? "&cascade=1" : ""}`;
   try {
-    const catalogType = $("#owner-catalog-type")?.value || "website_manual";
-    await ownerApi(`/api/v1/owner/custom-catalog/nodes/${encodeURIComponent(nodeId)}?catalog_type=${encodeURIComponent(catalogType)}`, {method: "DELETE"});
-    setText("#owner-message", "Catalog node was disabled.");
-    await loadOwnerDashboard();
-  } catch (error) { setText("#owner-message", error.message); }
+    await ownerApi(url(false), {method: "DELETE"});
+  } catch (error) {
+    // A populated family/category needs an explicit second confirm before we
+    // wipe it together with everything inside.
+    if (error.code === "has_children" || error.status === 409) {
+      if (!window.confirm("هذا الصنف يحتوي منتجات بداخله. حذفه سيحذفها كلها. متابعة؟")) { setText("#owner-message", ""); return; }
+      try {
+        await ownerApi(url(true), {method: "DELETE"});
+      } catch (err) { setText("#owner-message", err.message); return; }
+    } else {
+      setText("#owner-message", error.message);
+      return;
+    }
+  }
+  setText("#owner-message", "تم حذف العنصر.");
+  await loadOwnerDashboard();
 }
 
 async function moveOwnerCatalogNode(nodeId, direction) {
