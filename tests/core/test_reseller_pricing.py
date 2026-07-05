@@ -9,6 +9,7 @@ from services.digital_products.reseller_pricing import (
     price_for_viewer,
     reseller_discount_labels,
     retail_price,
+    review_tier,
     tier_for_monthly_sales,
     wholesale_from_retail,
     wholesale_price,
@@ -141,3 +142,42 @@ def test_wholesale_from_retail_matches_cost_based_when_margins_align():
     cost = 3.33
     retail = retail_price(cost, "games")            # cost * 1.07
     assert wholesale_from_retail("games", "gold", retail) == wholesale_price("games", "gold", cost=cost)
+
+
+# --- monthly tier review: promotion, protection, demotion ---
+
+def test_review_tier_promotes_immediately_when_sales_meet_higher_tier():
+    # bronze reseller selling $1200 -> gold, streak reset, changed
+    assert review_tier("bronze", 1200.0, 0) == ("gold", 0, True)
+
+
+def test_review_tier_stays_when_maintaining_threshold():
+    # silver reseller selling $600 (>=500) -> stays silver, streak reset, no change
+    assert review_tier("silver", 600.0, 0) == ("silver", 0, False)
+
+
+def test_review_tier_first_miss_is_protected():
+    # silver reseller selling $400 (<500), streak 0 -> stays silver, streak 1, protected
+    assert review_tier("silver", 400.0, 0) == ("silver", 1, False)
+
+
+def test_review_tier_second_consecutive_miss_demotes_one_level():
+    # silver reseller misses again with streak already 1 -> demote to bronze, streak reset
+    assert review_tier("silver", 400.0, 1) == ("bronze", 0, True)
+
+
+def test_review_tier_demotes_only_one_level_from_top():
+    # platinum missing twice drops to gold, not to bronze
+    assert review_tier("platinum", 100.0, 1) == ("gold", 0, True)
+
+
+def test_review_tier_bronze_never_drops_out():
+    # bronze is the floor: earning bronze always "meets" it, so no demotion and the
+    # streak clears — a reseller never loses reseller status.
+    assert review_tier("bronze", 0.0, 1) == ("bronze", 0, False)
+    assert review_tier("bronze", 0.0, 5) == ("bronze", 0, False)
+
+
+def test_review_tier_recovering_resets_streak():
+    # silver with one miss then a good month -> stays silver, streak cleared
+    assert review_tier("silver", 700.0, 1) == ("silver", 0, False)

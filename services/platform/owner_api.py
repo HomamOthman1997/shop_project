@@ -627,6 +627,22 @@ async def owner_admin_audit(request: web.Request) -> web.Response:
     )
 
 
+async def owner_review_reseller_tiers(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    from services.digital_products.reseller_tier_review import run_reseller_tier_review
+
+    summary = await run_reseller_tier_review()
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="reseller.tier_review",
+        target_type="reseller_tiers",
+        target_id=summary.get("month") or "",
+        metadata={"reviewed": summary.get("reviewed"), "changed": summary.get("changed")},
+    )
+    return web.json_response({"ok": True, **summary}, headers=dict(_NO_STORE_HEADERS))
+
+
 async def owner_resellers(request: web.Request) -> web.Response:
     await require_website_owner(request)
     q = str(request.query.get("q") or "").strip()[:160]
@@ -3609,6 +3625,7 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/system/status", owner_system_status)
     app.router.add_post("/api/v1/owner/system/test-log", owner_system_test_log)
     app.router.add_get("/api/v1/owner/audit", owner_admin_audit)
+    app.router.add_post("/api/v1/owner/resellers/review-tiers", owner_review_reseller_tiers)
     app.router.add_get("/api/v1/owner/resellers", owner_resellers)
     app.router.add_get("/api/v1/owner/resellers/{reseller_id}", owner_reseller_detail)
     app.router.add_get("/api/v1/owner/digital/orders", owner_digital_orders)

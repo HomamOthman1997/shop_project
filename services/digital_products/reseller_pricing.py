@@ -147,6 +147,39 @@ def price_for_viewer(
     return wholesale_price(section, tier, cost=cost, retail=retail, cfg=cfg)
 
 
+def tier_index(tier: str) -> int:
+    return TIERS.index(tier) if tier in TIERS else -1
+
+
+def review_tier(
+    current_tier: str,
+    monthly_sales: float,
+    miss_streak: int,
+    cfg: PricingConfig = DEFAULT_CONFIG,
+) -> tuple[str, int, bool]:
+    """Monthly tier review. Given a reseller's current tier, their COMPLETED-month
+    purchase volume, and their consecutive-miss streak, return
+    (new_tier, new_miss_streak, changed).
+
+    - Meeting a tier's threshold promotes/keeps them at the earned tier and resets
+      the streak (hitting the target = full protection).
+    - Falling below the current tier's threshold is a "miss": the first is
+      forgiven (protection), a second consecutive miss demotes ONE level
+      (floor = bronze — a reseller never drops out) and resets the streak.
+    """
+    cur = tier_index(current_tier)
+    if cur < 0:
+        cur = 0
+    earned = tier_index(tier_for_monthly_sales(monthly_sales, cfg))
+    if earned >= cur:
+        return TIERS[earned], 0, earned != cur
+    streak = int(miss_streak or 0) + 1
+    if streak >= 2:
+        demoted = max(0, cur - 1)
+        return TIERS[demoted], 0, True
+    return TIERS[cur], streak, False
+
+
 def reseller_discount_labels(cfg: PricingConfig = DEFAULT_CONFIG) -> dict[str, float]:
     """Motivational "discount %" shown to the reseller per tier — the margin-point
     difference from bronze (bronze = 0). Hides the real margins; never expose the

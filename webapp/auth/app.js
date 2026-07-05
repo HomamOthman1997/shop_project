@@ -2110,6 +2110,7 @@ function renderOwnerUserManagement(payload, append = false) {
     <form class="owner-review-form" id="owner-user-search-form">
       <label><span>Search</span><input id="owner-user-search-input" name="q" value="${esc(ownerUserQuery)}" placeholder="email, customer id, telegram id"></label>
       <button class="secondary compact" type="submit">Search</button>
+      <button class="secondary compact" type="button" id="owner-review-tiers">مراجعة رتب التجّار (الشهر المنقضي)</button>
     </form>
     <div id="owner-user-detail" class="notice" hidden></div>
     <div class="owner-action-list">
@@ -2130,9 +2131,22 @@ function renderOwnerUserManagement(payload, append = false) {
     ${pagination.has_more ? `<div class="owner-order-actions"><button class="secondary compact" id="owner-users-load-more" data-next-offset="${esc(pagination.next_offset)}" type="button">Load more users</button></div>` : ""}
   `;
   $("#owner-user-search-form")?.addEventListener("submit", searchOwnerUsers);
+  $("#owner-review-tiers")?.addEventListener("click", reviewResellerTiers);
   $("#owner-users-load-more")?.addEventListener("click", loadMoreOwnerUsers);
   target.querySelectorAll("[data-owner-user-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerUserDetail(button.dataset.ownerUserDetail)));
   target.querySelectorAll("[data-owner-user-action]").forEach((button) => button.addEventListener("click", () => runOwnerUserAction(button)));
+}
+
+async function reviewResellerTiers(event) {
+  const button = event.currentTarget;
+  if (!window.confirm("مراجعة رتب كل التجّار حسب مبيعات الشهر المنقضي؟")) return;
+  button.disabled = true;
+  setText("#owner-message", "جاري مراجعة رتب التجّار...");
+  try {
+    const result = await ownerApi("/api/v1/owner/resellers/review-tiers", { method: "POST" });
+    setText("#owner-message", `تمت المراجعة (${result.month}): راجع ${result.reviewed} تاجر، تغيّرت ${result.changed} رتبة.`);
+  } catch (error) { setText("#owner-message", error.message); }
+  finally { button.disabled = false; }
 }
 
 async function searchOwnerUsers(event) {
