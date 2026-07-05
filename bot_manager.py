@@ -79,6 +79,7 @@ from services.proxies.handlers.proxy_flow import router as proxy_flow_router
 from services.proxies.handlers.proxy_inline import router as proxy_inline_router
 from services.digital_products.recovery import run_digital_products_pending_recovery_sweep
 from services.digital_products.bittopup_scraper import run_bittopup_price_watch
+from services.digital_products.reseller_tier_review import run_reseller_tier_review
 from services.digital_products.miniapp import start_miniapp_server
 from services.proxies.catalog_cache import set_offers_cache
 from services.proxies.manager import get_proxy_catalog
@@ -1262,6 +1263,9 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
             + timedelta(seconds=max(3600, int(getattr(settings, "digital_bittopup_price_watch_interval_sec", 43200) or 43200))),
         )
     )
+    # Reseller tier review runs once per calendar month (reviews the completed
+    # previous month). Tracked by month string rather than a fixed interval.
+    last_reseller_tier_review_month = str(sched_state.get("last_reseller_tier_review_month") or "")
     next_proxy_ops_summary_at = (
         now
         if last_proxy_ops_summary_at is None
@@ -1605,6 +1609,21 @@ async def sync_bots_forever(poll_seconds: int = 20) -> None:
                 _save_sched_state(sched_state)
                 interval_sec = max(3600, int(getattr(settings, "digital_bittopup_price_watch_interval_sec", 43200) or 43200))
                 next_digital_bittopup_price_watch_at = ran_at + timedelta(seconds=interval_sec)
+
+        current_review_month = _utc_now().strftime("%Y-%m")
+        if current_review_month != last_reseller_tier_review_month:
+            try:
+                summary = await run_reseller_tier_review()
+                logging.info(
+                    "reseller tier review month=%s reviewed=%s changed=%s",
+                    summary.get("month"), summary.get("reviewed"), summary.get("changed"),
+                )
+            except Exception as exc:
+                logging.error("reseller tier review failed: %s", exc)
+            finally:
+                last_reseller_tier_review_month = current_review_month
+                sched_state["last_reseller_tier_review_month"] = current_review_month
+                _save_sched_state(sched_state)
 
         if _utc_now() >= next_proxy_ops_summary_at:
             try:
