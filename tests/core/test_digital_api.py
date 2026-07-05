@@ -1350,3 +1350,40 @@ async def test_digital_manual_order_refund_uses_financial_manager(monkeypatch):
     assert calls["updates"][0][1]["manual_fulfillment_status"] == "refunded"
     assert calls["notify"][1] == "refunded"
     assert payload["order"]["public_status"] == "refunded"
+
+
+@pytest.mark.asyncio
+async def test_reseller_status_returns_discount_ladder_for_reseller(monkeypatch):
+    import database.reseller_pricing_config_repo as cfg_repo
+    from services.digital_products.reseller_pricing import DEFAULT_CONFIG
+
+    async def fake_auth(request, scope):
+        return ApiAuthContext(key_id="website:1", user_id=1, reseller_id=1, scopes=(scope,), reseller_tier="silver")
+
+    async def fake_cfg():
+        return DEFAULT_CONFIG
+
+    monkeypatch.setattr(api, "require_digital_user_auth", fake_auth)
+    monkeypatch.setattr(cfg_repo, "get_pricing_config", fake_cfg)
+
+    response = await api.reseller_status(make_mocked_request("GET", "/api/v1/digital/reseller-status"))
+    payload = json.loads(response.text)
+
+    assert payload["is_reseller"] is True
+    assert payload["tier"] == "silver"
+    assert payload["tier_name"] == "فضي"
+    labels = {row["key"]: row["discount"] for row in payload["tiers"]}
+    assert labels == {"bronze": 0.0, "silver": 1.0, "gold": 2.0, "platinum": 2.5}
+
+
+@pytest.mark.asyncio
+async def test_reseller_status_hidden_from_normal_customer(monkeypatch):
+    async def fake_auth(request, scope):
+        return ApiAuthContext(key_id="website:2", user_id=2, reseller_id=2, scopes=(scope,))
+
+    monkeypatch.setattr(api, "require_digital_user_auth", fake_auth)
+
+    response = await api.reseller_status(make_mocked_request("GET", "/api/v1/digital/reseller-status"))
+    payload = json.loads(response.text)
+
+    assert payload == {"ok": True, "is_reseller": False}
