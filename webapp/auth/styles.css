@@ -3001,3 +3001,14 @@ button.balance-block:focus-visible {
   .balance-chip { transition: none; }
   .balance-chip:hover { transform: none; }
 }
+
+/* Owner pricing config form */
+.owner-pricing-config-form { display: grid; gap: 12px; }
+.owner-pricing-config-head { display: grid; gap: 3px; }
+.owner-pricing-config-head strong { font-size: 15px; }
+.owner-pricing-config-head span { color: var(--muted); font-size: 12px; }
+.pricing-config-group { display: grid; gap: 7px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.02); }
+.pricing-config-group b { color: var(--accent); font-size: 12.5px; }
+.pricing-config-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pricing-config-row span { color: var(--muted); font-size: 13px; }
+.pricing-config-row input { max-width: 120px; }

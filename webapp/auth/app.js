@@ -2567,6 +2567,64 @@ function routingForm(key, title, target) {
   </form>`;
 }
 
+const PRICING_TIER_NAMES = { bronze: "برونزي", silver: "فضي", gold: "ذهبي", platinum: "بلاتيني" };
+const PRICING_SECTION_NAMES = { games: "الألعاب", store_cards: "بطاقات المتاجر", esim: "eSIM", numbers: "الأرقام" };
+
+function pricingNumberRow(name, label, value, step) {
+  return `<label class="pricing-config-row"><span>${esc(label)}</span><input name="${esc(name)}" type="number" min="0" step="${step}" value="${esc(value)}"></label>`;
+}
+
+async function loadOwnerPricingConfig() {
+  const target = $("#owner-pricing-config");
+  if (!target) return;
+  try {
+    const payload = await ownerApi("/api/v1/owner/pricing-config");
+    const cfg = payload.config || {};
+    const rm = cfg.retail_margins || {};
+    const tm = cfg.tier_margins || {};
+    const tt = cfg.tier_thresholds || {};
+    const tiers = ["bronze", "silver", "gold", "platinum"];
+    target.innerHTML = `
+      <form class="owner-setting-card owner-pricing-config-form" id="owner-pricing-config-form">
+        <div class="owner-pricing-config-head"><strong>تسعير التجّار والجملة</strong><span>هوامش التجزئة والرتب وعتباتها (لا تظهر للتجّار)</span></div>
+        <div class="pricing-config-group"><b>هامش التجزئة % (للزبون العادي)</b>
+          ${Object.keys(PRICING_SECTION_NAMES).map((s) => pricingNumberRow(`retail_${s}`, PRICING_SECTION_NAMES[s], rm[s] ?? 0, "0.1")).join("")}
+        </div>
+        <div class="pricing-config-group"><b>هامش الرتبة % (للتاجر، فوق التكلفة)</b>
+          ${tiers.map((t) => pricingNumberRow(`tierm_${t}`, PRICING_TIER_NAMES[t], tm[t] ?? 0, "0.1")).join("")}
+        </div>
+        <div class="pricing-config-group"><b>عتبة الرتبة $ (الشراء الشهري)</b>
+          ${tiers.map((t) => pricingNumberRow(`tiert_${t}`, PRICING_TIER_NAMES[t], tt[t] ?? 0, "1")).join("")}
+        </div>
+        <div class="pricing-config-group"><b>شحن الخطوط</b>
+          ${pricingNumberRow("topup_discount", "خصم التاجر الثابت $", cfg.topup_reseller_discount_usd ?? 0, "0.1")}
+        </div>
+        <button class="primary compact" type="submit">حفظ إعدادات التسعير</button>
+      </form>`;
+    $("#owner-pricing-config-form")?.addEventListener("submit", saveOwnerPricingConfig);
+  } catch (error) {
+    target.innerHTML = `<div class="notice">${esc(error.message)}</div>`;
+  }
+}
+
+async function saveOwnerPricingConfig(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const val = (name) => Number(form.querySelector(`[name="${name}"]`)?.value || 0);
+  const tiers = ["bronze", "silver", "gold", "platinum"];
+  const body = {
+    retail_margins: Object.fromEntries(Object.keys(PRICING_SECTION_NAMES).map((s) => [s, val(`retail_${s}`)])),
+    tier_margins: Object.fromEntries(tiers.map((t) => [t, val(`tierm_${t}`)])),
+    tier_thresholds: Object.fromEntries(tiers.map((t) => [t, val(`tiert_${t}`)])),
+    topup_reseller_discount_usd: val("topup_discount"),
+  };
+  setText("#owner-message", "جاري حفظ إعدادات التسعير...");
+  try {
+    await ownerApi("/api/v1/owner/pricing-config", { method: "POST", body: JSON.stringify(body) });
+    setText("#owner-message", "تم حفظ إعدادات التسعير.");
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
 function renderOwnerSettings(payload) {
   const finance = payload.finance || {};
   const alerts = payload.alerts || {};
@@ -2588,7 +2646,9 @@ function renderOwnerSettings(payload) {
       <div><strong>هامش الأرقام</strong><span>نسبة تضاف إلى أسعار مزودي الأرقام</span></div>
       <input name="value" type="number" min="0" max="500" step="0.01" value="${esc(finance.numbers_markup_percent || 0)}" required>
       <button class="secondary compact" type="submit">حفظ</button>
-    </form>`;
+    </form>
+    <div id="owner-pricing-config" class="owner-review-list">جاري تحميل إعدادات تسعير التجّار...</div>`;
+  loadOwnerPricingConfig();
 
   const routingTarget = $("#owner-routing-settings");
   const support = routing.support || {};

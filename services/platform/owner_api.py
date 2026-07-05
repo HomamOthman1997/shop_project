@@ -627,6 +627,63 @@ async def owner_admin_audit(request: web.Request) -> web.Response:
     )
 
 
+def _pricing_config_payload(cfg: Any) -> dict[str, Any]:
+    return {
+        "retail_margins": {k: float(v) for k, v in dict(cfg.retail_margins).items()},
+        "tier_margins": {k: float(v) for k, v in dict(cfg.tier_margins).items()},
+        "tier_thresholds": {k: float(v) for k, v in dict(cfg.tier_thresholds).items()},
+        "topup_reseller_discount_usd": float(cfg.topup_reseller_discount_usd),
+    }
+
+
+async def owner_pricing_config(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    from database.reseller_pricing_config_repo import get_pricing_config
+
+    cfg = await get_pricing_config()
+    return web.json_response({"ok": True, "config": _pricing_config_payload(cfg)}, headers=dict(_NO_STORE_HEADERS))
+
+
+async def owner_update_pricing_config(request: web.Request) -> web.Response:
+    owner = await require_website_owner(request)
+    from database.reseller_pricing_config_repo import get_pricing_config, save_pricing_config
+    from services.digital_products.reseller_pricing import PricingConfig, TIERS
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    current = await get_pricing_config()
+
+    def _pct(value: Any, fallback: float) -> float:
+        try:
+            return max(0.0, min(500.0, float(value)))
+        except (TypeError, ValueError):
+            return float(fallback)
+
+    def _usd(value: Any, fallback: float) -> float:
+        try:
+            return max(0.0, float(value))
+        except (TypeError, ValueError):
+            return float(fallback)
+
+    rm_in = body.get("retail_margins") if isinstance(body.get("retail_margins"), dict) else {}
+    tm_in = body.get("tier_margins") if isinstance(body.get("tier_margins"), dict) else {}
+    tt_in = body.get("tier_thresholds") if isinstance(body.get("tier_thresholds"), dict) else {}
+    cfg = PricingConfig(
+        retail_margins={k: _pct(rm_in.get(k, v), v) for k, v in current.retail_margins.items()},
+        tier_margins={k: _pct(tm_in.get(k, current.tier_margins[k]), current.tier_margins[k]) for k in TIERS},
+        tier_thresholds={k: _usd(tt_in.get(k, current.tier_thresholds[k]), current.tier_thresholds[k]) for k in TIERS},
+        topup_reseller_discount_usd=_usd(body.get("topup_reseller_discount_usd", current.topup_reseller_discount_usd), current.topup_reseller_discount_usd),
+    )
+    await save_pricing_config(cfg)
+    await _write_owner_audit(
+        actor_id=owner.customer_id, actor_email=owner.email,
+        action="pricing_config.update", target_type="pricing_config", target_id="",
+    )
+    return web.json_response({"ok": True, "config": _pricing_config_payload(cfg)}, headers=dict(_NO_STORE_HEADERS))
+
+
 async def owner_review_reseller_tiers(request: web.Request) -> web.Response:
     owner = await require_website_owner(request)
     from services.digital_products.reseller_tier_review import run_reseller_tier_review
@@ -3626,6 +3683,8 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/owner/system/test-log", owner_system_test_log)
     app.router.add_get("/api/v1/owner/audit", owner_admin_audit)
     app.router.add_post("/api/v1/owner/resellers/review-tiers", owner_review_reseller_tiers)
+    app.router.add_get("/api/v1/owner/pricing-config", owner_pricing_config)
+    app.router.add_post("/api/v1/owner/pricing-config", owner_update_pricing_config)
     app.router.add_get("/api/v1/owner/resellers", owner_resellers)
     app.router.add_get("/api/v1/owner/resellers/{reseller_id}", owner_reseller_detail)
     app.router.add_get("/api/v1/owner/digital/orders", owner_digital_orders)

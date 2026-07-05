@@ -2404,3 +2404,53 @@ async def test_owner_run_digital_provider_scan_delegates(monkeypatch):
     assert payload["scan"]["status"] == "success"
     assert audit_calls[0]["action"] == "digital_provider.scan"
     assert audit_calls[0]["metadata"] == {"max_pages": 2, "status": "success"}
+
+
+@pytest.mark.asyncio
+async def test_owner_update_pricing_config_sanitizes_and_saves(monkeypatch):
+    import database.reseller_pricing_config_repo as cfg_repo
+    from services.digital_products.reseller_pricing import PricingConfig
+
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1", customer_id=900000000001,
+            email="homamothman1@gmail.com", telegram_id=None, session_token_hash="hash",
+        )
+
+    saved = {}
+
+    async def fake_get():
+        return PricingConfig()
+
+    async def fake_save(cfg):
+        saved["cfg"] = cfg
+
+    async def audit(**_kwargs):
+        return None
+
+    monkeypatch.setattr(cfg_repo, "get_pricing_config", fake_get)
+    monkeypatch.setattr(cfg_repo, "save_pricing_config", fake_save)
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+
+    request = make_mocked_request(
+        "POST", "/api/v1/owner/pricing-config",
+        headers={"Content-Type": "application/json"},
+    )
+    request._read_bytes = json.dumps({
+        "tier_margins": {"platinum": 2.0},
+        "tier_thresholds": {"platinum": 2500},
+        "retail_margins": {"games": 9, "games_bad": "xx"},
+        "topup_reseller_discount_usd": -3,   # clamped to 0
+    }).encode("utf-8")
+
+    response = await owner_api.owner_update_pricing_config(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert saved["cfg"].tier_margins["platinum"] == 2.0
+    assert saved["cfg"].tier_thresholds["platinum"] == 2500.0
+    assert saved["cfg"].retail_margins["games"] == 9.0
+    assert saved["cfg"].topup_reseller_discount_usd == 0.0          # clamped
+    assert saved["cfg"].tier_margins["bronze"] == 5.0              # untouched default
+    assert payload["config"]["tier_margins"]["platinum"] == 2.0
