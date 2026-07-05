@@ -302,6 +302,7 @@ def _public_account_payload(account: dict[str, Any] | None, user: dict[str, Any]
         "identity_status": _text(account.get("identity_status") or "unsubmitted"),
         "status": _text(account.get("status") or "active"),
         "banned": bool(user.get("banned")) or _text(account.get("status")).lower() == "banned",
+        "reseller_tier": _text(account.get("reseller_tier")).lower(),
         "created_at": _iso_value(account.get("created_at") or user.get("created_at")),
         "updated_at": _iso_value(account.get("updated_at")),
     }
@@ -443,13 +444,32 @@ async def owner_user_action(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "message": "Invalid customer id."}, status=400, headers=dict(_NO_STORE_HEADERS))
     payload = await request.json()
     action = str(payload.get("action") or "").strip().lower()
-    if action not in {"ban", "unban"}:
+    if action not in {"ban", "unban", "set_reseller_tier"}:
         return web.json_response({"ok": False, "message": "Unsupported user action."}, status=400, headers=dict(_NO_STORE_HEADERS))
     account, user = await _find_owner_user_subject(customer_id)
     if not account and not user:
         return web.json_response({"ok": False, "message": "User was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
-    banned = action == "ban"
     now = datetime.now(UTC)
+    if action == "set_reseller_tier":
+        from services.digital_products.reseller_pricing import TIERS
+        from database.website_auth_repo import set_website_account_reseller_tier
+
+        if not account:
+            return web.json_response({"ok": False, "message": "Reseller tier applies to website accounts only."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        tier = str(payload.get("tier") or "").strip().lower()
+        if tier and tier not in set(TIERS):
+            return web.json_response({"ok": False, "message": "Invalid reseller tier."}, status=400, headers=dict(_NO_STORE_HEADERS))
+        account = await set_website_account_reseller_tier(customer_id, tier, now=now) or account
+        await _write_owner_audit(
+            actor_id=owner.customer_id,
+            actor_email=owner.email,
+            action="user.set_reseller_tier",
+            target_type="user",
+            target_id=customer_id,
+            metadata={"tier": tier or "none"},
+        )
+        return web.json_response({"ok": True, "user": _public_account_payload(account, user)}, headers=dict(_NO_STORE_HEADERS))
+    banned = action == "ban"
     if account:
         await db.website_accounts.update_one(
             {"customer_id": int(customer_id)},

@@ -57,8 +57,11 @@ from database.notifications_repo import (
     unread_count as _notifications_unread_count,
 )
 
+from services.digital_products.reseller_pricing import TIERS as _RESELLER_TIERS_TUPLE
+
 logger = logging.getLogger(__name__)
 
+_RESELLER_TIERS = frozenset(_RESELLER_TIERS_TUPLE)
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SESSION_DAYS = 30
 _LINK_MINUTES = 10
@@ -146,6 +149,8 @@ def _public_account(account: dict[str, Any]) -> dict[str, Any]:
     email_verified_at = account.get("email_verified_at")
     email_verified = isinstance(email_verified_at, datetime)
     is_owner = _is_owner_email(account.get("email_normalized") or account.get("email"))
+    reseller_tier = str(account.get("reseller_tier") or "").strip().lower()
+    is_reseller = reseller_tier in _RESELLER_TIERS
     return {
         "account_id": str(account.get("_id") or ""),
         "customer_id": int(account.get("customer_id") or 0),
@@ -158,10 +163,13 @@ def _public_account(account: dict[str, Any]) -> dict[str, Any]:
         "language": "ar" if str(account.get("language") or "ar").strip().lower().startswith("ar") else "en",
         "identity_status": str(account.get("identity_status") or "not_submitted"),
         "is_owner": is_owner,
+        "is_reseller": is_reseller,
+        "reseller_tier": reseller_tier if is_reseller else "",
         "capabilities": {
             "buy_services": email_verified,
             "sell_cards": str(account.get("identity_status") or "") == "approved",
             "owner_dashboard": email_verified and is_owner,
+            "wholesale_pricing": is_reseller,
         },
     }
 

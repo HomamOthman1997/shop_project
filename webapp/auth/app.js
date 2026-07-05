@@ -2160,15 +2160,37 @@ async function loadOwnerUserDetail(customerId) {
     const payload = await ownerApi(`/api/v1/owner/users/${encodeURIComponent(customerId)}`);
     const target = $("#owner-user-detail");
     const user = payload.user || {};
+    const tiers = ["", "bronze", "silver", "gold", "platinum"];
+    const tierNames = { "": "ليس تاجراً", bronze: "برونزي", silver: "فضي", gold: "ذهبي", platinum: "بلاتيني" };
     target.hidden = false;
     target.innerHTML = `
       <strong>${esc(user.email || user.customer_id)}</strong>
       <div class="owner-order-meta"><span>Balance: ${esc(payload.wallet?.balance || 0)}$</span><span>Status: ${esc(user.status)}</span><span>Identity: ${esc(user.identity_status)}</span><span>Banned: ${user.banned ? "yes" : "no"}</span></div>
+      <form class="owner-review-form owner-reseller-tier-form" data-reseller-tier-customer="${esc(user.customer_id)}">
+        <label><span>رتبة التاجر (جملة)</span><select name="tier">${tiers.map((t) => `<option value="${t}" ${String(user.reseller_tier || "") === t ? "selected" : ""}>${esc(tierNames[t])}</option>`).join("")}</select></label>
+        <button class="secondary compact" type="submit">حفظ الرتبة</button>
+      </form>
       <h4>Recent ledger</h4>
       ${(payload.ledger || []).map((row) => `<div class="owner-queue-row"><div><strong>${esc(row.reason)}</strong><span>${esc(row.created_at)}</span></div><b>${esc(row.direction)} ${esc(row.amount)}</b></div>`).join("") || '<div>No ledger entries.</div>'}
       <h4>Recent orders</h4>
       ${(payload.orders || []).map((row) => `<div class="owner-queue-row"><div><strong>${esc(row.title || row.service_type)}</strong><span>${esc(row.id)}</span></div><b>${esc(row.status)}</b></div>`).join("") || '<div>No recent orders.</div>'}
     `;
+    target.querySelector("[data-reseller-tier-customer]")?.addEventListener("submit", saveResellerTier);
+  } catch (error) { setText("#owner-message", error.message); }
+}
+
+async function saveResellerTier(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const customerId = form.dataset.resellerTierCustomer;
+  const tier = form.querySelector("[name=tier]")?.value || "";
+  setText("#owner-message", "جاري حفظ رتبة التاجر...");
+  try {
+    await ownerApi(`/api/v1/owner/users/${encodeURIComponent(customerId)}/action`, {
+      method: "POST",
+      body: JSON.stringify({ action: "set_reseller_tier", tier }),
+    });
+    setText("#owner-message", tier ? "تم تعيين رتبة التاجر." : "تمت إزالة صفة التاجر.");
   } catch (error) { setText("#owner-message", error.message); }
 }
 

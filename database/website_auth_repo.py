@@ -54,6 +54,26 @@ async def find_website_account_by_telegram_id(telegram_id: int) -> dict[str, Any
     return await db.website_accounts.find_one({"telegram_id": int(telegram_id)})
 
 
+async def find_website_account_by_customer_id(customer_id: int) -> dict[str, Any] | None:
+    return await db.website_accounts.find_one({"customer_id": int(customer_id)})
+
+
+async def set_website_account_reseller_tier(
+    customer_id: int, tier: str, *, now: datetime
+) -> dict[str, Any] | None:
+    """Set (or clear, when tier == "") the wholesale-reseller tier on an account."""
+    tier = str(tier or "").strip().lower()
+    if tier:
+        update = {"$set": {"reseller_tier": tier, "reseller_since": now, "updated_at": now}}
+    else:
+        update = {"$set": {"updated_at": now}, "$unset": {"reseller_tier": "", "reseller_since": ""}}
+    return await db.website_accounts.find_one_and_update(
+        {"customer_id": int(customer_id)},
+        update,
+        return_document=ReturnDocument.AFTER,
+    )
+
+
 async def create_website_account(doc: dict[str, Any]) -> None:
     await db.website_accounts.insert_one(doc)
 

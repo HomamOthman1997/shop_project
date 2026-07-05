@@ -566,6 +566,62 @@ async def test_owner_user_action_bans_website_only_account(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_owner_user_action_sets_reseller_tier(monkeypatch):
+    import database.website_auth_repo as war
+
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1", customer_id=900000000001,
+            email="homamothman1@gmail.com", telegram_id=None, session_token_hash="hash",
+        )
+
+    class FakeAccounts:
+        async def find_one(self, query):
+            return {"_id": "acct-1", "customer_id": 900000000123, "email": "u@example.com", "status": "active"} if query == {"customer_id": 900000000123} else None
+
+    class EmptyUsers:
+        async def find_one(self, _query):
+            return None
+
+    class FakeDb:
+        def __init__(self):
+            self.website_accounts = FakeAccounts()
+            self.users = EmptyUsers()
+
+    captured = {}
+
+    async def fake_set(customer_id, tier, *, now):
+        captured["args"] = (customer_id, tier)
+        return {"_id": "acct-1", "customer_id": customer_id, "email": "u@example.com", "status": "active", "reseller_tier": tier}
+
+    async def audit(**_kwargs):
+        return None
+
+    monkeypatch.setattr(war, "set_website_account_reseller_tier", fake_set)
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "db", FakeDb())
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+
+    def _req(body):
+        request = make_mocked_request(
+            "POST", "/api/v1/owner/users/900000000123/action",
+            headers={"Content-Type": "application/json"}, match_info={"customer_id": "900000000123"},
+        )
+        request._read_bytes = json.dumps(body).encode("utf-8")
+        return request
+
+    response = await owner_api.owner_user_action(_req({"action": "set_reseller_tier", "tier": "silver"}))
+    payload = json.loads(response.text)
+    assert response.status == 200
+    assert captured["args"] == (900000000123, "silver")
+    assert payload["user"]["reseller_tier"] == "silver"
+
+    # an unknown tier is rejected
+    bad = await owner_api.owner_user_action(_req({"action": "set_reseller_tier", "tier": "diamond"}))
+    assert bad.status == 400
+
+
+@pytest.mark.asyncio
 async def test_owner_finance_audit_delegates_to_financial_scan(monkeypatch):
     async def owner(_request):
         return WebsiteAuthContext(
