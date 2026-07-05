@@ -1577,8 +1577,30 @@ async def esim_buy(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, **result}, headers=_response_headers(rate_limit))
 
 
+async def reseller_status(request: web.Request) -> web.Response:
+    """Reseller-only motivational tier + discount ladder. A normal customer just
+    gets is_reseller=false — the tier mechanics/thresholds are never exposed."""
+    auth = await require_digital_user_auth(request, "digital:account:read")
+    from services.digital_products.reseller_pricing import TIERS, reseller_discount_labels
+
+    tier = str(getattr(auth, "reseller_tier", "") or "").strip().lower()
+    if tier not in TIERS:
+        return web.json_response({"ok": True, "is_reseller": False}, headers=dict(_NO_STORE_HEADERS))
+    from database.reseller_pricing_config_repo import get_pricing_config
+
+    cfg = await get_pricing_config()
+    labels = reseller_discount_labels(cfg)
+    names = {"bronze": "برونزي", "silver": "فضي", "gold": "ذهبي", "platinum": "بلاتيني"}
+    tiers = [{"key": key, "name": names[key], "discount": float(labels.get(key) or 0.0)} for key in TIERS]
+    return web.json_response(
+        {"ok": True, "is_reseller": True, "tier": tier, "tier_name": names[tier], "tiers": tiers},
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
 def register_digital_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/digital/health", health)
+    app.router.add_get("/api/v1/digital/reseller-status", reseller_status)
     app.router.add_get("/api/v1/digital/esim/countries", esim_countries)
     app.router.add_get("/api/v1/digital/esim/days", esim_days)
     app.router.add_get("/api/v1/digital/esim/offers", esim_offers)

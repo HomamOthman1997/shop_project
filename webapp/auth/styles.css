@@ -3012,3 +3012,16 @@ button.balance-block:focus-visible {
 .pricing-config-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .pricing-config-row span { color: var(--muted); font-size: 13px; }
 .pricing-config-row input { max-width: 120px; }
+
+/* Reseller motivational tier ladder (account view, reseller-only) */
+#reseller-status-card { margin-bottom: 16px; }
+.reseller-status-inner { border: 1px solid rgba(52,211,153,.28); border-radius: 16px; padding: 16px; background: linear-gradient(180deg, rgba(52,211,153,.08), rgba(255,255,255,.02)); display: grid; gap: 12px; }
+.reseller-status-head strong { font-size: 16px; color: #eafff6; display: block; }
+.reseller-status-head span { color: var(--muted); font-size: 12.5px; }
+.reseller-tier-ladder { display: grid; gap: 6px; }
+.reseller-tier-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.02); }
+.reseller-tier-row span { font-weight: 700; }
+.reseller-tier-row b { margin-inline-start: auto; color: var(--muted); font-weight: 700; }
+.reseller-tier-row em { font-style: normal; font-size: 11px; color: #06231a; background: var(--accent); padding: 2px 8px; border-radius: 999px; font-weight: 800; }
+.reseller-tier-row.active { border-color: rgba(52,211,153,.55); background: rgba(52,211,153,.12); }
+.reseller-tier-row.active b { color: #eafff6; }

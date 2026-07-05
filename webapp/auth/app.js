@@ -282,6 +282,28 @@ function hideBootSplash() {
   if (splash) splash.hidden = true;
 }
 
+async function loadResellerStatusCard() {
+  const card = $("#reseller-status-card");
+  if (!card) return;
+  try {
+    const data = await api("/api/v1/digital/reseller-status");
+    if (!data.is_reseller) { card.hidden = true; return; }
+    const rows = (data.tiers || []).map((tier) => {
+      const active = tier.key === data.tier;
+      const label = Number(tier.discount) > 0 ? `خصم ${tier.discount}%` : "السعر الأساسي";
+      return `<div class="reseller-tier-row${active ? " active" : ""}"><span>${esc(tier.name)}</span><b>${esc(label)}</b>${active ? "<em>رتبتك الحالية</em>" : ""}</div>`;
+    }).join("");
+    card.innerHTML = `
+      <div class="reseller-status-inner">
+        <div class="reseller-status-head"><strong>رتبتك: ${esc(data.tier_name)}</strong><span>كل ما زادت مشترياتك، كبر خصمك على أسعار الجملة.</span></div>
+        <div class="reseller-tier-ladder">${rows}</div>
+      </div>`;
+    card.hidden = false;
+  } catch (_error) {
+    card.hidden = true;
+  }
+}
+
 function showLoginView() {
   hideBootSplash();
   authView.hidden = false;
@@ -323,6 +345,11 @@ function showAccount(account) {
     window.PhantomI18n?.setLanguage?.(account.language);
   }
   document.querySelectorAll(".owner-nav").forEach((item) => { item.hidden = !account.is_owner; });
+  const resellerCard = $("#reseller-status-card");
+  if (resellerCard) {
+    if (account.is_reseller) loadResellerStatusCard();
+    else resellerCard.hidden = true;
+  }
   applyEmailState(account);
   applyIdentityState(account.identity_status);
   if (account.is_owner) {
