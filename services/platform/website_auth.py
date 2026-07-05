@@ -106,6 +106,7 @@ class WebsiteAuthContext:
     email: str
     telegram_id: int | None
     session_token_hash: str
+    reseller_tier: str = ""  # "" for a normal customer; a tier name for a wholesale reseller
 
 
 def _now() -> datetime:
@@ -269,12 +270,14 @@ async def require_website_auth(request: web.Request) -> WebsiteAuthContext:
     if not account or str(account.get("status") or "active") != "active":
         raise web.HTTPUnauthorized(text="invalid account")
     telegram_id = account.get("telegram_id")
+    account_tier = str(account.get("reseller_tier") or "").strip().lower()
     return WebsiteAuthContext(
         account_id=str(account["_id"]),
         customer_id=int(account.get("customer_id") or 0),
         email=str(account.get("email") or ""),
         telegram_id=int(telegram_id) if telegram_id else None,
         session_token_hash=token_hash,
+        reseller_tier=account_tier if account_tier in _RESELLER_TIERS else "",
     )
 
 

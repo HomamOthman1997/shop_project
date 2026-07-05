@@ -621,7 +621,7 @@ async def test_digital_create_manual_catalog_order_rechecks_price_and_queues_man
     async def fake_existing(_idempotency_key, _auth):
         return None
 
-    async def fake_fresh(endpoint_id):
+    async def fake_fresh(endpoint_id, **_kwargs):
         assert endpoint_id == "product-1"
         return {
             "kind": "manual",
@@ -726,7 +726,7 @@ def _wire_manual_order_basics(monkeypatch, calls):
     async def fake_existing(_idempotency_key, _auth):
         return None
 
-    async def fake_fresh(endpoint_id):
+    async def fake_fresh(endpoint_id, **_kwargs):
         assert endpoint_id == "product-1"
         return _fresh_manual_game_quote()
 

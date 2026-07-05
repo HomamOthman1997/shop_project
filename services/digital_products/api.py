@@ -1310,7 +1310,9 @@ async def create_order(request: web.Request) -> web.Response:
                 str(quote.get("item_id") or ""),
             )
             if quote_kind == "product"
-            else await fresh_manual_quote_payload(str(quote.get("item_id") or ""))
+            else await fresh_manual_quote_payload(
+                str(quote.get("item_id") or ""), viewer_tier=str(getattr(auth, "reseller_tier", "") or "")
+            )
         )
         if not fresh_quote:
             return _json_error(

@@ -22,8 +22,12 @@ from database.custom_services_repo import (
 from services.digital_products.custom_catalog import FAMILY_TABLE, SECTION_TABLE
 from services.digital_products.fulfillment_rules import game_default_unit, game_family_key, offer_compare_key, offer_region_label
 from services.digital_products.static_taxonomy import guess_family
+from services.digital_products.reseller_pricing import TIERS as _RESELLER_TIERS, wholesale_from_retail
 
 CATALOG_TYPE = "website_manual"
+# website_section_key -> the pricing engine's section. Unmapped sections
+# (subscriptions, etc.) fall through to no reseller discount.
+_RESELLER_SECTION_BY_KEY = {"games": "games", "store_cards": "store_cards", "communications_data": "topup"}
 _ACCENTS = {"green", "blue", "amber", "violet"}
 _FIELD_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
 _CATALOG_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
@@ -1073,7 +1077,13 @@ def _api_source_compare_key(endpoint: dict[str, Any], *, family: dict[str, Any],
     )
 
 
-async def fresh_quote_payload(endpoint_id: str, *, owner_id: int | None = None) -> dict[str, Any] | None:
+async def fresh_quote_payload(
+    endpoint_id: str,
+    *,
+    owner_id: int | None = None,
+    viewer_tier: str = "",
+    pricing_config: Any = None,
+) -> dict[str, Any] | None:
     catalog_owner_id = int(owner_id or owner_catalog_id())
     endpoint = await get_node(endpoint_id, reseller_id=catalog_owner_id, catalog_type=CATALOG_TYPE)
     if not endpoint or node_level(endpoint) != "product":
@@ -1086,6 +1096,20 @@ async def fresh_quote_payload(endpoint_id: str, *, owner_id: int | None = None) 
     family = await get_node((variant or {}).get("parent_id"), reseller_id=catalog_owner_id, catalog_type=CATALOG_TYPE)
     if node_level(variant) != "variant" or node_level(family) != "family":
         return None
+    # Reseller wholesale pricing: derive the tier price from the retail price. The
+    # reseller pays wholesale and cost_price follows it so the ledger records no
+    # phantom loss on manual products (whose stored "cost" is just the retail price).
+    sale_price = price
+    cost_price = price
+    tier = str(viewer_tier or "").strip().lower()
+    if tier in _RESELLER_TIERS:
+        section = _RESELLER_SECTION_BY_KEY.get(str(family.get("website_section_key") or "").strip().lower(), "")
+        if pricing_config is None:
+            from database.reseller_pricing_config_repo import get_pricing_config
+
+            pricing_config = await get_pricing_config()
+        sale_price = wholesale_from_retail(section, tier, price, pricing_config)
+        cost_price = sale_price
     endpoint_ref = str(endpoint.get("_id") or "")
     execution_mode = clean_execution_mode(endpoint.get("website_execution_mode"))
     source_kind = clean_source_kind(endpoint.get("website_source_kind"))
@@ -1105,8 +1129,10 @@ async def fresh_quote_payload(endpoint_id: str, *, owner_id: int | None = None) 
         "manual_variant_id": str(variant.get("_id") or ""),
         "manual_variant_name": str(variant.get("name") or ""),
         "input_fields": fields,
-        "sale_price": price,
-        "cost_price": price,
+        "sale_price": sale_price,
+        "cost_price": cost_price,
+        "retail_price": price,
+        "viewer_tier": tier if tier in _RESELLER_TIERS else "",
         "provider": str(selected_offer.get("provider") or "manual_catalog"),
         "provider_ref_id": str(selected_offer.get("ref_id") or endpoint_ref),
         "provider_offers": provider_offers,

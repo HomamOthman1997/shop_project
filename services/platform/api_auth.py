@@ -15,6 +15,7 @@ class ApiAuthContext:
     reseller_id: int
     scopes: tuple[str, ...]
     name: str = ""
+    reseller_tier: str = ""  # wholesale tier for website resellers ("" = normal pricing)
 
 
 def _extract_api_key(request: web.Request) -> str:
@@ -57,6 +58,7 @@ async def require_api_auth(request: web.Request, required_scope: str) -> ApiAuth
             reseller_id=website.customer_id,
             scopes=tuple(sorted(website_user_scopes)),
             name="website-session",
+            reseller_tier=str(getattr(website, "reseller_tier", "") or ""),
         )
 
     doc = await find_active_api_key(api_key)

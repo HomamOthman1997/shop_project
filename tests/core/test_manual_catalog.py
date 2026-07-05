@@ -330,3 +330,37 @@ async def test_builtin_family_keys_with_products_excludes_hidden_family(monkeypa
     backed = await manual_catalog.builtin_family_keys_with_products(77)
 
     assert backed == set()
+
+
+@pytest.mark.asyncio
+async def test_fresh_quote_payload_applies_wholesale_for_reseller(monkeypatch):
+    from services.digital_products.reseller_pricing import DEFAULT_CONFIG
+
+    nodes = {
+        "prod": {
+            "_id": "prod", "website_level": "product", "parent_id": "var",
+            "name": "60 UC", "price": 107.0,
+            "input_fields": [{"id": "player_id", "label": "Player ID", "required": True, "type": "text"}],
+        },
+        "var": {"_id": "var", "website_level": "variant", "parent_id": "fam", "name": "Global"},
+        "fam": {"_id": "fam", "website_level": "family", "parent_id": "root", "name": "PUBG",
+                "website_section_key": "games", "website_family_key": "pubg"},
+    }
+
+    async def fake_get_node(node_id, reseller_id=None, catalog_type=None):
+        return nodes.get(str(node_id))
+
+    monkeypatch.setattr(manual_catalog, "get_node", fake_get_node)
+    monkeypatch.setattr(manual_catalog, "owner_catalog_id", lambda: 77)
+
+    # Normal customer -> retail price unchanged.
+    retail = await manual_catalog.fresh_quote_payload("prod", pricing_config=DEFAULT_CONFIG)
+    assert retail["sale_price"] == 107.0
+    assert retail["viewer_tier"] == ""
+
+    # Silver reseller on a games product -> cost 100 * 1.04 = 104 (derived from retail 107).
+    wholesale = await manual_catalog.fresh_quote_payload("prod", viewer_tier="silver", pricing_config=DEFAULT_CONFIG)
+    assert wholesale["sale_price"] == 104.0
+    assert wholesale["cost_price"] == 104.0      # no phantom loss
+    assert wholesale["retail_price"] == 107.0
+    assert wholesale["viewer_tier"] == "silver"

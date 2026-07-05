@@ -106,6 +106,31 @@ def wholesale_price(
     return _round2(max(0.0, discounted))
 
 
+def wholesale_from_retail(
+    section: str,
+    tier: str,
+    retail: float,
+    cfg: PricingConfig = DEFAULT_CONFIG,
+) -> float:
+    """Reseller price derived from the stored RETAIL price (what's on the catalog
+    node) — no separate cost field needed. For a cost-margin section this is exact:
+    retail = cost*(1+retail_margin), so retail*(1+tier)/(1+retail_margin) = cost*(1+tier).
+
+    - games/store_cards/esim: retail * (1 + tier_margin) / (1 + retail_margin)
+    - topup: retail - flat discount
+    - numbers / unknown sections: retail unchanged (reseller gets no discount)
+    """
+    tier = tier if tier in TIERS else "bronze"
+    retail = float(retail or 0.0)
+    if section in COST_MARGIN_SECTIONS:
+        tier_m = float(cfg.tier_margins.get(tier, cfg.tier_margins["bronze"]))
+        retail_m = float(cfg.retail_margins.get(section, 0.0))
+        return _round2(retail * (1.0 + tier_m / 100.0) / (1.0 + retail_m / 100.0))
+    if section == "topup":
+        return _round2(max(0.0, retail - float(cfg.topup_reseller_discount_usd or 0.0)))
+    return _round2(retail)  # numbers + unspecified sections: no reseller discount
+
+
 def price_for_viewer(
     section: str,
     *,

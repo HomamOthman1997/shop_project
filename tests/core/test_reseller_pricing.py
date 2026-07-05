@@ -10,6 +10,7 @@ from services.digital_products.reseller_pricing import (
     reseller_discount_labels,
     retail_price,
     tier_for_monthly_sales,
+    wholesale_from_retail,
     wholesale_price,
 )
 
@@ -109,3 +110,34 @@ def test_config_overrides_change_pricing():
 
 def test_unknown_tier_falls_back_to_bronze():
     assert wholesale_price("games", "diamond", cost=100.0) == 105.0
+
+
+# --- wholesale_from_retail: derive reseller price from the stored retail price ---
+
+def test_wholesale_from_retail_games_is_exact():
+    # retail 107 = cost 100 * 1.07 -> bronze wholesale should recover 100*1.05 = 105
+    assert wholesale_from_retail("games", "bronze", 107.0) == 105.0
+    assert wholesale_from_retail("games", "silver", 107.0) == 104.0
+    assert wholesale_from_retail("games", "gold", 107.0) == 103.0
+    assert wholesale_from_retail("games", "platinum", 107.0) == 102.5
+
+
+def test_wholesale_from_retail_store_cards():
+    assert wholesale_from_retail("store_cards", "platinum", 107.0) == 102.5
+
+
+def test_wholesale_from_retail_topup_flat():
+    assert wholesale_from_retail("topup", "bronze", 16.0) == 14.5
+    assert wholesale_from_retail("topup", "platinum", 16.0) == 14.5
+
+
+def test_wholesale_from_retail_numbers_and_unknown_no_discount():
+    assert wholesale_from_retail("numbers", "platinum", 12.0) == 12.0
+    assert wholesale_from_retail("paid_subscriptions", "platinum", 20.0) == 20.0
+
+
+def test_wholesale_from_retail_matches_cost_based_when_margins_align():
+    # If retail was formed with the configured retail margin, the two paths agree.
+    cost = 3.33
+    retail = retail_price(cost, "games")            # cost * 1.07
+    assert wholesale_from_retail("games", "gold", retail) == wholesale_price("games", "gold", cost=cost)

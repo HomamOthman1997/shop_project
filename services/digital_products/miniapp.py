@@ -1813,12 +1813,27 @@ async def game_items(request: web.Request) -> web.Response:
     )
 
 
-async def _quote_manual_packages(packages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+async def _quote_manual_packages(packages: list[dict[str, Any]], *, viewer_tier: str = "") -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+    # Fetch the pricing config once for the whole family (avoids a DB read per package).
+    pricing_config = None
+    if str(viewer_tier or "").strip():
+        from database.reseller_pricing_config_repo import get_pricing_config
+
+        pricing_config = await get_pricing_config()
     for package in list(packages or []):
-        quote = await fresh_manual_quote_payload(str(package.get("id") or ""))
+        quote = await fresh_manual_quote_payload(
+            str(package.get("id") or ""), viewer_tier=viewer_tier, pricing_config=pricing_config
+        )
         if quote:
-            out.append({**package, "quote_token": make_digital_quote_token(quote)})
+            # The reseller sees (and pays) the wholesale price the quote carries.
+            sale = float(quote.get("sale_price") or 0)
+            out.append({
+                **package,
+                "price_usd": sale,
+                "price_label": f"${sale:.2f}",
+                "quote_token": make_digital_quote_token(quote),
+            })
     return out
 
 
@@ -1828,6 +1843,7 @@ async def _manual_static_payload(
     *,
     variant_id: str = "",
     variant_name: str = "",
+    viewer_tier: str = "",
 ) -> dict[str, Any] | None:
     manual_payload = await manual_static_family_packages(
         service_key,
@@ -1840,7 +1856,7 @@ async def _manual_static_payload(
     if manual_payload.get("variant_not_found"):
         return manual_payload
     manual_payload = dict(manual_payload)
-    manual_payload["packages"] = await _quote_manual_packages(list(manual_payload.get("packages") or []))
+    manual_payload["packages"] = await _quote_manual_packages(list(manual_payload.get("packages") or []), viewer_tier=viewer_tier)
     return manual_payload
 
 
@@ -2085,7 +2101,8 @@ async def _import_api_service_to_manual(owner_id: int, *, service_key: str) -> d
 
 
 async def website_family_packages(request: web.Request) -> web.Response:
-    await require_digital_user_auth(request, "digital:catalog")
+    auth = await require_digital_user_auth(request, "digital:catalog")
+    viewer_tier = str(getattr(auth, "reseller_tier", "") or "")
     service_key = str(request.match_info.get("service_key") or "").strip()
     family_key = str(request.match_info.get("family_key") or "").strip()
     requested_variant_id = str(getattr(request, "query", {}).get("variant_id") or "").strip()
@@ -2095,10 +2112,10 @@ async def website_family_packages(request: web.Request) -> web.Response:
             raise web.HTTPNotFound(text="family not found")
         if manual_payload.pop("variant_not_found", False):
             raise web.HTTPNotFound(text="variant not found")
-        manual_payload["packages"] = await _quote_manual_packages(list(manual_payload.get("packages") or []))
+        manual_payload["packages"] = await _quote_manual_packages(list(manual_payload.get("packages") or []), viewer_tier=viewer_tier)
         return web.json_response(manual_payload, headers=dict(_NO_STORE_HEADERS))
 
-    manual_payload = await _manual_static_payload(service_key, family_key, variant_id=requested_variant_id)
+    manual_payload = await _manual_static_payload(service_key, family_key, variant_id=requested_variant_id, viewer_tier=viewer_tier)
     if manual_payload and manual_payload.pop("variant_not_found", False):
         raise web.HTTPNotFound(text="variant not found")
     if manual_payload:

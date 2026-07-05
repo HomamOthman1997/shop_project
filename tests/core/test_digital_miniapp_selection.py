@@ -406,7 +406,7 @@ async def test_website_family_packages_serves_manual_admin_catalog(monkeypatch):
             "packages": [{"kind": "manual", "id": "product-1", "name": "100 UAH", "price_label": "$3.50"}],
         }
 
-    async def _fake_quote(endpoint_id):
+    async def _fake_quote(endpoint_id, **_kwargs):
         assert endpoint_id == "product-1"
         return {"kind": "manual", "item_id": endpoint_id, "sale_price": 3.5}
 
@@ -453,7 +453,7 @@ async def test_website_family_packages_serves_static_manual_family_without_api_f
             "packages": [{"kind": "manual", "id": "product-1", "name": "325 UC", "price_usd": 6.6}],
         }
 
-    async def _fake_quote(endpoint_id):
+    async def _fake_quote(endpoint_id, **_kwargs):
         assert endpoint_id == "product-1"
         return {"kind": "manual", "item_id": endpoint_id, "sale_price": 6.6}
 
@@ -505,7 +505,7 @@ async def test_website_family_packages_serves_manual_only_for_api_backed_family(
             "packages": [{"kind": "manual", "id": "product-1", "name": "325 UC manual", "price_usd": 6.6}],
         }
 
-    async def _fake_quote(endpoint_id):
+    async def _fake_quote(endpoint_id, **_kwargs):
         return {"kind": "manual", "item_id": endpoint_id, "sale_price": 6.6}
 
     monkeypatch.setattr(miniapp, "require_digital_user_auth", _fake_auth)
