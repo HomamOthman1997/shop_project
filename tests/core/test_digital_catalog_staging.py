@@ -128,14 +128,19 @@ def test_game_vouchers_never_stage_into_store_cards():
 
 
 def test_voucher_first_families_default_to_manual_even_with_game_source():
-    # PUBG / Free Fire vouchers at the same source are cheaper than the API
-    # top-up, so their orders go the voucher/manual route.
+    # PUBG / Jawaker vouchers at the same source are cheaper than the API top-up,
+    # so their orders go the voucher/manual route.
     pubg = build_staging_items([_offer()])[0][0]
     assert pubg["execution_policy"] == "manual"
+    jawaker = build_staging_items(
+        [_offer(family_key="jawaker", family_name="Jawaker", source_key="game:jawaker:1", compare_key="jawaker:global:10000:token")]
+    )[0][0]
+    assert jawaker["execution_policy"] == "manual"
+    # Free Fire is auto API like the rest — a game source keeps it on "api".
     free_fire = build_staging_items(
         [_offer(family_key="free_fire", family_name="Free Fire", source_key="game:freefire:1", compare_key="free_fire:global:100:diamond")]
     )[0][0]
-    assert free_fire["execution_policy"] == "manual"
+    assert free_fire["execution_policy"] == "api"
 
 
 def test_offer_without_compare_key_keyed_by_source_key():

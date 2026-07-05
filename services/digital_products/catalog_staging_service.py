@@ -17,7 +17,8 @@ ALLOWED_REGIONS = {"global", "usa", "uk", "eu", ""}
 
 # Families whose vouchers at the same source are cheaper than the API top-up,
 # so their orders go the voucher/manual route instead of smart auto-routing.
-VOUCHER_FIRST_FAMILIES = {"pubg", "free_fire"}
+# Free Fire is auto API like the rest — only PUBG and Jawaker are voucher-first.
+VOUCHER_FIRST_FAMILIES = {"pubg", "jawaker"}
 
 # Store cards must stay platform gift cards (Steam, PSN, iTunes...). Game
 # vouchers sold as "gifts" (PUBG UC cards etc.) are fulfillment inventory for
