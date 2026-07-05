@@ -92,21 +92,22 @@ def test_sub_types_split_into_separate_items():
     assert by_key["pubg:global:1:elitepass"]["sub_category"] == "passes"
 
 
-def _jawaker_offer(**over):
+def _api_game_offer(**over):
+    # A normal (non-voucher-first) game with a G2Bulk game source -> defaults to API.
     base = dict(
-        family_key="jawaker",
-        family_name="Jawaker",
-        source_key="game:jawaker:9",
-        compare_key="jawaker:global:10000:token",
-        unit_kind="token",
-        package_name="10000 Tokens",
+        family_key="mobile_legends",
+        family_name="Mobile Legends",
+        source_key="game:mlbb:9",
+        compare_key="mobile_legends:global:100:diamond",
+        unit_kind="diamond",
+        package_name="100 Diamonds",
     )
     base.update(over)
     return _offer(**base)
 
 
 def test_default_execution_policy_is_api():
-    items, _ = build_staging_items([_jawaker_offer()])
+    items, _ = build_staging_items([_api_game_offer()])
     assert items[0]["execution_policy"] == "api"
 
 
@@ -221,7 +222,7 @@ def test_mangerr_only_item_defaults_to_manual():
 
 
 def test_game_sourced_item_defaults_to_api():
-    item = build_staging_items([_jawaker_offer()])[0][0]
+    item = build_staging_items([_api_game_offer()])[0][0]
     assert item["execution_policy"] == "api"
 
 
