@@ -63,6 +63,71 @@ async def profit_and_loss(*, start: datetime, end: datetime) -> dict:
     }
 
 
+async def profit_by_provider(*, start: datetime, end: datetime) -> list[dict]:
+    """Revenue/cost/profit per fulfilling provider for settled orders in [start, end).
+    Owner-only view — provider names are fine here (never shown to customers)."""
+    orders = getattr(db, "orders", None)
+    if orders is None or not hasattr(orders, "aggregate"):
+        return []
+    rows = await orders.aggregate(
+        [
+            {"$match": {"status": {"$in": _SETTLED}, "created_at": {"$gte": start, "$lt": end}}},
+            {
+                "$group": {
+                    "_id": {"$ifNull": ["$provider_code", {"$ifNull": ["$provider", "unknown"]}]},
+                    "revenue": {"$sum": {"$ifNull": ["$retail_amount", 0]}},
+                    "cost": {"$sum": {"$ifNull": ["$wholesale_amount", 0]}},
+                    "orders": {"$sum": 1},
+                }
+            },
+        ]
+    ).to_list(None)
+    out: list[dict] = []
+    for row in rows:
+        revenue = _round2(row.get("revenue"))
+        cost = _round2(row.get("cost"))
+        out.append({
+            "provider": str(row.get("_id") or "unknown"),
+            "revenue": revenue,
+            "cost": cost,
+            "profit": _round2(revenue - cost),
+            "orders": int(row.get("orders") or 0),
+        })
+    out.sort(key=lambda item: item["profit"], reverse=True)
+    return out
+
+
+async def capital_summary() -> dict:
+    """How much prepaid float we currently hold, by wallet type. This is money
+    owed back to customers/resellers (a liability), not revenue."""
+    wallets = getattr(db, "wallets", None)
+    if wallets is None or not hasattr(wallets, "aggregate"):
+        return {"total_float": 0.0, "by_type": []}
+    rows = await wallets.aggregate(
+        [
+            {
+                "$group": {
+                    "_id": {"$ifNull": ["$wallet_type", "unknown"]},
+                    "balance": {"$sum": {"$ifNull": ["$balance", 0]}},
+                    "wallets": {"$sum": 1},
+                }
+            },
+        ]
+    ).to_list(None)
+    by_type: list[dict] = []
+    total = 0.0
+    for row in rows:
+        balance = _round2(row.get("balance"))
+        by_type.append({
+            "wallet_type": str(row.get("_id") or "unknown"),
+            "balance": balance,
+            "wallets": int(row.get("wallets") or 0),
+        })
+        total += balance
+    by_type.sort(key=lambda item: item["balance"], reverse=True)
+    return {"total_float": _round2(total), "by_type": by_type}
+
+
 async def monthly_profit_trend(*, months: int = 6, now: datetime | None = None) -> list[dict]:
     """Revenue/cost/profit per calendar month for the last `months` months."""
     orders = getattr(db, "orders", None)

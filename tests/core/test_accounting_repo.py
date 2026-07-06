@@ -67,3 +67,42 @@ async def test_monthly_trend_fills_missing_months(monkeypatch):
     july = next(row for row in trend if row["month"] == "2026-07")
     assert july["profit"] == 50.0
     assert trend[0]["revenue"] == 0.0
+
+
+class _MultiDb:
+    """Fake db exposing separate collections for orders and wallets."""
+    def __init__(self, orders_rows, wallets_rows):
+        self.orders = _Orders(orders_rows)
+        self.wallets = _Orders(wallets_rows)
+
+
+@pytest.mark.asyncio
+async def test_profit_by_provider_sorted_by_profit(monkeypatch):
+    rows = [
+        {"_id": "g2bulk", "revenue": 300.0, "cost": 250.0, "orders": 20},
+        {"_id": "manual_catalog", "revenue": 200.0, "cost": 120.0, "orders": 8},
+    ]
+    monkeypatch.setattr(accounting, "db", _Db(rows))
+
+    result = await accounting.profit_by_provider(
+        start=datetime(2026, 6, 1, tzinfo=UTC), end=datetime(2026, 7, 1, tzinfo=UTC)
+    )
+
+    # sorted by profit desc: manual_catalog (80) before g2bulk (50)
+    assert [row["provider"] for row in result] == ["manual_catalog", "g2bulk"]
+    assert result[0]["profit"] == 80.0
+
+
+@pytest.mark.asyncio
+async def test_capital_summary_totals_wallet_float(monkeypatch):
+    wallets = [
+        {"_id": "user_main", "balance": 500.0, "wallets": 40},
+        {"_id": "reseller_main", "balance": 300.0, "wallets": 5},
+        {"_id": "reseller_earnings", "balance": 120.0, "wallets": 5},
+    ]
+    monkeypatch.setattr(accounting, "db", _MultiDb([], wallets))
+
+    result = await accounting.capital_summary()
+
+    assert result["total_float"] == 920.0
+    assert result["by_type"][0]["wallet_type"] == "user_main"

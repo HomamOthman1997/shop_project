@@ -512,16 +512,22 @@ async def owner_finance_audit(request: web.Request) -> web.Response:
 
 async def owner_accounting(request: web.Request) -> web.Response:
     await require_website_owner(request)
-    from database.accounting_repo import monthly_profit_trend, profit_and_loss
+    from database.accounting_repo import capital_summary, monthly_profit_trend, profit_and_loss, profit_by_provider
 
     try:
         days = max(1, min(365, int(request.query.get("days") or 30)))
     except Exception:
         days = 30
     now = datetime.now(UTC)
-    pnl = await profit_and_loss(start=now - timedelta(days=days), end=now)
+    start = now - timedelta(days=days)
+    pnl = await profit_and_loss(start=start, end=now)
+    by_provider = await profit_by_provider(start=start, end=now)
     trend = await monthly_profit_trend(months=6, now=now)
-    return web.json_response({"ok": True, "days": days, "pnl": pnl, "trend": trend}, headers=dict(_NO_STORE_HEADERS))
+    capital = await capital_summary()
+    return web.json_response(
+        {"ok": True, "days": days, "pnl": pnl, "by_provider": by_provider, "trend": trend, "capital": capital},
+        headers=dict(_NO_STORE_HEADERS),
+    )
 
 
 async def _mongo_health() -> dict[str, Any]:

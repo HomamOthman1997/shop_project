@@ -1971,8 +1971,20 @@ const ACCOUNTING_SERVICE_NAMES = {
   other: "أخرى",
 };
 
+const ACCOUNTING_WALLET_NAMES = {
+  user_main: "أرصدة الزبائن",
+  reseller_main: "أرصدة التجّار",
+  reseller_earnings: "أرباح التجّار (مستحقة)",
+  main: "أرصدة",
+  unknown: "أخرى",
+};
+
 function accountingServiceLabel(key) {
   return ACCOUNTING_SERVICE_NAMES[key] || key || "أخرى";
+}
+
+function accountingWalletLabel(key) {
+  return ACCOUNTING_WALLET_NAMES[key] || key || "أخرى";
 }
 
 function renderOwnerAccounting(payload) {
@@ -1981,6 +1993,8 @@ function renderOwnerAccounting(payload) {
   target.classList.remove("empty");
   const pnl = payload.pnl || {};
   const trend = payload.trend || [];
+  const capital = payload.capital || {};
+  const byProvider = payload.by_provider || [];
   const money = (v) => `$${Number(v || 0).toFixed(2)}`;
   const profitClass = (v) => (Number(v || 0) >= 0 ? "pnl-positive" : "pnl-negative");
   const byService = (pnl.by_service || []).map((row) => `
@@ -1991,6 +2005,16 @@ function renderOwnerAccounting(payload) {
       <b class="${profitClass(row.profit)}">${esc(money(row.profit))}</b>
       <small>${esc(row.orders || 0)} طلب</small>
     </div>`).join("") || '<div class="notice">لا توجد طلبات في هذه الفترة.</div>';
+  const providerRows = byProvider.map((row) => `
+    <div class="pnl-row">
+      <span>${esc(row.provider)}</span>
+      <b>${esc(money(row.revenue))}</b>
+      <b>${esc(money(row.cost))}</b>
+      <b class="${profitClass(row.profit)}">${esc(money(row.profit))}</b>
+      <small>${esc(row.orders || 0)} طلب</small>
+    </div>`).join("");
+  const capitalRows = (capital.by_type || []).map((row) => `
+    <div class="pnl-capital-row"><span>${esc(accountingWalletLabel(row.wallet_type))}</span><b>${esc(money(row.balance))}</b></div>`).join("");
   const maxRev = Math.max(1, ...trend.map((row) => Number(row.revenue || 0)));
   const trendBars = trend.map((row) => {
     const h = Math.round((Number(row.revenue || 0) / maxRev) * 60);
@@ -2009,6 +2033,14 @@ function renderOwnerAccounting(payload) {
     <div class="pnl-breakdown">
       <div class="pnl-row pnl-head"><span>القسم</span><b>إيراد</b><b>تكلفة</b><b>ربح</b><small></small></div>
       ${byService}
+    </div>
+    ${providerRows ? `<div class="pnl-subtitle">حسب المزوّد</div><div class="pnl-breakdown">
+      <div class="pnl-row pnl-head"><span>المزوّد</span><b>إيراد</b><b>تكلفة</b><b>ربح</b><small></small></div>
+      ${providerRows}
+    </div>` : ""}
+    <div class="pnl-capital">
+      <div class="pnl-capital-head"><span>رأس المال المحتجز (أرصدة مدفوعة مسبقاً)</span><strong>${esc(money(capital.total_float))}</strong></div>
+      ${capitalRows}
     </div>
     ${trend.length ? `<div class="pnl-trend"><div class="pnl-trend-title">الأشهر الأخيرة</div><div class="pnl-bars">${trendBars}</div></div>` : ""}
   `;

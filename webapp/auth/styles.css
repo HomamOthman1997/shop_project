@@ -3047,3 +3047,13 @@ button.balance-block:focus-visible {
 .pnl-bar { display: block; width: 100%; max-width: 34px; min-height: 3px; border-radius: 5px 5px 0 0; background: linear-gradient(180deg, #34d399, rgba(52,211,153,.35)); }
 .pnl-bar-col small { color: var(--muted); font-size: 10.5px; }
 @media (max-width: 640px) { .pnl-cards { grid-template-columns: repeat(2, 1fr); } }
+
+/* P&L extras: sub-breakdowns + capital */
+.pnl-subtitle { color: var(--muted); font-size: 12.5px; font-weight: 700; margin: 16px 0 8px; }
+.pnl-capital { margin-top: 16px; border: 1px solid rgba(56,189,248,.28); border-radius: 12px; padding: 12px 14px; background: linear-gradient(180deg, rgba(56,189,248,.08), rgba(255,255,255,.02)); display: grid; gap: 6px; }
+.pnl-capital-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.pnl-capital-head span { color: var(--muted); font-size: 12.5px; }
+.pnl-capital-head strong { font-size: 19px; font-weight: 800; color: #7dd3fc; }
+.pnl-capital-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13.5px; }
+.pnl-capital-row span { color: var(--muted); }
+.pnl-capital-row b { font-weight: 700; }
