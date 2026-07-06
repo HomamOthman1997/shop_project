@@ -1300,7 +1300,7 @@ const ownerShortcutTabs = {
 
 const ownerGroupTargets = {
   overview: ["owner-metrics", "owner-notifications", "owner-queues", "owner-sections"],
-  finance: ["owner-finance-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-finance-audit", "owner-reseller-deposit-tools", "owner-reseller-management"],
+  finance: ["owner-accounting", "owner-finance-settings", "owner-payment-methods", "owner-recharge-reviews", "owner-finance-audit", "owner-reseller-deposit-tools", "owner-reseller-management"],
   users: ["owner-user-management", "owner-identity-reviews"],
   support: ["owner-support-tickets", "owner-conversations"],
   integrations: ["owner-api-tools", "owner-bot-creation-reviews", "owner-bot-tools"],
@@ -1346,6 +1346,7 @@ function ownerRequestMap() {
   const supportFilter = $("#owner-support-filter")?.value || "open";
   const sourceFilter = $("#owner-source-filter")?.value || "under_review";
   const auditDays = $("#owner-audit-days")?.value || "30";
+  const accountingDays = $("#owner-accounting-days")?.value || "30";
   const botReviewFilter = $("#owner-bot-review-filter")?.value || "pending";
   const preorderFilter = $("#owner-preorder-filter")?.value || "active";
   const catalogType = $("#owner-catalog-type")?.value || "website_manual";
@@ -1361,6 +1362,7 @@ function ownerRequestMap() {
     },
     finance: {
       settings: () => ownerApi("/api/v1/owner/settings"),
+      accounting: () => ownerApi(`/api/v1/owner/accounting?days=${encodeURIComponent(accountingDays)}`),
       recharge: () => ownerApi(`/api/v1/owner/recharge-reviews?status=${encodeURIComponent(rechargeFilter)}&limit=30`),
       financeAudit: () => ownerApi(`/api/v1/owner/finance/audit?days=${encodeURIComponent(auditDays)}&limit=20`),
       resellers: () => ownerApi(`/api/v1/owner/resellers?q=${encodeURIComponent(ownerResellerQuery)}&limit=30&offset=0`),
@@ -1601,6 +1603,7 @@ async function loadOwnerDashboardIsolated() {
     fail("#owner-reseller-deposit-tools", "تعذر تحميل أداة إيداع الوكيل.");
   }
   if (requested("recharge")) { clearOwnerBusy("owner-recharge-reviews"); data.recharge ? renderOwnerRechargeReviews(data.recharge) : fail("#owner-recharge-reviews", "تعذر تحميل مراجعات الشحن."); }
+  if (requested("accounting")) { clearOwnerBusy("owner-accounting"); data.accounting ? renderOwnerAccounting(data.accounting) : fail("#owner-accounting", "تعذر تحميل الأرباح والخسائر."); }
   if (requested("financeAudit")) { clearOwnerBusy("owner-finance-audit"); data.financeAudit ? renderOwnerFinanceAudit(data.financeAudit.audit || {}) : fail("#owner-finance-audit", "تعذر تحميل التدقيق المالي."); }
   if (requested("systemStatus") || requested("ownerAudit")) {
     clearOwnerBusy("owner-system-operations");
@@ -1956,6 +1959,59 @@ async function runOwnerBotSubscriptionAction(event) {
     setText("#owner-message", "تم تحديث اشتراك البوت.");
     await loadOwnerDashboard();
   } catch (error) { setText("#owner-message", error.message); }
+}
+
+const ACCOUNTING_SERVICE_NAMES = {
+  core_digital_products: "المنتجات الرقمية",
+  numbers: "الأرقام",
+  numbers_temp: "أرقام مؤقتة",
+  numbers_rental: "أرقام إيجار",
+  esim: "eSIM",
+  recharge: "شحن رصيد",
+  other: "أخرى",
+};
+
+function accountingServiceLabel(key) {
+  return ACCOUNTING_SERVICE_NAMES[key] || key || "أخرى";
+}
+
+function renderOwnerAccounting(payload) {
+  const target = $("#owner-accounting");
+  if (!target) return;
+  target.classList.remove("empty");
+  const pnl = payload.pnl || {};
+  const trend = payload.trend || [];
+  const money = (v) => `$${Number(v || 0).toFixed(2)}`;
+  const profitClass = (v) => (Number(v || 0) >= 0 ? "pnl-positive" : "pnl-negative");
+  const byService = (pnl.by_service || []).map((row) => `
+    <div class="pnl-row">
+      <span>${esc(accountingServiceLabel(row.service))}</span>
+      <b>${esc(money(row.revenue))}</b>
+      <b>${esc(money(row.cost))}</b>
+      <b class="${profitClass(row.profit)}">${esc(money(row.profit))}</b>
+      <small>${esc(row.orders || 0)} طلب</small>
+    </div>`).join("") || '<div class="notice">لا توجد طلبات في هذه الفترة.</div>';
+  const maxRev = Math.max(1, ...trend.map((row) => Number(row.revenue || 0)));
+  const trendBars = trend.map((row) => {
+    const h = Math.round((Number(row.revenue || 0) / maxRev) * 60);
+    return `<div class="pnl-bar-col" title="${esc(row.month)}: ربح ${esc(money(row.profit))}">
+      <span class="pnl-bar" style="height:${h}px"></span>
+      <small>${esc(String(row.month || "").slice(5))}</small>
+    </div>`;
+  }).join("");
+  target.innerHTML = `
+    <div class="pnl-cards">
+      <div class="pnl-card"><span>الإيرادات</span><strong>${esc(money(pnl.revenue))}</strong></div>
+      <div class="pnl-card"><span>التكلفة</span><strong>${esc(money(pnl.cost))}</strong></div>
+      <div class="pnl-card pnl-profit-card"><span>الربح الصافي</span><strong class="${profitClass(pnl.profit)}">${esc(money(pnl.profit))}</strong></div>
+      <div class="pnl-card"><span>الطلبات</span><strong>${esc(pnl.orders || 0)}</strong></div>
+    </div>
+    <div class="pnl-breakdown">
+      <div class="pnl-row pnl-head"><span>القسم</span><b>إيراد</b><b>تكلفة</b><b>ربح</b><small></small></div>
+      ${byService}
+    </div>
+    ${trend.length ? `<div class="pnl-trend"><div class="pnl-trend-title">الأشهر الأخيرة</div><div class="pnl-bars">${trendBars}</div></div>` : ""}
+  `;
 }
 
 function renderOwnerFinanceAudit(audit) {
@@ -5145,6 +5201,7 @@ $("#owner-support-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-notifications-read")?.addEventListener("click", markOwnerNotificationsRead);
 $("#owner-source-filter")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-audit-days")?.addEventListener("change", loadOwnerDashboard);
+$("#owner-accounting-days")?.addEventListener("change", loadOwnerDashboard);
 $("#owner-bot-review-filter")?.addEventListener("change", loadOwnerDashboard);
 
 sendEmailCodeButton.addEventListener("click", async () => {

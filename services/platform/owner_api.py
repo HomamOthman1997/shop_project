@@ -510,6 +510,20 @@ async def owner_finance_audit(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "audit": _json_safe(report)}, headers=dict(_NO_STORE_HEADERS))
 
 
+async def owner_accounting(request: web.Request) -> web.Response:
+    await require_website_owner(request)
+    from database.accounting_repo import monthly_profit_trend, profit_and_loss
+
+    try:
+        days = max(1, min(365, int(request.query.get("days") or 30)))
+    except Exception:
+        days = 30
+    now = datetime.now(UTC)
+    pnl = await profit_and_loss(start=now - timedelta(days=days), end=now)
+    trend = await monthly_profit_trend(months=6, now=now)
+    return web.json_response({"ok": True, "days": days, "pnl": pnl, "trend": trend}, headers=dict(_NO_STORE_HEADERS))
+
+
 async def _mongo_health() -> dict[str, Any]:
     try:
         result = await db.command("ping")
@@ -3683,6 +3697,7 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/owner/system/test-log", owner_system_test_log)
     app.router.add_get("/api/v1/owner/audit", owner_admin_audit)
     app.router.add_post("/api/v1/owner/resellers/review-tiers", owner_review_reseller_tiers)
+    app.router.add_get("/api/v1/owner/accounting", owner_accounting)
     app.router.add_get("/api/v1/owner/pricing-config", owner_pricing_config)
     app.router.add_post("/api/v1/owner/pricing-config", owner_update_pricing_config)
     app.router.add_get("/api/v1/owner/resellers", owner_resellers)

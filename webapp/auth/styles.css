@@ -3025,3 +3025,25 @@ button.balance-block:focus-visible {
 .reseller-tier-row em { font-style: normal; font-size: 11px; color: #06231a; background: var(--accent); padding: 2px 8px; border-radius: 999px; font-weight: 800; }
 .reseller-tier-row.active { border-color: rgba(52,211,153,.55); background: rgba(52,211,153,.12); }
 .reseller-tier-row.active b { color: #eafff6; }
+
+/* Owner accounting / P&L */
+.pnl-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+.pnl-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: rgba(255,255,255,.03); display: grid; gap: 4px; }
+.pnl-card span { color: var(--muted); font-size: 12px; }
+.pnl-card strong { font-size: 20px; font-weight: 800; }
+.pnl-profit-card { border-color: rgba(52,211,153,.3); background: linear-gradient(180deg, rgba(52,211,153,.1), rgba(255,255,255,.02)); }
+.pnl-positive { color: #34d399; }
+.pnl-negative { color: #fb7185; }
+.pnl-breakdown { display: grid; gap: 4px; }
+.pnl-row { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr auto; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.02); }
+.pnl-row b { text-align: left; font-weight: 700; font-size: 13.5px; }
+.pnl-row small { color: var(--muted); font-size: 11px; }
+.pnl-row.pnl-head { background: transparent; border-color: transparent; padding: 2px 12px; }
+.pnl-row.pnl-head span, .pnl-row.pnl-head b { color: var(--muted); font-size: 11.5px; font-weight: 700; }
+.pnl-trend { margin-top: 16px; }
+.pnl-trend-title { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.pnl-bars { display: flex; align-items: flex-end; gap: 12px; height: 80px; padding: 0 4px; }
+.pnl-bar-col { display: grid; justify-items: center; gap: 5px; flex: 1; }
+.pnl-bar { display: block; width: 100%; max-width: 34px; min-height: 3px; border-radius: 5px 5px 0 0; background: linear-gradient(180deg, #34d399, rgba(52,211,153,.35)); }
+.pnl-bar-col small { color: var(--muted); font-size: 10.5px; }
+@media (max-width: 640px) { .pnl-cards { grid-template-columns: repeat(2, 1fr); } }
