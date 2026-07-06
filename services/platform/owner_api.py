@@ -1269,6 +1269,7 @@ def _custom_catalog_node_payload(row: dict[str, Any], *, include_inventory: bool
         "website_execution_mode": clean_execution_mode(row.get("website_execution_mode")),
         "website_image_url": _text(row.get("website_image_url")),
         "website_purchase_url": _text(row.get("website_purchase_url")),
+        "website_cost_price": _money(row.get("website_cost_price")) if row.get("website_cost_price") else 0,
         "website_hidden": bool(row.get("website_hidden")),
         "website_source_kind": _text(row.get("website_source_kind")),
         "website_source_key": _text(row.get("website_source_key")),
@@ -2065,6 +2066,7 @@ async def owner_create_custom_catalog_node(request: web.Request) -> web.Response
             website_slug=website_slug if website_level == "section" else None,
             website_accent=website_accent if website_level == "section" else None,
             website_purchase_url=(body or {}).get("website_purchase_url") if website_level == "product" else None,
+            website_cost_price=(body or {}).get("website_cost_price") if website_level == "product" else None,
             input_fields=input_fields if website_level == "product" else None,
             catalog_type=catalog_type,
         ) or node
@@ -2103,6 +2105,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
         website_execution_mode = None
         website_image_url = None
         website_purchase_url = None
+        website_cost_price = None
         requested_variant_name = None
         if node_level(node) == "section" and "website_slug" in body:
             website_slug = clean_slug(body.get("website_slug"))
@@ -2130,6 +2133,8 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
             website_image_url = _text(body.get("website_image_url"))
         if node_level(node) == "product" and "website_purchase_url" in body:
             website_purchase_url = _text(body.get("website_purchase_url"))
+        if node_level(node) == "product" and "website_cost_price" in body:
+            website_cost_price = body.get("website_cost_price")
         if node_level(node) == "product" and "website_execution_mode" in body:
             website_execution_mode = clean_execution_mode(body.get("website_execution_mode"))
             if website_execution_mode == "api" and not (bool(node.get("website_api_source")) and _text(node.get("website_source_kind")) == "game"):
@@ -2138,7 +2143,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                     status=400,
                     headers=dict(_NO_STORE_HEADERS),
                 )
-        if website_slug is not None or website_accent is not None or input_fields is not None or website_execution_mode is not None or website_image_url is not None or website_purchase_url is not None:
+        if website_slug is not None or website_accent is not None or input_fields is not None or website_execution_mode is not None or website_image_url is not None or website_purchase_url is not None or website_cost_price is not None:
             node = await update_node_website_metadata(
                 node_id,
                 owner_id,
@@ -2148,6 +2153,7 @@ async def owner_update_custom_catalog_node(request: web.Request) -> web.Response
                 website_execution_mode=website_execution_mode,
                 website_image_url=website_image_url,
                 website_purchase_url=website_purchase_url,
+                website_cost_price=website_cost_price,
                 catalog_type=catalog_type,
             ) or node
         if requested_variant_name is not None:

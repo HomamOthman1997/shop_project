@@ -630,6 +630,7 @@ async def update_node_website_metadata(
     website_api_source: dict | None = None,
     website_image_url: str | None = None,
     website_purchase_url: str | None = None,
+    website_cost_price: float | None = None,
     website_hidden: bool | None = None,
     input_fields: list[dict] | None = None,
     price: float | None = None,
@@ -677,6 +678,15 @@ async def update_node_website_metadata(
             payload["website_purchase_url"] = purchase_url
         else:
             unset_payload["website_purchase_url"] = ""
+    if website_cost_price is not None:
+        try:
+            cost_value = max(0.0, float(website_cost_price))
+        except (TypeError, ValueError):
+            cost_value = 0.0
+        if cost_value > 0:
+            payload["website_cost_price"] = cost_value
+        else:
+            unset_payload["website_cost_price"] = ""
     if website_hidden is not None:
         payload["website_hidden"] = bool(website_hidden)
     if price is not None and float(price) > 0:

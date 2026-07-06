@@ -2963,7 +2963,8 @@ function manualCatalogCreateFields(parent) {
         <label><span>لون القسم</span><select name="website_accent"><option value="green">أخضر</option><option value="blue">أزرق</option><option value="amber">برتقالي</option><option value="violet">بنفسجي</option></select></label>` : ""}
       <label><span>الوصف</span><textarea name="${level === "product" ? "product_info_text" : "display_text"}" rows="3" placeholder="وصف واضح للزبون"></textarea></label>
       ${level === "product" ? `
-        <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" required></label>
+        <label><span>السعر USD (سعر البيع للزبون)</span><input name="price" type="number" min="0.01" step="0.01" required></label>
+        <label><span>سعر التكلفة علينا USD (اختياري، للأرباح)</span><input name="website_cost_price" type="number" min="0" step="0.01" placeholder="كم يكلّفك المنتج"></label>
         <label><span>رابط الشراء (للأدمن فقط، لا يظهر للزبون)</span><input name="website_purchase_url" type="url" placeholder="https://... المكان الذي تنفّذ منه الطلب"></label>
         <label class="owner-catalog-fields"><span>حقول الطلب، سطر لكل حقل</span><textarea name="input_fields_text" rows="5" required placeholder="phone_number|رقم الهاتف|required|text&#10;notes|ملاحظات|optional|text"></textarea></label>` : ""}
       <button class="primary compact" type="submit">إضافة ${manualCatalogLevelLabel(level)}</button>
@@ -3644,7 +3645,8 @@ async function loadOwnerCatalogNode(nodeId) {
               <label><span>مفتاح القسم</span><input name="website_slug" value="${esc(node.website_slug || "")}" required pattern="[a-z0-9][a-z0-9-]{1,59}"></label>
               <label><span>لون القسم</span><select name="website_accent">${["green", "blue", "amber", "violet"].map((accent) => `<option value="${accent}" ${node.website_accent === accent ? "selected" : ""}>${accent}</option>`).join("")}</select></label>` : ""}
             ${node.node_type === "folder" ? `<label><span>الوصف</span><textarea name="display_text" rows="3">${esc(node.display_text || "")}</textarea></label>${node.website_level === "family" || node.website_level === "variant" ? `<label><span>صورة الصنف (تغطي البطاقة وتخفي الاسم)</span><input name="website_image_url" type="url" value="${esc(node.website_image_url || "")}" placeholder="https://..."></label>` : ""}` : `
-              <label><span>السعر USD</span><input name="price" type="number" min="0.01" step="0.01" value="${esc(node.price)}" required></label>
+              <label><span>السعر USD (سعر البيع للزبون)</span><input name="price" type="number" min="0.01" step="0.01" value="${esc(node.price)}" required></label>
+              <label><span>سعر التكلفة علينا USD (اختياري، للأرباح)</span><input name="website_cost_price" type="number" min="0" step="0.01" value="${esc(node.website_cost_price || "")}" placeholder="كم يكلّفك المنتج"></label>
               <label><span>الدولة / Global</span><input name="variant_name" value="${esc(currentVariantName || "Global")}" required></label>
               <label><span>رابط صورة المنتج</span><input name="website_image_url" type="url" value="${esc(node.website_image_url || "")}" placeholder="https://..."></label>
               <label><span>رابط الشراء (للأدمن فقط، لا يظهر للزبون)</span><input name="website_purchase_url" type="url" value="${esc(node.website_purchase_url || "")}" placeholder="https://... المكان الذي تنفّذ منه الطلب"></label>

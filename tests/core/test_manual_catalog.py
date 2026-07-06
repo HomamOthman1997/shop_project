@@ -364,3 +364,34 @@ async def test_fresh_quote_payload_applies_wholesale_for_reseller(monkeypatch):
     assert wholesale["cost_price"] == 104.0      # no phantom loss
     assert wholesale["retail_price"] == 107.0
     assert wholesale["viewer_tier"] == "silver"
+
+
+@pytest.mark.asyncio
+async def test_fresh_quote_payload_uses_real_cost_when_set(monkeypatch):
+    from services.digital_products.reseller_pricing import DEFAULT_CONFIG
+
+    nodes = {
+        "prod": {
+            "_id": "prod", "website_level": "product", "parent_id": "var",
+            "name": "Netflix 15$", "price": 20.0, "website_cost_price": 14.0,
+            "input_fields": [{"id": "acc", "label": "Account", "required": True, "type": "text"}],
+        },
+        "var": {"_id": "var", "website_level": "variant", "parent_id": "fam", "name": "USA"},
+        "fam": {"_id": "fam", "website_level": "family", "parent_id": "root", "name": "Netflix",
+                "website_section_key": "paid_subscriptions", "website_family_key": "netflix"},
+    }
+
+    async def fake_get_node(node_id, reseller_id=None, catalog_type=None):
+        return nodes.get(str(node_id))
+
+    monkeypatch.setattr(manual_catalog, "get_node", fake_get_node)
+    monkeypatch.setattr(manual_catalog, "owner_catalog_id", lambda: 77)
+
+    # Normal customer: sale = retail 20, cost = real cost 14 -> profit is real.
+    customer = await manual_catalog.fresh_quote_payload("prod", pricing_config=DEFAULT_CONFIG)
+    assert customer["sale_price"] == 20.0
+    assert customer["cost_price"] == 14.0
+
+    # Reseller (subscriptions is unmapped -> no discount): sale stays 20, cost stays real 14.
+    reseller = await manual_catalog.fresh_quote_payload("prod", viewer_tier="gold", pricing_config=DEFAULT_CONFIG)
+    assert reseller["cost_price"] == 14.0

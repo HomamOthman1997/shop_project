@@ -1096,20 +1096,28 @@ async def fresh_quote_payload(
     family = await get_node((variant or {}).get("parent_id"), reseller_id=catalog_owner_id, catalog_type=CATALOG_TYPE)
     if node_level(variant) != "variant" or node_level(family) != "family":
         return None
-    # Reseller wholesale pricing: derive the tier price from the retail price. The
-    # reseller pays wholesale and cost_price follows it so the ledger records no
-    # phantom loss on manual products (whose stored "cost" is just the retail price).
+    # Cost basis for profit tracking: the admin-set real cost ("سعر التكلفة علينا")
+    # if present, else fall back to the price (profit 0, legacy behaviour).
+    real_cost = 0.0
+    try:
+        real_cost = max(0.0, float(endpoint.get("website_cost_price") or 0))
+    except (TypeError, ValueError):
+        real_cost = 0.0
     sale_price = price
-    cost_price = price
+    cost_price = real_cost if real_cost > 0 else price
     tier = str(viewer_tier or "").strip().lower()
     if tier in _RESELLER_TIERS:
+        # Reseller pays the wholesale price derived from retail.
         section = _RESELLER_SECTION_BY_KEY.get(str(family.get("website_section_key") or "").strip().lower(), "")
         if pricing_config is None:
             from database.reseller_pricing_config_repo import get_pricing_config
 
             pricing_config = await get_pricing_config()
         sale_price = wholesale_from_retail(section, tier, price, pricing_config)
-        cost_price = sale_price
+        # With a real cost, profit = wholesale - cost stays accurate; without one,
+        # clamp cost to the sale price so the ledger never records a phantom loss.
+        if real_cost <= 0:
+            cost_price = sale_price
     endpoint_ref = str(endpoint.get("_id") or "")
     execution_mode = clean_execution_mode(endpoint.get("website_execution_mode"))
     source_kind = clean_source_kind(endpoint.get("website_source_kind"))
