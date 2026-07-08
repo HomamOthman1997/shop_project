@@ -1557,7 +1557,7 @@ async function loadOwnerDashboardIsolated() {
             const shortcutAttrs = shortcutTab ? `type="button" data-owner-shortcut="${esc(shortcutTab)}"` : "";
             return `
             <${tag} class="owner-action-row ${shortcutTab ? "owner-shortcut-row" : ""}" ${shortcutAttrs}>
-              <div><strong>${esc(item.title || item.key)}</strong><span>${esc(item.endpoint || "Website action")}</span></div>
+              <strong>${esc(item.title || item.key)}</strong>
               <b data-owner-status="${esc(item.status || "")}">${esc(ownerStatusLabels[item.status] || item.status)}</b>
             </${tag}>`;
           }).join("")}
