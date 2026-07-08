@@ -707,9 +707,17 @@ async def update_node_website_metadata(
 async def reprice_section_from_cost(
     reseller_id: int, section: str, factor: float, *, catalog_type: str = "website_manual"
 ) -> tuple[int, int]:
-    """Recompute price = stored provider cost * factor for every priced product in
-    a section, server-side in one pipeline update (throttle-safe). Products with no
-    stored cost are left untouched and counted as skipped. Returns (repriced, skipped)."""
+    """Recompute price = TRUE provider cost * factor for every priced product in a
+    section, server-side in one pipeline update (throttle-safe).
+
+    The true cost is the cheapest raw provider quote — the minimum positive value
+    across website_api_source.provider_offers[].price and source_price_usd. Using
+    the raw quotes (not the stored price) keeps this idempotent: re-running never
+    compounds the margin. `source_price_usd` alone is unreliable — on some products
+    it holds the already-marked-up sale price, which caused a double-markup.
+
+    Products with no positive cost anywhere are left untouched and counted as
+    skipped. Returns (repriced, skipped)."""
     now = datetime.now(UTC)
     base = {
         "reseller_id": int(reseller_id),
@@ -718,20 +726,31 @@ async def reprice_section_from_cost(
         "is_active": True,
         "website_section_key": str(section),
     }
-    result = await db.custom_services.update_many(
-        {**base, "website_api_source.source_price_usd": {"$gt": 0}},
-        [
-            {
-                "$set": {
-                    "price": {"$round": [{"$multiply": ["$website_api_source.source_price_usd", float(factor)]}, 2]},
-                    "updated_at": now,
-                }
+    has_cost = {
+        "$or": [
+            {"website_api_source.provider_offers.price": {"$gt": 0}},
+            {"website_api_source.source_price_usd": {"$gt": 0}},
+        ]
+    }
+    cost_expr = {
+        "$min": {
+            "$filter": {
+                "input": {
+                    "$concatArrays": [
+                        {"$ifNull": ["$website_api_source.provider_offers.price", []]},
+                        [{"$ifNull": ["$website_api_source.source_price_usd", 0]}],
+                    ]
+                },
+                "as": "p",
+                "cond": {"$gt": ["$$p", 0]},
             }
-        ],
+        }
+    }
+    result = await db.custom_services.update_many(
+        {**base, **has_cost},
+        [{"$set": {"price": {"$round": [{"$multiply": [cost_expr, float(factor)]}, 2]}, "updated_at": now}}],
     )
-    skipped = await db.custom_services.count_documents(
-        {**base, "$nor": [{"website_api_source.source_price_usd": {"$gt": 0}}]}
-    )
+    skipped = await db.custom_services.count_documents({**base, "$nor": [has_cost]})
     return int(result.modified_count or 0), int(skipped)
 
 
