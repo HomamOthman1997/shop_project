@@ -2497,3 +2497,42 @@ async def test_owner_reprice_catalog_applies_section_margins(monkeypatch):
     assert payload["skipped"] == 1
     assert ("games", 1.07) in calls
     assert ("store_cards", 1.1) in calls
+
+
+@pytest.mark.asyncio
+async def test_owner_accounting_builds_report(monkeypatch):
+    import database.accounting_repo as acct
+
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1", customer_id=900000000001,
+            email="homamothman1@gmail.com", telegram_id=None, session_token_hash="hash",
+        )
+
+    async def pnl(*, start, end):
+        return {"revenue": 100.0, "cost": 60.0, "profit": 40.0, "orders": 5, "by_service": []}
+
+    async def prov(*, start, end):
+        return []
+
+    async def trend(*, months, now):
+        return []
+
+    async def cap():
+        return {"total_float": 200.0, "by_type": []}
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(acct, "profit_and_loss", pnl)
+    monkeypatch.setattr(acct, "profit_by_provider", prov)
+    monkeypatch.setattr(acct, "monthly_profit_trend", trend)
+    monkeypatch.setattr(acct, "capital_summary", cap)
+
+    response = await owner_api.owner_accounting(
+        make_mocked_request("GET", "/api/v1/owner/accounting?days=30")
+    )
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["days"] == 30
+    assert payload["pnl"]["profit"] == 40.0
+    assert payload["capital"]["total_float"] == 200.0
