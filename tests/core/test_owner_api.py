@@ -2454,3 +2454,46 @@ async def test_owner_update_pricing_config_sanitizes_and_saves(monkeypatch):
     assert saved["cfg"].topup_reseller_discount_usd == 0.0          # clamped
     assert saved["cfg"].tier_margins["bronze"] == 5.0              # untouched default
     assert payload["config"]["tier_margins"]["platinum"] == 2.0
+
+
+@pytest.mark.asyncio
+async def test_owner_reprice_catalog_applies_section_margins(monkeypatch):
+    import database.custom_services_repo as csr
+    import database.reseller_pricing_config_repo as cfg_repo
+    from services.digital_products.reseller_pricing import PricingConfig
+
+    async def owner(_request):
+        return WebsiteAuthContext(
+            account_id="owner-1", customer_id=900000000001,
+            email="homamothman1@gmail.com", telegram_id=None, session_token_hash="hash",
+        )
+
+    async def fake_cfg():
+        return PricingConfig(retail_margins={"games": 7.0, "store_cards": 10.0, "esim": 15.0, "numbers": 20.0})
+
+    calls = []
+
+    async def fake_reprice(reseller_id, section, factor, *, catalog_type="website_manual"):
+        calls.append((section, round(factor, 4)))
+        return (5, 1) if section == "games" else (3, 0)
+
+    async def audit(**_kwargs):
+        return None
+
+    monkeypatch.setattr(cfg_repo, "get_pricing_config", fake_cfg)
+    monkeypatch.setattr(csr, "reprice_section_from_cost", fake_reprice)
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "_owner_catalog_id", lambda: 555)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+    monkeypatch.setattr(owner_api, "_bust_catalog_caches", lambda: None)
+
+    response = await owner_api.owner_reprice_catalog(
+        make_mocked_request("POST", "/api/v1/owner/pricing-config/reprice")
+    )
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert payload["repriced"] == 8
+    assert payload["skipped"] == 1
+    assert ("games", 1.07) in calls
+    assert ("store_cards", 1.1) in calls

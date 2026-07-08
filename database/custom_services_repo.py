@@ -704,6 +704,37 @@ async def update_node_website_metadata(
     )
 
 
+async def reprice_section_from_cost(
+    reseller_id: int, section: str, factor: float, *, catalog_type: str = "website_manual"
+) -> tuple[int, int]:
+    """Recompute price = stored provider cost * factor for every priced product in
+    a section, server-side in one pipeline update (throttle-safe). Products with no
+    stored cost are left untouched and counted as skipped. Returns (repriced, skipped)."""
+    now = datetime.now(UTC)
+    base = {
+        "reseller_id": int(reseller_id),
+        "catalog_type": _norm_catalog_type(catalog_type),
+        "website_level": "product",
+        "is_active": True,
+        "website_section_key": str(section),
+    }
+    result = await db.custom_services.update_many(
+        {**base, "website_api_source.source_price_usd": {"$gt": 0}},
+        [
+            {
+                "$set": {
+                    "price": {"$round": [{"$multiply": ["$website_api_source.source_price_usd", float(factor)]}, 2]},
+                    "updated_at": now,
+                }
+            }
+        ],
+    )
+    skipped = await db.custom_services.count_documents(
+        {**base, "$nor": [{"website_api_source.source_price_usd": {"$gt": 0}}]}
+    )
+    return int(result.modified_count or 0), int(skipped)
+
+
 async def deactivate_node(node_id, reseller_id: int, *, catalog_type: Optional[str] = None) -> int:
     root_id = _to_oid(node_id)
     if root_id is None:

@@ -2714,11 +2714,31 @@ async function loadOwnerPricingConfig() {
         <div class="pricing-config-group"><b>شحن الخطوط</b>
           ${pricingNumberRow("topup_discount", "خصم التاجر الثابت $", cfg.topup_reseller_discount_usd ?? 0, "0.1")}
         </div>
-        <button class="primary compact" type="submit">حفظ إعدادات التسعير</button>
+        <div class="pricing-config-actions">
+          <button class="primary compact" type="submit">حفظ إعدادات التسعير</button>
+          <button class="secondary compact" type="button" id="owner-reprice-btn">طبّق الأسعار على المنتجات</button>
+        </div>
+        <p class="pricing-config-note">"طبّق الأسعار" يعيد حساب سعر منتجات الألعاب وبطاقات المتاجر = التكلفة × (1 + هامش القسم). المنتجات اليدوية والأرقام لا تتأثر.</p>
       </form>`;
     $("#owner-pricing-config-form")?.addEventListener("submit", saveOwnerPricingConfig);
+    $("#owner-reprice-btn")?.addEventListener("click", repriceOwnerCatalog);
   } catch (error) {
     target.innerHTML = `<div class="notice">${esc(error.message)}</div>`;
+  }
+}
+
+async function repriceOwnerCatalog(event) {
+  const button = event.currentTarget;
+  if (!window.confirm("سيعاد حساب أسعار منتجات الألعاب وبطاقات المتاجر من التكلفة × الهامش الحالي. متابعة؟")) return;
+  button.disabled = true;
+  setText("#owner-message", "جاري تطبيق الأسعار...");
+  try {
+    const result = await ownerApi("/api/v1/owner/pricing-config/reprice", { method: "POST", timeoutMs: 60000 });
+    setText("#owner-message", `تم تحديث ${result.repriced || 0} سعر${result.skipped ? ` (${result.skipped} بلا تكلفة مخزّنة — لم تتغيّر)` : ""}.`);
+  } catch (error) {
+    setText("#owner-message", error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -2750,11 +2770,6 @@ function renderOwnerSettings(payload) {
     <form class="owner-setting-card" data-owner-setting="exchange_rate">
       <div><strong>سعر الصرف</strong><span>قيمة الدولار بالعملة المحلية</span></div>
       <input name="value" type="number" min="0.01" max="10000000" step="0.01" value="${esc(finance.exchange_rate || 0)}" required>
-      <button class="secondary compact" type="submit">حفظ</button>
-    </form>
-    <form class="owner-setting-card" data-owner-setting="digital_markup_percent">
-      <div><strong>هامش المنتجات الرقمية</strong><span>نسبة تضاف إلى سعر المزود</span></div>
-      <input name="value" type="number" min="0" max="500" step="0.01" value="${esc(finance.digital_markup_percent || 0)}" required>
       <button class="secondary compact" type="submit">حفظ</button>
     </form>
     <form class="owner-setting-card" data-owner-setting="numbers_markup_percent">
