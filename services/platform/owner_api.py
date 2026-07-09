@@ -704,38 +704,29 @@ async def owner_update_pricing_config(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "config": _pricing_config_payload(cfg)}, headers=dict(_NO_STORE_HEADERS))
 
 
-_REPRICE_SECTIONS = ("games", "store_cards")
+# NOTE (2026-07-08): the old "reprice from stored cost" endpoint was REMOVED —
+# it multiplied a field that on some products already held the marked-up sale
+# price, compounding the margin on every run (0.95 -> 1.02 -> 1.09). Pricing now
+# flows exclusively through the smart catalog: Import (live provider costs ×
+# the pricing-panel games margin) -> Approve (updates live product prices).
 
 
-async def owner_reprice_catalog(request: web.Request) -> web.Response:
-    """Apply the current retail margins to the live catalog: reprice every
-    cost-based product (games + store cards) = provider cost * (1 + margin)."""
+async def owner_unify_game_variants(request: web.Request) -> web.Response:
+    """One-time catalog cleanup: one top-up bucket per game (merge Global into
+    topup, dedup identical denominations, rename to the family unit e.g. شدات UC)."""
     owner = await require_website_owner(request)
-    from database.custom_services_repo import reprice_section_from_cost
-    from database.reseller_pricing_config_repo import get_pricing_config
+    from services.digital_products.manual_catalog import unify_game_topup_variants
 
-    owner_id = _owner_catalog_id()
-    if owner_id <= 0:
-        return web.json_response({"ok": False, "message": "Owner ID is not configured."}, status=503, headers=dict(_NO_STORE_HEADERS))
-    cfg = await get_pricing_config()
-    total_repriced = total_skipped = 0
-    by_section: dict[str, Any] = {}
-    for section in _REPRICE_SECTIONS:
-        margin = float(cfg.retail_margins.get(section, 0.0) or 0.0)
-        repriced, skipped = await reprice_section_from_cost(owner_id, section, 1.0 + margin / 100.0)
-        by_section[section] = {"repriced": repriced, "skipped": skipped, "margin": margin}
-        total_repriced += repriced
-        total_skipped += skipped
+    summary = await unify_game_topup_variants(_owner_catalog_id())
+    if not summary.get("ok"):
+        return web.json_response({"ok": False, "message": str(summary.get("reason") or "failed")}, status=503, headers=dict(_NO_STORE_HEADERS))
     _bust_catalog_caches()
     await _write_owner_audit(
         actor_id=owner.customer_id, actor_email=owner.email,
-        action="pricing.reprice", target_type="catalog", target_id="",
-        metadata={"repriced": total_repriced, "skipped": total_skipped},
+        action="catalog.unify_game_variants", target_type="catalog", target_id="",
+        metadata={k: v for k, v in summary.items() if k != "ok"},
     )
-    return web.json_response(
-        {"ok": True, "repriced": total_repriced, "skipped": total_skipped, "by_section": by_section},
-        headers=dict(_NO_STORE_HEADERS),
-    )
+    return web.json_response({"ok": True, **summary}, headers=dict(_NO_STORE_HEADERS))
 
 
 async def owner_review_reseller_tiers(request: web.Request) -> web.Response:
@@ -3746,7 +3737,7 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/owner/accounting", owner_accounting)
     app.router.add_get("/api/v1/owner/pricing-config", owner_pricing_config)
     app.router.add_post("/api/v1/owner/pricing-config", owner_update_pricing_config)
-    app.router.add_post("/api/v1/owner/pricing-config/reprice", owner_reprice_catalog)
+    app.router.add_post("/api/v1/owner/website-catalog/unify-variants", owner_unify_game_variants)
     app.router.add_get("/api/v1/owner/resellers", owner_resellers)
     app.router.add_get("/api/v1/owner/resellers/{reseller_id}", owner_reseller_detail)
     app.router.add_get("/api/v1/owner/digital/orders", owner_digital_orders)

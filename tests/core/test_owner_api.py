@@ -2456,11 +2456,19 @@ async def test_owner_update_pricing_config_sanitizes_and_saves(monkeypatch):
     assert payload["config"]["tier_margins"]["platinum"] == 2.0
 
 
+def test_reprice_endpoint_is_gone():
+    # The reprice-from-stored-cost endpoint compounded margins on live data and
+    # was removed for good — pricing flows via smart-catalog Import -> Approve.
+    app = web.Application()
+    owner_api.register_owner_api_routes(app)
+    routes = {(route.method, route.resource.canonical) for route in app.router.routes()}
+    assert ("POST", "/api/v1/owner/pricing-config/reprice") not in routes
+    assert not hasattr(owner_api, "owner_reprice_catalog")
+
+
 @pytest.mark.asyncio
-async def test_owner_reprice_catalog_applies_section_margins(monkeypatch):
-    import database.custom_services_repo as csr
-    import database.reseller_pricing_config_repo as cfg_repo
-    from services.digital_products.reseller_pricing import PricingConfig
+async def test_owner_unify_game_variants_reports_summary(monkeypatch):
+    import services.digital_products.manual_catalog as mc
 
     async def owner(_request):
         return WebsiteAuthContext(
@@ -2468,35 +2476,28 @@ async def test_owner_reprice_catalog_applies_section_margins(monkeypatch):
             email="homamothman1@gmail.com", telegram_id=None, session_token_hash="hash",
         )
 
-    async def fake_cfg():
-        return PricingConfig(retail_margins={"games": 7.0, "store_cards": 10.0, "esim": 15.0, "numbers": 20.0})
-
-    calls = []
-
-    async def fake_reprice(reseller_id, section, factor, *, catalog_type="website_manual"):
-        calls.append((section, round(factor, 4)))
-        return (5, 1) if section == "games" else (3, 0)
+    async def fake_unify(owner_id):
+        assert owner_id == 555
+        return {"ok": True, "families_checked": 10, "variants_merged": 4, "products_deduped": 7, "variants_renamed": 5}
 
     async def audit(**_kwargs):
         return None
 
-    monkeypatch.setattr(cfg_repo, "get_pricing_config", fake_cfg)
-    monkeypatch.setattr(csr, "reprice_section_from_cost", fake_reprice)
+    monkeypatch.setattr(mc, "unify_game_topup_variants", fake_unify)
     monkeypatch.setattr(owner_api, "require_website_owner", owner)
     monkeypatch.setattr(owner_api, "_owner_catalog_id", lambda: 555)
     monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
     monkeypatch.setattr(owner_api, "_bust_catalog_caches", lambda: None)
 
-    response = await owner_api.owner_reprice_catalog(
-        make_mocked_request("POST", "/api/v1/owner/pricing-config/reprice")
+    response = await owner_api.owner_unify_game_variants(
+        make_mocked_request("POST", "/api/v1/owner/website-catalog/unify-variants")
     )
     payload = json.loads(response.text)
 
     assert response.status == 200
-    assert payload["repriced"] == 8
-    assert payload["skipped"] == 1
-    assert ("games", 1.07) in calls
-    assert ("store_cards", 1.1) in calls
+    assert payload["variants_merged"] == 4
+    assert payload["products_deduped"] == 7
+    assert payload["variants_renamed"] == 5
 
 
 @pytest.mark.asyncio

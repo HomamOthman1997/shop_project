@@ -2716,25 +2716,26 @@ async function loadOwnerPricingConfig() {
         </div>
         <div class="pricing-config-actions">
           <button class="primary compact" type="submit">حفظ إعدادات التسعير</button>
-          <button class="secondary compact" type="button" id="owner-reprice-btn">طبّق الأسعار على المنتجات</button>
+          <button class="secondary compact" type="button" id="owner-unify-variants-btn">توحيد تصنيفات الألعاب</button>
         </div>
-        <p class="pricing-config-note">"طبّق الأسعار" يعيد حساب سعر منتجات الألعاب وبطاقات المتاجر = التكلفة × (1 + هامش القسم). المنتجات اليدوية والأرقام لا تتأثر.</p>
+        <p class="pricing-config-note">لتطبيق الهوامش على الأسعار: الكاتالوغ الذكي ← استيراد ← موافقة الكل — يسعّر كل منتج من تكلفة المزوّد الحقيقية × هامشك. "توحيد التصنيفات" يدمج Global مع topup بمكان واحد باسم واضح (شدات UC) ويحذف المكرر.</p>
       </form>`;
     $("#owner-pricing-config-form")?.addEventListener("submit", saveOwnerPricingConfig);
-    $("#owner-reprice-btn")?.addEventListener("click", repriceOwnerCatalog);
+    $("#owner-unify-variants-btn")?.addEventListener("click", unifyOwnerGameVariants);
   } catch (error) {
     target.innerHTML = `<div class="notice">${esc(error.message)}</div>`;
   }
 }
 
-async function repriceOwnerCatalog(event) {
+async function unifyOwnerGameVariants(event) {
   const button = event.currentTarget;
-  if (!window.confirm("سيعاد حساب أسعار منتجات الألعاب وبطاقات المتاجر من التكلفة × الهامش الحالي. متابعة؟")) return;
+  if (!window.confirm("سيتم دمج تصنيفات Global و topup لكل لعبة في مكان واحد، حذف المنتجات المكررة، وتسمية التصنيف باسم واضح (مثل شدات UC). متابعة؟")) return;
   button.disabled = true;
-  setText("#owner-message", "جاري تطبيق الأسعار...");
+  setText("#owner-message", "جاري توحيد تصنيفات الألعاب...");
   try {
-    const result = await ownerApi("/api/v1/owner/pricing-config/reprice", { method: "POST", timeoutMs: 60000 });
-    setText("#owner-message", `تم تحديث ${result.repriced || 0} سعر${result.skipped ? ` (${result.skipped} بلا تكلفة مخزّنة — لم تتغيّر)` : ""}.`);
+    const result = await ownerApi("/api/v1/owner/website-catalog/unify-variants", { method: "POST", timeoutMs: 120000 });
+    setText("#owner-message", `تم: دمج ${result.variants_merged || 0} تصنيف، حذف ${result.products_deduped || 0} منتج مكرر، إعادة تسمية ${result.variants_renamed || 0} تصنيف.`);
+    await loadOwnerDashboard();
   } catch (error) {
     setText("#owner-message", error.message);
   } finally {

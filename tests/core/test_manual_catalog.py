@@ -395,3 +395,72 @@ async def test_fresh_quote_payload_uses_real_cost_when_set(monkeypatch):
     # Reseller (subscriptions is unmapped -> no discount): sale stays 20, cost stays real 14.
     reseller = await manual_catalog.fresh_quote_payload("prod", viewer_tier="gold", pricing_config=DEFAULT_CONFIG)
     assert reseller["cost_price"] == 14.0
+
+
+@pytest.mark.asyncio
+async def test_unify_game_topup_variants_merges_dedups_and_renames(monkeypatch):
+    # PUBG family with a legacy "Global" variant duplicating the staged "topup"
+    # bucket: merge -> dedup (api-capable copy wins) -> rename to شدات UC.
+    from datetime import UTC, datetime
+
+    nodes = [
+        {"_id": "root", "parent_id": None, "website_level": "root", "is_active": True},
+        {"_id": "sec", "parent_id": "root", "website_level": "section", "website_section_key": "games", "is_active": True},
+        {"_id": "fam", "parent_id": "sec", "website_level": "family", "website_section_key": "games", "website_family_key": "pubg", "name": "PUBG", "is_active": True},
+        {"_id": "v-top", "parent_id": "fam", "website_level": "variant", "name": "topup", "is_active": True},
+        {"_id": "v-glob", "parent_id": "fam", "website_level": "variant", "name": "Global", "is_active": True},
+        {"_id": "v-pass", "parent_id": "fam", "website_level": "variant", "name": "passes", "is_active": True},
+        # staged copy (api-capable) in topup
+        {"_id": "p-60-new", "parent_id": "v-top", "website_level": "product", "name": "UC topup 60",
+         "website_source_key": "game:pubgm:60", "updated_at": datetime(2026, 7, 1, tzinfo=UTC),
+         "website_api_source": {"game_id": "pubgm", "compare_key": "pubg:global:60:uc"}, "is_active": True},
+        # legacy duplicate of the same denomination in Global
+        {"_id": "p-60-old", "parent_id": "v-glob", "website_level": "product", "name": "60",
+         "website_source_key": "game:pubgm:60", "updated_at": datetime(2026, 6, 1, tzinfo=UTC),
+         "website_api_source": {"compare_key": "pubg:global:60:uc"}, "is_active": True},
+        # unique denomination only in Global — must survive the merge
+        {"_id": "p-325", "parent_id": "v-glob", "website_level": "product", "name": "325",
+         "website_source_key": "game:pubgm:325", "updated_at": datetime(2026, 6, 1, tzinfo=UTC),
+         "website_api_source": {"game_id": "pubgm", "compare_key": "pubg:global:325:uc"}, "is_active": True},
+    ]
+
+    moved, deactivated, renamed = [], [], []
+
+    async def fake_nodes(_owner, *, catalog_type):
+        return [dict(row) for row in nodes]
+
+    async def fake_move(node_id, _owner, new_parent_id, *, catalog_type):
+        moved.append((node_id, new_parent_id))
+        row = next(dict(r) for r in nodes if r["_id"] == node_id)
+        row["parent_id"] = new_parent_id
+        return row
+
+    async def fake_deactivate(node_id, _owner, *, catalog_type):
+        deactivated.append(node_id)
+        return 1
+
+    async def fake_rename(node_id, _owner, name, *, catalog_type):
+        renamed.append((node_id, name))
+        return {"_id": node_id, "name": name}
+
+    monkeypatch.setattr(manual_catalog, "list_catalog_nodes", fake_nodes)
+    monkeypatch.setattr(manual_catalog, "move_node_to_parent", fake_move)
+    monkeypatch.setattr(manual_catalog, "deactivate_node", fake_deactivate)
+    monkeypatch.setattr(manual_catalog, "rename_node", fake_rename)
+
+    summary = await manual_catalog.unify_game_topup_variants(77)
+
+    assert summary["ok"] is True
+    # both Global products moved into topup
+    assert ("p-60-old", "v-top") in moved
+    assert ("p-325", "v-top") in moved
+    # duplicate resolved: legacy copy deactivated, api-capable one kept
+    assert "p-60-old" in deactivated
+    assert "p-60-new" not in deactivated
+    # unique product survives
+    assert "p-325" not in deactivated
+    # Global variant emptied and deactivated; passes untouched
+    assert "v-glob" in deactivated
+    assert "v-pass" not in deactivated
+    # canonical bucket renamed to the unit label
+    assert ("v-top", "شدات UC") in renamed

@@ -10,11 +10,13 @@ from config import settings
 from database.custom_services_repo import (
     create_endpoint,
     create_folder,
+    deactivate_node,
     ensure_root_node,
     get_node,
     list_catalog_nodes,
     list_children,
     move_node_to_parent,
+    rename_node,
     update_endpoint_product_info,
     update_node_display_text,
     update_node_website_metadata,
@@ -846,6 +848,126 @@ async def builtin_family_keys_with_products(
         if has_product:
             backed.add(key)
     return backed
+
+
+_UNIT_VARIANT_LABELS = {
+    "uc": "شدات UC",
+    "diamond": "الجواهر Diamonds",
+    "diamonds": "الجواهر Diamonds",
+    "token": "توكنز Tokens",
+    "tokens": "توكنز Tokens",
+    "nc": "NC",
+    "vp": "VP",
+    "cp": "CP",
+    "robux": "Robux",
+    "coin": "كوينز Coins",
+    "coins": "كوينز Coins",
+    "gem": "الجواهر Gems",
+    "gems": "الجواهر Gems",
+    "gold": "الذهب Gold",
+    "credit": "الرصيد",
+    "credits": "الرصيد",
+    "point": "النقاط",
+    "points": "النقاط",
+    "gcoin": "G-Coins",
+}
+_MERGEABLE_VARIANT_NAMES = {"topup", "global"}
+
+
+def _product_compare_unit(product: dict[str, Any]) -> str:
+    source = product.get("website_api_source") if isinstance(product.get("website_api_source"), dict) else {}
+    compare_key = str(source.get("compare_key") or "").strip()
+    parts = compare_key.split(":")
+    return parts[3].strip().lower() if len(parts) == 4 else ""
+
+
+def _dedup_key(product: dict[str, Any]) -> str:
+    source_key = str(product.get("website_source_key") or "").strip()
+    if source_key:
+        return f"src:{source_key}"
+    source = product.get("website_api_source") if isinstance(product.get("website_api_source"), dict) else {}
+    compare_key = str(source.get("compare_key") or "").strip()
+    if compare_key:
+        return f"cmp:{compare_key}"
+    return f"name:{' '.join(str(product.get('name') or '').lower().split())}"
+
+
+def _dedup_priority(product: dict[str, Any]) -> tuple:
+    source = product.get("website_api_source") if isinstance(product.get("website_api_source"), dict) else {}
+    has_api = bool(str(source.get("game_id") or "").strip())
+    updated = product.get("updated_at")
+    return (1 if has_api else 0, updated or product.get("created_at") or 0)
+
+
+async def unify_game_topup_variants(owner_id: int | None = None) -> dict[str, Any]:
+    """One-time catalog cleanup (Homam 2026-07-08): a game must have ONE top-up
+    place. The legacy import used a default "Global" variant while staging uses
+    "topup", leaving the same denominations purchasable in two folders. For every
+    games family: merge Global into topup (or keep the single one), drop duplicate
+    products (same source/compare key — the API-capable/newest copy wins), and
+    rename the merged variant to the family's unit (PUBG -> شدات UC). Variants
+    with custom admin names, and sub-type variants (passes/specials), are left
+    untouched."""
+    catalog_owner_id = int(owner_id or owner_catalog_id())
+    if catalog_owner_id <= 0:
+        return {"ok": False, "reason": "owner_not_configured"}
+    nodes = await list_catalog_nodes(catalog_owner_id, catalog_type=CATALOG_TYPE)
+    by_parent = _by_parent(nodes)
+    families = [
+        row for row in nodes
+        if node_level(row) == "family" and row.get("is_active", True)
+        and str(row.get("website_section_key") or "") == "games"
+    ]
+    merged_variants = deduped = renamed = 0
+    for family in families:
+        variants = [row for row in by_parent.get(str(family.get("_id") or ""), []) if node_level(row) == "variant"]
+        mergeable = [row for row in variants if str(row.get("name") or "").strip().lower() in _MERGEABLE_VARIANT_NAMES]
+        if not mergeable:
+            continue
+        # topup (the staged bucket) wins as canonical; otherwise the single mergeable one.
+        canonical = next(
+            (row for row in mergeable if str(row.get("name") or "").strip().lower() == "topup"),
+            mergeable[0],
+        )
+        products: list[dict[str, Any]] = list(by_parent.get(str(canonical.get("_id") or ""), []))
+        for variant in mergeable:
+            if variant is canonical:
+                continue
+            for product in list(by_parent.get(str(variant.get("_id") or ""), [])):
+                moved = await move_node_to_parent(product["_id"], catalog_owner_id, canonical["_id"], catalog_type=CATALOG_TYPE)
+                if moved:
+                    products.append(moved)
+            await deactivate_node(variant["_id"], catalog_owner_id, catalog_type=CATALOG_TYPE)
+            merged_variants += 1
+        # Dedup inside the canonical variant: identical denominations keep one copy.
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for product in products:
+            if node_level(product) != "product":
+                continue
+            groups.setdefault(_dedup_key(product), []).append(product)
+        for rows in groups.values():
+            if len(rows) < 2:
+                continue
+            rows.sort(key=_dedup_priority, reverse=True)
+            for loser in rows[1:]:
+                await deactivate_node(loser["_id"], catalog_owner_id, catalog_type=CATALOG_TYPE)
+                deduped += 1
+        # Rename the canonical bucket to the family unit so customers know what
+        # they're buying (only when it still carries a generic import name).
+        if str(canonical.get("name") or "").strip().lower() in _MERGEABLE_VARIANT_NAMES:
+            units = [u for u in (_product_compare_unit(p) for p in products) if u]
+            unit = max(set(units), key=units.count) if units else ""
+            label = _UNIT_VARIANT_LABELS.get(unit, "الشحن المباشر")
+            if await rename_node(canonical["_id"], catalog_owner_id, label, catalog_type=CATALOG_TYPE):
+                renamed += 1
+    invalidate_public_catalog_nodes_cache()
+    return {
+        "ok": True,
+        "families_checked": len(families),
+        "variants_merged": merged_variants,
+        "products_deduped": deduped,
+        "variants_renamed": renamed,
+    }
 
 
 async def static_family_packages(

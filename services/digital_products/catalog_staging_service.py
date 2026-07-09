@@ -228,12 +228,20 @@ async def run_staging_import(owner_id: int, *, sources: list[Any] | None = None)
         by_provider[code] = {"ok": True, "offers": len(fetched)}
         all_offers.extend(fetched)
 
+    # The games retail margin from the pricing panel is the single source of
+    # truth for import pricing (suggested price = cost * (1 + margin)). The old
+    # global digital markup is only a fallback for pre-pricing-config installs.
     try:
-        from database.digital_products_config_repo import get_digital_products_markup_percent
+        from database.reseller_pricing_config_repo import get_pricing_config
 
-        markup_pct = float(await get_digital_products_markup_percent())
+        markup_pct = float((await get_pricing_config()).retail_margins.get("games", 0.0))
     except Exception:
-        markup_pct = 0.0
+        try:
+            from database.digital_products_config_repo import get_digital_products_markup_percent
+
+            markup_pct = float(await get_digital_products_markup_percent())
+        except Exception:
+            markup_pct = 0.0
     margin_factor = 1.0 + max(0.0, markup_pct) / 100.0
     items, dropped = build_staging_items(all_offers, margin_factor=margin_factor)
     upsert = await upsert_staging_items(owner_id, run_id, items)
