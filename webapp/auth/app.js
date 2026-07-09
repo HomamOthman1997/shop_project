@@ -772,36 +772,79 @@ function renderRechargeOptions(payload) {
   if (!target) return;
   const methods = payload.methods || [];
   const canSubmitProof = Boolean(payload.capabilities?.submit_recharge_proof);
-  const options = methods.map((method) => `<option value="${esc(method.code)}">${esc(method.title || method.code)}</option>`).join("");
-  const form = canSubmitProof && methods.length ? `
-    <form class="recharge-submit-form" id="recharge-submit-form">
-      <label><span>طريقة الدفع</span><select name="method_code" required>${options}</select></label>
-      <label><span>المبلغ المدفوع</span><input name="paid_amount" inputmode="decimal" required placeholder="0.00"></label>
-      <label><span>إثبات الدفع</span><input name="proof" type="file" accept="image/*,.pdf" required></label>
-      <input name="language" type="hidden" value="ar">
-      <button class="primary compact" type="submit">إرسال طلب الشحن</button>
-      <p class="message" id="recharge-submit-message"></p>
-    </form>` : "";
-  renderRows(target, methods, (method) => `
-    <div class="payment-method-row">
-      <div>
-        <strong>${esc(method.title || method.code || "طريقة دفع")}</strong>
-        <span>${esc(method.rate_label || "")}</span>
-      </div>
-      <div class="payment-target">
-        <span>بيانات الدفع</span>
-        <code>${esc(method.target || "-")}</code>
-      </div>
-      ${method.instructions ? `<p>${esc(method.instructions)}</p>` : ""}
-      ${method.support ? `<small>الدعم: ${esc(method.support)}</small>` : ""}
-    </div>`);
-  if (!methods.length) target.textContent = "لا توجد طرق شحن متاحة حالياً.";
-  else if (canSubmitProof) {
-    target.insertAdjacentHTML("afterbegin", form);
-    $("#recharge-submit-form")?.addEventListener("submit", submitRechargeProof);
-  } else {
-    target.insertAdjacentHTML("afterbegin", '<div class="notice">يمكنك نسخ بيانات الدفع من هنا. إذا لم يظهر نموذج رفع الإثبات، افتح تذكرة من مركز الدعم بعد التحويل.</div>');
+  if (!methods.length) {
+    target.classList.add("empty");
+    target.textContent = "لا توجد طرق شحن متاحة حالياً.";
+    return;
   }
+  target.classList.remove("empty");
+  // A clear 3-step flow: pick a method (cards) -> transfer to ITS details
+  // (with copy) -> confirm with amount + proof. One method visible at a time
+  // so the customer never has to match a dropdown choice to a separate list.
+  const methodCards = methods.map((method, index) => `
+    <button type="button" class="recharge-method${index === 0 ? " active" : ""}" data-method-code="${esc(method.code)}">
+      <strong>${esc(method.title || method.code || "طريقة دفع")}</strong>
+      ${method.rate_label ? `<span>${esc(method.rate_label)}</span>` : ""}
+    </button>`).join("");
+  target.innerHTML = `
+    <div class="recharge-flow">
+      <div class="recharge-step"><i>1</i><div><strong>اختر طريقة الدفع</strong></div></div>
+      <div class="recharge-methods">${methodCards}</div>
+      <div class="recharge-step"><i>2</i><div><strong>حوّل المبلغ</strong><span>انسخ بيانات الدفع وحوّل المبلغ الذي تريد شحنه.</span></div></div>
+      <div class="recharge-method-details" id="recharge-method-details"></div>
+      ${canSubmitProof ? `
+      <div class="recharge-step"><i>3</i><div><strong>أكّد عملية الدفع</strong><span>أدخل المبلغ الذي حوّلته وأرفق صورة الإيصال.</span></div></div>
+      <form class="recharge-submit-form" id="recharge-submit-form">
+        <input type="hidden" name="method_code" value="${esc(methods[0].code || "")}">
+        <input name="language" type="hidden" value="ar">
+        <div class="recharge-submit-grid">
+          <label><span>المبلغ المدفوع</span><input name="paid_amount" inputmode="decimal" required placeholder="0.00"></label>
+          <label><span>إثبات الدفع (صورة الإيصال)</span><input name="proof" type="file" accept="image/*,.pdf" required></label>
+        </div>
+        <button class="primary" type="submit">إرسال طلب الشحن</button>
+        <p class="message" id="recharge-submit-message"></p>
+      </form>` : '<div class="notice">بعد التحويل افتح تذكرة من مركز الدعم مع صورة الإيصال ليُضاف الرصيد.</div>'}
+    </div>`;
+  const showMethodDetails = (code) => {
+    const method = methods.find((row) => row.code === code) || methods[0];
+    const details = $("#recharge-method-details");
+    if (!details) return;
+    details.innerHTML = `
+      <div class="payment-target-card">
+        <div>
+          <span>بيانات الدفع — ${esc(method.title || method.code || "")}</span>
+          <code>${esc(method.target || "-")}</code>
+        </div>
+        <button class="secondary compact" type="button" data-copy-target="${esc(method.target || "")}">نسخ</button>
+      </div>
+      ${method.instructions ? `<p class="recharge-instructions">${esc(method.instructions)}</p>` : ""}
+      ${method.support ? `<small class="recharge-support">للمساعدة: ${esc(method.support)}</small>` : ""}`;
+    const copyButton = details.querySelector("[data-copy-target]");
+    copyButton?.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(copyButton.dataset.copyTarget || "");
+        copyButton.textContent = "تم النسخ ✓";
+        setTimeout(() => { copyButton.textContent = "نسخ"; }, 1600);
+      } catch (_error) { /* clipboard unavailable — the code is still visible to copy manually */ }
+    });
+  };
+  showMethodDetails(methods[0].code);
+  target.querySelectorAll(".recharge-method").forEach((button) => {
+    button.addEventListener("click", () => {
+      target.querySelectorAll(".recharge-method").forEach((row) => row.classList.toggle("active", row === button));
+      const hidden = $("#recharge-submit-form")?.querySelector('[name="method_code"]');
+      if (hidden) hidden.value = button.dataset.methodCode || "";
+      showMethodDetails(button.dataset.methodCode);
+    });
+  });
+  $("#recharge-submit-form")?.addEventListener("submit", submitRechargeProof);
+}
+
+function rechargeStatusClass(status) {
+  const key = String(status || "").trim().toLowerCase();
+  if (["approved", "accepted", "completed", "credited", "done", "success"].includes(key)) return "is-ok";
+  if (["rejected", "refused", "declined", "failed", "cancelled"].includes(key)) return "is-bad";
+  return "is-wait";
 }
 
 function renderRechargeRequests(payload) {
@@ -816,10 +859,9 @@ function renderRechargeRequests(payload) {
         <span>${esc(row.created_at || "")}${row.updated_at ? ` · ${esc(row.updated_at)}` : ""}</span>
       </div>
       <div class="stacked-meta">
-        <b>${esc(row.status_label || row.status || "")}</b>
+        <b class="recharge-status ${rechargeStatusClass(row.status)}">${esc(row.status_label || row.status || "")}</b>
         <span>${esc(row.paid_label || row.credits_label || "")}</span>
       </div>
-      ${row.delivery_ok ? '<small class="status-pill">وصل للمراجعة</small>' : ""}
     </div>`);
 }
 

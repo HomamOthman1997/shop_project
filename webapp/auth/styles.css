@@ -183,9 +183,26 @@ select {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0 13px;
-  background: rgba(0,0,0,.18);
+  /* color-scheme keeps the NATIVE options popup dark (the popup itself can't be
+     styled; without this Chrome renders it white with our light text = unreadable) */
+  color-scheme: dark;
+  background-color: #0d1324;
   color: var(--ink);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%239690c8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: left 14px center;
+  padding-inline-end: 13px;
+  padding-inline-start: 34px;
+  cursor: pointer;
 }
+select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(52,211,153,.12); outline: none; }
+select option {
+  background-color: #0d1324;
+  color: #f3f0ff;
+}
+html[dir="ltr"] select { background-position: right 14px center; }
 input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,107,85,.12); }
 .password-field { position: relative; display: block; }
 .password-field input { padding-left: 64px; }
@@ -3133,3 +3150,61 @@ button.balance-block:focus-visible {
 /* Pricing config actions */
 .pricing-config-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .pricing-config-note { color: var(--muted); font-size: 11.5px; line-height: 1.6; margin: 2px 0 0; }
+
+/* ===== Recharge flow: 3 clear steps (2026-07-09) ===== */
+.recharge-flow { display: grid; gap: 14px; }
+.recharge-step { display: flex; align-items: flex-start; gap: 11px; margin-top: 6px; }
+.recharge-step i {
+  font-style: normal;
+  flex: 0 0 auto;
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: rgba(52,211,153,.16);
+  border: 1px solid rgba(52,211,153,.4);
+  color: #34d399;
+  font-weight: 800;
+  font-size: 13px;
+}
+.recharge-step strong { font-size: 15px; display: block; }
+.recharge-step span { color: var(--muted); font-size: 12.5px; }
+.recharge-methods { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.recharge-method {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255,255,255,.03);
+  color: var(--ink);
+  padding: 13px 14px;
+  display: grid;
+  gap: 4px;
+  text-align: right;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+.recharge-method span { color: var(--muted); font-size: 12px; }
+.recharge-method:hover { border-color: rgba(52,211,153,.4); }
+.recharge-method.active {
+  border-color: rgba(52,211,153,.65);
+  background: linear-gradient(180deg, rgba(52,211,153,.12), rgba(255,255,255,.02));
+  box-shadow: 0 0 0 3px rgba(52,211,153,.12);
+}
+.recharge-method-details { display: grid; gap: 10px; }
+.payment-target-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border: 1px solid rgba(52,211,153,.3);
+  border-radius: 12px;
+  padding: 13px 15px;
+  background: linear-gradient(180deg, rgba(52,211,153,.07), rgba(255,255,255,.02));
+}
+.payment-target-card > div { display: grid; gap: 5px; min-width: 0; }
+.payment-target-card span { color: var(--muted); font-size: 12px; }
+.payment-target-card code { font-size: 15.5px; font-weight: 700; color: #eafff6; overflow-wrap: anywhere; }
+.recharge-instructions { margin: 0; color: var(--ink); font-size: 13.5px; line-height: 1.7; background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; }
+.recharge-support { color: var(--muted); }
+.recharge-submit-form { display: grid; gap: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: rgba(255,255,255,.02); }
+.recharge-submit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 640px) { .recharge-submit-grid { grid-template-columns: 1fr; } }
+.recharge-status { font-weight: 700; font-size: 12.5px; padding: 3px 10px; border-radius: 999px; display: inline-block; }
+.recharge-status.is-ok { color: #34d399; background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.35); }
+.recharge-status.is-bad { color: #fb7185; background: rgba(251,113,133,.1); border: 1px solid rgba(251,113,133,.35); }
+.recharge-status.is-wait { color: #fcd34d; background: rgba(252,211,77,.1); border: 1px solid rgba(252,211,77,.3); }
