@@ -32,7 +32,6 @@ class G2BulkCatalogSource:
             _game_items,
             _gift_import_fields,
             _gift_products,
-            _import_item_price,
             _import_variant_name,
         )
 
@@ -85,7 +84,7 @@ class G2BulkCatalogSource:
                     logger.warning("g2bulk gift_products failed cat=%s err=%s", cid, exc)
                     return []
             out = [
-                _gift_offer(item, sk, fk, fn, dv, _gift_import_fields, _import_item_price, _import_variant_name)
+                _gift_offer(item, sk, fk, fn, dv, _gift_import_fields, _import_variant_name)
                 for item in list(items or [])
             ]
             return [o for o in out if o]
@@ -102,9 +101,17 @@ class G2BulkCatalogSource:
 
 
 def _game_offer(item: dict[str, Any], service_key: str, family_key: str, family_name: str, fields_fn) -> CatalogOffer | None:
+    """Emit the RAW provider cost, mirroring mangerr_source's contract.
+
+    The miniapp items carry TWO prices: `price_usd` is the bot DISPLAY sale
+    price (markup already applied — using it here was the second hidden
+    double-pricing stage), `cost_price_usd` is the raw provider cost. Staging
+    applies the single configured margin on top of the cost. No fallback to
+    price_usd on purpose: better to drop an offer than re-poison the catalog.
+    """
     item_id = str(item.get("id") or "").strip()
     game_id = str(item.get("game_id") or "").strip()
-    price = float(item.get("price_usd") or 0.0)
+    price = float(item.get("cost_price_usd") or 0.0)
     if not item_id or not game_id or price <= 0:
         return None
     compare_key = str(item.get("compare_key") or "").strip()
@@ -137,11 +144,11 @@ def _gift_offer(
     family_name: str,
     default_variant: str,
     fields_fn,
-    price_fn,
     variant_fn,
 ) -> CatalogOffer | None:
+    # Raw provider cost only — same contract as _game_offer (see its docstring).
     item_id = str(item.get("id") or "").strip()
-    price = float(price_fn(item) or 0.0)
+    price = float(item.get("cost_price_usd") or 0.0)
     if not item_id or price <= 0:
         return None
     category_id = str(item.get("category_id") or "").strip()

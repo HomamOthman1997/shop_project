@@ -279,15 +279,15 @@ def test_gift_offer_game_currency_joins_topup_not_region():
     # route (future voucher vs auto) is backend-only, merged via compare_key.
     from services.digital_products.catalog_sources.g2bulk_source import _gift_offer
 
-    item = {"id": "v1", "name": "60 Uc Voucher", "category_id": "c1", "compare_key": "pubg:global:60:uc"}
-    price_fn = lambda _it: 1.5
+    item = {"id": "v1", "name": "60 Uc Voucher", "category_id": "c1",
+            "compare_key": "pubg:global:60:uc", "cost_price_usd": 1.5}
     fields_fn = lambda _it: []
     region_variant_fn = lambda **_kw: "Global"
 
-    game = _gift_offer(item, "games", "pubg", "PUBG Mobile", "Global", fields_fn, price_fn, region_variant_fn)
+    game = _gift_offer(item, "games", "pubg", "PUBG Mobile", "Global", fields_fn, region_variant_fn)
     assert game.sub_category == "topup"
 
-    card = _gift_offer(item, "gift-cards", "steam", "Steam", "Global", fields_fn, price_fn, region_variant_fn)
+    card = _gift_offer(item, "gift-cards", "steam", "Steam", "Global", fields_fn, region_variant_fn)
     assert card.sub_category == "Global"
 
 
@@ -337,12 +337,12 @@ def test_g_coins_offers_get_their_own_sub_category():
 
     fields = lambda item: [{"id": "player_id"}]
     gcoin = _game_offer(
-        {"id": "gc100", "game_id": "pubgm", "price_usd": 0.89,
+        {"id": "gc100", "game_id": "pubgm", "cost_price_usd": 0.89,
          "compare_key": "pubg:global:100:gcoin", "name": "PUBG G Coins - 100"},
         "games", "pubg", "PUBG", fields,
     )
     uc = _game_offer(
-        {"id": "264", "game_id": "pubgm", "price_usd": 0.85,
+        {"id": "264", "game_id": "pubgm", "cost_price_usd": 0.85,
          "compare_key": "pubg:global:60:uc", "name": "60 UC"},
         "games", "pubg", "PUBG", fields,
     )
@@ -369,3 +369,47 @@ def test_mangerr_offer_emits_raw_cost_never_marked_up():
     items, _ = build_staging_items([offer], margin_factor=1.07)
     assert items[0]["cost_price_usd"] == 0.89
     assert items[0]["suggested_price_usd"] == 0.95  # 0.89 * 1.07 = 0.9523 -> 0.95
+
+
+def test_g2bulk_offers_emit_raw_cost_never_marked_up():
+    # Same regression as mangerr but for the G2Bulk lane: miniapp items carry
+    # price_usd = bot DISPLAY sale price (markup already applied) and
+    # cost_price_usd = raw provider cost. The source must price offers from the
+    # raw cost, and must DROP items missing it rather than fall back to the
+    # marked-up display price (that fallback was the second hidden stage:
+    # cost 0.89 -> display 0.95 -> staging x1.07 -> 1.02).
+    from services.digital_products.catalog_sources.g2bulk_source import _game_offer, _gift_offer
+
+    fields = lambda item: [{"id": "player_id"}]
+    game = _game_offer(
+        {"id": "264", "game_id": "pubgm", "price_usd": 0.95, "cost_price_usd": 0.89,
+         "compare_key": "pubg:global:60:uc", "name": "60 UC"},
+        "games", "pubg", "PUBG", fields,
+    )
+    assert game.price_usd == 0.89  # raw cost, not the 0.95 display price
+
+    variant_fn = lambda **_kw: "USA"
+    gift = _gift_offer(
+        {"id": "g1", "category_id": "c1", "category_name": "Steam", "price_usd": 10.7,
+         "cost_price_usd": 10.0, "compare_key": "steam:usa:10:usd", "name": "Steam 10 USD"},
+        "store_cards", "steam", "Steam", "USA", fields, variant_fn,
+    )
+    assert gift.price_usd == 10.0
+
+    items, _ = build_staging_items([game], margin_factor=1.07)
+    assert items[0]["cost_price_usd"] == 0.89
+    assert items[0]["suggested_price_usd"] == 0.95
+
+    # no silent fallback to the display price
+    legacy_game = _game_offer(
+        {"id": "265", "game_id": "pubgm", "price_usd": 0.95,
+         "compare_key": "pubg:global:60:uc", "name": "60 UC"},
+        "games", "pubg", "PUBG", fields,
+    )
+    assert legacy_game is None
+    legacy_gift = _gift_offer(
+        {"id": "g2", "category_id": "c1", "category_name": "Steam", "price_usd": 10.7,
+         "compare_key": "steam:usa:10:usd", "name": "Steam 10 USD"},
+        "store_cards", "steam", "Steam", "USA", fields, variant_fn,
+    )
+    assert legacy_gift is None

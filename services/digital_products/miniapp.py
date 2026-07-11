@@ -1558,6 +1558,10 @@ async def _gift_products(category_id: str, query: str = "", offer_mode: str = ""
                 "name": display_name,
                 "price_usd": display_sale_price,
                 "unit_price_usd": round(float(unit_sale_price), 6),
+                # Raw provider cost (pre-markup, pre-rounding). The smart-catalog
+                # import must price from THIS — price_usd above is the bot
+                # display sale price and already carries the markup.
+                "cost_price_usd": round(float(unit_price) * int(display_quantity), 6),
                 "stock": int(item.get("stock") or 0),
                 "stock_label": "In stock" if int(item.get("stock") or 0) > 0 else "Out of stock",
                 "best_provider_code": str((best_offer or {}).get("provider") or item.get("best_provider") or "g2bulk"),
@@ -1660,6 +1664,8 @@ async def _game_items(game_id: str, query: str = "") -> dict[str, Any]:
                     game_id=str(source_game_id),
                     game_name=resolved_game_name,
                 ),
+                # Raw provider cost (pre-markup) — see _gift_products.
+                "cost_price_usd": round(_money(provider_price), 6),
                 "requires_server": bool(item.get("requires_server")),
                 "best_provider_code": str((best_offer or {}).get("provider") or item.get("best_provider") or "g2bulk"),
                 "providers_count": len(offers),
