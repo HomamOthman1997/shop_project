@@ -327,3 +327,28 @@ def test_compare_key_g_coins_distinct_from_uc():
     ck = lambda n: offer_compare_key(family_key="pubg", region="global", offer_name=n, default_unit="uc")
     assert ck("PUBG G Coins - 100") == "pubg:global:100:gcoin"
     assert ck("100") == "pubg:global:100:uc"  # bare amount still UC
+
+
+def test_g_coins_offers_get_their_own_sub_category():
+    # G Coins is a different PUBG currency than UC — it must never share the UC
+    # bucket. The unit from compare_key drives the variant at import time.
+    from services.digital_products.catalog_sources.g2bulk_source import _game_offer
+    from services.digital_products.fulfillment_rules import unit_subcategory
+
+    fields = lambda item: [{"id": "player_id"}]
+    gcoin = _game_offer(
+        {"id": "gc100", "game_id": "pubgm", "price_usd": 0.89,
+         "compare_key": "pubg:global:100:gcoin", "name": "PUBG G Coins - 100"},
+        "games", "pubg", "PUBG", fields,
+    )
+    uc = _game_offer(
+        {"id": "264", "game_id": "pubgm", "price_usd": 0.85,
+         "compare_key": "pubg:global:60:uc", "name": "60 UC"},
+        "games", "pubg", "PUBG", fields,
+    )
+    assert gcoin.sub_category == "G Coins"
+    assert uc.sub_category == "topup"
+    # helper contract: unknown units keep the provider grouping/default
+    assert unit_subcategory("uc") == "topup"
+    assert unit_subcategory("gcoin") == "G Coins"
+    assert unit_subcategory("diamond", default="events") == "events"

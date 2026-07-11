@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from services.digital_products.catalog_sources.base import CatalogOffer, parse_compare_key
+from services.digital_products.fulfillment_rules import unit_subcategory
 from services.digital_products.mangerr_client import MangerrClient
 
 logger = logging.getLogger("catalog_sources.mangerr")
@@ -75,7 +76,7 @@ def _mangerr_offer(item: dict[str, Any], markup: float, compare_key_fn, service_
         service_key=service_key,
         family_key=family_key or "",
         family_name=category_name or family_key or name,
-        sub_category="topup",
+        sub_category=unit_subcategory(unit),
         region=region or "global",
         compare_key=compare_key,
         unit_kind=unit,

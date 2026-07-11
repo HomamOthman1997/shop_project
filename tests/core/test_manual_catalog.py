@@ -422,9 +422,13 @@ async def test_unify_game_topup_variants_merges_dedups_and_renames(monkeypatch):
         {"_id": "p-325", "parent_id": "v-glob", "website_level": "product", "name": "325",
          "website_source_key": "game:pubgm:325", "updated_at": datetime(2026, 6, 1, tzinfo=UTC),
          "website_api_source": {"game_id": "pubgm", "compare_key": "pubg:global:325:uc"}, "is_active": True},
+        # G Coins = a DIFFERENT PUBG currency — must move to its own "G Coins" variant
+        {"_id": "p-gcoin", "parent_id": "v-top", "website_level": "product", "name": "PUBG G Coins - 100",
+         "website_source_key": "game:pubgm:gc100", "updated_at": datetime(2026, 7, 1, tzinfo=UTC),
+         "website_api_source": {"game_id": "pubgm", "compare_key": "pubg:global:100:gcoin"}, "is_active": True},
     ]
 
-    moved, deactivated, renamed = [], [], []
+    moved, deactivated, renamed, created = [], [], [], []
 
     async def fake_nodes(_owner, *, catalog_type):
         return [dict(row) for row in nodes]
@@ -443,10 +447,19 @@ async def test_unify_game_topup_variants_merges_dedups_and_renames(monkeypatch):
         renamed.append((node_id, name))
         return {"_id": node_id, "name": name}
 
+    async def fake_create_folder(_owner, parent_id, name, *, catalog_type):
+        created.append((parent_id, name))
+        return {"_id": f"v-new-{len(created)}", "parent_id": parent_id, "name": name}
+
+    async def fake_update_meta(node_id, _owner, **kwargs):
+        return {"_id": node_id, **kwargs}
+
     monkeypatch.setattr(manual_catalog, "list_catalog_nodes", fake_nodes)
     monkeypatch.setattr(manual_catalog, "move_node_to_parent", fake_move)
     monkeypatch.setattr(manual_catalog, "deactivate_node", fake_deactivate)
     monkeypatch.setattr(manual_catalog, "rename_node", fake_rename)
+    monkeypatch.setattr(manual_catalog, "create_folder", fake_create_folder)
+    monkeypatch.setattr(manual_catalog, "update_node_website_metadata", fake_update_meta)
 
     summary = await manual_catalog.unify_game_topup_variants(77)
 
@@ -462,5 +475,9 @@ async def test_unify_game_topup_variants_merges_dedups_and_renames(monkeypatch):
     # Global variant emptied and deactivated; passes untouched
     assert "v-glob" in deactivated
     assert "v-pass" not in deactivated
-    # canonical bucket renamed to the unit label
+    # G Coins: its own variant was created under the family and the product moved there
+    assert ("fam", "G Coins") in created
+    assert ("p-gcoin", "v-new-1") in moved
+    assert summary["currency_split"] == 1
+    # canonical bucket renamed to the unit label (uc dominates AFTER the gcoin split)
     assert ("v-top", "شدات UC") in renamed

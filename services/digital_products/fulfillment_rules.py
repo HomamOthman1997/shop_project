@@ -258,6 +258,19 @@ def manual_feature_compare_key(category_name: str | None, product_name: str | No
     )
 
 
+# In-game currencies that are NOT the game's main top-up currency and must live
+# in their OWN catalog variant so customers never mistake them for it (Homam
+# 2026-07-09: PUBG "G Coins" is a different currency than UC).
+CURRENCY_SPLIT_SUBCATEGORIES: dict[str, str] = {"gcoin": "G Coins"}
+
+
+def unit_subcategory(unit: str | None, default: str = "topup") -> str:
+    """The catalog sub-category (variant) a game offer belongs to, by its
+    compare_key unit: split currencies get their own named bucket, everything
+    else keeps the provider grouping/default."""
+    return CURRENCY_SPLIT_SUBCATEGORIES.get(str(unit or "").strip().lower(), str(default or "topup").strip() or "topup")
+
+
 def game_default_unit(game_id: str | None, game_name: str | None = None) -> str:
     text = norm_text(f"{game_id or ''} {game_name or ''}")
     if "pubg" in text or "pubgm" in text:

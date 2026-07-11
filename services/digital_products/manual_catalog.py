@@ -22,7 +22,13 @@ from database.custom_services_repo import (
     update_node_website_metadata,
 )
 from services.digital_products.custom_catalog import FAMILY_TABLE, SECTION_TABLE
-from services.digital_products.fulfillment_rules import game_default_unit, game_family_key, offer_compare_key, offer_region_label
+from services.digital_products.fulfillment_rules import (
+    CURRENCY_SPLIT_SUBCATEGORIES,
+    game_default_unit,
+    game_family_key,
+    offer_compare_key,
+    offer_region_label,
+)
 from services.digital_products.static_taxonomy import guess_family
 from services.digital_products.reseller_pricing import TIERS as _RESELLER_TIERS, wholesale_from_retail
 
@@ -869,7 +875,7 @@ _UNIT_VARIANT_LABELS = {
     "credits": "الرصيد",
     "point": "النقاط",
     "points": "النقاط",
-    "gcoin": "G-Coins",
+    "gcoin": "G Coins",
 }
 _MERGEABLE_VARIANT_NAMES = {"topup", "global"}
 
@@ -918,7 +924,7 @@ async def unify_game_topup_variants(owner_id: int | None = None) -> dict[str, An
         if node_level(row) == "family" and row.get("is_active", True)
         and str(row.get("website_section_key") or "") == "games"
     ]
-    merged_variants = deduped = renamed = 0
+    merged_variants = deduped = renamed = currency_split = 0
     for family in families:
         variants = [row for row in by_parent.get(str(family.get("_id") or ""), []) if node_level(row) == "variant"]
         mergeable = [row for row in variants if str(row.get("name") or "").strip().lower() in _MERGEABLE_VARIANT_NAMES]
@@ -945,13 +951,38 @@ async def unify_game_topup_variants(owner_id: int | None = None) -> dict[str, An
             if node_level(product) != "product":
                 continue
             groups.setdefault(_dedup_key(product), []).append(product)
+        survivors: list[dict[str, Any]] = []
         for rows in groups.values():
-            if len(rows) < 2:
-                continue
             rows.sort(key=_dedup_priority, reverse=True)
+            survivors.append(rows[0])
             for loser in rows[1:]:
                 await deactivate_node(loser["_id"], catalog_owner_id, catalog_type=CATALOG_TYPE)
                 deduped += 1
+        # Split currencies (e.g. PUBG G Coins) are a DIFFERENT in-game currency —
+        # they get their own variant instead of sitting under the شدات bucket.
+        remaining: list[dict[str, Any]] = []
+        split_targets: dict[str, Any] = {}
+        for product in survivors:
+            label = CURRENCY_SPLIT_SUBCATEGORIES.get(_product_compare_unit(product))
+            if not label:
+                remaining.append(product)
+                continue
+            target = split_targets.get(label)
+            if target is None:
+                target = next(
+                    (row for row in variants if str(row.get("name") or "").strip().lower() == label.lower()),
+                    None,
+                )
+                if target is None:
+                    target = await create_folder(catalog_owner_id, family["_id"], label, catalog_type=CATALOG_TYPE)
+                    await update_node_website_metadata(
+                        target["_id"], catalog_owner_id,
+                        website_level="variant", website_hidden=False, catalog_type=CATALOG_TYPE,
+                    )
+                split_targets[label] = target
+            await move_node_to_parent(product["_id"], catalog_owner_id, target["_id"], catalog_type=CATALOG_TYPE)
+            currency_split += 1
+        products = remaining
         # Rename the canonical bucket to the family unit so customers know what
         # they're buying (only when it still carries a generic import name).
         if str(canonical.get("name") or "").strip().lower() in _MERGEABLE_VARIANT_NAMES:
@@ -967,6 +998,7 @@ async def unify_game_topup_variants(owner_id: int | None = None) -> dict[str, An
         "variants_merged": merged_variants,
         "products_deduped": deduped,
         "variants_renamed": renamed,
+        "currency_split": currency_split,
     }
 
 

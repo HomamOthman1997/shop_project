@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 from services.digital_products.catalog_sources.base import CatalogOffer, parse_compare_key
+from services.digital_products.fulfillment_rules import unit_subcategory
 
 logger = logging.getLogger("catalog_sources.g2bulk")
 
@@ -115,7 +116,9 @@ def _game_offer(item: dict[str, Any], service_key: str, family_key: str, family_
         service_key=service_key,
         family_key=family_key,
         family_name=family_name,
-        sub_category=str(item.get("group_key") or "topup").strip() or "topup",
+        # Split currencies (e.g. PUBG G Coins) get their own variant; everything
+        # else keeps the provider grouping (default "topup").
+        sub_category=unit_subcategory(unit, default=str(item.get("group_key") or "topup").strip() or "topup"),
         region=region or "global",
         compare_key=compare_key,
         unit_kind=unit,
@@ -152,7 +155,8 @@ def _gift_offer(
         # detail (merged via compare_key), never a customer-facing category. So it joins
         # the game's "topup" bucket (matching _game_offer's default) instead of a region
         # bucket, so the customer sees the currency once — not split across topup/Global.
-        sub_category = str(item.get("group_key") or "topup").strip() or "topup"
+        # Exception: split currencies (G Coins) live in their own named bucket.
+        sub_category = unit_subcategory(unit, default=str(item.get("group_key") or "topup").strip() or "topup")
     else:
         # Real gift cards (Steam/Razer/…) — region is the meaningful axis.
         sub_category = variant_fn(
