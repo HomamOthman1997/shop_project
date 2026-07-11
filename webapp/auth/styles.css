@@ -2580,7 +2580,11 @@ button.owner-action-row {
     grid-template-columns: 264px minmax(0, 1fr);
     border: 1px solid rgba(255,255,255,.1);
     border-radius: 8px;
+    /* clip (not hidden): hidden makes this a scroll container and kills the
+       sidebar position:sticky; clip clips to the radius without doing that.
+       hidden stays first as the fallback for old browsers. */
     overflow: hidden;
+    overflow: clip;
     background: rgba(7, 12, 24, .72);
     box-shadow: 0 24px 80px rgba(0,0,0,.32);
   }
@@ -3219,6 +3223,7 @@ button.balance-block:focus-visible {
   .sidebar-sticky {
     position: sticky;
     top: 12px;
+    flex: 0 0 auto; /* the base flex:1 would stretch it to the full column */
     height: calc(100vh - 24px);
     overflow-y: auto;
     overscroll-behavior: contain;
