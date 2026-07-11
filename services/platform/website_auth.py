@@ -43,6 +43,7 @@ from database.website_auth_repo import (
 )
 from database.customer_conversations_repo import (
     DIRECTION_CUSTOMER,
+    DIRECTION_OWNER,
     append_message as _conversation_append_message,
     get_conversation_for_customer,
     get_or_create_conversation,
@@ -659,13 +660,19 @@ def _conversation_payload(conversation: dict[str, Any]) -> dict[str, Any]:
 
 
 async def conversation_detail(request: web.Request) -> web.Response:
+    # Read-only: the thread is CREATED only by the intake wizard (see
+    # conversation_send_message). No conversation yet -> status "none", which
+    # keeps the composer locked client-side until a report is filed.
     auth = await require_website_auth(request)
-    account = await find_website_account_by_id(auth.account_id) or {}
-    conversation = await get_or_create_conversation(
-        customer_id=auth.customer_id,
-        account_id=auth.account_id,
-        customer_email=str(account.get("email") or auth.email or ""),
-    )
+    conversation = await get_conversation_for_customer(auth.customer_id)
+    if not conversation:
+        return web.json_response(
+            {
+                "ok": True,
+                "conversation": {"id": "", "status": "none", "unread": 0, "last_message_at": ""},
+                "messages": [],
+            }
+        )
     rows = await _conversation_list_messages(conversation["_id"])
     await mark_conversation_read(conversation["_id"], side="customer")
     return web.json_response(
@@ -692,12 +699,23 @@ async def conversation_send_message(request: web.Request) -> web.Response:
     if len(text) > _CONVERSATION_MESSAGE_MAX:
         text = text[:_CONVERSATION_MESSAGE_MAX]
     order_ref = str(body.get("order_ref") or "").strip()[:120]
-    account = await find_website_account_by_id(auth.account_id) or {}
-    conversation = await get_or_create_conversation(
-        customer_id=auth.customer_id,
-        account_id=auth.account_id,
-        customer_email=str(account.get("email") or auth.email or ""),
-    )
+    # The chat is gated behind the intake wizard: free-form messages need an
+    # OPEN thread; only an intake report (wizard summary) opens/creates one.
+    # Closing is the owner's call — his button appends a farewell then closes.
+    intake = bool(body.get("intake"))
+    if intake:
+        account = await find_website_account_by_id(auth.account_id) or {}
+        conversation = await get_or_create_conversation(
+            customer_id=auth.customer_id,
+            account_id=auth.account_id,
+            customer_email=str(account.get("email") or auth.email or ""),
+        )
+    else:
+        conversation = await get_conversation_for_customer(auth.customer_id)
+        if not conversation or str(conversation.get("status") or "open") != "open":
+            return web.json_response(
+                {"ok": False, "message": "ابدأ بلاغاً جديداً من الأعلى لفتح المحادثة."}, status=409
+            )
     await _conversation_append_message(
         conversation,
         direction=DIRECTION_CUSTOMER,
@@ -705,6 +723,17 @@ async def conversation_send_message(request: web.Request) -> web.Response:
         text=text,
         order_ref=order_ref,
     )
+    if intake:
+        # In-thread confirmation (Homam: "بينزل عند الزبون ضمن المحادثة") + the
+        # append re-opened the thread, so the composer unlocks with this reply.
+        await _conversation_append_message(
+            conversation,
+            direction=DIRECTION_OWNER,
+            actor_id=0,
+            text="تم إرسال تفاصيل مشكلتك لفريق الدعم ✅ رح نرد عليك هون بأقرب وقت.",
+        )
+        await mark_conversation_read(conversation["_id"], side="customer")
+        conversation["status"] = "open"
     rows = await _conversation_list_messages(conversation["_id"])
     # Let the owner know a customer wrote in.
     await notify_owner(

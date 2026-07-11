@@ -1002,14 +1002,32 @@ function renderConversation(payload) {
           <p>${esc(row.text || "")}</p>
           <span class="chat-time">${esc(fmtDate(row.created_at))}</span>
         </div>`).join("")
-    : "ما في محادثة بعد — ابدأ بلاغاً من الأعلى أو اكتب رسالتك بالأسفل.";
+    : "ما في محادثة بعد — بلّغنا عن مشكلتك من الأعلى وبتنفتح المحادثة.";
   thread.scrollTop = thread.scrollHeight;
   updateMessagesBadge(0);
-  // First visit with an empty thread: open the guided intake right away.
-  if (!messages.length && !conversationWizard) {
+  // The chat is gated behind the intake wizard: locked until a report opens
+  // the thread, and locked again when the owner closes it.
+  conversationLocked = String(payload.conversation?.status || "open") !== "open";
+  applyConversationLock();
+  if (conversationLocked && !conversationWizard) {
     conversationWizard = { step: 1, section: "", issue: "", orderId: "", orderTitle: "" };
   }
   renderConversationWizard();
+}
+
+let conversationLocked = false;
+
+function applyConversationLock() {
+  const form = $("#conversation-form");
+  if (!form) return;
+  form.classList.toggle("locked", conversationLocked);
+  const field = form.elements.text;
+  if (field) {
+    field.disabled = conversationLocked;
+    field.placeholder = conversationLocked ? "أرسل بلاغاً من الأعلى لتنفتح المحادثة..." : "اكتب رسالتك هنا...";
+  }
+  const button = form.querySelector("button[type='submit']");
+  if (button) button.disabled = conversationLocked;
 }
 
 async function loadConversation() {
@@ -1271,6 +1289,13 @@ let conversationWizard = null; // null = collapsed CTA
 function renderConversationWizard() {
   const target = $("#conversation-wizard");
   if (!target) return;
+  // While the thread is open the customer just chats — the wizard only
+  // appears when the chat is locked (no thread yet, or the owner closed it).
+  if (!conversationLocked) {
+    conversationWizard = null;
+    target.innerHTML = "";
+    return;
+  }
   if (!conversationWizard) {
     target.innerHTML = `
       <button class="wizard-cta" type="button" id="conversation-wizard-start">
@@ -1338,13 +1363,14 @@ async function sendConversationWizard() {
   try {
     const payload = await api("/api/v1/auth/conversation/messages", {
       method: "POST",
-      body: JSON.stringify({ text: lines.join("\n"), order_ref: wiz.orderId || "" }),
+      body: JSON.stringify({ text: lines.join("\n"), order_ref: wiz.orderId || "", intake: true }),
     });
     conversationWizard = null;
     conversationSignature = "";
-    renderConversationWizard();
+    // The confirmation arrives IN-THREAD from the server; renderConversation
+    // also unlocks the composer since the report opened the thread.
     renderConversation(payload);
-    setText("#conversation-message", "وصل بلاغك لفريق الدعم — رح نرد عليك هون.");
+    setText("#conversation-message", "");
   } catch (error) {
     if (button) { button.disabled = false; button.textContent = "تم — أرسل للدعم"; }
     setText("#conversation-message", error.message);
@@ -2671,18 +2697,25 @@ function renderOwnerConversations(payload, append = false) {
     <article class="owner-review-card" data-conversation-id="${esc(row.id)}">
       <div class="owner-order-head">
         <div><strong>${esc(row.customer_email || "زبون")}</strong><span>#${esc(row.customer_id)}</span></div>
-        ${Number(row.unread) > 0 ? `<b class="owner-unread">${esc(row.unread)} جديد</b>` : `<b>${esc(row.last_message_at || "")}</b>`}
+        <div class="stacked-meta">
+          <b class="convo-status ${row.status === "closed" ? "is-closed" : "is-open"}">${row.status === "closed" ? "مغلق" : "مفتوح"}</b>
+          ${Number(row.unread) > 0 ? `<b class="owner-unread">${esc(row.unread)} جديد</b>` : `<span>${esc(fmtDate(row.last_message_at))}</span>`}
+        </div>
       </div>
       <div class="owner-order-meta"><span>${esc(row.last_message_by === "owner" ? "أنت" : row.last_message_by === "customer" ? "الزبون" : "—")}: ${esc(row.last_message_preview || "لا توجد رسائل بعد")}</span></div>
       <div class="owner-support-conversation" hidden></div>
       <form class="owner-support-reply" data-owner-conversation-reply="${esc(row.id)}">
-        <input name="text" required minlength="1" maxlength="3500" placeholder="اكتب رسالة للزبون">
+        <input name="text" required minlength="1" maxlength="3500" placeholder="${row.status === "closed" ? "الرد يعيد فتح البلاغ..." : "اكتب رسالة للزبون"}">
         <button class="secondary compact" type="submit">إرسال</button>
       </form>
-      <div class="owner-order-actions"><button class="secondary compact" type="button" data-owner-conversation-detail="${esc(row.id)}">عرض المحادثة</button></div>
+      <div class="owner-order-actions">
+        <button class="secondary compact" type="button" data-owner-conversation-detail="${esc(row.id)}">عرض المحادثة</button>
+        ${row.status === "closed" ? "" : `<button class="secondary compact danger" type="button" data-owner-conversation-close="${esc(row.id)}">إغلاق البلاغ</button>`}
+      </div>
     </article>`).join("") : '<div class="notice">لا توجد محادثات بعد. افتح محادثة من زر "راسل الزبون" داخل أي طلب.</div>';
   target.querySelectorAll("[data-owner-conversation-detail]").forEach((button) => button.addEventListener("click", () => loadOwnerConversationDetail(button.dataset.ownerConversationDetail, button.closest(".owner-review-card"))));
   target.querySelectorAll("[data-owner-conversation-reply]").forEach((form) => form.addEventListener("submit", runOwnerConversationReply));
+  target.querySelectorAll("[data-owner-conversation-close]").forEach((button) => button.addEventListener("click", () => runOwnerConversationClose(button.dataset.ownerConversationClose, button.closest(".owner-review-card"))));
   target.insertAdjacentHTML("beforeend", ownerPaginationButton("conversations", payload.pagination, "Load more conversations"));
   bindOwnerPagination(target);
 }
@@ -2724,6 +2757,20 @@ async function runOwnerConversationReply(event) {
     setText("#owner-message", "تم إرسال الرسالة للزبون.");
   } catch (error) { setText("#owner-message", error.message); }
   finally { button.disabled = false; }
+}
+
+async function runOwnerConversationClose(conversationId, card) {
+  if (!window.confirm("إغلاق هذا البلاغ؟ الزبون ما رح يقدر يكتب إلا ببلاغ جديد، وبيوصله إشعار الإغلاق داخل المحادثة.")) return;
+  try {
+    const payload = await ownerApi(`/api/v1/owner/conversations/${encodeURIComponent(conversationId)}/close`, { method: "POST" });
+    renderOwnerConversationMessages(card?.querySelector(".owner-support-conversation"), payload.messages || []);
+    card?.querySelector("[data-owner-conversation-close]")?.remove();
+    const chip = card?.querySelector(".convo-status");
+    if (chip) { chip.textContent = "مغلق"; chip.classList.remove("is-open"); chip.classList.add("is-closed"); }
+    setText("#owner-message", "تم إغلاق البلاغ وإعلام الزبون داخل المحادثة.");
+  } catch (error) {
+    setText("#owner-message", error.message);
+  }
 }
 
 async function startOwnerConversationFromOrder(customerId, orderRef) {

@@ -3317,3 +3317,11 @@ html { scrollbar-color: rgba(148, 163, 184, .32) rgba(9, 13, 27, .4); }
 
 /* Wizard summaries are multi-line lists — keep the line breaks readable. */
 .chat-bubble p { white-space: pre-line; }
+
+/* ===== Gated chat (2026-07-11): composer locked until an intake report opens it ===== */
+.conversation-form.locked { opacity: .55; }
+.conversation-form.locked textarea { cursor: not-allowed; }
+.convo-status { font-weight: 700; font-size: 11.5px; padding: 3px 10px; border-radius: 999px; display: inline-block; }
+.convo-status.is-open { color: #34d399; background: rgba(52, 211, 153, .12); border: 1px solid rgba(52, 211, 153, .35); }
+.convo-status.is-closed { color: #94a3b8; background: rgba(148, 163, 184, .12); border: 1px solid rgba(148, 163, 184, .3); }
+.owner-order-actions .danger { color: #fb7185; border-color: rgba(251, 113, 133, .4); }

@@ -65,6 +65,7 @@ from database.customer_conversations_repo import (
     list_messages as _conversation_list_messages,
     mark_conversation_read,
     owner_conversations_cursor,
+    set_conversation_status,
 )
 from database.notifications_repo import (
     RECIPIENT_OWNER,
@@ -2914,6 +2915,7 @@ def _conversation_inbox_payload(row: dict[str, Any]) -> dict[str, Any]:
         "id": _text(row.get("_id")),
         "customer_id": int(row.get("customer_id") or 0),
         "customer_email": _text(row.get("customer_email")),
+        "status": _text(row.get("status") or "open"),
         "last_message_preview": _text(row.get("last_message_preview")),
         "last_message_by": _text(row.get("last_message_by")),
         "last_message_at": _date_text(row.get("last_message_at")),
@@ -2988,6 +2990,44 @@ async def owner_conversation_send(request: web.Request) -> web.Response:
     )
     # No bell notification here on purpose: chat replies surface via the
     # conversation's own unread counter (the مراسلة nav badge), not التنبيهات.
+    # Note: append_message re-opens a closed thread — replying = reopening.
+    rows = await _conversation_list_messages(conversation["_id"])
+    conversation["status"] = "open"
+    return web.json_response(
+        {
+            "ok": True,
+            "conversation": {**_conversation_inbox_payload(conversation), "unread": 0},
+            "messages": [_conversation_owner_message_payload(row) for row in rows],
+        },
+        headers=dict(_NO_STORE_HEADERS),
+    )
+
+
+async def owner_conversation_close(request: web.Request) -> web.Response:
+    """Close a report: farewell message in-thread, then lock the customer's
+    composer (their side re-opens only via a new intake wizard report; an
+    owner reply also re-opens since append_message resets status to open)."""
+    owner = await require_website_owner(request)
+    conversation = await get_conversation_by_id(str(request.match_info.get("conversation_id") or ""))
+    if not conversation:
+        return web.json_response({"ok": False, "message": "Conversation was not found."}, status=404, headers=dict(_NO_STORE_HEADERS))
+    await _conversation_append_message(
+        conversation,
+        direction=DIRECTION_OWNER,
+        actor_id=owner.customer_id,
+        text="تم إغلاق هذا البلاغ ✅ إذا احتجت شيئاً جديداً ابدأ بلاغاً من نفس الصفحة.",
+    )
+    # AFTER the farewell — append_message force-reopens.
+    await set_conversation_status(conversation["_id"], status="closed")
+    await _write_owner_audit(
+        actor_id=owner.customer_id,
+        actor_email=owner.email,
+        action="conversation.close",
+        target_type="conversation",
+        target_id=_text(conversation.get("_id")),
+        metadata={"customer_id": int(conversation.get("customer_id") or 0)},
+    )
+    conversation["status"] = "closed"
     rows = await _conversation_list_messages(conversation["_id"])
     return web.json_response(
         {
@@ -3775,6 +3815,7 @@ def register_owner_api_routes(app: web.Application) -> None:
     app.router.add_post("/api/v1/owner/conversations/start", owner_conversation_start)
     app.router.add_get("/api/v1/owner/conversations/{conversation_id}", owner_conversation_detail)
     app.router.add_post("/api/v1/owner/conversations/{conversation_id}/messages", owner_conversation_send)
+    app.router.add_post("/api/v1/owner/conversations/{conversation_id}/close", owner_conversation_close)
     app.router.add_get("/api/v1/owner/support-tickets", owner_support_tickets)
     app.router.add_get("/api/v1/owner/support-tickets/{ticket_id}", owner_support_ticket_detail)
     app.router.add_post("/api/v1/owner/support-tickets/{ticket_id}/attachment", owner_support_ticket_attachment)

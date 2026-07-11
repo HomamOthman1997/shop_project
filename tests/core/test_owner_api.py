@@ -1415,6 +1415,54 @@ async def test_owner_conversation_start_finds_or_creates(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_owner_conversation_close_locks_thread_with_farewell(monkeypatch):
+    # Closing = farewell message FIRST (append re-opens), then status closed.
+    # The customer's composer locks until a new intake report re-opens it.
+    async def owner(_request):
+        return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
+
+    conversation = {"_id": "conv-1", "customer_id": 900000000123, "customer_email": "c@example.com", "status": "open"}
+    calls: list = []
+
+    async def get_by_id(_conversation_id):
+        return conversation
+
+    async def append(conv, *, direction, actor_id, text, order_ref=None):
+        calls.append(("append", direction, text))
+
+    async def set_status(_conversation_id, *, status):
+        calls.append(("status", status))
+
+    async def list_messages(_conversation_id, **_kwargs):
+        return []
+
+    audited: dict = {}
+
+    async def audit(**kwargs):
+        audited.update(kwargs)
+
+    monkeypatch.setattr(owner_api, "require_website_owner", owner)
+    monkeypatch.setattr(owner_api, "get_conversation_by_id", get_by_id)
+    monkeypatch.setattr(owner_api, "_conversation_append_message", append)
+    monkeypatch.setattr(owner_api, "set_conversation_status", set_status)
+    monkeypatch.setattr(owner_api, "_conversation_list_messages", list_messages)
+    monkeypatch.setattr(owner_api, "_write_owner_audit", audit)
+
+    request = make_mocked_request("POST", "/api/v1/owner/conversations/conv-1/close", match_info={"conversation_id": "conv-1"})
+    request._read_bytes = b"{}"
+    response = await owner_api.owner_conversation_close(request)
+    payload = json.loads(response.text)
+
+    assert response.status == 200
+    assert [kind for kind, *_ in calls] == ["append", "status"]  # farewell BEFORE close
+    assert calls[0][1] == "owner_to_customer"
+    assert "تم إغلاق هذا البلاغ" in calls[0][2]
+    assert calls[1][1] == "closed"
+    assert audited["action"] == "conversation.close"
+    assert payload["conversation"]["status"] == "closed"
+
+
+@pytest.mark.asyncio
 async def test_owner_catalog_staging_approve_all_runs_in_background(monkeypatch):
     async def owner(_request):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")

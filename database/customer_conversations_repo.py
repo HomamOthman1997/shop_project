@@ -122,6 +122,15 @@ async def list_messages(conversation_id: str | ObjectId, *, limit: int = 200) ->
     return await cursor.to_list(length=int(limit))
 
 
+async def set_conversation_status(conversation_id: str | ObjectId, *, status: str) -> None:
+    """Open/close the thread. NOTE: append_message re-opens — when closing with
+    a farewell message, append the message FIRST, then set the status."""
+    await db.customer_conversations.update_one(
+        {"_id": _as_object_id(conversation_id)},
+        {"$set": {"status": str(status), "updated_at": _now()}},
+    )
+
+
 def owner_conversations_cursor(query: dict[str, Any] | None = None):
     """Motor cursor of conversations newest-activity first, for owner paging."""
     return db.customer_conversations.find(query or {}).sort("last_message_at", -1)

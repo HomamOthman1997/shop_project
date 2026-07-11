@@ -1247,25 +1247,35 @@ async def test_customer_conversation_send_creates_thread(monkeypatch):
         return {"_id": "account-1", "email": "user@example.com"}
 
     conversation = {"_id": "conv-1", "status": "open", "customer_unread": 0, "last_message_at": None}
-    sent: dict = {}
+    existing_conversation: dict | None = conversation
+    appends: list[dict] = []
+    read_marks: list[str] = []
+
+    async def get_existing(_customer_id):
+        return existing_conversation
 
     async def get_or_create(**_kwargs):
         return conversation
 
     async def append(conv, *, direction, actor_id, text, order_ref=None):
-        sent.update({"direction": direction, "text": text, "actor_id": actor_id})
+        appends.append({"direction": direction, "text": text, "actor_id": actor_id, "order_ref": order_ref})
 
     async def list_messages(_conversation_id, **_kwargs):
         return [{"_id": "m1", "direction": "customer_to_owner", "text": "مرحبا", "created_at": None}]
+
+    async def mark_read(_conversation_id, *, side):
+        read_marks.append(side)
 
     async def noop_rate_limit(*_args, **_kwargs):
         return None
 
     monkeypatch.setattr(website_auth, "require_website_auth", auth)
     monkeypatch.setattr(website_auth, "find_website_account_by_id", account)
+    monkeypatch.setattr(website_auth, "get_conversation_for_customer", get_existing)
     monkeypatch.setattr(website_auth, "get_or_create_conversation", get_or_create)
     monkeypatch.setattr(website_auth, "_conversation_append_message", append)
     monkeypatch.setattr(website_auth, "_conversation_list_messages", list_messages)
+    monkeypatch.setattr(website_auth, "mark_conversation_read", mark_read)
     monkeypatch.setattr(website_auth, "_enforce_rate_limit", noop_rate_limit)
 
     # Empty message is rejected.
@@ -1274,25 +1284,47 @@ async def test_customer_conversation_send_creates_thread(monkeypatch):
             raw_request("POST", "/api/v1/auth/conversation/messages", json.dumps({"text": "   "}))
         )
 
+    # Free-form message on an OPEN thread works.
     response = await website_auth.conversation_send_message(
         raw_request("POST", "/api/v1/auth/conversation/messages", json.dumps({"text": "مرحبا"}))
     )
     assert response.status == 201
     body = json.loads(response.text)
-    assert sent["direction"] == "customer_to_owner"
+    assert appends[-1]["direction"] == "customer_to_owner"
     assert body["messages"][0]["actor"] == "you"
     assert body["conversation"]["unread"] == 0
 
-    # The guided-intake wizard sends a multi-line summary: line breaks must
-    # survive (per-line whitespace still collapses) so the owner reads a list.
-    await website_auth.conversation_send_message(
+    # Gate: free-form messages are rejected when the thread is closed or
+    # missing — only a new intake report re-opens the chat.
+    conversation["status"] = "closed"
+    blocked = await website_auth.conversation_send_message(
+        raw_request("POST", "/api/v1/auth/conversation/messages", json.dumps({"text": "مرحبا"}))
+    )
+    assert blocked.status == 409
+    existing_conversation = None
+    blocked = await website_auth.conversation_send_message(
+        raw_request("POST", "/api/v1/auth/conversation/messages", json.dumps({"text": "مرحبا"}))
+    )
+    assert blocked.status == 409
+
+    # Intake (wizard summary): allowed even with no thread — creates/opens it,
+    # keeps the summary's line breaks (per-line whitespace still collapses),
+    # and drops the in-thread confirmation as a support message, pre-read.
+    appends.clear()
+    response = await website_auth.conversation_send_message(
         raw_request(
             "POST",
             "/api/v1/auth/conversation/messages",
-            json.dumps({"text": "📋 بلاغ جديد\nالقسم:   شحن ألعاب\n\nالمشكلة: الطلب ما وصل"}),
+            json.dumps({"text": "📋 بلاغ جديد\nالقسم:   شحن ألعاب\n\nالمشكلة: الطلب ما وصل", "intake": True, "order_ref": "abc"}),
         )
     )
-    assert sent["text"] == "📋 بلاغ جديد\nالقسم: شحن ألعاب\nالمشكلة: الطلب ما وصل"
+    assert response.status == 201
+    assert [row["direction"] for row in appends] == ["customer_to_owner", "owner_to_customer"]
+    assert appends[0]["text"] == "📋 بلاغ جديد\nالقسم: شحن ألعاب\nالمشكلة: الطلب ما وصل"
+    assert appends[0]["order_ref"] == "abc"
+    assert "تم إرسال تفاصيل مشكلتك" in appends[1]["text"]
+    assert read_marks[-1] == "customer"
+    assert json.loads(response.text)["conversation"]["status"] == "open"
 
 
 @pytest.mark.asyncio
