@@ -23,10 +23,22 @@ ADMIN_EDITABLE_FIELDS = (
 )
 
 VALID_STATUSES = {"new", "review", "duplicate", "dropped", "approved", "stale"}
+IMPORT_REFRESH_STATUS_PRESERVE = {"approved", "review", "duplicate"}
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def status_update_patch(status: str, *, drop_reason: str = "") -> dict[str, Any] | None:
+    clean_status = str(status or "").strip().lower()
+    if clean_status not in VALID_STATUSES:
+        return None
+    patch: dict[str, Any] = {"status": clean_status, "updated_at": _now()}
+    patch["admin_edited"] = clean_status != "approved"
+    if clean_status == "dropped":
+        patch["drop_reason"] = str(drop_reason or "manual")
+    return patch
 
 
 async def bootstrap_digital_catalog_staging_indexes() -> None:
@@ -77,6 +89,11 @@ async def upsert_staging_items(owner_id: int, run_id: str, items: list[dict[str,
                         doc[field] = existing[field]
                 preserved += 1
             else:
+                existing_status = str(existing.get("status") or "").strip().lower()
+                if existing_status in IMPORT_REFRESH_STATUS_PRESERVE:
+                    doc["status"] = existing_status
+                    if "drop_reason" in existing:
+                        doc["drop_reason"] = existing.get("drop_reason") or ""
                 updated += 1
         else:
             doc["imported_at"] = now
@@ -142,8 +159,8 @@ async def update_staging_item(owner_id: int, item_id: str, patch: dict[str, Any]
 
 
 async def set_staging_status(owner_id: int, item_ids: list[str], status: str, *, drop_reason: str = "") -> int:
-    clean_status = str(status or "").strip().lower()
-    if clean_status not in VALID_STATUSES:
+    patch = status_update_patch(status, drop_reason=drop_reason)
+    if not patch:
         return 0
     oids: list[ObjectId] = []
     for item_id in item_ids or []:
@@ -153,9 +170,6 @@ async def set_staging_status(owner_id: int, item_ids: list[str], status: str, *,
             continue
     if not oids:
         return 0
-    patch: dict[str, Any] = {"status": clean_status, "admin_edited": True, "updated_at": _now()}
-    if clean_status == "dropped":
-        patch["drop_reason"] = str(drop_reason or "manual")
     result = await db.digital_catalog_staging.update_many(
         {"_id": {"$in": oids}, "owner_id": int(owner_id)}, {"$set": patch}
     )

@@ -398,6 +398,38 @@ async def test_fresh_quote_payload_uses_real_cost_when_set(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_fresh_quote_payload_uses_imported_source_cost_for_reseller(monkeypatch):
+    from services.digital_products.reseller_pricing import DEFAULT_CONFIG
+
+    nodes = {
+        "prod": {
+            "_id": "prod", "website_level": "product", "parent_id": "var",
+            "name": "60 UC", "price": 1.21,
+            "website_source_kind": "game",
+            "website_api_source": {"source_price_usd": 1.0, "game_id": "pubgm"},
+            "input_fields": [{"id": "player_id", "label": "Player ID", "required": True, "type": "text"}],
+        },
+        "var": {"_id": "var", "website_level": "variant", "parent_id": "fam", "name": "Global"},
+        "fam": {"_id": "fam", "website_level": "family", "parent_id": "root", "name": "PUBG",
+                "website_section_key": "games", "website_family_key": "pubg"},
+    }
+
+    async def fake_get_node(node_id, reseller_id=None, catalog_type=None):
+        return nodes.get(str(node_id))
+
+    monkeypatch.setattr(manual_catalog, "get_node", fake_get_node)
+    monkeypatch.setattr(manual_catalog, "owner_catalog_id", lambda: 77)
+
+    customer = await manual_catalog.fresh_quote_payload("prod", pricing_config=DEFAULT_CONFIG)
+    assert customer["sale_price"] == 1.21
+    assert customer["cost_price"] == 1.0
+
+    reseller = await manual_catalog.fresh_quote_payload("prod", viewer_tier="silver", pricing_config=DEFAULT_CONFIG)
+    assert reseller["sale_price"] == 1.04
+    assert reseller["cost_price"] == 1.0
+
+
+@pytest.mark.asyncio
 async def test_unify_game_topup_variants_merges_dedups_and_renames(monkeypatch):
     # PUBG family with a legacy "Global" variant duplicating the staged "topup"
     # bucket: merge -> dedup (api-capable copy wins) -> rename to شدات UC.

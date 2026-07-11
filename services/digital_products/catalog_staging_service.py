@@ -198,6 +198,7 @@ def staged_product_payload(item: dict[str, Any]) -> dict[str, Any]:
         "variant_name": str(item.get("sub_category") or "Global"),
         "product_name": str(item.get("package_name") or ""),
         "price": _round2(item.get("suggested_price_usd")),
+        "cost_price": _round2(item.get("cost_price_usd")),
         "input_fields": list(item.get("input_fields") or []),
         "source_key": str(item.get("source_key") or ""),
         "source_kind": str(item.get("source_kind") or "game"),

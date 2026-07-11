@@ -8,9 +8,8 @@ from typing import Any, Protocol, runtime_checkable
 class CatalogOffer:
     """One normalized package offer pulled from a provider, ready for staging.
 
-    `price_usd` is the suggested customer sale price (provider cost already
-    marked up by the catalog markup), since the live catalog stores sale prices
-    and smart routing re-optimises the real provider cost at order time.
+    `price_usd` is the raw provider cost. The staging importer applies the
+    catalog markup and stores the sale price separately.
     """
 
     provider: str

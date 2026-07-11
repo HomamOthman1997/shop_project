@@ -30,7 +30,7 @@ from services.digital_products.fulfillment_rules import (
     offer_region_label,
 )
 from services.digital_products.static_taxonomy import guess_family
-from services.digital_products.reseller_pricing import TIERS as _RESELLER_TIERS, wholesale_from_retail
+from services.digital_products.reseller_pricing import TIERS as _RESELLER_TIERS, wholesale_from_retail, wholesale_price
 
 CATALOG_TYPE = "website_manual"
 # website_section_key -> the pricing engine's section. Unmapped sections
@@ -365,6 +365,7 @@ async def create_static_manual_product(
     product_name: str,
     price: float,
     input_fields: list[dict[str, Any]],
+    cost_price: float = 0.0,
     family_name: str = "",
     variant_name: str = "Global",
     product_info_text: str = "",
@@ -396,6 +397,7 @@ async def create_static_manual_product(
         family_key=family_key,
         product_name=name,
         price=price,
+        cost_price=cost_price,
         input_fields=clean_fields,
         variant_name=variant_name,
         product_info_text=product_info_text,
@@ -415,6 +417,7 @@ async def _create_static_manual_product_at_variant(
     product_name: str,
     price: float,
     input_fields: list[dict[str, Any]],
+    cost_price: float = 0.0,
     variant_name: str,
     product_info_text: str,
     execution_mode: str,
@@ -434,6 +437,7 @@ async def _create_static_manual_product_at_variant(
         website_source_kind=clean_source_kind(source_kind),
         website_source_key=str(source_key or "").strip(),
         website_api_source=clean_api_source(api_source),
+        website_cost_price=float(cost_price or 0.0),
         input_fields=clean_input_fields(input_fields),
         catalog_type=CATALOG_TYPE,
     ) or product
@@ -450,6 +454,7 @@ async def upsert_static_manual_product(
     product_name: str,
     price: float,
     input_fields: list[dict[str, Any]],
+    cost_price: float = 0.0,
     source_key: str,
     source_kind: str,
     api_source: dict[str, Any] | None = None,
@@ -530,6 +535,8 @@ async def upsert_static_manual_product(
         # non-positive prices so a bad value can never zero out a live product.
         if float(price or 0) > 0:
             updates["price"] = float(price)
+        if float(cost_price or 0) > 0:
+            updates["website_cost_price"] = float(cost_price)
         existing = await update_node_website_metadata(
             existing["_id"],
             catalog_owner_id,
@@ -554,6 +561,7 @@ async def upsert_static_manual_product(
         family_key=family_key,
         product_name=name,
         price=price,
+        cost_price=cost_price,
         input_fields=clean_fields,
         variant_name=variant_name,
         product_info_text=product_info_text,
@@ -1250,13 +1258,20 @@ async def fresh_quote_payload(
     family = await get_node((variant or {}).get("parent_id"), reseller_id=catalog_owner_id, catalog_type=CATALOG_TYPE)
     if node_level(variant) != "variant" or node_level(family) != "family":
         return None
-    # Cost basis for profit tracking: the admin-set real cost ("سعر التكلفة علينا")
-    # if present, else fall back to the price (profit 0, legacy behaviour).
+    # Cost basis for profit tracking: admin-set real cost first, imported source
+    # cost second, then price as the legacy no-profit fallback.
+    source_kind = clean_source_kind(endpoint.get("website_source_kind"))
+    api_source = clean_api_source(endpoint.get("website_api_source"))
     real_cost = 0.0
     try:
         real_cost = max(0.0, float(endpoint.get("website_cost_price") or 0))
     except (TypeError, ValueError):
         real_cost = 0.0
+    if real_cost <= 0:
+        try:
+            real_cost = max(0.0, float(api_source.get("source_price_usd") or 0))
+        except (TypeError, ValueError):
+            real_cost = 0.0
     sale_price = price
     cost_price = real_cost if real_cost > 0 else price
     tier = str(viewer_tier or "").strip().lower()
@@ -1267,15 +1282,16 @@ async def fresh_quote_payload(
             from database.reseller_pricing_config_repo import get_pricing_config
 
             pricing_config = await get_pricing_config()
-        sale_price = wholesale_from_retail(section, tier, price, pricing_config)
+        if real_cost > 0:
+            sale_price = wholesale_price(section, tier, cost=real_cost, retail=price, cfg=pricing_config)
+        else:
+            sale_price = wholesale_from_retail(section, tier, price, pricing_config)
         # With a real cost, profit = wholesale - cost stays accurate; without one,
         # clamp cost to the sale price so the ledger never records a phantom loss.
         if real_cost <= 0:
             cost_price = sale_price
     endpoint_ref = str(endpoint.get("_id") or "")
     execution_mode = clean_execution_mode(endpoint.get("website_execution_mode"))
-    source_kind = clean_source_kind(endpoint.get("website_source_kind"))
-    api_source = clean_api_source(endpoint.get("website_api_source"))
     api_supported = bool(api_source) and source_kind == "game"
     compare_key = _api_source_compare_key(endpoint, family=family, variant=variant)
     api_offers = _api_provider_offers(endpoint, price=price) if api_supported else []

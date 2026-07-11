@@ -5,6 +5,7 @@ sys.path.insert(0, os.getcwd())
 
 from services.digital_products.catalog_sources import CatalogOffer
 from services.digital_products.catalog_sources.base import parse_compare_key
+from database.digital_catalog_staging_repo import status_update_patch
 from services.digital_products.catalog_staging_service import (
     ALLOWED_REGIONS,
     build_staging_items,
@@ -174,6 +175,7 @@ def test_staged_product_payload_maps_fields_for_live_upsert():
     assert payload["variant_name"] == "topup"        # sub_category becomes the variant (rule 4 split)
     assert payload["product_name"] == "60 UC"
     assert payload["price"] == 0.85
+    assert payload["cost_price"] == 0.85
     assert payload["source_kind"] == "game"
     assert payload["execution_mode"] == "manual"     # pubg is voucher-first
     assert payload["api_source"]["compare_key"] == "pubg:global:60:uc"
@@ -183,6 +185,18 @@ def test_staged_product_payload_respects_manual_execution_policy():
     item = build_staging_items([_offer()])[0][0]
     item["execution_policy"] = "manual"
     assert staged_product_payload(item)["execution_mode"] == "manual"
+
+
+def test_approving_staging_item_does_not_freeze_import_price():
+    approved = status_update_patch("approved")
+    assert approved is not None
+    assert approved["status"] == "approved"
+    assert approved["admin_edited"] is False
+
+    dropped = status_update_patch("dropped", drop_reason="manual")
+    assert dropped is not None
+    assert dropped["admin_edited"] is True
+    assert dropped["drop_reason"] == "manual"
 
 
 # --- fix #1: region named in the package leaks past a 'global' compare_key ---
