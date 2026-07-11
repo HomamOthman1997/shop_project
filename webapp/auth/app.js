@@ -177,6 +177,82 @@ function esc(value) {
   })[char]);
 }
 
+const ARABIC_MONTHS = ["كانون الثاني", "شباط", "آذار", "نيسان", "أيار", "حزيران", "تموز", "آب", "أيلول", "تشرين الأول", "تشرين الثاني", "كانون الأول"];
+
+// Server timestamps are naive-UTC ISO ("2026-07-10T06:16:28.092000") — raw they
+// are unreadable and get scrambled by RTL. Show them in the viewer's timezone
+// with Levantine month names; anything unparsable falls back to the raw text.
+function fmtDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const naive = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(raw) && !/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
+  const date = new Date(naive ? `${raw.replace(" ", "T")}Z` : raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  const two = (part) => String(part).padStart(2, "0");
+  const time = `${two(date.getHours())}:${two(date.getMinutes())}`;
+  const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayDiff = Math.round((dayStart(new Date()) - dayStart(date)) / 86400000);
+  if (dayDiff === 0) return `اليوم ${time}`;
+  if (dayDiff === 1) return `أمس ${time}`;
+  return `${date.getDate()} ${ARABIC_MONTHS[date.getMonth()]} ${date.getFullYear()} · ${time}`;
+}
+
+const CUSTOMER_STATUS_LABELS = {
+  pending: "قيد المراجعة", processing: "قيد التنفيذ", awaiting: "قيد التنفيذ", queued: "قيد التنفيذ",
+  in_progress: "قيد التنفيذ", open: "مفتوح", active: "نشط", waiting: "بالانتظار", new: "جديد",
+  paid: "مدفوع", done: "مكتمل", completed: "مكتمل", complete: "مكتمل", delivered: "تم التسليم",
+  success: "مكتمل", approved: "مقبول", accepted: "مقبول", credited: "تمت الإضافة",
+  refunded: "تم استرجاع المبلغ", cancelled: "ملغى", canceled: "ملغى", expired: "منتهي",
+  rejected: "مرفوض", refused: "مرفوض", declined: "مرفوض", failed: "فشل",
+};
+
+function customerStatusLabel(status) {
+  const key = String(status || "").trim().toLowerCase();
+  return CUSTOMER_STATUS_LABELS[key] || String(status || "");
+}
+
+function orderStatusClass(status) {
+  const key = String(status || "").trim().toLowerCase();
+  if (["refunded", "cancelled", "canceled", "expired"].includes(key)) return "is-muted";
+  return rechargeStatusClass(status);
+}
+
+// Replaces the native (English, unstyled) file control with an Arabic button +
+// chosen-file name. The real input stays in the DOM (1px, transparent) so
+// required-validation and existing change listeners keep working.
+function dressFileInput(input, buttonLabel = "اختر ملفًا…") {
+  if (!input || input.dataset.dressed) return;
+  input.dataset.dressed = "1";
+  const wrap = document.createElement("div");
+  wrap.className = "file-pick";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "file-pick-btn";
+  button.textContent = buttonLabel;
+  const name = document.createElement("span");
+  name.className = "file-pick-name";
+  name.textContent = "لم يتم اختيار ملف بعد";
+  wrap.append(button, name);
+  input.classList.add("file-pick-input");
+  input.after(wrap);
+  button.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    name.textContent = input.files?.[0]?.name || "لم يتم اختيار ملف بعد";
+    wrap.classList.toggle("has-file", Boolean(input.files?.length));
+  });
+}
+
+const CURRENCY_AR = { SYP: "ل.س", TRY: "ليرة تركية", EUR: "يورو", USD: "$", USDT: "USDT" };
+
+function methodRateLabel(method) {
+  const rate = Number(method?.per_credit || method?.rate || 0);
+  const currency = String(method?.currency || "").trim().toUpperCase();
+  if (!rate || !currency || (currency === "USD" && rate === 1)) return "التحويل بالدولار الأمريكي";
+  const unit = CURRENCY_AR[currency] || currency;
+  const amount = Number.isInteger(rate) ? String(rate) : rate.toFixed(2);
+  return `كل 1$ رصيد = ${amount} ${unit}`;
+}
+
 function safeExternalUrl(value) {
   try {
     const url = new URL(String(value || "").trim());
@@ -733,7 +809,7 @@ async function loadDashboard() {
     const recentActivity = combinedRecentActivity(digitalAccount, numbersAccount);
     renderRows(activity, recentActivity, (row) => `
       <div class="data-row">
-        <div><strong>${esc(activityTitle(row))}</strong><span>${esc(row.created_at || "")}</span></div>
+        <div><strong>${esc(activityTitle(row))}</strong><span>${esc(fmtDate(row.created_at))}</span></div>
         <b>${esc(activityAmountLabel(row))}</b>
       </div>`);
     if (accountResult.status !== "fulfilled" && numbersAccountResult.status !== "fulfilled") renderLoadError("#activity-list", "تعذر تحميل نشاط الحساب حالياً.");
@@ -784,7 +860,7 @@ function renderRechargeOptions(payload) {
   const methodCards = methods.map((method, index) => `
     <button type="button" class="recharge-method${index === 0 ? " active" : ""}" data-method-code="${esc(method.code)}">
       <strong>${esc(method.title || method.code || "طريقة دفع")}</strong>
-      ${method.rate_label ? `<span>${esc(method.rate_label)}</span>` : ""}
+      <span>${esc(methodRateLabel(method))}</span>
     </button>`).join("");
   target.innerHTML = `
     <div class="recharge-flow">
@@ -798,9 +874,10 @@ function renderRechargeOptions(payload) {
         <input type="hidden" name="method_code" value="${esc(methods[0].code || "")}">
         <input name="language" type="hidden" value="ar">
         <div class="recharge-submit-grid">
-          <label><span>المبلغ المدفوع</span><input name="paid_amount" inputmode="decimal" required placeholder="0.00"></label>
+          <label><span>المبلغ المدفوع <b class="amount-currency" id="recharge-amount-currency"></b></span><input name="paid_amount" inputmode="decimal" required placeholder="0.00"></label>
           <label><span>إثبات الدفع (صورة الإيصال)</span><input name="proof" type="file" accept="image/*,.pdf" required></label>
         </div>
+        <p class="recharge-estimate" id="recharge-estimate" hidden></p>
         <button class="primary" type="submit">إرسال طلب الشحن</button>
         <p class="message" id="recharge-submit-message"></p>
       </form>` : '<div class="notice">بعد التحويل افتح تذكرة من مركز الدعم مع صورة الإيصال ليُضاف الرصيد.</div>'}
@@ -829,20 +906,41 @@ function renderRechargeOptions(payload) {
     });
   };
   showMethodDetails(methods[0].code);
+  const submitForm = $("#recharge-submit-form");
+  dressFileInput(submitForm?.querySelector('[name="proof"]'), "أرفق صورة الإيصال");
+  // Live feedback: show the method currency on the amount field and how many
+  // dollars the typed amount converts to, so the customer knows what to expect.
+  const updateEstimate = () => {
+    if (!submitForm) return;
+    const method = methods.find((row) => row.code === submitForm.querySelector('[name="method_code"]')?.value) || methods[0];
+    const currency = String(method?.currency || "USD").trim().toUpperCase();
+    const currencyEl = $("#recharge-amount-currency");
+    if (currencyEl) currencyEl.textContent = `(${CURRENCY_AR[currency] || currency})`;
+    const estimate = $("#recharge-estimate");
+    if (!estimate) return;
+    const rate = Number(method?.per_credit || method?.rate || 0) || 1;
+    const amount = Number(String(submitForm.querySelector('[name="paid_amount"]')?.value || "").replace(",", "."));
+    const credits = amount > 0 ? amount / rate : 0;
+    estimate.hidden = !(credits > 0);
+    if (credits > 0) estimate.textContent = `سيُضاف إلى رصيدك: $${credits.toFixed(2)}`;
+  };
+  submitForm?.querySelector('[name="paid_amount"]')?.addEventListener("input", updateEstimate);
+  updateEstimate();
   target.querySelectorAll(".recharge-method").forEach((button) => {
     button.addEventListener("click", () => {
       target.querySelectorAll(".recharge-method").forEach((row) => row.classList.toggle("active", row === button));
-      const hidden = $("#recharge-submit-form")?.querySelector('[name="method_code"]');
+      const hidden = submitForm?.querySelector('[name="method_code"]');
       if (hidden) hidden.value = button.dataset.methodCode || "";
       showMethodDetails(button.dataset.methodCode);
+      updateEstimate();
     });
   });
-  $("#recharge-submit-form")?.addEventListener("submit", submitRechargeProof);
+  submitForm?.addEventListener("submit", submitRechargeProof);
 }
 
 function rechargeStatusClass(status) {
   const key = String(status || "").trim().toLowerCase();
-  if (["approved", "accepted", "completed", "credited", "done", "success"].includes(key)) return "is-ok";
+  if (["approved", "accepted", "completed", "complete", "credited", "done", "success", "delivered", "paid"].includes(key)) return "is-ok";
   if (["rejected", "refused", "declined", "failed", "cancelled"].includes(key)) return "is-bad";
   return "is-wait";
 }
@@ -856,11 +954,11 @@ function renderRechargeRequests(payload) {
     <div class="data-row">
       <div>
         <strong>${esc(row.method || "طلب شحن")}</strong>
-        <span>${esc(row.created_at || "")}${row.updated_at ? ` · ${esc(row.updated_at)}` : ""}</span>
+        <span>${esc(fmtDate(row.created_at))}${row.updated_at ? ` · آخر تحديث ${esc(fmtDate(row.updated_at))}` : ""}</span>
       </div>
       <div class="stacked-meta">
-        <b class="recharge-status ${rechargeStatusClass(row.status)}">${esc(row.status_label || row.status || "")}</b>
-        <span>${esc(row.paid_label || row.credits_label || "")}</span>
+        <b class="recharge-status ${rechargeStatusClass(row.status)}">${esc(row.status_label || customerStatusLabel(row.status))}</b>
+        <span dir="ltr">${esc(row.paid_label || row.credits_label || "")}</span>
       </div>
     </div>`);
 }
@@ -912,7 +1010,7 @@ function renderConversation(payload) {
         <div class="chat-bubble ${row.actor === "support" ? "is-support" : "is-mine"}">
           ${row.order_ref ? `<span class="chat-order-ref">طلب: ${esc(row.order_ref)}</span>` : ""}
           <p>${esc(row.text || "")}</p>
-          <span class="chat-time">${esc(row.created_at || "")}</span>
+          <span class="chat-time">${esc(fmtDate(row.created_at))}</span>
         </div>`).join("")
     : "ابدأ المحادثة مع فريق Phantom — اكتب رسالتك بالأسفل.";
   thread.scrollTop = thread.scrollHeight;
@@ -1003,7 +1101,7 @@ function renderNotifications(payload) {
         <strong>${esc(notificationIcons[row.kind] || "🔔")} ${esc(row.title || "")}</strong>
         <span>${esc(row.body || "")}</span>
       </div>
-      <small>${esc(row.created_at || "")}</small>
+      <small>${esc(fmtDate(row.created_at))}</small>
     </button>`).join("");
   target.querySelectorAll("[data-notification-link]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1211,7 +1309,7 @@ function renderSupportTicketDetail(payload) {
     <div class="support-message-list">
       ${messages.length ? messages.map((row) => `
         <div class="support-message ${row.actor === "support" ? "is-support" : ""}">
-          <span>${row.actor === "support" ? "الدعم" : "أنت"} · ${esc(row.created_at || "")}</span>
+          <span>${row.actor === "support" ? "الدعم" : "أنت"} · ${esc(fmtDate(row.created_at))}</span>
           <strong>${esc(row.text || row.filename || "")}</strong>
         </div>`).join("") : '<div class="notice">لا توجد رسائل بعد.</div>'}
     </div>
@@ -4080,9 +4178,9 @@ function renderOrders(rows = filteredCustomerOrders()) {
     <button class="data-row order-row-button" type="button" data-order-channel="${esc(row.channel_key || "")}" data-order-id="${esc(row.id || "")}">
       <div>
         <strong>${esc(orderTitle(row))}</strong>
-        <span>${esc(row.channel)} · ${esc(row.created_at || "")}</span>
+        <span>${esc(row.channel)} · ${esc(fmtDate(row.created_at))}</span>
       </div>
-      <b>${esc(orderStatus(row))}</b>
+      <b class="recharge-status ${orderStatusClass(orderStatus(row))}">${esc(customerStatusLabel(orderStatus(row)))}</b>
     </button>`);
   target.querySelectorAll("[data-order-id]").forEach((button) => {
     button.addEventListener("click", () => loadOrderDetail(button.dataset.orderChannel, button.dataset.orderId));
@@ -4101,9 +4199,9 @@ function orderMetaRows(order, channel) {
   const rows = [
     ["القناة", channel === "numbers" ? "أرقام" : "رقمي"],
     ["رقم الطلب", order.id],
-    ["الحالة", orderStatus(order)],
+    ["الحالة", customerStatusLabel(orderStatus(order))],
     ["السعر", order.price_label || (order.selling_price ? `$${Number(order.selling_price).toFixed(2)}` : "")],
-    ["التاريخ", order.created_at || ""],
+    ["التاريخ", fmtDate(order.created_at)],
   ];
   if (channel === "numbers") {
     rows.push(["النوع", order.mode || ""]);
@@ -5355,6 +5453,7 @@ async function compressImageToDataUrl(file, maxSide = 1280, quality = 0.82) {
   return canvas.toDataURL("image/jpeg", quality);
 }
 
+dressFileInput($("#identity-document-input"), "أرفق صورة الوثيقة");
 $("#identity-document-input")?.addEventListener("change", (event) => {
   const file = event.currentTarget.files?.[0];
   const preview = $("#identity-document-preview");
