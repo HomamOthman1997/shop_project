@@ -352,3 +352,20 @@ def test_g_coins_offers_get_their_own_sub_category():
     assert unit_subcategory("uc") == "topup"
     assert unit_subcategory("gcoin") == "G Coins"
     assert unit_subcategory("diamond", default="events") == "events"
+
+
+def test_mangerr_offer_emits_raw_cost_never_marked_up():
+    # THE double-pricing regression: sources must emit the raw provider cost;
+    # the margin is applied ONCE at staging (cost 0.89 -> 0.9523, never 1.02).
+    from services.digital_products.catalog_sources.mangerr_source import _mangerr_offer
+
+    offer = _mangerr_offer(
+        {"id": "m60", "price": 0.89, "name": "PUBG 60 UC", "category_name": "PUBG Mobile", "available": True},
+        lambda **_kw: "pubg:global:60:uc",
+        lambda _text: "games",
+    )
+    assert offer.price_usd == 0.89  # raw cost, no markup baked in
+
+    items, _ = build_staging_items([offer], margin_factor=1.07)
+    assert items[0]["cost_price_usd"] == 0.89
+    assert items[0]["suggested_price_usd"] == 0.95  # 0.89 * 1.07 = 0.9523 -> 0.95

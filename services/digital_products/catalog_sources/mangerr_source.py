@@ -34,21 +34,25 @@ class MangerrCatalogSource:
 
         # Imported lazily to avoid heavy/circular imports at module load.
         from services.digital_products.catalog_service import _product_compare_key
-        from services.digital_products.miniapp import _gift_service_key, _markup_percent, _round_sale_price
+        from services.digital_products.miniapp import _gift_service_key
 
-        markup = await _markup_percent()
         offers: list[CatalogOffer] = []
         for item in payload:
             if not isinstance(item, dict):
                 continue
-            offer = _mangerr_offer(item, markup, _product_compare_key, _gift_service_key, _round_sale_price)
+            offer = _mangerr_offer(item, _product_compare_key, _gift_service_key)
             if offer:
                 offers.append(offer)
         logger.info("mangerr catalog source produced %d offers", len(offers))
         return offers
 
 
-def _mangerr_offer(item: dict[str, Any], markup: float, compare_key_fn, service_fn, round_fn) -> CatalogOffer | None:
+def _mangerr_offer(item: dict[str, Any], compare_key_fn, service_fn) -> CatalogOffer | None:
+    """Emit the RAW provider cost. Catalog offers must never carry a marked-up
+    price: build_staging_items treats the cheapest offer's price_usd as the COST
+    and applies the (single) configured margin on top. Applying the markup here
+    too was the hidden double-pricing stage — cost 0.89 became 0.9523 at the
+    source, then 0.9523 x 1.07 = 1.02 at staging."""
     if not bool(item.get("available", True)):
         return None
     ref_id = str(item.get("id") or "").strip()
@@ -61,9 +65,6 @@ def _mangerr_offer(item: dict[str, Any], markup: float, compare_key_fn, service_
     compare_key = str(compare_key_fn(category_name=category_name, product_name=name) or "").strip()
     family_key, region, _amount, unit = parse_compare_key(compare_key)
     service_key = str(service_fn(f"{name} {category_name}") or "games").strip() or "games"
-    sale_price = float(round_fn(cost * (1.0 + float(markup or 0.0) / 100.0)))
-    if sale_price <= 0:
-        return None
 
     params = [str(value).strip() for value in list(item.get("params") or []) if str(value).strip()]
     input_fields = _fields_from_params(params)
@@ -81,7 +82,7 @@ def _mangerr_offer(item: dict[str, Any], markup: float, compare_key_fn, service_
         compare_key=compare_key,
         unit_kind=unit,
         package_name=name,
-        price_usd=sale_price,
+        price_usd=cost,
         requires_server=requires_server,
         input_fields=input_fields,
         raw=dict(item),
