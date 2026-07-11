@@ -1,118 +1,118 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
-  <title>ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ | Phantom</title>
-  <link rel="stylesheet" href="/auth/static/styles.css?v=20260710-uxpolish">
+  <title>تسجيل الدخول | Phantom</title>
+  <link rel="stylesheet" href="/auth/static/styles.css?v=20260710-uxpolish2">
   <script src="/auth/static/i18n.js" defer></script>
-  <script src="/auth/static/app.js?v=20260710-uxpolish" defer></script>
+  <script src="/auth/static/app.js?v=20260710-uxpolish2" defer></script>
 </head>
 <body>
   <main class="auth-shell">
     <section class="brand-panel" aria-label="Phantom">
       <a class="brand" href="/" aria-label="Phantom home">
-        <span class="brand-ghost">ðŸ‘»</span>
+        <span class="brand-ghost">👻</span>
         <span>Phantom</span>
       </a>
       <div class="brand-copy">
         <h1>Phantom Services</h1>
-        <p>Ø§Ø®ØªØ± Ø§Ù„Ø®Ø¯Ù…Ø© Ø§Ù„ØªÙŠ ØªØ±ÙŠØ¯Ù‡Ø§ Ù…Ù† Ø­Ø³Ø§Ø¨ ÙˆØ§Ø­Ø¯ Ø¢Ù…Ù†.</p>
+        <p>اختر الخدمة التي تريدها من حساب واحد آمن.</p>
       </div>
       <div class="trust-row">
-        <span>ØªØ³Ø¬ÙŠÙ„ Ø¢Ù…Ù†</span>
-        <span>ØªØ£ÙƒÙŠØ¯ Ø¨Ø±ÙŠØ¯</span>
-        <span>Ù…Ø­ÙØ¸Ø© ÙˆØ§Ø­Ø¯Ø©</span>
+        <span>تسجيل آمن</span>
+        <span>تأكيد بريد</span>
+        <span>محفظة واحدة</span>
       </div>
     </section>
 
     <section class="form-panel">
       <div class="form-wrap">
-        <div id="boot-splash" class="boot-splash" aria-label="Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„">
-          <span class="brand-ghost boot-splash-ghost">ðŸ‘»</span>
-          <span class="boot-splash-text">Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„...</span>
+        <div id="boot-splash" class="boot-splash" aria-label="جاري التحميل">
+          <span class="brand-ghost boot-splash-ghost">👻</span>
+          <span class="boot-splash-text">جاري التحميل...</span>
         </div>
         <div id="auth-view" hidden>
           <div class="tabs" role="tablist">
-            <button class="tab active" type="button" data-mode="login">ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„</button>
-            <button class="tab" type="button" data-mode="register">Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø³Ø§Ø¨</button>
+            <button class="tab active" type="button" data-mode="login">تسجيل الدخول</button>
+            <button class="tab" type="button" data-mode="register">إنشاء حساب</button>
           </div>
           <header class="form-header">
-            <h2 id="form-title">Ø£Ù‡Ù„Ø§Ù‹ Ø¨Ø¹ÙˆØ¯ØªÙƒ</h2>
-            <p id="form-subtitle">Ø£Ø¯Ø®Ù„ Ø¨Ø±ÙŠØ¯Ùƒ ÙˆÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ù„Ù„Ù…ØªØ§Ø¨Ø¹Ø©.</p>
+            <h2 id="form-title">أهلاً بعودتك</h2>
+            <p id="form-subtitle">أدخل بريدك وكلمة المرور للمتابعة.</p>
           </header>
           <p id="auth-context-message" class="auth-context-message" role="status"></p>
           <form id="auth-form" novalidate>
             <label>
-              <span>Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ</span>
+              <span>البريد الإلكتروني</span>
               <input id="email" name="email" type="email" autocomplete="email" inputmode="email" required>
             </label>
             <label>
-              <span>ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±</span>
+              <span>كلمة المرور</span>
               <span class="password-field">
                 <input id="password" name="password" type="password" autocomplete="current-password" minlength="10" required>
-                <button id="toggle-password" type="button" aria-label="Ø¥Ø¸Ù‡Ø§Ø± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±">Ø¥Ø¸Ù‡Ø§Ø±</button>
+                <button id="toggle-password" type="button" aria-label="إظهار كلمة المرور">إظهار</button>
               </span>
             </label>
             <p id="form-error" class="message error" role="alert"></p>
-            <button id="submit-button" class="primary" type="submit">ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„</button>
+            <button id="submit-button" class="primary" type="submit">تسجيل الدخول</button>
           </form>
         </div>
 
         <div id="verify-view" class="verify-panel" hidden>
           <a class="brand verify-brand" href="/" aria-label="Phantom home">
-            <span class="brand-ghost">ðŸ‘»</span>
+            <span class="brand-ghost">👻</span>
             <span>Phantom</span>
           </a>
           <header class="form-header">
             <p class="section-label">Email Verification</p>
-            <h2>ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ</h2>
-            <p>Ø£Ø±Ø³Ù„ ÙƒÙˆØ¯ Ø§Ù„ØªØ£ÙƒÙŠØ¯ Ø¥Ù„Ù‰ Ø¨Ø±ÙŠØ¯Ùƒ ÙˆØ£Ø¯Ø®Ù„Ù‡ Ù‡Ù†Ø§ Ù„ØªÙØ¹ÙŠÙ„ ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ù…ÙˆÙ‚Ø¹ ÙˆØ§Ù„Ø®Ø¯Ù…Ø§Øª.</p>
+            <h2>تأكيد البريد الإلكتروني</h2>
+            <p>أرسل كود التأكيد إلى بريدك وأدخله هنا لتفعيل واجهة الموقع والخدمات.</p>
           </header>
           <div class="verify-email-box">
-            <span>Ø§Ù„Ø­Ø³Ø§Ø¨</span>
+            <span>الحساب</span>
             <strong id="verify-email"></strong>
           </div>
-          <button id="verify-send-email-code" class="primary" type="button">Ø¥Ø±Ø³Ø§Ù„ ÙƒÙˆØ¯ Ø§Ù„ØªØ£ÙƒÙŠØ¯</button>
+          <button id="verify-send-email-code" class="primary" type="button">إرسال كود التأكيد</button>
           <div id="verify-code-row" class="verify-code-row" hidden>
             <label>
-              <span>ÙƒÙˆØ¯ Ø§Ù„ØªØ£ÙƒÙŠØ¯</span>
+              <span>كود التأكيد</span>
               <input id="verify-email-code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
             </label>
-            <button id="verify-email-code-button" class="primary" type="button">ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø¨Ø±ÙŠØ¯</button>
+            <button id="verify-email-code-button" class="primary" type="button">تأكيد البريد</button>
           </div>
           <p id="verify-message" class="message" role="status"></p>
-          <button id="verify-logout-button" class="text-button" type="button">ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬</button>
+          <button id="verify-logout-button" class="text-button" type="button">تسجيل الخروج</button>
         </div>
 
         <div id="account-view" class="site-app" hidden>
           <aside class="sidebar">
             <div class="sidebar-sticky">
             <div class="sidebar-top">
-              <a class="brand sidebar-brand" href="/"><span class="brand-ghost">ðŸ‘»</span><span>Phantom</span></a>
-              <button id="balance-chip" class="balance-chip" type="button" title="Ø§Ø¶ØºØ· Ù„Ø´Ø­Ù† Ø§Ù„Ø±ØµÙŠØ¯"><span class="balance-chip-label">Ø§Ù„Ø±ØµÙŠØ¯</span><strong id="wallet-balance">$0.00</strong></button>
+              <a class="brand sidebar-brand" href="/"><span class="brand-ghost">👻</span><span>Phantom</span></a>
+              <button id="balance-chip" class="balance-chip" type="button" title="اضغط لشحن الرصيد"><span class="balance-chip-label">الرصيد</span><strong id="wallet-balance">$0.00</strong></button>
             </div>
             <nav>
-              <button class="nav-item active" data-view="home">Ø§Ù„Ø®Ø¯Ù…Ø§Øª</button>
-              <button class="nav-item" data-view="orders">Ø·Ù„Ø¨Ø§ØªÙŠ</button>
-              <button class="nav-item" data-view="recharge">Ø´Ø­Ù† Ø§Ù„Ø±ØµÙŠØ¯</button>
-              <button class="nav-item" data-view="messages">Ù…Ø±Ø§Ø³Ù„Ø©<span id="messages-nav-badge" class="nav-badge" hidden>0</span></button>
-              <button class="nav-item" data-view="notifications">Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª<span id="notifications-nav-badge" class="nav-badge" hidden>0</span></button>
-              <button class="nav-item" data-view="support">Ø§Ù„Ø¯Ø¹Ù…</button>
-              <button class="nav-item" data-view="account">Ø­Ø³Ø§Ø¨ÙŠ</button>
-              <button class="nav-item" data-view="identity">ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ù‡ÙˆÙŠØ©</button>
-              <button class="nav-item owner-nav" type="button" data-owner-tab="overview" hidden>Ø§Ù„Ù†Ø¸Ø±Ø© Ø§Ù„Ø¹Ø§Ù…Ø©</button>
-              <button class="nav-item owner-nav" type="button" data-owner-tab="finance" hidden>Ø§Ù„Ù…Ø§Ù„ÙŠØ©</button>
-              <button class="nav-item owner-nav" type="button" data-owner-tab="users" hidden>Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙˆÙ†</button>
-              <button class="nav-item owner-nav" type="button" data-owner-tab="support" hidden>Ø§Ù„Ø¯Ø¹Ù…</button>
+              <button class="nav-item active" data-view="home">الخدمات</button>
+              <button class="nav-item" data-view="orders">طلباتي</button>
+              <button class="nav-item" data-view="recharge">شحن الرصيد</button>
+              <button class="nav-item" data-view="messages">مراسلة<span id="messages-nav-badge" class="nav-badge" hidden>0</span></button>
+              <button class="nav-item" data-view="notifications">التنبيهات<span id="notifications-nav-badge" class="nav-badge" hidden>0</span></button>
+              <button class="nav-item" data-view="support">الدعم</button>
+              <button class="nav-item" data-view="account">حسابي</button>
+              <button class="nav-item" data-view="identity">تأكيد الهوية</button>
+              <button class="nav-item owner-nav" type="button" data-owner-tab="overview" hidden>النظرة العامة</button>
+              <button class="nav-item owner-nav" type="button" data-owner-tab="finance" hidden>المالية</button>
+              <button class="nav-item owner-nav" type="button" data-owner-tab="users" hidden>المستخدمون</button>
+              <button class="nav-item owner-nav" type="button" data-owner-tab="support" hidden>الدعم</button>
               <button class="nav-item owner-nav" type="button" data-owner-tab="integrations" hidden>API</button>
-              <button class="nav-item owner-nav" type="button" data-owner-tab="providers" hidden>Ø§Ù„Ù…Ø²ÙˆØ¯ÙˆÙ†</button>
+              <button class="nav-item owner-nav" type="button" data-owner-tab="providers" hidden>المزودون</button>
               <button class="nav-item owner-nav" type="button" data-owner-tab="catalog" hidden>Catalog</button>
-              <button class="nav-item owner-nav" type="button" data-owner-tab="system" hidden>Ø§Ù„Ù†Ø¸Ø§Ù…</button>
-              <button class="nav-item owner-nav" type="button" data-owner-tab="orders" hidden>Ø§Ù„Ø·Ù„Ø¨Ø§Øª</button>
+              <button class="nav-item owner-nav" type="button" data-owner-tab="system" hidden>النظام</button>
+              <button class="nav-item owner-nav" type="button" data-owner-tab="orders" hidden>الطلبات</button>
             </nav>
-            <button id="logout-button" class="nav-item logout" type="button">ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬</button>
+            <button id="logout-button" class="nav-item logout" type="button">تسجيل الخروج</button>
             </div>
           </aside>
 
@@ -121,18 +121,18 @@
             <section class="app-view active" data-panel="home">
               <div class="account-catalog" id="account-catalog">
                 <label class="account-catalog-search" for="account-catalog-search">
-                  <input id="account-catalog-search" type="search" autocomplete="off" placeholder="Ø§Ø¨Ø­Ø« Ø¹Ù† Ø®Ø¯Ù…Ø© Ø£Ùˆ Ù…Ù†ØªØ¬...">
-                  <span aria-hidden="true">âŒ•</span>
+                  <input id="account-catalog-search" type="search" autocomplete="off" placeholder="ابحث عن خدمة أو منتج...">
+                  <span aria-hidden="true">⌕</span>
                 </label>
                 <div class="account-catalog-path">
-                  <button class="account-catalog-back" id="account-catalog-back" type="button" hidden>Ø±Ø¬ÙˆØ¹ Ø¥Ù„Ù‰ Ø§Ù„Ø£Ù‚Ø³Ø§Ù…</button>
+                  <button class="account-catalog-back" id="account-catalog-back" type="button" hidden>رجوع إلى الأقسام</button>
                   <div>
-                    <strong id="account-catalog-title">Ø§Ø®ØªØ± Ø§Ù„Ù‚Ø³Ù…</strong>
-                    <span id="account-catalog-hint">Ø§Ø®ØªØ± Ù‚Ø³Ù…Ø§Ù‹ Ø±Ø¦ÙŠØ³ÙŠØ§Ù‹ØŒ Ø«Ù… ØªØ§Ø¨Ø¹ Ø¥Ù„Ù‰ Ø§Ù„Ø£ØµÙ†Ø§Ù ÙˆØ§Ù„Ù…Ù†ØªØ¬Ø§Øª.</span>
+                    <strong id="account-catalog-title">اختر القسم</strong>
+                    <span id="account-catalog-hint">اختر قسماً رئيسياً، ثم تابع إلى الأصناف والمنتجات.</span>
                   </div>
                 </div>
                 <div class="account-catalog-grid" id="account-catalog-grid">
-                  <div class="account-catalog-empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø®Ø¯Ù…Ø§Øª...</div>
+                  <div class="account-catalog-empty">جاري تحميل الخدمات...</div>
                 </div>
               </div>
             </section>
@@ -141,35 +141,35 @@
               <div class="workspace-head">
                 <div>
                   <p class="section-label" id="workspace-kicker">Service</p>
-                  <h3 id="workspace-title">Ø§Ù„Ø®Ø¯Ù…Ø©</h3>
+                  <h3 id="workspace-title">الخدمة</h3>
                 </div>
-                <button id="workspace-close" class="secondary compact" type="button">Ø±Ø¬ÙˆØ¹</button>
+                <button id="workspace-close" class="secondary compact" type="button">رجوع</button>
               </div>
               <div id="service-root" class="service-root"></div>
             </section>
 
             <section class="app-view" data-panel="orders">
-              <div class="section-head"><div><h3>Ø·Ù„Ø¨Ø§ØªÙŠ</h3><p>ÙƒÙ„ Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø© Ø¨Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ÙˆÙ‚Ø¹.</p></div><button id="refresh-orders" class="secondary compact">ØªØ­Ø¯ÙŠØ«</button></div>
+              <div class="section-head"><div><h3>طلباتي</h3><p>كل الطلبات المرتبطة بحساب الموقع.</p></div><button id="refresh-orders" class="secondary compact">تحديث</button></div>
               <div class="order-filter-bar" role="group" aria-label="Order filters">
-                <button class="filter-chip active" type="button" data-order-filter="all">Ø§Ù„ÙƒÙ„</button>
-                <button class="filter-chip" type="button" data-order-filter="numbers">Ø§Ù„Ø£Ø±Ù‚Ø§Ù…</button>
-                <button class="filter-chip" type="button" data-order-filter="digital">Ø§Ù„Ø¯ÙŠØ¬ÙŠØªØ§Ù„</button>
-                <button class="filter-chip" type="button" data-order-filter="open">Ø§Ù„Ù…ÙØªÙˆØ­Ø©</button>
-                <button class="filter-chip" type="button" data-order-filter="done">Ø§Ù„Ù…ÙƒØªÙ…Ù„Ø©</button>
+                <button class="filter-chip active" type="button" data-order-filter="all">الكل</button>
+                <button class="filter-chip" type="button" data-order-filter="numbers">الأرقام</button>
+                <button class="filter-chip" type="button" data-order-filter="digital">الديجيتال</button>
+                <button class="filter-chip" type="button" data-order-filter="open">المفتوحة</button>
+                <button class="filter-chip" type="button" data-order-filter="done">المكتملة</button>
               </div>
-              <div id="orders-list" class="data-list empty">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª.</div>
+              <div id="orders-list" class="data-list empty">لا توجد طلبات.</div>
             </section>
 
             <section class="app-view" data-panel="esim">
-              <div class="section-head"><div><h3>Ø´Ø±Ø§Ø¦Ø­ eSIM</h3><p>Ø¨Ø§Ù‚Ø§Øª Ø¯Ø§ØªØ§ Ø¯ÙˆÙ„ÙŠØ© â€” Ø§Ø®ØªØ± Ø§Ù„Ø¯ÙˆÙ„Ø© ÙˆØ§Ù„Ù…Ø¯Ø©ØŒ Ø§Ø¯ÙØ¹ Ù…Ù† Ø±ØµÙŠØ¯ÙƒØŒ ÙˆÙŠÙˆØµÙ„Ùƒ Ø§Ù„Ù€QR ÙÙˆØ±Ø§Ù‹.</p></div></div>
-              <div id="esim-unavailable" class="notice" hidden>Ø®Ø¯Ù…Ø© eSIM ØºÙŠØ± Ù…ØªØ§Ø­Ø© Ø­Ø§Ù„ÙŠØ§Ù‹. ØªÙˆØ§ØµÙ„ Ù…Ø¹ Ø§Ù„Ø¯Ø¹Ù….</div>
+              <div class="section-head"><div><h3>شرائح eSIM</h3><p>باقات داتا دولية — اختر الدولة والمدة، ادفع من رصيدك، ويوصلك الـQR فوراً.</p></div></div>
+              <div id="esim-unavailable" class="notice" hidden>خدمة eSIM غير متاحة حالياً. تواصل مع الدعم.</div>
               <div class="esim-flow">
-                <label class="esim-field"><span>Ø§Ù„Ø¯ÙˆÙ„Ø©</span><input id="esim-country-search" placeholder="Ø§Ø¨Ø­Ø« Ø¹Ù† Ø¯ÙˆÙ„Ø©..." autocomplete="off"></label>
+                <label class="esim-field"><span>الدولة</span><input id="esim-country-search" placeholder="ابحث عن دولة..." autocomplete="off"></label>
                 <div id="esim-country-list" class="esim-chip-row empty"></div>
                 <div id="esim-config" hidden>
-                  <label class="esim-field"><span>Ø§Ù„Ù…Ø¯Ø© (Ø£ÙŠØ§Ù…)</span><div id="esim-days-list" class="esim-chip-row empty">Ø§Ø®ØªØ± Ø¯ÙˆÙ„Ø© Ø£ÙˆÙ„Ø§Ù‹</div></label>
-                  <label class="esim-field"><span>Ø§Ù„Ø§Ø³ØªÙ‡Ù„Ø§Ùƒ</span><select id="esim-usage"><option value="low">Ø®ÙÙŠÙ (ØªØµÙÙ‘Ø­/Ù…Ø±Ø§Ø³Ù„Ø©)</option><option value="mid">Ù…ØªÙˆØ³Ø·</option><option value="high">ÙƒØ«ÙŠÙ (ÙÙŠØ¯ÙŠÙˆ)</option></select></label>
-                  <button id="esim-load-offers" class="primary compact" type="button" disabled>Ø§Ø¹Ø±Ø¶ Ø§Ù„Ø¨Ø§Ù‚Ø§Øª</button>
+                  <label class="esim-field"><span>المدة (أيام)</span><div id="esim-days-list" class="esim-chip-row empty">اختر دولة أولاً</div></label>
+                  <label class="esim-field"><span>الاستهلاك</span><select id="esim-usage"><option value="low">خفيف (تصفّح/مراسلة)</option><option value="mid">متوسط</option><option value="high">كثيف (فيديو)</option></select></label>
+                  <button id="esim-load-offers" class="primary compact" type="button" disabled>اعرض الباقات</button>
                 </div>
                 <div id="esim-offers" class="data-list"></div>
                 <p id="esim-message" class="message" role="status"></p>
@@ -178,93 +178,93 @@
             </section>
 
             <section class="app-view" data-panel="recharge">
-              <div class="section-head"><div><h3>Ø´Ø­Ù† Ø§Ù„Ø±ØµÙŠØ¯</h3><p>Ø·Ø±Ù‚ Ø§Ù„Ø¯ÙØ¹ØŒ Ø±ÙØ¹ Ø§Ù„Ø¥Ø«Ø¨Ø§ØªØŒ ÙˆÙ…ØªØ§Ø¨Ø¹Ø© Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ø´Ø­Ù†.</p></div></div>
+              <div class="section-head"><div><h3>شحن الرصيد</h3><p>طرق الدفع، رفع الإثبات، ومتابعة طلبات الشحن.</p></div></div>
               <div class="recharge-overview">
-                <div><span>Ø§Ù„Ø±ØµÙŠØ¯ Ø§Ù„Ø­Ø§Ù„ÙŠ</span><strong id="recharge-wallet-balance">$0.00</strong></div>
-                <div><span>Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ø´Ø­Ù†</span><strong id="recharge-request-count">0</strong></div>
+                <div><span>الرصيد الحالي</span><strong id="recharge-wallet-balance">$0.00</strong></div>
+                <div><span>طلبات الشحن</span><strong id="recharge-request-count">0</strong></div>
               </div>
-              <div id="recharge-list" class="data-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø·Ø±Ù‚ Ø§Ù„Ø´Ø­Ù†...</div>
-              <div class="section-head activity-head"><h3>Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ø´Ø­Ù† Ø§Ù„Ø³Ø§Ø¨Ù‚Ø©</h3></div>
-              <div id="recharge-requests-list" class="data-list empty">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª Ø´Ø­Ù† Ø­ØªÙ‰ Ø§Ù„Ø¢Ù†.</div>
+              <div id="recharge-list" class="data-list empty">جاري تحميل طرق الشحن...</div>
+              <div class="section-head activity-head"><h3>طلبات الشحن السابقة</h3></div>
+              <div id="recharge-requests-list" class="data-list empty">لا توجد طلبات شحن حتى الآن.</div>
             </section>
 
             <section class="app-view" data-panel="messages">
-              <div class="section-head"><div><h3>Ù…Ø±Ø§Ø³Ù„Ø© Ù…Ø¨Ø§Ø´Ø±Ø©</h3><p>ØªÙˆØ§ØµÙ„ Ù…Ø¨Ø§Ø´Ø± Ù…Ø¹ ÙØ±ÙŠÙ‚ Phantom Ù„Ù…ØªØ§Ø¨Ø¹Ø© Ø·Ù„Ø¨Ø§ØªÙƒ ÙˆØ£ÙŠ Ø§Ø³ØªÙØ³Ø§Ø±.</p></div></div>
-              <div id="conversation-thread" class="conversation-thread empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø©...</div>
+              <div class="section-head"><div><h3>مراسلة مباشرة</h3><p>تواصل مباشر مع فريق Phantom لمتابعة طلباتك وأي استفسار.</p></div></div>
+              <div id="conversation-thread" class="conversation-thread empty">جاري تحميل المحادثة...</div>
               <form id="conversation-form" class="conversation-form">
-                <textarea name="text" rows="2" maxlength="3500" required placeholder="Ø§ÙƒØªØ¨ Ø±Ø³Ø§Ù„ØªÙƒ Ù‡Ù†Ø§..."></textarea>
-                <button class="primary compact" type="submit">Ø¥Ø±Ø³Ø§Ù„</button>
+                <textarea name="text" rows="2" maxlength="3500" required placeholder="اكتب رسالتك هنا..."></textarea>
+                <button class="primary compact" type="submit">إرسال</button>
               </form>
               <p id="conversation-message" class="message" role="status"></p>
             </section>
 
             <section class="app-view" data-panel="notifications">
-              <div class="section-head"><div><h3>Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª</h3><p>ÙƒÙ„ Ø¬Ø¯ÙŠØ¯ Ø¹Ù„Ù‰ Ø·Ù„Ø¨Ø§ØªÙƒØŒ Ø±ØµÙŠØ¯ÙƒØŒ Ù‡ÙˆÙŠØªÙƒØŒ ÙˆØ±Ø³Ø§Ø¦Ù„Ùƒ ÙÙŠ Ù…ÙƒØ§Ù† ÙˆØ§Ø­Ø¯.</p></div></div>
-              <div id="notifications-list" class="data-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª...</div>
+              <div class="section-head"><div><h3>التنبيهات</h3><p>كل جديد على طلباتك، رصيدك، هويتك، ورسائلك في مكان واحد.</p></div></div>
+              <div id="notifications-list" class="data-list empty">جاري تحميل التنبيهات...</div>
             </section>
 
             <section class="app-view" data-panel="account">
-              <div class="section-head"><div><h3>Ø­Ø³Ø§Ø¨ÙŠ</h3><p>Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„ÙˆØµÙˆÙ„ ÙˆØ§Ù„Ø±Ø¨Ø·.</p></div></div>
+              <div class="section-head"><div><h3>حسابي</h3><p>إدارة الوصول والربط.</p></div></div>
               <div id="reseller-status-card" hidden></div>
-              <div class="settings-row"><div><strong>Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ</strong><span id="settings-email"></span></div><b id="email-status">Ù…Ø¤ÙƒØ¯</b></div>
+              <div class="settings-row"><div><strong>البريد الإلكتروني</strong><span id="settings-email"></span></div><b id="email-status">مؤكد</b></div>
               <div id="email-verification-row" class="settings-row" hidden>
-                <div><strong>ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø¨Ø±ÙŠØ¯</strong><span id="email-verification-help">Ø£Ø±Ø³Ù„ ÙƒÙˆØ¯ ØªØ£ÙƒÙŠØ¯ Ø¥Ù„Ù‰ Ø¨Ø±ÙŠØ¯Ùƒ Ù„ØªÙØ¹ÙŠÙ„ Ø§Ù„Ø´Ø±Ø§Ø¡ Ù…Ù† Ø§Ù„Ù…ÙˆÙ‚Ø¹.</span></div>
-                <button id="send-email-code" class="secondary compact" type="button">Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„ÙƒÙˆØ¯</button>
+                <div><strong>تأكيد البريد</strong><span id="email-verification-help">أرسل كود تأكيد إلى بريدك لتفعيل الشراء من الموقع.</span></div>
+                <button id="send-email-code" class="secondary compact" type="button">إرسال الكود</button>
               </div>
               <div id="email-code-row" class="settings-row email-code-row" hidden>
-                <div><strong>ÙƒÙˆØ¯ Ø§Ù„ØªØ£ÙƒÙŠØ¯</strong><input id="email-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"></div>
-                <button id="verify-email-code" class="primary compact" type="button">ØªØ£ÙƒÙŠØ¯</button>
+                <div><strong>كود التأكيد</strong><input id="email-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"></div>
+                <button id="verify-email-code" class="primary compact" type="button">تأكيد</button>
               </div>
-              <div class="settings-row"><div><strong>Telegram</strong><span id="telegram-status">ØºÙŠØ± Ù…Ø±Ø¨ÙˆØ·</span></div><button id="telegram-action" class="secondary compact" type="button">Ø±Ø¨Ø· Telegram</button></div>
-              <div class="settings-row"><div><strong>Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ø¨ÙˆØªØ§Øª</strong><span>Ø±Ø¨Ø· Telegram Ø§Ø®ØªÙŠØ§Ø±ÙŠØŒ Ù„ÙƒÙ†Ù‡ ÙŠØ±Ø¨Ø· Ø§Ù„Ø¨ÙˆØªØ§Øª Ø¨Ù†ÙØ³ Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ÙˆÙ‚Ø¹.</span></div><b id="telegram-usage-status">Ø§Ø®ØªÙŠØ§Ø±ÙŠ</b></div>
-              <div class="settings-row"><div><strong>Ù…Ø¹Ø±Ù‘Ù Ø§Ù„Ø¹Ù…ÙŠÙ„</strong><span id="customer-id"></span></div><b>Ø¯Ø§Ø®Ù„ÙŠ</b></div>
+              <div class="settings-row"><div><strong>Telegram</strong><span id="telegram-status">غير مربوط</span></div><button id="telegram-action" class="secondary compact" type="button">ربط Telegram</button></div>
+              <div class="settings-row"><div><strong>استخدام البوتات</strong><span>ربط Telegram اختياري، لكنه يربط البوتات بنفس حساب الموقع.</span></div><b id="telegram-usage-status">اختياري</b></div>
+              <div class="settings-row"><div><strong>معرّف العميل</strong><span id="customer-id"></span></div><b>داخلي</b></div>
               <p id="account-message" class="message" role="status"></p>
-              <div class="section-head activity-head"><div><h3>Ø§Ù„Ø£Ù…Ø§Ù†</h3><p>ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ù…Ø±ÙˆØ± Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ÙˆÙ‚Ø¹.</p></div></div>
+              <div class="section-head activity-head"><div><h3>الأمان</h3><p>تغيير كلمة مرور حساب الموقع.</p></div></div>
               <form id="password-change-form" class="security-form">
-                <label><span>ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø­Ø§Ù„ÙŠØ©</span><input name="current_password" type="password" autocomplete="current-password" minlength="10" required></label>
-                <label><span>ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©</span><input name="new_password" type="password" autocomplete="new-password" minlength="10" maxlength="256" required></label>
-                <button class="secondary compact" type="submit">ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±</button>
+                <label><span>كلمة المرور الحالية</span><input name="current_password" type="password" autocomplete="current-password" minlength="10" required></label>
+                <label><span>كلمة المرور الجديدة</span><input name="new_password" type="password" autocomplete="new-password" minlength="10" maxlength="256" required></label>
+                <button class="secondary compact" type="submit">تغيير كلمة المرور</button>
                 <p id="password-change-message" class="message" role="status"></p>
               </form>
-              <div class="section-head activity-head"><h3>Ø¢Ø®Ø± Ù†Ø´Ø§Ø·</h3><button id="download-activity" class="secondary compact" type="button">ØªÙ†Ø²ÙŠÙ„ Ø§Ù„Ù†Ø´Ø§Ø·</button></div>
-              <div id="activity-list" class="data-list empty">Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù†Ø´Ø§Ø· Ø­ØªÙ‰ Ø§Ù„Ø¢Ù†.</div>
+              <div class="section-head activity-head"><h3>آخر نشاط</h3><button id="download-activity" class="secondary compact" type="button">تنزيل النشاط</button></div>
+              <div id="activity-list" class="data-list empty">لا يوجد نشاط حتى الآن.</div>
             </section>
 
             <section class="app-view" data-panel="support">
               <div class="section-head">
                 <div>
-                  <h3>Ù…Ø±ÙƒØ² Ø§Ù„Ø¯Ø¹Ù…</h3>
-                  <p>Ø§Ø®ØªØ± Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ù…Ø±ØªØ¨Ø· Ø¨Ø·Ù„Ø¨Ùƒ Ø­ØªÙ‰ ÙŠØµÙ„ Ù„Ù„ÙØ±ÙŠÙ‚ Ø§Ù„Ù…Ù†Ø§Ø³Ø¨.</p>
+                  <h3>مركز الدعم</h3>
+                  <p>اختر القسم المرتبط بطلبك حتى يصل للفريق المناسب.</p>
                 </div>
               </div>
               <div class="support-overview">
-                <strong>Ø¯Ø¹Ù… Ù…Ø±ÙƒØ²ÙŠ Ù„Ø­Ø³Ø§Ø¨ Phantom</strong>
-                <span>Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ø£Ø±Ù‚Ø§Ù…ØŒ Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª Ø§Ù„Ø±Ù‚Ù…ÙŠØ©ØŒ ÙˆØ§Ù„Ø±ØµÙŠØ¯ Ù…Ø¬Ù…Ø¹Ø© ÙÙŠ Ù…ÙƒØ§Ù† ÙˆØ§Ø­Ø¯.</span>
+                <strong>دعم مركزي لحساب Phantom</strong>
+                <span>طلبات الأرقام، المنتجات الرقمية، والرصيد مجمعة في مكان واحد.</span>
               </div>
               <form id="support-ticket-form" class="support-ticket-form">
-                <label><span>Ø§Ù„Ù‚Ø³Ù…</span><select name="category" id="support-category-select" required></select></label>
-                <label><span>Ø§Ù„Ø±Ø³Ø§Ù„Ø©</span><textarea name="message" rows="4" minlength="3" maxlength="3500" required placeholder="Ø§ÙƒØªØ¨ Ø§Ù„Ù…Ø´ÙƒÙ„Ø© Ø£Ùˆ Ø±Ù‚Ù… Ø§Ù„Ø·Ù„Ø¨ Ø¥Ù† ÙˆØ¬Ø¯"></textarea></label>
-                <button class="primary compact" type="submit">ÙØªØ­ ØªØ°ÙƒØ±Ø© Ø¯Ø¹Ù…</button>
+                <label><span>القسم</span><select name="category" id="support-category-select" required></select></label>
+                <label><span>الرسالة</span><textarea name="message" rows="4" minlength="3" maxlength="3500" required placeholder="اكتب المشكلة أو رقم الطلب إن وجد"></textarea></label>
+                <button class="primary compact" type="submit">فتح تذكرة دعم</button>
                 <p class="message" id="support-ticket-message"></p>
               </form>
-              <div id="support-list" class="support-category-grid empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø®ÙŠØ§Ø±Ø§Øª Ø§Ù„Ø¯Ø¹Ù…...</div>
-              <div class="section-head activity-head"><h3>ØªØ°Ø§ÙƒØ±ÙŠ</h3></div>
-              <div id="support-ticket-list" class="data-list empty">Ù„Ø§ ØªÙˆØ¬Ø¯ ØªØ°Ø§ÙƒØ± Ø¯Ø¹Ù… Ø­ØªÙ‰ Ø§Ù„Ø¢Ù†.</div>
+              <div id="support-list" class="support-category-grid empty">جاري تحميل خيارات الدعم...</div>
+              <div class="section-head activity-head"><h3>تذاكري</h3></div>
+              <div id="support-ticket-list" class="data-list empty">لا توجد تذاكر دعم حتى الآن.</div>
               <div id="support-ticket-detail" class="support-ticket-detail" hidden></div>
             </section>
 
             <section class="app-view" data-panel="identity">
-              <div class="section-head"><div><h3>ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ù‡ÙˆÙŠØ©</h3><p>Ù…Ø·Ù„ÙˆØ¨ ÙÙ‚Ø· Ù„Ø¨ÙŠØ¹ Ø§Ù„Ø¨Ø·Ø§Ù‚Ø§Øª ÙˆØ§Ù„Ø³Ø­Ø¨ ÙˆØ§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ø­Ø³Ø§Ø³Ø©.</p></div></div>
-              <div class="identity-state"><span>Ø§Ù„Ø­Ø§Ù„Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ©</span><strong id="identity-status">ØºÙŠØ± Ù…Ù‚Ø¯Ù…Ø©</strong></div>
+              <div class="section-head"><div><h3>تأكيد الهوية</h3><p>مطلوب فقط لبيع البطاقات والسحب والعمليات الحساسة.</p></div></div>
+              <div class="identity-state"><span>الحالة الحالية</span><strong id="identity-status">غير مقدمة</strong></div>
               <form id="identity-form">
-                <label><span>Ø§Ù„Ø§Ø³Ù… Ø§Ù„ÙƒØ§Ù…Ù„</span><input name="full_name" minlength="5" required></label>
-                <label><span>ØªØ§Ø±ÙŠØ® Ø§Ù„Ù…ÙŠÙ„Ø§Ø¯</span><input name="birth_date" type="date" required></label>
-                <label><span>Ø§Ù„Ø¨Ù„Ø¯</span><input name="country" value="Syria" required></label>
-                <label><span>Ù†ÙˆØ¹ Ø§Ù„ÙˆØ«ÙŠÙ‚Ø©</span><select name="id_type"><option value="national_id">Ù‡ÙˆÙŠØ© Ø´Ø®ØµÙŠØ©</option><option value="passport">Ø¬ÙˆØ§Ø² Ø³ÙØ±</option></select></label>
-                <label class="identity-upload"><span>ØµÙˆØ±Ø© Ø§Ù„ÙˆØ«ÙŠÙ‚Ø©</span><input id="identity-document-input" name="document_file" type="file" accept="image/*" required></label>
-                <img id="identity-document-preview" class="identity-doc-preview" alt="Ù…Ø¹Ø§ÙŠÙ†Ø© Ø§Ù„ÙˆØ«ÙŠÙ‚Ø©" hidden>
-                <p class="message">Ø£Ø±ÙÙ‚ ØµÙˆØ±Ø© ÙˆØ§Ø¶Ø­Ø© Ù„ÙˆØ¬Ù‡ Ø§Ù„Ù‡ÙˆÙŠØ© Ø£Ùˆ Ø§Ù„Ø¬ÙˆØ§Ø². ØªÙØ­ÙØ¸ Ø§Ù„ØµÙˆØ±Ø© Ø¨Ø´ÙƒÙ„ Ù…Ø¤Ù‚Øª Ù„ØºØ±Ø¶ Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© ÙÙ‚Ø· ÙˆØªÙØ­Ø°Ù Ø¨Ø¹Ø¯ Ø§Ù„Ù‚Ø±Ø§Ø±.</p>
-                <button class="primary" type="submit">Ø¥Ø±Ø³Ø§Ù„ Ø·Ù„Ø¨ Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©</button>
+                <label><span>الاسم الكامل</span><input name="full_name" minlength="5" required></label>
+                <label><span>تاريخ الميلاد</span><input name="birth_date" type="date" required></label>
+                <label><span>البلد</span><input name="country" value="Syria" required></label>
+                <label><span>نوع الوثيقة</span><select name="id_type"><option value="national_id">هوية شخصية</option><option value="passport">جواز سفر</option></select></label>
+                <label class="identity-upload"><span>صورة الوثيقة</span><input id="identity-document-input" name="document_file" type="file" accept="image/*" required></label>
+                <img id="identity-document-preview" class="identity-doc-preview" alt="معاينة الوثيقة" hidden>
+                <p class="message">أرفق صورة واضحة لوجه الهوية أو الجواز. تُحفظ الصورة بشكل مؤقت لغرض المراجعة فقط وتُحذف بعد القرار.</p>
+                <button class="primary" type="submit">إرسال طلب المراجعة</button>
                 <p id="identity-message" class="message" role="status"></p>
               </form>
             </section>
@@ -273,141 +273,141 @@
               <div class="section-head">
                 <div>
                   <p class="section-label">OWNER CONTROL</p>
-                  <h3>Ù„ÙˆØ­Ø© Ø§Ù„Ø¥Ø¯Ø§Ø±Ø©</h3>
-                  <p>Ù†Ø¸Ø§Ù… Ø¥Ø¯Ø§Ø±ÙŠ Ù…Ù†ÙØµÙ„ Ø¨ØªØ¨ÙˆÙŠØ¨Ø§Øª Ù„ÙƒÙ„ Ù‚Ø³Ù… Ø¨Ø¯Ù„ ØµÙØ­Ø© ÙˆØ§Ø­Ø¯Ø© Ø·ÙˆÙŠÙ„Ø©.</p>
+                  <h3>لوحة الإدارة</h3>
+                  <p>نظام إداري منفصل بتبويبات لكل قسم بدل صفحة واحدة طويلة.</p>
                 </div>
-                <button id="refresh-owner" class="secondary compact" type="button">ØªØ­Ø¯ÙŠØ«</button>
+                <button id="refresh-owner" class="secondary compact" type="button">تحديث</button>
               </div>
               <nav class="admin-tabs" aria-label="Admin sections">
-                <button class="admin-tab active" type="button" data-owner-tab="overview">Ø§Ù„Ù†Ø¸Ø±Ø© Ø§Ù„Ø¹Ø§Ù…Ø©</button>
-                <button class="admin-tab" type="button" data-owner-tab="finance">Ø§Ù„Ù…Ø§Ù„ÙŠØ©</button>
-                <button class="admin-tab" type="button" data-owner-tab="users">Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙˆÙ†</button>
-                <button class="admin-tab" type="button" data-owner-tab="support">Ø§Ù„Ø¯Ø¹Ù…</button>
+                <button class="admin-tab active" type="button" data-owner-tab="overview">النظرة العامة</button>
+                <button class="admin-tab" type="button" data-owner-tab="finance">المالية</button>
+                <button class="admin-tab" type="button" data-owner-tab="users">المستخدمون</button>
+                <button class="admin-tab" type="button" data-owner-tab="support">الدعم</button>
                 <button class="admin-tab" type="button" data-owner-tab="integrations">API</button>
-                <button class="admin-tab" type="button" data-owner-tab="providers">Ø§Ù„Ù…Ø²ÙˆØ¯ÙˆÙ†</button>
+                <button class="admin-tab" type="button" data-owner-tab="providers">المزودون</button>
                 <button class="admin-tab" type="button" data-owner-tab="catalog">Catalog</button>
-                <button class="admin-tab" type="button" data-owner-tab="system">Ø§Ù„Ù†Ø¸Ø§Ù…</button>
-                <button class="admin-tab" type="button" data-owner-tab="orders">Ø§Ù„Ø·Ù„Ø¨Ø§Øª</button>
+                <button class="admin-tab" type="button" data-owner-tab="system">النظام</button>
+                <button class="admin-tab" type="button" data-owner-tab="orders">الطلبات</button>
               </nav>
-              <div id="owner-metrics" class="owner-metrics empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ø¤Ø´Ø±Ø§Øª...</div>
+              <div id="owner-metrics" class="owner-metrics empty">جاري تحميل المؤشرات...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª</h3><p>ÙƒÙ„ Ø­Ø¯Ø« Ø¬Ø¯ÙŠØ¯: Ø·Ù„Ø¨Ø§ØªØŒ Ø´Ø­Ù†ØŒ Ù‡ÙˆÙŠØ§ØªØŒ ÙˆØ±Ø³Ø§Ø¦Ù„ Ø§Ù„Ø²Ø¨Ø§Ø¦Ù†.</p></div>
-                <button id="owner-notifications-read" class="secondary compact" type="button">ØªØ¹Ù„ÙŠÙ… Ø§Ù„ÙƒÙ„ ÙƒÙ…Ù‚Ø±ÙˆØ¡</button>
+                <div><h3>التنبيهات</h3><p>كل حدث جديد: طلبات، شحن، هويات، ورسائل الزبائن.</p></div>
+                <button id="owner-notifications-read" class="secondary compact" type="button">تعليم الكل كمقروء</button>
               </div>
-              <div id="owner-notifications" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª...</div>
+              <div id="owner-notifications" class="owner-review-list empty">جاري تحميل التنبيهات...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø§Ù„Ø£Ø±Ø¨Ø§Ø­ ÙˆØ§Ù„Ø®Ø³Ø§Ø¦Ø±</h3><p>Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª ÙˆØ§Ù„ØªÙƒÙ„ÙØ© ÙˆØ§Ù„Ø±Ø¨Ø­ Ø§Ù„ØµØ§ÙÙŠ Ø­Ø³Ø¨ Ø§Ù„ÙØªØ±Ø© ÙˆØ§Ù„Ù‚Ø³Ù….</p></div>
-                <select id="owner-accounting-days" class="compact-select"><option value="7">7 Ø£ÙŠØ§Ù…</option><option value="30" selected>30 ÙŠÙˆÙ…</option><option value="90">90 ÙŠÙˆÙ…</option><option value="365">Ø³Ù†Ø©</option></select>
+                <div><h3>الأرباح والخسائر</h3><p>إجمالي المبيعات والتكلفة والربح الصافي حسب الفترة والقسم.</p></div>
+                <select id="owner-accounting-days" class="compact-select"><option value="7">7 أيام</option><option value="30" selected>30 يوم</option><option value="90">90 يوم</option><option value="365">سنة</option></select>
               </div>
-              <div id="owner-accounting" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø£Ø±Ø¨Ø§Ø­ ÙˆØ§Ù„Ø®Ø³Ø§Ø¦Ø±...</div>
+              <div id="owner-accounting" class="owner-review-list empty">جاري تحميل الأرباح والخسائر...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø§Ù„Ù…Ø§Ù„ÙŠØ© ÙˆØ§Ù„ØªØ³Ø¹ÙŠØ±</h3><p>Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ù…Ø´ØªØ±ÙƒØ© Ø¨ÙŠÙ† Ø§Ù„Ù…ÙˆÙ‚Ø¹ ÙˆØ§Ù„Ø¨ÙˆØªØ§Øª ÙˆØªØ·Ø¨Ù‚ Ù…Ø¨Ø§Ø´Ø±Ø© Ø¹Ù„Ù‰ Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ø´Ø±Ø§Ø¡.</p></div>
+                <div><h3>المالية والتسعير</h3><p>إعدادات مشتركة بين الموقع والبوتات وتطبق مباشرة على عمليات الشراء.</p></div>
               </div>
-              <div id="owner-finance-settings" class="owner-settings-grid empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ù…Ø§Ù„ÙŠØ©...</div>
+              <div id="owner-finance-settings" class="owner-settings-grid empty">جاري تحميل الإعدادات المالية...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø§Ù„ØªÙˆØ¬ÙŠÙ‡ ÙˆØ§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª</h3><p>Ø­Ø§Ù„Ø© ÙˆØ¬Ù‡Ø§Øª Telegram ÙˆØªÙ†Ø¨ÙŠÙ‡Ø§Øª Ø±ØµÙŠØ¯ Ø§Ù„Ù…Ø²ÙˆØ¯. Ø±Ø¨Ø· Ø§Ù„ÙˆØ¬Ù‡Ø§Øª Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø© ÙŠØªÙ… Ù…Ù† Ø¯Ø§Ø®Ù„ Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø© Ø§Ù„Ù…Ø·Ù„ÙˆØ¨Ø©.</p></div>
+                <div><h3>التوجيه والتنبيهات</h3><p>حالة وجهات Telegram وتنبيهات رصيد المزود. ربط الوجهات الجديدة يتم من داخل المحادثة المطلوبة.</p></div>
               </div>
-              <div id="owner-routing-settings" class="owner-settings-grid empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„ØªÙˆØ¬ÙŠÙ‡...</div>
+              <div id="owner-routing-settings" class="owner-settings-grid empty">جاري تحميل إعدادات التوجيه...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø¨Ø« Ø§Ù„Ù…Ù†ØµØ©</h3><p>Ø¥Ø±Ø³Ø§Ù„ Ø±Ø³Ø§Ø¦Ù„ Ø¥Ø¯Ø§Ø±ÙŠØ© Ø¹Ø¨Ø± Ø¨ÙˆØª Ø§Ù„Ù…Ù†ØµØ© Ø¥Ù„Ù‰ Ù‚Ù†Ø§Ø© Ø£Ùˆ Ù…Ø¬Ù…ÙˆØ¹Ø© Ù…Ø­Ø¯Ø¯Ø©.</p></div>
+                <div><h3>بث المنصة</h3><p>إرسال رسائل إدارية عبر بوت المنصة إلى قناة أو مجموعة محددة.</p></div>
               </div>
-              <div id="owner-broadcast-tools" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø£Ø¯ÙˆØ§Øª Ø§Ù„Ø¨Ø«...</div>
+              <div id="owner-broadcast-tools" class="owner-review-list empty">جاري تحميل أدوات البث...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ù†Ø¸Ø§Ù…</h3><p>Ø­Ø§Ù„Ø© Ù‚ÙˆØ§Ø¹Ø¯ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ÙˆØ§Ù„Ø®Ø¯Ù…Ø§Øª ÙˆØ§Ù„ØªÙˆØ¬ÙŠÙ‡ ÙˆØ³Ø¬Ù„ Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª Ø§Ù„Ø¥Ø¯Ø§Ø±Ø©.</p></div>
+                <div><h3>عمليات النظام</h3><p>حالة قواعد البيانات والخدمات والتوجيه وسجل إجراءات الإدارة.</p></div>
               </div>
-              <div id="owner-system-operations" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø­Ø§Ù„Ø© Ø§Ù„Ù†Ø¸Ø§Ù…...</div>
+              <div id="owner-system-operations" class="owner-review-list empty">جاري تحميل حالة النظام...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø·Ø±Ù‚ Ø´Ø­Ù† Ø§Ù„Ø±ØµÙŠØ¯</h3><p>ØªØ­ÙƒÙ… Ø¨ÙˆØ³Ø§Ø¦Ù„ Ø§Ù„Ø¯ÙØ¹ Ø§Ù„ØªÙŠ ØªØ¸Ù‡Ø± Ù„Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ† ÙˆØ¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ø®Ø§ØµØ© Ø¨Ù‡Ø§.</p></div>
+                <div><h3>طرق شحن الرصيد</h3><p>تحكم بوسائل الدفع التي تظهر للمستخدمين وبيانات التحويل الخاصة بها.</p></div>
               </div>
-              <div id="owner-payment-methods" class="owner-payment-methods empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø·Ø±Ù‚ Ø§Ù„Ø¯ÙØ¹...</div>
+              <div id="owner-payment-methods" class="owner-payment-methods empty">جاري تحميل طرق الدفع...</div>
               <div class="section-head activity-head">
-                <div><h3>Ù…Ø±Ø§Ø¬Ø¹Ø§Øª Ø´Ø­Ù† Ø§Ù„Ø±ØµÙŠØ¯</h3><p>Ù‚Ø¨ÙˆÙ„ Ø§Ù„Ø·Ù„Ø¨ ÙŠØ¶ÙŠÙ Ø§Ù„Ø±ØµÙŠØ¯ Ø¹Ø¨Ø± Ø§Ù„Ø³Ø¬Ù„ Ø§Ù„Ù…Ø§Ù„ÙŠ Ù…Ø¨Ø§Ø´Ø±Ø©.</p></div>
-                <select id="owner-recharge-filter" class="compact-select"><option value="pending">Ù…Ø¹Ù„Ù‚Ø©</option><option value="need_more_proof">ØªØ­ØªØ§Ø¬ Ø¥Ø«Ø¨Ø§Øª</option><option value="accepted">Ù…Ù‚Ø¨ÙˆÙ„Ø©</option><option value="rejected">Ù…Ø±ÙÙˆØ¶Ø©</option><option value="all">Ø§Ù„ÙƒÙ„</option></select>
+                <div><h3>مراجعات شحن الرصيد</h3><p>قبول الطلب يضيف الرصيد عبر السجل المالي مباشرة.</p></div>
+                <select id="owner-recharge-filter" class="compact-select"><option value="pending">معلقة</option><option value="need_more_proof">تحتاج إثبات</option><option value="accepted">مقبولة</option><option value="rejected">مرفوضة</option><option value="all">الكل</option></select>
               </div>
-              <div id="owner-recharge-reviews" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ù…Ø±Ø§Ø¬Ø¹Ø§Øª Ø§Ù„Ø´Ø­Ù†...</div>
+              <div id="owner-recharge-reviews" class="owner-review-list empty">جاري تحميل مراجعات الشحن...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø§Ù„ØªØ¯Ù‚ÙŠÙ‚ Ø§Ù„Ù…Ø§Ù„ÙŠ</h3><p>ÙØ­Øµ Ø§Ù„Ù…Ø­Ø§ÙØ¸ ÙˆØ§Ù„Ø³Ø¬Ù„ Ø§Ù„Ù…Ø§Ù„ÙŠ ÙˆØ§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„ØªÙŠ ØªØ­ØªØ§Ø¬ Ù…Ø±Ø§Ø¬Ø¹Ø© Ù…Ø§Ù„Ùƒ.</p></div>
-                <select id="owner-audit-days" class="compact-select"><option value="7">7 Ø£ÙŠØ§Ù…</option><option value="30" selected>30 ÙŠÙˆÙ…</option><option value="90">90 ÙŠÙˆÙ…</option></select>
+                <div><h3>التدقيق المالي</h3><p>فحص المحافظ والسجل المالي والطلبات التي تحتاج مراجعة مالك.</p></div>
+                <select id="owner-audit-days" class="compact-select"><option value="7">7 أيام</option><option value="30" selected>30 يوم</option><option value="90">90 يوم</option></select>
               </div>
-              <div id="owner-finance-audit" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„ØªØ¯Ù‚ÙŠÙ‚ Ø§Ù„Ù…Ø§Ù„ÙŠ...</div>
+              <div id="owner-finance-audit" class="owner-review-list empty">جاري تحميل التدقيق المالي...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø¥ÙŠØ¯Ø§Ø¹ Ø±ØµÙŠØ¯ ÙˆÙƒÙŠÙ„</h3><p>Ø¥Ø¶Ø§ÙØ© Ø±ØµÙŠØ¯ ÙŠØ¯ÙˆÙŠ Ù„Ù…Ø­ÙØ¸Ø© ÙˆÙƒÙŠÙ„ Ù…Ø¹ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¹Ù…Ù„ÙŠØ© ÙÙŠ ØªØ¯Ù‚ÙŠÙ‚ Ø§Ù„Ø£ÙˆÙ†Ø±.</p></div>
+                <div><h3>إيداع رصيد وكيل</h3><p>إضافة رصيد يدوي لمحفظة وكيل مع تسجيل العملية في تدقيق الأونر.</p></div>
               </div>
-              <div id="owner-reseller-deposit-tools" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø£Ø¯Ø§Ø© Ø¥ÙŠØ¯Ø§Ø¹ Ø§Ù„ÙˆÙƒÙŠÙ„...</div>
+              <div id="owner-reseller-deposit-tools" class="owner-review-list empty">جاري تحميل أداة إيداع الوكيل...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„ÙˆÙƒÙ„Ø§Ø¡</h3><p>Ù…Ø­Ø§ÙØ¸ Ø§Ù„ÙˆÙƒÙ„Ø§Ø¡ØŒ Ø¨ÙˆØªØ§ØªÙ‡Ù…ØŒ Ø§Ø´ØªØ±Ø§ÙƒØ§ØªÙ‡Ù…ØŒ ÙˆØ§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø© Ø¨Ù‡Ù….</p></div>
+                <div><h3>إدارة الوكلاء</h3><p>محافظ الوكلاء، بوتاتهم، اشتراكاتهم، والعمليات المرتبطة بهم.</p></div>
               </div>
-              <div id="owner-reseller-management" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„ÙˆÙƒÙ„Ø§Ø¡...</div>
+              <div id="owner-reseller-management" class="owner-review-list empty">جاري تحميل الوكلاء...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ†</h3><p>Ø¨Ø­Ø« Ø§Ù„Ø­Ø³Ø§Ø¨Ø§ØªØŒ Ø§Ù„Ø£Ø±ØµØ¯Ø©ØŒ Ø§Ù„Ø·Ù„Ø¨Ø§ØªØŒ ÙˆØ­Ø§Ù„Ø© Ø§Ù„Ø­Ø³Ø§Ø¨ Ù…Ù† Ø§Ù„Ù…ÙˆÙ‚Ø¹.</p></div>
+                <div><h3>إدارة المستخدمين</h3><p>بحث الحسابات، الأرصدة، الطلبات، وحالة الحساب من الموقع.</p></div>
               </div>
-              <div id="owner-user-management" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ†...</div>
+              <div id="owner-user-management" class="owner-review-list empty">جاري تحميل المستخدمين...</div>
               <div class="section-head activity-head">
-                <div><h3>Ù…Ø±Ø§Ø¬Ø¹Ø§Øª ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ù‡ÙˆÙŠØ©</h3><p>Ø§Ù„Ù‚Ø¨ÙˆÙ„ ÙŠÙØªØ­ ØµÙ„Ø§Ø­ÙŠØ§Øª Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ø­Ø³Ø§Ø³Ø© Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø© Ø¨Ø§Ù„Ù‡ÙˆÙŠØ©.</p></div>
-                <select id="owner-identity-filter" class="compact-select"><option value="pending">Ù…Ø¹Ù„Ù‚Ø©</option><option value="approved">Ù…Ù‚Ø¨ÙˆÙ„Ø©</option><option value="rejected">Ù…Ø±ÙÙˆØ¶Ø©</option><option value="all">Ø§Ù„ÙƒÙ„</option></select>
+                <div><h3>مراجعات تأكيد الهوية</h3><p>القبول يفتح صلاحيات العمليات الحساسة المرتبطة بالهوية.</p></div>
+                <select id="owner-identity-filter" class="compact-select"><option value="pending">معلقة</option><option value="approved">مقبولة</option><option value="rejected">مرفوضة</option><option value="all">الكل</option></select>
               </div>
-              <div id="owner-identity-reviews" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ù…Ø±Ø§Ø¬Ø¹Ø§Øª Ø§Ù„Ù‡ÙˆÙŠØ©...</div>
+              <div id="owner-identity-reviews" class="owner-review-list empty">جاري تحميل مراجعات الهوية...</div>
               <div class="section-head activity-head">
-                <div><h3>ØµÙ†Ø¯ÙˆÙ‚ Ø§Ù„Ø¯Ø¹Ù…</h3><p>Ø¥Ø¯Ø§Ø±Ø© Ø­Ø§Ù„Ø© Ø§Ù„ØªØ°Ø§ÙƒØ± ÙˆÙØ±Ø² Ø¨Ù„Ø§ØºØ§Øª Ø§Ù„Ø£Ø®Ø·Ø§Ø¡ Ù…Ù† Ø§Ù„Ù…ÙˆÙ‚Ø¹.</p></div>
-                <select id="owner-support-filter" class="compact-select"><option value="open">Ù…ÙØªÙˆØ­Ø©</option><option value="solved">Ù…Ø­Ù„ÙˆÙ„Ø©</option><option value="all">Ø§Ù„ÙƒÙ„</option></select>
+                <div><h3>صندوق الدعم</h3><p>إدارة حالة التذاكر وفرز بلاغات الأخطاء من الموقع.</p></div>
+                <select id="owner-support-filter" class="compact-select"><option value="open">مفتوحة</option><option value="solved">محلولة</option><option value="all">الكل</option></select>
               </div>
-              <div id="owner-support-tickets" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ ØªØ°Ø§ÙƒØ± Ø§Ù„Ø¯Ø¹Ù…...</div>
+              <div id="owner-support-tickets" class="owner-review-list empty">جاري تحميل تذاكر الدعم...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø§Øª Ø§Ù„Ù…Ø¨Ø§Ø´Ø±Ø©</h3><p>Ø±Ø§Ø³Ù„ Ø£ÙŠ Ø²Ø¨ÙˆÙ† ÙˆØªØ§Ø¨Ø¹ Ø·Ù„Ø¨Ø§ØªÙ‡. ÙŠÙ…ÙƒÙ† ÙØªØ­ Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø© Ø£ÙŠØ¶Ø§Ù‹ Ù…Ù† Ø²Ø± "Ø±Ø§Ø³Ù„ Ø§Ù„Ø²Ø¨ÙˆÙ†" Ø¯Ø§Ø®Ù„ Ø£ÙŠ Ø·Ù„Ø¨.</p></div>
+                <div><h3>المحادثات المباشرة</h3><p>راسل أي زبون وتابع طلباته. يمكن فتح المحادثة أيضاً من زر "راسل الزبون" داخل أي طلب.</p></div>
               </div>
-              <div id="owner-conversations" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø§Øª...</div>
+              <div id="owner-conversations" class="owner-review-list empty">جاري تحميل المحادثات...</div>
               <div class="section-head activity-head">
-                <div><h3>ØªÙƒØ§Ù…Ù„ API</h3><p>Ø¥Ø¯Ø§Ø±Ø© Ù…ÙØ§ØªÙŠØ­ API Ùˆwebhooks Ù…Ù† Ø§Ù„Ù…ÙˆÙ‚Ø¹. Ø§Ù„Ø£Ø³Ø±Ø§Ø± ØªØ¸Ù‡Ø± Ù…Ø±Ø© ÙˆØ§Ø­Ø¯Ø© Ø¹Ù†Ø¯ Ø§Ù„Ø¥Ù†Ø´Ø§Ø¡ ÙÙ‚Ø·.</p></div>
+                <div><h3>تكامل API</h3><p>إدارة مفاتيح API وwebhooks من الموقع. الأسرار تظهر مرة واحدة عند الإنشاء فقط.</p></div>
               </div>
-              <div id="owner-api-tools" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø£Ø¯ÙˆØ§Øª Ø§Ù„ØªÙƒØ§Ù…Ù„...</div>
+              <div id="owner-api-tools" class="owner-review-list empty">جاري تحميل أدوات التكامل...</div>
               <div class="section-head activity-head">
-                <div><h3>Ù…Ø±Ø§Ø¬Ø¹Ø§Øª Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¨ÙˆØªØ§Øª</h3><p>Ù‚Ø¨ÙˆÙ„ Ø£Ùˆ Ø±ÙØ¶ Ø·Ù„Ø¨Ø§Øª Ø¥Ù†Ø´Ø§Ø¡ Ø¨ÙˆØªØ§Øª Ø§Ù„Ø±ÙŠØ³ÙŠÙ„Ø± Ù…Ù† Ù„ÙˆØ­Ø© Ø§Ù„Ù…ÙˆÙ‚Ø¹.</p></div>
-                <select id="owner-bot-review-filter" class="compact-select"><option value="pending">Ù…Ø¹Ù„Ù‚Ø©</option><option value="approved">Ù…Ù‚Ø¨ÙˆÙ„Ø©</option><option value="rejected">Ù…Ø±ÙÙˆØ¶Ø©</option><option value="failed">ÙØ§Ø´Ù„Ø©</option><option value="all">Ø§Ù„ÙƒÙ„</option></select>
+                <div><h3>مراجعات إنشاء البوتات</h3><p>قبول أو رفض طلبات إنشاء بوتات الريسيلر من لوحة الموقع.</p></div>
+                <select id="owner-bot-review-filter" class="compact-select"><option value="pending">معلقة</option><option value="approved">مقبولة</option><option value="rejected">مرفوضة</option><option value="failed">فاشلة</option><option value="all">الكل</option></select>
               </div>
-              <div id="owner-bot-creation-reviews" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ù…Ø±Ø§Ø¬Ø¹Ø§Øª Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¨ÙˆØªØ§Øª...</div>
+              <div id="owner-bot-creation-reviews" class="owner-review-list empty">جاري تحميل مراجعات إنشاء البوتات...</div>
               <div class="section-head activity-head">
-                <div><h3>ØªØ´Ø®ÙŠØµ Ù…Ø²ÙˆØ¯ÙŠ Ø§Ù„Ø£Ø±Ù‚Ø§Ù…</h3><p>Ø¬Ø§Ù‡Ø²ÙŠØ© Ø§Ù„Ù…Ø²ÙˆØ¯ÙŠÙ† ÙˆØ¢Ø®Ø± Ø£Ø­Ø¯Ø§Ø« webhook Ø§Ù„ÙˆØ§Ø±Ø¯Ø©.</p></div>
-                <select id="owner-source-filter" class="compact-select"><option value="under_review">ØªØ­ØªØ§Ø¬ Ù…Ø±Ø§Ø¬Ø¹Ø©</option><option value="unmapped">ØºÙŠØ± Ù…Ø±Ø¨ÙˆØ·Ø©</option><option value="active">ÙØ¹Ø§Ù„Ø©</option><option value="disabled">Ù…Ø¹Ø·Ù„Ø©</option><option value="all">Ø§Ù„ÙƒÙ„</option></select>
+                <div><h3>تشخيص مزودي الأرقام</h3><p>جاهزية المزودين وآخر أحداث webhook الواردة.</p></div>
+                <select id="owner-source-filter" class="compact-select"><option value="under_review">تحتاج مراجعة</option><option value="unmapped">غير مربوطة</option><option value="active">فعالة</option><option value="disabled">معطلة</option><option value="all">الكل</option></select>
               </div>
-              <div id="owner-provider-diagnostics" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ ØªØ´Ø®ÙŠØµ Ø§Ù„Ù…Ø²ÙˆØ¯ÙŠÙ†...</div>
+              <div id="owner-provider-diagnostics" class="owner-review-list empty">جاري تحميل تشخيص المزودين...</div>
               <div class="section-head activity-head">
-                <div><h3>ÙƒØ§ØªØ§Ù„ÙˆØº Ø§Ù„Ù…ÙˆÙ‚Ø¹</h3><p>Ø£Ø¶Ù Ø§Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„ÙŠØ¯ÙˆÙŠØ© Ø¶Ù…Ù† Ù‚Ø³Ù… Ø«Ù… ØµÙ†Ù Ø«Ù… Ø¯ÙˆÙ„Ø© Ø£Ùˆ Global Ø«Ù… Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª.</p></div>
-                <select id="owner-catalog-type" class="compact-select"><option value="website_manual">Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ø§Ù„ÙŠØ¯ÙˆÙŠØ©</option><option value="staging">âš¡ Ø§Ù„ÙƒØ§ØªØ§Ù„ÙˆØº Ø§Ù„Ø°ÙƒÙŠ</option><option value="custom">Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ø¨ÙˆØª</option><option value="id_info">ID info</option></select>
+                <div><h3>كاتالوغ الموقع</h3><p>أضف الخدمات اليدوية ضمن قسم ثم صنف ثم دولة أو Global ثم المنتجات.</p></div>
+                <select id="owner-catalog-type" class="compact-select"><option value="website_manual">خدمات الموقع اليدوية</option><option value="staging">⚡ الكاتالوغ الذكي</option><option value="custom">خدمات البوت</option><option value="id_info">ID info</option></select>
               </div>
               <div id="owner-custom-catalog" class="owner-review-list empty">Loading custom services catalog...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø¨ÙˆØªØ§Øª ÙˆØ§Ù„Ø£ÙˆØ§Ù…Ø±</h3><p>Ø§Ù„Ø¨Ø«ØŒ Ø¥ÙŠØ¯Ø§Ø¹ Ø§Ù„ÙˆÙƒÙ„Ø§Ø¡ØŒ ÙˆØªØ¬Ø¯ÙŠØ¯ Ø§Ø´ØªØ±Ø§ÙƒØ§Øª Ø§Ù„Ø¨ÙˆØªØ§Øª Ù…Ù† Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ù…Ø¨Ø§Ø´Ø±Ø©.</p></div>
+                <div><h3>إدارة البوتات والأوامر</h3><p>البث، إيداع الوكلاء، وتجديد اشتراكات البوتات من الموقع مباشرة.</p></div>
               </div>
-              <div id="owner-bot-tools" class="owner-review-list empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø£Ø¯ÙˆØ§Øª Ø§Ù„Ø¨ÙˆØªØ§Øª...</div>
+              <div id="owner-bot-tools" class="owner-review-list empty">جاري تحميل أدوات البوتات...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø·ÙˆØ§Ø¨ÙŠØ± Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©</h3><p>Ø§Ù„Ø¹Ù†Ø§ØµØ± Ø§Ù„ØªÙŠ ØªØ­ØªØ§Ø¬ Ø§Ù†ØªØ¨Ø§Ù‡ Ø§Ù„Ù…Ø§Ù„Ùƒ Ø­Ø§Ù„ÙŠØ§Ù‹.</p></div>
+                <div><h3>طوابير المتابعة</h3><p>العناصر التي تحتاج انتباه المالك حالياً.</p></div>
               </div>
-              <div id="owner-queues" class="owner-queues empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø·ÙˆØ§Ø¨ÙŠØ±...</div>
+              <div id="owner-queues" class="owner-queues empty">جاري تحميل الطوابير...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ø±Ù‚Ù…ÙŠØ©</h3><p>ØªÙ†ÙÙŠØ° Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙŠØ¯ÙˆÙŠØ© ÙˆØ¥ÙƒÙ…Ø§Ù„Ù‡Ø§ Ø£Ùˆ Ø§Ø³ØªØ±Ø¯Ø§Ø¯Ù‡Ø§.</p></div>
+                <div><h3>إدارة الطلبات الرقمية</h3><p>تنفيذ الطلبات اليدوية وإكمالها أو استردادها.</p></div>
                 <select id="owner-digital-filter" class="compact-select">
-                  <option value="pending">Ù…Ø¹Ù„Ù‚Ø©</option>
-                  <option value="processing">Ù‚ÙŠØ¯ Ø§Ù„ØªÙ†ÙÙŠØ°</option>
-                  <option value="completed">Ù…ÙƒØªÙ…Ù„Ø©</option>
-                  <option value="refunded">Ù…Ø³ØªØ±Ø¯Ø©</option>
-                  <option value="all">Ø§Ù„ÙƒÙ„</option>
+                  <option value="pending">معلقة</option>
+                  <option value="processing">قيد التنفيذ</option>
+                  <option value="completed">مكتملة</option>
+                  <option value="refunded">مستردة</option>
+                  <option value="all">الكل</option>
                 </select>
               </div>
-              <div id="owner-digital-orders" class="owner-digital-orders empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ø±Ù‚Ù…ÙŠØ©...</div>
+              <div id="owner-digital-orders" class="owner-digital-orders empty">جاري تحميل الطلبات الرقمية...</div>
               <div class="section-head activity-head">
                 <div><h3>Custom preorder fulfillment</h3><p>Deliver queued custom orders or reject and refund them directly from the website.</p></div>
                 <select id="owner-preorder-filter" class="compact-select"><option value="active">Active</option><option value="fulfilled">Fulfilled</option><option value="rejected">Rejected</option><option value="all">All</option></select>
               </div>
               <div id="owner-custom-preorders" class="owner-digital-orders empty">Loading custom preorders...</div>
               <div class="section-head activity-head">
-                <div><h3>Ù…Ø±Ø§Ø¬Ø¹Ø§Øª Ø§Ø³ØªØ±Ø¯Ø§Ø¯ Ø§Ù„Ø£Ø±Ù‚Ø§Ù…</h3><p>Ø¥ØºÙ„Ø§Ù‚ Ø­Ø§Ù„Ø§Øª Ø§Ù„Ø¯Ø¹Ù… Ø¨Ø¹Ø¯ Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ù…Ø­Ø§ÙˆÙ„Ø© Ø§Ù„Ø¥Ù„ØºØ§Ø¡ Ø£Ùˆ Ø§Ù„Ø§Ø³ØªØ±Ø¯Ø§Ø¯.</p></div>
-                <label class="owner-toggle"><input id="owner-refunds-resolved" type="checkbox"> Ø¥Ø¸Ù‡Ø§Ø± Ø§Ù„Ù…ØºÙ„Ù‚Ø©</label>
+                <div><h3>مراجعات استرداد الأرقام</h3><p>إغلاق حالات الدعم بعد التحقق من محاولة الإلغاء أو الاسترداد.</p></div>
+                <label class="owner-toggle"><input id="owner-refunds-resolved" type="checkbox"> إظهار المغلقة</label>
               </div>
-              <div id="owner-refund-reviews" class="owner-refund-reviews empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ù…Ø±Ø§Ø¬Ø¹Ø§Øª Ø§Ù„Ø£Ø±Ù‚Ø§Ù…...</div>
+              <div id="owner-refund-reviews" class="owner-refund-reviews empty">جاري تحميل مراجعات الأرقام...</div>
               <div class="section-head activity-head">
-                <div><h3>Ø®ØµØ§Ø¦Øµ Ø§Ù„Ø¥Ø¯Ø§Ø±Ø©</h3><p>Ø­Ø§Ù„Ø© Ù†Ù‚Ù„ Ø£Ø¯ÙˆØ§Øª Ø§Ù„Ø¨ÙˆØªØ§Øª ÙˆÙ„ÙˆØ­Ø§Øª Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ø¥Ù„Ù‰ Ø§Ù„Ù…ÙˆÙ‚Ø¹.</p></div>
+                <div><h3>خصائص الإدارة</h3><p>حالة نقل أدوات البوتات ولوحات العمليات إلى الموقع.</p></div>
               </div>
-              <div id="owner-sections" class="owner-sections empty">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø®ØµØ§Ø¦Øµ Ø§Ù„Ø¥Ø¯Ø§Ø±Ø©...</div>
+              <div id="owner-sections" class="owner-sections empty">جاري تحميل خصائص الإدارة...</div>
               <p id="owner-message" class="message" role="status"></p>
             </section>
           </div>
