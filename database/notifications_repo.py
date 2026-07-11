@@ -80,19 +80,30 @@ async def notify_owner(*, kind: str, title: str, body: str = "", link: str = "",
     )
 
 
-async def list_notifications(*, recipient_type: str, recipient_id: int, limit: int = 30) -> list[dict[str, Any]]:
+def _feed_query(recipient_type: str, recipient_id: int, exclude_kinds: tuple[str, ...]) -> dict[str, Any]:
+    query: dict[str, Any] = {"recipient_type": str(recipient_type), "recipient_id": int(recipient_id or 0)}
+    if exclude_kinds:
+        # Chat-style kinds have their own live badge (the مراسلة counter) — the
+        # customer bell only carries order/wallet/identity events.
+        query["kind"] = {"$nin": [str(kind) for kind in exclude_kinds]}
+    return query
+
+
+async def list_notifications(
+    *, recipient_type: str, recipient_id: int, limit: int = 30, exclude_kinds: tuple[str, ...] = ()
+) -> list[dict[str, Any]]:
     cursor = (
-        db.notifications.find({"recipient_type": str(recipient_type), "recipient_id": int(recipient_id or 0)})
+        db.notifications.find(_feed_query(recipient_type, recipient_id, exclude_kinds))
         .sort("created_at", -1)
         .limit(int(limit))
     )
     return await cursor.to_list(length=int(limit))
 
 
-async def unread_count(*, recipient_type: str, recipient_id: int) -> int:
+async def unread_count(*, recipient_type: str, recipient_id: int, exclude_kinds: tuple[str, ...] = ()) -> int:
     return int(
         await db.notifications.count_documents(
-            {"recipient_type": str(recipient_type), "recipient_id": int(recipient_id or 0), "read": False}
+            {**_feed_query(recipient_type, recipient_id, exclude_kinds), "read": False}
         )
     )
 

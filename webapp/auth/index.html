@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <title>تسجيل الدخول | Phantom</title>
-  <link rel="stylesheet" href="/auth/static/styles.css?v=20260710-uxpolish3">
+  <link rel="stylesheet" href="/auth/static/styles.css?v=20260711-supportmerge">
   <script src="/auth/static/i18n.js" defer></script>
-  <script src="/auth/static/app.js?v=20260710-uxpolish3" defer></script>
+  <script src="/auth/static/app.js?v=20260711-supportmerge" defer></script>
 </head>
 <body>
   <main class="auth-shell">
@@ -97,9 +97,8 @@
               <button class="nav-item active" data-view="home">الخدمات</button>
               <button class="nav-item" data-view="orders">طلباتي</button>
               <button class="nav-item" data-view="recharge">شحن الرصيد</button>
-              <button class="nav-item" data-view="messages">مراسلة<span id="messages-nav-badge" class="nav-badge" hidden>0</span></button>
+              <button class="nav-item" data-view="messages">الدعم والمراسلة<span id="messages-nav-badge" class="nav-badge" hidden>0</span></button>
               <button class="nav-item" data-view="notifications">التنبيهات<span id="notifications-nav-badge" class="nav-badge" hidden>0</span></button>
-              <button class="nav-item" data-view="support">الدعم</button>
               <button class="nav-item" data-view="account">حسابي</button>
               <button class="nav-item" data-view="identity">تأكيد الهوية</button>
               <button class="nav-item owner-nav" type="button" data-owner-tab="overview" hidden>النظرة العامة</button>
@@ -189,7 +188,8 @@
             </section>
 
             <section class="app-view" data-panel="messages">
-              <div class="section-head"><div><h3>مراسلة مباشرة</h3><p>تواصل مباشر مع فريق Phantom لمتابعة طلباتك وأي استفسار.</p></div></div>
+              <div class="section-head"><div><h3>الدعم والمراسلة</h3><p>اشرح مشكلتك بخطوات سريعة أو اكتب لفريق Phantom مباشرة — كل شيء في محادثة واحدة.</p></div></div>
+              <div id="conversation-wizard" class="conversation-wizard"></div>
               <div id="conversation-thread" class="conversation-thread empty">جاري تحميل المحادثة...</div>
               <form id="conversation-form" class="conversation-form">
                 <textarea name="text" rows="2" maxlength="3500" required placeholder="اكتب رسالتك هنا..."></textarea>
@@ -199,7 +199,7 @@
             </section>
 
             <section class="app-view" data-panel="notifications">
-              <div class="section-head"><div><h3>التنبيهات</h3><p>كل جديد على طلباتك، رصيدك، هويتك، ورسائلك في مكان واحد.</p></div></div>
+              <div class="section-head"><div><h3>التنبيهات</h3><p>كل جديد على طلباتك، رصيدك، وهويتك في مكان واحد.</p></div></div>
               <div id="notifications-list" class="data-list empty">جاري تحميل التنبيهات...</div>
             </section>
 
@@ -228,29 +228,6 @@
               </form>
               <div class="section-head activity-head"><h3>آخر نشاط</h3><button id="download-activity" class="secondary compact" type="button">تنزيل النشاط</button></div>
               <div id="activity-list" class="data-list empty">لا يوجد نشاط حتى الآن.</div>
-            </section>
-
-            <section class="app-view" data-panel="support">
-              <div class="section-head">
-                <div>
-                  <h3>مركز الدعم</h3>
-                  <p>اختر القسم المرتبط بطلبك حتى يصل للفريق المناسب.</p>
-                </div>
-              </div>
-              <div class="support-overview">
-                <strong>دعم مركزي لحساب Phantom</strong>
-                <span>طلبات الأرقام، المنتجات الرقمية، والرصيد مجمعة في مكان واحد.</span>
-              </div>
-              <form id="support-ticket-form" class="support-ticket-form">
-                <label><span>القسم</span><select name="category" id="support-category-select" required></select></label>
-                <label><span>الرسالة</span><textarea name="message" rows="4" minlength="3" maxlength="3500" required placeholder="اكتب المشكلة أو رقم الطلب إن وجد"></textarea></label>
-                <button class="primary compact" type="submit">فتح تذكرة دعم</button>
-                <p class="message" id="support-ticket-message"></p>
-              </form>
-              <div id="support-list" class="support-category-grid empty">جاري تحميل خيارات الدعم...</div>
-              <div class="section-head activity-head"><h3>تذاكري</h3></div>
-              <div id="support-ticket-list" class="data-list empty">لا توجد تذاكر دعم حتى الآن.</div>
-              <div id="support-ticket-detail" class="support-ticket-detail" hidden></div>
             </section>
 
             <section class="app-view" data-panel="identity">

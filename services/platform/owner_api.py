@@ -2986,14 +2986,8 @@ async def owner_conversation_send(request: web.Request) -> web.Response:
         target_id=_text(conversation.get("_id")),
         metadata={"customer_id": int(conversation.get("customer_id") or 0), "order_ref": order_ref},
     )
-    await notify_customer(
-        int(conversation.get("customer_id") or 0),
-        kind="conversation",
-        title="رسالة جديدة من الدعم",
-        body=text[:120],
-        link="/app/messages",
-        meta={"conversation_id": _text(conversation.get("_id"))},
-    )
+    # No bell notification here on purpose: chat replies surface via the
+    # conversation's own unread counter (the مراسلة nav badge), not التنبيهات.
     rows = await _conversation_list_messages(conversation["_id"])
     return web.json_response(
         {

@@ -86,9 +86,8 @@ const customerViewTitles = {
   orders: "طلباتي",
   esim: "شرائح eSIM",
   recharge: "شحن الرصيد",
-  messages: "مراسلة",
+  messages: "الدعم والمراسلة",
   notifications: "التنبيهات",
-  support: "الدعم",
   account: "حسابي",
   identity: "تأكيد الهوية",
   workspace: "الخدمة",
@@ -126,7 +125,8 @@ function viewForPath(pathname = window.location.pathname) {
   if (pathname.startsWith("/app/recharge")) return "recharge";
   if (pathname.startsWith("/app/messages")) return "messages";
   if (pathname.startsWith("/app/notifications")) return "notifications";
-  if (pathname.startsWith("/app/support")) return "support";
+  // Support merged into the direct conversation; old links keep working.
+  if (pathname.startsWith("/app/support")) return "messages";
   if (pathname.startsWith("/app/account")) return "account";
   if (pathname.startsWith("/app/identity")) return "identity";
   if (pathname.startsWith("/app/services")) return "home";
@@ -412,6 +412,7 @@ function showAccount(account) {
   accountView.hidden = false;
   $(".form-wrap").classList.add("dashboard-mode");
   accountView.classList.toggle("admin-mode", Boolean(account.is_owner));
+  startBadgePolling();
   setText("#account-email", account.email);
   setText("#settings-email", account.email);
   setText("#customer-id", account.customer_id);
@@ -780,14 +781,13 @@ function downloadAccountActivity() {
 async function loadDashboard() {
   const activity = $("#activity-list");
   const lang = encodeURIComponent(appLanguage());
-  const [accountResult, numbersAccountResult, digitalOrdersResult, numberOrdersResult, rechargeResult, rechargeRequestsResult, supportResult] = await Promise.allSettled([
+  const [accountResult, numbersAccountResult, digitalOrdersResult, numberOrdersResult, rechargeResult, rechargeRequestsResult] = await Promise.allSettled([
     api("/api/v1/digital/account"),
     api("/api/v1/numbers/account"),
     api("/api/v1/digital/orders?limit=20"),
     api("/api/v1/numbers/orders?limit=20"),
     api("/api/v1/numbers/recharge"),
     api(`/api/v1/numbers/recharge/requests?limit=10&language=${lang}`),
-    api(`/api/v1/numbers/support?language=${lang}`),
   ]);
 
   const digitalAccount = settledValue(accountResult, { wallet: {}, recent_activity: [] });
@@ -796,7 +796,6 @@ async function loadDashboard() {
   const numberOrders = settledValue(numberOrdersResult, { orders: [], items: [] });
   const recharge = settledValue(rechargeResult, null);
   const rechargeRequests = settledValue(rechargeRequestsResult, null);
-  const support = settledValue(supportResult, null);
 
   try {
     const walletLabel = digitalAccount.wallet?.balance_label || numbersAccount.wallet?.balance_label || "$0.00";
@@ -829,15 +828,6 @@ async function loadDashboard() {
     else renderLoadError("#recharge-list", "تعذر تحميل طرق الشحن حالياً.");
     if (rechargeRequests) renderRechargeRequests(rechargeRequests);
     else renderLoadError("#recharge-requests-list", "تعذر تحميل طلبات الشحن حالياً.");
-    if (support) {
-      renderSupportOptions(support);
-      renderSupportTickets(support);
-    } else {
-      const supportForm = $("#support-ticket-form");
-      if (supportForm) supportForm.hidden = true;
-      renderLoadError("#support-list", "تعذر تحميل خيارات الدعم حالياً.");
-      renderLoadError("#support-ticket-list", "تعذر تحميل تذاكر الدعم حالياً.");
-    }
   } catch (error) {
     activity.textContent = "تعذر تحميل بيانات الحساب حاليا.";
   }
@@ -1012,9 +1002,14 @@ function renderConversation(payload) {
           <p>${esc(row.text || "")}</p>
           <span class="chat-time">${esc(fmtDate(row.created_at))}</span>
         </div>`).join("")
-    : "ابدأ المحادثة مع فريق Phantom — اكتب رسالتك بالأسفل.";
+    : "ما في محادثة بعد — ابدأ بلاغاً من الأعلى أو اكتب رسالتك بالأسفل.";
   thread.scrollTop = thread.scrollHeight;
   updateMessagesBadge(0);
+  // First visit with an empty thread: open the guided intake right away.
+  if (!messages.length && !conversationWizard) {
+    conversationWizard = { step: 1, section: "", issue: "", orderId: "", orderTitle: "" };
+  }
+  renderConversationWizard();
 }
 
 async function loadConversation() {
@@ -1034,8 +1029,26 @@ async function loadConversation() {
 function startConversationPolling() {
   if (conversationPollTimer) return;
   conversationSignature = "";
+  renderConversationWizard();
   loadConversation();
   conversationPollTimer = window.setInterval(loadConversation, 15000);
+}
+
+// Keep the nav badges (مراسلة + التنبيهات) fresh while the customer browses
+// other views — an owner reply must light up even without a page reload.
+let badgePollTimer = null;
+
+function startBadgePolling() {
+  if (badgePollTimer) return;
+  badgePollTimer = window.setInterval(async () => {
+    if (document.hidden || !currentAccount || currentAccount.is_owner) return;
+    try {
+      const me = await api("/api/v1/auth/me");
+      // The open conversation view clears its own badge; don't fight it.
+      if (!conversationPollTimer) updateMessagesBadge(Number(me.conversation_unread || 0));
+      updateNotificationsBadge(Number(me.notifications_unread || 0));
+    } catch (_error) { /* transient network issue — next tick retries */ }
+  }, 60000);
 }
 
 function stopConversationPolling() {
@@ -1245,144 +1258,96 @@ function renderEsimResult(data) {
   target.querySelector("[data-go-orders]")?.addEventListener("click", () => document.querySelector('.nav-item[data-view="orders"]')?.click());
 }
 
-function renderSupportOptions(payload) {
-  const target = $("#support-list");
-  const categorySelect = $("#support-category-select");
-  const rows = payload.categories || [];
-  const submitEnabled = Boolean(payload.actions?.submit_ticket?.enabled);
-  const categoryMeta = {
-    numbers: { icon: "📱", description: "مشاكل الطلبات، الأكواد، الأرقام المؤقتة والإيجار." },
-    services: { icon: "🎮", description: "طلبات المنتجات الرقمية، الشحن، والأسعار." },
-    user_balance: { icon: "💳", description: "شحن الرصيد، الدفعات، والاستردادات." },
-  };
-  if (categorySelect) {
-    categorySelect.innerHTML = rows.map((row) => `<option value="${esc(row.key)}">${esc(row.label || row.key)}</option>`).join("");
-    categorySelect.disabled = !submitEnabled || !rows.length;
-  }
-  const supportForm = $("#support-ticket-form");
-  if (supportForm) supportForm.hidden = !submitEnabled || !rows.length;
-  renderRows(target, rows, (row) => `
-    <div class="support-category">
-      <span class="support-category-icon">${categoryMeta[row.key]?.icon || "💬"}</span>
-      <div>
-        <strong>${esc(row.label || row.key || "Support")}</strong>
-        <span>${esc(categoryMeta[row.key]?.description || "تواصل مع فريق الدعم.")}</span>
-      </div>
-      <b>${submitEnabled ? "فتح تذكرة" : "قريباً"}</b>
-    </div>`);
-  if (!rows.length) target.textContent = "لا توجد قنوات دعم مفعّلة حالياً.";
-  else if (!submitEnabled) {
-    target.insertAdjacentHTML("beforeend", '<div class="notice support-roadmap">الدعم غير مفعّل حالياً. جرّب مرة أخرى لاحقاً أو تواصل مع الإدارة.</div>');
-  }
-}
+// ===== Guided support intake (الدعم والمراسلة merged) =====
+// Instead of a separate ticket center, the customer answers 3 quick general
+// questions (section -> issue type -> related order) + optional details; the
+// summary lands as the FIRST conversation message so the owner has context,
+// then the chat continues free-form. Questions are shared across ALL products
+// on purpose — no per-family trees to maintain.
+const WIZARD_SECTIONS = ["شحن ألعاب", "شحن رصيد الموقع", "بطاقات المتاجر", "اشتراكات برامج", "شحن أرصدة وباقات", "أرقام التأكيد", "eSIM", "موضوع آخر"];
+const WIZARD_ISSUES = ["الطلب ما وصل", "وصلني منتج أو مبلغ خاطئ", "تأخير بالتنفيذ", "انخصم رصيدي بدون تنفيذ", "مشكلة بالدفع أو شحن الرصيد", "سؤال قبل الشراء", "مشكلة أخرى"];
+let conversationWizard = null; // null = collapsed CTA
 
-function renderSupportTickets(payload) {
-  const target = $("#support-ticket-list");
+function renderConversationWizard() {
+  const target = $("#conversation-wizard");
   if (!target) return;
-  const rows = payload.tickets || [];
-  renderRows(target, rows, (row) => `
-    <button class="data-row order-row-button" type="button" data-support-ticket-id="${esc(row.id || "")}">
-      <div>
-        <strong>#${esc(row.ticket_no || row.id || "")} · ${esc(row.category_label || row.category || "Support")}</strong>
-        <span>${esc(row.opened_at || "")}${row.updated_at ? ` · ${esc(row.updated_at)}` : ""}</span>
-      </div>
-      <div class="stacked-meta">
-        <b>${esc(row.status_label || row.status || "")}</b>
-        <span>${row.is_open ? "مفتوحة" : "مغلقة"}</span>
-      </div>
-    </button>`);
-}
-
-function renderSupportTicketDetail(payload) {
-  const target = $("#support-ticket-detail");
-  if (!target) return;
-  const ticket = payload.ticket || {};
-  const messages = payload.messages || [];
-  target.hidden = false;
+  if (!conversationWizard) {
+    target.innerHTML = `
+      <button class="wizard-cta" type="button" id="conversation-wizard-start">
+        <strong>🧭 عندك مشكلة أو استفسار؟ ابدأ من هون</strong>
+        <span>جاوب على سؤالين وبيوصل ملخص جاهز لفريق الدعم فوراً.</span>
+      </button>`;
+    $("#conversation-wizard-start")?.addEventListener("click", () => {
+      conversationWizard = { step: 1, section: "", issue: "", orderId: "", orderTitle: "" };
+      renderConversationWizard();
+    });
+    return;
+  }
+  const wiz = conversationWizard;
+  const chips = (options, key) => options.map((option) => `<button type="button" class="wizard-chip" data-wizard-${key}="${esc(option)}">${esc(option)}</button>`).join("");
+  const summary = [];
+  if (wiz.section) summary.push(`القسم: ${wiz.section}`);
+  if (wiz.issue) summary.push(`المشكلة: ${wiz.issue}`);
+  if (wiz.step > 3) summary.push(`الطلب: ${wiz.orderTitle || "بدون طلب محدد"}`);
+  let stepHtml = "";
+  if (wiz.step === 1) {
+    stepHtml = `<strong>مشكلتك بأي قسم؟</strong><div class="wizard-chips">${chips(WIZARD_SECTIONS, "section")}</div>`;
+  } else if (wiz.step === 2) {
+    stepHtml = `<strong>شو نوع المشكلة؟</strong><div class="wizard-chips">${chips(WIZARD_ISSUES, "issue")}</div>`;
+  } else if (wiz.step === 3) {
+    const recent = customerOrderRows.slice(0, 5);
+    stepHtml = `<strong>مرتبطة بطلب معيّن؟</strong><div class="wizard-chips">
+      ${recent.map((row) => `<button type="button" class="wizard-chip" data-wizard-order="${esc(row.id || "")}" data-wizard-order-title="${esc(orderTitle(row))}">${esc(orderTitle(row))} · ${esc(fmtDate(row.created_at))}</button>`).join("")}
+      <button type="button" class="wizard-chip" data-wizard-order="" data-wizard-order-title="">بدون طلب محدد</button>
+    </div>`;
+  } else {
+    stepHtml = `
+      <strong>تفاصيل إضافية؟ (اختياري)</strong>
+      <textarea id="conversation-wizard-details" rows="2" maxlength="1500" placeholder="مثال: الآيدي، وقت العملية، شو صار بالضبط..."></textarea>
+      <button class="primary compact" type="button" id="conversation-wizard-send">تم — أرسل للدعم</button>`;
+  }
   target.innerHTML = `
-    <div class="section-head">
-      <div>
-        <h3>تذكرة #${esc(ticket.ticket_no || ticket.id || "")}</h3>
-        <p>${esc(ticket.category_label || ticket.category || "Support")} · ${esc(ticket.status_label || ticket.status || "")}</p>
+    <div class="wizard-panel">
+      <div class="wizard-head">
+        <span>${summary.length ? summary.map((part) => `<i class="wizard-tag">${esc(part)}</i>`).join("") : "بلاغ جديد"}</span>
+        <button type="button" class="wizard-cancel" id="conversation-wizard-cancel">إلغاء</button>
       </div>
-    </div>
-    <div class="support-message-list">
-      ${messages.length ? messages.map((row) => `
-        <div class="support-message ${row.actor === "support" ? "is-support" : ""}">
-          <span>${row.actor === "support" ? "الدعم" : "أنت"} · ${esc(fmtDate(row.created_at))}</span>
-          <strong>${esc(row.text || row.filename || "")}</strong>
-        </div>`).join("") : '<div class="notice">لا توجد رسائل بعد.</div>'}
-    </div>
-    ${ticket.is_open ? `<form class="support-reply-form" data-support-ticket-reply="${esc(ticket.id || "")}">
-      <label><span>ردك</span><textarea name="message" required minlength="2" maxlength="3500" placeholder="اكتب ردك أو أضف تفاصيل جديدة"></textarea></label>
-      <button class="secondary compact" type="submit">إرسال</button>
-      <p class="message" role="status"></p>
-    </form>` : '<div class="notice">هذه التذكرة مغلقة.</div>'}
-  `;
-  target.querySelector("[data-support-ticket-reply]")?.addEventListener("submit", submitSupportTicketReply);
+      ${stepHtml}
+    </div>`;
+  $("#conversation-wizard-cancel")?.addEventListener("click", () => { conversationWizard = null; renderConversationWizard(); });
+  target.querySelectorAll("[data-wizard-section]").forEach((button) => button.addEventListener("click", () => {
+    wiz.section = button.dataset.wizardSection || ""; wiz.step = 2; renderConversationWizard();
+  }));
+  target.querySelectorAll("[data-wizard-issue]").forEach((button) => button.addEventListener("click", () => {
+    wiz.issue = button.dataset.wizardIssue || ""; wiz.step = 3; renderConversationWizard();
+  }));
+  target.querySelectorAll("[data-wizard-order]").forEach((button) => button.addEventListener("click", () => {
+    wiz.orderId = button.dataset.wizardOrder || ""; wiz.orderTitle = button.dataset.wizardOrderTitle || ""; wiz.step = 4; renderConversationWizard();
+  }));
+  $("#conversation-wizard-send")?.addEventListener("click", sendConversationWizard);
 }
 
-async function loadSupportTicketDetail(ticketId) {
-  const target = $("#support-ticket-detail");
-  if (target) {
-    target.hidden = false;
-    target.textContent = "جاري تحميل التذكرة...";
-  }
+async function sendConversationWizard() {
+  const wiz = conversationWizard;
+  if (!wiz) return;
+  const details = String($("#conversation-wizard-details")?.value || "").trim();
+  const lines = ["📋 بلاغ جديد", `القسم: ${wiz.section || "-"}`, `المشكلة: ${wiz.issue || "-"}`, `الطلب: ${wiz.orderTitle || "بدون طلب محدد"}`];
+  if (details) lines.push(`تفاصيل: ${details}`);
+  const button = $("#conversation-wizard-send");
+  if (button) { button.disabled = true; button.textContent = "جاري الإرسال..."; }
   try {
-    const payload = await api(`/api/v1/numbers/support/tickets/${encodeURIComponent(ticketId)}?language=${encodeURIComponent(appLanguage())}`);
-    renderSupportTicketDetail(payload);
-  } catch (error) {
-    if (target) target.textContent = error.message;
-  }
-}
-
-async function submitSupportTicketReply(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const message = form.querySelector(".message");
-  const button = form.querySelector("button[type='submit']");
-  const ticketId = form.dataset.supportTicketReply;
-  message.textContent = "جاري إرسال الرد...";
-  button.disabled = true;
-  try {
-    const values = Object.fromEntries(new FormData(form).entries());
-    const payload = await api(`/api/v1/numbers/support/tickets/${encodeURIComponent(ticketId)}/reply`, {
+    const payload = await api("/api/v1/auth/conversation/messages", {
       method: "POST",
-      body: JSON.stringify({...values, language: appLanguage()}),
+      body: JSON.stringify({ text: lines.join("\n"), order_ref: wiz.orderId || "" }),
     });
-    form.reset();
-    renderSupportTicketDetail(payload);
-    const support = await api(`/api/v1/numbers/support?language=${encodeURIComponent(appLanguage())}`);
-    renderSupportTickets(support);
+    conversationWizard = null;
+    conversationSignature = "";
+    renderConversationWizard();
+    renderConversation(payload);
+    setText("#conversation-message", "وصل بلاغك لفريق الدعم — رح نرد عليك هون.");
   } catch (error) {
-    message.textContent = error.message;
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function submitSupportTicket(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const message = $("#support-ticket-message");
-  const button = form.querySelector("button[type='submit']");
-  message.textContent = "جاري فتح تذكرة الدعم...";
-  button.disabled = true;
-  try {
-    const values = Object.fromEntries(new FormData(form).entries());
-    const result = await api("/api/v1/numbers/support/ticket", {
-      method: "POST",
-      body: JSON.stringify({...values, language: appLanguage()}),
-    });
-    message.textContent = result.message || `تم فتح التذكرة #${result.ticket_no || ""}.`;
-    form.reset();
-    const support = await api(`/api/v1/numbers/support?language=${encodeURIComponent(appLanguage())}`);
-    renderSupportOptions(support);
-    renderSupportTickets(support);
-  } catch (error) {
-    message.textContent = error.message;
-  } finally {
-    button.disabled = false;
+    if (button) { button.disabled = false; button.textContent = "تم — أرسل للدعم"; }
+    setText("#conversation-message", error.message);
   }
 }
 
@@ -5311,12 +5276,6 @@ $("#cardex-link")?.addEventListener("click", (event) => {
 $("#refresh-orders")?.addEventListener("click", loadDashboard);
 $("#download-activity")?.addEventListener("click", downloadAccountActivity);
 $("#password-change-form")?.addEventListener("submit", submitPasswordChange);
-$("#support-ticket-form")?.addEventListener("submit", submitSupportTicket);
-$("#support-ticket-list")?.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-support-ticket-id]");
-  if (!button) return;
-  loadSupportTicketDetail(button.dataset.supportTicketId);
-});
 window.addEventListener("phantom-language-change", () => {
   if (currentAccount && !currentAccount.is_owner) loadDashboard();
   persistAccountLanguage();
@@ -5574,5 +5533,5 @@ $("#verify-logout-button").addEventListener("click", logout);
 // page. Public auth pages (/login, /register, /) show the form right away.
 if (!/^\/(app|admin|account)/.test(window.location.pathname)) showLoginView();
 api("/api/v1/auth/me")
-  .then((data) => { showAccount(data.account); updateMessagesBadge(data.conversation_unread); updateNotificationsBadge(data.notifications_unread); })
+  .then((data) => { showAccount(data.account); updateMessagesBadge(data.conversation_unread); updateNotificationsBadge(data.notifications_unread); startBadgePolling(); })
   .catch(() => { if (!currentAccount) showLoginView(); });

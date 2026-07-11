@@ -412,7 +412,9 @@ async def me(request: web.Request) -> web.Response:
     account = await find_website_account_by_id(auth.account_id)
     conversation = await get_conversation_for_customer(auth.customer_id)
     unread = int((conversation or {}).get("customer_unread") or 0)
-    notifications_unread = await _notifications_unread_count(recipient_type=RECIPIENT_CUSTOMER, recipient_id=auth.customer_id)
+    notifications_unread = await _notifications_unread_count(
+        recipient_type=RECIPIENT_CUSTOMER, recipient_id=auth.customer_id, exclude_kinds=_CHAT_NOTIFICATION_KINDS
+    )
     return web.json_response(
         {
             "account": _public_account(account or {}),
@@ -681,7 +683,10 @@ async def conversation_send_message(request: web.Request) -> web.Response:
     body = await _read_json_body(request)
     if isinstance(body, web.Response):
         return body
-    text = " ".join(str(body.get("text") or "").strip().split())
+    # Normalize whitespace per line but KEEP line breaks — the guided-intake
+    # wizard sends a multi-line summary the owner must read as a list.
+    raw_text = str(body.get("text") or "")
+    text = "\n".join(" ".join(line.split()) for line in raw_text.splitlines() if line.strip())
     if len(text) < 1:
         raise web.HTTPBadRequest(text="empty message")
     if len(text) > _CONVERSATION_MESSAGE_MAX:
@@ -732,10 +737,20 @@ def _notification_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Chat traffic (direct conversation + legacy support tickets) never lands in the
+# customer bell: the مراسلة nav badge is its live counter. Order/wallet/identity
+# events keep the bell.
+_CHAT_NOTIFICATION_KINDS = ("conversation", "support")
+
+
 async def notifications_list(request: web.Request) -> web.Response:
     auth = await require_website_auth(request)
-    rows = await _list_notifications(recipient_type=RECIPIENT_CUSTOMER, recipient_id=auth.customer_id, limit=40)
-    unread = await _notifications_unread_count(recipient_type=RECIPIENT_CUSTOMER, recipient_id=auth.customer_id)
+    rows = await _list_notifications(
+        recipient_type=RECIPIENT_CUSTOMER, recipient_id=auth.customer_id, limit=40, exclude_kinds=_CHAT_NOTIFICATION_KINDS
+    )
+    unread = await _notifications_unread_count(
+        recipient_type=RECIPIENT_CUSTOMER, recipient_id=auth.customer_id, exclude_kinds=_CHAT_NOTIFICATION_KINDS
+    )
     return web.json_response(
         {"ok": True, "unread": int(unread), "notifications": [_notification_payload(row) for row in rows]}
     )

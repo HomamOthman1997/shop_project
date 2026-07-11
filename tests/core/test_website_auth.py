@@ -229,9 +229,13 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
 
     assert 'data-view="recharge"' in html
     assert 'data-panel="recharge"' in html
-    assert 'id="support-ticket-form"' in html
-    assert 'id="support-ticket-list"' in html
-    assert 'id="support-ticket-detail"' in html
+    # Support merged into the direct conversation (guided intake wizard) —
+    # the standalone ticket center must stay gone from the customer UI.
+    assert 'data-view="support"' not in html
+    assert 'data-panel="support"' not in html
+    assert 'id="support-ticket-form"' not in html
+    assert 'id="conversation-wizard"' in html
+    assert "الدعم والمراسلة" in html
     assert 'id="download-activity"' in html
     assert 'id="password-change-form"' in html
     assert 'id="identity-message"' in html
@@ -273,9 +277,18 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert 'setPostAuthMessage(message, "البريد مؤكد مسبقا.");' in js
     assert "Promise.allSettled" in js
     assert "/api/v1/numbers/recharge/requests?limit=10&language=" in js
-    assert "/api/v1/numbers/support?language=" in js
     assert "/api/v1/digital/orders/${encodeURIComponent(orderId)}" in js
-    assert 'api("/api/v1/numbers/support/ticket"' in js
+    # The customer ticket flow is gone — the wizard posts to the conversation.
+    assert 'api("/api/v1/numbers/support/ticket"' not in js
+    assert "function renderConversationWizard" in js
+    assert "function sendConversationWizard" in js
+    assert "WIZARD_SECTIONS" in js
+    assert "WIZARD_ISSUES" in js
+    assert "بلاغ جديد" in js
+    assert "تم — أرسل للدعم" in js
+    assert "function startBadgePolling" in js
+    assert ".wizard-chip" in css
+    assert ".wizard-cta" in css
     assert 'numbersApiEndpoint("quotes", "/api/v1/numbers/quotes")' in js
     assert 'numbersApiEndpoint("create_order", "/api/v1/numbers/orders")' in js
     assert "function numbersPurchaseAction" in js
@@ -359,18 +372,16 @@ def test_customer_dashboard_has_recharge_support_and_order_filter_tabs():
     assert "data-copy-order-value" in js
     assert 'if (actionKey === "download_recording"' in js
     assert "options.body = JSON.stringify({ language: appLanguage() });" in js
-    assert "function renderSupportTickets" in js
-    assert "function renderSupportTicketDetail" in js
-    assert "function submitSupportTicketReply" in js
-    assert "/api/v1/numbers/support/tickets/" in js
-    assert "renderSupportTickets(support)" in js
+    # Customer ticket UI removed with the support/messages merge.
+    assert "function renderSupportTickets" not in js
+    assert "function renderSupportTicketDetail" not in js
+    assert "/api/v1/numbers/support/tickets/" not in js
     assert "$(\"#identity-message\")" in js
     assert "جاري إرسال طلب مراجعة الهوية..." in js
     assert "تم إرسال طلب مراجعة الهوية." in js
     assert "نعمل على صندوق تذاكر" not in js
     assert "إرسال إثبات الدفع من الموقع غير مفعّل بعد" not in js
     assert "رفع صور الوثائق سيضاف" not in html
-    assert "الدعم غير مفعّل حالياً" in js
     assert '"تذاكري": "My tickets"' in i18n
     assert '"فتح تذكرة دعم": "Open support ticket"' in i18n
     assert '"الرصيد والمدفوعات": "Balance and payments"' in i18n
@@ -399,7 +410,7 @@ def test_customer_dashboard_keeps_products_out_of_account_sections():
     from pathlib import Path
 
     html = (Path(__file__).resolve().parents[2] / "webapp" / "auth" / "index.html").read_text(encoding="utf-8")
-    account_block = html[html.index('data-panel="account"'): html.index('data-panel="support"')]
+    account_block = html[html.index('data-panel="account"'): html.index('data-panel="identity"')]
 
     assert 'id="recharge-list"' not in account_block
     assert "Telegram" in account_block
@@ -1272,6 +1283,17 @@ async def test_customer_conversation_send_creates_thread(monkeypatch):
     assert body["messages"][0]["actor"] == "you"
     assert body["conversation"]["unread"] == 0
 
+    # The guided-intake wizard sends a multi-line summary: line breaks must
+    # survive (per-line whitespace still collapses) so the owner reads a list.
+    await website_auth.conversation_send_message(
+        raw_request(
+            "POST",
+            "/api/v1/auth/conversation/messages",
+            json.dumps({"text": "📋 بلاغ جديد\nالقسم:   شحن ألعاب\n\nالمشكلة: الطلب ما وصل"}),
+        )
+    )
+    assert sent["text"] == "📋 بلاغ جديد\nالقسم: شحن ألعاب\nالمشكلة: الطلب ما وصل"
+
 
 @pytest.mark.asyncio
 async def test_customer_notifications_list_and_mark_read(monkeypatch):
@@ -1286,12 +1308,15 @@ async def test_customer_notifications_list_and_mark_read(monkeypatch):
 
     marked: dict = {}
 
-    async def list_notifications(*, recipient_type, recipient_id, limit=30):
+    async def list_notifications(*, recipient_type, recipient_id, limit=30, exclude_kinds=()):
         assert recipient_type == "customer"
         assert recipient_id == 900000000001
+        # Chat traffic never reaches the bell — it has its own مراسلة badge.
+        assert set(exclude_kinds) == {"conversation", "support"}
         return [{"_id": "n1", "kind": "order", "title": "تم تنفيذ طلبك", "body": "PUBG", "link": "/app/orders", "read": False, "created_at": None}]
 
-    async def unread(*, recipient_type, recipient_id):
+    async def unread(*, recipient_type, recipient_id, exclude_kinds=()):
+        assert set(exclude_kinds) == {"conversation", "support"}
         return 3
 
     async def mark_all_read(*, recipient_type, recipient_id):
