@@ -986,3 +986,73 @@ async def build_route_offers_live(countries: list[str], *, days: int, usage_key:
 async def build_single_country_offers_live(country: str, *, days: int, usage_key: str) -> list[dict[str, Any]]:
     rows, _, _, _ = await live_or_local_dataset()
     return _build_single_country_offers_from(rows, country, days=days, usage_key=usage_key)
+
+
+def plan_allowance_label(row: dict[str, Any], *, lang: str = "ar") -> str:
+    """Public data-allowance label ('3GB', '1GB/يوم', …) for the website table."""
+    return _allowance_label(row, lang=lang)
+
+
+def plan_gb_sort_value(row: dict[str, Any]) -> float:
+    """Sortable GB value (daily plans rank as effectively unlimited)."""
+    return _plan_gb_value(row)
+
+
+# How many plans per covering region land in the country table — regions like
+# Europe carry dozens; the cheapest few are what a customer actually compares.
+_REGION_TABLE_PLAN_CAP = 15
+
+
+def _country_plan_table_from(
+    rows: list[dict[str, Any]],
+    coverage_map: dict[str, set[str]] | dict[str, list[str]],
+    country: str,
+    *,
+    region_plan_cap: int = _REGION_TABLE_PLAN_CAP,
+) -> list[dict[str, Any]]:
+    """Flat, price-sorted table of every plan usable in `country`: all of its
+    Single-country plans PLUS the Multi-Area plans whose coverage includes it —
+    so a customer picking Kenya also sees the Africa eSIMs, with the coverage
+    scope carried on each entry for the التغطية column."""
+    target = _normalize_country(country)
+    entries: list[dict[str, Any]] = []
+    for row in _single_country_plans_from(rows, target):
+        entries.append(
+            {
+                "plan": row,
+                "coverage_kind": "single",
+                "coverage_label": target,
+                "coverage_count": 1,
+                "coverage_countries": [target],
+            }
+        )
+    for region_name, coverage in _normalize_coverage_map(coverage_map).items():
+        if target not in coverage:
+            continue
+        region_rows = sorted(
+            [
+                row
+                for row in rows
+                if str(row.get("type") or "").strip() == "Multi-Area"
+                and _normalize_country(str(row.get("region") or "")) == region_name
+            ],
+            key=_money_key,
+        )
+        covered_sorted = sorted(coverage)
+        for row in region_rows[: max(0, int(region_plan_cap))]:
+            entries.append(
+                {
+                    "plan": row,
+                    "coverage_kind": "region",
+                    "coverage_label": region_name,
+                    "coverage_count": len(coverage),
+                    "coverage_countries": covered_sorted[:40],
+                }
+            )
+    entries.sort(key=lambda item: _money_key(item["plan"]))
+    return entries
+
+
+async def country_plan_table_live(country: str) -> list[dict[str, Any]]:
+    rows, coverage_map, _, _ = await live_or_local_dataset()
+    return _country_plan_table_from(rows, coverage_map, country)

@@ -25,7 +25,10 @@ from database.user_repo import get_user
 from services.digital_products.catalog_service import digital_provider_enabled, extract_provider_offers, get_catalog_snapshot, get_game_topups
 from services.digital_products.esim_route_service import (
     build_single_country_offers_live,
+    country_plan_table_live,
     offer_summary as esim_offer_summary,
+    plan_allowance_label as esim_plan_allowance_label,
+    plan_gb_sort_value as esim_plan_gb_sort_value,
     route_available_days_live,
     search_countries_live,
 )
@@ -1547,6 +1550,73 @@ async def esim_offers(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "country": country, "days": days, "usage": usage_key, "offers": out}, headers=_response_headers(rate_limit))
 
 
+async def esim_plans(request: web.Request) -> web.Response:
+    """Country plan table: every Single plan for the country plus the regional
+    (Multi-Area) plans covering it, priced with the eSIM retail margin (or the
+    reseller tier margin) over the raw provider cost."""
+    auth = await require_digital_user_auth(request, "digital:catalog")
+    rate_limit = await _check_rate_limit(auth, bucket="digital:esim:plans", limit=40)
+    country = str(request.query.get("country") or "").strip()
+    if not country:
+        return _json_error("Missing country.", status=400, code="missing_country", rate_limit=rate_limit)
+    if not esim_provider_configured():
+        return web.json_response({"ok": True, "configured": False, "country": country, "plans": []}, headers=_response_headers(rate_limit))
+    from database.reseller_pricing_config_repo import get_pricing_config
+    from services.digital_products.reseller_pricing import retail_price, wholesale_price
+
+    entries = await country_plan_table_live(country)
+    pricing_config = await get_pricing_config()
+    tier = str(getattr(auth, "reseller_tier", "") or "").strip().lower()
+    out: list[dict[str, Any]] = []
+    for entry in entries:
+        plan = dict(entry.get("plan") or {})
+        cost = float(_money(plan.get("price_usd") or 0))
+        if cost <= 0:
+            continue
+        sale = float(retail_price(cost, "esim", pricing_config))
+        if tier:
+            sale = float(wholesale_price("esim", tier, cost=cost, retail=sale, cfg=pricing_config))
+        if sale <= 0:
+            continue
+        kind = str(entry.get("coverage_kind") or "single")
+        coverage_label = str(entry.get("coverage_label") or country)
+        coverage_countries = [str(name) for name in list(entry.get("coverage_countries") or [])][:40]
+        offer = {
+            "offer_type": "single_country" if kind == "single" else "single_region",
+            "title_ar": "باقة دولة واحدة" if kind == "single" else "باقة إقليمية",
+            "title_en": "Single-country plan" if kind == "single" else "Regional plan",
+            "covered": [country] if kind == "single" else coverage_countries,
+            "missing": [],
+            "coverage_full": True,
+            "price_usd": sale,
+            "_cost_price_usd": cost,
+            "parts": (
+                [{"kind": "single", "country": country, "plan": plan}]
+                if kind == "single"
+                else [{"kind": "region", "region_name": coverage_label, "plan": plan}]
+            ),
+        }
+        days = int(plan.get("days") or 0)
+        try:
+            safe_offer = json.loads(json.dumps(offer, default=float))
+            token = make_digital_quote_token({"kind": "esim", "offer": safe_offer, "days": days, "country": country, "sale_price": sale, "cost_price": cost})
+        except Exception:
+            continue  # skip an offer that can't be safely signed
+        out.append(
+            {
+                "name": str(plan.get("name") or "").strip() or "eSIM",
+                "data_label": esim_plan_allowance_label(plan, lang="ar"),
+                "gb_sort": float(esim_plan_gb_sort_value(plan)),
+                "days": days,
+                "price": sale,
+                "price_label": _money_label(sale),
+                "coverage": {"kind": kind, "label": coverage_label, "count": int(entry.get("coverage_count") or 1), "countries": coverage_countries},
+                "quote_token": token,
+            }
+        )
+    return web.json_response({"ok": True, "configured": True, "country": country, "plans": out}, headers=_response_headers(rate_limit))
+
+
 async def esim_buy(request: web.Request) -> web.Response:
     auth = await require_digital_user_auth(request, "digital:orders:create")
     rate_limit = await _check_rate_limit(auth, bucket="digital:esim:buy", limit=15)
@@ -1604,6 +1674,7 @@ def register_digital_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/v1/digital/esim/countries", esim_countries)
     app.router.add_get("/api/v1/digital/esim/days", esim_days)
     app.router.add_get("/api/v1/digital/esim/offers", esim_offers)
+    app.router.add_get("/api/v1/digital/esim/plans", esim_plans)
     app.router.add_post("/api/v1/digital/esim/buy", esim_buy)
     app.router.add_get("/api/v1/digital/account", account)
     app.router.add_get("/api/v1/digital/catalog", catalog)

@@ -1387,3 +1387,59 @@ async def test_reseller_status_hidden_from_normal_customer(monkeypatch):
     payload = json.loads(response.text)
 
     assert payload == {"ok": True, "is_reseller": False}
+
+
+@pytest.mark.asyncio
+async def test_esim_plans_prices_with_margin_and_carries_coverage(monkeypatch):
+    # The country table must price from the RAW provider cost x the esim retail
+    # margin (15% default) -- the old offers path sold at cost. Coverage rides
+    # along for the table column, and the signed quote keeps sale + cost.
+    import database.reseller_pricing_config_repo as pricing_repo
+    from services.digital_products.reseller_pricing import DEFAULT_CONFIG
+
+    entries = [
+        {"plan": {"name": "Kenya 1GB 7Days", "price_usd": 2.0, "days": 7, "gbs": "1", "package_code": "K1"},
+         "coverage_kind": "single", "coverage_label": "Kenya", "coverage_count": 1, "coverage_countries": ["Kenya"]},
+        {"plan": {"name": "Africa 1GB 7Days", "price_usd": 4.0, "days": 7, "gbs": "1", "package_code": "AF1"},
+         "coverage_kind": "region", "coverage_label": "Africa", "coverage_count": 30, "coverage_countries": ["Kenya", "Nigeria"]},
+    ]
+
+    auth = auth_context()
+
+    async def fake_auth(_request, _scope):
+        return auth
+
+    async def fake_table(country):
+        assert country == "Kenya"
+        return entries
+
+    async def fake_cfg():
+        return DEFAULT_CONFIG
+
+    monkeypatch.setattr(api, "require_digital_user_auth", fake_auth)
+    monkeypatch.setattr(api, "_check_rate_limit", allow_rate_limit)
+    monkeypatch.setattr(api, "esim_provider_configured", lambda: True)
+    monkeypatch.setattr(api, "country_plan_table_live", fake_table)
+    monkeypatch.setattr(pricing_repo, "get_pricing_config", fake_cfg)
+
+    request = make_mocked_request("GET", "/api/v1/digital/esim/plans?country=Kenya")
+    response = await api.esim_plans(request)
+    payload = json.loads(response.text)
+
+    assert payload["ok"] is True
+    plans = payload["plans"]
+    assert len(plans) == 2
+    assert plans[0]["price"] == 2.3  # 2.00 cost * 1.15
+    assert plans[0]["coverage"]["kind"] == "single"
+    assert plans[1]["coverage"] == {"kind": "region", "label": "Africa", "count": 30, "countries": ["Kenya", "Nigeria"]}
+    quote = api.verify_digital_quote_token(plans[0]["quote_token"])
+    assert quote["kind"] == "esim"
+    assert quote["sale_price"] == 2.3
+    assert quote["cost_price"] == 2.0
+    assert quote["offer"]["_cost_price_usd"] == 2.0
+
+    # A reseller tier prices from cost with the tier margin instead.
+    auth = ApiAuthContext(key_id="key-1", user_id=123, reseller_id=456, scopes=("digital:catalog",), reseller_tier="platinum")
+    response = await api.esim_plans(make_mocked_request("GET", "/api/v1/digital/esim/plans?country=Kenya"))
+    reseller_plans = json.loads(response.text)["plans"]
+    assert reseller_plans[0]["price"] < 2.3

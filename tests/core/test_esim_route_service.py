@@ -78,3 +78,46 @@ def test_choose_recommended_offer_prefers_simpler_region_when_difference_is_one_
     chosen = choose_recommended_offer(offers, absolute_threshold_usd=1.0)
     assert chosen is not None
     assert chosen["offer_type"] == "single_region"
+
+
+def test_country_plan_table_includes_singles_and_covering_regions():
+    from services.digital_products.esim_route_service import _country_plan_table_from
+
+    rows = [
+        {"type": "Single", "region": "Kenya", "name": "Kenya 1GB 7Days", "price_usd": 2.0, "days": 7, "gbs": "1"},
+        {"type": "Single", "region": "Kenya", "name": "Kenya 3GB 30Days", "price_usd": 5.0, "days": 30, "gbs": "3"},
+        {"type": "Single", "region": "Turkey", "name": "Turkey 1GB", "price_usd": 2.5, "days": 7, "gbs": "1"},
+        {"type": "Multi-Area", "region": "Africa", "name": "Africa 1GB 7Days", "price_usd": 4.0, "days": 7, "gbs": "1"},
+        {"type": "Multi-Area", "region": "Europe", "name": "Europe 1GB 7Days", "price_usd": 3.0, "days": 7, "gbs": "1"},
+    ]
+    coverage_map = {"Africa": {"Kenya", "Nigeria", "Egypt"}, "Europe": {"France", "Germany"}}
+
+    entries = _country_plan_table_from(rows, coverage_map, "Kenya")
+
+    names = [entry["plan"]["name"] for entry in entries]
+    # Kenya singles + the Africa regional plan; Turkey/Europe stay out.
+    assert "Kenya 1GB 7Days" in names and "Kenya 3GB 30Days" in names
+    assert "Africa 1GB 7Days" in names
+    assert "Turkey 1GB" not in names and "Europe 1GB 7Days" not in names
+    # Sorted by price and coverage metadata carried for the table column.
+    assert names[0] == "Kenya 1GB 7Days"
+    region_entry = next(entry for entry in entries if entry["coverage_kind"] == "region")
+    assert region_entry["coverage_label"] == "Africa"
+    assert region_entry["coverage_count"] == 3
+    assert "Kenya" in region_entry["coverage_countries"]
+    single_entry = next(entry for entry in entries if entry["coverage_kind"] == "single")
+    assert single_entry["coverage_label"] == "Kenya"
+    assert single_entry["coverage_count"] == 1
+
+
+def test_country_plan_table_caps_region_plans():
+    from services.digital_products.esim_route_service import _country_plan_table_from
+
+    rows = [
+        {"type": "Multi-Area", "region": "Africa", "name": f"Africa plan {i}", "price_usd": 1.0 + i, "days": 7, "gbs": "1"}
+        for i in range(30)
+    ]
+    entries = _country_plan_table_from(rows, {"Africa": {"Kenya"}}, "Kenya", region_plan_cap=5)
+    assert len(entries) == 5
+    # The cheapest region plans survive the cap.
+    assert entries[0]["plan"]["name"] == "Africa plan 0"

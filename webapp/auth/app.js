@@ -1161,14 +1161,26 @@ async function loadNotifications() {
   }
 }
 
-const esimState = { country: "", days: 0, usage: "low", configured: true };
+const esimState = { country: "", plans: [], sortKey: "price", sortDir: 1, configured: true };
 let esimSearchTimer = null;
 
+// English region names from the provider -> Arabic for the التغطية column.
+const ESIM_REGION_AR = {
+  "Europe": "أوروبا", "Africa": "أفريقيا", "Asia": "آسيا", "Middle East": "الشرق الأوسط",
+  "Gulf Region": "دول الخليج", "North America": "أمريكا الشمالية", "South America": "أمريكا الجنوبية",
+  "Latin America": "أمريكا اللاتينية", "Global": "عالمي", "Caribbean": "الكاريبي", "Oceania": "أوقيانوسيا",
+  "Southeast Asia": "جنوب شرق آسيا", "Central Asia": "آسيا الوسطى", "Balkans": "البلقان",
+};
+
+function esimRegionLabel(name) {
+  return ESIM_REGION_AR[String(name || "").trim()] || String(name || "").trim();
+}
+
 async function loadEsimPanel() {
-  esimState.country = ""; esimState.days = 0;
-  const cfg = $("#esim-config"); if (cfg) cfg.hidden = true;
+  esimState.country = ""; esimState.plans = [];
+  esimState.sortKey = "price"; esimState.sortDir = 1;
   setText("#esim-message", "");
-  if ($("#esim-offers")) $("#esim-offers").innerHTML = "";
+  if ($("#esim-plans")) $("#esim-plans").innerHTML = "";
   if ($("#esim-result")) $("#esim-result").innerHTML = "";
   if ($("#esim-country-search")) $("#esim-country-search").value = "";
   if ($("#esim-country-list")) $("#esim-country-list").innerHTML = "";
@@ -1194,49 +1206,80 @@ async function searchEsimCountries(query) {
 }
 
 async function selectEsimCountry(country) {
-  esimState.country = country; esimState.days = 0;
+  esimState.country = country;
+  esimState.plans = [];
   if ($("#esim-country-search")) $("#esim-country-search").value = country;
   if ($("#esim-country-list")) $("#esim-country-list").innerHTML = "";
-  if ($("#esim-offers")) $("#esim-offers").innerHTML = "";
-  if ($("#esim-result")) $("#esim-result").innerHTML = "";
-  const cfg = $("#esim-config"); if (cfg) cfg.hidden = false;
-  const daysList = $("#esim-days-list");
-  if (daysList) { daysList.classList.remove("empty"); daysList.textContent = "جاري جلب المدد..."; }
-  const loadBtn = $("#esim-load-offers"); if (loadBtn) loadBtn.disabled = true;
-  try {
-    const data = await api(`/api/v1/digital/esim/days?country=${encodeURIComponent(country)}`);
-    const days = data.days || [];
-    if (!daysList) return;
-    daysList.classList.toggle("empty", !days.length);
-    daysList.innerHTML = days.length ? days.map((d) => `<button type="button" class="esim-chip" data-esim-day="${d}">${d} يوم</button>`).join("") : "لا توجد مدد متاحة لهذه الدولة.";
-    daysList.querySelectorAll("[data-esim-day]").forEach((button) => button.addEventListener("click", () => {
-      esimState.days = Number(button.dataset.esimDay);
-      daysList.querySelectorAll(".esim-chip").forEach((chip) => chip.classList.toggle("active", chip === button));
-      if (loadBtn) loadBtn.disabled = false;
-    }));
-  } catch (error) { if (daysList) daysList.textContent = error.message; }
-}
-
-async function loadEsimOffers() {
-  if (!esimState.country || !esimState.days) return;
-  esimState.usage = $("#esim-usage")?.value || "low";
-  const target = $("#esim-offers");
-  if (!target) return;
-  target.classList.remove("empty");
-  target.innerHTML = '<div class="notice">جاري جلب الباقات...</div>';
   if ($("#esim-result")) $("#esim-result").innerHTML = "";
   setText("#esim-message", "");
+  const target = $("#esim-plans");
+  if (!target) return;
+  target.innerHTML = '<div class="notice">جاري جلب الباقات المتاحة...</div>';
   try {
-    const data = await api(`/api/v1/digital/esim/offers?country=${encodeURIComponent(esimState.country)}&days=${esimState.days}&usage=${encodeURIComponent(esimState.usage)}`);
-    const offers = data.offers || [];
-    target.classList.toggle("empty", !offers.length);
-    target.innerHTML = offers.length ? offers.map((offer, index) => `
-      <div class="data-row esim-offer">
-        <div><strong>${esc(offer.summary || "باقة eSIM")}</strong><span>${esc(offer.days)} يوم</span></div>
-        <div class="stacked-meta"><b>${esc(offer.price_label || "")}</b><button class="primary compact" type="button" data-esim-buy="${index}">شراء</button></div>
-      </div>`).join("") : '<div class="notice">لا توجد باقات لهذا الاختيار.</div>';
-    target.querySelectorAll("[data-esim-buy]").forEach((button) => button.addEventListener("click", () => buyEsim(offers[Number(button.dataset.esimBuy)], button)));
-  } catch (error) { target.innerHTML = `<div class="notice error">${esc(error.message)}</div>`; }
+    const data = await api(`/api/v1/digital/esim/plans?country=${encodeURIComponent(country)}`, { timeoutMs: 45000 });
+    esimState.plans = data.plans || [];
+    esimState.sortKey = "price";
+    esimState.sortDir = 1;
+    renderEsimPlansTable();
+  } catch (error) {
+    target.innerHTML = `<div class="notice error">${esc(error.message)}</div>`;
+  }
+}
+
+const ESIM_SORTABLE_COLUMNS = { data: "gb_sort", days: "days", price: "price" };
+
+function renderEsimPlansTable() {
+  const target = $("#esim-plans");
+  if (!target) return;
+  const plans = esimState.plans || [];
+  if (!plans.length) {
+    target.innerHTML = '<div class="notice">لا توجد باقات متاحة لهذه الدولة حالياً.</div>';
+    return;
+  }
+  const field = ESIM_SORTABLE_COLUMNS[esimState.sortKey] || "price";
+  const sorted = [...plans].sort((a, b) => (Number(a[field] || 0) - Number(b[field] || 0)) * esimState.sortDir);
+  const arrow = (key) => (esimState.sortKey === key ? (esimState.sortDir === 1 ? "▲" : "▼") : "⇅");
+  const coverageCell = (plan) => {
+    const coverage = plan.coverage || {};
+    if (coverage.kind === "region") {
+      const label = esimRegionLabel(coverage.label);
+      const names = (coverage.countries || []).join("، ");
+      return `<span class="esim-cov is-region" title="${esc(names)}">🌍 ${esc(label)} · ${esc(coverage.count)} دولة</span>`;
+    }
+    return `<span class="esim-cov is-single">${esc(coverage.label || esimState.country)}</span>`;
+  };
+  target.innerHTML = `
+    <div class="esim-table-meta"><strong>${esc(esimState.country)}</strong><span>${plans.length} باقة متاحة — اضغط على عنوان عمود للفرز.</span></div>
+    <div class="table-scroll">
+      <table class="esim-table">
+        <thead><tr>
+          <th>الباقة</th>
+          <th><button type="button" data-esim-sort="data">البيانات <i>${arrow("data")}</i></button></th>
+          <th><button type="button" data-esim-sort="days">المدة <i>${arrow("days")}</i></button></th>
+          <th>التغطية</th>
+          <th><button type="button" data-esim-sort="price">السعر <i>${arrow("price")}</i></button></th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${sorted.map((plan, index) => `
+          <tr>
+            <td class="esim-name">${esc(plan.name)}</td>
+            <td><b>${esc(plan.data_label)}</b></td>
+            <td>${esc(plan.days)} يوم</td>
+            <td>${coverageCell(plan)}</td>
+            <td class="esim-price">${esc(plan.price_label)}</td>
+            <td><button class="primary compact" type="button" data-esim-buy="${index}">شراء</button></td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>`;
+  target.querySelectorAll("[data-esim-sort]").forEach((button) => button.addEventListener("click", () => {
+    const key = button.dataset.esimSort;
+    if (esimState.sortKey === key) esimState.sortDir *= -1;
+    else { esimState.sortKey = key; esimState.sortDir = 1; }
+    renderEsimPlansTable();
+  }));
+  target.querySelectorAll("[data-esim-buy]").forEach((button) => button.addEventListener("click", () => buyEsim(sorted[Number(button.dataset.esimBuy)], button)));
 }
 
 async function buyEsim(offer, button) {
@@ -1247,7 +1290,7 @@ async function buyEsim(offer, button) {
   try {
     const data = await api("/api/v1/digital/esim/buy", { method: "POST", body: JSON.stringify({ quote_token: offer.quote_token }), timeoutMs: 90000 });
     setText("#esim-message", "");
-    if ($("#esim-offers")) $("#esim-offers").innerHTML = "";
+    if ($("#esim-plans")) $("#esim-plans").innerHTML = "";
     renderEsimResult(data);
   } catch (error) {
     setText("#esim-message", friendlyApiMessage(error));
@@ -5259,7 +5302,6 @@ $("#esim-country-search")?.addEventListener("input", (event) => {
   clearTimeout(esimSearchTimer);
   esimSearchTimer = setTimeout(() => searchEsimCountries(value), 300);
 });
-$("#esim-load-offers")?.addEventListener("click", loadEsimOffers);
 
 document.querySelectorAll("[data-open-service]").forEach((button) => {
   button.addEventListener("click", () => openService(button.dataset.openService));
