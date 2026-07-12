@@ -1202,9 +1202,10 @@ button.owner-action-row {
 .notification-row strong { display: block; color: var(--ink); }
 .notification-row span { color: var(--muted); font-size: 13px; }
 
-/* eSIM flow */
-.esim-flow { display: flex; flex-direction: column; gap: 16px; max-width: 640px; }
-.esim-field { display: flex; flex-direction: column; gap: 6px; }
+/* eSIM flow — the plan table needs the full panel width; only the search
+   field stays narrow. */
+.esim-flow { display: flex; flex-direction: column; gap: 16px; }
+.esim-field { display: flex; flex-direction: column; gap: 6px; max-width: 640px; }
 .esim-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .esim-chip-row.empty { color: var(--muted); }
 .esim-chip { padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); cursor: pointer; font-size: 13px; }
