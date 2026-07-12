@@ -2237,6 +2237,26 @@ async def _build_public_catalog() -> dict[str, object]:
                 for category in (section.get("categories") or [])
                 if not category.get("generated") or f"{category.get('service_key')}:{category.get('family_key')}" in backed
             ]
+            if not categories:
+                # Every generated category was filtered out. Live systems
+                # (numbers) have no manual-tree products BY DESIGN, so the
+                # backed-filter would blank their section ("لا توجد نتائج
+                # مطابقة") — fall back to the curated static categories.
+                static = _section_by_slug(str(section.get("slug") or ""))
+                static_rows = tuple(static.get("categories") or ()) if static else ()  # type: ignore[union-attr]
+                categories = [
+                    {
+                        "slug": str(row.get("slug") or ""),
+                        "title": str(row.get("title") or ""),
+                        "subtitle": str(row.get("subtitle") or ""),
+                        "search_terms": str(row.get("search_terms") or ""),
+                        "generated": False,
+                        "service_key": "",
+                        "family_key": "",
+                    }
+                    for row in static_rows
+                    if str(row.get("slug") or "")
+                ]
             section["categories"] = categories
             section["categories_count"] = len(categories)
     try:

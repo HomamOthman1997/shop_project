@@ -1161,7 +1161,7 @@ async function loadNotifications() {
   }
 }
 
-const esimState = { country: "", plans: [], sortKey: "price", sortDir: 1, configured: true };
+const esimState = { country: "", plans: [], sortKey: "name", sortDir: 1, configured: true };
 let esimSearchTimer = null;
 
 // English region names from the provider -> Arabic for the التغطية column.
@@ -1178,7 +1178,7 @@ function esimRegionLabel(name) {
 
 async function loadEsimPanel() {
   esimState.country = ""; esimState.plans = [];
-  esimState.sortKey = "price"; esimState.sortDir = 1;
+  esimState.sortKey = "name"; esimState.sortDir = 1;
   setText("#esim-message", "");
   if ($("#esim-plans")) $("#esim-plans").innerHTML = "";
   if ($("#esim-result")) $("#esim-result").innerHTML = "";
@@ -1218,7 +1218,7 @@ async function selectEsimCountry(country) {
   try {
     const data = await api(`/api/v1/digital/esim/plans?country=${encodeURIComponent(country)}`, { timeoutMs: 45000 });
     esimState.plans = data.plans || [];
-    esimState.sortKey = "price";
+    esimState.sortKey = "name";
     esimState.sortDir = 1;
     renderEsimPlansTable();
   } catch (error) {
@@ -1226,7 +1226,7 @@ async function selectEsimCountry(country) {
   }
 }
 
-const ESIM_SORTABLE_COLUMNS = { data: "gb_sort", days: "days", price: "price" };
+const ESIM_SORTABLE_COLUMNS = { name: "name", data: "gb_sort", days: "days", price: "price" };
 
 function renderEsimPlansTable() {
   const target = $("#esim-plans");
@@ -1236,8 +1236,13 @@ function renderEsimPlansTable() {
     target.innerHTML = '<div class="notice">لا توجد باقات متاحة لهذه الدولة حالياً.</div>';
     return;
   }
-  const field = ESIM_SORTABLE_COLUMNS[esimState.sortKey] || "price";
-  const sorted = [...plans].sort((a, b) => (Number(a[field] || 0) - Number(b[field] || 0)) * esimState.sortDir);
+  const field = ESIM_SORTABLE_COLUMNS[esimState.sortKey] || "name";
+  const sorted = [...plans].sort((a, b) => {
+    const compared = field === "name"
+      ? String(a.name || "").localeCompare(String(b.name || ""), "en")
+      : Number(a[field] || 0) - Number(b[field] || 0);
+    return compared * esimState.sortDir;
+  });
   const arrow = (key) => (esimState.sortKey === key ? (esimState.sortDir === 1 ? "▲" : "▼") : "⇅");
   const coverageCell = (plan) => {
     const coverage = plan.coverage || {};
@@ -1256,7 +1261,7 @@ function renderEsimPlansTable() {
     <div class="table-scroll">
       <table class="esim-table">
         <thead><tr>
-          <th>الباقة</th>
+          <th><button type="button" data-esim-sort="name">الباقة <i>${arrow("name")}</i></button></th>
           <th><button type="button" data-esim-sort="data">البيانات <i>${arrow("data")}</i></button></th>
           <th><button type="button" data-esim-sort="days">المدة <i>${arrow("days")}</i></button></th>
           <th>التغطية</th>

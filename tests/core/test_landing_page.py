@@ -260,6 +260,31 @@ async def test_public_catalog_api_drops_generated_families_without_real_products
 
 
 @pytest.mark.asyncio
+async def test_numbers_section_falls_back_to_static_categories(monkeypatch):
+    # Numbers is a LIVE system: its generated family has no products in the
+    # manual tree BY DESIGN, so the backed-filter used to blank the section
+    # ("لا توجد نتائج مطابقة"). It must fall back to the curated static
+    # categories instead of rendering empty.
+    async def backed(*_args, **_kwargs):
+        return {"games:pubg"}  # nothing numbers-related is backed
+
+    async def manual_sections(*_args, **_kwargs):
+        return []
+
+    _patch_catalog_sources(monkeypatch, backed, manual_sections)
+
+    response = await landing_page.public_catalog_api(make_mocked_request("GET", "/api/v1/catalog"))
+    payload = json.loads(response.text)
+    numbers = next(row for row in payload["sections"] if row["slug"] == "verification-numbers")
+
+    slugs = [row["slug"] for row in numbers["categories"]]
+    assert slugs == ["temporary", "rental", "voice"]
+    assert numbers["categories_count"] == 3
+    assert all(not row["generated"] for row in numbers["categories"])
+    assert numbers["service"] == "numbers"
+
+
+@pytest.mark.asyncio
 async def test_public_catalog_api_keeps_all_generated_families_when_backing_lookup_fails(monkeypatch):
     async def backed(*_args, **_kwargs):
         raise RuntimeError("db unavailable")
