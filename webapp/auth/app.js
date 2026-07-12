@@ -1243,8 +1243,11 @@ function renderEsimPlansTable() {
     const coverage = plan.coverage || {};
     if (coverage.kind === "region") {
       const label = esimRegionLabel(coverage.label);
+      // Provider region labels often ARE the package name — repeating it in
+      // the coverage pill is noise; the country count is the real info.
+      const showLabel = label && label !== String(plan.name || "").trim();
       const names = (coverage.countries || []).join("، ");
-      return `<span class="esim-cov is-region" title="${esc(names)}">🌍 ${esc(label)} · ${esc(coverage.count)} دولة</span>`;
+      return `<span class="esim-cov is-region" title="${esc(names)}">🌍 ${showLabel ? `${esc(label)} · ` : ""}يغطي ${esc(coverage.count)} دولة</span>`;
     }
     return `<span class="esim-cov is-single">${esc(coverage.label || esimState.country)}</span>`;
   };

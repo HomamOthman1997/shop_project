@@ -121,3 +121,11 @@ def test_country_plan_table_caps_region_plans():
     assert len(entries) == 5
     # The cheapest region plans survive the cap.
     assert entries[0]["plan"]["name"] == "Africa plan 0"
+
+
+def test_allowance_label_keeps_mb_unit():
+    from services.digital_products.esim_route_service import plan_allowance_label
+
+    assert plan_allowance_label({"name": "X 100MB 7Days", "gbs": "100MB", "data_type": ""}, lang="ar") == "100MB"
+    assert plan_allowance_label({"name": "X 300MB/Day", "gbs": "300MB", "data_type": "daily"}, lang="ar") == "300MB/يوم"
+    assert plan_allowance_label({"name": "X 3GB", "gbs": "3", "data_type": ""}, lang="ar") == "3GB"

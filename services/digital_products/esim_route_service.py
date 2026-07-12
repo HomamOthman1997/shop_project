@@ -277,6 +277,12 @@ def _money_key(row: dict[str, Any]) -> tuple[float, int]:
     return (float(row.get("price_usd") or 0.0), int(row.get("days") or 0))
 
 
+def _gbs_display(gbs: str) -> str:
+    # gbs already carries its unit for sub-GB values ("500MB") — appending GB
+    # blindly produced labels like "500MBGB".
+    return gbs if gbs.upper().endswith(("MB", "GB")) else f"{gbs}GB"
+
+
 def _allowance_label(row: dict[str, Any], *, lang: str) -> str:
     name = str(row.get("name") or "").strip()
     gbs = str(row.get("gbs") or "").strip()
@@ -286,10 +292,10 @@ def _allowance_label(row: dict[str, Any], *, lang: str) -> str:
         if "500MB" in upper_name:
             return "500MB/يوم" if lang.startswith("ar") else "500MB/day"
         if gbs and gbs not in {"0", "0.0"}:
-            return f"{gbs}GB/يوم" if lang.startswith("ar") else f"{gbs}GB/day"
+            return f"{_gbs_display(gbs)}/يوم" if lang.startswith("ar") else f"{_gbs_display(gbs)}/day"
         return "يومي" if lang.startswith("ar") else "Daily"
     if gbs and gbs not in {"0", "0.0"}:
-        return f"{gbs}GB"
+        return _gbs_display(gbs)
     return "Data"
 
 
