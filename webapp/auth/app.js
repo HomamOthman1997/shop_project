@@ -739,6 +739,11 @@ function openAccountCatalogRow(slug) {
       openPanel("esim");
       return;
     }
+    // Numbers is its own system — open it directly, no category page between.
+    if (selected?.service === "numbers") {
+      openService("numbers");
+      return;
+    }
     if (selected?.enabled === false) {
       $("#account-catalog-grid").innerHTML = `
         <div class="account-catalog-empty">
@@ -4501,6 +4506,10 @@ async function applyCatalogPath(pathname = window.location.pathname) {
   }
   if (section.service === "esim") {
     openPanel("esim", "", { updateRoute: false });
+    return true;
+  }
+  if (section.service === "numbers") {
+    openService("numbers");
     return true;
   }
   if (!parts.category) {
