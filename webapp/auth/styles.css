@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --ink: #f3f0ff;
   --muted: #9690c8;
   --line: rgba(255, 255, 255, .1);
@@ -3417,7 +3417,7 @@ html { scrollbar-color: rgba(148, 163, 184, .32) rgba(9, 13, 27, .4); }
 .numbers-field:hover { border-color: rgba(56, 215, 162, .5); background: rgba(56, 215, 162, .05); }
 .numbers-field span { color: var(--svc-muted); font-size: 11px; font-weight: 900; }
 .numbers-field strong { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.numbers-check {
+.numbers-check.primary {
   min-height: 52px;
   border: 0;
   border-radius: 16px;
@@ -3429,7 +3429,7 @@ html { scrollbar-color: rgba(148, 163, 184, .32) rgba(9, 13, 27, .4); }
   box-shadow: 0 10px 26px rgba(56, 215, 162, .22);
   transition: transform .12s ease, box-shadow .12s ease;
 }
-.numbers-check:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(56, 215, 162, .3); }
+.numbers-check.primary:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(56, 215, 162, .3); }
 .numbers-live-line { min-height: auto; display: flex; align-items: center; gap: 8px; color: var(--svc-muted); font-size: 12px; font-weight: 800; }
 .numbers-live-line i {
   width: 8px; height: 8px; border-radius: 999px; background: var(--svc-accent); flex: 0 0 auto;
