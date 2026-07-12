@@ -3358,3 +3358,107 @@ html { scrollbar-color: rgba(148, 163, 184, .32) rgba(9, 13, 27, .4); }
 .esim-cov { font-size: 11.5px; border-radius: 999px; padding: 3px 10px; display: inline-block; white-space: nowrap; }
 .esim-cov.is-single { color: var(--muted); background: rgba(255, 255, 255, .05); border: 1px solid var(--line); }
 .esim-cov.is-region { color: #7dd3fc; background: rgba(125, 211, 252, .1); border: 1px solid rgba(125, 211, 252, .35); cursor: help; }
+
+/* ===== Numbers workspace: PHANTOM NUMBERS V2 look, full desktop width (2026-07-12) ===== */
+.numbers-app-shell { display: grid; gap: 18px; align-items: start; }
+@media (min-width: 900px) {
+  .numbers-app-shell { grid-template-columns: 400px minmax(0, 1fr); }
+  .numbers-buy-panel { position: sticky; top: 16px; }
+}
+.numbers-buy-panel {
+  border: 1px solid var(--svc-line);
+  border-radius: 20px;
+  padding: 18px;
+  background:
+    radial-gradient(120% 60% at 100% 0%, rgba(56, 215, 162, .07) 0%, transparent 55%),
+    linear-gradient(180deg, rgba(255, 255, 255, .04), rgba(255, 255, 255, .01)),
+    var(--svc-surface);
+  display: grid;
+  gap: 14px;
+}
+.numbers-panel-title { margin: 0; font-size: 20px; font-weight: 900; color: var(--svc-text); }
+.numbers-mode-segments {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 6px;
+  border-radius: 16px;
+  border: 1px solid var(--svc-line);
+  background: rgba(0, 0, 0, .28);
+}
+.numbers-mode-segments button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--svc-muted);
+  font-weight: 900;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.numbers-mode-segments button.active {
+  background: var(--svc-accent);
+  color: #06251d;
+  box-shadow: 0 6px 18px rgba(56, 215, 162, .28);
+}
+.numbers-field {
+  min-height: 62px;
+  border: 1px solid var(--svc-line);
+  border-radius: 16px;
+  background: rgba(0, 0, 0, .22);
+  color: var(--svc-text);
+  padding: 11px 14px;
+  display: grid;
+  gap: 4px;
+  text-align: start;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.numbers-field:hover { border-color: rgba(56, 215, 162, .5); background: rgba(56, 215, 162, .05); }
+.numbers-field span { color: var(--svc-muted); font-size: 11px; font-weight: 900; }
+.numbers-field strong { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.numbers-check {
+  min-height: 52px;
+  border: 0;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--svc-accent), #12b7b3);
+  color: #06251d;
+  font-weight: 950;
+  font-size: 15.5px;
+  cursor: pointer;
+  box-shadow: 0 10px 26px rgba(56, 215, 162, .22);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.numbers-check:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(56, 215, 162, .3); }
+.numbers-live-line { min-height: auto; display: flex; align-items: center; gap: 8px; color: var(--svc-muted); font-size: 12px; font-weight: 800; }
+.numbers-live-line i {
+  width: 8px; height: 8px; border-radius: 999px; background: var(--svc-accent); flex: 0 0 auto;
+  box-shadow: 0 0 0 0 rgba(56, 215, 162, .5);
+  animation: numbers-live-pulse 2.4s ease-out infinite;
+}
+@keyframes numbers-live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(56, 215, 162, .45); }
+  70% { box-shadow: 0 0 0 8px rgba(56, 215, 162, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(56, 215, 162, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .numbers-live-line i { animation: none; } }
+.numbers-offers-panel { display: grid; gap: 12px; min-width: 0; }
+.numbers-offers-head strong { font-size: 20px; font-weight: 900; }
+.numbers-offer-card {
+  min-height: 72px;
+  border-radius: 16px;
+  padding: 12px;
+  grid-template-columns: 64px 58px 84px minmax(0, 1fr);
+  gap: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .03), rgba(255, 255, 255, .01)),
+    var(--svc-surface);
+  transition: border-color .15s ease, transform .12s ease;
+}
+.numbers-offer-card:hover { border-color: rgba(56, 215, 162, .45); transform: translateY(-1px); }
+.numbers-offer-card.recommended { border-color: rgba(56, 215, 162, .5); box-shadow: 0 8px 24px rgba(56, 215, 162, .08); }
+.numbers-offer-buy { min-height: 44px; border-radius: 12px; font-size: 14px; }
+.numbers-offer-rate { border-radius: 12px; min-height: 46px; }
+@media (min-width: 900px) {
+  .numbers-offer-card { grid-template-columns: 84px 64px 100px minmax(0, 1fr); padding: 14px 16px; }
+}

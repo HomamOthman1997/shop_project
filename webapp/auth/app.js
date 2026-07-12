@@ -5034,29 +5034,34 @@ function renderNumbersWorkspace() {
   const showState = numbersWorkspaceState.country === "1";
   root.innerHTML = `
     <div class="numbers-app-shell">
-      <div class="numbers-mode-segments" role="tablist" aria-label="نوع الرقم">
-        ${numbersModeRows().map((row) => `<button type="button" class="${row.key === numbersWorkspaceState.mode ? "active" : ""}" data-numbers-mode="${esc(row.key)}">${esc(numbersModeLabel(row.key))}</button>`).join("")}
-      </div>
-      <div class="numbers-live-line">اختر الخدمة والدولة ثم افحص عروض المزودين مباشرة.</div>
-      <div class="numbers-field-grid">
-        <button class="numbers-field" type="button" data-open-numbers-picker="service">
-          <span>الخدمة</span>
-          <strong>${esc(numbersServiceLabel())}</strong>
-        </button>
-        ${showCountry ? `<button class="numbers-field" type="button" data-open-numbers-picker="country">
-          <span>الدولة</span>
-          <strong>${esc(numbersCountryLabel())}</strong>
-        </button>` : ""}
-        ${showState ? `<button class="numbers-field" type="button" data-open-numbers-picker="state">
-          <span>الولاية</span>
-          <strong>${esc(numbersStateLabel())}</strong>
-        </button>` : ""}
-      </div>
-      <button class="numbers-check primary" type="button" data-check-numbers-prices>عرض الأسعار</button>
-      <div class="numbers-offers-head">
-        <div><strong>أفضل العروض</strong><span>${numbersWorkspaceState.loading ? "جاري الفحص..." : `${flattenNumbersOffers().length} عروض`}</span></div>
-      </div>
-      <div id="numbers-quotes" class="numbers-offer-list"></div>
+      <section class="numbers-buy-panel">
+        <h3 class="numbers-panel-title">شراء رقم جديد</h3>
+        <div class="numbers-mode-segments" role="tablist" aria-label="نوع الرقم">
+          ${numbersModeRows().map((row) => `<button type="button" class="${row.key === numbersWorkspaceState.mode ? "active" : ""}" data-numbers-mode="${esc(row.key)}">${esc(numbersModeLabel(row.key))}</button>`).join("")}
+        </div>
+        <div class="numbers-field-grid">
+          <button class="numbers-field" type="button" data-open-numbers-picker="service">
+            <span>الخدمة</span>
+            <strong>${esc(numbersServiceLabel())}</strong>
+          </button>
+          ${showCountry ? `<button class="numbers-field" type="button" data-open-numbers-picker="country">
+            <span>الدولة</span>
+            <strong>${esc(numbersCountryLabel())}</strong>
+          </button>` : ""}
+          ${showState ? `<button class="numbers-field" type="button" data-open-numbers-picker="state">
+            <span>الولاية</span>
+            <strong>${esc(numbersStateLabel())}</strong>
+          </button>` : ""}
+        </div>
+        <button class="numbers-check primary" type="button" data-check-numbers-prices>عرض الأسعار</button>
+        <div class="numbers-live-line"><i></i>اختر الخدمة والدولة ثم افحص عروض المزودين مباشرة.</div>
+      </section>
+      <section class="numbers-offers-panel">
+        <div class="numbers-offers-head">
+          <div><strong>أفضل العروض</strong><span>${numbersWorkspaceState.loading ? "جاري الفحص..." : `${flattenNumbersOffers().length} عروض`}</span></div>
+        </div>
+        <div id="numbers-quotes" class="numbers-offer-list"></div>
+      </section>
       <div id="numbers-picker-drawer" class="numbers-picker-drawer" hidden></div>
     </div>`;
   root.querySelectorAll("[data-numbers-mode]").forEach((button) => {
