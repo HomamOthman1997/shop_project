@@ -1904,7 +1904,13 @@ async def _run_staging_approve_job(owner_id: int) -> None:
     try:
         rows = await list_staging_items(owner_id, status="new")
         rows += await list_staging_items(owner_id, status="review")
+        # Re-apply already-approved rows too: re-imports refresh their staged
+        # prices (approval no longer freezes them), but the LIVE product only
+        # picks the new price up through this upsert. Skipping them left the
+        # site on stale prices while staging showed the corrected ones.
+        rows += await list_staging_items(owner_id, status="approved")
         result = await _approve_staged_rows(owner_id, rows)
+        _bust_catalog_caches()
         await set_staging_job_run(owner_id, "approve", {"status": "done", "finished_at": datetime.now(UTC), "result": result, "error": ""})
     except Exception as exc:
         logging.getLogger("owner_api").warning("staging approve job failed: %s", exc)
@@ -1949,6 +1955,7 @@ async def owner_catalog_staging_approve(request: web.Request) -> web.Response:
         if row:
             rows.append(row)
     result = await _approve_staged_rows(owner_id, rows)
+    _bust_catalog_caches()
     await _write_owner_audit(
         actor_id=owner.customer_id,
         actor_email=owner.email,

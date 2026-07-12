@@ -1502,6 +1502,42 @@ async def test_owner_catalog_staging_approve_all_runs_in_background(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_staging_approve_job_reapplies_already_approved_rows(monkeypatch):
+    # Re-imports refresh prices on approved staging rows WITHOUT changing their
+    # status — so approve-all must re-upsert the approved set too, otherwise
+    # the live site keeps stale prices while staging shows corrected ones
+    # (UC 60: staging 0.95, site stuck on 1.09). Cache bust required so the
+    # customer catalog reflects the new prices without waiting out the TTL.
+    listed_statuses: list[str] = []
+
+    async def list_items(_owner_id, status=""):
+        listed_statuses.append(status)
+        return []
+
+    applied = {}
+
+    async def approve_rows(_owner_id, rows):
+        applied["rows"] = rows
+        return {"created": 0, "failed": 0, "approved": 0}
+
+    async def set_job_run(_owner_id, _job, patch):
+        applied["job_status"] = patch.get("status")
+
+    busted = {"called": False}
+
+    monkeypatch.setattr(owner_api, "list_staging_items", list_items)
+    monkeypatch.setattr(owner_api, "_approve_staged_rows", approve_rows)
+    monkeypatch.setattr(owner_api, "set_staging_job_run", set_job_run)
+    monkeypatch.setattr(owner_api, "_bust_catalog_caches", lambda: busted.update(called=True))
+
+    await owner_api._run_staging_approve_job(555)
+
+    assert set(listed_statuses) == {"new", "review", "approved"}
+    assert applied["job_status"] == "done"
+    assert busted["called"] is True
+
+
+@pytest.mark.asyncio
 async def test_owner_notifications_list(monkeypatch):
     async def owner(_request):
         return WebsiteAuthContext("owner-1", 900000000001, "homamothman1@gmail.com", None, "hash")
