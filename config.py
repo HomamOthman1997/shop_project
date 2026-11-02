@@ -217,6 +217,7 @@ class Settings(BaseSettings):
     bot_sync_poll_seconds: int = 20
     production_mode: bool = False
     allow_env_file_in_production: bool = False
+    allow_stale_production_secrets: bool = False
     secrets_rotated_at: Optional[str] = None
     secrets_max_age_days: int = 90
     lifecycle_cleanup_interval_sec: int = 21600
@@ -289,10 +290,17 @@ def validate_runtime_security() -> list[str]:
         rotated_at = rotated_at.replace(tzinfo=UTC)
     age_days = (datetime.now(UTC) - rotated_at.astimezone(UTC)).days
     max_age_days = max(7, int(getattr(settings, "secrets_max_age_days", 90) or 90))
+    allow_stale_secrets = bool(getattr(settings, "allow_stale_production_secrets", False))
     if age_days > max_age_days:
-        raise RuntimeError(
-            f"Production secrets are older than policy ({age_days}d > {max_age_days}d). Rotate keys before startup."
-        )
+        if allow_stale_secrets:
+            warnings.append(
+                "Secrets rotation overdue "
+                f"({age_days}d/{max_age_days}d), but startup was allowed via ALLOW_STALE_PRODUCTION_SECRETS=true."
+            )
+        else:
+            raise RuntimeError(
+                f"Production secrets are older than policy ({age_days}d > {max_age_days}d). Rotate keys before startup."
+            )
     if age_days > int(max_age_days * 0.8):
         warnings.append(f"Secrets rotation nearing limit ({age_days}d/{max_age_days}d).")
     return warnings

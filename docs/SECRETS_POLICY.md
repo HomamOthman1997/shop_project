@@ -16,11 +16,13 @@ Last updated: 2026-03-23
 
 ## Startup enforcement
 
-- Runtime startup guard now blocks production startup when:
+- Runtime startup guard blocks production startup when:
   - local `.env` exists and `ALLOW_ENV_FILE_IN_PRODUCTION` is not enabled
   - placeholder/weak secrets are detected
   - `SECRETS_ROTATED_AT` is missing/invalid
-  - secret age exceeds `SECRETS_MAX_AGE_DAYS`
+  - secret age exceeds `SECRETS_MAX_AGE_DAYS` unless `ALLOW_STALE_PRODUCTION_SECRETS=true`
+
+Use `ALLOW_STALE_PRODUCTION_SECRETS=true` only for controlled deployment windows while rotating keys. Keep it disabled during normal operations.
 
 ## Rotation checklist
 
